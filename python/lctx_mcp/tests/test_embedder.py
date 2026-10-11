@@ -116,6 +116,8 @@ async def test_the_http_client_sends_the_exact_bytes_and_reports_a_down_service(
     vectors = await client.embed([text])
     assert vectors.shape == (1, spec.dimensions)
     assert seen == [request_body(spec, [text])]
+    assert not client.client.is_closed
+    await client.aclose()
 
     def refuse(_request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("connection refused")
@@ -123,6 +125,32 @@ async def test_the_http_client_sends_the_exact_bytes_and_reports_a_down_service(
     down = HttpEmbedder("http://embed.invalid", transport=httpx2.MockTransport(refuse))
     with pytest.raises(EmbedderError, match="no embedding service"):
         await down.embed([text])
+    await down.aclose()
+
+
+@pytest.mark.anyio
+async def test_shared_http_lifetime_retains_stream_bytes_and_closes_once() -> None:
+    """Exercise the installed HTTPX2 client/transport lifetime without a live service."""
+    spec = Spec.packaged(QWEN)
+    answered = response(spec, [unit(spec.dimensions)])
+
+    class Transport(httpx2.MockTransport):
+        closes = 0
+
+        async def aclose(self):
+            self.closes += 1
+            await super().aclose()
+
+    transport = Transport(lambda request: httpx2.Response(200, content=answered))
+    embedder = HttpEmbedder("http://embed.invalid", transport=transport)
+    charges = []
+    await embedder.embed(["first"], retain=charges.append)
+    await embedder.embed(["second"], retain=charges.append)
+    assert transport.closes == 0 and not embedder.client.is_closed
+    assert sum(charges) >= len(answered) * 4 + spec.dimensions * 4 * 2
+    await embedder.aclose()
+    await embedder.aclose()
+    assert transport.closes == 1 and embedder.client.is_closed
 
 
 def test_responses_are_judged_as_the_shared_corpus_says() -> None:

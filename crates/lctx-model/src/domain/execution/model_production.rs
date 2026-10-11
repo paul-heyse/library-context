@@ -506,6 +506,7 @@ fn apply_selected_inner(
     } else {
         None
     };
+    let conditions = conditions::PreparedConditions::new(data.flow.condition_nodes.iter(), budget)?;
     let same_frame = |id| id == parent.id();
     // Enriched is a completed, checked predecessor. Model-specific applicability uses its
     // exact frame directly; recreating execution would replace predecessor authority with a
@@ -562,6 +563,7 @@ fn apply_selected_inner(
                 binding,
                 &data.completed,
                 &data.flow,
+                &conditions,
                 &data.entries,
                 &data.entry_sources,
                 actual,
@@ -765,6 +767,7 @@ fn apply_selected_inner(
                                         &data.completed,
                                         super::model_transfer::TransferEntryInputs {
                                             entry_data: &data.flow,
+                                            conditions: &conditions,
                                             entries: &data.entries,
                                             sources: &data.entry_sources,
                                         },

@@ -1,4 +1,7 @@
 //! Producer semantics are independent of executable builds and immutable captured bindings.
+pub mod facts;
+pub mod acquisition;
+pub mod request;
 use super::{ContentHash, Id, Key, KeySink, ModelError, Record, attribution::{AnalysisContext, FactFamily, Provider}, input::InputRevision, stages::{Effect, FamilyCoverage, Profile, RelationUse, Stage}};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -108,6 +111,8 @@ pub struct CapturedSourceBinding {
     pub input:Id<InputRevision>,
     pub context:Id<AnalysisContext>,
     pub configuration:ContentHash,
+    #[serde(with="acquisition::shared")]
+    pub acquisition: std::sync::Arc<acquisition::CapturedAcquisition>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,20 +125,21 @@ pub struct CapturedProducerBinding {
 }
 impl CapturedProducerBinding {
     pub fn validate(&self)->Result<(),ModelError> {
-        if self.semantic_revision==0 || self.suppliers.keys().any(String::is_empty) || self.suppliers.values().copied().collect::<BTreeSet<_>>().len()!=self.suppliers.len() || !self.sources.windows(2).all(|pair|pair[0].input<pair[1].input) {
+        if self.semantic_revision==0 || self.suppliers.keys().any(String::is_empty) || self.suppliers.values().copied().collect::<BTreeSet<_>>().len()!=self.suppliers.len() {
             return Err(ModelError::Conflict("captured producer binding shape"));
         }
+        for source in &self.sources {source.acquisition.validate()?; if source.input!=source.acquisition.revision.id(){return Err(ModelError::Conflict("captured source acquisition input"));}}
         Ok(())
     }
     pub fn identity(&self)->Result<ContentHash,ModelError> {
         self.validate()?;let mut sink=KeySink::new("captured-producer-binding/v1");
         self.contract.encode(&mut sink);sink.part(b"revision",&self.semantic_revision.to_le_bytes());self.producer_settings.encode(&mut sink);
         for (role,provider) in &self.suppliers {role.encode(&mut sink);provider.encode(&mut sink);}
-        for source in &self.sources {source.input.encode(&mut sink);source.context.encode(&mut sink);source.configuration.encode(&mut sink);}
+        for source in &self.sources {source.input.encode(&mut sink);source.context.encode(&mut sink);source.configuration.encode(&mut sink);source.acquisition.identity()?.encode(&mut sink);}
         Ok(sink.finish())
     }
     pub fn heap_bytes(&self)->usize {
-        self.suppliers.keys().map(|role|role.len()+std::mem::size_of::<(String,Id<Provider>)>()+32).sum::<usize>()+self.sources.capacity()*std::mem::size_of::<CapturedSourceBinding>()
+        self.suppliers.keys().map(|role|role.len()+std::mem::size_of::<(String,Id<Provider>)>()+32).sum::<usize>()+self.sources.capacity()*std::mem::size_of::<CapturedSourceBinding>()+self.sources.iter().map(|source|source.acquisition.heap_bytes()).sum::<usize>()
     }
 }
 /// An optional field is still required on the wire: explicit null denotes a non-facts producer.

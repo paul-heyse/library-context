@@ -10,7 +10,7 @@ use ruff_python_ast_latest::{ModModule, PySourceType, PythonVersion};
 use ruff_python_parser_latest::{ParseOptions, Parsed, parse_unchecked};
 use std::path::{Path, PathBuf};
 
-pub const RUFF_REVISION: &str = "9080ee7a82a4ec7359ba2ade60839ef1108a2968";
+pub use lctx_model::domain::producer_contract::facts::RUFF_REVISION;
 pub const RUFF_PATCH_SHA256: &str =
     "b6bb67f9d297dda222a5b7c983b553424fed37ed6e31e90aa797bde9d0bb9b2e";
 

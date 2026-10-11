@@ -28,6 +28,7 @@ TAG_COMMIT = "80cec3f57364bc11d4a39a419f6894a8eabcaa00"
 FORK = "git+https://github.com/paul-heyse/pyrefly"
 LOCK = ROOT / "Cargo.lock"
 DRIVER = ROOT / "crates" / "cpg-extract" / "src" / "typed_syntax.rs"
+SEMANTIC_INVENTORY = ROOT / "crates/lctx-model/src/domain/producer_contract/facts.rs"
 PINS = ROOT / "docs" / "pins.md"
 PATCH = ROOT / "third_party" / "pyrefly-1.4.0-dev.3.patch"
 
@@ -92,6 +93,11 @@ DRIVER_CONST = re.compile(
 )
 
 
+def driver_contracts() -> str:
+    """Read model-owned revisions and adapter-owned observational patch identities."""
+    return SEMANTIC_INVENTORY.read_text() + "\n" + DRIVER.read_text()
+
+
 def one_revision(lock: str, driver: str, pins: str, patch: bytes) -> tuple[str | None, list[str]]:
     """The locked fork commit, and every way the driver, pins and patch disagree with it."""
     problems = []
@@ -140,7 +146,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--checkout", type=Path)
     args = ap.parse_args(argv)
     rev, problems = one_revision(
-        LOCK.read_text(), DRIVER.read_text(), PINS.read_text(), PATCH.read_bytes()
+        LOCK.read_text(), driver_contracts(), PINS.read_text(), PATCH.read_bytes()
     )
     for p in problems:
         print(f"pyrefly-fork: {p}")

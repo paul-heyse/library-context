@@ -347,11 +347,7 @@ impl ConditionCatalog {
                     .saturating_add(selected.len().saturating_mul(4096))
                     .saturating_add(4096),
             )?;
-            let nodes = selected
-                .iter()
-                .map(|id| self.nodes[id].clone())
-                .collect::<Vec<_>>();
-            let diagram = Diagram::from_records(record, &nodes)?;
+            let diagram = Diagram::from_catalog(record, &self.nodes)?;
             self.diagrams
                 .insert(&mut self.charge, q.condition, CachedCondition(diagram))?;
         }

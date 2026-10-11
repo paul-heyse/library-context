@@ -20,6 +20,7 @@ pub mod class_metadata;
 pub mod compiler_scope_program;
 pub mod compilation_product;
 pub mod completed;
+pub mod completed_identity;
 pub mod recovery_closure;
 pub mod completion;
 pub mod composition;
@@ -80,7 +81,7 @@ pub use model::{
     ValidationIdentity, ValidationInput, ValidationKind, implementation_digest,
 };
 pub use record::{
-    Arm, ArmField, Batch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar,
+    Arm, ArmField, Batch, CheckedCanonicalBatch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar,
     SemanticReference, Sum, SumRecord,
 };
 

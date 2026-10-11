@@ -1,7 +1,7 @@
 //! Admitted operation products attach memberships; selected kernel products retain typed values.
 use super::*;
 use lctx_model::domain::{Key, KeySink, compilation_product::*};
-use lctx_surrealdb::surrealdb::types::Value;
+use lctx_native::surrealdb::types::Value;
 
 pub(crate) struct ProductCandidate {
     sections: Vec<(Relation, Vec<RecordBatch>)>,
@@ -36,7 +36,7 @@ impl Workspace {
     /// Installation is an explicit store/fixture operation; ordinary attempts only connect.
     pub fn set_product_cache(
         &self,
-        cache: Option<Arc<lctx_surrealdb::NativeProductCache>>,
+        cache: Option<Arc<lctx_compiler_store::NativeProductCache>>,
     ) -> Result<(), ModelError> {
         self.writable()?;
         *self.product_cache.lock().map_err(|_| poisoned())? = cache;
@@ -44,7 +44,7 @@ impl Workspace {
     }
     pub(crate) fn product_cache(
         &self,
-    ) -> Result<Option<Arc<lctx_surrealdb::NativeProductCache>>, ModelError> {
+    ) -> Result<Option<Arc<lctx_compiler_store::NativeProductCache>>, ModelError> {
         Ok(self.product_cache.lock().map_err(|_| poisoned())?.clone())
     }
 }
@@ -72,6 +72,19 @@ impl ErasedWriter for ReplayWriter {
 }
 impl ProducerOutput {
     pub(crate) fn product_request(&self) -> Result<ProductRequest, ModelError> {
+        Ok(self.captured_request()?.product().clone())
+    }
+    pub(crate) fn captured_request(&self) -> Result<&lctx_model::domain::producer_contract::request::CapturedRequest, ModelError> {
+        self.captured_request.get_or_init(|| {
+            let bytes=self.captured_binding.as_ref().map_or(0,|binding|binding.heap_bytes())
+                .saturating_add(self.allowed.iter().map(|name|name.len()+128).sum::<usize>())
+                .saturating_add(self.inputs.ordered_bindings().len().saturating_mul(4096))
+                .saturating_mul(8).saturating_add(65536);
+            let charge=self.workspace.budget().reserve("captured-provider-request",bytes).map_err(Arc::new)?;
+            self.build_captured_request().map(|request|(request,charge)).map_err(Arc::new)
+        }).as_ref().map(|(request,_)|request).map_err(|error|ModelError::SharedCause(error.clone()))
+    }
+    fn build_captured_request(&self) -> Result<lctx_model::domain::producer_contract::request::CapturedRequest, ModelError> {
         let mut contract = KeySink::new("compiler-product-row-contract/v1");
         for name in &self.allowed {
             let relation = self
@@ -95,23 +108,11 @@ impl ProducerOutput {
                 identity: source.snapshot.identity(),
             })
             .collect();
-        let request = ProductRequest {
-            kind: ProductKind::PureRows,
-            operation: self.name.into(),
-            model: self.workspace.model.digest(),
-            implementation: self.implementation,
-            policy: ContentHash::of(&lctx_model::domain::SEMANTIC_POLICY_REVISION.to_le_bytes()),
-            result_contract: contract.finish(),
-            configuration: self.configuration,
-            profile: self.profile.name().into(),
-            parameters: vec![],
-            dependencies,
-            outputs: self.allowed.iter().map(|s| (*s).into()).collect(),
-        };
-        request.validate()?;
-        Ok(request)
+        lctx_model::domain::producer_contract::request::CapturedRequest::new(
+            self.contribution_spec(), contract.finish(), dependencies,
+        )
     }
-    /// Miss arms terminal retention; admitted native hits attach current memberships.
+    /// Miss arms terminal retention; admitted native hits hold exact contributors by reference.
     pub(crate) fn reuse_product(
         &self,
     ) -> BoxFuture<'_, Result<Option<ProviderOutcome>, ModelError>> {
@@ -164,13 +165,14 @@ impl ProducerOutput {
             {
                 self.workspace
                     .native_call(
-                        async move { native.attach_retained_product(identity, &spec, &budget).await },
+                        async move { native.hold_retained_product(identity, &spec, &budget).await },
                     )
                     .await?
             } else {
                 None
             };
-            if let Some((id, _, descriptor)) = retained {
+            if let Some(candidate) = retained {
+                let id = candidate.physical();
                 // Persisted admission does not carry ephemeral Rust verification owners.
                 // Reconstruct those only for consumers that require them, without ingress.
                 if prepare_owner {
@@ -213,6 +215,13 @@ impl ProducerOutput {
                     }))
                     .await?;
                 }
+                // The candidate remains physically held through complete receiver
+                // preflight; only now install receiver views and output ownership.
+                let native = self.workspace.native.clone();
+                let budget = self.workspace.budget().clone();
+                let (id, _, descriptor) = self.workspace.native_call(async move {
+                    native.attach_held_product(candidate, &budget).await
+                }).await?;
                 let mut writers = self.writers.lock().map_err(|_| poisoned())?;
                 if !writers.is_empty()
                     || self.contribution.lock().map_err(|_| poisoned())?.is_some()
@@ -288,7 +297,7 @@ pub(crate) fn decode_product_rows(
         let mut content = relation.content();
         let mut batches = Vec::new();
         for window in rows.chunks(batch_rows) {
-            let batch = lctx_surrealdb::codec::decode_bodies(relation, window.to_vec(), budget)?;
+            let batch = lctx_native::codec::decode_bodies(relation, window.to_vec(), budget)?;
             relation.hash_rows(&batch, &mut content)?;
             let bodies = canonical_bodies(relation, &batch)?;
             if bodies != window {
@@ -346,7 +355,7 @@ fn canonical_bodies(relation: &Relation, batch: &RecordBatch) -> Result<Vec<Valu
         .column_by_name("id")
         .and_then(|c| c.as_any().downcast_ref::<FixedSizeBinaryArray>())
         .ok_or(ModelError::Schema("product nominal keys"))?;
-    let mut bodies = lctx_surrealdb::codec::batch_bodies(relation, batch)?;
+    let mut bodies = lctx_native::codec::batch_bodies(relation, batch)?;
     for (index, body) in bodies.iter_mut().enumerate() {
         let Value::Object(fields) = body else {
             return Err(ModelError::Schema("product native body"));
@@ -360,14 +369,14 @@ fn canonical_bodies(relation: &Relation, batch: &RecordBatch) -> Result<Vec<Valu
 mod controls {
     use super::*;
     use lctx_model::domain::{admission::Frontier, input::Package};
-    fn config() -> lctx_surrealdb::RuntimeConfig {
-        lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(
+    fn config() -> lctx_native::RuntimeConfig {
+        lctx_native::RuntimeConfig::read(std::path::Path::new(
             &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
         ))
         .unwrap()
     }
-    async fn workspace(config: &lctx_surrealdb::RuntimeConfig) -> Arc<Workspace> {
-        let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(config, Frontier::Facts)
+    async fn workspace(config: &lctx_native::RuntimeConfig) -> Arc<Workspace> {
+        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(config, Frontier::Facts)
             .await
             .unwrap();
         Workspace::new(
@@ -383,7 +392,7 @@ mod controls {
     fn output(workspace: &Arc<Workspace>, operation: &'static str) -> ProducerOutput {
         static IMPLEMENTATION: std::sync::OnceLock<ContentHash> = std::sync::OnceLock::new();
         let implementation = *IMPLEMENTATION
-            .get_or_init(|| lctx_surrealdb::control::fresh_identity("product-control").unwrap());
+            .get_or_init(|| lctx_native::control::fresh_identity("product-control").unwrap());
         workspace.output(
             operation,
             Profile::Catalog,

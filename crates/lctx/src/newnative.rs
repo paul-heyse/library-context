@@ -1,12 +1,12 @@
 //! Explicit native operator actions and fixed-snapshot viewer journeys.
 use anyhow::Context as _;
 use lctx_model::domain::serving::{ResourceLimits, SnapshotHandle};
-use lctx_surrealdb::surrealdb::{
+use lctx_native::surrealdb::{
     Surreal,
     engine::remote::grpc::Client,
     types::{SerdeWrapper, SurrealValue},
 };
-use lctx_surrealdb::{NativeReader, RuntimeConfig};
+use lctx_native::{NativeReader, RuntimeConfig};
 use std::{path::Path, sync::Arc, time::Duration};
 
 pub fn default_config() -> std::path::PathBuf {
@@ -33,7 +33,7 @@ pub fn config(path: &Path) -> anyhow::Result<RuntimeConfig> {
 /// Observe the installed generation before acquisition. This never provisions storage.
 pub async fn ready(config: &RuntimeConfig) -> anyhow::Result<Arc<Surreal<Client>>> {
     tokio::time::timeout(deadline(), async {
-        Ok(lctx_surrealdb::compiler::check_installation(config).await?)
+        Ok(lctx_compiler_store::compiler::check_installation(config).await?)
     })
     .await
     .context("native runtime readiness deadline exceeded")?
@@ -58,7 +58,7 @@ pub async fn publish(
         lctx_model::domain::graph::Manifest::decode(&std::fs::read(path.join("manifest.json"))?)?;
     let model = Arc::new(lctx_model::domain::model()?);
     let native =
-        lctx_surrealdb::compiler::NativeCompilerStore::begin(config, manifest.frontier).await?;
+        lctx_compiler_store::compiler::NativeCompilerStore::begin(config, manifest.frontier).await?;
     let workspace = match cpg_core::workspace::Workspace::new(
         model,
         cpg_core::workspace::WorkspaceOptions {
@@ -125,14 +125,45 @@ fn handle(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<Snapsho
     }
 }
 
-pub async fn pin(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<NativeReader> {
+pub struct PinnedReader {
+    reader: NativeReader,
+    finalization: lctx_native::reader::ReadFinalizationGuard,
+    signal: lctx_native::signal::SignalRegistration,
+}
+impl std::ops::Deref for PinnedReader {
+    type Target = NativeReader;
+    fn deref(&self) -> &Self::Target { &self.reader }
+}
+pub async fn pin(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<PinnedReader> {
     let handle = handle(config, path)?;
-    Ok(tokio::time::timeout(
-        deadline(),
-        NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle),
-    )
-    .await
-    .context("snapshot readiness deadline exceeded")??)
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let cancellation = lctx_native::control::RetryCancellation::default();
+    let (flag, retry) = (stopped.clone(), cancellation.clone());
+    let signal = lctx_native::signal::SignalRegistration::new("CLI selected reader", move || {
+        flag.store(true, std::sync::atomic::Ordering::Release);
+        retry.cancel();
+    })?;
+    let result = async {
+        if cancellation.stopped() { return Err(anyhow::anyhow!("native process admission cancelled")); }
+        Ok(tokio::time::timeout(deadline(), lctx_native::control::with_retry_cancellation(cancellation,
+            NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle)))
+            .await.context("snapshot readiness deadline exceeded")??)
+    }.await;
+    match result {
+        Ok(reader) => {
+            let reader = reader.with_read_cancellation(stopped);
+            let finalization = reader.protect_terminal_close();
+            Ok(PinnedReader { reader, finalization, signal })
+        }
+        Err(error) => {
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            // A failed/expired connection cannot prove that pin admission never
+            // committed. Retain its started owner for native reconciliation.
+            completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+            completion.step("CLI reader signal owner", signal.complete(&completion).await);
+            lctx_model::domain::completion::complete(Err(operation_error(error)), completion).map_err(Into::into)
+        }
+    }
 }
 
 pub async fn select(config: &RuntimeConfig, path: &Path) -> anyhow::Result<SnapshotHandle> {
@@ -142,7 +173,7 @@ pub async fn select(config: &RuntimeConfig, path: &Path) -> anyhow::Result<Snaps
         .select_locked(reader.handle(), &guard)
         .map(|()| reader.handle().clone())
         .map_err(Into::into);
-    finish_reader(&reader, result).await
+    finish_reader(reader, result).await
 }
 
 pub async fn show(
@@ -153,7 +184,7 @@ pub async fn show(
     let result = lctx_publisher::inspection::show(&reader)
         .await
         .map_err(Into::into);
-    finish_reader(&reader, result).await
+    finish_reader(reader, result).await
 }
 
 pub async fn query(
@@ -180,12 +211,17 @@ pub async fn query(
     })
     .await
     .context("snapshot query deadline exceeded");
-    finish_reader(&reader, result.and_then(|value| value)).await
+    finish_reader(reader, result.and_then(|value| value)).await
 }
 
-async fn finish_reader<T>(reader: &NativeReader, result: anyhow::Result<T>) -> anyhow::Result<T> {
+async fn finish_reader<T>(mut reader: PinnedReader, result: anyhow::Result<T>) -> anyhow::Result<T> {
+    let result = result.map_err(operation_error);
     let mut completion = lctx_model::domain::completion::Completion::default();
-    completion.step("published reader pin release", reader.close().await);
+    if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+        reader.reader.retain_unknown();
+        completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+    }
+    completion.step("published reader pin release", reader.finalization.close(&reader.reader).await);
     completion.step(
         "published reader session close",
         reader
@@ -194,8 +230,8 @@ async fn finish_reader<T>(reader: &NativeReader, result: anyhow::Result<T>) -> a
             .await
             .map_err(lctx_model::domain::ModelError::codec),
     );
-    lctx_model::domain::completion::complete(result.map_err(operation_error), completion)
-        .map_err(Into::into)
+    completion.step("CLI reader signal owner", reader.signal.complete(&completion).await);
+    lctx_model::domain::completion::complete(result, completion).map_err(Into::into)
 }
 
 pub async fn export(
@@ -213,7 +249,7 @@ pub async fn export(
         let budget = lctx_model::domain::resources::ResourceBudget::fixed(memory_bytes)?;
         let projection = tokio::time::timeout(
             deadline(),
-            lctx_surrealdb::projections::materialize(&reader, key, &budget),
+            lctx_native::projections::materialize(&reader, key, &budget),
         )
         .await
         .context("projection materialization deadline exceeded")??;
@@ -235,7 +271,7 @@ pub async fn export(
         Ok(())
     }
     .await;
-    finish_reader(&reader, result).await
+    finish_reader(reader, result).await
 }
 
 pub async fn tool(
@@ -247,31 +283,33 @@ pub async fn tool(
     let limits = config.serving_limits.clone().unwrap_or_default();
     lctx_model::domain::serving::decode_request(tool, raw, &limits)?;
     let reader = pin(config, path).await?;
-    let service = lctx_serving::NativeService::new(reader.clone(), limits)?;
-    let result = service
-        .execute(tool, raw)
-        .await
-        .map_err(anyhow::Error::from);
-    service.close().await;
-    drop(service);
-    finish_reader(&reader, result).await
+    let result = match lctx_serving::NativeService::new(reader.reader.clone(), limits) {
+        Ok(service) => {
+            let result = service.execute(tool, raw).await.map_err(anyhow::Error::from);
+            service.close().await;
+            drop(service);
+            result
+        }
+        Err(error) => Err(error.into()),
+    };
+    finish_reader(reader, result).await
 }
 
 /// Explicit maintenance installation, never called by ordinary compilation or readiness.
 pub async fn install(config: &RuntimeConfig, keep_closed: bool) -> anyhow::Result<()> {
     tokio::time::timeout(deadline(), async {
         anyhow::ensure!(
-            config.authentication == lctx_surrealdb::config::AuthenticationScope::Root,
+            config.authentication == lctx_native::config::AuthenticationScope::Root,
             "installation requires explicit maintenance credentials"
         );
-        lctx_surrealdb::compiler::install_shared(config, &lctx_serving::native_definitions())
+        lctx_compiler_store::compiler::install_shared(config, &lctx_serving::native_definitions())
             .await?;
-        let client = lctx_surrealdb::compiler::check_installation(config).await?;
-        lctx_surrealdb::NativeEmbeddingCache::install(client).await?;
-        lctx_surrealdb::NativeProductCache::install(config).await?;
+        let client = lctx_compiler_store::compiler::check_installation(config).await?;
+        lctx_native::NativeEmbeddingCache::install(client).await?;
+        lctx_compiler_store::NativeProductCache::install(config).await?;
         lctx_publisher::install_definitions(config, &lctx_serving::native_definitions()).await?;
         if !keep_closed {
-            lctx_surrealdb::compiler::open_admission(config).await?;
+            lctx_compiler_store::compiler::open_admission(config).await?;
         }
         Ok(())
     })

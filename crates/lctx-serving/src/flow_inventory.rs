@@ -19,7 +19,9 @@ impl NativePackets<'_> {
     pub(crate) async fn flow_inventory(
         &mut self,
         grant: &OriginalRange,
-        maximum: usize,
+        request: &Request,
+        snapshot: &SnapshotHandle,
+        channels: &ChannelState,
     ) -> Result<SectionPage<FlowInventoryPacket>, Error> {
         let occurrences = self
             .read_for::<Occurrence, source::SourceArtifact>("source", &[grant.artifact])
@@ -66,9 +68,16 @@ impl NativePackets<'_> {
         }
         selected.sort_by_key(|(key,_)|*key);
         let total = selected.len();
-        let mut items = Vec::new();
+        let _compact = self.budget.reserve("compact-flow-inventory-page", total.saturating_mul(256))?;
+        let compact = crate::pagination::page(selected.iter().enumerate().map(|(ordinal, (_, inventory))|
+            Ok((super::source_evidence::key(derivation::RowRef::of(inventory.id()))?, ordinal)))
+            .collect::<Result<Vec<_>, ModelError>>()?, request, snapshot, channels,
+            request.tool().name(), "flow_inventory", None, Availability::Available {})
+            .map_err(|error| Error::Model(crate::records::wire(error)));
+        let selected_ids = compact.as_ref().map(|page| page.items.iter().copied().collect::<std::collections::BTreeSet<_>>()).unwrap_or_default();
+        let mut items = std::collections::BTreeMap::new();
         let mut partial = false;
-        for (_,inventory) in selected.into_iter().take(maximum) {
+        for (ordinal, (_,inventory)) in selected.into_iter().enumerate() {
             let candidates = self
                 .read_for::<FlowUseCandidate, FlowUseInventoryObservation>(
                     "inventory",
@@ -406,7 +415,9 @@ impl NativePackets<'_> {
                     .map(|s| ProofReference::from_canonical(derivation::RowRef::of(s.id())))
                     .collect::<Result<Vec<_>, _>>()?,
             );
-            items.push(FlowInventoryPacket {
+            let packet_proof = proof.into_iter().map(ProofReference::from_canonical).collect::<Result<Vec<_>, _>>()?;
+            if selected_ids.contains(&ordinal) {
+            let packet = FlowInventoryPacket {
                 inventory: inventory.id(),
                 use_: use_.id(),
                 occurrence: occurrence.id(),
@@ -431,29 +442,26 @@ impl NativePackets<'_> {
                 },
                 entry_value_reason,
                 entry_outcomes,
-                proof: proof
-                    .into_iter()
-                    .map(ProofReference::from_canonical)
-                    .collect::<Result<Vec<_>, _>>()?,
-            });
+                proof: packet_proof,
+            };
             // Retained packet accounting outlives all hydrated batches and explanation indexes.
             self.charge.grow(
-                serde_json::to_vec(items.last().expect("packet inserted"))
-                    .map_err(|e| Error::Codec(e.to_string()))?
-                    .len(),
+                crate::ranked_results::allocation_allowance(&packet)
+                    .map_err(|error| Error::Codec(error.to_string()))?
+                    .saturating_add(size_of::<FlowInventoryPacket>() + 64),
             )?;
+            items.insert(ordinal, packet);
+            }
         }
-        let omitted = total - items.len();
+        let compact = compact?;
+        let mut ordered_items = Vec::new();
+        for id in compact.items { ordered_items.push(items.remove(&id).ok_or(Error::Contract)?); }
         Ok(SectionPage {
             availability: if total == 0 {
                 Availability::Unavailable {
                     reason: name(
                         "no native inventory in granted range; absence is not established",
                     )?,
-                }
-            } else if omitted > 0 {
-                Availability::Partial {
-                    reason: name("whole native inventory result count bound reached")?,
                 }
             } else if partial {
                 Availability::Partial {
@@ -462,10 +470,10 @@ impl NativePackets<'_> {
             } else {
                 Availability::Available {}
             },
-            items,
-            continuation: Optional::default(),
-            omitted: omitted as u64,
-            truncated: omitted > 0,
+            items: ordered_items,
+            continuation: compact.continuation,
+            omitted: compact.omitted,
+            truncated: compact.truncated,
         })
     }
 }

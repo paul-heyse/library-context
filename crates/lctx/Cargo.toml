@@ -11,7 +11,8 @@ tracing.workspace = true
 cpg-extract = { path = "../cpg-extract" }
 cpg-core = { path = "../cpg-core" }
 lctx-model = { path = "../lctx-model" }
-lctx-surrealdb = { path = "../lctx-surrealdb" }
+lctx-native = { path = "../lctx-native" }
+lctx-compiler-store = { path = "../lctx-compiler-store" }
 lctx-publisher = { path = "../lctx-publisher" }
 lctx-serving = { path = "../lctx-serving" }
 tempfile.workspace = true

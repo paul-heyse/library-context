@@ -37,7 +37,7 @@ pub(super) fn native_heap(value:&Value)->Result<usize,ModelError>{Ok(match value
 })}
 pub(super) fn object_heap(values:&Object)->Result<usize,ModelError>{values.iter().try_fold(0usize,|bytes,(key,value)|native_heap(value).map(|heap|bytes.saturating_add(size_of::<String>()+size_of::<Value>()+32+key.capacity()+heap)))}
 pub(super) fn admit_object(charge:&mut StateCharge,row:&Object)->Result<(),ModelError>{charge.grow(size_of::<Object>()+object_heap(row)?)}
-pub(super) async fn values<C>(reader:&NativeReader<C>,query:lctx_surrealdb::prepared::PreparedQuery,budget:&ResourceBudget)->Result<SearchRows<Object>,ModelError>{
+pub(super) async fn values<C>(reader:&NativeReader<C>,query:lctx_native::prepared::PreparedQuery,budget:&ResourceBudget)->Result<SearchRows<Object>,ModelError>{
     let mut stream=reader.stream_prepared(query)?;
     let outcome=async{let mut rows=SearchRows::new(budget);while let Some(row)=stream.next().await?{let row=object(row)?;let heap=object_heap(&row)?;rows.push(row,heap)?;}Ok(rows)}.await;
     let mut terminal=lctx_model::domain::completion::Completion::default();terminal.step("search point result drainage",stream.drain_transport().await);lctx_model::domain::completion::complete(outcome,terminal)
@@ -50,7 +50,7 @@ pub(super) async fn records<R:Record+serde::de::DeserializeOwned,C>(reader:&Nati
         let mut scratch=StateCharge::new(budget,"native-search-record-keys");scratch.grow(keys.len()*(size_of::<String>()+32))?;
         let mut vars=Variables::new();vars.insert("type",R::NAME.to_owned());vars.insert("keys",keys.iter().map(hex::encode).collect::<Vec<_>>());
         let reader = reader.with_request_budget_clone(budget);
-        let mut selected=reader.record_stream_candidates::<R>(lctx_surrealdb::prepared::PreparedQuery::new(vars,vec![],vec!["SELECT id FROM entity WITH INDEX semantic_key WHERE semantic_type=$type AND semantic_key IN $keys".into()])?,"semantic_key")?;
+        let mut selected=reader.record_stream_candidates::<R>(lctx_native::prepared::PreparedQuery::new(vars,vec![],vec!["SELECT id FROM entity WITH INDEX semantic_key WHERE semantic_type=$type AND semantic_key IN $keys".into()])?,"semantic_key")?;
         let result=async{
             while let Some(row)=selected.next().await? { output.charge.grow(row.heap_bytes())?; output.push(row,0)?; }
             Ok(())

@@ -1,7 +1,7 @@
 //! Immutable named executable epochs. Other publications may install additional names
 //! without changing this publication's realization identity.
 use lctx_model::domain::{ContentHash, Key, KeySink, ModelError};
-use lctx_surrealdb::{
+use lctx_native::{
     Loader,
     surrealdb::types::{Object, ToSql, Value},
 };
@@ -27,7 +27,7 @@ pub(crate) fn function_name(epoch: ContentHash, name: &str) -> String {
 }
 
 pub(crate) fn expected(blueprint: &str) -> Result<(Vec<String>, Vec<String>), ModelError> {
-    lctx_surrealdb::materialization::validate_native_definitions(blueprint)?;
+    lctx_native::materialization::validate_native_definitions(blueprint)?;
     let epoch = epoch_identity(blueprint);
     let mut base = Vec::new();
     let mut functions = Vec::new();
@@ -153,7 +153,7 @@ fn verify_expected(blueprint: &str, version: &str, actual: &BTreeSet<String>, ba
     }
     key.part(b"engine", version.as_bytes());
     epoch_identity(blueprint).encode(&mut key);
-    lctx_surrealdb::schema::realization_identity(blueprint).encode(&mut key);
+    lctx_native::schema::realization_identity(blueprint).encode(&mut key);
     for definition in base.iter().chain(functions.iter()) {
         if !actual.contains(definition) {
             return Err(ModelError::Conflict("pinned executable definition epoch"));

@@ -87,6 +87,8 @@ pub enum InputOrigin {
     #[model(code = 2)]
     Corpus {
         repository: String,
+        /// Acquisition presentation may name both a declared base and captured content.
+        /// It does not certify that selected bytes equal an unmodified Git commit.
         revision: String,
     },
 }

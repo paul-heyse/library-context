@@ -1,7 +1,6 @@
 //! Native ty coordinates become facts only through exact typed attachment. No provider-local
 //! index, predicate key, rendered condition or display-place identity is stored.
-use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
-use crate::contracts::supplier;
+use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use crate::{
     acquisition::Acquisition,
@@ -20,13 +19,13 @@ use lctx_model::domain::{
     flow_inventory::*,
     lexical::*,
     source::*,
-    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage},
+    stages::{Profile, ProviderOutcome, Stage},
     syntax::*,
     value::*,
     *,
 };
 use std::collections::{BTreeMap, HashMap};
-pub const TY_FLOW: &str = "ty_flow";
+pub use lctx_model::domain::producer_contract::facts::TY_FLOW;
 #[derive(Default)]
 pub struct TyFlow {
     pub limits: SyntaxLimits,
@@ -86,33 +85,7 @@ macro_rules! output_types {
         )
     };
 }
-pub fn contract() -> ProducerContract {
-        macro_rules! uses {($($ty:ty),+)=>{vec![$(RelationUse::of::<$ty>()),+]}}
-        ProducerContract {
-            name: TY_FLOW,
-            inputs: uses!(
-                Module,
-                Occurrence,
-                LexicalScope,
-                DeclarationObservation,
-                BindingEvent,
-                BindingObservation,
-                LexicalTarget,
-                LexicalResolution,
-                ReferenceObservation,
-                ImportAliasObservation,
-                SyntaxObservation
-            ),
-            outputs: output_types!(uses),
-            contributes: crate::assembly::vocabulary(),
-            profiles: vec![Profile::Behavioral],
-            effect: Effect::Extraction,
-            semantic_revision: 1,
-            configuration: ConfigurationBinding::ProducerSettings,
-            suppliers: vec![supplier("ty-flow", "ty", cpg_flow::PROVIDER, vec![FactFamily::Flow])],
-            not_requested: vec![FactFamily::Flow],
-        }
-}
+pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::ty_flow() }
 impl Declared for TyFlow {
     fn declaration(&self, _: Profile) -> Stage {
         let provider = provider();

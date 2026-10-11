@@ -77,6 +77,17 @@ macro_rules! inputs {($($f:ident:$ty:ty,)*)=>{
  impl Data {pub fn new(b:&resources::ResourceBudget)->Self{Self{entry:EntryData::new(b),local:LocalVocabulary::new(b),$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{let e=self.entry.visit(n,b)?;$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(e)}pub fn inputs()->Vec<ValidationInput>{let mut v=EntryData::facts_inputs();v.extend(LocalVocabulary::inputs());v.extend([$(ValidationInput::of::<$ty>(&["id"]),)*]);v}}
 };}
 crate::structural_handoff_inputs!(inputs);
+/// Exact Facts/Local inventories have independent correspondences and cache lifetimes.
+pub(super) struct Conditions<'a> {
+    pub entry: conditions::PreparedConditions<'a>,
+    pub local: conditions::PreparedConditions<'a>,
+}
+impl<'a> Conditions<'a> {
+    pub fn new(data: &'a Data, budget: &resources::ResourceBudget) -> Result<Self, ModelError> {
+        Ok(Self { entry: conditions::PreparedConditions::new(data.entry.condition_nodes.iter(), budget)?,
+            local: conditions::PreparedConditions::new(data.local.condition_nodes.iter(), budget)? })
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
 #[model(name = "structural_handoff_values")]
 pub enum ValueSource {
@@ -245,9 +256,15 @@ fn read_region(
     Ok(Some((region, region_support)))
 }
 /// The named origin's execution domain, retaining its exact containing native region when needed.
-pub(crate) fn named_condition(
+#[cfg(test)]
+pub(crate) fn named_condition(d: &Data, value: &ValueSource, budget: &resources::ResourceBudget) -> Result<conditions::AdmittedDiagram, ModelError> {
+    let prepared = Conditions::new(d, budget)?;
+    named_condition_prepared(d, value, &prepared.entry, budget)
+}
+pub(crate) fn named_condition_prepared(
     d: &Data,
     value: &ValueSource,
+    prepared: &conditions::PreparedConditions<'_>,
     budget: &resources::ResourceBudget,
 ) -> Result<conditions::AdmittedDiagram, ModelError> {
     let ValueSource::Named {
@@ -264,16 +281,7 @@ pub(crate) fn named_condition(
     let observation = need(&d.entry.use_observations, *observation)?;
     let support = need(&d.entry.use_supports, *support)?;
     let q = need(&d.entry.qualifications, observation.qualification)?;
-    let _nodes = budget.reserve(
-        "named-read-condition",
-        d.entry
-            .condition_nodes
-            .len()
-            .checked_mul(2048)
-            .ok_or_else(|| invalid("named read condition overflow"))?,
-    )?;
-    let nodes = d.entry.condition_nodes.iter().cloned().collect::<Vec<_>>();
-    let condition = Diagram::from_records(need(&d.entry.conditions, q.condition)?, &nodes)?;
+    let condition = prepared.diagram(need(&d.entry.conditions, q.condition)?)?;
     let region_admission;
     let domain: &Diagram = match (*region, *region_support) {
         (None, None) => &condition,
@@ -286,7 +294,7 @@ pub(crate) fn named_condition(
                 need(&d.entry.regions, region)?.qualification,
             )?;
             let region_condition =
-                Diagram::from_records(need(&d.entry.conditions, rq.condition)?, &nodes)?;
+                prepared.diagram(need(&d.entry.conditions, rq.condition)?)?;
             region_admission = condition
                 .admitted_binary(&region_condition, BooleanOperation::Conjunction, budget)
                 .map_err(condition_error)?;
@@ -301,7 +309,7 @@ pub(crate) fn named_condition(
         &d.entry.qualifications,
         need(&d.entry.reaching, *reaching)?.qualification,
     )?;
-    let reaching = Diagram::from_records(need(&d.entry.conditions, rq.condition)?, &nodes)?;
+    let reaching = prepared.diagram(need(&d.entry.conditions, rq.condition)?)?;
     let covered = domain
         .admitted_binary(&reaching, BooleanOperation::Conjunction, budget)
         .map_err(condition_error)?;
@@ -312,10 +320,15 @@ pub(crate) fn named_condition(
 }
 /// One reaching definition under the read condition, in the same provider invocation and scope.
 /// Rebinding selects its actual new definition; unions, loops, foreign supports and captured state refuse.
-pub fn named_definition(
+pub fn named_definition(d: &Data, value: &Occurrence, context: Id<attribution::AnalysisContext>, budget: &resources::ResourceBudget) -> Result<Option<(Id<Occurrence>, ValueSource)>, ModelError> {
+    let prepared = Conditions::new(d, budget)?;
+    named_definition_prepared(d, value, context, &prepared.entry, budget)
+}
+pub fn named_definition_prepared(
     d: &Data,
     value: &Occurrence,
     context: Id<attribution::AnalysisContext>,
+    prepared: &conditions::PreparedConditions<'_>,
     budget: &resources::ResourceBudget,
 ) -> Result<Option<(Id<Occurrence>, ValueSource)>, ModelError> {
     let mut uses = d.entry.uses.iter().filter(|u| {
@@ -402,18 +415,9 @@ pub fn named_definition(
     if !source_covered(d, use_q.scope, source)? {
         return Ok(None);
     }
-    let _nodes = budget.reserve(
-        "handoff-condition",
-        d.entry
-            .condition_nodes
-            .len()
-            .checked_mul(2048)
-            .ok_or_else(|| invalid("handoff condition overflow"))?,
-    )?;
-    let nodes = d.entry.condition_nodes.iter().cloned().collect::<Vec<_>>();
-    let condition = Diagram::from_records(need(&d.entry.conditions, use_q.condition)?, &nodes)?;
+    let condition = prepared.diagram(need(&d.entry.conditions, use_q.condition)?)?;
     let reach_condition =
-        Diagram::from_records(need(&d.entry.conditions, reach_q.condition)?, &nodes)?;
+        prepared.diagram(need(&d.entry.conditions, reach_q.condition)?)?;
     let directly_covered = {
         let admitted = condition
             .admitted_binary(&reach_condition, BooleanOperation::Conjunction, budget)
@@ -474,7 +478,7 @@ pub fn named_definition(
                 need(&d.entry.regions, region)?.qualification,
             )?;
             let region_condition =
-                Diagram::from_records(need(&d.entry.conditions, rq.condition)?, &nodes)?;
+                prepared.diagram(need(&d.entry.conditions, rq.condition)?)?;
             let domain = condition
                 .admitted_binary(&region_condition, BooleanOperation::Conjunction, budget)
                 .map_err(condition_error)?;
@@ -564,13 +568,18 @@ fn rank(role: SourceRole) -> u8 {
         _ => 3,
     }
 }
-pub fn produce(
+pub fn produce(d: &Data, base: &build::Data, frame: &StructuralFrame, invocation: &analysis::structural::Invocation, settings: &AnalyticsConfiguration, out: &mut Output, budget: &resources::ResourceBudget) -> Result<(), ModelError> {
+    let prepared = Conditions::new(d, budget)?;
+    produce_prepared(d, base, frame, invocation, settings, out, &prepared, budget)
+}
+pub(super) fn produce_prepared(
     d: &Data,
     base: &build::Data,
     frame: &StructuralFrame,
     invocation: &analysis::structural::Invocation,
     settings: &AnalyticsConfiguration,
     out: &mut Output,
+    prepared: &Conditions<'_>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     for binding in d.bindings.iter() {
@@ -646,7 +655,7 @@ pub fn produce(
                 },
             ))
         } else if value.syntax_kind == SyntaxKind::ExprName {
-            named_definition(d, value, invocation.context, budget)?.filter(|(origin, _)| {
+            named_definition_prepared(d, value, invocation.context, &prepared.entry, budget)?.filter(|(origin, _)| {
                 d.entry
                     .occurrences
                     .get(*origin)
@@ -904,13 +913,18 @@ mod resource_tests {
             region_support: None,
             coverage: id(15),
         };
-        let predecessor = data.entry.condition_nodes.len() * 2048;
-        let denied = resources::ResourceBudget::fixed(predecessor).unwrap();
+        let preparation_budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let prepared = Conditions::new(&data, &preparation_budget).unwrap();
+        prepared.entry.diagram(&condition).unwrap();
+        let denied = resources::ResourceBudget::scoped(&preparation_budget, 1).unwrap();
         assert!(
-            matches!(named_condition(&data, &value, &denied), Err(ModelError::Resource { owner: "condition_binary", used, .. }) if used == predecessor),
-            "decoding fits; apply exhaustion retains its Resource class"
+            matches!(named_condition_prepared(&data, &value, &prepared.entry, &denied),
+                Err(ModelError::Resource { owner: "condition_binary", used: 0, .. })),
+            "checked lowering is retained; apply exhaustion keeps its Resource class"
         );
         assert_eq!(denied.reserved(), 0);
+        drop(prepared);
+        assert_eq!(preparation_budget.reserved(), 0);
         let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
         let named = named_condition(&data, &value, &budget).unwrap();
         assert_eq!(named.id(), diagram.id());

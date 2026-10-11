@@ -1263,15 +1263,15 @@ dependencies = [
  "datafusion",
  "futures 0.3.34",
  "hex",
+ "lctx-compiler-store",
  "lctx-model",
- "lctx-surrealdb",
+ "lctx-native",
  "petgraph 0.8.3",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
  "thiserror 2.0.21",
- "tokenizers",
  "tokio",
  "toml 1.1.6+spec-1.1.0",
  "tracing",
@@ -1293,8 +1293,9 @@ dependencies = [
  "globset",
  "insta",
  "lctx-analytics",
+ "lctx-compiler-store",
  "lctx-model",
- "lctx-surrealdb",
+ "lctx-native",
  "mailparse",
  "markdown",
  "pep508_rs",
@@ -3943,11 +3944,12 @@ dependencies = [
  "cpg-extract",
  "datafusion",
  "fs-err",
+ "lctx-compiler-store",
  "lctx-embed",
  "lctx-model",
+ "lctx-native",
  "lctx-publisher",
  "lctx-serving",
- "lctx-surrealdb",
  "lctx-workspace-hack",
  "serde_json",
  "sha2",
@@ -3973,16 +3975,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "lctx-compiler-store"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "datafusion",
+ "futures 0.3.34",
+ "hex",
+ "insta",
+ "lctx-model",
+ "lctx-native",
+ "postcard",
+ "serde",
+ "serde_json",
+ "surrealdb",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "lctx-embed"
 version = "0.1.0"
 dependencies = [
- "cpg-core",
  "jsonschema",
  "lctx-model",
  "reqwest 0.12.28",
  "schemars",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
+ "tokenizers",
  "tokio",
 ]
 
@@ -4034,6 +4061,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "lctx-native"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "async-trait",
+ "futures 0.3.34",
+ "hex",
+ "insta",
+ "lctx-compiler-store",
+ "lctx-model",
+ "serde",
+ "serde_json",
+ "surrealdb",
+ "surrealdb-protocol",
+ "surrealdb-sql",
+ "surrealdb-syn",
+ "tempfile",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "lctx-publisher"
 version = "0.1.0"
 dependencies = [
@@ -4043,8 +4095,9 @@ dependencies = [
  "datafusion",
  "futures 0.3.34",
  "hex",
+ "lctx-compiler-store",
  "lctx-model",
- "lctx-surrealdb",
+ "lctx-native",
  "serde",
  "serde_json",
  "surrealdb-protocol",
@@ -4062,9 +4115,10 @@ name = "lctx-semantics"
 version = "0.1.0"
 dependencies = [
  "lctx-model",
+ "lctx-native",
  "lctx-serving",
- "lctx-surrealdb",
  "pyo3",
+ "pyo3-async-runtimes",
  "serde_json",
  "tokio",
 ]
@@ -4077,9 +4131,10 @@ dependencies = [
  "cpg-extract",
  "datafusion",
  "hex",
+ "lctx-compiler-store",
  "lctx-model",
+ "lctx-native",
  "lctx-publisher",
- "lctx-surrealdb",
  "moka",
  "serde",
  "serde_json",
@@ -4087,29 +4142,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "lctx-surrealdb"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "async-trait",
- "datafusion",
- "futures 0.3.34",
- "hex",
- "insta",
- "lctx-model",
- "serde",
- "serde_json",
- "surrealdb",
- "surrealdb-sql",
- "surrealdb-syn",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -5543,6 +5575,20 @@ dependencies = [
  "pyo3-build-config",
  "pyo3-ffi",
  "pyo3-macros",
+]
+
+[[package]]
+name = "pyo3-async-runtimes"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3ef68daa7316a3fac65e5e18b2203f010346de1c1c53456811a2624673ab046"
+dependencies = [
+ "futures-channel",
+ "futures-util",
+ "once_cell",
+ "pin-project-lite",
+ "pyo3",
+ "tokio",
 ]
 
 [[package]]

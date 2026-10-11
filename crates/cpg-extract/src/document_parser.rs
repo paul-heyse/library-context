@@ -1,6 +1,5 @@
 //! Typed document producer over markdown-rs offsets and captured derived blocks.
-use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
-use crate::contracts::supplier;
+use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use lctx_model::domain::{calls::SymbolKind, documents::*, source::*, syntax::DeclarationKind, *};
 use markdown::mdast::{AttributeContent, AttributeValue, Node};
@@ -449,7 +448,6 @@ pub(crate) fn python_blocks(bytes: &[u8]) -> Vec<(i64, usize, usize, String)> {
 
 use crate::{
     acquisition::{AcquiredInput, Acquisition},
-    assembly,
     bundle::{Declared, ProviderStage, StageContext},
 };
 use lctx_model::domain::{
@@ -459,11 +457,11 @@ use lctx_model::domain::{
     charged::StateCharge,
     conditions::Diagram,
     input::SourceRole,
-    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage},
+    stages::{Profile, ProviderOutcome, Stage},
     symbols::*,
     syntax::*,
 };
-pub const DOCUMENTS: &str = "documents";
+pub use lctx_model::domain::producer_contract::facts::DOCUMENTS;
 pub struct Documents;
 pub fn provider() -> Provider {
     Provider {
@@ -494,31 +492,7 @@ macro_rules! document_types {
         )
     };
 }
-pub fn contract() -> ProducerContract {
-        macro_rules! uses {($($ty:ty),+)=>{vec![$(RelationUse::of::<$ty>()),+]}}
-        ProducerContract {
-            name: DOCUMENTS,
-            inputs: uses!(
-                Module,
-                Occurrence,
-                SyntaxObservation,
-                DeclarationObservation,
-                PublicNameObservation,
-                ExportOrigin,
-                ProviderModule
-            ),
-            outputs: document_types!(uses),
-            contributes: assembly::vocabulary(),
-            profiles: vec![Profile::Catalog, Profile::Behavioral],
-            effect: Effect::Extraction,
-            semantic_revision: 1,
-            configuration: ConfigurationBinding::Fixed(ContentHash::of(
-                b"mdx-frontmatter; source=64MiB; nodes=1000000; depth=256",
-            )),
-            suppliers: vec![supplier("documents", "markdown-rs", "1.0.0", vec![FactFamily::Docs])],
-            not_requested: vec![],
-        }
-}
+pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::documents() }
 impl Declared for Documents {
     fn declaration(&self, _: Profile) -> Stage {
         let provider = provider();

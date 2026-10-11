@@ -12,7 +12,7 @@ use lctx_model::domain::{
     value::*,
     *,
 };
-async fn run(forged: bool) {
+async fn run() {
     let fixture = catalog_runtime::compile(
         "entry_value_witnesses",
         Profile::Behavioral,
@@ -114,6 +114,9 @@ async fn run(forged: bool) {
         .unwrap()
         .unwrap();
     let stability = StabilityWitness::derive(&data, atom.id(), &entry).unwrap();
+    // Only the replay row changes; the exact immutable provider observations stay shared.
+    // Each variant still earns admission through a newly created independent validator.
+    for forged in [false, true] {
     let mut row = entry.witness().clone();
     if forged {
         row.use_observation = data
@@ -162,10 +165,11 @@ async fn run(forged: bool) {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("stored entry witness differs from replay")
+                .contains("stored entry witness differs from replay"),
+            "forged existing native use premise must be refused by independent replay"
         );
     } else {
-        result.unwrap();
+        result.expect("exact native entry witness must independently replay");
         let invariant = stability::stability_invariants()
             .into_iter()
             .next()
@@ -205,15 +209,12 @@ async fn run(forged: bool) {
                 }
             }
         }
-        check.finish().unwrap();
+        check.finish().expect("exact native stability witness must independently replay");
+    }
     }
 }
 #[tokio::test]
-async fn local_entry_and_stability_derive_from_native_completed_sources() {
-    run(false).await;
-}
-#[tokio::test]
-async fn local_replay_refuses_forged_existing_native_entry_premise() {
-    run(true).await;
+async fn native_entry_and_stability_replay_exact_witnesses_and_refuse_forged_premises() {
+    run().await;
 }
 

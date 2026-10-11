@@ -4,7 +4,7 @@ use lctx_model::domain::{
     resources::{Reservation, ResourceBudget},
     serving::{ResourceLimits, SnapshotHandle},
 };
-use lctx_surrealdb::{batches::CanonicalBatches, scope::PreparedServingScope};
+use lctx_native::{batches::CanonicalBatches, scope::PreparedServingScope};
 use moka::future::Cache;
 use std::{
     collections::HashMap,
@@ -42,6 +42,8 @@ type Initializer = Box<dyn Fn(ResourceBudget) -> Initialization + Send + Sync + 
 pub(crate) enum PreparedData {
     Layout(Arc<PreparedServingScope>),
     Batches(Arc<CanonicalBatches>),
+    Domains(Arc<lctx_model::domain::serving::PreparedLibraryDomains>),
+    Classification(Arc<lctx_model::domain::selection::evaluate::Prepared>),
     #[cfg(test)]
     Test {
         _charge: Box<dyn Reservation>,
@@ -183,7 +185,7 @@ impl PreparedCache {
     }
     #[cfg(test)]
     pub(crate) fn for_scope(
-        reader: &lctx_surrealdb::NativeReader<()>,
+        reader: &lctx_native::NativeReader<()>,
         shared: &ResourceBudget,
         limits: &ResourceLimits,
         queries: Arc<Semaphore>,
@@ -647,9 +649,53 @@ pub(crate) struct Preparation<'a> {
     pub(crate) admission: &'a RequestAdmission,
 }
 impl Preparation<'_> {
+    /// Reuse typed interpretation of the exact checked closure, without replacing native
+    /// discovery or current-context eligibility with a previously positive membership bit.
+    async fn interpret(
+        &self,
+        batches: &PreparedBatches,
+        kind: &'static str,
+        build: fn(&CanonicalBatches, &ResourceBudget) -> Result<PreparedData, ModelError>,
+    ) -> Result<Arc<ChargedPreparedValue>, ModelError> {
+        if batches.0._lease._pin != self.cache.pin {
+            return Err(ModelError::Conflict("typed preparation pin"));
+        }
+        self.admission.suspend().await;
+        let result = async {
+            let bytes = 8usize.checked_add(kind.len()).and_then(|n| n.checked_add(batches.0._key.bytes.len()))
+                .ok_or(ModelError::Schema("typed preparation identity overflow"))?;
+            let retained = bytes.checked_add(size_of::<ExactPreparedKey>() + 256)
+                .ok_or(ModelError::Schema("typed preparation charge overflow"))?;
+            let charge = self.cache.reserve_capture("viewer-typed-preparation-key", retained)?;
+            let mut key = Vec::with_capacity(bytes);
+            key.extend_from_slice(&(kind.len() as u64).to_le_bytes());
+            key.extend_from_slice(kind.as_bytes());
+            key.extend_from_slice(&batches.0._key.bytes);
+            let key = ExactPreparedKey { bytes: Arc::new(key), _charge: Arc::new(charge) };
+            let batches = batches.clone();
+            self.cache.load(key, Box::new(move |budget| {
+                let batches = batches.clone();
+                Box::pin(async move { build(&batches, &budget) })
+            })).await
+        }.await;
+        let resumed = self.admission.resume().await;
+        match result { Ok(value) => { resumed?; Ok(value) }, Err(error) => Err(error) }
+    }
+    pub(crate) async fn domains(&self, batches: &PreparedBatches) -> Result<PreparedDomains, ModelError> {
+        self.interpret(batches, "library-domains/v1", |batches, budget| {
+            let mut data = lctx_model::domain::serving::LibraryAdmissionData::new(budget);
+            for (name, batch) in &batches.batches { data.visit(name, batch)?; }
+            Ok(PreparedData::Domains(Arc::new(lctx_model::domain::serving::PreparedLibraryDomains::prepare(&data, budget)?)))
+        }).await.map(PreparedDomains)
+    }
+    pub(crate) async fn classification(&self, batches: &PreparedBatches) -> Result<PreparedClassification, ModelError> {
+        self.interpret(batches, "classification-index/v1", |batches, budget| {
+            Ok(PreparedData::Classification(Arc::new(crate::selection::interpret(batches, budget)?)))
+        }).await.map(PreparedClassification)
+    }
     pub(crate) async fn hydrate(
         &self,
-        reader: &lctx_surrealdb::NativeReader,
+        reader: &lctx_native::NativeReader,
         roots: Vec<surrealdb::types::RecordId>,
         inputs: &[ValidationInput],
         incoming: &[ValidationInput],
@@ -664,7 +710,7 @@ impl Preparation<'_> {
     #[cfg(test)]
     pub(crate) async fn hydrate_scope(
         &self,
-        reader: &lctx_surrealdb::NativeReader<()>,
+        reader: &lctx_native::NativeReader<()>,
         roots: Vec<surrealdb::types::RecordId>,
         inputs: &[ValidationInput],
         incoming: &[ValidationInput],
@@ -678,7 +724,7 @@ impl Preparation<'_> {
     }
     async fn hydrate_exact<Context: Clone + Send + Sync + 'static>(
         &self,
-        reader: &lctx_surrealdb::NativeReader<Context>,
+        reader: &lctx_native::NativeReader<Context>,
         roots: Vec<surrealdb::types::RecordId>,
         inputs: &[ValidationInput],
         incoming: &[ValidationInput],
@@ -783,7 +829,24 @@ impl Preparation<'_> {
         }
     }
 }
+#[derive(Clone)]
 pub(crate) struct PreparedBatches(Arc<ChargedPreparedValue>);
+pub(crate) struct PreparedDomains(Arc<ChargedPreparedValue>);
+impl std::ops::Deref for PreparedDomains {
+    type Target = lctx_model::domain::serving::PreparedLibraryDomains;
+    fn deref(&self) -> &Self::Target {
+        let PreparedData::Domains(value) = &self.0.data else { unreachable!("typed prepared domain owner") };
+        value
+    }
+}
+pub(crate) struct PreparedClassification(Arc<ChargedPreparedValue>);
+impl std::ops::Deref for PreparedClassification {
+    type Target = lctx_model::domain::selection::evaluate::Prepared;
+    fn deref(&self) -> &Self::Target {
+        let PreparedData::Classification(value) = &self.0.data else { unreachable!("typed prepared classification owner") };
+        value
+    }
+}
 #[cfg(test)]
 impl PreparedBatches {
     pub(crate) fn shares_value(&self, other: &Self) -> bool {
@@ -843,6 +906,36 @@ mod controls {
     }
     fn key(cache: &PreparedCache) -> ExactPreparedKey {
         cache.key("test", &[], &[], &[], &[]).unwrap()
+    }
+    #[tokio::test]
+    async fn typed_interpretations_share_exact_closures_and_hold_borrowed_owner_charges() {
+        let (cache, shared) = make_cache();
+        let batches = |key| cache.load(key, Box::new(|budget| Box::pin(async move {
+            let rows = lctx_native::reader::NativeRows::owned(|_| async { Ok(()) })?;
+            Ok(PreparedData::Batches(Arc::new(lctx_native::NativeReader::<()>::canonical_row_batches(rows, &budget).await?)))
+        })));
+        let a = PreparedBatches(batches(key(&cache)).await.unwrap());
+        let different = cache.key("test", &[surrealdb::types::RecordId::new("entity", "different-root")], &[], &[], &[]).unwrap();
+        let b = PreparedBatches(batches(different).await.unwrap());
+        let admission = RequestAdmission::new(cache.queries.clone(), cache.cpu.clone(),
+            tokio::time::Instant::now() + std::time::Duration::from_secs(10), std::time::Duration::from_secs(10)).await.unwrap();
+        let preparation = Preparation { cache: &cache, admission: &admission };
+        let cold = preparation.domains(&a).await.unwrap();
+        let warm = preparation.domains(&a).await.unwrap();
+        assert!(Arc::ptr_eq(&cold.0, &warm.0), "one exact checked closure shares typed interpretation");
+        let other = preparation.domains(&b).await.unwrap();
+        assert!(!Arc::ptr_eq(&cold.0, &other.0), "equal payloads from different roots do not share authority");
+        let classification = preparation.classification(&a).await.unwrap();
+        let warm_classification = preparation.classification(&a).await.unwrap();
+        assert!(Arc::ptr_eq(&classification.0, &warm_classification.0));
+        assert!(!Arc::ptr_eq(&cold.0, &classification.0), "typed interpretation kinds remain distinct");
+        cache.release_optional_retention();
+        assert!(shared.reserved() > 0, "eviction cannot release live typed borrows");
+        drop((cold, warm, other, classification, warm_classification, a, b));
+        drop(admission);
+        cache.close().await;
+        drop(cache);
+        assert_eq!(shared.reserved(), 0);
     }
     #[test]
     fn exact_prepared_key_binds_physical_pin_ordered_roles_columns_and_closure() {

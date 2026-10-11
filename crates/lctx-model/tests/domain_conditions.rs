@@ -442,3 +442,55 @@ fn admitted_substitution_refuses_before_large_apply_and_releases_preflight() {
         "malformed bindings are rejected before preflight allocation"
     );
 }
+
+#[test]
+fn immutable_condition_preparation_reuses_checked_lowering_and_releases_its_charge() {
+    use std::sync::Arc;
+    let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+    let a = Diagram::from_atom(atom(0).id());
+    let b = Diagram::from_atom(atom(1).id());
+    let composed = a.or(&b).unwrap();
+    let (record, nodes) = composed.records();
+    let prepared = PreparedConditions::new(nodes.iter(), &budget).unwrap();
+    let first = prepared.diagram(&record).unwrap();
+    let retained = budget.reserved();
+    let second = prepared.diagram(&record).unwrap();
+    assert!(Arc::ptr_eq(&first, &second));
+    assert_eq!(budget.reserved(), retained);
+    assert_eq!(first.id(), composed.id());
+    let foreign = Condition { root: Diagram::from_atom(atom(3).id()).records().0.root };
+    assert!(prepared.diagram(&foreign).is_err());
+    assert_eq!(budget.reserved(), retained, "failed lowering retains no partial entry");
+    drop(first);
+    drop(second);
+    drop(prepared);
+    assert_eq!(budget.reserved(), 0);
+    assert!(PreparedConditions::new(nodes.iter(), &resources::ResourceBudget::fixed(1).unwrap()).is_err());
+}
+
+#[test]
+fn effective_support_ignores_many_independently_cancelled_expression_atoms() {
+    let parts = (0..129).map(|index| {
+        let leaf = CondExpr::Atom(atom(index).id());
+        CondExpr::Or(vec![leaf.clone(), CondExpr::Not(Box::new(leaf))])
+    }).collect();
+    let result = Diagram::from_expr(&CondExpr::And(parts)).unwrap();
+    assert!(result.is_true());
+    assert!(result.support().is_empty());
+    assert_eq!(result.id(), Diagram::always().id());
+}
+
+#[test]
+fn effective_support_is_a_root_property_even_for_wide_intermediate_conditions() {
+    let wide = CondExpr::And((0..129).map(|index| CondExpr::Atom(atom(index).id())).collect());
+    let cancelled = CondExpr::Or(vec![wide.clone(), CondExpr::Not(Box::new(wide))]);
+    assert_eq!(Diagram::from_expr(&cancelled).unwrap().id(), Diagram::always().id());
+    let mut graph = CondGraph::always();
+    for index in 0..129 {
+        graph = graph.and(&CondGraph::atom(atom(index).id()));
+    }
+    let cancelled = graph.or(&graph.not());
+    assert_eq!(Diagram::from_graph(&cancelled).unwrap().diagram.id(), Diagram::always().id());
+    let dead = graph.and(&CondGraph::never());
+    assert_eq!(Diagram::from_graph(&dead).unwrap().diagram.id(), Diagram::never().id());
+}

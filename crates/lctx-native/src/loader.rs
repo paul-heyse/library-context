@@ -1,0 +1,1092 @@
+//! Checked immutable bulk writes. This loader never publishes a handle.
+use crate::{codec, reader::target_id};
+use lctx_model::domain::{
+    ContentHash, Key, KeySink, ModelError,
+    graph::{Assertion, Entity, Target},
+};
+use std::sync::Arc;
+use surrealdb::{
+    Surreal,
+    engine::remote::grpc::Client,
+    types::{Bytes, Object, RecordId, SurrealValue, ToSql, Value, Variables},
+};
+mod catalog;
+pub use catalog::InstallationCatalog;
+
+#[cfg(test)]
+fn installation_definitions(sql: &str) -> Result<Vec<String>, ModelError> {
+    use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
+    surrealdb_syn::parse(sql)
+        .map_err(ModelError::codec)?
+        .expressions
+        .into_iter()
+        .map(|mut statement| {
+            // CONCURRENTLY controls execution, not the persisted index definition.
+            if let TopLevelExpr::Expr(Expr::Define(definition)) = &mut statement {
+                if let DefineStatement::Index(index) = definition.as_mut() {
+                    index.concurrently = false;
+                }
+            }
+            match &statement {
+            TopLevelExpr::Expr(Expr::Define(definition))
+                if matches!(
+                    definition.as_ref(),
+                    DefineStatement::Table(_)
+                        | DefineStatement::Field(_)
+                        | DefineStatement::Index(_)
+                        | DefineStatement::Analyzer(_)
+                        | DefineStatement::Function(_)
+                ) =>
+            {
+                Ok(statement.to_sql())
+            }
+            _ => Err(ModelError::Schema("installation declaration grammar")),
+            }
+        })
+        .collect()
+}
+
+#[derive(Clone)]
+struct InstallationIndex {
+    execution: String,
+    information: String,
+    label: String,
+}
+#[cfg(test)]
+fn installation_index(sql: &str) -> Result<Option<InstallationIndex>, ModelError> {
+    use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
+    let mut parsed = surrealdb_syn::parse(sql).map_err(ModelError::codec)?.expressions;
+    let [TopLevelExpr::Expr(Expr::Define(definition))] = parsed.as_mut_slice() else {
+        return Err(ModelError::Schema("installation declaration grammar"));
+    };
+    let DefineStatement::Index(index) = definition.as_mut() else { return Ok(None); };
+    index.concurrently = true;
+    let label = format!("{} ON {}", index.name.to_sql(), index.what.to_sql());
+    Ok(Some(InstallationIndex {
+        execution: index.to_sql(),
+        information: format!("INFO FOR INDEX {label}"),
+        label,
+    }))
+}
+fn installation_index_ready(value: &Value) -> Result<bool, ModelError> {
+    let Value::Object(info) = value else { return Err(ModelError::Schema("installation index information")); };
+    let Some(Value::Object(building)) = info.get("building") else { return Err(ModelError::Schema("installation index build information")); };
+    match building.get("status") {
+        Some(Value::String(status)) if status.as_str() == "ready" => Ok(true),
+        Some(Value::String(status)) if matches!(status.as_str(), "started" | "cleaning" | "indexing") => Ok(false),
+        Some(Value::String(status)) if matches!(status.as_str(), "error" | "aborted") => Err(ModelError::codec(format!("index build failed: {building:?}"))),
+        _ => Err(ModelError::Schema("installation index build status")),
+    }
+}
+#[derive(Debug)]
+struct InstallationFailure { context: String, cause: ModelError }
+impl std::fmt::Display for InstallationFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}: {}", self.context, self.cause) }
+}
+impl std::error::Error for InstallationFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(&self.cause) }
+}
+fn installation_failure(context: String, cause: ModelError) -> ModelError {
+    ModelError::Cause(Box::new(InstallationFailure { context, cause }))
+}
+/// Blueprint functions are templates for the publisher's immutable named epochs, never
+/// shared mutable executable names. Validate the complete blueprint before selecting DDL.
+fn physical_native_definitions(blueprint: &str) -> Result<String, ModelError> {
+    crate::materialization::validate_native_definitions(blueprint)?;
+    use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
+    let physical=surrealdb_syn::parse(blueprint).map_err(ModelError::codec)?.expressions.into_iter().filter(|statement|!matches!(statement,TopLevelExpr::Expr(Expr::Define(definition)) if matches!(definition.as_ref(),DefineStatement::Function(_)))).map(|statement|statement.to_sql()).collect::<Vec<_>>();
+    Ok(physical.join(";\n") + ";\n")
+}
+
+pub struct Loader {
+    client: Arc<Surreal<Client>>,
+    views: Option<Vec<ContentHash>>,
+    attempt: Option<ContentHash>,
+    cancellation: Option<Arc<std::sync::atomic::AtomicBool>>,
+    budget: Option<lctx_model::domain::resources::ResourceBudget>,
+}
+pub fn payload_id(
+    table: &str,
+    relation: &str,
+    nominal: &[u8],
+    content: ContentHash,
+) -> Result<RecordId, ModelError> {
+    static MODEL: std::sync::OnceLock<Result<ContentHash, String>> = std::sync::OnceLock::new();
+    let model = MODEL
+        .get_or_init(|| {
+            lctx_model::domain::model()
+                .map(|model| model.digest())
+                .map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(|error| ModelError::Invalid(error.clone()))?;
+    Ok(RecordId::new(
+        table,
+        lctx_model::domain::completed::payload_address(*model, relation, nominal, content).hex(),
+    ))
+}
+pub fn entity_payload_id(row: &Entity) -> Result<RecordId, ModelError> {
+    let views = codec::entity_views(std::slice::from_ref(row))?;
+    payload_id(
+        "entity",
+        &views[0].semantic_type,
+        &row.id().0.0,
+        row.content(),
+    )
+}
+pub fn assertion_payload_id(row: &Assertion) -> Result<RecordId, ModelError> {
+    let views = codec::assertion_views(std::slice::from_ref(row))?;
+    payload_id(
+        "assertion",
+        &views[0].semantic_type,
+        &row.id().0.0,
+        row.content(),
+    )
+}
+impl Loader {
+    pub fn new(client: Arc<Surreal<Client>>) -> Self {
+        Self {
+            client,
+            views: None,
+            attempt: None, cancellation: None, budget: None,
+        }
+    }
+    pub fn for_views(client: Arc<Surreal<Client>>, views: Vec<ContentHash>) -> Self {
+        Self {
+            client,
+            views: Some(views),
+            attempt: None, cancellation: None, budget: None,
+        }
+    }
+    pub fn for_attempt_views(
+        client: Arc<Surreal<Client>>,
+        attempt: ContentHash,
+        views: Vec<ContentHash>,
+    ) -> Self {
+        Self {
+            client,
+            views: Some(views),
+            attempt: Some(attempt), cancellation: None, budget: None,
+        }
+    }
+    pub fn with_budget(mut self, budget: &lctx_model::domain::resources::ResourceBudget) -> Self { self.budget = Some(budget.clone()); self }
+    pub fn read_budget(&self) -> Result<lctx_model::domain::resources::ResourceBudget, ModelError> { self.budget.clone().ok_or(ModelError::Conflict("native operation requires caller budget")) }
+    pub fn with_read_cancellation(mut self, flag: Arc<std::sync::atomic::AtomicBool>) -> Self { self.cancellation = Some(flag); self }
+    pub fn check_read_admission(&self) -> Result<(), ModelError> { crate::prepared::check_read_cancellation(self.cancellation.as_ref()) }
+    pub fn reader(&self) -> crate::NativeReader<()> {
+        let reader = match &self.views {
+            Some(views) => crate::NativeReader::for_views(self.client.clone(), views.clone()),
+            None => crate::NativeReader::private(self.client.clone()),
+        };
+        let reader = if let Some(budget) = &self.budget { reader.with_budget(budget) } else { reader };
+        if let Some(flag) = &self.cancellation { reader.with_read_cancellation(flag.clone()) } else { reader }
+    }
+    pub fn view_ids(&self) -> Option<&[ContentHash]> {
+        self.views.as_deref()
+    }
+    pub fn attempt_id(&self) -> Option<ContentHash> {
+        self.attempt
+    }
+    pub fn client(&self) -> &Surreal<Client> {
+        &self.client
+    }
+    pub fn shared_client(&self) -> Arc<Surreal<Client>> {
+        self.client.clone()
+    }
+    pub async fn install(&self, native_definitions: &str) -> Result<(), ModelError> {
+        self.installation_catalog().await?.install(native_definitions).await
+    }
+    /// Capture actual definitions for one explicitly excluded installation operation.
+    /// The capture owns this exact session; it is never shared with another operation.
+    pub async fn installation_catalog(&self) -> Result<InstallationCatalog, ModelError> {
+        InstallationCatalog::capture(self.client.clone()).await
+    }
+    /// Explicit installation reconciles only repository-generated declarations. Existing
+    /// definitions must match exactly; neither a retry nor a new client may overwrite them.
+    /// Parse statement boundaries so function bodies retain their internal semicolons.
+    pub async fn install_declarations(
+        &self,
+        schema: &str,
+        phase: &str,
+    ) -> Result<(), ModelError> {
+        self.installation_catalog().await?.apply(schema, phase).await
+    }
+    pub async fn insert(
+        &self,
+        table: &str,
+        rows: Vec<Value>,
+        relation: bool,
+    ) -> Result<(), ModelError> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let _ = (table, relation);
+        let owner = self.attempt.map(|attempt| RecordId::new("native_attempt", attempt.hex()));
+        for window in crate::control::ImmutableWindows::for_loading(rows, self.attempt, owner).with_budget(self.budget.as_ref()) {
+            crate::control::install_window(&self.client, self.attempt, window?, self.budget.as_ref()).await?;
+        }
+        Ok(())
+    }
+    pub async fn entities(&self, rows: &[Entity]) -> Result<(), ModelError> {
+        for window in CanonicalWindows::new(rows) {
+            let (chunk, canonical) = window?;
+            self.insert("entity", entity_values(chunk, canonical)?, false)
+                .await?;
+        }
+        Ok(())
+    }
+    pub async fn assertions(&self, rows: &[Assertion]) -> Result<(), ModelError> {
+        for window in CanonicalWindows::new(rows) {
+            let (chunk, canonical) = window?;
+            self.insert("assertion", assertion_values(chunk, canonical)?, false)
+                .await?;
+        }
+        Ok(())
+    }
+    /// Direct sealing reuses identical canonical rows and strictly inserts missing aliases.
+    pub async fn ensure_entities(&self, rows: &[Entity]) -> Result<(), ModelError> {
+        for window in CanonicalWindows::new(rows) {
+            let (chunk, canonical) = window?;
+            self.ensure("entity", entity_values(chunk, canonical)?)
+                .await?;
+        }
+        Ok(())
+    }
+    pub async fn ensure_assertions(&self, rows: &[Assertion]) -> Result<(), ModelError> {
+        for window in CanonicalWindows::new(rows) {
+            let (chunk, canonical) = window?;
+            self.ensure("assertion", assertion_values(chunk, canonical)?)
+                .await?;
+        }
+        Ok(())
+    }
+    async fn ensure(&self, table: &str, rows: Vec<Value>) -> Result<(), ModelError> {
+        for window in NativeWindows::new(rows) {
+            self.ensure_window(table, window?).await?;
+        }
+        Ok(())
+    }
+    async fn ensure_window(&self, table: &str, rows: Vec<Value>) -> Result<(), ModelError> {
+        let mut candidates = std::collections::BTreeMap::<String, Value>::new();
+        for row in rows {
+            let Value::Object(object) = &row else {
+                return Err(ModelError::Schema("native candidate object"));
+            };
+            let id = object
+                .get("id")
+                .ok_or(ModelError::Schema("native candidate ID"))?
+                .to_sql();
+            if let Some(previous) = candidates.insert(id, row.clone())
+                && !same_native_payload(&previous, &row)?
+            {
+                return Err(ModelError::Conflict("native same-key payload"));
+            }
+        }
+        if candidates.is_empty() {
+            return Ok(());
+        }
+        let mut bindings = Variables::new();
+        bindings.insert(
+            "ids",
+            candidates
+                .values()
+                .map(|row| match row {
+                    Value::Object(object) => {
+                        object.get("id").cloned().expect("checked candidate ID")
+                    }
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<_>>(),
+        );
+        let mut response = self
+            .client
+            .query("SELECT * FROM $ids")
+            .bind(bindings)
+            .await
+            .map_err(ModelError::codec)?
+            .check()
+            .map_err(ModelError::codec)?;
+        let stored: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
+        for row in stored {
+            let Value::Object(object) = &row else {
+                return Err(ModelError::Schema("native existing object"));
+            };
+            let id = object
+                .get("id")
+                .ok_or(ModelError::Schema("native existing ID"))?
+                .to_sql();
+            let expected = candidates
+                .remove(&id)
+                .ok_or(ModelError::Conflict("unexpected native candidate"))?;
+            if !same_native_payload(&expected, &row)? {
+                return Err(ModelError::Conflict("native same-key payload"));
+            }
+        }
+        self.insert(table, candidates.into_values().collect(), false)
+            .await
+    }
+    /// Load only after every canonical endpoint is present. Parallel roles keep distinct IDs.
+    pub async fn entity_references(&self, rows: &[Entity]) -> Result<(), ModelError> {
+        let mut pending = ReferenceWrites::default();
+        for row in rows {
+            let source = entity_payload_id(row)?;
+            for (position, reference) in codec::entity_references(row).into_iter().enumerate() {
+                let target = lctx_model::domain::graph::reference_target(&reference)?.0;
+                let endpoint = external_value(&target)?;
+                let value = edge(
+                    "reference",
+                    source.clone(),
+                    target,
+                    reference.field,
+                    0,
+                    Some(u32::try_from(position).map_err(ModelError::codec)?),
+                )?;
+                self.reference_write("reference", &mut pending, value, endpoint)
+                    .await?;
+            }
+        }
+        self.flush_references("reference", &mut pending).await
+    }
+    pub async fn assertion_references(&self, rows: &[Assertion]) -> Result<(), ModelError> {
+        let mut pending = ReferenceWrites::default();
+        for row in rows {
+            let source = assertion_payload_id(row)?;
+            for participant in &row.participants {
+                let endpoint = external_value(&participant.target)?;
+                let value = edge(
+                    "participant",
+                    source.clone(),
+                    participant.target.clone(),
+                    participant.field.as_deref().unwrap_or(""),
+                    participant.role as i64,
+                    participant.position,
+                )?;
+                self.reference_write("participant", &mut pending, value, endpoint)
+                    .await?;
+            }
+            // Qualification/run/evidence/derivation references retain their native adjacency.
+            for (position, (target, _)) in row.references()?.into_iter().enumerate() {
+                if row
+                    .participants
+                    .iter()
+                    .any(|participant| participant.target == target)
+                {
+                    continue;
+                }
+                let endpoint = external_value(&target)?;
+                let value = edge(
+                    "participant",
+                    source.clone(),
+                    target,
+                    "__reference",
+                    -1,
+                    Some(u32::try_from(position).map_err(ModelError::codec)?),
+                )?;
+                self.reference_write("participant", &mut pending, value, endpoint)
+                    .await?;
+            }
+        }
+        self.flush_references("participant", &mut pending).await
+    }
+    async fn reference_write(
+        &self,
+        table: &str,
+        pending: &mut ReferenceWrites,
+        value: Value,
+        endpoint: Option<Value>,
+    ) -> Result<(), ModelError> {
+        let bytes = native_bytes(&value).saturating_add(endpoint.as_ref().map_or(0, native_bytes));
+        let limits = lctx_model::domain::batching::TransferLimits::default();
+        require_row(bytes, limits)?;
+        if !pending.edges.is_empty()
+            && (pending.edges.len() >= limits.rows
+                || pending.bytes.saturating_add(bytes) > limits.bytes)
+        {
+            self.flush_references(table, pending).await?;
+        }
+        if let Some(endpoint) = endpoint {
+            pending.endpoints.push(endpoint);
+        }
+        pending.edges.push(value);
+        pending.bytes = pending.bytes.saturating_add(bytes);
+        Ok(())
+    }
+    async fn flush_references(
+        &self,
+        table: &str,
+        pending: &mut ReferenceWrites,
+    ) -> Result<(), ModelError> {
+        // Bulk strict endpoint admission precedes every enforced relation batch.
+        self.ensure("external", std::mem::take(&mut pending.endpoints))
+            .await?;
+        self.insert(table, std::mem::take(&mut pending.edges), true)
+            .await?;
+        pending.bytes = 0;
+        Ok(())
+    }
+    pub async fn original_stream(
+        &self,
+        source: ContentHash,
+        content: ContentHash,
+        length: u64,
+        input: &mut impl std::io::Read,
+    ) -> Result<(), ModelError> {
+        self.original_stream_inner(source, content, length, input, false)
+            .await
+    }
+    /// Direct sealing compares exact existing original bytes and inserts missing chunks only.
+    pub async fn ensure_original_stream(
+        &self,
+        source: ContentHash,
+        content: ContentHash,
+        length: u64,
+        input: &mut impl std::io::Read,
+    ) -> Result<(), ModelError> {
+        self.original_stream_inner(source, content, length, input, true)
+            .await
+    }
+    async fn original_stream_inner(
+        &self,
+        source: ContentHash,
+        content: ContentHash,
+        length: u64,
+        input: &mut impl std::io::Read,
+        reuse: bool,
+    ) -> Result<(), ModelError> {
+        let source_key = source.hex();
+        let source = RecordId::new("original", source_key.clone());
+        let mut header = Object::new();
+        header.insert("id", source.clone());
+        header.insert("content", content.hex());
+        header.insert(
+            "byte_len",
+            i64::try_from(length).map_err(ModelError::codec)?,
+        );
+        self.original_rows("original", vec![Value::Object(header)], reuse)
+            .await?;
+        let mut hasher = lctx_model::domain::ContentHasher::default();
+        let mut position = 0u64;
+        let mut buffer = vec![0u8; 65536];
+        let mut pending = Vec::new();
+        loop {
+            let mut count = 0;
+            while count < buffer.len() {
+                let next = input
+                    .read(&mut buffer[count..])
+                    .map_err(ModelError::codec)?;
+                if next == 0 {
+                    break;
+                }
+                count += next;
+            }
+            if count == 0 {
+                break;
+            }
+            hasher.update(&buffer[..count]);
+            let mut row = Object::new();
+            row.insert(
+                "id",
+                RecordId::new("original_chunk", format!("{source_key}_{position}")),
+            );
+            row.insert("source", source.clone());
+            row.insert("start", i64::try_from(position).map_err(ModelError::codec)?);
+            row.insert("bytes", Bytes::from(buffer[..count].to_vec()));
+            row.insert("content", ContentHash::of(&buffer[..count]).hex());
+            pending.push(Value::Object(row));
+            if pending.len() == 64 {
+                self.original_rows("original_chunk", std::mem::take(&mut pending), reuse)
+                    .await?;
+            }
+            position += count as u64;
+        }
+        self.original_rows("original_chunk", pending, reuse).await?;
+        if position != length || hasher.finish() != content {
+            return Err(ModelError::Conflict("original bytes"));
+        }
+        Ok(())
+    }
+    async fn original_rows(
+        &self,
+        table: &str,
+        rows: Vec<Value>,
+        reuse: bool,
+    ) -> Result<(), ModelError> {
+        if reuse {
+            self.ensure(table, rows).await
+        } else {
+            self.insert(table, rows, false).await
+        }
+    }
+}
+fn external_value(target: &Target) -> Result<Option<Value>, ModelError> {
+    if !matches!(target, Target::External { .. }) {
+        return Ok(Some(anchor_value(target.clone())));
+    }
+    let mut object = Object::new();
+    object.insert("id", target_id(target.clone()));
+    object.insert(
+        "canonical",
+        Bytes::from(serde_json::to_vec(target).map_err(ModelError::codec)?),
+    );
+    Ok(Some(Value::Object(object)))
+}
+pub fn anchor_value(target: Target) -> Value {
+    let id = target_id(target);
+    let mut row = Object::new();
+    row.insert("id", id.clone());
+    row.insert(
+        "family",
+        id.table.as_str().trim_end_matches("_anchor").to_string(),
+    );
+    row.insert(
+        "nominal",
+        match &id.key {
+            surrealdb::types::RecordIdKey::String(key) => key.clone(),
+            _ => unreachable!("generated anchor"),
+        },
+    );
+    Value::Object(row)
+}
+fn graph_value(
+    table: &str,
+    id: ContentHash,
+    content: ContentHash,
+    kind: i64,
+    subtype: Option<i16>,
+    canonical: Vec<u8>,
+    view: codec::RecordView,
+) -> Result<Value, ModelError> {
+    crate::adapter::physical_row(
+        payload_id(table, &view.semantic_type, &id.0, content)?,
+        content,
+        canonical,
+        Some((kind, subtype)),
+        view,
+    )
+}
+
+fn entity_values(rows: &[Entity], canonical: Vec<Vec<u8>>) -> Result<Vec<Value>, ModelError> {
+    rows.iter()
+        .zip(codec::entity_views(rows)?)
+        .zip(canonical)
+        .map(|((row, view), canonical)| {
+            row.validate()?;
+            graph_value(
+                "entity",
+                row.id().0,
+                row.content(),
+                row.kind() as i64,
+                row.subtype(),
+                canonical,
+                view,
+            )
+        })
+        .collect()
+}
+fn assertion_values(rows: &[Assertion], canonical: Vec<Vec<u8>>) -> Result<Vec<Value>, ModelError> {
+    rows.iter()
+        .zip(codec::assertion_views(rows)?)
+        .zip(canonical)
+        .map(|((row, view), canonical)| {
+            row.validate()?;
+            graph_value(
+                "assertion",
+                row.id().0,
+                row.content(),
+                row.kind as i64,
+                None,
+                canonical,
+                view,
+            )
+        })
+        .collect()
+}
+pub fn edge(
+    table: &str,
+    source: RecordId,
+    target: Target,
+    field: &str,
+    role: i64,
+    position: Option<u32>,
+) -> Result<Value, ModelError> {
+    let mut sink = KeySink::new("native-graph-role/v1");
+    table.to_string().encode(&mut sink);
+    sink.part(
+        b"source",
+        &serde_json::to_vec(&source).map_err(ModelError::codec)?,
+    );
+    target.encode(&mut sink);
+    field.to_string().encode(&mut sink);
+    role.encode(&mut sink);
+    position.map(i64::from).encode(&mut sink);
+    let mut obj = Object::new();
+    obj.insert("id", RecordId::new(table, sink.finish().hex()));
+    obj.insert("in", source);
+    obj.insert("out", target_id(target));
+    obj.insert("field", field.to_string());
+    obj.insert("role", role);
+    obj.insert(
+        "position",
+        position.map(Value::from_t).unwrap_or(Value::Null),
+    );
+    Ok(Value::Object(obj))
+}
+pub fn json_value(value: serde_json::Value) -> Result<Value, ModelError> {
+    Ok(match value {
+        serde_json::Value::Null => Value::Null,
+        serde_json::Value::Bool(v) => v.into_value(),
+        serde_json::Value::String(v) => v.into_value(),
+        serde_json::Value::Number(v) => {
+            if let Some(v) = v.as_i64() {
+                v.into_value()
+            } else if let Some(v) = v.as_u64() {
+                v.into_value()
+            } else {
+                v.as_f64()
+                    .ok_or(ModelError::Schema("native float"))?
+                    .into_value()
+            }
+        }
+        serde_json::Value::Array(v) => v
+            .into_iter()
+            .map(json_value)
+            .collect::<Result<Vec<_>, _>>()?
+            .into_value(),
+        serde_json::Value::Object(v) => {
+            let mut obj = Object::new();
+            for (k, v) in v {
+                obj.insert(k, json_value(v)?);
+            }
+            Value::Object(obj)
+        }
+    })
+}
+
+#[derive(Default)]
+struct ReferenceWrites {
+    edges: Vec<Value>,
+    endpoints: Vec<Value>,
+    bytes: usize,
+}
+/// Conservative retained native payload estimate; transport encoding remains SDK-owned.
+fn same_native_payload(left: &Value, right: &Value) -> Result<bool, ModelError> {
+    Ok(serde_json::to_vec(left).map_err(ModelError::codec)?
+        == serde_json::to_vec(right).map_err(ModelError::codec)?)
+}
+/// Conservative retained payload estimate for native transfer and literal export admission.
+/// Traverses record keys without allocating their SQL representation.
+pub fn native_bytes(value: &Value) -> usize {
+    size_of::<Value>().saturating_add(match value {
+        Value::String(value) => value.len(),
+        Value::Bytes(value) => value.len(),
+        Value::Array(values) => values
+            .iter()
+            .map(native_bytes)
+            .fold(0, usize::saturating_add),
+        Value::Object(values) => values
+            .iter()
+            .map(|(key, value)| {
+                key.len()
+                    .saturating_add(32)
+                    .saturating_add(native_bytes(value))
+            })
+            .fold(0, usize::saturating_add),
+        Value::RecordId(value) => value.table.as_str().len().saturating_add(native_key_bytes(&value.key)),
+        _ => 0,
+    })
+}
+fn native_key_bytes(key: &surrealdb::types::RecordIdKey) -> usize {
+    use surrealdb::types::RecordIdKey;
+    use std::ops::Bound;
+    size_of::<RecordIdKey>().saturating_add(match key {
+        RecordIdKey::String(value) => value.len(),
+        RecordIdKey::Number(_) | RecordIdKey::Uuid(_) => 0,
+        RecordIdKey::Array(values) => values.iter().map(native_bytes).fold(0, usize::saturating_add),
+        RecordIdKey::Object(values) => values.iter().map(|(key, value)| {
+            key.len().saturating_add(32).saturating_add(native_bytes(value))
+        }).fold(0, usize::saturating_add),
+        RecordIdKey::Range(range) => [&range.start, &range.end].into_iter().map(|bound| match bound {
+            Bound::Included(key) | Bound::Excluded(key) => native_key_bytes(key),
+            Bound::Unbounded => 0,
+        }).fold(0, usize::saturating_add),
+    })
+}
+pub fn validate_native_row(row: &Value) -> Result<(), ModelError> {
+    require_row(
+        native_bytes(row),
+        lctx_model::domain::batching::TransferLimits::default(),
+    )
+}
+fn require_row(
+    bytes: usize,
+    limits: lctx_model::domain::batching::TransferLimits,
+) -> Result<(), ModelError> {
+    if bytes > limits.max_row {
+        return Err(ModelError::Limit {
+            owner: "native transfer",
+            limit: "row bytes",
+            observed: bytes,
+            bound: limits.max_row,
+        });
+    }
+    Ok(())
+}
+/// Indexed native writes have a smaller transaction target than logical Arrow transfers.
+/// Compiler, loading and retained-state import share these row/byte/max-row bounds.
+pub const NATIVE_WINDOW_ROWS: usize = 128;
+pub struct NativeWindows {
+    rows: std::iter::Peekable<std::vec::IntoIter<Value>>,
+    limits: lctx_model::domain::batching::TransferLimits,
+}
+impl NativeWindows {
+    pub fn new(rows: Vec<Value>) -> Self {
+        Self {
+            rows: rows.into_iter().peekable(),
+            limits: lctx_model::domain::batching::TransferLimits {
+                rows: NATIVE_WINDOW_ROWS,
+                ..Default::default()
+            },
+        }
+    }
+}
+impl Iterator for NativeWindows {
+    type Item = Result<Vec<Value>, ModelError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut output = Vec::new();
+        let mut bytes = 0usize;
+        while let Some(row) = self.rows.peek() {
+            let size = native_bytes(row);
+            if let Err(error) = require_row(size, self.limits) {
+                self.rows.next();
+                return Some(Err(error));
+            }
+            if !output.is_empty()
+                && (output.len() >= self.limits.rows
+                    || bytes.saturating_add(size) > self.limits.bytes)
+            {
+                break;
+            }
+            bytes = bytes.saturating_add(size);
+            output.push(self.rows.next().expect("peeked row"));
+        }
+        if output.is_empty() {
+            None
+        } else {
+            Some(Ok(output))
+        }
+    }
+}
+/// Canonical bytes are generated once and reused by the physical row. A single lookahead
+/// bounds the next batch before grouped Arrow bodies and native Values are allocated.
+fn canonical_native_bytes(bytes: &[u8]) -> usize {
+    let slots = bytes
+        .iter()
+        .filter(|&&byte| matches!(byte, b',' | b':' | b'[' | b'{'))
+        .count();
+    bytes
+        .len()
+        .saturating_mul(4)
+        .saturating_add(slots.saturating_mul(128))
+        .saturating_add(1024)
+}
+struct CanonicalWindows<'a, T> {
+    rows: &'a [T],
+    position: usize,
+    pending: Option<Vec<u8>>,
+    limits: lctx_model::domain::batching::TransferLimits,
+}
+impl<'a, T> CanonicalWindows<'a, T> {
+    fn new(rows: &'a [T]) -> Self {
+        Self {
+            rows,
+            position: 0,
+            pending: None,
+            limits: Default::default(),
+        }
+    }
+}
+impl<'a, T: serde::Serialize> Iterator for CanonicalWindows<'a, T> {
+    type Item = Result<(&'a [T], Vec<Vec<u8>>), ModelError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.position == self.rows.len() {
+            return None;
+        }
+        let start = self.position;
+        let mut canonical = Vec::new();
+        let mut bytes = 0usize;
+        while self.position < self.rows.len() {
+            let row = match self.pending.take().map(Ok).unwrap_or_else(|| {
+                serde_json::to_vec(&self.rows[self.position]).map_err(ModelError::codec)
+            }) {
+                Ok(row) => row,
+                Err(error) => return Some(Err(error)),
+            };
+            if let Err(error) = require_row(row.len(), self.limits) {
+                self.position += 1;
+                return Some(Err(error));
+            }
+            // Slots expand compact JSON arrays. Counting delimiters (even in strings)
+            // conservatively allows container entries without parsing another rich tree.
+            let size = canonical_native_bytes(&row);
+            if !canonical.is_empty()
+                && (canonical.len() >= self.limits.rows
+                    || bytes.saturating_add(size) > self.limits.bytes)
+            {
+                self.pending = Some(row);
+                break;
+            }
+            bytes = bytes.saturating_add(size);
+            canonical.push(row);
+            self.position += 1;
+        }
+        Some(Ok((&self.rows[start..self.position], canonical)))
+    }
+}
+
+/// A failed write transport does not establish a rejected statement or a committed effect.
+/// Checked response errors use their existing known-failure path instead.
+pub fn write_failure(error: surrealdb::Error) -> ModelError {
+    if error.is_thrown()
+        || error.is_query()
+        || error.is_validation()
+        || error.is_not_allowed()
+        || error.is_not_found()
+        || error.is_already_exists()
+        || error.is_configuration()
+    {
+        return ModelError::Cause(Box::new(error));
+    }
+    let mut completion = lctx_model::domain::completion::Completion::default();
+    completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+    lctx_model::domain::completion::complete::<()>(
+        Err(ModelError::Cause(Box::new(error))),
+        completion,
+    )
+    .unwrap_err()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn installation_index_lowering_preserves_semantic_definition() {
+        let sql = "DEFINE INDEX `index name` ON `table name` FIELDS value UNIQUE COMMENT 'CONCURRENTLY is text'";
+        let index = installation_index(sql).unwrap().unwrap();
+        assert!(index.execution.ends_with(" CONCURRENTLY"));
+        assert_eq!(index.information, "INFO FOR INDEX `index name` ON `table name`");
+        assert_eq!(installation_definitions(sql).unwrap(), installation_definitions(&index.execution).unwrap());
+        assert_ne!(installation_definitions(sql).unwrap(), installation_definitions(&sql.replace("FIELDS value", "FIELDS other")).unwrap());
+        assert_ne!(installation_definitions(sql).unwrap(), installation_definitions(&sql.replace(" UNIQUE", "")).unwrap());
+        assert!(installation_index("DEFINE FUNCTION fn::installer_control() { LET $value=1; RETURN $value; }").unwrap().is_none());
+    }
+    #[test]
+    fn installation_index_readiness_requires_terminal_success() {
+        let info = |status: &str| {
+            let mut building = Object::new(); building.insert("status", status);
+            let mut value = Object::new(); value.insert("building", building); Value::Object(value)
+        };
+        assert!(installation_index_ready(&info("ready")).unwrap());
+        for status in ["started", "cleaning", "indexing"] { assert!(!installation_index_ready(&info(status)).unwrap()); }
+        for status in ["error", "aborted", "unknown"] { assert!(installation_index_ready(&info(status)).is_err()); }
+        assert!(installation_index_ready(&Value::None).is_err());
+        assert!(installation_index_ready(&Value::Object(Object::new())).is_err());
+        let error = installation_failure("native upgrade index test readiness".into(), ModelError::Conflict("index failure"));
+        assert!(error.to_string().contains("native upgrade index test readiness"));
+        assert!(std::error::Error::source(&error).is_some());
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires explicit owned-service maintenance installer credentials"]
+    async fn checked_installer_retries_equal_definitions_and_refuses_drift() {
+        let path = std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
+            .expect("explicit validation maintenance installer configuration");
+        let config = crate::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+        assert_eq!(config.authentication, crate::AuthenticationScope::Root);
+        let client = crate::installation::check_installation(&config).await.unwrap();
+        let loader = Loader::new(client.clone());
+        let table = format!(
+            "installer_control_{}",
+            crate::control::fresh_identity("installer-retry-control")
+                .unwrap()
+                .hex()
+        );
+        let function = format!("{table}_helper");
+        let schema = format!(
+            "DEFINE TABLE {table} SCHEMAFULL; DEFINE FIELD value ON {table} TYPE string; DEFINE FUNCTION fn::{function}() {{ RETURN 'stable'; }};"
+        );
+        let result = async {
+            loader
+                .install_declarations(&schema, "installer retry control")
+                .await?;
+            // Build over existing content, then exercise catalog-present retry readiness.
+            for window in 0..4 {
+                let rows = (window * 64..(window + 1) * 64).map(|id| {
+                    let mut row = Object::new();
+                    row.insert("id", RecordId::new(table.as_str(), id.to_string()));
+                    row.insert("value", "populated"); Value::Object(row)
+                }).collect::<Vec<_>>();
+                client.query("INSERT $rows RETURN NONE").bind(("rows", rows)).await
+                    .map_err(write_failure)?.check().map_err(ModelError::codec)?;
+            }
+            let indexed_schema = format!("{schema} DEFINE INDEX populated_value ON {table} FIELDS value;");
+            loader.install_declarations(&indexed_schema, "installer populated index control").await?;
+            loader
+                .install_declarations(&indexed_schema, "installer retry control")
+                .await?;
+            let mut response = client.query(format!("INFO FOR INDEX populated_value ON {table}; SELECT VALUE id FROM {table} WITH INDEX populated_value WHERE value='populated';"))
+                .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            let readiness: Value = response.take(0).map_err(ModelError::codec)?;
+            if !installation_index_ready(&readiness)? { return Err(ModelError::Conflict("installer returned before index ready")); }
+            let selected: Vec<RecordId> = response.take(1).map_err(ModelError::codec)?;
+            if selected.len()!=256 { return Err(ModelError::Conflict("installer populated index incomplete")); }
+            if loader.install_declarations(&indexed_schema.replace("FIELDS value", "FIELDS id"), "installer index drift control").await.is_ok() {
+                return Err(ModelError::Conflict("installer accepted conflicting index"));
+            }
+            if loader
+                .install_declarations(
+                    &schema.replace("TYPE string", "TYPE int"),
+                    "installer drift control",
+                )
+                .await
+                .is_ok()
+            {
+                return Err(ModelError::Conflict(
+                    "installer accepted conflicting definition",
+                ));
+            }
+            if loader
+                .install_declarations(
+                    &schema.replace("'stable'", "'drift'"),
+                    "installer function drift control",
+                )
+                .await
+                .is_ok()
+            {
+                return Err(ModelError::Conflict(
+                    "installer accepted conflicting function",
+                ));
+            }
+            let actual = loader.installation_catalog().await?.definitions();
+            if installation_definitions(&indexed_schema)?
+                .iter()
+                .any(|definition| !actual.contains(definition))
+            {
+                return Err(ModelError::Conflict(
+                    "installer changed existing definition",
+                ));
+            }
+            Ok::<(), ModelError>(())
+        }
+        .await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        for sql in [
+            format!("REMOVE FUNCTION fn::{function}"),
+            format!("REMOVE TABLE {table}"),
+        ] {
+            completion.step(
+                "installer control definition cleanup",
+                async {
+                    client
+                        .query(sql)
+                        .await
+                        .map_err(ModelError::codec)?
+                        .check()
+                        .map_err(ModelError::codec)?;
+                    Ok(())
+                }
+                .await,
+            );
+        }
+        lctx_model::domain::completion::complete(result, completion).unwrap();
+    }
+    #[test]
+    fn shared_installation_uses_only_physical_blueprint_definitions() {
+        let search = crate::materialization::native_definitions();
+        let blueprint = |digest: &str| {
+            format!(
+                "{}DEFINE FUNCTION fn::lctx_operation_definition() {{ RETURN '{digest}'; }};\n",
+                search
+            )
+        };
+        let first = blueprint(&"0".repeat(64));
+        let second = blueprint(&"1".repeat(64));
+        let physical = physical_native_definitions(&first).unwrap();
+        assert_eq!(physical, physical_native_definitions(&second).unwrap());
+        assert_eq!(
+            installation_definitions(&physical).unwrap(),
+            installation_definitions(&search).unwrap()
+        );
+        assert!(!physical.contains("DEFINE FUNCTION"));
+        for malformed in [
+            first.clone() + "DELETE entity;",
+            first.replace("RETURN '", "DELETE entity; RETURN '"),
+            first.replace("fn::lctx_operation_definition", "fn::unreviewed_helper"),
+        ] {
+            assert!(physical_native_definitions(&malformed).is_err());
+        }
+    }
+    #[test]
+    fn installation_parses_function_boundaries_and_refuses_effect_programs() {
+        let definitions=installation_definitions("DEFINE TABLE install_control SCHEMAFULL; DEFINE FUNCTION fn::install_control() { LET $value=1; RETURN $value; };").unwrap();
+        assert_eq!(definitions.len(), 2);
+        assert!(definitions[1].contains("RETURN $value"));
+        assert!(
+            installation_definitions(
+                "DEFINE TABLE install_control SCHEMAFULL; DELETE install_control;"
+            )
+            .is_err()
+        );
+        assert!(installation_definitions("USE DB other;").is_err());
+    }
+    #[test]
+    fn canonical_windows_reuse_bytes_and_flush_before_body_lowering() {
+        let rows = vec!["a".repeat(8), "b".repeat(8), "c".repeat(8)];
+        let mut windows = CanonicalWindows::new(&rows);
+        windows.limits = lctx_model::domain::batching::TransferLimits {
+            rows: 2,
+            bytes: 4096,
+            max_row: 8192,
+        };
+        let first = windows.next().unwrap().unwrap();
+        let second = windows.next().unwrap().unwrap();
+        assert_eq!(first.0, &rows[..2]);
+        assert_eq!(second.0, &rows[2..]);
+        assert!(windows.next().is_none());
+        assert_eq!(
+            first.1,
+            rows[..2]
+                .iter()
+                .map(|row| serde_json::to_vec(row).unwrap())
+                .collect::<Vec<_>>()
+        );
+        let mut windows = CanonicalWindows::new(&rows);
+        windows.limits.bytes = 1100;
+        assert!(windows.all(|window| window.unwrap().0.len() == 1));
+    }
+    #[test]
+    fn native_windows_allow_one_large_row_and_refuse_beyond_singleton_limit() {
+        let rows = vec![
+            Value::from_t("small"),
+            Value::Bytes(Bytes::from(vec![1; 128])),
+            Value::from_t("last"),
+        ];
+        let target = native_bytes(&rows[0]);
+        let mut windows = NativeWindows::new(rows);
+        windows.limits = lctx_model::domain::batching::TransferLimits {
+            rows: 2,
+            bytes: target,
+            max_row: 4096,
+        };
+        assert_eq!(windows.next().unwrap().unwrap().len(), 1);
+        assert!(
+            matches!(&windows.next().unwrap().unwrap()[0],Value::Bytes(bytes) if bytes.len()==128)
+        );
+        assert_eq!(windows.next().unwrap().unwrap().len(), 1);
+        assert!(windows.next().is_none());
+        let mut windows = NativeWindows::new(vec![Value::Bytes(Bytes::from(vec![1; 1025]))]);
+        windows.limits.max_row = 1024;
+        assert!(matches!(
+            windows.next().unwrap(),
+            Err(ModelError::Limit { .. })
+        ));
+    }
+}

@@ -148,6 +148,26 @@ fn locate<T>(
         },
     }
 }
+/// Candidate multiplicity is semantic: a duplicate is ambiguous even at the same ID.
+struct EventIndex<'a> {
+    sites: BTreeMap<Id<Occurrence>, Option<&'a BindingEvent>>,
+    names: BTreeMap<(Id<Occurrence>, &'a str), Option<&'a BindingEvent>>,
+    _charge: Box<dyn lctx_model::domain::resources::Reservation>,
+}
+impl<'a> EventIndex<'a> {
+    fn new(events: &'a [BindingEvent], budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let charge=budget.reserve("ruff-binding-event-index",events.len().checked_mul(256).ok_or(ModelError::Schema("Ruff binding event index overflow"))?)?;
+        let mut index=Self{sites:BTreeMap::new(),names:BTreeMap::new(),_charge:charge};
+        for event in events {
+            index.sites.entry(event.site).and_modify(|hit|*hit=None).or_insert(Some(event));
+            index.names.entry((event.site,event.name.as_str())).and_modify(|hit|*hit=None).or_insert(Some(event));
+        }
+        Ok(index)
+    }
+    fn get(&self,site:Id<Occurrence>,name:&str)->Option<&'a BindingEvent>{
+        self.sites.get(&site).copied().flatten().or_else(||self.names.get(&(site,name)).copied().flatten())
+    }
+}
 impl NativeRows {
     pub fn lower(
         &self,
@@ -162,6 +182,7 @@ impl NativeRows {
             "native-ruff-local-correspondence",
             self.facts.len().saturating_mul(1024),
         )?;
+        let event_index = EventIndex::new(&source.events, budget)?;
         let mut scopes = BTreeMap::new();
         let mut definitions = BTreeMap::new();
         let mut module_definitions = BTreeSet::new();
@@ -230,24 +251,7 @@ impl NativeRows {
                     if let Some(site) = binding_site(binding, spans) {
                         // The event itself already has a canonical source identity. Native range,
                         // kind and canonical parent established it before this exact event lookup.
-                        let hits = source
-                            .events
-                            .iter()
-                            .filter(|e| e.site == site)
-                            .collect::<Vec<_>>();
-                        let hit = match hits.as_slice() {
-                            [event] => Some(*event),
-                            _ => {
-                                let exact = hits
-                                    .into_iter()
-                                    .filter(|e| e.name == binding.name)
-                                    .collect::<Vec<_>>();
-                                match exact.as_slice() {
-                                    [event] => Some(*event),
-                                    _ => None,
-                                }
-                            }
-                        };
+                        let hit = event_index.get(site, &binding.name);
                         if let Some(event) = hit {
                             events.insert(binding.id, event.id());
                             out._charge.grow(512 + event.name.len())?;
@@ -492,5 +496,25 @@ impl NativeRows {
         out.targets.sort_by_key(Record::id);
         out.targets.dedup_by_key(|row| row.id());
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod event_index_controls {
+    use super::*;
+    #[test]
+    fn indexed_binding_candidates_preserve_multiplicity_unique_site_fallback_and_ambiguity(){
+        let site:Id<Occurrence>=serde_json::from_value(serde_json::json!(vec![1u8;16])).unwrap();
+        let other:Id<Occurrence>=serde_json::from_value(serde_json::json!(vec![2u8;16])).unwrap();
+        let budget=ResourceBudget::fixed(1<<20).unwrap();
+        for events in [vec![],vec![BindingEvent{site,name:"one".into()}],vec![BindingEvent{site,name:"one".into()},BindingEvent{site,name:"two".into()}],vec![BindingEvent{site,name:"one".into()},BindingEvent{site,name:"one".into()}]]{
+            let index=EventIndex::new(&events,&budget).unwrap();
+            for selected in [site,other]{for name in ["one","two","unknown"]{
+                let hits:Vec<_>=events.iter().filter(|event|event.site==selected).collect();
+                let old=match hits.as_slice(){[event]=>Some(*event),_=>{let exact:Vec<_>=hits.into_iter().filter(|event|event.name==name).collect();match exact.as_slice(){[event]=>Some(*event),_=>None}}};
+                assert_eq!(index.get(selected,name),old);
+            }}
+            drop(index);assert_eq!(budget.reserved(),0);
+        }
     }
 }

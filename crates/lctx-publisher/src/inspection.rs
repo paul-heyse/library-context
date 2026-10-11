@@ -5,7 +5,7 @@ use lctx_model::domain::{
     graph::{Manifest, semantic_contract},
     serving::SnapshotHandle,
 };
-use lctx_surrealdb::{
+use lctx_native::{
     Loader, NativeReader, RuntimeConfig, reader,
     surrealdb::{
         Surreal,
@@ -23,7 +23,7 @@ pub struct SnapshotDetails {
     pub bindings: Vec<CompletedBinding>,
 }
 #[derive(SurrealValue)]
-#[surreal(crate = "lctx_surrealdb::surrealdb::types")]
+#[surreal(crate = "lctx_native::surrealdb::types")]
 pub(crate) struct Marker {
     pub handle: String,
     pub manifest: Bytes,
@@ -83,11 +83,11 @@ pub async fn show(reader: &NativeReader) -> Result<SnapshotDetails, ModelError> 
     let mut exact = std::collections::BTreeMap::new();
     for logical in logical {
         let mut vars = Variables::new(); vars.insert("logical", logical);
-        let mut rows = reader.stream_prepared(lctx_surrealdb::prepared::PreparedQuery::new(vars, vec![], vec!["SELECT descriptor FROM compiler_contribution WITH INDEX logical_contribution WHERE completed=true AND logical=$logical ORDER BY id".into()])?)?;
+        let mut rows = reader.stream_prepared(lctx_native::prepared::PreparedQuery::new(vars, vec![], vec!["SELECT descriptor FROM compiler_contribution WITH INDEX logical_contribution WHERE completed=true AND logical=$logical ORDER BY id".into()])?)?;
         let result = async {
             while let Some(value) = rows.next().await? {
-                let lctx_surrealdb::surrealdb::types::Value::Object(row) = value else { return Err(ModelError::Schema("inspection contributor object")); };
-                let Some(lctx_surrealdb::surrealdb::types::Value::Bytes(bytes)) = row.get("descriptor") else { return Err(ModelError::Schema("inspection contributor descriptor")); };
+                let lctx_native::surrealdb::types::Value::Object(row) = value else { return Err(ModelError::Schema("inspection contributor object")); };
+                let Some(lctx_native::surrealdb::types::Value::Bytes(bytes)) = row.get("descriptor") else { return Err(ModelError::Schema("inspection contributor descriptor")); };
                 let contribution: CompletedContribution = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
                 let identity = contribution.identity()?;
                 if let Some(previous) = exact.insert(identity, (bytes.clone(), contribution)) {
@@ -123,7 +123,7 @@ pub async fn list(config: &RuntimeConfig) -> Result<Vec<SnapshotHandle>, ModelEr
         config.database.as_str(),
     )
     .await?;
-    lctx_surrealdb::control::check_installation(&client, config.service_generation).await?;
+    lctx_native::control::check_installation(&client, config.service_generation).await?;
     let result = async {
         let mut response = client
             .query("SELECT handle,manifest,views FROM publication ORDER BY id")
@@ -180,7 +180,7 @@ async fn audit_owned(
     native_definitions: &str,
     cancel: &crate::owned_read::Cancellation,
 ) -> Result<(), ModelError> {
-    let budget = lctx_model::domain::resources::ResourceBudget::fixed(cpg_core::workspace::WorkspaceOptions::default().memory_bytes)?;
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)?;
     let reader = NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
@@ -194,7 +194,7 @@ async fn audit_owned(
         if manifest.semantic_contract != semantic_contract(&lctx_model::domain::model()?) {
             return Err(ModelError::Conflict("audit semantic contract"));
         }
-        let compiler = lctx_surrealdb::compiler::NativeCompilerStore::publication_owner(
+        let compiler = lctx_compiler_store::compiler::NativeCompilerStore::publication_owner(
             reader.shared_client(), config.namespace.clone(), config.database.clone(), bindings.clone(),
         )?;
         compiler.set_read_cancellation(cancel.flag())?;

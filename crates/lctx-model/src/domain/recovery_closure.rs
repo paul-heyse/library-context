@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Adding content therefore enters every adapter's family match automatically.
 macro_rules! recovery_families {
     ($($family:ident),+ $(,)?) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
         pub enum RecoveryFamily { $($family),+ }
         pub const RECOVERY_FAMILIES: &[RecoveryFamily] = &[$(RecoveryFamily::$family),+];
     };
@@ -53,7 +53,17 @@ pub struct RecoveryTraversal {
 impl RecoveryTraversal {
     pub fn new(bindings: Vec<CompletedBinding>) -> Result<Self, ModelError> {
         binding_inventory_identity(&bindings)?;
-        Ok(Self { pending: bindings.iter().map(|b| b.view.clone()).collect(), closure: RecoveryClosure {
+        Self::from_roots(bindings.iter().map(|b| b.view.clone()).collect(), bindings)
+    }
+    /// A physical completed view exists before a consumer chooses a binding. Its
+    /// dependency closure therefore has explicit view roots and an empty binding
+    /// inventory, rather than an invented source/configuration/boundary binding.
+    pub fn for_views(views: Vec<CompletedView>) -> Result<Self, ModelError> {
+        Self::from_roots(views, Vec::new())
+    }
+    fn from_roots(pending: Vec<CompletedView>, bindings: Vec<CompletedBinding>) -> Result<Self, ModelError> {
+        for view in &pending { view.validate()?; }
+        Ok(Self { pending, closure: RecoveryClosure {
             bindings, views: BTreeMap::new(), contributions: BTreeMap::new(),
         } })
     }
@@ -125,6 +135,19 @@ mod tests {
             spec: ContributionSpec { captured_binding: None, producer: format!("closure:{}", outputs[0].0), profile: Profile::Catalog, model: ContentHash::of(b"model"), implementation: ContentHash::of(b"implementation"), configuration: None, inputs, outputs: outputs.iter().map(|(name, _)| name.to_string()).collect() },
             outcome: 0, outputs: outputs.iter().map(|(name, rows)| (name.to_string(), OutputContent { rows: *rows, content: ContentHash::of(name.as_bytes()) })).collect(),
         }
+    }
+    #[test]
+    fn unbound_empty_view_retains_exact_dependency_meaning_without_fabricating_a_binding() {
+        let seed = contribution(Vec::new(), &[("packages", 0)]);
+        let view = CompletedView::new("packages".into(), [seed.identity().unwrap()].into(), 0).unwrap();
+        let mut traversal = RecoveryTraversal::for_views(vec![view.clone()]).unwrap();
+        let requested = traversal.next_view().unwrap().unwrap();
+        traversal.include_view(&requested, view.clone(), vec![seed.clone()], |_| unreachable!()).unwrap();
+        assert!(traversal.next_view().unwrap().is_none());
+        let closure = traversal.finish().unwrap();
+        assert!(closure.bindings().is_empty());
+        assert_eq!(closure.views()[&view.identity], view);
+        assert_eq!(closure.contributions()[&seed.identity().unwrap()], seed);
     }
     #[test]
     fn whole_empty_dependency_and_unbound_sibling_output_remain_recoverable() {

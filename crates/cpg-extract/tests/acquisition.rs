@@ -440,7 +440,7 @@ async fn an_installed_library_and_its_corpus_acquire_every_class_and_role() {
     assert!(rows.origins.iter().any(|o| matches!(o, InputOrigin::Installed { library, requirement, installer, .. }
         if library == "demo" && requirement == "demo==1.0" && installer.as_deref() == Some("uv 0.12.18"))), "{:?}", rows.origins);
     assert!(rows.origins.iter().any(|o| matches!(o, InputOrigin::Corpus { repository, revision }
-        if repository == "https://github.com/x/demo" && revision == "0123456789abcdef0123456789abcdef01234567")), "{:?}", rows.origins);
+        if repository == "https://github.com/x/demo" && revision == &format!("base:0123456789abcdef0123456789abcdef01234567;captured:{}", rows.revisions.iter().find(|r| r.id() == corpus).unwrap().manifest.hex()))), "{:?}", rows.origins);
 }
 
 /// Review focus #5: acquisition reads; it never writes into the source tree, the environment or

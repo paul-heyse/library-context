@@ -9,6 +9,7 @@ use lctx_model::domain::{
     source::SourceArtifact,
     *,
 };
+use sha2::{Digest as _, Sha256};
 use std::{
     fs::{self, File, Metadata},
     io::{Read, Write},
@@ -77,7 +78,15 @@ impl CapturedInput {
         paths: &[String],
         budget: &ResourceBudget,
     ) -> Result<Self, CaptureError> {
-        Self::capture_with(root, paths, budget, |_| Ok(()), &[], |_, _| Ok(Vec::new()))
+        Self::capture_with(root, paths, budget, None, |_| Ok(()), &[], |_, _| Ok(Vec::new()))
+    }
+    /// Compute verification SHA-256 from the same stream copied into the retained tree.
+    /// The callback binds supplier evidence to actual copied bytes, before capture succeeds.
+    pub fn capture_verified(
+        root: &Path, paths: &[String], budget: &ResourceBudget,
+        mut verify: impl FnMut(&str, [u8;32]) -> Result<(), CaptureError>,
+    ) -> Result<Self, CaptureError> {
+        Self::capture_with(root, paths, budget, Some(&mut verify), |_| Ok(()), &[], |_,_|Ok(Vec::new()))
     }
     /// Capture `paths`, then derive artifacts from the frozen copy of each of `documents`: `derive`
     /// receives a document's path and frozen bytes, and each derived artifact is written read-only
@@ -89,12 +98,13 @@ impl CapturedInput {
         documents: &[String],
         derive: impl FnMut(&str, &[u8]) -> Result<Vec<Derived>, CaptureError>,
     ) -> Result<Self, CaptureError> {
-        Self::capture_with(root, paths, budget, |_| Ok(()), documents, derive)
+        Self::capture_with(root, paths, budget, None, |_| Ok(()), documents, derive)
     }
     fn capture_with(
         root: &Path,
         paths: &[String],
         budget: &ResourceBudget,
+        mut verify: Option<&mut dyn FnMut(&str, [u8;32]) -> Result<(), CaptureError>>,
         mut after_copy: impl FnMut(&Path) -> Result<(), CaptureError>,
         documents: &[String],
         mut derive: impl FnMut(&str, &[u8]) -> Result<Vec<Derived>, CaptureError>,
@@ -155,8 +165,13 @@ impl CapturedInput {
                 .len
                 .checked_add(1)
                 .ok_or_else(|| ModelError::Invalid("artifact length overflow".into()))?;
-            let (content, byte_len) =
-                copy_digest(&mut (&mut input).take(read_limit), &mut output, &mut buffer)?;
+            let mut sha256 = verify.as_ref().map(|_|Sha256::new());
+            let (content, byte_len) = copy_digest_with(
+                &mut (&mut input).take(read_limit), &mut output, &mut buffer, sha256.as_mut(),
+            )?;
+            if let (Some(verify), Some(sha256)) = (verify.as_mut(), sha256) {
+                verify(path, sha256.finalize().into())?;
+            }
             output.flush()?;
             if Stamp::of(&input.metadata()?)? != before || byte_len as u64 != before.len {
                 return Err(CaptureError::Changed(original));
@@ -430,13 +445,45 @@ impl CapturedInput {
         capture.finish(&mut emit)?;
         Ok(count)
     }
-    /// Recheck frozen bytes after a provider finishes, before its rows can publish.
+    /// Check exact captured file membership, forbidden paths and every manifest byte.
+    /// Directory traversal streams entries; no second whole-tree inventory is materialized.
     pub fn verify(&self) -> Result<(), CaptureError> {
-        for index in 0..self.artifacts.len() {
-            self.emit_chunks(index, |_| Ok(()))?;
+        if fs::symlink_metadata(self.root())?.file_type().is_symlink() {
+            return Err(CaptureError::Unsupported(self.root().into()));
         }
+        let _walk = self.budget.reserve("captured-tree-walk", BUFFER_BYTES)?;
+        let mut walk_charge = self.budget.reserve("captured-tree-directories", 4096)?;
+        let mut stack = vec![fs::read_dir(self.root())?];
+        let mut files = 0usize;
+        while let Some(directory) = stack.last_mut() {
+            let Some(entry) = directory.next() else { stack.pop(); continue; };
+            let entry = entry?;
+            let path = entry.path();
+            let kind = entry.file_type()?;
+            if kind.is_symlink() || !(kind.is_dir() || kind.is_file()) {
+                return Err(CaptureError::Unsupported(path));
+            }
+            let relative = path.strip_prefix(self.root()).map_err(|_| CaptureError::Unsupported(path.clone()))?
+                .to_str().ok_or_else(|| CaptureError::Unsupported(path.clone()))?;
+            validate_path(relative)?;
+            if kind.is_dir() {
+                // Charge the retained traversal frames before pushing a new directory.
+                walk_charge.try_resize(walk_charge.size().max((stack.len()+1).checked_mul(4096+path.as_os_str().len()).ok_or(ModelError::Schema("captured tree traversal overflow"))?))?;
+                stack.push(fs::read_dir(path)?);
+            } else {
+                if self.artifacts.binary_search_by(|artifact| artifact.path.as_str().cmp(relative)).is_err() {
+                    return Err(CaptureError::Unsupported(path));
+                }
+                files = files.checked_add(1).ok_or(ModelError::Schema("captured tree membership overflow"))?;
+            }
+        }
+        if files != self.artifacts.len() {
+            return Err(CaptureError::Changed(self.root().into()));
+        }
+        for index in 0..self.artifacts.len() { self.emit_chunks(index, |_| Ok(()))?; }
         Ok(())
     }
+
 }
 fn private_directory() -> std::io::Result<tempfile::TempDir> {
     let mut builder = tempfile::Builder::new();
@@ -491,6 +538,12 @@ fn copy_digest(
     output: &mut File,
     buffer: &mut [u8],
 ) -> Result<(ContentHash, i64), CaptureError> {
+    copy_digest_with(input, output, buffer, None)
+}
+fn copy_digest_with(
+    input: &mut impl Read, output: &mut File, buffer: &mut [u8],
+    mut sha256: Option<&mut Sha256>,
+) -> Result<(ContentHash, i64), CaptureError> {
     let mut digest = ContentHasher::default();
     let mut length = 0i64;
     loop {
@@ -502,6 +555,7 @@ fn copy_digest(
             .checked_add(read as i64)
             .ok_or_else(|| ModelError::Invalid("artifact length overflow".into()))?;
         digest.update(&buffer[..read]);
+        if let Some(sha256) = &mut sha256 { sha256.update(&buffer[..read]); }
         output.write_all(&buffer[..read])?;
     }
     Ok((digest.finish(), length))
@@ -519,6 +573,7 @@ mod tests {
             root.path(),
             &["input.py".into()],
             &budget,
+            None,
             |original| {
                 fs::write(original, b"changed during capture")?;
                 Ok(())
@@ -528,5 +583,26 @@ mod tests {
         );
         assert!(matches!(result, Err(CaptureError::Changed(_))));
         assert_eq!(budget.reserved(), 0);
+    }
+}
+
+#[cfg(test)]
+mod verification_controls {
+    use super::*;
+    #[test]
+    fn record_digest_is_computed_from_exact_copied_stream_and_refusal_releases_capture() {
+        let source=tempfile::tempdir().unwrap();
+        let bytes=(0..=255u8).cycle().take(BUFFER_BYTES*2+17).collect::<Vec<_>>();
+        fs::write(source.path().join("api.py"),&bytes).unwrap();
+        let budget=ResourceBudget::fixed(8<<20).unwrap();
+        let expected:[u8;32]=Sha256::digest(&bytes).into();
+        let mut checked=0;
+        let captured=CapturedInput::capture_verified(source.path(),&["api.py".into()],&budget,|path,digest|{
+            assert_eq!(path,"api.py");assert_eq!(digest,expected);checked+=1;Ok(())
+        }).unwrap();
+        assert_eq!(checked,1);assert_eq!(fs::read(captured.root().join("api.py")).unwrap(),bytes);
+        drop(captured);assert_eq!(budget.reserved(),0);
+        assert!(CapturedInput::capture_verified(source.path(),&["api.py".into()],&budget,|_,_|Err(ModelError::Conflict("controlled RECORD mismatch").into())).is_err());
+        assert_eq!(budget.reserved(),0);
     }
 }

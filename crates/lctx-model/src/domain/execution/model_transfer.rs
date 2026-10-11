@@ -60,6 +60,7 @@ pub(super) struct TransferRuleInputs<'a> {
 
 pub(super) struct TransferEntryInputs<'a> {
     pub(super) entry_data: &'a EntryData,
+    pub(super) conditions: &'a conditions::PreparedConditions<'a>,
     pub(super) entries: &'a Rows<EntryValueWitness>,
     pub(super) sources: &'a Rows<EntryAccessSource>,
 }
@@ -82,6 +83,7 @@ impl CheckedModelTransfer {
         } = transfer_rule_inputs;
         let TransferEntryInputs {
             entry_data,
+            conditions,
             entries,
             sources,
         } = transfer_entry_inputs;
@@ -169,7 +171,7 @@ impl CheckedModelTransfer {
         let entry = match produced {
             Some(produced) => produced.local.entry(witness, source, budget)?,
             None => {
-                match EntryValueWitness::derive_for(entry_data, witness.request(), source, budget)?
+                match EntryValueWitness::derive_for_prepared(entry_data, witness.request(), source, conditions, budget)?
                 {
                     Ok(value) => std::sync::Arc::new(value),
                     Err(reason) => return Ok(Err(reason)),

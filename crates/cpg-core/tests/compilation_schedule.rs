@@ -1,5 +1,6 @@
 //! Complete compiler scheduling over the actual declared model, before native effects.
-use cpg_core::{compilation::PreparedCompilation, embedding_service::Embedder, facts};
+use lctx_model::domain::embedding::Embedder;
+use cpg_core::{compilation::PreparedCompilation, facts};
 use lctx_model::domain::{
     admission::Frontier, analysis, analysis::settings::AnalyticsConfiguration, stages::*, *,
 };

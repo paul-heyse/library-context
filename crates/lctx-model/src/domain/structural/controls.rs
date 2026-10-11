@@ -249,6 +249,7 @@ struct FlowInputs<'a> {
     d: &'a Data,
     h: &'a handoffs::Data,
     base: &'a build::Data,
+    prepared: &'a handoffs::Conditions<'a>,
 }
 
 fn flow(
@@ -260,7 +261,7 @@ fn flow(
     out: &mut Output,
     budget: &resources::ResourceBudget,
 ) -> Result<bool, ModelError> {
-    let FlowInputs { d, h, base } = flow_inputs;
+    let FlowInputs { d, h, base, prepared } = flow_inputs;
     let attempt = need(&h.attempts, binding.attempt)?;
     let alt = need(&base.events.alternatives, attempt.alternative)?;
     let Some(callee) = alt.entity else {
@@ -293,13 +294,14 @@ fn flow(
     let alias = alias
         .map(|id| need(&out.handoff_values, id).cloned())
         .transpose()?;
-    let q = super::qualifications::intersect(
+    let q = super::qualifications::intersect_prepared(
         base,
         q,
         local_q,
         alias.as_ref(),
         site.source,
         out,
+        prepared,
         budget,
     )?;
     let (catches, tested) = suppression(h, d, site, entry.formal, entry.owner, q.context)?;
@@ -330,13 +332,20 @@ fn flow(
     Ok(true)
 }
 /// Only exact Local identity contributions and the canonical effective binder permit following.
-pub fn produce(
+pub fn produce(d: &Data, base: &build::Data, frame: &StructuralFrame, invocation: &owner::Invocation,
+    settings: &AnalyticsConfiguration, out: &mut Output, budget: &resources::ResourceBudget)
+    -> Result<(), ModelError> {
+    let prepared = handoffs::Conditions::new(&base.handoffs, budget)?;
+    produce_prepared(d, base, frame, invocation, settings, out, &prepared, budget)
+}
+pub(super) fn produce_prepared(
     d: &Data,
     base: &build::Data,
     frame: &StructuralFrame,
     invocation: &owner::Invocation,
     settings: &AnalyticsConfiguration,
     out: &mut Output,
+    prepared: &handoffs::Conditions<'_>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     let h = &base.handoffs;
@@ -375,7 +384,7 @@ pub fn produce(
                 continue;
             }
             flow(
-                FlowInputs { d, h, base },
+                FlowInputs { d, h, base, prepared },
                 frame,
                 binding,
                 proof,
@@ -387,7 +396,7 @@ pub fn produce(
         if bound
             && argument.syntax_kind == SyntaxKind::ExprName
             && let Some((_, alias)) =
-                handoffs::named_definition(h, argument, invocation.context, budget)?
+                handoffs::named_definition_prepared(h, argument, invocation.context, &prepared.entry, budget)?
             && let handoffs::ValueSource::Named { definition, .. } = &alias
         {
             for proof in d.contributions.iter() {
@@ -395,11 +404,11 @@ pub fn produce(
                 if value.kind == FlowSinkKind::Definition
                     && value.transfer == transfer::TransferKind::Identity
                     && proof.definition == Some(*definition)
-                    && alias_covers(h, &alias, proof.qualification, budget)?
+                    && alias_covers(h, &alias, proof.qualification, prepared, budget)?
                 {
                     out.handoff_values.insert(alias.clone())?;
                     flow(
-                        FlowInputs { d, h, base },
+                        FlowInputs { d, h, base, prepared },
                         frame,
                         binding,
                         proof,
@@ -507,7 +516,7 @@ pub fn produce(
         }
     }
     unmapped(d, base, frame, invocation, out)?;
-    traverse(d, base, frame, invocation.context, settings, out, budget)
+    traverse(d, base, frame, invocation.context, settings, out, prepared, budget)
 }
 struct State {
     target: Id<EntityRef>,
@@ -527,6 +536,7 @@ fn traverse(
     context: Id<attribution::AnalysisContext>,
     settings: &AnalyticsConfiguration,
     out: &mut Output,
+    prepared: &handoffs::Conditions<'_>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut roots = charged::ChargedSet::default();
@@ -618,7 +628,7 @@ fn traverse(
                 })?;
             }
             if !state.suppressed {
-                raises(d, &base.handoffs, &path, context, out, budget)?;
+                raises(d, &base.handoffs, &path, context, out, prepared, budget)?;
             }
             let current = (
                 state.target,
@@ -686,6 +696,7 @@ fn raises(
     path: &ControlPath,
     context: Id<attribution::AnalysisContext>,
     out: &mut Output,
+    prepared: &handoffs::Conditions<'_>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     for entry in d.entries.iter().filter(|e| {
@@ -755,17 +766,8 @@ fn raises(
                     if (q.context, q.scope) != (entry.context, lq.scope) {
                         continue;
                     }
-                    let _nodes = budget.reserve(
-                        "control-raise-condition",
-                        h.entry
-                            .condition_nodes
-                            .len()
-                            .checked_mul(2048)
-                            .ok_or_else(|| invalid("condition allocation overflow"))?,
-                    )?;
-                    let nodes = h.entry.condition_nodes.iter().cloned().collect::<Vec<_>>();
                     let condition =
-                        Diagram::from_records(need(&h.entry.conditions, q.condition)?, &nodes)?;
+                        prepared.entry.diagram(need(&h.entry.conditions, q.condition)?)?;
                     if condition.is_false() {
                         continue;
                     }
@@ -822,6 +824,7 @@ fn alias_covers(
     h: &handoffs::Data,
     alias: &handoffs::ValueSource,
     local: Id<AssertionQualification>,
+    prepared: &handoffs::Conditions<'_>,
     budget: &resources::ResourceBudget,
 ) -> Result<bool, ModelError> {
     let handoffs::ValueSource::Named { observation, .. } = alias else {
@@ -835,17 +838,8 @@ fn alias_covers(
     if (q.context, q.scope) != (local.context, local.scope) {
         return Ok(false);
     }
-    let _nodes = budget.reserve(
-        "alias-condition-replay",
-        h.local
-            .condition_nodes
-            .len()
-            .checked_mul(2048)
-            .ok_or_else(|| invalid("alias condition overflow"))?,
-    )?;
-    let nodes = h.local.condition_nodes.iter().cloned().collect::<Vec<_>>();
-    let read = handoffs::named_condition(h, alias, budget)?;
-    let local = Diagram::from_records(need(&h.local.conditions, local.condition)?, &nodes)?;
+    let read = handoffs::named_condition_prepared(h, alias, &prepared.entry, budget)?;
+    let local = prepared.local.diagram(need(&h.local.conditions, local.condition)?)?;
     let covered = read
         .admitted_binary(&local, BooleanOperation::Conjunction, budget)
         .map_err(|e| match e {

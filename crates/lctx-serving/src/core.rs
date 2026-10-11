@@ -9,7 +9,7 @@ use lctx_model::domain::{
     serving::*,
     *,
 };
-use lctx_surrealdb::{NativeReader, batches::CanonicalBatches, reader::target_id};
+use lctx_native::{NativeReader, batches::CanonicalBatches, reader::target_id};
 use std::collections::BTreeSet;
 
 // The core emits native type presentations, not structural TypeTerm trees. Only IDs

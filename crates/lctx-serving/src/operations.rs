@@ -6,7 +6,7 @@ use lctx_model::domain::{
     serving::*,
     *,
 };
-use lctx_surrealdb::{NativeReader, RecordSelection};
+use lctx_native::{NativeReader, RecordSelection};
 fn inputs(domains: &[LibraryDomainPacket]) -> Vec<[u8; 16]> {
     domains
         .iter()
@@ -43,6 +43,34 @@ fn page<T>(
         availability,
     )
     .map_err(wire)
+}
+pub(crate) fn hydrate_page<T, U>(compact: SectionPage<T>, mut hydrate: impl FnMut(T) -> Result<U, ModelError>)
+    -> Result<SectionPage<U>, ModelError> {
+    Ok(SectionPage { availability: compact.availability, continuation: compact.continuation,
+        omitted: compact.omitted, truncated: compact.truncated,
+        items: compact.items.into_iter().map(&mut hydrate).collect::<Result<_, _>>()? })
+}
+fn compact_candidates<'a>(
+    candidates: impl IntoIterator<Item = &'a selection::evaluate::CandidateSelection>,
+    data: &selection::classification::ClassificationData,
+    domains: &[LibraryDomainPacket],
+    budget: &ResourceBudget,
+) -> Result<(Vec<(ContentHash, &'a selection::evaluate::CandidateSelection)>, charged::StateCharge), ModelError> {
+    let mut values = Vec::new();
+    let mut charge = charged::StateCharge::new(budget, "compact-operation-page");
+    for candidate in candidates {
+        candidates::validate(candidate, data, domains)?;
+        if values.len() == values.capacity() {
+            let additional = values.capacity().max(4);
+            // Stable key sorting and the selected reference page may coexist with this
+            // vector. Admit all three compact allocations before growing it.
+            charge.grow(additional.checked_mul(3 * size_of::<(ContentHash, &selection::evaluate::CandidateSelection)>())
+                .ok_or(ModelError::Schema("compact candidate page overflow"))?)?;
+            values.reserve_exact(additional);
+        }
+        values.push((candidates::selection_key(candidate), candidate));
+    }
+    Ok((values, charge))
 }
 fn extent(selected: &selection::evaluate::Selected) -> SelectionExtent {
     SelectionExtent::CompleteDomain {
@@ -89,27 +117,18 @@ pub async fn dispatch(
             let domains = crate::library::resolve_prepared(reader, Some(&r.library), b, preparation).await?;
             let data = chosen(reader, preparation, &r.library, None, &r.selection.0, b).await?;
             let group = |outcome, group| {
-                let values = data
+                let (values, _compact) = compact_candidates(data
                     .selected
                     .group(outcome)
                     .filter(|_| {
                         r.selection.0.mode == selection::Mode::Discovery
                             || outcome == selection::Outcome::Supported
                     })
-                    .map(|c| {
-                        let p = candidates::packet(c, data.prepared.data(), &domains)?;
-                        Ok((candidates::key(&p), p))
-                    })
-                    .collect::<Result<Vec<_>, ModelError>>()?;
-                page(
-                    values,
-                    request,
-                    reader,
-                    group,
-                    "results",
-                    None,
-                    Availability::Available {},
-                )
+                    , data.prepared.data(), &domains, b)?;
+                let compact = page(
+                    values, request, reader, group, "results", None, Availability::Available {},
+                )?;
+                hydrate_page(compact, |candidate| candidates::packet(candidate, data.prepared.data(), &domains))
             };
             Ok(Response::FindOperations(FindOperationsResponse {
                 delivery: Optional::default(),
@@ -375,33 +394,25 @@ async fn search_operations(
         .into_iter()
         .collect::<Vec<_>>();
     let ranked = fusion(reader, r.query.as_str(), vector, &scores, &promoted, b)?;
-    let mut values = Vec::new();
+    let mut nominated = Vec::new();
     for hit in ranked {
         let ranking::Target::Member { member } = hit.target else {
             return Err(ModelError::Schema("member ranking target"));
         };
-        let matched = selected
-            .selected
-            .eligible()
-            .filter(|c| {
-                c.member == member
-                    && c.analysis == hit.context
-                    && (promoted.contains(&member)
-                        || hit
-                            .witnesses
-                            .iter()
-                            .any(|w| w.occurrence.context == c.analysis))
-            })
-            .collect::<Vec<_>>();
-        for c in matched {
-            let p = candidates::packet(c, selected.prepared.data(), &domains)?;
+        for candidate in selected.selected.eligible().filter(|candidate| {
+            candidate.member == member && candidate.analysis == hit.context
+                && (promoted.contains(&member) || hit.witnesses.iter().any(|w| w.occurrence.context == candidate.analysis))
+        }) {
             retained.admit_copy(&hit).map_err(wire)?;
-            values.push((hit.clone(), candidates::key(&p), p));
+            nominated.push((hit.clone(), candidate));
         }
     }
-    let (results, ranking) =
-        crate::pagination::ranked(values, request, reader.handle(), channels, retained)
-            .map_err(wire)?;
+    let mut assembly = retained.begin(nominated.len(), request, reader.handle(), channels).map_err(wire)?;
+    for (hit, candidate) in nominated {
+        let packet = candidates::packet(candidate, selected.prepared.data(), &domains)?;
+        assembly.push(hit, candidates::selection_key(candidate), packet).map_err(wire)?;
+    }
+    let (results, ranking) = assembly.finish().map_err(wire)?;
     Ok(SearchOperationsResponse {
         delivery: Optional::default(),
         snapshot: reader.handle().clone(),
@@ -449,24 +460,17 @@ async fn search_evidence(
     )
     .await?;
     let ranked = fusion(reader, r.query.as_str(), vector, &scores, &[], b)?;
-    let packets = crate::evidence::hits(reader, preparation, &ranked, &domains, b).await?;
-    if packets.len() != ranked.len() {
-        return Err(ModelError::Schema("retained evidence packet count"));
+    let batches = if ranked.is_empty() { None } else {
+        Some(crate::evidence::hydrate_hits(reader, preparation, &ranked).await?)
+    };
+    let data = batches.as_ref().map(|batches| crate::records::Prepared::new(batches, b));
+    let mut assembly = retained.begin(ranked.len(), request, reader.handle(), channels).map_err(wire)?;
+    for hit in ranked {
+        let packet = crate::evidence::hit_packet(data.as_ref().expect("nonempty evidence preparation"), &hit, &domains)?;
+        let ranking::Target::Unit { unit } = hit.target else { return Err(ModelError::Schema("evidence ranking target")); };
+        assembly.push(hit, crate::pagination::target_key(ranking::Target::Unit { unit }), packet).map_err(wire)?;
     }
-    let mut values = Vec::new();
-    for (hit, packet) in ranked.into_iter().zip(packets) {
-        let ranking::Target::Unit { unit } = hit.target else {
-            return Err(ModelError::Schema("evidence ranking target"));
-        };
-        values.push((
-            hit,
-            crate::pagination::target_key(ranking::Target::Unit { unit }),
-            packet,
-        ));
-    }
-    let (results, ranking) =
-        crate::pagination::ranked(values, request, reader.handle(), channels, retained)
-            .map_err(wire)?;
+    let (results, ranking) = assembly.finish().map_err(wire)?;
     Ok(SearchEvidenceResponse {
         delivery: Optional::default(),
         snapshot: reader.handle().clone(),
@@ -562,10 +566,10 @@ async fn search_capabilities(
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
-    let mut values = Vec::new();
+    let mut assembly = retained.begin(nominated.len(), request, reader.handle(), channels).map_err(wire)?;
     for cohort in brief_ids.chunks(64) {
         let data = crate::capability::hydrate(reader, preparation, cohort, b).await?;
-        let data=crate::records::Prepared::new(&data,b);
+        let data = crate::records::Prepared::new(&data, b);
         let prepared = crate::capability::Prepared::new(&data, b)?;
         for brief in cohort {
             let packet = prepared.packet(*brief, b)?;
@@ -574,24 +578,14 @@ async fn search_capabilities(
                 graph::Target::Entity(id) => id.0,
                 _ => return Err(ModelError::Schema("brief graph key")),
             };
-            for (ordinal, (hit, _)) in nominated
-                .iter()
-                .enumerate()
-                .filter(|(_, (_, id))| id == brief)
-            {
-                retained.admit_copy(&(hit, key, &packet)).map_err(wire)?;
-                values.push((ordinal, hit.clone(), key, packet.clone()));
+            for (ordinal, (hit, _)) in nominated.iter().enumerate().filter(|(_, (_, id))| id == brief) {
+                // Only one brief body is live; its frozen row is installed at the
+                // original ranked ordinal even though hydration is grouped by brief.
+                assembly.push_ref_at(ordinal, hit, key, &packet).map_err(wire)?;
             }
         }
     }
-    values.sort_by_key(|row| row.0);
-    let values = values
-        .into_iter()
-        .map(|(_, hit, key, packet)| (hit, key, packet))
-        .collect();
-    let (results, ranking) =
-        crate::pagination::ranked(values, request, reader.handle(), channels, retained)
-            .map_err(wire)?;
+    let (results, ranking) = assembly.finish().map_err(wire)?;
     Ok(SearchCapabilitiesResponse {
         delivery: Optional::default(),
         snapshot: reader.handle().clone(),
@@ -729,19 +723,9 @@ async fn browse(
             .members
             .get(c.member)
             .ok_or(ModelError::Schema("browse member"))?;
-        let p = candidates::packet(c, data, &domains)?;
+        if r.view != BrowseView::Members { candidates::validate(c, data, &domains)?; }
         match r.view {
-            BrowseView::Members => values.push((
-                candidates::key(&p),
-                BrowseEntry::Member {
-                    candidate: p,
-                    ownership: if matches!(r.scope, BrowseScope::Class { .. }) {
-                        Availability::Available {}
-                    } else {
-                        Availability::NotRequested {}
-                    },
-                },
-            )),
+            BrowseView::Members => {},
             BrowseView::Classes => {
                 if data
                     .source
@@ -755,7 +739,7 @@ async fn browse(
                         graph::EntityId::of(member.id()).0,
                         BrowseEntry::Class {
                             member: member.id(),
-                            name: p.name,
+                            name: Name::new(c.path.join(".")).map_err(wire)?,
                             members: scoped_members
                                 .iter()
                                 .filter(|child| {
@@ -832,24 +816,103 @@ async fn browse(
             ));
         }
     }
+    let entries = if r.view == BrowseView::Members {
+        let (compact, _compact) = compact_candidates(eligible.iter().copied(), data, &domains, b)?;
+        let compact = page(compact, request, reader, request.tool().name(), "entries", None, Availability::Available {})?;
+        hydrate_page(compact, |candidate| Ok(BrowseEntry::Member {
+            candidate: candidates::packet(candidate, data, &domains)?,
+            ownership: if matches!(r.scope, BrowseScope::Class { .. }) { Availability::Available {} }
+                else { Availability::NotRequested {} },
+        }))?
+    } else {
+        page(values, request, reader, request.tool().name(), "entries", None, Availability::Available {})?
+    };
     Ok(BrowseLibraryResponse {
         delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         domains,
         scope: r.scope.clone(),
         view: r.view,
-        entries: page(
-            values,
-            request,
-            reader,
-            request.tool().name(),
-            "entries",
-            None,
-            Availability::Available {},
-        )?,
+        entries,
         extent: SelectionExtent::CompleteDomain {
             total: scoped_members.len() as u64,
         },
         unknown_ownership: unknown,
     })
+}
+
+#[cfg(test)]
+mod compact_page_controls {
+    use super::*;
+    fn id<R: Record>(byte: u8) -> Id<R> {
+        serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
+    }
+    fn fixture(budget: &ResourceBudget) -> (selection::evaluate::Prepared, Vec<LibraryDomainPacket>) {
+        let mut data = selection::classification::ClassificationData::new(budget);
+        let mut output = selection::build::Output::new(budget);
+        let module = data.source.core.modules.insert(source::Module {
+            source: id(1), qualified_name: "api".into(),
+        }).unwrap();
+        let mut captures = Vec::new();
+        for byte in 2..18 {
+            let member = data.source.catalog.members.insert(catalog::CatalogMember {
+                input: id(byte), access: module, path: vec![format!("member{byte:02}")], name: format!("member{byte:02}"),
+            }).unwrap();
+            output.domains.insert(selection::SelectionDomain {
+                member, analysis: id(1), kind: selection::DomainKind::PublicExposures,
+                corpus_complete: false, analyzer_complete: false,
+                contexts: KeySink::new("selection-domain-contexts/v1").finish(),
+                closure: KeySink::new("selection-domain-closure/v1").finish(),
+            }).unwrap();
+            captures.push(LibraryCapturePacket {
+                release: ReleaseIdentity { input: id(byte), release: id(byte), distribution: Name::new("fixture").unwrap(), version: Name::new("1").unwrap() },
+                corpora: Vec::new(), collection: Availability::Available {}, coverage: Vec::new(), unavailable_inputs: Vec::new(),
+            });
+        }
+        (selection::evaluate::Prepared::from_local_rows(data, output, budget).unwrap(),
+            vec![LibraryDomainPacket { name: Name::new("fixture").unwrap(), captures }])
+    }
+    fn snapshot() -> SnapshotHandle {
+        let hash = ContentHash::of(b"compact-page-control");
+        SnapshotHandle { publication: hash, semantic: hash, realization: hash, view: hash,
+            service_generation: hash, definition_epoch: hash,
+            database: DatabaseIdentity { namespace: Name::new("ns").unwrap(), database: Name::new("db").unwrap() } }
+    }
+    #[test]
+    fn compact_pages_match_complete_packets_and_hydrate_only_requested_items() {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let (prepared, domains) = fixture(&budget);
+        let selected = prepared.select(&selection::Selection::default(), &budget).unwrap();
+        let mut reference = selected.candidates.iter().map(|candidate| {
+            let packet = candidates::packet(candidate, prepared.data(), &domains).unwrap();
+            (candidates::key(&packet), packet)
+        }).collect::<Vec<_>>();
+        reference.sort_by_key(|(key, _)| *key);
+        let mut request = Request::FindOperations(serde_json::from_value(serde_json::json!({"library":"fixture","page":{"size":1}})).unwrap());
+        let mut actual = Vec::new();
+        let mut hydration_count = 0;
+        loop {
+            let (values, _charge) = compact_candidates(&selected.candidates, prepared.data(), &domains, &budget).unwrap();
+            let compact = crate::pagination::page(values, &request, &snapshot(), &quiet(), "supported", "results", None, Availability::Available {}).unwrap();
+            let page = hydrate_page(compact, |candidate| {
+                hydration_count += 1;
+                candidates::packet(candidate, prepared.data(), &domains)
+            }).unwrap();
+            assert_eq!(page.items.len(), 1);
+            assert_eq!(hydration_count, actual.len() + 1, "each tiny page builds one rich packet");
+            actual.extend(page.items);
+            let Some(cursor) = page.continuation.0 else { break; };
+            let Request::FindOperations(r) = &mut request else { unreachable!() };
+            r.page.cursor = Optional(Some(cursor));
+        }
+        assert_eq!(actual, reference.into_iter().map(|(_, packet)| packet).collect::<Vec<_>>());
+        // Remove the release of the last ordered candidate: first-page hydration alone
+        // would miss this corruption, while global compact validation must refuse it.
+        let last = selected.candidates.iter().max_by_key(|candidate| candidates::selection_key(candidate)).unwrap();
+        let missing = prepared.data().source.catalog.members.get(last.member).unwrap().input;
+        let mut corrupt = domains;
+        corrupt[0].captures.retain(|capture| capture.release.input != missing);
+        assert!(matches!(compact_candidates(&selected.candidates, prepared.data(), &corrupt, &budget),
+            Err(ModelError::Schema("selected member release admission"))));
+    }
 }

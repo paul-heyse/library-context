@@ -382,3 +382,62 @@ fn provider_identity_covers_the_lockfile_the_pyrefly_patch_and_the_sources() {
 }
 
 type RecordedBatch = (&'static str, Vec<Vec<u8>>);
+
+#[test]
+fn model_facts_inventory_binds_every_executable_without_analyzer_execution() {
+    use lctx_model::domain::producer_contract::facts;
+    let contracts = facts::facts();
+    let executables = cpg_extract::contracts::executables::<Recorder>(ContentHash::of(b"settings"));
+    let providers = [
+        cpg_extract::acquisition::acquisition_provider(),
+        cpg_extract::pyrefly_stage::pyrefly_provider(),
+        cpg_extract::ruff_context::provider(),
+        cpg_extract::ty_flow::provider(),
+        cpg_extract::document_parser::provider(),
+        cpg_extract::deployment::provider(),
+    ];
+    assert_eq!(contracts.len(), executables.len());
+    assert_eq!(contracts.iter().map(|contract| contract.name).collect::<Vec<_>>(), vec!["acquire", "pyrefly", "ty_flow", "documents", "deployment", "assemble"]);
+    for (contract, executable) in contracts.iter().zip(executables) {
+        contract.validate().unwrap();
+        let declaration = executable.declaration(Profile::Behavioral);
+        assert_eq!(declaration.name, contract.name);
+        let binding = declaration.captured_binding.as_ref().unwrap();
+        assert_eq!(binding.contract, contract.identity());
+        contract.validate_binding(binding, Some(declaration.configuration), &providers).unwrap();
+        assert_eq!(declaration.outputs.iter().map(|relation|relation.name()).collect::<Vec<_>>(), contract.outputs.iter().map(|relation|relation.name()).collect::<Vec<_>>());
+        assert_eq!(declaration.contributes.iter().map(|relation|relation.name()).collect::<Vec<_>>(), contract.contributes.iter().map(|relation|relation.name()).collect::<Vec<_>>());
+    }
+}
+
+#[tokio::test]
+async fn captured_run_closes_before_final_flush_and_outcome_and_remains_poisoned() {
+    use cpg_extract::{acquisition::{AcquiredInput, Acquisition}, capture::CapturedInput, bundle::{CapturedTreeRunGuard, run_provider_guarded}};
+    for fault in ["dependency", "support", "root", "addition", "deletion", "symlink"] {
+        let source = tempfile::tempdir().unwrap();
+        for path in ["main.py", "dependency.py", "support.txt"] { std::fs::write(source.path().join(path), "value = 1").unwrap(); }
+        let budget = ResourceBudget::fixed(1 << 30).unwrap();
+        let input = CapturedInput::capture(source.path(), &["main.py".into(), "dependency.py".into(), "support.txt".into()], &budget).unwrap();
+        let root = input.root().to_path_buf();
+        let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::new(input, Acquisition::Tree{label:"closed-provider".into()})], cpg_extract::native_context::NativeContextConfig::committed(Profile::Catalog,&budget).unwrap()));
+        let guard = CapturedTreeRunGuard::open(captured.clone()).unwrap();
+        let retained = guard.clone();
+        let mutate = root.clone();
+        let sink = Arc::new(Recorder::default());
+        let result = run_provider_guarded(Box::new(Provider{stage:packages(),run:Box::new(move |context| {
+            context.declare::<Package>()?;
+            context.emit(package(0,1))?;
+            // This is the provider-return boundary after its native work has joined.
+            let selected = match fault {"dependency"|"deletion"=>Some("dependency.py"),"support"=>Some("support.txt"),"root"=>Some("main.py"),_=>None};
+            if let Some(path)=selected {std::fs::remove_file(mutate.join(path)).map_err(ModelError::codec)?; if fault!="deletion" {std::fs::write(mutate.join(path),"value = 2").map_err(ModelError::codec)?;}}
+            match fault {"addition"=>std::fs::write(mutate.join("injected.py"),"imported = True").map_err(ModelError::codec)?,"symlink"=>{#[cfg(unix)] std::os::unix::fs::symlink("main.py",mutate.join("injected.py")).map_err(ModelError::codec)?;},_=>{}}
+            Ok(ProviderOutcome::Complete)
+        })}),Profile::Catalog,sink.clone(),Arc::new(model().unwrap()),guard,budget.clone(),TransferLimits::default()).await;
+        assert!(result.is_err(),"{fault}");
+        assert!(sink.finished.lock().unwrap().is_empty(),"{fault}: completion preceded closing verification");
+        assert!(sink.batches.lock().unwrap().is_empty(),"{fault}: final flush preceded closing verification");
+        // Restoring bytes does not let another provider rehabilitate this failed run.
+        assert!(retained.verify_closed().is_err());
+        drop(retained);drop(captured);assert_eq!(budget.reserved(),0);
+    }
+}

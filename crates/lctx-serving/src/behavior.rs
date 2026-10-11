@@ -5,10 +5,11 @@ use crate::{
 };
 use lctx_model::domain::{serving::*, *};
 use std::collections::BTreeSet;
-pub async fn packets(
+pub(crate) async fn visit_packets(
     source: &std::sync::Arc<Prepared<'_>>,
     member: Id<catalog::CatalogMember>,
-) -> Result<(Availability, Vec<BehaviorPacket>), ModelError> {
+    emit: &mut (impl FnMut(BehaviorPacket) -> Result<(), ModelError> + Send),
+) -> Result<Availability, ModelError> {
     use execution::summary_consequences::{ClaimConclusion, ClaimProof};
     let members = rows::<catalog::CatalogMember>(source)?;
     let input = need(&members, member)?.input;
@@ -64,7 +65,6 @@ pub async fn packets(
     let nodes = rows::<conditions::ConditionNode>(source)?;
     let claims = source.claims()?;
     let mut native = NativePackets::from_prepared(source.clone())?;
-    let mut packets = Vec::new();
     for facet in facets.iter().filter(|facet| facet.qualification.is_some()) {
         let conclusion = need(&conclusions, facet.conclusion)?;
         if (facet.qualification, facet.verdict) != (conclusion.qualification, conclusion.verdict) {
@@ -127,7 +127,7 @@ pub async fn packets(
         if let Some(id) = conclusion.proof {
             proof.push(ProofReference::from_canonical(derivation::RowRef::of(id))?);
         }
-        packets.push(BehaviorPacket {
+        emit(BehaviorPacket {
             captures,
             claim_basis: basis,
             condition: condition.id(),
@@ -136,7 +136,7 @@ pub async fn packets(
             proof,
             presentation: RenderedConditionPacket::from_canonical(&rendered),
             presentation_truncated: rendered.truncated,
-        });
+        })?;
     }
-    Ok((availability, packets))
+    Ok(availability)
 }

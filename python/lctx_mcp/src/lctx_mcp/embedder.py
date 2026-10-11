@@ -13,6 +13,7 @@ import json
 import math
 from dataclasses import dataclass
 from importlib import resources
+from collections.abc import Callable
 from typing import Protocol
 
 import httpx2
@@ -152,7 +153,9 @@ def parse_embeddings(spec: Spec, n: int, body: bytes) -> np.ndarray:
 class Embedder(Protocol):
     spec: Spec
 
-    async def embed(self, texts: list[str]) -> np.ndarray: ...
+    async def embed(self, texts: list[str], *, retain: Callable[[int], None] | None = None) -> np.ndarray: ...
+
+    async def aclose(self) -> None: ...
 
 
 class HttpEmbedder:
@@ -167,22 +170,37 @@ class HttpEmbedder:
     ) -> None:
         self.url = url.rstrip("/")
         self.spec = spec or Spec.packaged(QWEN)
-        self.timeout = timeout
-        self.transport = transport
+        self.client = httpx2.AsyncClient(timeout=timeout, transport=transport)
 
-    async def embed(self, texts: list[str]) -> np.ndarray:
+    async def embed(self, texts: list[str], *, retain: Callable[[int], None] | None = None) -> np.ndarray:
         url = f"{self.url}/v1/embeddings"
+        body = request_body(self.spec, texts)
+        if retain:
+            retain(len(body))
         try:
-            async with httpx2.AsyncClient(timeout=self.timeout, transport=self.transport) as client:
-                response = await client.post(
+            async with self.client.stream(
+                    "POST",
                     url,
-                    content=request_body(self.spec, texts),
+                    content=body,
                     headers={"content-type": "application/json"},
-                )
-            response.raise_for_status()
+                ) as response:
+                response.raise_for_status()
+                chunks = []
+                async for chunk in response.aiter_bytes():
+                    if retain:
+                        retain(len(chunk))
+                    chunks.append(chunk)
+                if retain:
+                    retain(sum(map(len, chunks)))
+                content = b"".join(chunks)
         except httpx2.HTTPError as e:
             raise EmbedderError(f"no embedding service at {url}: {e!r}") from e
-        return parse_embeddings(self.spec, len(texts), response.content)
+        if retain:
+            retain(len(texts) * self.spec.dimensions * np.dtype(np.float32).itemsize)
+        return parse_embeddings(self.spec, len(texts), content)
+
+    async def aclose(self) -> None:
+        await self.client.aclose()
 
 
 def fake_vector(request_text: str, dimensions: int) -> np.ndarray:
@@ -207,5 +225,10 @@ class FakeEmbedder:
     def __init__(self) -> None:
         self.spec = Spec.packaged(FAKE)
 
-    async def embed(self, texts: list[str]) -> np.ndarray:
+    async def embed(self, texts: list[str], *, retain: Callable[[int], None] | None = None) -> np.ndarray:
+        if retain:
+            retain(len(texts) * self.spec.dimensions * np.dtype(np.float32).itemsize)
         return np.stack([fake_vector(t, self.spec.dimensions) for t in texts])
+
+    async def aclose(self) -> None:
+        pass

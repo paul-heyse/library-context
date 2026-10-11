@@ -11,6 +11,7 @@ use crate::domain::{
     resources::{Reservation, ResourceBudget},
     *,
 };
+use std::collections::{BTreeMap, BinaryHeap};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -66,7 +67,26 @@ impl Prepared {
         if !data.selected()? {
             return Err(invalid("analytic vectors were not requested"));
         }
-        let item_cap = data.assessments.len();
+        // Borrow admitted rows. These correspondence buckets are preparation scratch, rather
+        // than a repeated inventory scan for every invocation, assessment and window.
+        let _index = budget.reserve("native-neighbour-correspondence", data.assessments.len()
+            .checked_add(data.windows.len()).and_then(|n| n.checked_add(uses.len()))
+            .and_then(|n| n.checked_add(data.projected_values.len()))
+            .and_then(|n| n.checked_mul(256))
+            .ok_or_else(|| invalid("analytic correspondence overflow"))?)?;
+        let mut assessments = BTreeMap::<_, Vec<_>>::new();
+        for row in data.assessments.iter() {
+            assessments.entry((row.input, row.context)).or_default().push(row);
+        }
+        let mut by_assessment = BTreeMap::<_, Vec<_>>::new();
+        for row in data.windows.iter() {
+            by_assessment.entry(row.assessment).or_default().push(row);
+        }
+        let by_window = uses.iter().map(|row| ((row.invocation, row.window), row))
+            .collect::<BTreeMap<_, _>>();
+        let item_cap = invocations.iter().map(|invocation| assessments.get(&(invocation.input, invocation.context)).map_or(0, Vec::len))
+            .try_fold(0usize, |n, count| n.checked_add(count))
+            .ok_or_else(|| invalid("analytic item count overflow"))?;
         let bytes = item_cap
             .checked_mul(size_of::<Item>())
             .and_then(|n| n.checked_add(uses.len().checked_mul(size_of::<Window>())?))
@@ -77,26 +97,16 @@ impl Prepared {
         let mut windows = Vec::with_capacity(uses.len());
         let mut values = std::collections::BTreeMap::new();
         for invocation in invocations.iter() {
-            for assessment in data
-                .assessments
-                .iter()
-                .filter(|a| a.input == invocation.input && a.context == invocation.context)
-            {
+            for assessment in assessments.get(&(invocation.input, invocation.context)).into_iter().flatten() {
                 let key = ItemKey {
                     invocation: invocation.id(),
                     subject: assessment.subject,
                 };
                 let mut expected = 0;
                 let mut available = 0;
-                for window in data
-                    .windows
-                    .iter()
-                    .filter(|w| w.assessment == assessment.id())
-                {
+                for window in by_assessment.get(&assessment.id()).into_iter().flatten() {
                     expected += 1;
-                    let row = uses
-                        .iter()
-                        .find(|u| u.invocation == invocation.id() && u.window == window.id())
+                    let row = by_window.get(&(invocation.id(), window.id()))
                         .ok_or_else(|| invalid("admitted analytic window use disappeared"))?;
                     if row.availability == VectorAvailability::Available {
                         let id = row
@@ -250,13 +260,12 @@ impl Prepared {
         )?;
         let _candidates = self.budget.reserve(
             "native-neighbour-candidates",
-            targets
-                .len()
+            parameters.k.min(targets.len())
                 .checked_mul(size_of::<Match>())
                 .ok_or_else(|| invalid("neighbour candidate allocation overflow"))?,
         )?;
         let mut rows = Vec::with_capacity(capacity);
-        let mut candidates = Vec::with_capacity(targets.len());
+        let mut candidates = BinaryHeap::with_capacity(parameters.k.min(targets.len()));
         for query in &queries {
             candidates.clear();
             for target in &targets {
@@ -310,16 +319,18 @@ impl Prepared {
                 if let Some(best) =
                     best.filter(|m| m.score.get() >= parameters.min_similarity.get())
                 {
-                    candidates.push(best);
+                    if candidates.len() < parameters.k {
+                        candidates.push(Ranked(best));
+                    } else if candidates.peek().is_some_and(|worst| order(&best, &worst.0).is_lt()) {
+                        *candidates.peek_mut().expect("nonempty bounded candidates") = Ranked(best);
+                    }
                 }
             }
-            candidates.sort_unstable_by(|a, b| {
-                b.score
-                    .get()
-                    .total_cmp(&a.score.get())
-                    .then(a.target.cmp(&b.target))
-            });
-            rows.extend(candidates.iter().take(parameters.k).copied());
+            // The heap root is the worst final-ranked candidate. In-place sorting emits the
+            // exact final order without retaining a second target-sized population.
+            let start = rows.len();
+            rows.extend(candidates.drain().map(|candidate| candidate.0));
+            rows[start..].sort_unstable_by(order);
         }
         Ok(Matches {
             rows,
@@ -345,6 +356,17 @@ pub struct Match {
     pub query_window: Id<TextWindow>,
     pub target_window: Id<TextWindow>,
     pub score: FiniteF64,
+}
+fn order(a: &Match, b: &Match) -> std::cmp::Ordering {
+    b.score.get().total_cmp(&a.score.get()).then(a.target.cmp(&b.target))
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Ranked(Match);
+impl PartialOrd for Ranked {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
+}
+impl Ord for Ranked {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering { order(&self.0, &other.0) }
 }
 pub struct Matches {
     rows: Vec<Match>,

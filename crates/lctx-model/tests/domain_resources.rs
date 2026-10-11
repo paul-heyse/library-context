@@ -432,3 +432,26 @@ mod charged_state {
         assert_eq!(budget.reserved(), 0);
     }
 }
+
+#[test]
+fn checked_ingress_moves_canonical_buffers_and_releases_only_typed_row_charge() {
+    use lctx_model::domain::{input::Package, model, Batch, Record};
+    let model = model().unwrap();
+    let budget = ResourceBudget::fixed(16 << 20).unwrap();
+    let rows = vec![Package { name: "long-canonical-payload".repeat(200) }, Package { name: "other".into() }];
+    let batch = Batch::new(&model, rows, &budget).unwrap();
+    let initial = budget.reserved();
+    let encoded = batch.arrow().get_array_memory_size();
+    let pointers: Vec<_> = batch.arrow().columns().iter().map(std::sync::Arc::as_ptr).collect();
+    let canonical_ids = batch.rows().iter().map(Record::id).collect::<Vec<_>>();
+    assert!(initial > encoded, "typed rows and encoded buffers coexist before transfer");
+    let checked = batch.into_checked().unwrap();
+    assert_eq!(checked.model(), model.digest());
+    assert_eq!(checked.relation().name(), Package::NAME);
+    assert_eq!(checked.reserved(), encoded);
+    assert_eq!(budget.reserved(), encoded);
+    assert_eq!(pointers, checked.arrow().columns().iter().map(std::sync::Arc::as_ptr).collect::<Vec<_>>());
+    assert_eq!(canonical_ids, Package::decode(checked.arrow()).unwrap().iter().map(Record::id).collect::<Vec<_>>());
+    drop(checked);
+    assert_eq!(budget.reserved(), 0);
+}

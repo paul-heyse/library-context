@@ -675,6 +675,7 @@ pub(crate) fn rows_bytes<R: Record>(rows: &[R], capacity: usize) -> Result<usize
 /// lifetime; dropping the batch returns it to the attempt budget.
 #[derive(Debug)]
 pub struct Batch<R: Record> {
+    model: ContentHash,
     rows: Vec<R>,
     arrow: RecordBatch,
     reservation: Box<dyn Reservation>,
@@ -733,6 +734,7 @@ impl<R: Record> Batch<R> {
                 .ok_or_else(overflow)?,
         )?;
         Ok(Self {
+            model: model.digest(),
             rows,
             arrow,
             reservation,
@@ -771,6 +773,7 @@ impl<R: Record> Batch<R> {
             // Share its Arrow buffers instead of constructing another encoded copy.
             reservation.try_resize(held.saturating_add(encoded))?;
             Ok(Self {
+                model: model.digest(),
                 rows,
                 arrow: arrow.clone(),
                 reservation,
@@ -789,7 +792,7 @@ impl<R: Record> Batch<R> {
     /// Move the encoded kernel batch and its reservation to the next owner. Typed rows have
     /// no consumer after this handoff; release them before settling on the retained Arrow bytes.
     pub fn into_arrow(self) -> Result<(RecordBatch, Box<dyn Reservation>), ModelError> {
-        let Self { rows, arrow, mut reservation } = self;
+        let Self { rows, arrow, mut reservation, .. } = self;
         drop(rows);
         reservation.try_resize(arrow.get_array_memory_size())?;
         Ok((arrow, reservation))
@@ -798,6 +801,31 @@ impl<R: Record> Batch<R> {
     pub fn reserved(&self) -> usize {
         self.reservation.size()
     }
+    /// Move checked canonical buffers and their allocation authority into native ingress.
+    /// Construction and raw decoding both earn this witness through the typed model boundary.
+    pub fn into_checked(self) -> Result<CheckedCanonicalBatch, ModelError> {
+        let model = self.model;
+        let (arrow, reservation) = self.into_arrow()?;
+        Ok(CheckedCanonicalBatch { model, relation: super::Relation::of::<R>(), arrow, reservation })
+    }
+}
+
+/// Nominal canonical-ingress witness. Its fields and construction are model-owned; a raw
+/// RecordBatch, a schema match, or an imported digest cannot manufacture checked authority.
+/// The encoded buffers remain charged until the actual ingress owner drops this value.
+#[derive(Debug)]
+pub struct CheckedCanonicalBatch {
+    model: ContentHash,
+    relation: super::Relation,
+    arrow: RecordBatch,
+    reservation: Box<dyn Reservation>,
+}
+impl CheckedCanonicalBatch {
+    pub const CODEC_REVISION: u32 = 1;
+    pub fn model(&self) -> ContentHash { self.model }
+    pub fn relation(&self) -> &super::Relation { &self.relation }
+    pub fn arrow(&self) -> &RecordBatch { &self.arrow }
+    pub fn reserved(&self) -> usize { self.reservation.size() }
 }
 
 /// Admission for decoded typed rows uses the logical slice, not retained Arrow buffer

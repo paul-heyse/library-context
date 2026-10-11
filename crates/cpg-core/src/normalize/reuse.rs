@@ -4,7 +4,7 @@ use super::*;
 use crate::{consumed_rows::ClosureTable, workspace::ProductCandidate};
 use datafusion::datasource::MemTable;
 #[cfg(test)]
-use lctx_surrealdb::surrealdb::types::Value;
+use lctx_native::surrealdb::types::Value;
 
 struct CachedInputs {
     invariant: Invariant,
@@ -157,7 +157,7 @@ mod controls {
     use lctx_model::domain::{admission::Frontier, compilation_product::*, normalized::receiver};
     fn section<R: Record>(rows: &[R]) -> ProductSection {
         let batch = R::encode(rows).unwrap();
-        let mut bodies = lctx_surrealdb::codec::batch_bodies(&Relation::of::<R>(), &batch).unwrap();
+        let mut bodies = lctx_native::codec::batch_bodies(&Relation::of::<R>(), &batch).unwrap();
         for (row, body) in rows.iter().zip(&mut bodies) {
             let Value::Object(fields) = body else {
                 panic!("canonical test body")
@@ -172,11 +172,11 @@ mod controls {
     }
     #[tokio::test]
     async fn normalization_cached_receiver_predicate_rejection_precedes_ingress() {
-        let config = lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(
+        let config = lctx_native::RuntimeConfig::read(std::path::Path::new(
             &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
         ))
         .unwrap();
-        let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Facts)
+        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Facts)
             .await
             .unwrap();
         let model = Arc::new(lctx_model::domain::model().unwrap());

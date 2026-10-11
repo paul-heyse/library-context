@@ -80,7 +80,7 @@ async fn run(mode: Mode) {
         }
     }
 }
-use cpg_core::embedding_service::{EmbedFuture, Embedder};
+use lctx_model::domain::embedding::{EmbedFuture, Embedder};
 #[derive(Clone, Copy)]
 enum Mode {
     Available,
@@ -112,8 +112,8 @@ impl Embedder for ContractEmbedder {
         match self.mode {
             Mode::TokenLimit => Box::pin(async { Ok(4096) }),
             Mode::Unavailable => Box::pin(async {
-                Err(cpg_core::CoreError::EmbeddingService(
-                    "contract service unavailable".into(),
+                Err(lctx_model::domain::embedding::ServiceUnavailable::cause(
+                    "contract service unavailable",
                 ))
             }),
             _ => self.inner.count_tokens(text),
@@ -122,8 +122,8 @@ impl Embedder for ContractEmbedder {
     fn embed<'a>(&'a self, text: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
         if matches!(self.mode, Mode::Unavailable) {
             return Box::pin(async {
-                Err(cpg_core::CoreError::EmbeddingService(
-                    "contract service unavailable".into(),
+                Err(lctx_model::domain::embedding::ServiceUnavailable::cause(
+                    "contract service unavailable",
                 ))
             });
         }

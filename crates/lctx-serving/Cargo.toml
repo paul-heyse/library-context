@@ -8,7 +8,7 @@ publish.workspace = true
 
 [dependencies]
 lctx-model = { path = "../lctx-model" }
-lctx-surrealdb = { path = "../lctx-surrealdb" }
+lctx-native = { path = "../lctx-native" }
 surrealdb = { version = "=3.3.0", default-features = false, features = ["protocol-grpc", "rustls"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -17,6 +17,7 @@ hex.workspace = true
 moka = { version = "=0.12.16", default-features = false, features = ["future"] }
 
 [dev-dependencies]
+lctx-compiler-store = { path = "../lctx-compiler-store" }
 tracing.workspace = true
 datafusion.workspace = true
 cpg-core = { path = "../cpg-core" }

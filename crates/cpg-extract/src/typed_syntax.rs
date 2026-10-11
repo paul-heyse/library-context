@@ -874,7 +874,7 @@ fn syntax_kind(k: NodeKind) -> SyntaxKind {
 }
 
 /// The pinned Pyrefly fork commit and the Ruff line its retained AST comes from.
-pub const PYREFLY_REVISION: &str = "63cda076956013cd0bd1d0d05c785f747fe6adc0;ruff=0.0.14";
+pub use lctx_model::domain::producer_contract::facts::PYREFLY_REVISION;
 
 /// The exact native source patch participates in the declared producer build fingerprint.
 pub const PYREFLY_PATCH_SHA256: &str =

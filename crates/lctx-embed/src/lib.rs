@@ -1,4 +1,4 @@
-//! The compile-time embedding client (DESIGN §11.1; ADR-0010): `cpg_core::embedding_service::Embedder` over a
+//! The compile-time embedding client (DESIGN §11.1; ADR-0010): `lctx_model::domain::embedding::Embedder` over a
 //! separate vLLM 0.30.0 service serving Qwen3-Embedding-8B.
 //!
 //! - The request body is built here with `serde_json`, so its bytes are ours and the Python query
@@ -9,8 +9,9 @@
 //! - An unreachable service is an error naming the URL: a compile asked for live vectors is
 //!   `blocked` without the service, never silently fake.
 
-use cpg_core::CoreError;
-use cpg_core::embedding_service::{EmbedFuture, Embedder, Spec, check_vector};
+pub mod retrieval_tokenizer;
+use lctx_model::domain::ModelError;
+use lctx_model::domain::embedding::{EmbedFuture, Embedder, ServiceUnavailable, Spec, check_vector};
 use serde::{Deserialize, Serialize};
 
 /// The committed spec (canonical JSON; its SHA-256 is the spec hash).
@@ -131,12 +132,12 @@ impl VllmEmbedder {
         assets: &std::path::Path,
     ) -> Result<Self, lctx_model::domain::ModelError> {
         let tokenizer =
-            cpg_core::retrieval_tokenizer::LocalTokenizer::load_verified(assets, &spec)?;
+            retrieval_tokenizer::LocalTokenizer::load_verified(assets, &spec)?;
         let mut client = Self::new(base, spec);
         client.tokenizer = Some(tokenizer);
         Ok(client)
     }
-    async fn post(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, CoreError> {
+    async fn post(&self, path: &str, body: Vec<u8>) -> Result<Vec<u8>, ModelError> {
         let url = format!("{}{path}", self.base);
         let response = self
             .client
@@ -146,15 +147,15 @@ impl VllmEmbedder {
             .send()
             .await
             .map_err(|e| {
-                CoreError::EmbeddingService(format!("blocked: no embedding service at {url}: {e}"))
+                ServiceUnavailable::cause(format!("blocked: no embedding service at {url}: {e}"))
             })?;
         let status = response.status();
         let bytes = response
             .bytes()
             .await
-            .map_err(|e| CoreError::EmbeddingService(format!("{url}: {e}")))?;
+            .map_err(|e| ServiceUnavailable::cause(format!("{url}: {e}")))?;
         if !status.is_success() {
-            return Err(CoreError::EmbeddingService(format!(
+            return Err(ServiceUnavailable::cause(format!(
                 "{url} answered {status}: {}",
                 String::from_utf8_lossy(&bytes)
             )));
@@ -185,7 +186,7 @@ impl Embedder for VllmEmbedder {
             .expect("a request serializes");
             let bytes = self.post("/tokenize", body).await?;
             let parsed: Tokenized = serde_json::from_slice(&bytes)
-                .map_err(|e| CoreError::Embed(format!("unreadable /tokenize response: {e}")))?;
+                .map_err(|e| ModelError::Invalid(format!("unreadable /tokenize response: {e}")))?;
             Ok(parsed.count)
         })
     }
@@ -195,7 +196,7 @@ impl Embedder for VllmEmbedder {
             let bytes = self
                 .post("/v1/embeddings", request_body(&self.spec, request_texts))
                 .await?;
-            parse_embeddings(&self.spec, request_texts.len(), &bytes).map_err(CoreError::Embed)
+            parse_embeddings(&self.spec, request_texts.len(), &bytes).map_err(ModelError::Invalid)
         })
     }
 }

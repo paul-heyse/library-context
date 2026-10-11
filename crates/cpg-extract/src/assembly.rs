@@ -1,7 +1,7 @@
 //! Attachment of provider events to occurrences (ADR-0089). Only an exact span match attaches;
 //! every other outcome goes back to the provider with its candidates, to be disclosed as a subject
 //! boundary rather than guessed.
-use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
+use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use crate::bundle::{Declared, ProviderStage, StageContext};
 use lctx_model::domain::{
@@ -11,7 +11,7 @@ use lctx_model::domain::{
     },
     resources::ResourceBudget,
     source::Occurrence,
-    stages::{Effect, Profile, ProviderOutcome, Stage},
+    stages::{Profile, ProviderOutcome, Stage},
 };
 use std::sync::Arc;
 
@@ -51,24 +51,11 @@ impl Attacher {
     }
 }
 
-pub const ASSEMBLE: &str = "assemble";
+pub use lctx_model::domain::producer_contract::facts::ASSEMBLE;
 /// The `assemble` stage: the single writer of the vocabulary providers contribute (ADR-0089). Its
 /// output writers merge every contribution and emit each identity once.
 pub struct Assemble;
-pub fn contract() -> ProducerContract {
-        ProducerContract {
-            name: ASSEMBLE,
-            inputs: vec![],
-            outputs: vocabulary(),
-            contributes: vec![],
-            profiles: vec![Profile::Catalog, Profile::Behavioral],
-            effect: Effect::Pure,
-            semantic_revision: 1,
-            configuration: ConfigurationBinding::Fixed(ContentHash::of(b"assemble")),
-            suppliers: vec![],
-            not_requested: vec![],
-        }
-}
+pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::assembly() }
 impl Declared for Assemble {
     fn declaration(&self, _: Profile) -> Stage {
         contract().bind(ContentHash::of(include_str!("assembly.rs").as_bytes()), ContentHash::of(b"assemble"), [])
@@ -174,41 +161,4 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for Assemble {
 }
 
 /// Shared vocabulary has one owner; providers declare the subset they contribute.
-pub fn vocabulary() -> Vec<lctx_model::domain::stages::RelationUse> {
-    use lctx_model::domain::stages::RelationUse;
-    use lctx_model::domain::{
-        assertion::*, assumptions::*, attribution::*, conditions::*, source::CoverageScope,
-        syntax::*, value::*,
-    };
-    macro_rules! uses { ($($ty:ty),+) => { vec![$(RelationUse::of::<$ty>()),+] }; }
-    uses!(
-        Evidence,
-        Literal,
-        LiteralSet,
-        LiteralSetMember,
-        SyntaxDetail,
-        Assumption,
-        AssumptionUniverse,
-        AssumptionSet,
-        AssumptionSetMember,
-        AssertionQualification,
-        Condition,
-        ConditionNode,
-        Provider,
-        AnalysisContext,
-        ProviderRun,
-        RunFamily,
-        ProviderSurface,
-        CoverageScope,
-        ProviderCoverage,
-        SubjectBoundary,
-        AttachmentOutcome,
-        AttachmentCandidate,
-        PlaceRoot,
-        PathSegment,
-        AccessPath,
-        Place,
-        Predicate,
-        EvaluationAtom
-    )
-}
+pub use lctx_model::domain::producer_contract::facts::vocabulary;

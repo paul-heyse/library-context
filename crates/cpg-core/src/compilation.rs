@@ -1,7 +1,7 @@
 //! One cumulative attempt through analysis/catalog. Semantic owners supply declarations and proofs.
+use lctx_model::domain::embedding::Embedder;
 use crate::{
     analysis_graphs::PreparedGraphs,
-    embedding_service::Embedder,
     facts,
     normalize::pipeline::Normalization,
     workspace::{ProducerOutput, Workspace},
@@ -662,7 +662,7 @@ async fn compile_driver(
     cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
     providers: Option<Vec<Box<dyn ProviderStage<ProducerOutput>>>>,
 ) -> Result<(), ModelError> {
-    use lctx_surrealdb::phase::Phase;
+    use lctx_native::phase::Phase;
     let setup_phase = Phase::begin("compiler_setup");
     let setup = (|| {
         workspace.native().set_frontier(frontier)?;

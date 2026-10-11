@@ -1,5 +1,6 @@
 //! Private publication workflow over nominal semantic admission owners.
-use cpg_core::artifact::{AdmittedArtifact, RestoredAdmission, VerifiedExport};
+use lctx_compiler_store::compiler::NativeCompilerStore;
+use lctx_compiler_store::artifact::{AdmittedArtifact, RestoredAdmission, VerifiedExport};
 use lctx_model::domain::{
     ContentHash, Key, KeySink, ModelError,
     completed::CompletedBinding,
@@ -7,9 +8,9 @@ use lctx_model::domain::{
     graph::{Assertion, Entity, Manifest},
     serving::{DatabaseIdentity, SnapshotHandle},
 };
-use lctx_surrealdb::surrealdb::types::{Bytes, Object, RecordId, Value};
-use lctx_surrealdb::{
-    Loader, NativeReader, RuntimeConfig, compiler::NativeCompilerStore, phase::Phase,
+use lctx_native::surrealdb::types::{Bytes, Object, RecordId, Value};
+use lctx_native::{
+    Loader, NativeReader, RuntimeConfig,  phase::Phase,
 };
 use std::sync::Arc;
 
@@ -55,7 +56,7 @@ impl<'a> Publication<'a> {
         let lease = admission
             .native()
             .begin_derived_operation("publication session")?;
-        let connected = lctx_surrealdb::reader::connect(
+        let connected = lctx_native::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
             admission.native().namespace().as_str(),
@@ -93,7 +94,7 @@ impl<'a> Publication<'a> {
 
     /// Verify the selected immutable executable epoch; ordinary publication performs no DDL.
     pub(crate) async fn install_definitions(&self, definitions: &str) -> Result<(), ModelError> {
-        lctx_surrealdb::materialization::validate_native_definitions(definitions)?;
+        lctx_native::materialization::validate_native_definitions(definitions)?;
         let lease = self
             .store()
             .begin_derived_operation("publication definitions")?;
@@ -125,7 +126,7 @@ impl<'a> Publication<'a> {
     pub(crate) async fn materialize_search(&self) -> Result<(), ModelError> {
         let lease = self.store().begin_derived_operation("publication search")?;
         let phase = Phase::begin("publication_search");
-        let result = lctx_surrealdb::derived_search::materialize_search(&self.loader).await;
+        let result = lctx_native::derived_search::materialize_search(&self.loader).await;
         let result = lease.finish_with(result);
         phase.finish_result(&result);
         result
@@ -137,7 +138,7 @@ impl<'a> Publication<'a> {
         config: &RuntimeConfig,
         definitions: &str,
     ) -> Result<SnapshotHandle, ModelError> {
-        lctx_surrealdb::materialization::validate_native_definitions(definitions)?;
+        lctx_native::materialization::validate_native_definitions(definitions)?;
         let manifest = self.admission.manifest();
         manifest.validate()?;
         self.store().check_publication_target(config)?;
@@ -154,7 +155,7 @@ impl<'a> Publication<'a> {
             let reconciliation_phase = Phase::begin("publication_final_reconciliation");
             let reconciled = async {
                 loader.reconcile(manifest).await?;
-                lctx_surrealdb::derived_search::reconcile_search(loader).await
+                lctx_native::derived_search::reconcile_search(loader).await
             }
             .await;
             reconciliation_phase.finish_result(&reconciled);
@@ -187,7 +188,7 @@ async fn seal_staging(
     attempt: ContentHash,
     config: &RuntimeConfig,
     native_definitions: &str,
-    lease: &lctx_surrealdb::compiler::OperationLease,
+    lease: &lctx_compiler_store::compiler::OperationLease,
 ) -> Result<SnapshotHandle, ModelError> {
     let client = loader.client();
     let realization_phase = Phase::begin("publication_realization");
@@ -234,7 +235,7 @@ async fn seal_staging(
     let marker_phase = Phase::begin("publication_marker");
     // Establish guarded reachability before the manifest can become visible. If the
     // acknowledgement is unknown, the durable native operation retains reconciliation work.
-    lctx_surrealdb::control::hold(
+    lctx_native::control::hold(
         client,
         Some(attempt),
         RecordId::new("publication", handle.publication.hex()),
@@ -246,7 +247,7 @@ async fn seal_staging(
     .await?;
     // Transfer every retained attempt root before closing its mutable owner. Bounded
     // windows include originals, roles and derived search records, alongside exact views.
-    let mut variables = lctx_surrealdb::surrealdb::types::Variables::new();
+    let mut variables = lctx_native::surrealdb::types::Variables::new();
     variables.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
     let retained_reader = loader.reader();
     let mut roots=retained_reader.query_stream("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt ORDER BY id",variables,1)?;
@@ -258,7 +259,7 @@ async fn seal_staging(
             };
             window.push(root);
             if window.len() == 128 {
-                lctx_surrealdb::control::hold(
+                lctx_native::control::hold(
                     client,
                     Some(attempt),
                     RecordId::new("publication", handle.publication.hex()),
@@ -267,7 +268,7 @@ async fn seal_staging(
                 .await?;
             }
         }
-        lctx_surrealdb::control::hold(
+        lctx_native::control::hold(
             client,
             Some(attempt),
             RecordId::new("publication", handle.publication.hex()),
@@ -283,7 +284,7 @@ async fn seal_staging(
     );
     complete(transfer, root_finality)?;
     let marking =
-        lctx_surrealdb::control::ensure_rows(client, Some(attempt), vec![Value::Object(marker)])
+        lctx_native::control::ensure_rows(client, Some(attempt), vec![Value::Object(marker)])
             .await;
     marker_phase.finish_result(&marking);
     marking?;
@@ -292,7 +293,7 @@ async fn seal_staging(
     // must retain that effect exactly.
     let mut completion = Completion::default();
     completion.committed("published unselected manifest", committed_identity);
-    if let Err(error) = lctx_surrealdb::control::close_attempt(client, attempt, "closed").await {
+    if let Err(error) = lctx_native::control::close_attempt(client, attempt, "closed").await {
         return complete(Err(error), completion);
     }
     let readback_phase = Phase::begin("publication_readback");

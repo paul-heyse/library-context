@@ -62,7 +62,7 @@ use crate::db::FlowDb;
 use crate::predicate::{Translator, diagram, runtime_in_diagram};
 
 /// The provider, as `producers.revision` names it (ADR-0022 §Identity).
-pub const PROVIDER: &str = "ty_python_core 0.0.16 (ruff 0.0.16, salsa 0.28.5)";
+pub use lctx_model::domain::producer_contract::facts::TY_REVISION as PROVIDER;
 /// The word ty decides at index time, and the same-length name it is renamed to.
 pub const WORD: &[u8] = b"TYPE_CHECKING";
 pub const SENTINEL: &[u8] = b"TYPE_CHECKIN_";

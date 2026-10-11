@@ -1,6 +1,7 @@
 //! Publication inputs bind immutable completed streams, including contributed vocabulary.
+use lctx_model::domain::embedding::{Embedder};
 use cpg_core::{
-    embedding_service::{Embedder, FakeEmbedder},
+    embedding_service::FakeEmbedder,
     workspace::{CompletedInputs, Workspace, WorkspaceOptions},
 };
 use lctx_model::domain::embedding::{

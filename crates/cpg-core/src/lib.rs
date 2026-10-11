@@ -18,7 +18,6 @@ pub mod facts;
 pub mod final_coverage;
 mod producer_operations;
 pub mod retrieval_preparation;
-pub mod retrieval_tokenizer;
 mod scope_compilation;
 mod scoped_admission;
 mod scoped_aspects;
@@ -46,8 +45,6 @@ pub enum CoreError {
     UnknownTable(String),
     #[error("analysis: {0}")]
     Analysis(String),
-    #[error("embedding: {0}")]
-    Embed(String),
     #[error("embedding service: {0}")]
     EmbeddingService(String),
 }
@@ -71,12 +68,10 @@ pub mod workspace;
 mod documentary_spool;
 mod native_bridge;
 mod native_calls;
-mod native_canonical;
 mod original_demands;
 
 pub mod artifact;
 
-mod artifact_manifest;
 
 mod analytical_scopes;
 

@@ -354,29 +354,29 @@ struct Changing {
         Vec<usize>,
     )>,
 }
-impl cpg_core::embedding_service::Embedder for Changing {
+impl lctx_model::domain::embedding::Embedder for Changing {
     fn spec(&self) -> &embedding::Spec {
-        cpg_core::embedding_service::Embedder::spec(&self.inner)
+        lctx_model::domain::embedding::Embedder::spec(&self.inner)
     }
     fn endpoint(&self) -> &str {
-        cpg_core::embedding_service::Embedder::endpoint(&self.inner)
+        lctx_model::domain::embedding::Embedder::endpoint(&self.inner)
     }
     fn document_tokenizer(
         &self,
     ) -> Option<Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {
-        cpg_core::embedding_service::Embedder::document_tokenizer(&self.inner)
+        lctx_model::domain::embedding::Embedder::document_tokenizer(&self.inner)
     }
     fn count_tokens<'a>(
         &'a self,
         _: &'a str,
-    ) -> cpg_core::embedding_service::EmbedFuture<'a, usize> {
+    ) -> lctx_model::domain::embedding::EmbedFuture<'a, usize> {
         self.calls.lock().unwrap().1 += 1;
         Box::pin(async { Ok(7) })
     }
     fn embed<'a>(
         &'a self,
         requests: &'a [String],
-    ) -> cpg_core::embedding_service::EmbedFuture<'a, Vec<Vec<f32>>> {
+    ) -> lctx_model::domain::embedding::EmbedFuture<'a, Vec<Vec<f32>>> {
         Box::pin(async move {
             let mut calls = self.calls.lock().unwrap();
             calls.2.push(requests.len());
@@ -398,7 +398,7 @@ impl cpg_core::embedding_service::Embedder for Changing {
 }
 #[tokio::test]
 async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache() {
-    use cpg_core::embedding_service::Embedder;
+    use lctx_model::domain::embedding::Embedder;
     use lctx_model::domain::{
         analysis::{AnalysisDefinition, MethodParameters},
         attribution::*,

@@ -1,20 +1,37 @@
-//! Receiver applicability owns one target and its complete syntax/placement candidate domains.
-use crate::{
-    consumed_rows::{ClosureTable, PreparedEdges},
-    workspace::CompletedInputs,
-};
-#[cfg(test)]
-use futures::future::BoxFuture;
-#[cfg(test)]
-use lctx_model::domain::calls::*;
-use lctx_model::domain::{normalized::receiver::ReceiverData, *};
-use std::{any::TypeId, sync::Arc};
-
-pub(super) struct ReceiverScopes {
-    inputs: Vec<ValidationInput>,
-    tables: Vec<ClosureTable>,
-    edges: PreparedEdges,
-    _charge: charged::StateCharge,
+//! Compiler typed reads over the shared receiver selector.
+use crate::workspace::CompletedInputs;
+#[cfg(test)]use futures::future::BoxFuture;
+#[cfg(test)]use lctx_model::domain::calls::*;
+use lctx_model::domain::{normalized::receiver::ReceiverData,*};
+use std::{any::TypeId,sync::Arc};
+pub use lctx_compiler_store::normalize::receiver_scope::{DataSelection,ReceiverOutputSelection};
+pub(super) struct ReceiverScopes{inner:lctx_compiler_store::normalize::receiver_scope::ReceiverScopes,#[cfg(test)]inputs:Vec<ValidationInput>}
+impl std::ops::Deref for ReceiverScopes{type Target=lctx_compiler_store::normalize::receiver_scope::ReceiverScopes;fn deref(&self)->&Self::Target{&self.inner}}
+impl ReceiverScopes{
+ pub(super) async fn prepare(access:&CompletedInputs,session:&datafusion::prelude::SessionContext,model:&Arc<ValidatedModel>,budget:&resources::ResourceBudget)->Result<Self,ModelError>{let inner=lctx_compiler_store::normalize::receiver_scope::ReceiverScopes::prepare(access,session,model,budget).await?;Ok(Self{#[cfg(test)]inputs:inner.inputs().to_vec(),inner})}
+    #[cfg(test)]
+    pub(super) fn data<'a>(
+        &'a self,
+        access: &'a CompletedInputs,
+        target: Id<CallTarget>,
+        budget: &'a resources::ResourceBudget,
+    ) -> BoxFuture<'a, Result<ReceiverData, ModelError>> {
+        Box::pin(async move {
+            let root = self.inner.table_for::<CallTarget>()?;
+            let bytes = target
+                .bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            let scope = self.inner
+                .edges()
+                .grain(root, &format!("id=X'{bytes}'"), budget)
+                .await?;
+            let mut data = ReceiverData::new(budget);
+            load_receiver_data(self, access, &scope, &mut data).await?;
+            Ok(data)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -51,98 +68,6 @@ fn load_receiver_data<'a>(
     })
 }
 
-impl ReceiverScopes {
-    pub(super) async fn prepare(
-        access: &CompletedInputs,
-        session: &datafusion::prelude::SessionContext,
-        model: &Arc<ValidatedModel>,
-        budget: &resources::ResourceBudget,
-    ) -> Result<Self, ModelError> {
-        let inputs: Vec<_> = ReceiverData::validation_inputs()
-            .into_iter()
-            .filter(|input| {
-                access
-                    .relations()
-                    .any(|relation| relation.name() == input.name())
-            })
-            .collect();
-        let tables: Vec<_> = inputs
-            .iter()
-            .map(|input| {
-                Ok(ClosureTable {
-                    relation: model
-                        .relation(input.name())
-                        .ok_or(ModelError::Schema(input.name()))?
-                        .clone(),
-                    alias: access.table_for(input)?,
-                })
-            })
-            .collect::<Result<_, ModelError>>()?;
-        Self::from_tables(inputs, tables, session, budget, model).await
-    }
-    pub(super) async fn from_tables(
-        inputs: Vec<ValidationInput>,
-        tables: Vec<ClosureTable>,
-        session: &datafusion::prelude::SessionContext,
-        budget: &resources::ResourceBudget,
-        model: &ValidatedModel,
-    ) -> Result<Self, ModelError> {
-        let relations = tables
-            .iter()
-            .map(|table| table.relation.clone())
-            .collect::<Vec<_>>();
-        let program =
-            normalized::normalization_scope_program::receiver(inputs.clone(), &relations, budget)?;
-        let plan = crate::scope_compilation::lower_compiled(
-            crate::scope_compilation::compile(program.program(), model, budget, None)?,
-            &tables,
-            &scope_program::ScopeParameters(vec![]),
-            budget,
-        )?;
-        let mut charge = charged::StateCharge::new(budget, "receiver-scope-descriptors");
-        charge.grow(
-            inputs.capacity() * size_of::<ValidationInput>()
-                + tables.capacity() * size_of::<ClosureTable>(),
-        )?;
-        let edges = plan.prepare(session, budget).await?;
-        Ok(Self {
-            inputs,
-            tables,
-            edges,
-            _charge: charge,
-        })
-    }
-    pub(super) fn inputs(&self) -> &[ValidationInput] {
-        &self.inputs
-    }
-    #[cfg(test)]
-    pub(super) fn data<'a>(
-        &'a self,
-        access: &'a CompletedInputs,
-        target: Id<CallTarget>,
-        budget: &'a resources::ResourceBudget,
-    ) -> BoxFuture<'a, Result<ReceiverData, ModelError>> {
-        Box::pin(async move {
-            let root = self
-                .tables
-                .iter()
-                .position(|table| table.relation.type_id() == TypeId::of::<CallTarget>())
-                .ok_or_else(|| ModelError::Invalid("receiver root table absent".into()))?;
-            let bytes = target
-                .bytes()
-                .iter()
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>();
-            let scope = self
-                .edges
-                .grain(root, &format!("id=X'{bytes}'"), budget)
-                .await?;
-            let mut data = ReceiverData::new(budget);
-            load_receiver_data(self, access, &scope, &mut data).await?;
-            Ok(data)
-        })
-    }
-}
 
 #[cfg(test)]
 mod receiver_scope_controls {
@@ -319,85 +244,3 @@ mod receiver_scope_controls {
     }
 }
 
-// Partition dictionaries borrow the one decoded root union, including unavailable optional inputs.
-macro_rules! selected_inputs {($($field:ident:$ty:ty,)*)=>{
-    pub(super) struct DataSelection<'a>{rows:&'a ReceiverData,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
-    impl<'a> DataSelection<'a>{
-        pub(super) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a ReceiverData,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
-            Ok(Self{rows,$($field:inputs.iter().position(|i|i.type_id()==TypeId::of::<$ty>()).map(|table|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})
-        }
-        pub(super) fn view(&self)->Result<normalized::receiver::ReceiverDataView<'_>,ModelError>{Ok(normalized::receiver::ReceiverDataView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
-    }
-};}
-lctx_model::normalized_receiver_inputs!(selected_inputs);
-impl ReceiverScopes {
-    pub(super) async fn load_batch(
-        &self,
-        batch: &crate::consumed_rows::PreparedRootBatch,
-        budget: &resources::ResourceBudget,
-        cancellation: &crate::workspace::Cancellation,
-    ) -> Result<ReceiverData, ModelError> {
-        let mut rows = ReceiverData::new(budget);
-        crate::scoped_batch::hydrate_union(
-            batch,
-            &self.inputs,
-            budget,
-            cancellation,
-            &mut |_, input, batch| {
-                if !rows.visit(input.name(), batch)? {
-                    return Err(ModelError::Schema("normalization union input undeclared"));
-                }
-                Ok(())
-            },
-        )
-        .await?;
-        Ok(rows)
-    }
-    pub(super) fn edges(&self) -> &PreparedEdges {
-        &self.edges
-    }
-    pub(super) fn table_for<R: Record>(&self) -> Result<usize, ModelError> {
-        self.tables
-            .iter()
-            .position(|t| t.relation.type_id() == TypeId::of::<R>())
-            .ok_or(ModelError::Schema("normalization batch root absent"))
-    }
-}
-
-macro_rules! selected_Receiver_output {($($field:ident:$ty:ty,)*)=>{
-    pub(super) struct ReceiverOutputSelection<'a>{rows:&'a normalized::receiver::ReceiverOutput,$($field:Option<crate::scoped_batch::SelectedRows<'a,$ty>>,)*}
-    impl<'a> ReceiverOutputSelection<'a>{
-        pub(super) fn new(batch:&crate::consumed_rows::PreparedRootBatch,partition:usize,inputs:&[ValidationInput],rows:&'a normalized::receiver::ReceiverOutput,budget:&resources::ResourceBudget)->Result<Self,ModelError>{
-            Ok(Self{rows,$($field:inputs.iter().position(|i|i.type_id()==TypeId::of::<$ty>()).map(|table|crate::scoped_batch::SelectedRows::new(batch,partition,table,&rows.$field,budget)).transpose()?,)*})
-        }
-        pub(super) fn view(&self)->Result<normalized::receiver::ReceiverOutputView<'_>,ModelError>{Ok(normalized::receiver::ReceiverOutputView{$($field:match &self.$field{Some(selected)=>selected.view()?,None=>self.rows.$field.view()},)*})}
-    }
-};}
-lctx_model::normalized_receiver_outputs!(selected_Receiver_output);
-impl ReceiverScopes {
-    pub(super) async fn load_receiver_admission(
-        &self,
-        batch: &crate::consumed_rows::PreparedRootBatch,
-        budget: &resources::ResourceBudget,
-        cancellation: &crate::workspace::Cancellation,
-    ) -> Result<(ReceiverData, normalized::receiver::ReceiverOutput), ModelError> {
-        let mut rows = ReceiverData::new(budget);
-        let mut stored = normalized::receiver::ReceiverOutput::new(budget);
-        crate::scoped_batch::hydrate_union_first(
-            batch,
-            &self.inputs,
-            budget,
-            cancellation,
-            &mut |_, input, batch| {
-                let accepted = rows.visit(input.name(), batch)?;
-                let output = stored.visit(input.name(), batch)?;
-                if !accepted && !output {
-                    return Err(ModelError::Schema("admission union input undeclared"));
-                }
-                Ok(())
-            },
-        )
-        .await?;
-        Ok((rows, stored))
-    }
-}

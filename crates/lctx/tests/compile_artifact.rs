@@ -23,7 +23,7 @@ fn ordinary_compile_requires_native_configuration_before_acquisition() {
 #[tokio::test]
 async fn incompatible_native_generation_is_refused_before_acquisition() {
     use lctx_model::domain::ContentHash;
-    use lctx_surrealdb::RuntimeConfig;
+    use lctx_native::RuntimeConfig;
     use std::os::unix::fs::PermissionsExt;
     let source =
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation service");

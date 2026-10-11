@@ -10,7 +10,6 @@ use crate::domain::{
     source::Occurrence,
     *,
 };
-use petgraph::visit::{EdgeRef, IntoEdges, IntoNodeIdentifiers};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 fn invalid(s: &str) -> ModelError {
@@ -265,135 +264,110 @@ impl Inputs<'_> {
         }
         Ok((!release || !subsystem.contains(&entity)).then_some(Boundary::Subsystem))
     }
-    pub fn traverse(
-        &self,
-        seed: Id<EntityRef>,
-        subsystem: &[Id<EntityRef>],
-        bounds: Bounds,
-        budget: &ResourceBudget,
-    ) -> Result<Traversal, ModelError> {
-        let key = self.invocation.key();
-        let other = self.definition.key();
+    /// Convenience for a single seed. Structural production retains `PreparedDelegation`
+    /// across all seeds in the selected immutable frame.
+    pub fn traverse(&self, seed: Id<EntityRef>, subsystem: &[Id<EntityRef>], bounds: Bounds,
+        budget: &ResourceBudget) -> Result<Traversal, ModelError> {
+        PreparedDelegation::new(self, subsystem, budget)?.traverse(seed, bounds, budget)
+    }
+}
+
+/// Frame-owned raw adjacency and once-checked, ordered steps. Unreachable malformed edges
+/// remain unexposed; a visited node checks its complete suffix before any bounded prefix.
+pub struct PreparedDelegation<'a> {
+    inputs: Inputs<'a>,
+    selected: BTreeSet<Id<EntityRef>>,
+    adjacency: BTreeMap<Id<EntityRef>, Vec<Arc>>,
+    checked: BTreeMap<Id<EntityRef>, std::sync::OnceLock<Result<Vec<Step>, std::sync::Arc<ModelError>>>>,
+    unresolved: BTreeMap<Id<EntityRef>, Vec<&'a EventAssessment>>,
+    _reservation: Box<dyn Reservation>,
+}
+impl<'a> PreparedDelegation<'a> {
+    pub fn new(inputs: &Inputs<'a>, subsystem: &[Id<EntityRef>], budget: &ResourceBudget)
+        -> Result<Self, ModelError> {
+        let key = inputs.invocation.key();
+        let other = inputs.definition.key();
         if key.name != ProjectionName::CallableInvocation
             || other.name != ProjectionName::DefinitionContainment
-            || (key.input, key.context) != (other.input, other.context)
-        {
-            return Err(invalid(
-                "delegation needs matching invocation/definition projections",
-            ));
+            || (key.input, key.context) != (other.input, other.context) {
+            return Err(invalid("delegation needs matching invocation/definition projections"));
         }
-        if bounds.depth == 0 || bounds.witnesses == 0 || bounds.vertices == 0 {
-            return Err(invalid(
-                "delegation depth, vertices and witnesses must be positive",
-            ));
-        }
-        let vertices = self
-            .invocation
-            .vertex_count()
-            .checked_add(self.definition.vertex_count())
+        let vertices = inputs.invocation.vertex_count().checked_add(inputs.definition.vertex_count())
             .ok_or_else(|| invalid("delegation vertex count overflow"))?;
-        let arcs = self
-            .invocation
-            .arc_count()
-            .checked_add(self.definition.arc_count())
+        let arcs = inputs.invocation.arc_count().checked_add(inputs.definition.arc_count())
             .ok_or_else(|| invalid("delegation arc count overflow"))?;
-        // At most one shortest path per retained final arc, each bounded by the vertex universe.
-        // Includes temporary maps/adjacency, BFS parents, doubled geometric vector capacities,
-        // retained paths, and unresolved caller paths. No dense all-pairs topology is built.
-        let paths = arcs
-            .checked_add(self.data.event_assessments.len())
-            .and_then(|n| n.checked_mul(vertices.min(bounds.depth as usize)))
-            .and_then(|n| n.checked_mul(2 * size_of::<Step>()))
-            .ok_or_else(|| invalid("delegation path allowance overflow"))?;
-        let bytes = vertices
-            .checked_mul(1024)
-            .and_then(|n| {
-                arcs.checked_mul(10 * size_of::<Step>() + 512)
-                    .and_then(|a| n.checked_add(a))
-            })
-            .and_then(|n| {
-                self.data
-                    .event_assessments
-                    .len()
-                    .checked_mul(512)
-                    .and_then(|a| n.checked_add(a))
-            })
-            .and_then(|n| {
-                subsystem
-                    .len()
-                    .checked_mul(128)
-                    .and_then(|s| n.checked_add(s))
-            })
-            .and_then(|n| n.checked_add(paths))
+        let bytes = vertices.checked_mul(512)
+            .and_then(|n| arcs.checked_mul(4 * size_of::<Arc>() + 4 * size_of::<Step>()).and_then(|a| n.checked_add(a)))
+            .and_then(|n| inputs.data.event_assessments.len().checked_mul(256).and_then(|a| n.checked_add(a)))
+            .and_then(|n| subsystem.len().checked_mul(128).and_then(|a| n.checked_add(a)))
             .and_then(|n| n.checked_add(4096))
-            .ok_or_else(|| invalid("delegation allocation overflow"))?;
-        let reservation = budget.reserve("delegation-traversal", bytes)?;
+            .ok_or_else(|| invalid("delegation preparation overflow"))?;
+        let reservation = budget.reserve("delegation-frame", bytes)?;
         let mut selected = BTreeSet::new();
         for id in subsystem {
-            if !selected.insert(*id) || self.invocation.outgoing(*id).is_none() {
+            if !selected.insert(*id) || inputs.invocation.outgoing(*id).is_none() {
                 return Err(invalid("duplicate or foreign subsystem entity"));
             }
         }
-        if self.invocation.outgoing(seed).is_none() || self.boundary(seed, &selected)?.is_some() {
-            return Err(invalid("delegation seed is outside the release subsystem"));
-        }
         let mut unresolved = BTreeMap::<Id<EntityRef>, Vec<&EventAssessment>>::new();
-        for assessment in self.data.event_assessments.iter() {
-            let event = need(&self.data.events, assessment.event)?;
+        for assessment in inputs.data.event_assessments.iter() {
+            let event = need(&inputs.data.events, assessment.event)?;
             if event.context == key.context
-                && (assessment.unresolved || !assessment.complete || assessment.disagreement)
-            {
-                let owner = need(&self.data.owners, event.owner)?.entity;
-                if self.invocation.outgoing(owner).is_some() {
+                && (assessment.unresolved || !assessment.complete || assessment.disagreement) {
+                let owner = need(&inputs.data.owners, event.owner)?.entity;
+                if inputs.invocation.outgoing(owner).is_some() {
                     unresolved.entry(owner).or_default().push(assessment);
                 }
             }
         }
-        self.invocation.with_native_graph(|calls| {
-            self.definition.with_native_graph(|definitions| {
-                let call_nodes = calls
-                    .node_identifiers()
-                    .map(|n| (calls.entity_id(n), n))
-                    .collect::<BTreeMap<_, _>>();
-                let definition_nodes = definitions
-                    .node_identifiers()
-                    .map(|n| (definitions.entity_id(n), n))
-                    .collect::<BTreeMap<_, _>>();
-                let adjacency = |id| -> Result<Vec<Step>, ModelError> {
-                    let mut rows = Vec::new();
-                    if let Some(node) = call_nodes.get(&id) {
-                        for edge in calls.edges(*node) {
-                            rows.push(self.step(
-                                Arc {
-                                    id: *edge.weight(),
-                                    source: id,
-                                    target: calls.entity_id(edge.target()),
-                                },
-                                key.context,
-                            )?);
-                        }
-                    }
-                    if let Some(node) = definition_nodes.get(&id) {
-                        for edge in definitions.edges(*node).filter(|e| {
-                            matches!(
-                                e.weight(),
-                                ArcId::Definition(_) | ArcId::SourceDefinition(_)
-                            )
-                        }) {
-                            rows.push(self.step(
-                                Arc {
-                                    id: *edge.weight(),
-                                    source: id,
-                                    target: definitions.entity_id(edge.target()),
-                                },
-                                key.context,
-                            )?);
-                        }
-                    }
-                    rows.sort_unstable_by_key(|s| (s.target, s.site(), s.arc));
-                    Ok(rows)
-                };
-                let mut depths = BTreeMap::from([(seed, 0u32)]);
+        let mut adjacency = BTreeMap::<_, Vec<_>>::new();
+        for arc in inputs.invocation.arcs().chain(inputs.definition.arcs().filter(|arc|
+            matches!(arc.id, ArcId::Definition(_) | ArcId::SourceDefinition(_)))) {
+            adjacency.entry(arc.source).or_default().push(arc);
+        }
+        let checked = adjacency.keys().map(|id| (*id, std::sync::OnceLock::new())).collect();
+        Ok(Self { inputs: Inputs { invocation: inputs.invocation, definition: inputs.definition,
+            data: inputs.data, uses: inputs.uses }, selected, adjacency, checked, unresolved,
+            _reservation: reservation })
+    }
+    fn adjacency(&self, node: Id<EntityRef>) -> Result<&[Step], ModelError> {
+        let Some(checked) = self.checked.get(&node) else { return Ok(&[]); };
+        match checked.get_or_init(|| {
+            let mut steps = Vec::with_capacity(self.adjacency[&node].len());
+            for arc in &self.adjacency[&node] {
+                steps.push(self.inputs.step(*arc, self.inputs.invocation.key().context)
+                    .map_err(std::sync::Arc::new)?);
+            }
+            steps.sort_unstable_by_key(|step| (step.target, step.site(), step.arc));
+            Ok(steps)
+        }) {
+            Ok(steps) => Ok(steps),
+            Err(error) => Err(ModelError::SharedCause(std::sync::Arc::clone(error))),
+        }
+    }
+    pub fn traverse(&self, seed: Id<EntityRef>, bounds: Bounds, budget: &ResourceBudget)
+        -> Result<Traversal, ModelError> {
+        if bounds.depth == 0 || bounds.witnesses == 0 || bounds.vertices == 0 {
+            return Err(invalid("delegation depth, vertices and witnesses must be positive"));
+        }
+        if self.inputs.invocation.outgoing(seed).is_none()
+            || self.inputs.boundary(seed, &self.selected)?.is_some() {
+            return Err(invalid("delegation seed is outside the release subsystem"));
+        }
+        // Only traversal state follows seed bounds. Full adjacency is charged once above.
+        let vertices = self.inputs.invocation.vertex_count().saturating_add(self.inputs.definition.vertex_count())
+            .min(bounds.vertices as usize);
+        let arcs = self.inputs.invocation.arc_count().saturating_add(self.inputs.definition.arc_count())
+            .min(bounds.arcs as usize);
+        let paths = arcs.checked_mul(vertices.min(bounds.depth as usize))
+            .and_then(|n| n.checked_mul(2 * size_of::<Step>()))
+            .ok_or_else(|| invalid("delegation path allowance overflow"))?;
+        let bytes = vertices.checked_mul(1024)
+            .and_then(|n| arcs.checked_mul(10 * size_of::<Step>() + 512).and_then(|a| n.checked_add(a)))
+            .and_then(|n| n.checked_add(paths)).and_then(|n| n.checked_add(4096))
+            .ok_or_else(|| invalid("delegation allocation overflow"))?;
+        let mut reservation = budget.reserve("delegation-traversal", bytes)?;
+        let mut depths = BTreeMap::from([(seed, 0u32)]);
                 let mut parents = BTreeMap::<Id<EntityRef>, Step>::new();
                 let mut queue = VecDeque::from([seed]);
                 let mut into = BTreeMap::<Id<EntityRef>, Vec<Step>>::new();
@@ -403,18 +377,18 @@ impl Inputs<'_> {
                 let mut stop = None;
                 let mut depth_limited = false;
                 'search: while let Some(node) = queue.pop_front() {
-                    let edges = adjacency(node)?;
+                    let edges = self.adjacency(node)?;
                     if depths[&node] >= bounds.depth {
-                        depth_limited |= !edges.is_empty() || unresolved.contains_key(&node);
+                        depth_limited |= !edges.is_empty() || self.unresolved.contains_key(&node);
                         continue;
                     }
-                    for step in edges {
+                    for &step in edges {
                         if arc_count == bounds.arcs {
                             stop = Some(Stop::Arcs);
                             break 'search;
                         }
                         arc_count += 1;
-                        if let Some(boundary) = self.boundary(step.target, &selected)? {
+                        if let Some(boundary) = self.inputs.boundary(step.target, &self.selected)? {
                             boundaries.insert(step.target, boundary);
                         } else if !depths.contains_key(&step.target) {
                             if depths.len() >= bounds.vertices as usize {
@@ -496,10 +470,20 @@ impl Inputs<'_> {
                         witnesses_omitted: omitted,
                     });
                 }
+                let open_bytes = expanded.iter().try_fold(0usize, |total, node| {
+                    let count = self.unresolved.get(node).map_or(0, Vec::len);
+                    (depths[node] as usize).checked_mul(2 * size_of::<Step>())
+                        .and_then(|n| n.checked_add(512))
+                        .and_then(|n| n.checked_mul(count))
+                        .and_then(|n| total.checked_add(n))
+                        .ok_or_else(|| invalid("delegation unresolved allowance overflow"))
+                })?;
+                reservation.try_resize(bytes.checked_add(open_bytes)
+                    .ok_or_else(|| invalid("delegation unresolved allowance overflow"))?)?;
                 let mut open = Vec::new();
                 for node in expanded {
-                    for assessment in unresolved.get(&node).into_iter().flatten() {
-                        let event = need(&self.data.events, assessment.event)?;
+                    for assessment in self.unresolved.get(&node).into_iter().flatten() {
+                        let event = need(&self.inputs.data.events, assessment.event)?;
                         open.push(Unresolved {
                             event: event.id(),
                             assessment: assessment.id(),
@@ -520,7 +504,5 @@ impl Inputs<'_> {
                     arcs: arc_count,
                     _reservation: reservation,
                 })
-            })
-        })
     }
 }

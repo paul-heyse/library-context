@@ -306,6 +306,34 @@ fn seed(
     d.values.admit_projection(projection).unwrap();
 }
 #[test]
+fn checked_window_use_survives_render_release_and_refuses_foreign_nominal_or_value_receipts() {
+    let (b, mut data, invocation, _) = fixture(true);
+    let (_, _, published) = canonical(&data, &b);
+    let window = data.output.windows.iter().next().unwrap();
+    let unit = data.output.units.get(window.unit).unwrap();
+    let unit_id = unit.id();
+    let root_id = unit.origin;
+    let expected = PreparedWindowUse::new(window, unit,
+        &invocation, &data.selected_consumption().unwrap(), &b).unwrap();
+    let window_id = expected.window();
+    data.output = retrieval::build::Output::new(&b);
+    let row = expected.published(&published).unwrap();
+    assert_eq!(row.window, window_id);
+    assert_eq!((expected.unit(), expected.root()), (unit_id, root_id));
+    expected.verify(&row).unwrap();
+    for case in 0..5 {
+        let mut foreign = row.clone();
+        match case { 0 => foreign.window = id(81), 1 => foreign.input = ContentHash::of(b"foreign"),
+            2 => foreign.value = Some(id(82)), 3 => foreign.document = id(83), _ => foreign.admitted_tokens = Some(0) }
+        assert!(expected.verify(&foreign).is_err());
+    }
+    assert!(expected.refused(VectorAvailability::TokenLimit, Some(1)).is_err());
+    assert_eq!(expected.refused(VectorAvailability::ServiceUnavailable, None).unwrap().input, row.input);
+    let retained = b.reserved();
+    drop(expected);
+    assert!(b.reserved() < retained, "compact expectation releases its admitted lease after terminal attribution");
+}
+#[test]
 fn canonical_companions_roundtrip_preserves_signed_zero_and_reference_only_uses() {
     let (b, mut d, i, _) = fixture(true);
     let (full, projection, published) = canonical(&d, &b);

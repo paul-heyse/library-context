@@ -220,7 +220,7 @@ impl<R: Record> Rows<R> {
     pub fn required<E>(&self, id: Id<R>, missing: impl FnOnce() -> E) -> Result<&R, E> {
         self.get(id).ok_or_else(missing)
     }
-    pub fn iter(&self) -> impl Iterator<Item = &R> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &R> + ExactSizeIterator {
         self.rows.values()
     }
     pub fn len(&self) -> usize {

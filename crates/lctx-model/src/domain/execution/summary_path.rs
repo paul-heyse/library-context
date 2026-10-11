@@ -203,6 +203,7 @@ pub fn derive(
     value_support: Id<FlowValueSupport>,
     path_support: Id<FlowValuePathSupport>,
     step: Id<FlowCallStep>,
+    conditions: &PreparedConditions<'_>,
     budget: &ResourceBudget,
 ) -> Result<Result<PathEmission, ObligationKind>, ModelError> {
     let descriptor = source.descriptor();
@@ -352,19 +353,10 @@ pub fn derive(
         Ok(r) => r,
         Err(r) => return Ok(Err(r)),
     };
-    let _decode = budget.reserve(
-        "summary-path-condition",
-        data.condition_nodes
-            .len()
-            .saturating_mul(2048)
-            .saturating_add(4096),
-    )?;
-    let nodes = data.condition_nodes.iter().cloned().collect::<Vec<_>>();
-    let condition = Diagram::from_records(
+    let condition = conditions.diagram(
         data.conditions
             .get(q.condition)
             .ok_or_else(|| invalid("path condition absent"))?,
-        &nodes,
     )?;
     let result =
         match source

@@ -163,7 +163,7 @@ async fn incomplete_or_cancelled_compilation_cannot_be_admitted() {
             tracing::level_filters::LevelFilter::current()
         );
         tracing::info!(target:"lctx_phase_control", "artifact failure scoped capture active");
-        let probe = lctx_surrealdb::phase::Phase::begin("artifact_failure_capture_probe");
+        let probe = lctx_native::phase::Phase::begin("artifact_failure_capture_probe");
         tokio::task::yield_now().await;
         probe.finish_result(&Ok::<(), lctx_model::domain::ModelError>(()));
         artifact::admit(
@@ -235,7 +235,8 @@ async fn incomplete_or_cancelled_compilation_cannot_be_admitted() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn artifact_identity_includes_exact_consumed_embedding_values() {
-    use cpg_core::embedding_service::{Embedder, FakeEmbedder};
+    use cpg_core::embedding_service::FakeEmbedder;
+use lctx_model::domain::embedding::{Embedder};
     let embedder = FakeEmbedder::new();
     let workspace = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
@@ -960,7 +961,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
         let mut batches = verified.native().scan_batches(&binding.view, relation, None, None,
             candidate.budget(), candidate.options().batch_rows).await.unwrap();
         while let Some(batch) = batches.try_next().await.unwrap() {
-            candidate.native().write_batch(&id, relation, &batch).await.unwrap();
+            candidate.native().write_batch(&id, relation, &batch, &native_operation_budget).await.unwrap();
         }
     }
     assert!(omitted > 0);
@@ -1530,9 +1531,9 @@ async fn frontier_journey(
         || tracing::info_span!(target: "lctx_phase", "artifact_journey", profile = profile.name(), frontier = frontier.name()),
     );
     async {
-        let phase = lctx_surrealdb::phase::Phase::begin("artifact_journey");
+        let phase = lctx_native::phase::Phase::begin("artifact_journey");
         run.await;
-        phase.finish(lctx_surrealdb::phase::Terminal::Passed);
+        phase.finish(lctx_native::phase::Terminal::Passed);
     }
     .instrument(span)
     .with_subscriber(dispatch)

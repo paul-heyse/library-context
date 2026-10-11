@@ -352,8 +352,12 @@ pub fn produce(
         data: &data.projection,
         uses: &data.uses,
     };
+    let prepared = if selected.is_empty() { None } else {
+        Some(delegation::PreparedDelegation::new(&inputs, &selected_scope, budget)?)
+    };
     for seed in &selected {
-        let result = inputs.traverse(*seed, &selected_scope, settings.bounds()?, budget)?;
+        let result = prepared.as_ref().expect("selected traversal has prepared frame")
+            .traverse(*seed, settings.bounds()?, budget)?;
         let traversal = Traversal {
             frame: frame.id(),
             seed: *seed,
@@ -427,24 +431,27 @@ pub fn produce(
         }
         output.traversals.insert(traversal)?;
     }
+    let conditions = super::handoffs::Conditions::new(&data.handoffs, budget)?;
     if frame.controls_requested {
-        super::controls::produce(
+        super::controls::produce_prepared(
             &data.controls,
             data,
             frame,
             invocation,
             settings,
             &mut output,
+            &conditions,
             budget,
         )?;
     }
-    super::handoffs::produce(
+    super::handoffs::produce_prepared(
         &data.handoffs,
         data,
         frame,
         invocation,
         settings,
         &mut output,
+        &conditions,
         budget,
     )?;
     super::conclusions::produce(&mut output, invocation, frame, data, budget)?;

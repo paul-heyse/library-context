@@ -31,7 +31,7 @@ pub async fn compile(
     sources: &Path,
     target: Target<'_>,
 ) -> anyhow::Result<()> {
-    use lctx_surrealdb::phase::{Phase, Terminal};
+    use lctx_native::phase::{Phase, Terminal};
     let operation_phase = Phase::begin("compile_cli");
     let setup_phase = Phase::begin("cli_setup");
     let setup: anyhow::Result<_> = async {
@@ -51,7 +51,7 @@ pub async fn compile(
         crate::newnative::ready(&runtime).await?;
         let model = Arc::new(lctx_model::domain::model()?);
         let store =
-            lctx_surrealdb::compiler::NativeCompilerStore::begin(&runtime, frontier).await?;
+            lctx_compiler_store::compiler::NativeCompilerStore::begin(&runtime, frontier).await?;
         let workspace = match cpg_core::workspace::Workspace::new(
             model,
             cpg_core::workspace::WorkspaceOptions {
@@ -70,7 +70,7 @@ pub async fn compile(
             }
         };
         workspace.set_product_cache(
-            lctx_surrealdb::NativeProductCache::connect(&runtime).await?.map(Arc::new),
+            lctx_compiler_store::NativeProductCache::connect(&runtime).await?.map(Arc::new),
         )?;
         Ok((runtime, store, workspace))
     }
@@ -106,7 +106,7 @@ pub async fn compile(
         })
         .transpose()?;
     let cache = if upper.as_ref().is_some_and(|upper| upper.embedder.is_some()) {
-        Some(Arc::new(lctx_surrealdb::NativeEmbeddingCache::connect(crate::newnative::ready(&runtime).await?).await?)
+        Some(Arc::new(lctx_native::NativeEmbeddingCache::connect(crate::newnative::ready(&runtime).await?).await?)
             as Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>)
     } else {None};
     let mut acquired = crate::acquisition::Lease::open(&library, &envs.join(name), &sources.join(name), true, false, true)?;

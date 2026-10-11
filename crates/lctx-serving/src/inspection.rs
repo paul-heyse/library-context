@@ -3,7 +3,7 @@ use crate::records::wire;
 use lctx_model::domain::{
     resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
 };
-use lctx_surrealdb::{NativeReader, reader::target_id};
+use lctx_native::{NativeReader, reader::target_id};
 pub async fn get(
     reader: &NativeReader,
     preparation: &crate::preparation::Preparation<'_>,
@@ -71,6 +71,7 @@ pub async fn get(
     let mut canonical = r.clone();
     let owner = prepared.domain().resolve(&mut canonical)?;
     let mut values = Vec::new();
+    let mut compact_charge = charged::StateCharge::new(b, "compact-native-assessment-page");
     for input in &canonical.inputs {
         let exact = native_requests::ExactRequest {
             snapshot: reader.handle().clone(),
@@ -88,11 +89,15 @@ pub async fn get(
                 .qualifications
                 .get(&result.qualification)
                 .ok_or(ModelError::Schema("native path qualification"))?;
-            let packet = NativeAssessmentPacket::from_canonical(&result, claims.basis(q.id())?)?;
+            // The finite assessment is the semantic decision. Validate its wire
+            // premises globally, but retain only that compact decision before paging.
+            claims.basis(q.id())?;
+            ProofReference::from_canonical(result.path)?;
+            for proof in &result.proof { ProofReference::from_canonical(*proof)?; }
             let mut sink = KeySink::new("native-path-page/v1");
             input.formal.encode(&mut sink);
             sink.part(b"path", result.path.bytes());
-            values.push((sink.finish(), packet));
+            crate::operation_packet::compact_push(&mut values, &mut compact_charge, (sink.finish(), result))?;
         }
     }
     let channels = ChannelState {
@@ -116,7 +121,7 @@ pub async fn get(
         delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         member: r.member,
-        paths: crate::pagination::page(
+        paths: crate::operations::hydrate_page(crate::pagination::page(
             values,
             request,
             reader.handle(),
@@ -126,6 +131,8 @@ pub async fn get(
             Some(r.member),
             availability,
         )
-        .map_err(wire)?,
+        .map_err(wire)?, |result| {
+            NativeAssessmentPacket::from_canonical(&result, claims.basis(result.qualification)?)
+        })?,
     })
 }

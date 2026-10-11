@@ -3,7 +3,7 @@ use crate::records::{Prepared, need, rows, wire};
 use lctx_model::domain::{
     resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
 };
-use lctx_surrealdb::{NativeReader, batches::CanonicalNode, reader::target_id};
+use lctx_native::{NativeReader, batches::CanonicalNode, reader::target_id};
 pub async fn get(
     reader: &NativeReader,
     preparation: &crate::preparation::Preparation<'_>,
@@ -230,16 +230,11 @@ async fn body(
 }
 /// One scoped union for the retained primary witnesses. Unit-wide context anchors and
 /// sibling subjects are never delivered as if they witnessed this ranked occurrence.
-pub async fn hits(
+pub(crate) async fn hydrate_hits(
     reader: &NativeReader,
     preparation: &crate::preparation::Preparation<'_>,
     hits: &[ranking::RankedHit],
-    domains: &[LibraryDomainPacket],
-    b: &ResourceBudget,
-) -> Result<Vec<EvidenceHit>, ModelError> {
-    if hits.is_empty() {
-        return Ok(vec![]);
-    }
+) -> Result<crate::preparation::PreparedBatches, ModelError> {
     let inputs = EvidencePacket::binding()
         .lowered()
         .sources
@@ -264,20 +259,9 @@ pub async fn hits(
         }
     }
     // Outgoing semantic dependencies remain complete; incoming ownership is window/part only.
-    let data = preparation
-        .hydrate(
-            reader,
-            roots,
-            &inputs,
-            &inputs,
-            &["window", "part", "set", "universe"],
-        )
-        .await?;
-    let data = Prepared::new(&data, b);
-    hits.iter()
-        .map(|hit| hit_packet(&data, hit, domains))
-        .collect()
+    preparation.hydrate(reader, roots, &inputs, &inputs, &["window", "part", "set", "universe"]).await
 }
+
 fn source_range(
     data: &Prepared<'_>,
     source: &retrieval::AnchorSource,
@@ -339,7 +323,7 @@ fn part_fragment<'a>(
     }
     fragment(part.text.as_str(), window_part.start, window_part.end)
 }
-fn hit_packet(
+pub(crate) fn hit_packet(
     data: &Prepared<'_>,
     hit: &ranking::RankedHit,
     domains: &[LibraryDomainPacket],
@@ -558,50 +542,36 @@ async fn derivations(
         nodes.iter().map(|n| n.canonical.len() * 2 + 512).sum(),
     )?;
     let mut values = Vec::new();
-    for node in nodes {
-        let a: graph::Assertion =
-            serde_json::from_slice(&node.canonical).map_err(ModelError::codec)?;
-        if let Some(d) = &a.derivation {
-            let mut premises = Vec::new();
-            for (ordinal, target) in d.premises.iter().enumerate() {
-                let role = a
-                    .participants
-                    .iter()
-                    .find(|p| &p.target == target)
-                    .map(|p| p.field.clone().unwrap_or_else(|| format!("{:?}", p.role)))
-                    .unwrap_or_else(|| format!("premise_{ordinal}"));
-                premises.push(PremisePacket {
-                    role: Name::new(role).map_err(wire)?,
-                    premise: ProofReference::from_target(target.clone())?,
-                });
-            }
-            values.push((
-                a.id().0,
-                DerivationStep {
-                    source: ProofReference::from_target(graph::Target::Assertion(a.id()))?,
-                    rule: Name::new(d.rule.clone()).map_err(wire)?,
-                    conclusion: ProofReference::from_target(
-                        d.conclusion
-                            .clone()
-                            .unwrap_or(graph::Target::Assertion(a.id())),
-                    )?,
-                    premises,
-                },
-            ));
+    for (ordinal, node) in nodes.iter().enumerate() {
+        let assertion: graph::Assertion = serde_json::from_slice(&node.canonical).map_err(ModelError::codec)?;
+        if assertion.derivation.is_some() {
+            derivation_packet(&assertion, false)?;
+            values.push((assertion.id().0, ordinal));
         }
     }
-    crate::pagination::page(
-        values,
-        request,
-        reader.handle(),
-        channels,
-        request.tool().name(),
-        "derivation",
-        None,
-        Availability::Available {},
-    )
-    .map_err(wire)
+    let compact = crate::pagination::page(values, request, reader.handle(), channels,
+        request.tool().name(), "derivation", None, Availability::Available {}).map_err(wire)?;
+    crate::operations::hydrate_page(compact, |ordinal| {
+        let assertion = serde_json::from_slice(&nodes[ordinal].canonical).map_err(ModelError::codec)?;
+        derivation_packet(&assertion, true)?.ok_or(ModelError::Schema("selected assertion derivation"))
+    })
 }
+fn derivation_packet(assertion: &graph::Assertion, emit: bool) -> Result<Option<DerivationStep>, ModelError> {
+    let Some(derivation) = &assertion.derivation else { return Ok(None); };
+    let mut premises = Vec::new();
+    for (ordinal, target) in derivation.premises.iter().enumerate() {
+        let role = assertion.participants.iter().find(|participant| &participant.target == target)
+            .map(|participant| participant.field.clone().unwrap_or_else(|| format!("{:?}", participant.role)))
+            .unwrap_or_else(|| format!("premise_{ordinal}"));
+        let premise = PremisePacket { role: Name::new(role).map_err(wire)?, premise: ProofReference::from_target(target.clone())? };
+        if emit { premises.push(premise); }
+    }
+    let source = ProofReference::from_target(graph::Target::Assertion(assertion.id()))?;
+    let rule = Name::new(derivation.rule.clone()).map_err(wire)?;
+    let conclusion = ProofReference::from_target(derivation.conclusion.clone().unwrap_or(graph::Target::Assertion(assertion.id())))?;
+    Ok(emit.then_some(DerivationStep { source, rule, conclusion, premises }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

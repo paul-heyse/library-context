@@ -170,7 +170,7 @@ enum SnapshotCommand {
     },
     /// Export one complete admitted input/context topology, including its coverage and gaps.
     Export {
-        #[arg(long, value_parser = lctx_surrealdb::projections::name)]
+        #[arg(long, value_parser = lctx_native::projections::name)]
         projection: lctx_model::domain::projection::ProjectionName,
         /// Captured input revision ID, as 32 hexadecimal digits.
         #[arg(long, value_parser = nominal_id::<lctx_model::domain::input::InputRevision>)]
@@ -478,7 +478,7 @@ fn flow_workspace_options(
     }
 }
 
-fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
+fn flow_file(file: &Path, python: &str, platform: &str, runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
     if python != "3.14.7" || platform != "linux" {
         return Err(anyhow::anyhow!(
             "the flow probe uses the pinned 3.14.7/linux context"
@@ -508,12 +508,11 @@ fn flow_file(file: &Path, python: &str, platform: &str) -> anyhow::Result<()> {
         )],
         cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral, &budget)?,
     ));
-    let runtime = tokio::runtime::Runtime::new()?;
     let native_path = std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
         .map(PathBuf::from)
         .unwrap_or_else(crate::newnative::default_config);
     let native_config = crate::newnative::config(&native_path)?;
-    let native = runtime.block_on(lctx_surrealdb::compiler::NativeCompilerStore::begin(
+    let native = runtime.block_on(lctx_compiler_store::compiler::NativeCompilerStore::begin(
         &native_config,
         lctx_model::domain::admission::Frontier::Facts,
     ))?;
@@ -682,12 +681,11 @@ enum LibraryCommand {
     },
 }
 
-fn run() -> anyhow::Result<()> {
+fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
     let cli = Cli::parse();
     let libraries = absolute(&cli.libraries)?;
     let envs = absolute(&cli.envs)?;
     let sources = absolute(&cli.sources)?;
-    let runtime = || tokio::runtime::Runtime::new();
     match cli.command {
         Cmd::Model {
             command: ModelCommand::Describe { format },
@@ -808,7 +806,7 @@ fn run() -> anyhow::Result<()> {
                 .into());
             }
             cpg_extract::bundle::refuse_ambient(std::env::vars_os())?;
-            runtime()?.block_on(compile::compile(
+            runtime.block_on(compile::compile(
                 &name,
                 profile,
                 lctx_model::domain::admission::Frontier::ALL
@@ -836,7 +834,7 @@ fn run() -> anyhow::Result<()> {
         } => {
             let config = newnative::config(&runtime_config)?;
             let handle =
-                runtime()?.block_on(newnative::publish(&artifact, &config, memory_bytes))?;
+                runtime.block_on(newnative::publish(&artifact, &config, memory_bytes))?;
             println!("{}", serde_json::to_string_pretty(&handle)?);
             Ok(())
         }
@@ -845,7 +843,6 @@ fn run() -> anyhow::Result<()> {
             command,
         } => {
             let config = newnative::config(&runtime_config)?;
-            let runtime = runtime()?;
             match command {
                 SnapshotCommand::List => {
                     let handles = runtime.block_on(newnative::list(&config))?;
@@ -942,7 +939,7 @@ fn run() -> anyhow::Result<()> {
             let raw = fs_err::read_to_string(&request)?;
             let config = newnative::config(&runtime_config)?;
             let response =
-                runtime()?.block_on(newnative::tool(&config, handle.as_deref(), &tool, &raw))?;
+                runtime.block_on(newnative::tool(&config, handle.as_deref(), &tool, &raw))?;
             println!("{response}");
             Ok(())
         }
@@ -952,20 +949,19 @@ fn run() -> anyhow::Result<()> {
         } => {
             if matches!(&command, StoreCommand::Schema) {
                 println!("{}", serde_json::to_string(&serde_json::json!({
-                    "schema_version":lctx_surrealdb::control::SCHEMA_VERSION,
-                    "schema":lctx_surrealdb::compiler::base_schema_identity().hex(),
+                    "schema_version":lctx_native::control::SCHEMA_VERSION,
+                    "schema":lctx_compiler_store::compiler::base_schema_identity().hex(),
                 }))?);
                 return Ok(());
             }
             let config = newnative::config(&runtime_config)?;
             if let StoreCommand::UpgradeContract { expected_schema, operation, execution } = &command {
-                let contract = lctx_surrealdb::upgrade::UpgradeExecutionContract::current(
+                let contract = lctx_native::upgrade::UpgradeExecutionContract::current(
                     *operation, *execution, *expected_schema, &config);
                 contract.validate(&config)?;
                 println!("{}", serde_json::to_string(&contract)?);
                 return Ok(());
             }
-            let runtime = runtime()?;
             let reports_ready = !matches!(
                 &command,
                 StoreCommand::Init { keep_closed: true }
@@ -997,11 +993,11 @@ fn run() -> anyhow::Result<()> {
                 }
                 StoreCommand::UpgradeQualify { expected_schema, operation, execution_contract } => {
                     anyhow::ensure!(config.database.as_str() == "validation", "upgrade qualification requires validation");
-                    let contract: lctx_surrealdb::upgrade::UpgradeExecutionContract =
+                    let contract: lctx_native::upgrade::UpgradeExecutionContract =
                         serde_json::from_slice(&std::fs::read(execution_contract)?)?;
                     anyhow::ensure!(contract.migration == operation && contract.source == expected_schema,
                         "upgrade qualification arguments differ from immutable execution contract");
-                    let qualification = runtime.block_on(lctx_surrealdb::upgrade::qualify_upgrade_pages(&config, &contract))?;
+                    let qualification = runtime.block_on(lctx_native::upgrade::qualify_upgrade_pages(&config, &contract))?;
                     println!("{}", serde_json::json!({"ready":false,"qualification":qualification,
                         "namespace":config.namespace,"database":config.database}));
                     return Ok(());
@@ -1012,11 +1008,11 @@ fn run() -> anyhow::Result<()> {
                         let advance = {
                             anyhow::ensure!(stop_after_pages.is_none() || config.database.as_str() == "validation",
                                 "upgrade stepping is restricted to the owned validation scope");
-                            let contract: lctx_surrealdb::upgrade::UpgradeExecutionContract =
+                            let contract: lctx_native::upgrade::UpgradeExecutionContract =
                                 serde_json::from_slice(&std::fs::read(execution_contract)?)?;
                             anyhow::ensure!(contract.migration == operation && contract.source == expected_schema,
                                 "upgrade arguments differ from immutable execution contract");
-                            lctx_surrealdb::upgrade::upgrade_with_contract(&config, &contract, &blueprint, stop_after_pages).await?
+                            lctx_native::upgrade::upgrade_with_contract(&config, &contract, &blueprint, stop_after_pages).await?
                         };
                         // Executable epochs have a separate owner from the base format marker.
                         // Repeat safely after unknown installation acknowledgement; stay closed.
@@ -1032,16 +1028,16 @@ fn run() -> anyhow::Result<()> {
                 StoreCommand::History { command } => {
                     let receipt = runtime.block_on(async {
                         use lctx_model::domain::{ModelError, completion::{Completion, complete}};
-                        let client = lctx_surrealdb::upgrade::maintenance_client(&config).await?;
+                        let client = lctx_native::upgrade::maintenance_client(&config).await?;
                         let result = async {
                             match command {
                                 HistoryCommand::Qualify { evidence } => {
-                                    lctx_surrealdb::control::qualify_history_inventory(&client, evidence).await?;
+                                    lctx_native::control::qualify_history_inventory(&client, evidence).await?;
                                     Ok(serde_json::json!({"inventory":evidence.hex()}))
                                 }
-                                HistoryCommand::Cut => serde_json::to_value(lctx_surrealdb::control::cut_era(&client).await?).map_err(ModelError::codec),
-                                HistoryCommand::Compact { limit } => serde_json::to_value(lctx_surrealdb::control::compact_history(&client, limit).await?).map_err(ModelError::codec),
-                                HistoryCommand::Resume { identity, expected_revision, limit } => serde_json::to_value(lctx_surrealdb::control::resume_history_compaction(&client, identity, expected_revision, limit).await?).map_err(ModelError::codec),
+                                HistoryCommand::Cut => serde_json::to_value(lctx_native::control::cut_era(&client).await?).map_err(ModelError::codec),
+                                HistoryCommand::Compact { limit } => serde_json::to_value(lctx_native::control::compact_history(&client, limit).await?).map_err(ModelError::codec),
+                                HistoryCommand::Resume { identity, expected_revision, limit } => serde_json::to_value(lctx_native::control::resume_history_compaction(&client, identity, expected_revision, limit).await?).map_err(ModelError::codec),
                             }
                         }.await;
                         let mut completion = Completion::default();
@@ -1055,20 +1051,20 @@ fn run() -> anyhow::Result<()> {
                     let receipts = runtime.block_on(async {
                         use lctx_model::domain::{ModelError, completion::{Completion, complete}};
                         anyhow::ensure!(!cleanup.is_empty() || !retirement.is_empty(), "recover requires named obligations");
-                        let client = lctx_surrealdb::upgrade::maintenance_client(&config).await?;
+                        let client = lctx_native::upgrade::maintenance_client(&config).await?;
                         let result = async {
                             let mut receipts=Vec::new();
                             for predecessor in cleanup {
-                                let successor=lctx_surrealdb::control::recover_cleanup(&client, predecessor).await?;
+                                let successor=lctx_native::control::recover_cleanup(&client, predecessor).await?;
                                 // Emit the durable identity before continuing: a later error cannot hide it.
                                 println!("{}",serde_json::json!({"cleanup_predecessor":predecessor.hex(),"successor":successor.hex()}));
-                                lctx_surrealdb::control::resume_cleanup(&client,successor).await?;
+                                lctx_native::control::resume_cleanup(&client,successor).await?;
                                 receipts.push(serde_json::json!({"cleanup":successor.hex(),"completed":true}));
                             }
                             for predecessor in retirement {
-                                let successor=lctx_surrealdb::control::recover_retirement(&client,predecessor).await?;
+                                let successor=lctx_native::control::recover_retirement(&client,predecessor).await?;
                                 println!("{}",serde_json::json!({"retirement_predecessor":predecessor.hex(),"successor":successor.hex()}));
-                                receipts.push(serde_json::to_value(lctx_surrealdb::control::resume_retirement(&client,successor,limit).await?).map_err(ModelError::codec)?);
+                                receipts.push(serde_json::to_value(lctx_native::control::resume_retirement(&client,successor,limit).await?).map_err(ModelError::codec)?);
                             }
                             Ok::<_, ModelError>(receipts)
                         }.await;
@@ -1080,14 +1076,14 @@ fn run() -> anyhow::Result<()> {
                     return Ok(());
                 }
                 StoreCommand::Drain => {
-                    runtime.block_on(lctx_surrealdb::compiler::drain_installation(&config))?;
+                    runtime.block_on(lctx_compiler_store::compiler::drain_installation(&config))?;
                 }
                 StoreCommand::Reconcile {
                     pin,
                     backup_hold,
                     readers_stopped,
                 } => {
-                    runtime.block_on(lctx_surrealdb::compiler::reconcile_maintenance(
+                    runtime.block_on(lctx_compiler_store::compiler::reconcile_maintenance(
                         &config,
                         &pin,
                         &backup_hold,
@@ -1095,10 +1091,10 @@ fn run() -> anyhow::Result<()> {
                     ))?;
                 }
                 StoreCommand::CloseAdmission => {
-                    runtime.block_on(lctx_surrealdb::compiler::close_admission(&config))?;
+                    runtime.block_on(lctx_compiler_store::compiler::close_admission(&config))?;
                 }
                 StoreCommand::OpenAdmission => {
-                    runtime.block_on(lctx_surrealdb::compiler::open_admission(&config))?;
+                    runtime.block_on(lctx_compiler_store::compiler::open_admission(&config))?;
                 }
             }
             println!(
@@ -1113,13 +1109,31 @@ fn run() -> anyhow::Result<()> {
             file,
             python,
             platform,
-        } => flow_file(&file, &python, &platform),
+        } => flow_file(&file, &python, &platform, runtime),
     }
 }
 
 fn main() -> ExitCode {
     cpg_extract::logging::init_logging();
-    match run() {
+    let signal_runtime = match tokio::runtime::Runtime::new() {
+        Ok(runtime) => runtime,
+        Err(error) => { eprintln!("lctx: cannot own process signals: {error}"); return ExitCode::from(1); }
+    };
+    let signal = match signal_runtime.block_on(async { lctx_native::signal::SignalRegistration::process(|| {}) }) {
+        Ok(signal) => signal,
+        Err(error) => { eprintln!("lctx: cannot own process signals: {error}"); return ExitCode::from(1); }
+    };
+    // The command runs to its owned completion; a signal fences/cancels its
+    // actual native/Workspace owners instead of dropping the command future.
+    let result = run(&signal_runtime);
+    let mut signal_completion = lctx_model::domain::completion::Completion::default();
+    signal_completion.step("CLI signal listener join", signal_runtime.block_on(signal.complete(&Default::default())));
+    let result = match result {
+        Ok(()) => lctx_model::domain::completion::complete(Ok(()), signal_completion).map_err(Into::into),
+        Err(error) if signal_completion.failures.is_empty() => Err(error),
+        Err(error) => lctx_model::domain::completion::complete(Err(newnative::operation_error(error)), signal_completion).map_err(Into::into),
+    };
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) if e.is::<Unavailable>() => {
             eprintln!("lctx: {e}");
@@ -1235,8 +1249,8 @@ mod tests {
         let path = PathBuf::from(
             std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned compiler fixture"),
         );
-        let config = lctx_surrealdb::RuntimeConfig::read(&path).unwrap();
-        let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(
+        let config = lctx_native::RuntimeConfig::read(&path).unwrap();
+        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             lctx_model::domain::admission::Frontier::Facts,
         )

@@ -129,7 +129,7 @@ async fn independent_oracle(workspace: &Workspace, expected: &[u8], names: &[&st
     );
 }
 async fn run(
-    config: &lctx_surrealdb::RuntimeConfig,
+    config: &lctx_native::RuntimeConfig,
     input: &Path,
     profile: Profile,
     frontier: Frontier,
@@ -141,7 +141,7 @@ async fn run(
 }
 #[allow(clippy::too_many_arguments, reason = "Focused control keeps the compile selection, cache decision and independent source oracle explicit")]
 async fn run_with_analytics(
-    config: &lctx_surrealdb::RuntimeConfig,
+    config: &lctx_native::RuntimeConfig,
     input: &Path,
     profile: Profile,
     frontier: Frontier,
@@ -165,8 +165,8 @@ async fn run_with_analytics(
             tracing::enabled!(target: "cpg_core::workspace::products", tracing::Level::DEBUG),
             "scoped replay observation must be enabled"
         );
-        let setup = lctx_surrealdb::phase::Phase::begin("reuse_control_setup");
-        let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(config, frontier)
+        let setup = lctx_native::phase::Phase::begin("reuse_control_setup");
+        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(config, frontier)
             .await
             .unwrap();
         let workspace = Workspace::new(
@@ -200,7 +200,7 @@ async fn run_with_analytics(
         )
         .unwrap();
         let configuration = ContentHash::of(b"integrated-compiler-reuse-control/v1");
-        setup.finish(lctx_surrealdb::phase::Terminal::Passed);
+        setup.finish(lctx_native::phase::Terminal::Passed);
         compile(
             &workspace,
             captured.clone(),
@@ -214,10 +214,10 @@ async fn run_with_analytics(
         .await
         .unwrap();
         drop(prepared);
-        let oracle = lctx_surrealdb::phase::Phase::begin("reuse_control_independent_oracle");
+        let oracle = lctx_native::phase::Phase::begin("reuse_control_independent_oracle");
         independent_oracle(&workspace, expected, names).await;
-        oracle.finish(lctx_surrealdb::phase::Terminal::Passed);
-        let admission = lctx_surrealdb::phase::Phase::begin("reuse_control_checked_admission");
+        oracle.finish(lctx_native::phase::Terminal::Passed);
+        let admission = lctx_native::phase::Phase::begin("reuse_control_checked_admission");
         let checked = workspace.admit_semantics(profile).await;
         admission.finish_result(&checked);
         let checked = checked.unwrap();
@@ -289,7 +289,7 @@ fn reused(receipt: &Receipt) -> bool {
         .contains("admitted compiled product attached")
 }
 async fn matrix(profile: Profile, frontier: Frontier) {
-    let config = lctx_surrealdb::RuntimeConfig::read(Path::new(
+    let config = lctx_native::RuntimeConfig::read(Path::new(
         &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
     ))
     .unwrap();
@@ -457,7 +457,7 @@ async fn behavioral_compiler_cache_off_cold_hit_reload_and_changed_source_are_eq
 
 #[tokio::test(flavor = "multi_thread")]
 async fn optional_analytic_preparation_cold_and_warm_preserve_exact_outputs() {
-    let config = lctx_surrealdb::RuntimeConfig::read(Path::new(
+    let config = lctx_native::RuntimeConfig::read(Path::new(
         &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
     )).unwrap();
     let input = tempfile::tempdir().unwrap();

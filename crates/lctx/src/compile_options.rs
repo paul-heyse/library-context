@@ -1,5 +1,6 @@
 //! Validate explicit upper-frontier configuration before acquisition, service requests or database access.
-use cpg_core::embedding_service::{Embedder, FakeEmbedder};
+use cpg_core::embedding_service::FakeEmbedder;
+use lctx_model::domain::embedding::{Embedder};
 use lctx_model::domain::analysis::settings::{AnalyticsConfiguration, Techniques};
 use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]

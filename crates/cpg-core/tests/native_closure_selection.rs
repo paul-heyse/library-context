@@ -9,16 +9,17 @@ use lctx_model::domain::{
     resources::{ResourceBudget, TRANSFER_ROWS},
     stages::{Profile, ProviderOutcome},
 };
-use lctx_surrealdb::{RuntimeConfig, compiler::NativeCompilerStore};
+use lctx_native::RuntimeConfig;
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::collections::{BTreeMap, BTreeSet};
 
 async fn fixture_admin(
     store: &NativeCompilerStore,
     config: &RuntimeConfig,
 ) -> std::sync::Arc<
-    lctx_surrealdb::surrealdb::Surreal<lctx_surrealdb::surrealdb::engine::remote::grpc::Client>,
+    lctx_native::surrealdb::Surreal<lctx_native::surrealdb::engine::remote::grpc::Client>,
 > {
-    lctx_surrealdb::reader::connect(
+    lctx_native::reader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         store.namespace().as_str(),
@@ -49,7 +50,7 @@ async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs
         };
         let contribution = store.begin_contribution(spec).await.unwrap();
         store
-            .write_batch(&contribution, &relation, &R::encode(rows).unwrap())
+            .write_batch(&contribution, &relation, &R::encode(rows).unwrap(), &native_operation_budget)
             .await
             .unwrap();
         store
@@ -260,7 +261,7 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
         };
         let contribution = store.begin_contribution(spec).await.unwrap();
         store
-            .write_batch(&contribution, &relation, &R::encode(rows).unwrap())
+            .write_batch(&contribution, &relation, &R::encode(rows).unwrap(), &native_operation_budget)
             .await
             .unwrap();
         store
@@ -475,6 +476,7 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
             &contribution,
             &package_relation,
             &Package::encode(&[package.clone(), unrelated.clone()]).unwrap(),
+            &native_operation_budget,
         )
         .await
         .unwrap();
@@ -483,6 +485,7 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
             &contribution,
             &release_relation,
             &Release::encode(&releases).unwrap(),
+            &native_operation_budget,
         )
         .await
         .unwrap();
@@ -491,6 +494,7 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
             &contribution,
             &release_relation,
             &Release::encode(std::slice::from_ref(&huge)).unwrap(),
+            &native_operation_budget,
         )
         .await
         .unwrap();
@@ -513,6 +517,7 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
             &pending_contribution,
             &release_relation,
             &Release::encode(std::slice::from_ref(&pending)).unwrap(),
+            &native_operation_budget,
         )
         .await
         .unwrap();
@@ -573,7 +578,7 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
     .unwrap();
     // Corrupt an unrelated physical reference with a schema-valid negative integer. A bulk
     // native topology scan would try to decode it; the selected owner frontier must not.
-    let mut vars = lctx_surrealdb::surrealdb::types::Variables::new();
+    let mut vars = lctx_native::surrealdb::types::Variables::new();
     vars.insert("key", huge.id().hex());
     vars.insert("wrong", vec![-1i64; 16]);
     admin.query("UPDATE entity SET body.package=$wrong WHERE semantic_type='releases' AND semantic_key=$key RETURN NONE").bind(vars).await.unwrap().check().unwrap();
@@ -628,7 +633,7 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
     );
     drop(stream);
     assert_eq!(closure_budget.reserved(), 0);
-    let mut vars = lctx_surrealdb::surrealdb::types::Variables::new();
+    let mut vars = lctx_native::surrealdb::types::Variables::new();
     vars.insert("key", huge.id().hex());
     vars.insert("package", huge.package.bytes().to_vec());
     admin.query("UPDATE entity SET body.package=$package WHERE semantic_type='releases' AND semantic_key=$key RETURN NONE").bind(vars).await.unwrap().check().unwrap();

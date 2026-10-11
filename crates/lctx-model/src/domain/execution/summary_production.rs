@@ -570,13 +570,10 @@ impl Vocabulary {
             "summary-condition-decode",
             self.nodes.len().saturating_mul(2048).saturating_add(4096),
         )?;
-        Diagram::from_records(
-            self.conditions
-                .get(&id)
-                .ok_or_else(|| invalid("Summary condition absent"))?,
-            &self.nodes.values().cloned().collect::<Vec<_>>(),
-        )
+        if self.nodes.len() > 100_000 { return Err(invalid("condition node admission exceeded")); }
+        Diagram::from_catalog(self.conditions.get(&id).ok_or_else(|| invalid("Summary condition absent"))?, &self.nodes)
     }
+
     fn composition(&mut self, rows: &CompositionRecords) -> Result<(), ModelError> {
         macro_rules! rows{($($f:ident),*)=>{$(for row in &rows.$f{self.$f.insert(&mut self.charge,row.id(),row.clone())?;})*};}
         rows!(
@@ -631,38 +628,31 @@ impl SummaryData {
         &self,
         out: &SummaryRecords,
         premise: &SummaryPremise,
+        discovery: &Discovery<'_>,
         budget: &ResourceBudget,
     ) -> Result<TransferEvidence, ModelError> {
         match premise {
             SummaryPremise::Local { alternative } => {
                 let a = need(&self.local_alternatives, *alternative)?;
+                let selected = discovery.local_supports.get(alternative).map(Vec::as_slice).unwrap_or(&[]);
                 let _charge = budget.reserve(
                     "summary-local-supports",
-                    self.local_supports
-                        .len()
+                    selected.len()
                         .saturating_mul(size_of::<transfer::local::TransferSupport>()),
                 )?;
-                let supports = self
-                    .local_supports
-                    .iter()
-                    .filter(|s| s.assertion == *alternative)
-                    .cloned()
+                let supports = selected.iter().map(|s| (**s).clone())
                     .collect::<Vec<_>>();
                 TransferEvidence::local(a, &supports, &self.local_evidence, budget)
             }
             SummaryPremise::Model { alternative } => {
                 let a = need(&self.model_alternatives, *alternative)?;
+                let selected = discovery.model_supports.get(alternative).map(Vec::as_slice).unwrap_or(&[]);
                 let _charge = budget.reserve(
                     "summary-model-supports",
-                    self.model_supports
-                        .len()
+                    selected.len()
                         .saturating_mul(size_of::<transfer::model::TransferSupport>()),
                 )?;
-                let supports = self
-                    .model_supports
-                    .iter()
-                    .filter(|s| s.assertion == *alternative)
-                    .cloned()
+                let supports = selected.iter().map(|s| (**s).clone())
                     .collect::<Vec<_>>();
                 TransferEvidence::model(a, &supports, &self.model_evidence, budget)
             }
@@ -681,6 +671,7 @@ impl SummaryData {
         &self,
         invocation: &owner::AnalysisInvocation,
         out: &mut SummaryRecords,
+        discovery: &Discovery<'_>,
         budget: &ResourceBudget,
     ) -> Result<(Vec<WorkBranch>, Box<dyn Reservation>), ModelError> {
         let charge = budget.reserve(
@@ -692,6 +683,10 @@ impl SummaryData {
                 .saturating_add(self.captured_entries.len())
                 .saturating_mul(size_of::<WorkBranch>() + 512),
         )?;
+        let diagram = |id| -> Result<std::sync::Arc<AdmittedDiagram>, ModelError> {
+            let record = self.vocabulary.conditions.get(&id).ok_or_else(|| invalid("Summary condition absent"))?;
+            discovery.vocabulary_conditions.diagram(record)
+        };
         let mut seeds = Vec::new();
         for contribution in self.local_contributions.iter() {
             let parent = need(&self.local_invocations, contribution.invocation)?;
@@ -725,7 +720,7 @@ impl SummaryData {
                 let premise = SummaryPremise::Local {
                     alternative: selected.id(),
                 };
-                let evidence = self.evidence(out, &premise, budget)?;
+                let evidence = self.evidence(out, &premise, discovery, budget)?;
                 let facts = SourceFacts {
                     qualification: q.id(),
                     status: analysis::support::inferred_status(
@@ -735,10 +730,10 @@ impl SummaryData {
                     heuristic: evidence.facts.iter().any(|f| f.heuristic),
                 };
                 seeds.push(WorkBranch {
-                    branch: TransferBranch::new(
+                    branch: TransferBranch::from_prepared(
                         TransferKey::from_descriptor(key.descriptor()),
                         q.clone(),
-                        self.vocabulary.diagram(q.condition, budget)?,
+                        &**diagram(q.condition)?,
                         budget,
                     )?,
                     premise,
@@ -777,10 +772,10 @@ impl SummaryData {
             };
             out.origins.insert(origin.clone())?;
             seeds.push(WorkBranch {
-                branch: TransferBranch::new(
+                branch: TransferBranch::from_prepared(
                     TransferKey::from_descriptor(key.descriptor()),
                     q.clone(),
-                    self.vocabulary.diagram(q.condition, budget)?,
+                    &**diagram(q.condition)?,
                     budget,
                 )?,
                 premise: SummaryPremise::Model {
@@ -1160,8 +1155,82 @@ impl Progress {
             .is_some_and(|b| self.frontier.current(&b.semantic(), id))
     }
 }
+// Immutable invocation-local correspondence. Every bucket retains canonical source-row order
+// and all alternatives; only the worklist decides semantic/Pareto redundancy.
+struct Discovery<'a> {
+    entry_conditions: PreparedConditions<'a>,
+    vocabulary_conditions: PreparedConditions<'a>,
+    local_supports: BTreeMap<Id<transfer::local::TransferAlternative>, Vec<&'a transfer::local::TransferSupport>>,
+    model_supports: BTreeMap<Id<transfer::model::TransferAlternative>, Vec<&'a transfer::model::TransferSupport>>,
+    definitions: BTreeMap<Id<source::Occurrence>, Vec<&'a FlowDefinitionObservation>>,
+    reaching: BTreeMap<Id<ReachingDefinition>, Vec<&'a FlowReachingObservation>>,
+    values: BTreeMap<Id<FlowUse>, Vec<&'a FlowValueObservation>>,
+    uses: BTreeMap<Id<FlowUse>, Vec<&'a FlowUseObservation>>,
+    value_supports: BTreeMap<Id<FlowValueObservation>, Vec<&'a FlowValueSupport>>,
+    reaching_supports: BTreeMap<Id<FlowReachingObservation>, Vec<&'a FlowReachingSupport>>,
+    definition_supports: BTreeMap<Id<FlowDefinitionObservation>, Vec<&'a FlowDefinitionSupport>>,
+    use_supports: BTreeMap<Id<FlowUseObservation>, Vec<&'a FlowUseSupport>>,
+    call_steps: BTreeMap<Id<source::Occurrence>, Vec<&'a FlowCallStep>>,
+    value_paths: BTreeMap<Id<FlowCallPath>, Vec<&'a FlowValuePathObservation>>,
+    path_supports: BTreeMap<Id<FlowValuePathObservation>, Vec<&'a FlowValuePathSupport>>,
+    owners: BTreeSet<(Id<source::Occurrence>, Id<EntityRef>)>,
+    callers: BTreeMap<Id<EntityRef>, Vec<usize>>,
+    callees: BTreeMap<Id<EntityRef>, Vec<usize>>,
+    attempts: BTreeMap<Id<CallBindingAttempt>, usize>,
+    _reservation: Box<dyn Reservation>,
+}
+impl<'a> Discovery<'a> {
+    fn new(data: &'a SummaryData, calls: &[CallInfo], budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let mut count = calls.len().checked_mul(3).ok_or_else(|| invalid("Summary discovery overflow"))?;
+        macro_rules! count {($($rows:expr),*) => {$(count = count.checked_add($rows.len()).ok_or_else(|| invalid("Summary discovery overflow"))?;)*};}
+        count!(data.entry.definition_observations, data.entry.reaching, data.entry.values,
+            data.entry.use_observations, data.entry.value_supports, data.entry.reaching_supports,
+            data.entry.definition_supports, data.entry.use_supports, data.path.call_steps,
+            data.path.value_paths, data.path.value_path_supports, data.entry.owners,
+            data.local_supports, data.model_supports);
+        let reservation = budget.reserve("summary-discovery", count.checked_mul(256)
+            .ok_or_else(|| invalid("Summary discovery allowance overflow"))?)?;
+        macro_rules! index {($rows:expr, $key:expr) => {{
+            let mut index = BTreeMap::<_, Vec<_>>::new();
+            for row in $rows.iter() { index.entry(($key)(row)).or_default().push(row); }
+            index
+        }}}
+        let mut definitions = BTreeMap::<_, Vec<_>>::new();
+        for row in data.entry.definition_observations.iter() {
+            if let Some(site) = row.value { definitions.entry(site).or_default().push(row); }
+        }
+        let mut callers = BTreeMap::<_, Vec<_>>::new();
+        let mut callees = BTreeMap::<_, Vec<_>>::new();
+        let mut attempts = BTreeMap::new();
+        for (index, call) in calls.iter().enumerate() {
+            callers.entry(call.owner).or_default().push(index);
+            callees.entry(call.callee).or_default().push(index);
+            attempts.insert(call.attempt, index);
+        }
+        Ok(Self {
+            entry_conditions: PreparedConditions::new(data.entry.condition_nodes.iter(), budget)?,
+            vocabulary_conditions: PreparedConditions::new(data.vocabulary.nodes.values(), budget)?,
+            local_supports: index!(data.local_supports, |r: &transfer::local::TransferSupport| r.assertion),
+            model_supports: index!(data.model_supports, |r: &transfer::model::TransferSupport| r.assertion),
+            definitions,
+            reaching: index!(data.entry.reaching, |r: &FlowReachingObservation| r.target),
+            values: index!(data.entry.values, |r: &FlowValueObservation| r.use_),
+            uses: index!(data.entry.use_observations, |r: &FlowUseObservation| r.use_),
+            value_supports: index!(data.entry.value_supports, |r: &FlowValueSupport| r.assertion),
+            reaching_supports: index!(data.entry.reaching_supports, |r: &FlowReachingSupport| r.assertion),
+            definition_supports: index!(data.entry.definition_supports, |r: &FlowDefinitionSupport| r.assertion),
+            use_supports: index!(data.entry.use_supports, |r: &FlowUseSupport| r.assertion),
+            call_steps: index!(data.path.call_steps, |r: &FlowCallStep| r.call),
+            value_paths: index!(data.path.value_paths, |r: &FlowValuePathObservation| r.path),
+            path_supports: index!(data.path.value_path_supports, |r: &FlowValuePathSupport| r.assertion),
+            owners: data.entry.owners.iter().map(|r| (r.occurrence, r.entity)).collect(),
+            callers, callees, attempts, _reservation: reservation,
+        })
+    }
+}
 fn path_candidates(
     data: &SummaryData,
+    discovery: &Discovery<'_>,
     vocabulary: &Vocabulary,
     branch: &WorkBranch,
     mut consume: impl FnMut(WorkItem) -> Result<(), ModelError>,
@@ -1182,56 +1251,24 @@ fn path_candidates(
     let Some(PlaceRoot::Entry { declaration }) = vocabulary.roots.get(&input.root) else {
         return Ok(());
     };
-    for definition in data
-        .entry
-        .definition_observations
-        .iter()
-        .filter(|d| d.value == Some(*site))
+    for definition in discovery.definitions.get(site).into_iter().flatten().copied()
     {
         let target = ReachingDefinition::Bound {
             definition: definition.definition,
         };
-        for reaching in data
-            .entry
-            .reaching
-            .iter()
-            .filter(|r| r.target == target.id())
+        for reaching in discovery.reaching.get(&target.id()).into_iter().flatten().copied()
         {
-            for value in data
-                .entry
-                .values
-                .iter()
-                .filter(|v| v.use_ == reaching.use_ && !v.through_call)
+            for value in discovery.values.get(&reaching.use_).into_iter().flatten().copied().filter(|v| !v.through_call)
             {
-                for observed in data
-                    .entry
-                    .use_observations
-                    .iter()
-                    .filter(|u| u.use_ == value.use_)
+                for observed in discovery.uses.get(&value.use_).into_iter().flatten().copied()
                 {
-                    for vs in data
-                        .entry
-                        .value_supports
-                        .iter()
-                        .filter(|s| s.assertion == value.id())
+                    for vs in discovery.value_supports.get(&value.id()).into_iter().flatten().copied()
                     {
-                        for rs in data
-                            .entry
-                            .reaching_supports
-                            .iter()
-                            .filter(|s| s.assertion == reaching.id())
+                        for rs in discovery.reaching_supports.get(&reaching.id()).into_iter().flatten().copied()
                         {
-                            for ds in data
-                                .entry
-                                .definition_supports
-                                .iter()
-                                .filter(|s| s.assertion == definition.id())
+                            for ds in discovery.definition_supports.get(&definition.id()).into_iter().flatten().copied()
                             {
-                                for us in data
-                                    .entry
-                                    .use_supports
-                                    .iter()
-                                    .filter(|s| s.assertion == observed.id())
+                                for us in discovery.use_supports.get(&observed.id()).into_iter().flatten().copied()
                                 {
                                     consume(WorkItem::Alias(
                                         branch.id(),
@@ -1248,8 +1285,8 @@ fn path_candidates(
             }
         }
     }
-    for step in data.path.call_steps.iter().filter(|s| s.call == *site) {
-        for path in data.path.value_paths.iter().filter(|p| p.path == step.path) {
+    for step in discovery.call_steps.get(site).into_iter().flatten().copied() {
+        for path in discovery.value_paths.get(&step.path).into_iter().flatten().copied() {
             let value = need(&data.entry.values, path.value)?;
             let use_ = need(&data.entry.uses, value.use_)?;
             let original = need(&data.entry.places, use_.place)?;
@@ -1257,25 +1294,13 @@ fn path_candidates(
                 != Some(&PlaceRoot::Formal {
                     declaration: *declaration,
                 })
-                || !data
-                    .entry
-                    .owners
-                    .iter()
-                    .any(|o| o.occurrence == use_.occurrence && o.entity == descriptor.owner)
+                || !discovery.owners.contains(&(use_.occurrence, descriptor.owner))
             {
                 continue;
             }
-            for vs in data
-                .entry
-                .value_supports
-                .iter()
-                .filter(|s| s.assertion == value.id())
+            for vs in discovery.value_supports.get(&value.id()).into_iter().flatten().copied()
             {
-                for ps in data
-                    .path
-                    .value_path_supports
-                    .iter()
-                    .filter(|s| s.assertion == path.id())
+                for ps in discovery.path_supports.get(&path.id()).into_iter().flatten().copied()
                 {
                     consume(WorkItem::Path(branch.id(), vs.id(), ps.id(), step.id()))?;
                 }
@@ -1286,6 +1311,7 @@ fn path_candidates(
 }
 fn candidates(
     data: &SummaryData,
+    discovery: &Discovery<'_>,
     vocabulary: &Vocabulary,
     calls: &[CallInfo],
     component: &[Id<EntityRef>],
@@ -1307,10 +1333,22 @@ fn candidates(
             .and_then(|p| vocabulary.roots.get(&p.root))
             .is_some_and(|r| matches!(r, PlaceRoot::Occurrence { .. }))
     };
-    for call in calls
-        .iter()
-        .filter(|c| component.binary_search(&c.owner).is_ok())
-    {
+    let mut caller = discovery.callers.get(&branch.descriptor().owner).into_iter().flatten().peekable();
+    let mut callee = discovery.callees.get(&branch.descriptor().owner).into_iter().flatten().peekable();
+    // Merge endpoint buckets in the former global call order, including recursive self-calls once.
+    while caller.peek().is_some() || callee.peek().is_some() {
+        let index = match (caller.peek(), callee.peek()) {
+            (Some(a), Some(b)) => match a.cmp(b) {
+                std::cmp::Ordering::Less => *caller.next().unwrap(),
+                std::cmp::Ordering::Greater => *callee.next().unwrap(),
+                std::cmp::Ordering::Equal => { callee.next(); *caller.next().unwrap() }
+            },
+            (Some(_), None) => *caller.next().unwrap(),
+            (None, Some(_)) => *callee.next().unwrap(),
+            (None, None) => unreachable!(),
+        };
+        let call = &calls[index];
+        if component.binary_search(&call.owner).is_err() { continue; }
         if call.owner == branch.descriptor().owner
             && caller_eligible(branch)
             && let Some(rows) = progress.by_owner.get(&call.callee)
@@ -1331,7 +1369,7 @@ fn candidates(
             }
         }
     }
-    path_candidates(data, vocabulary, branch, consume)
+    path_candidates(data, discovery, vocabulary, branch, consume)
 }
 struct ResidualContext<'a> {
     data: &'a SummaryData,
@@ -1453,6 +1491,7 @@ fn residual(
     Ok(())
 }
 struct EnqueueContext<'a> {
+    discovery: &'a Discovery<'a>,
     data: &'a SummaryData,
     vocabulary: &'a Vocabulary,
     calls: &'a [CallInfo],
@@ -1479,8 +1518,9 @@ fn enqueue(
         invocation,
         progress,
         seeds,
+        discovery,
     } = enqueue_context;
-    candidates(data, vocabulary, calls, component, progress, new, |item| {
+    candidates(data, discovery, vocabulary, calls, component, progress, new, |item| {
         if processed.contains(&item) {
             return Ok(());
         }
@@ -1902,7 +1942,11 @@ fn produce_with_application(
         &computed_schedule
     };
     let (calls, _calls) = call_infos(data, verified, invocation, &mut out, budget)?;
-    let (seeds, _seeds) = data.seeds(invocation, &mut out, budget)?;
+    let discovery = Discovery::new(data, &calls, budget)?;
+    let (seeds, _seeds) = data.seeds(invocation, &mut out, &discovery, budget)?;
+    let _seed_index = budget.reserve("summary-seed-index", seeds.len().saturating_mul(256))?;
+    let mut seeds_by_owner = BTreeMap::<_, Vec<_>>::new();
+    for (index, seed) in seeds.iter().enumerate() { seeds_by_owner.entry(seed.descriptor().owner).or_default().push(index); }
     let (guards, _guards) = data.guards(budget, actual)?;
     let mut vocabulary = data.vocabulary.copy(budget)?;
     for root in out.vocabulary.roots.values() {
@@ -1921,13 +1965,12 @@ fn produce_with_application(
             .insert(&mut vocabulary.charge, path.id(), path.clone())?;
     }
     let mut progress = Progress::new(limits, budget);
+    let _component_index = budget.reserve("summary-component-membership", schedule.components().iter()
+        .map(Vec::len).sum::<usize>().saturating_mul(128))?;
+    let scheduled = schedule.components().iter().flatten().copied().collect::<BTreeSet<_>>();
     // Projection omissions remain explicit even when no component can own a seed.
     for seed in &seeds {
-        if !schedule
-            .components()
-            .iter()
-            .any(|members| members.binary_search(&seed.descriptor().owner).is_ok())
-        {
+        if !scheduled.contains(&seed.descriptor().owner) {
             let mut digest = KeySink::new("summary-missing-component");
             seed.descriptor().owner.encode(&mut digest);
             origin_boundary(
@@ -1948,27 +1991,30 @@ fn produce_with_application(
         let mut queue = summary_worklist::WorkQueue::new(limits.work, budget);
         let mut processed = charged::ChargedSet::default();
         let mut processed_charge = StateCharge::new(budget, "summary-processed-pairs");
-        for seed in seeds
-            .iter()
-            .filter(|b| component.binary_search(&b.descriptor().owner).is_ok())
-        {
+        let _component_seeds = budget.reserve("summary-component-seeds", component.iter()
+            .filter_map(|owner| seeds_by_owner.get(owner)).map(Vec::len).sum::<usize>()
+            .saturating_mul(size_of::<usize>()))?;
+        let mut component_seeds = component.iter().filter_map(|owner| seeds_by_owner.get(owner))
+            .flatten().copied().collect::<Vec<_>>();
+        component_seeds.sort_unstable();
+        for index in component_seeds {
+            let seed = &seeds[index];
             if let summary_worklist::Admission::Refused(reason) = progress.admit(seed)? {
                 origin_boundary(&mut out, invocation, component_id, seed, reason)?;
             }
         }
         let _initial = budget.reserve(
             "summary-component-initial",
-            progress.branches.len().saturating_mul(size_of::<ProofId>()),
+            component.iter().filter_map(|owner| progress.by_owner.get(owner)).map(BTreeSet::len)
+                .sum::<usize>().saturating_mul(size_of::<ProofId>()),
         )?;
-        let initial = progress
-            .branches
-            .iter()
-            .filter(|(_, b)| component.binary_search(&b.descriptor().owner).is_ok())
-            .map(|(id, _)| *id)
-            .collect::<Vec<_>>();
+        let mut initial = component.iter().filter_map(|owner| progress.by_owner.get(owner))
+            .flatten().copied().collect::<Vec<_>>();
+        initial.sort_unstable();
         for id in initial {
             enqueue(
                 EnqueueContext {
+                    discovery: &discovery,
                     data,
                     vocabulary: &vocabulary,
                     calls: &calls,
@@ -2021,9 +2067,7 @@ fn produce_with_application(
                     let callee = progress.branches[&callee].clone();
                     out.premises.insert(caller.premise.clone())?;
                     out.premises.insert(callee.premise.clone())?;
-                    let call = calls
-                        .iter()
-                        .find(|c| c.attempt == attempt)
+                    let call = discovery.attempts.get(&attempt).map(|index| &calls[*index])
                         .ok_or_else(|| invalid("summary queued call absent"))?;
                     let pair = |disposition, witness, reason| PairOutcome {
                         invocation: invocation.id(),
@@ -2107,9 +2151,9 @@ fn produce_with_application(
                                     }
                                 };
                                 let mut evidence =
-                                    vec![data.evidence(&out, &caller.premise, budget)?];
+                                    vec![data.evidence(&out, &caller.premise, &discovery, budget)?];
                                 if caller.premise.id() != callee.premise.id() {
-                                    evidence.push(data.evidence(&out, &callee.premise, budget)?);
+                                    evidence.push(data.evidence(&out, &callee.premise, &discovery, budget)?);
                                 }
                                 let emission = composed.emit(invocation, &evidence, budget)?;
                                 let branch = WorkBranch {
@@ -2215,6 +2259,7 @@ fn produce_with_application(
                                 if admission == summary_worklist::Admission::Advanced {
                                     enqueue(
                                         EnqueueContext {
+                                            discovery: &discovery,
                                             data,
                                             vocabulary: &vocabulary,
                                             calls: &calls,
@@ -2251,6 +2296,7 @@ fn produce_with_application(
                             vs,
                             ps,
                             step,
+                            &discovery.entry_conditions,
                             budget,
                         )?,
                         WorkItem::Alias(_, vs, rs, ds, us) => super::summary_alias::derive(
@@ -2264,6 +2310,7 @@ fn produce_with_application(
                             rs,
                             ds,
                             us,
+                            &discovery.entry_conditions,
                             budget,
                         )?,
                         _ => unreachable!(),
@@ -2380,6 +2427,7 @@ fn produce_with_application(
                             if admission == summary_worklist::Admission::Advanced {
                                 enqueue(
                                     EnqueueContext {
+                                        discovery: &discovery,
                                         data,
                                         vocabulary: &vocabulary,
                                         calls: &calls,
@@ -2444,7 +2492,7 @@ fn produce_with_application(
         out.outcome.reason = Some(obligation::ObligationKind::IncompleteCoverage);
     }
     super::summary_symbolic::produce(data, invocation, &mut out, budget)?;
-    super::summary_terminal::produce(data, invocation, definition, &mut out, budget)?;
+    super::summary_terminal::produce(data, invocation, definition, &mut out, &discovery.vocabulary_conditions, budget)?;
     out.consequences(
         data,
         invocation,
@@ -2655,6 +2703,99 @@ mod actual_input_property_controls {
             serde::de::value::Error,
         >::new([n; 16].into_iter()))
         .unwrap()
+    }
+    #[test]
+    fn indexed_alias_discovery_preserves_every_support_combination_in_source_order() {
+        let budget = ResourceBudget::fixed(16 << 20).unwrap();
+        let mut data = SummaryData::new(&budget);
+        let path = AccessPath::empty();
+        let input_root = PlaceRoot::Entry { declaration: nominal(1) };
+        let output_root = PlaceRoot::Occurrence { occurrence: nominal(2) };
+        let input = Place { root: input_root.id(), path: path.id() };
+        let output = Place { root: output_root.id(), path: path.id() };
+        for root in [input_root, output_root] {
+            data.vocabulary.roots.insert(&mut data.vocabulary.charge, root.id(), root).unwrap();
+        }
+        for place in [&input, &output] {
+            data.vocabulary.places.insert(&mut data.vocabulary.charge, place.id(), place.clone()).unwrap();
+        }
+        let condition = Diagram::always();
+        let q = AssertionQualification {
+            assumptions: assumptions::AssumptionSet::empty_id(), context: nominal(3),
+            scope: nominal(4), condition: condition.id(), modality: attribution::Modality::Definite,
+            approximation: Approximation::Exact,
+        };
+        let key = TransferKey::from_descriptor(TransferDescriptor {
+            owner: nominal(5), input: input.id(), output: output.id(), context: q.context,
+            scope: q.scope, modality: q.modality, approximation: q.approximation,
+            kind: TransferKind::Derived, call_site: None, provenance: ProvenanceClass::Composed,
+        });
+        let branch = WorkBranch {
+            branch: TransferBranch::new(key, q.clone(), condition, &budget).unwrap(),
+            premise: SummaryPremise::Local { alternative: nominal(6) }, origin: nominal(7),
+            facts: SourceFacts { qualification: q.id(), status: analysis::policy::EvidenceStatus::StructurallyObserved, heuristic: false },
+            cost: ProofCost::SOURCE,
+        };
+        let definition = FlowDefinitionObservation {
+            qualification: q.id(), definition: nominal(8), scope: nominal(9),
+            kind: lexical::BindingEventKind::Assignment, value: Some(nominal(2)),
+        };
+        let reaching = FlowReachingObservation {
+            qualification: q.id(), use_: nominal(10), target: ReachingDefinition::Bound { definition: definition.definition }.id(),
+            loop_carried: false,
+        };
+        let value = FlowValueObservation {
+            qualification: q.id(), use_: nominal(10), sink: nominal(11), kind: FlowSinkKind::Return,
+            transfer: TransferKind::Derived, through_call: false,
+        };
+        macro_rules! support {($ty:ident, $row:expr, $n:expr) => { $ty {
+            assertion: $row.id(), run: nominal($n), surface: nominal(12), evidence: nominal(13),
+            origin: attribution::Origin::AnalyzerAssertion, mode: attribution::ExtractionMode::NativeTraversal,
+            fidelity: attribution::Fidelity::NativeStructural,
+        } };}
+        data.entry.definition_observations.insert(definition.clone()).unwrap();
+        data.entry.reaching.insert(reaching.clone()).unwrap();
+        data.entry.values.insert(value.clone()).unwrap();
+        for n in [20, 21] {
+            data.entry.definition_supports.insert(support!(FlowDefinitionSupport, definition, n)).unwrap();
+            data.entry.reaching_supports.insert(support!(FlowReachingSupport, reaching, n)).unwrap();
+            data.entry.value_supports.insert(support!(FlowValueSupport, value, n)).unwrap();
+        }
+        for annotation in [false, true] {
+            let observed = FlowUseObservation { qualification: q.id(), use_: nominal(10), scope: nominal(9), annotation };
+            for n in [20, 21] {
+                data.entry.use_supports.insert(support!(FlowUseSupport, observed, n)).unwrap();
+            }
+            data.entry.use_observations.insert(observed).unwrap();
+        }
+        // A complete independent relation join supplies the expected proof population and order.
+        let mut expected = Vec::new();
+        for d in data.entry.definition_observations.iter().filter(|d| d.value == Some(nominal(2))) {
+            let target = ReachingDefinition::Bound { definition: d.definition }.id();
+            for r in data.entry.reaching.iter().filter(|r| r.target == target) {
+                for v in data.entry.values.iter().filter(|v| v.use_ == r.use_ && !v.through_call) {
+                    for u in data.entry.use_observations.iter().filter(|u| u.use_ == v.use_) {
+                        for vs in data.entry.value_supports.iter().filter(|s| s.assertion == v.id()) {
+                            for rs in data.entry.reaching_supports.iter().filter(|s| s.assertion == r.id()) {
+                                for ds in data.entry.definition_supports.iter().filter(|s| s.assertion == d.id()) {
+                                    for us in data.entry.use_supports.iter().filter(|s| s.assertion == u.id()) {
+                                        expected.push(WorkItem::Alias(branch.id(), vs.id(), rs.id(), ds.id(), us.id()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let retained = budget.reserved();
+        let discovery = Discovery::new(&data, &[], &budget).unwrap();
+        let mut actual = Vec::new();
+        path_candidates(&data, &discovery, &data.vocabulary, &branch, |item| { actual.push(item); Ok(()) }).unwrap();
+        assert_eq!(actual.len(), 32);
+        assert_eq!(actual, expected);
+        drop(discovery);
+        assert_eq!(budget.reserved(), retained);
     }
     #[test]
     fn actual_summary_does_not_decode_unused_provider_defaults_or_decorator_normalizer_inputs() {

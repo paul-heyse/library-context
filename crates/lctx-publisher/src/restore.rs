@@ -1,5 +1,6 @@
 //! Ordinary restore lowers untrusted dump values through typed native ingress.
 //! Temporary files isolate parsing and large data, never a disposable database or raw SQL session.
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use crate::{
     backup_import::{dump_tables, table_codec, DataDump, Item, definition_metadata},
     native_publication::{Admission, Publication},
@@ -12,9 +13,9 @@ use lctx_model::domain::{
     serving::SnapshotHandle,
     recovery_closure::{RecoveryFamily, RECOVERY_FAMILIES},
 };
-use lctx_surrealdb::{
+use lctx_native::{
     RuntimeConfig,
-    compiler::NativeCompilerStore,
+    
     surrealdb::types::{Bytes, RecordId, Value},
 };
 use std::{
@@ -24,7 +25,7 @@ use std::{
     sync::Arc,
 };
 
-const STATE_TABLES: &[&str] = &lctx_surrealdb::compiler::STATE_TABLES;
+const STATE_TABLES: &[&str] = &lctx_compiler_store::compiler::STATE_TABLES;
 const SPOOL_BUFFER_BYTES: usize = 64 * 1024;
 
 /// Flush explicitly, then disarm BufWriter's best-effort Drop flush even after failure.
@@ -249,7 +250,7 @@ impl Dump {
         result.ok_or(ModelError::Schema("restore requested publication absent"))
     }
     async fn compare_definitions(&self, config: &RuntimeConfig) -> Result<(), ModelError> {
-        let client = lctx_surrealdb::reader::connect(
+        let client = lctx_native::reader::connect(
             &config.endpoint,
             &config.writer_credentials(),
             config.namespace.as_str(),
@@ -347,7 +348,7 @@ impl Iterator for Rows {
         }
     }
 }
-fn object(value: &Value) -> Result<&lctx_surrealdb::surrealdb::types::Object, ModelError> {
+fn object(value: &Value) -> Result<&lctx_native::surrealdb::types::Object, ModelError> {
     match value {
         Value::Object(value) => Ok(value),
         _ => Err(ModelError::Schema("restore record object")),
@@ -360,7 +361,7 @@ fn record_id(value: &Value) -> Result<&RecordId, ModelError> {
     }
 }
 fn bytes<'a>(
-    value: &'a lctx_surrealdb::surrealdb::types::Object,
+    value: &'a lctx_native::surrealdb::types::Object,
     field: &str,
 ) -> Result<&'a Bytes, ModelError> {
     match value.get(field) {
@@ -373,7 +374,7 @@ fn identity_charge(id: &RecordId) -> Result<usize, ModelError> {
     // Native addresses use string keys. Preserve grammar-owned non-string claimed keys
     // for subsequent admission, accounting their nested representation conservatively.
     let key = match &id.key {
-        lctx_surrealdb::surrealdb::types::RecordIdKey::String(key) => key.len(),
+        lctx_native::surrealdb::types::RecordIdKey::String(key) => key.len(),
         _ => serde_json::to_vec(id)
             .map_err(ModelError::codec)?
             .len()
@@ -557,7 +558,7 @@ impl PreparedClosure {
         // A shared store must never supply rows omitted from an untrusted backup. Establish
         // the complete selected payload inventory from this dump before creating a native attempt.
         let mut present = BTreeSet::new();
-        for table in [RecoveryFamily::GraphPayloads, RecoveryFamily::TypedBacking].into_iter().flat_map(lctx_surrealdb::compiler::recovery_tables) {
+        for table in [RecoveryFamily::GraphPayloads, RecoveryFamily::TypedBacking].into_iter().flat_map(lctx_compiler_store::compiler::recovery_tables) {
             for row in dump.rows(table)? {
                 let row = row?;
                 let id = record_id(&row)?;
@@ -630,7 +631,7 @@ impl PreparedClosure {
                 let obj = object(&header)?;
                 let Some(Value::String(content)) = obj.get("content") else { return Err(ModelError::Schema("restore original content")); };
                 let content = hash_hex(content)?;
-                let Some(Value::Number(lctx_surrealdb::surrealdb::types::Number::Int(length))) = obj.get("byte_len") else { return Err(ModelError::Schema("restore original byte length")); };
+                let Some(Value::Number(lctx_native::surrealdb::types::Number::Int(length))) = obj.get("byte_len") else { return Err(ModelError::Schema("restore original byte length")); };
                 selection_charge.try_resize(selection_charge.size().saturating_add(512))?;
                 originals.insert(source.clone(), lctx_model::domain::graph::Original { source: lctx_model::domain::graph::EntityId(source_key), content, byte_len: u64::try_from(*length).map_err(ModelError::codec)? });
             } }
@@ -647,7 +648,7 @@ impl PreparedClosure {
                 RecoveryFamily::Bindings | RecoveryFamily::Aliases | RecoveryFamily::GraphPayloads | RecoveryFamily::OriginalHeaders | RecoveryFamily::OriginalChunks => None,
             };
             let Some((source_field, endpoint_field, external_only)) = fields else { continue; };
-            for table in lctx_surrealdb::compiler::recovery_tables(family) {
+            for table in lctx_compiler_store::compiler::recovery_tables(family) {
                 for row in dump.rows(table)? { let row = row?; let obj = object(&row)?;
                     if matches!(obj.get(source_field), Some(Value::RecordId(source)) if nodes.contains(source)) {
                         let mut ids = vec![record_id(&row)?.clone()];
@@ -676,7 +677,7 @@ impl PreparedClosure {
         Ok(prepared)
     }
     fn keep_row(&self, table: &str, row: &Value) -> Result<bool, ModelError> {
-        use lctx_surrealdb::compiler::RecoveryTableKind;
+        use lctx_compiler_store::compiler::RecoveryTableKind;
         let obj = object(row)?;
         let id = record_id(row)?;
         if id.table.as_str() != table { return Err(ModelError::Schema("restore row table/key")); }
@@ -685,7 +686,7 @@ impl PreparedClosure {
             RecoveryTableKind::Content(family) => match family {
                 RecoveryFamily::Contributions => self.owners.contains(id),
                 RecoveryFamily::Memberships => obj.get("contribution").is_some_and(|v| matches!(v, Value::RecordId(owner) if self.owners.contains(owner))),
-                RecoveryFamily::Views => match &id.key { lctx_surrealdb::surrealdb::types::RecordIdKey::String(id) => self.views.contains(id), _ => false },
+                RecoveryFamily::Views => match &id.key { lctx_native::surrealdb::types::RecordIdKey::String(id) => self.views.contains(id), _ => false },
                 RecoveryFamily::GraphPayloads | RecoveryFamily::TypedBacking => self.nodes.contains(id),
                 RecoveryFamily::Bindings => self.binding_rows.contains(id),
                 RecoveryFamily::Aliases => obj.get("source").is_some_and(|v| matches!(v,Value::RecordId(source) if self.nodes.contains(source))),
@@ -701,8 +702,8 @@ impl PreparedClosure {
         let mut ids = BTreeSet::new();
         let mut binding_keys = BTreeSet::new();
         for table in dump_tables().filter(|table| match table.kind {
-            lctx_surrealdb::compiler::RecoveryTableKind::PublicationRoot => true,
-            lctx_surrealdb::compiler::RecoveryTableKind::Content(family) => !family.is_integrity_claim() && family != RecoveryFamily::OriginalChunks,
+            lctx_compiler_store::compiler::RecoveryTableKind::PublicationRoot => true,
+            lctx_compiler_store::compiler::RecoveryTableKind::Content(family) => !family.is_integrity_claim() && family != RecoveryFamily::OriginalChunks,
         }).map(|table| table.name) {
             for row in dump.rows(table)? {
                 let row = row?;
@@ -723,7 +724,7 @@ impl PreparedClosure {
                         if obj.get("content") != Some(&Value::String(original.content.hex()))
                             || obj.get("byte_len")
                                 != Some(&Value::Number(
-                                    lctx_surrealdb::surrealdb::types::Number::Int(
+                                    lctx_native::surrealdb::types::Number::Int(
                                         i64::try_from(original.byte_len)
                                             .map_err(ModelError::codec)?,
                                     ),
@@ -759,7 +760,7 @@ impl PreparedClosure {
             for row in dump.original_rows(source)?.into_iter().flatten() {
                 let row = row?;
                 let obj = object(&row)?;
-                let Some(Value::Number(lctx_surrealdb::surrealdb::types::Number::Int(start))) =
+                let Some(Value::Number(lctx_native::surrealdb::types::Number::Int(start))) =
                     obj.get("start")
                 else {
                     return Err(ModelError::Schema("restore original offset"));
@@ -813,15 +814,21 @@ pub(crate) async fn restore(
     selected: Option<ContentHash>,
     definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
-    let options = cpg_core::workspace::WorkspaceOptions::default();
+    let options = lctx_compiler_store::admission::AdmissionOptions::default();
     let budget = ResourceBudget::fixed(options.memory_bytes)?;
     let dump = Dump::decode(input, &budget)?;
     let result = async {
         let prepared = PreparedClosure::prepare(&dump, selected, &budget)?;
         dump.compare_definitions(config).await?;
         let native = NativeCompilerStore::begin(config, prepared.manifest.frontier).await?;
+        // Keep standalone admission ownership through publication success or error cleanup.
+        let mut runtime = None;
         let result = async {
-            let admitted = reconstruct(&dump, &native, &prepared, &budget, options).await?;
+            let owner = lctx_compiler_store::admission::AdmissionRuntime::with_budget(
+                Arc::new(lctx_model::domain::model()?), options, budget.clone(), native.clone(),
+            )?;
+            runtime = Some(owner.clone());
+            let admitted = reconstruct(&dump, &owner, &prepared, &budget).await?;
             let publication = Publication::new(Admission::Restored(&admitted), config).await?;
             let result = async {
                 publication.install_definitions(definitions).await?;
@@ -840,7 +847,12 @@ pub(crate) async fn restore(
             lctx_model::domain::completion::complete(result, completion)
         }
         .await;
-        let completion = crate::publication_completion(&native, &result).await;
+        let mut completion = crate::publication_completion(&native, &result).await;
+        if let Some(runtime) = runtime {
+            completion.step("restored admission owned drain", lctx_model::domain::completion::complete(Ok(()), runtime.drain_owned_report().await));
+            let settled = runtime.complete_signal(&completion).await;
+            completion.step("restored admission signal finality", settled);
+        }
         lctx_model::domain::completion::complete(result, completion)
     }
     .await;
@@ -864,7 +876,7 @@ fn write_completed_state<W: Write>(
     writer.write_all(b"\n").map_err(ModelError::codec)?;
     let mut binding_keys = BTreeSet::new();
     for table in STATE_TABLES {
-        let mut sorted = lctx_surrealdb::ordered_rows::SortedRows::with_budget_and_row_bytes(
+        let mut sorted = lctx_native::ordered_rows::SortedRows::with_budget_and_row_bytes(
             budget,
             lctx_model::domain::resources::MAX_ROW_BYTES,
         )?;
@@ -879,7 +891,7 @@ fn write_completed_state<W: Write>(
                     binding_keys.insert(descriptor.key())
                 });
             if keep {
-                sorted.push(lctx_surrealdb::compiler::normalize_transport_row(
+                sorted.push(lctx_compiler_store::compiler::normalize_transport_row(
                     table,
                     &row,
                     &prepared.owner_specs,
@@ -899,25 +911,25 @@ fn write_completed_state<W: Write>(
 fn hash_hex(value: &str) -> Result<ContentHash, ModelError> { Ok(ContentHash(hex::decode(value).map_err(ModelError::codec)?.try_into().map_err(|_| ModelError::Schema("restore hash width"))?)) }
 fn hash_record(value: &RecordId, table: &str) -> Result<ContentHash, ModelError> {
     if value.table.as_str() != table { return Err(ModelError::Schema("restore hashed table identity")); }
-    let lctx_surrealdb::surrealdb::types::RecordIdKey::String(key) = &value.key else { return Err(ModelError::Schema("restore hashed record key")); }; hash_hex(key)
+    let lctx_native::surrealdb::types::RecordIdKey::String(key) = &value.key else { return Err(ModelError::Schema("restore hashed record key")); }; hash_hex(key)
 }
-async fn compare_derived_claims(dump: &Dump, prepared: &PreparedClosure, loader: &lctx_surrealdb::Loader, budget: &ResourceBudget) -> Result<(), ModelError> {
+async fn compare_derived_claims(dump: &Dump, prepared: &PreparedClosure, loader: &lctx_native::Loader, budget: &ResourceBudget) -> Result<(), ModelError> {
     let views = prepared.views.iter().map(|view| hash_hex(view)).collect::<Result<Vec<_>, _>>()?;
-    let all = lctx_surrealdb::NativeReader::for_views(loader.reader().shared_client(), views).with_budget(budget);
+    let all = lctx_native::NativeReader::for_views(loader.reader().shared_client(), views).with_budget(budget);
     let mut graph_tables = Vec::new(); let mut search_tables = Vec::new();
     for family in RECOVERY_FAMILIES.iter().copied() {
         match family {
-            RecoveryFamily::GraphRoles | RecoveryFamily::ExternalEndpoints => graph_tables.extend_from_slice(lctx_surrealdb::compiler::recovery_tables(family)),
-            RecoveryFamily::SearchOccurrences | RecoveryFamily::SearchDocuments | RecoveryFamily::SearchVectors => search_tables.extend_from_slice(lctx_surrealdb::compiler::recovery_tables(family)),
+            RecoveryFamily::GraphRoles | RecoveryFamily::ExternalEndpoints => graph_tables.extend_from_slice(lctx_compiler_store::compiler::recovery_tables(family)),
+            RecoveryFamily::SearchOccurrences | RecoveryFamily::SearchDocuments | RecoveryFamily::SearchVectors => search_tables.extend_from_slice(lctx_compiler_store::compiler::recovery_tables(family)),
             RecoveryFamily::Contributions | RecoveryFamily::Memberships | RecoveryFamily::Views | RecoveryFamily::TypedBacking |
             RecoveryFamily::Bindings | RecoveryFamily::Aliases | RecoveryFamily::GraphPayloads | RecoveryFamily::OriginalHeaders | RecoveryFamily::OriginalChunks => {},
         }
     }
     for (tables, actual) in [
-        (graph_tables, lctx_surrealdb::reconciliation::actual_roles(&all, budget)?),
-        (search_tables, lctx_surrealdb::derived_search::actual_search_rows(&loader.reader().with_budget(budget), budget)?),
+        (graph_tables, lctx_native::reconciliation::actual_roles(&all, budget)?),
+        (search_tables, lctx_native::derived_search::actual_search_rows(&loader.reader().with_budget(budget), budget)?),
     ] {
-        let mut claimed = lctx_surrealdb::ordered_rows::SortedRows::with_budget(budget)?;
+        let mut claimed = lctx_native::ordered_rows::SortedRows::with_budget(budget)?;
         for table in tables { for row in dump.rows(table)? { let row = row?; if prepared.keep_row(table, &row)? { claimed.push(row)?; } } }
         let mut actual = actual;
         claimed.finish()?.reconcile(&mut actual).await?;
@@ -927,21 +939,15 @@ async fn compare_derived_claims(dump: &Dump, prepared: &PreparedClosure, loader:
 
 async fn reconstruct(
     dump: &Dump,
-    native: &Arc<NativeCompilerStore>,
+    runtime: &Arc<lctx_compiler_store::admission::AdmissionRuntime>,
     prepared: &PreparedClosure,
     budget: &ResourceBudget,
-    options: cpg_core::workspace::WorkspaceOptions,
-) -> Result<cpg_core::artifact::RestoredAdmission, ModelError> {
-    let runtime = cpg_core::workspace::Workspace::with_budget(
-        Arc::new(lctx_model::domain::model()?),
-        options,
-        budget.clone(),
-        native.clone(),
-    )?;
+) -> Result<lctx_compiler_store::artifact::RestoredAdmission, ModelError> {
+    let native = runtime.native();
     let manifest = &prepared.manifest;
     let nodes = &prepared.nodes;
     let mut batch_charge = budget.reserve("restore-canonical-ingress", 0)?;
-    for &table in lctx_surrealdb::compiler::recovery_tables(RecoveryFamily::GraphPayloads) {
+    for &table in lctx_compiler_store::compiler::recovery_tables(RecoveryFamily::GraphPayloads) {
         let mut entities = Vec::new();
         let mut assertions = Vec::new();
         let mut batch_bytes = 0usize;
@@ -967,14 +973,14 @@ async fn reconstruct(
             if table == "entity" {
                 let entity =
                     serde_json::from_slice::<Entity>(payload).map_err(ModelError::codec)?;
-                if record_id(&row)? != &lctx_surrealdb::loader::entity_payload_id(&entity)? {
+                if record_id(&row)? != &lctx_native::loader::entity_payload_id(&entity)? {
                     return Err(ModelError::Conflict("restore entity canonical address"));
                 }
                 entities.push(entity);
             } else {
                 let assertion =
                     serde_json::from_slice::<Assertion>(payload).map_err(ModelError::codec)?;
-                if record_id(&row)? != &lctx_surrealdb::loader::assertion_payload_id(&assertion)? {
+                if record_id(&row)? != &lctx_native::loader::assertion_payload_id(&assertion)? {
                     return Err(ModelError::Conflict("restore assertion canonical address"));
                 }
                 assertions.push(assertion);
@@ -996,7 +1002,7 @@ async fn reconstruct(
             let row = row?;
             let row = object(&row)?;
             if row.get("source") == Some(&Value::RecordId(source.clone())) {
-                let Some(Value::Number(lctx_surrealdb::surrealdb::types::Number::Int(start))) =
+                let Some(Value::Number(lctx_native::surrealdb::types::Number::Int(start))) =
                     row.get("start")
                 else {
                     return Err(ModelError::Schema("restore original offset"));
@@ -1043,7 +1049,7 @@ async fn reconstruct(
             .import_state(state.path(), &manifest.completed_state, budget)
             .await?;
         runtime.restore(manifest.profile).await?;
-        cpg_core::artifact::verify_restored(&runtime, manifest).await
+        lctx_compiler_store::artifact::verify_restored(runtime, manifest).await
     }
     .await;
     let mut completion = lctx_model::domain::completion::Completion::default();
@@ -1071,12 +1077,12 @@ mod definition_tests {
         serving::{DatabaseIdentity, Name},
         stages::Profile,
     };
-    use lctx_surrealdb::surrealdb::types::Object;
+    use lctx_native::surrealdb::types::Object;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn cold_restore_compares_inert_role_and_occurrence_claims_against_regenerated_native_rows() {
         let config = super::cold_claim_fixture::config();
-        let package = Package { name: format!("cold-claim-{}", lctx_surrealdb::control::fresh_identity("cold-claim").unwrap().hex()) };
+        let package = Package { name: format!("cold-claim-{}", lctx_native::control::fresh_identity("cold-claim").unwrap().hex()) };
         let release = lctx_model::domain::input::Release { package: package.id(), version: "1".into() };
         let entities = vec![Entity::from(package), Entity::from(release)];
         let fixture = super::cold_claim_fixture::reader(&config, &entities, &[]).await.unwrap();
@@ -1090,8 +1096,8 @@ mod definition_tests {
             hash_record(id, "compiler_view").unwrap()
         }).collect::<Vec<_>>();
         assert_eq!(views.len(), 2, "Package and Release completed relation views");
-        let loader = lctx_surrealdb::Loader::for_views(fixture.shared_client(), views.clone()).with_budget(&control_budget);
-        let mut actual = lctx_surrealdb::reconciliation::actual_roles(&loader.reader(), &control_budget).unwrap();
+        let loader = lctx_native::Loader::for_views(fixture.shared_client(), views.clone()).with_budget(&control_budget);
+        let mut actual = lctx_native::reconciliation::actual_roles(&loader.reader(), &control_budget).unwrap();
         let mut baseline = Vec::new(); while let Some(row) = actual.next().await.unwrap() { baseline.push(row); } actual.drain_transport().await.unwrap();
         assert_eq!(baseline.len(), 1, "one actual Package reference is independently generated from Release canonical data");
         for fault in ["baseline", "missing", "changed", "extra", "occurrence"] {
@@ -1099,13 +1105,13 @@ mod definition_tests {
             if fault == "missing" { claims.clear(); }
             if fault == "changed" { let Value::Object(row) = &mut claims[0] else { unreachable!() }; row.insert("field", "forged-role"); }
             if fault == "extra" { let mut extra = claims[0].clone(); let Value::Object(row) = &mut extra else { unreachable!() }; row.insert("id", RecordId::new("reference", "unexpected-late-role")); claims.push(extra); }
-            if fault == "occurrence" { let mut extra = row("lex_occurs", "unexpected-late-occurrence"); extra.insert("unit_payload", lctx_surrealdb::loader::entity_payload_id(&entities[0]).unwrap()); extra.insert("in", RecordId::new("search_source", "unexpected-value")); claims.push(Value::Object(extra)); }
+            if fault == "occurrence" { let mut extra = row("lex_occurs", "unexpected-late-occurrence"); extra.insert("unit_payload", lctx_native::loader::entity_payload_id(&entities[0]).unwrap()); extra.insert("in", RecordId::new("search_source", "unexpected-value")); claims.push(Value::Object(extra)); }
             let scratch = tempfile::tempdir().unwrap(); let path = scratch.path().join("claims.surql"); let mut file = std::fs::File::create(&path).unwrap(); writeln!(file, "OPTION IMPORT;").unwrap();
             let budget = budget(); let mut encoded = budget.reserve("cold-claim-encoded", 0).unwrap();
             for claim in &claims { crate::backup_import::write_row(&mut file, claim.clone(), encoded.as_mut()).unwrap(); } drop(file);
             let dump = Dump::decode(&path, &budget).unwrap();
             let fake = claimed_fixture();
-            let prepared = PreparedClosure { handle: fake.handle, manifest: Manifest::decode(bytes(object(fake.rows.iter().find(|row| record_id(row).unwrap().table.as_str() == "publication").unwrap()).unwrap(), "manifest").unwrap()).unwrap(), bindings: vec![], originals: BTreeMap::new(), binding_rows: BTreeSet::new(), owners: BTreeSet::new(), owner_specs: BTreeMap::new(), views: views.iter().map(|view| view.hex()).collect(), nodes: entities.iter().map(|entity| lctx_surrealdb::loader::entity_payload_id(entity).unwrap()).collect(), derived_rows: claims.iter().map(|claim| record_id(claim).unwrap().clone()).collect(), _charge: budget.reserve("cold-claim-test-selection", 1024).unwrap() };
+            let prepared = PreparedClosure { handle: fake.handle, manifest: Manifest::decode(bytes(object(fake.rows.iter().find(|row| record_id(row).unwrap().table.as_str() == "publication").unwrap()).unwrap(), "manifest").unwrap()).unwrap(), bindings: vec![], originals: BTreeMap::new(), binding_rows: BTreeSet::new(), owners: BTreeSet::new(), owner_specs: BTreeMap::new(), views: views.iter().map(|view| view.hex()).collect(), nodes: entities.iter().map(|entity| lctx_native::loader::entity_payload_id(entity).unwrap()).collect(), derived_rows: claims.iter().map(|claim| record_id(claim).unwrap().clone()).collect(), _charge: budget.reserve("cold-claim-test-selection", 1024).unwrap() };
             let compared = compare_derived_claims(&dump, &prepared, &loader, &budget).await;
             assert_eq!(compared.is_ok(), fault == "baseline", "source claim {fault}: {compared:?}");
         }
@@ -1373,7 +1379,7 @@ mod definition_tests {
         }
     }
     fn write_claimed(path: &Path, rows: &[Value]) {
-        use lctx_surrealdb::surrealdb::types::ToSql;
+        use lctx_native::surrealdb::types::ToSql;
         let mut file = std::fs::File::create(path).unwrap();
         writeln!(
             file,
@@ -1390,7 +1396,7 @@ mod definition_tests {
         }
     }
     fn budget() -> ResourceBudget {
-        ResourceBudget::fixed(cpg_core::workspace::WorkspaceOptions::default().memory_bytes)
+        ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)
             .unwrap()
     }
     #[test]
@@ -1410,7 +1416,7 @@ mod definition_tests {
         };
         let relation = Relation::of::<ProjectionSnapshotChunk>();
         let batch = ProjectionSnapshotChunk::encode(&[chunk]).unwrap();
-        let body = lctx_surrealdb::codec::batch_bodies(&relation, &batch)
+        let body = lctx_native::codec::batch_bodies(&relation, &batch)
             .unwrap()
             .pop()
             .unwrap();
@@ -1483,7 +1489,7 @@ mod definition_tests {
         write_claimed(&input, &fixture.rows); let budget = budget(); let dump = Dump::decode(&input, &budget).unwrap();
         let mut prepared = PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget).unwrap();
         for family in RECOVERY_FAMILIES.iter().copied() {
-            for table in lctx_surrealdb::compiler::recovery_tables(family) {
+            for table in lctx_compiler_store::compiler::recovery_tables(family) {
                 let mut selected = row(table, "family-control");
                 match family {
                     RecoveryFamily::Contributions => { selected.insert("id", prepared.owners.first().unwrap().clone()); },
@@ -1505,7 +1511,7 @@ mod definition_tests {
             }
         }
         assert!(prepared.keep_row("native_pin", &Value::Object(row("native_pin", "control"))).is_err());
-        let publication = fixture.rows.iter().find(|row| record_id(row).unwrap().table.as_str() == "publication" && record_id(row).unwrap().key == lctx_surrealdb::surrealdb::types::RecordIdKey::String(fixture.handle.publication.hex())).unwrap();
+        let publication = fixture.rows.iter().find(|row| record_id(row).unwrap().table.as_str() == "publication" && record_id(row).unwrap().key == lctx_native::surrealdb::types::RecordIdKey::String(fixture.handle.publication.hex())).unwrap();
         assert!(prepared.keep_row("publication", publication).unwrap(), "publication envelope remains separate from completed content");
     }
     #[test]
@@ -1787,7 +1793,7 @@ mod definition_tests {
             namespace: Name::new("library_context").unwrap(),
             database: Name::new("validation").unwrap(),
             service_generation: fixture.handle.service_generation,
-            authentication: lctx_surrealdb::AuthenticationScope::Database,
+            authentication: lctx_native::AuthenticationScope::Database,
             cache_database: Name::new("validation").unwrap(),
             selection: scratch.path().join("unselected.json"),
         };

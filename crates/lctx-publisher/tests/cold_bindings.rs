@@ -13,7 +13,8 @@ use lctx_model::domain::{
     source::CoverageScope,
     stages::{Profile, ProviderOutcome},
 };
-use lctx_surrealdb::{RuntimeConfig, compiler::NativeCompilerStore};
+use lctx_native::RuntimeConfig;
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -72,9 +73,9 @@ fn suppliers() -> Vec<(&'static str, &'static str, Provider, Vec<FactFamily>)> {
     .collect()
 }
 
-async fn write<R: Record>(native: &Arc<NativeCompilerStore>, pending: &ContentHash, rows: &[R]) {
+async fn write<R: Record>(native: &Arc<NativeCompilerStore>, pending: &ContentHash, rows: &[R], budget:&lctx_model::domain::resources::ResourceBudget) {
     native
-        .write_batch(pending, &Relation::of::<R>(), &R::encode(rows).unwrap())
+        .write_batch(pending, &Relation::of::<R>(), &R::encode(rows).unwrap(), budget)
         .await
         .unwrap();
 }
@@ -159,7 +160,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         diagnostic: None,
     });
     let mut views = BTreeMap::<String, CompletedView>::new();
-    for contract in cpg_extract::contracts::facts()
+    for contract in lctx_model::domain::producer_contract::facts::facts()
         .into_iter()
         .filter(|contract| contract.profiles.contains(&Profile::Catalog))
     {
@@ -185,6 +186,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             input: input.id(),
             context: context.id(),
             configuration: context.config_digest,
+            acquisition: lctx_model::domain::producer_contract::acquisition::CapturedAcquisition::tree(input.clone(), "captured fixture".into()).into(),
         }];
         let outputs = contract
             .outputs
@@ -218,15 +220,15 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         };
         let pending = source.native().begin_contribution(spec).await.unwrap();
         if contract.name == "acquire" {
-            write(source.native(), &pending, std::slice::from_ref(&input)).await;
+            write(source.native(), &pending, std::slice::from_ref(&input), &native_operation_budget).await;
         }
         if contract.name == "assemble" {
-            write(source.native(), &pending, &providers).await;
-            write(source.native(), &pending, std::slice::from_ref(&context)).await;
-            write(source.native(), &pending, std::slice::from_ref(&scope)).await;
-            write(source.native(), &pending, &runs).await;
-            write(source.native(), &pending, &families).await;
-            write(source.native(), &pending, &coverage).await;
+            write(source.native(), &pending, &providers, &native_operation_budget).await;
+            write(source.native(), &pending, std::slice::from_ref(&context), &native_operation_budget).await;
+            write(source.native(), &pending, std::slice::from_ref(&scope), &native_operation_budget).await;
+            write(source.native(), &pending, &runs, &native_operation_budget).await;
+            write(source.native(), &pending, &families, &native_operation_budget).await;
+            write(source.native(), &pending, &coverage, &native_operation_budget).await;
         }
         // Declared contributions include attribution beside semantic vocabulary. Assembly
         // retains every supplier's contribution to those exact shared completed views.
@@ -335,17 +337,17 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         outcome.completion.storage.is_empty(),
         "abandonment must not remove shared storage"
     );
-    let inspector = lctx_surrealdb::compiler::check_installation(&config)
+    let inspector = lctx_compiler_store::compiler::check_installation(&config)
         .await
         .unwrap();
-    let attempt = lctx_surrealdb::surrealdb::types::RecordId::new(
+    let attempt = lctx_native::surrealdb::types::RecordId::new(
         "native_attempt",
         refused.native().attempt().hex(),
     );
     let mut response=inspector.query("SELECT VALUE state FROM $attempt; SELECT VALUE id FROM native_hold WHERE owner=$attempt").bind(("attempt",attempt)).await.unwrap().check().unwrap();
     let states: Vec<String> = response.take(0).unwrap();
     assert_eq!(states, ["abandoned"]);
-    let holds: Vec<lctx_surrealdb::surrealdb::types::RecordId> = response.take(1).unwrap();
+    let holds: Vec<lctx_native::surrealdb::types::RecordId> = response.take(1).unwrap();
     assert!(
         holds.is_empty(),
         "refused attempt must release only its outgoing holds"

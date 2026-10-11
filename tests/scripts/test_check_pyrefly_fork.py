@@ -58,7 +58,7 @@ def test_two_locked_commits_or_a_changed_patch_fail() -> None:
 def test_the_repository_names_one_revision() -> None:
     rev, problems = fork.one_revision(
         fork.LOCK.read_text(),
-        fork.DRIVER.read_text(),
+        fork.driver_contracts(),
         fork.PINS.read_text(),
         fork.PATCH.read_bytes(),
     )

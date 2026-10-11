@@ -7,8 +7,9 @@ use lctx_model::domain::{
     resources::ResourceBudget,
     stages::{Profile, ProviderOutcome},
 };
-use lctx_surrealdb::surrealdb;
-use lctx_surrealdb::{NativeReader, RuntimeConfig, compiler::NativeCompilerStore};
+use lctx_native::surrealdb;
+use lctx_native::{NativeReader, RuntimeConfig};
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -45,9 +46,9 @@ pub async fn reader(
     let model = lctx_model::domain::model()?;
     let budget = ResourceBudget::fixed(64 << 20)?;
     let mut groups = BTreeMap::<String, Vec<surrealdb::types::Value>>::new();
-    for view in lctx_surrealdb::codec::entity_views(entities)?
+    for view in lctx_native::codec::entity_views(entities)?
         .into_iter()
-        .chain(lctx_surrealdb::codec::assertion_views(assertions)?)
+        .chain(lctx_native::codec::assertion_views(assertions)?)
     {
         let surrealdb::types::Value::Object(mut body) = view.body else {
             return Err(ModelError::Schema("scoped fixture body"));
@@ -80,12 +81,12 @@ pub async fn reader(
         })
         .await?;
     for relation in &relations {
-        let batch = lctx_surrealdb::codec::decode_bodies(
+        let batch = lctx_native::codec::decode_bodies(
             relation,
             groups.remove(relation.name()).unwrap(),
             &budget,
         )?;
-        store.write_batch(&contribution, relation, &batch).await?;
+        store.write_batch(&contribution, relation, &batch, &budget).await?;
     }
     let views = store
         .complete_contribution(contribution,
@@ -93,9 +94,9 @@ pub async fn reader(
             &relations,
             &BTreeMap::new(), &budget)
         .await?;
-    let client = lctx_surrealdb::compiler::check_installation(config).await?;
+    let client = lctx_compiler_store::compiler::check_installation(config).await?;
     let selected = views.values().map(|v| v.identity).collect::<Vec<_>>();
-    let loader = lctx_surrealdb::Loader::for_attempt_views(
+    let loader = lctx_native::Loader::for_attempt_views(
         client.clone(),
         store.attempt(),
         selected.clone(),

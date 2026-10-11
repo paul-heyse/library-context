@@ -1,6 +1,6 @@
 //! Pure evidence lowering over one already-scoped canonical native selection.
 use lctx_model::domain::{resources::ResourceBudget, serving::*, *};
-use lctx_surrealdb::batches::CanonicalBatches;
+use lctx_native::batches::CanonicalBatches;
 use std::sync::Arc;
 pub use crate::records::PacketRows;
 use crate::records::Prepared;
@@ -75,7 +75,7 @@ pub fn owner_inputs() -> Vec<ValidationInput> {
         .map(|r| ValidationInput::of_relation(r, &["id"]))
         .collect()
 }
-/// Lower all indivisible selected records before independently paging either section.
+/// Validate every selected record and retain rich bodies only for the independently bound pages.
 pub async fn sections(
     source: Arc<Prepared<'_>>,
     range: &OriginalRange,
@@ -90,50 +90,12 @@ pub async fn sections(
     ModelError,
 > {
     let mut packets = NativePackets::from_prepared(source)?;
-    let flows = packets
-        .flow_inventory(range, usize::MAX)
-        .await
-        .map_err(ModelError::from)?;
-    let characterizations = packets
-        .source_characterization(range, usize::MAX)
-        .await
-        .map_err(ModelError::from)?;
-    let flow_keys = flows
-        .items
-        .into_iter()
-        .map(|p| Ok((key(derivation::RowRef::of(p.inventory))?, p)))
-        .collect::<Result<Vec<_>, ModelError>>()?;
-    let characterization_keys = characterizations
-        .items
-        .into_iter()
-        .map(|p| Ok((key(derivation::RowRef::of(p.characterization))?, p)))
-        .collect::<Result<Vec<_>, ModelError>>()?;
-    let flow = crate::pagination::page(
-        flow_keys,
-        request,
-        snapshot,
-        channels,
-        request.tool().name(),
-        "flow_inventory",
-        None,
-        flows.availability,
-    )
-    .map_err(crate::records::wire)?;
-    let characterization = crate::pagination::page(
-        characterization_keys,
-        request,
-        snapshot,
-        channels,
-        request.tool().name(),
-        "source_characterization",
-        None,
-        characterizations.availability,
-    )
-    .map_err(crate::records::wire)?;
+    let flow = packets.flow_inventory(range, request, snapshot, channels).await.map_err(ModelError::from)?;
+    let characterization = packets.source_characterization(range, request, snapshot, channels).await.map_err(ModelError::from)?;
     Ok((flow, characterization))
 }
 
-fn key(row: derivation::RowRef) -> Result<ContentHash, ModelError> {
+pub(crate) fn key(row: derivation::RowRef) -> Result<ContentHash, ModelError> {
     match graph::target_for_row(row)? {
         graph::Target::Entity(id) => Ok(id.0),
         graph::Target::Assertion(id) => Ok(id.0),

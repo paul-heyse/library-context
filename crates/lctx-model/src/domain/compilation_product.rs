@@ -3,7 +3,7 @@ use super::{ContentHash, Key, KeySink, ModelError};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-pub const PRODUCT_FORMAT: u32 = 1;
+pub const PRODUCT_FORMAT: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProductKind { Program, Membership, Topology, PureRows, PureValue }
@@ -51,6 +51,15 @@ impl ProductRequest {
             return Err(ModelError::Conflict("compiled-product dependency role"));
         }
         Ok(())
+    }
+    /// Owned request metadata has a separate lifetime from any encoded envelope buffer.
+    pub fn retained_bytes(&self)->Result<usize,ModelError>{
+        let mut total=size_of::<Self>();
+        let mut add=|bytes:usize|{total=total.checked_add(bytes).ok_or(ModelError::Schema("compiled-product request size overflow"))?;Ok::<_,ModelError>(())};
+        for bytes in [self.operation.capacity(),self.profile.capacity(),self.parameters.capacity(),self.dependencies.capacity().checked_mul(size_of::<DependencyToken>()).ok_or(ModelError::Schema("compiled-product request size overflow"))?]{add(bytes)?;}
+        for dependency in &self.dependencies{for bytes in [dependency.role.capacity(),dependency.relation.capacity(),dependency.prefix.as_ref().map_or(0,String::capacity)]{add(bytes)?;}}
+        for output in &self.outputs{add(output.capacity().checked_add(64).ok_or(ModelError::Schema("compiled-product request size overflow"))?)?;}
+        Ok(total)
     }
     fn encode(&self,sink:&mut KeySink) {
         sink.part(b"format",&PRODUCT_FORMAT.to_le_bytes());
@@ -105,9 +114,9 @@ impl PortableProduct {
     }
     /// Includes owned containers; transport/native copies require their own reservations.
     pub fn retained_bytes(&self)->Result<usize,ModelError> {
-        let request=&self.request;
-        let fields=[request.operation.len(),request.profile.len(),request.parameters.capacity(),request.outputs.iter().map(|s|s.len()+64).sum(),request.dependencies.iter().map(|d|size_of::<DependencyToken>()+d.role.len()+d.relation.len()+d.prefix.as_ref().map_or(0,String::len)).sum(),self.sections.iter().map(|s|size_of::<ProductSection>()+s.name.len()+s.bytes.capacity()).sum()];
-        fields.into_iter().try_fold(size_of::<Self>(),|total,n|total.checked_add(n).ok_or_else(||ModelError::Invalid("compiled-product size overflow".into())))
+        let mut total=self.request.retained_bytes()?.checked_add(size_of::<Self>()-size_of::<ProductRequest>()).and_then(|bytes|bytes.checked_add(self.sections.capacity().checked_mul(size_of::<ProductSection>())?)).ok_or(ModelError::Schema("compiled-product size overflow"))?;
+        for section in &self.sections{total=total.checked_add(section.name.capacity()).and_then(|bytes|bytes.checked_add(section.bytes.capacity())).ok_or(ModelError::Schema("compiled-product size overflow"))?;}
+        Ok(total)
     }
 }
 

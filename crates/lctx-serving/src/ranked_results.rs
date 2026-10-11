@@ -96,6 +96,80 @@ fn retention_refused() -> WireError {
 fn unavailable() -> WireError {
     WireError::Continuation("ranked continuation unavailable in this session".into())
 }
+/// Private construction owns encoded rows through all failures; it grants no continuation until finish.
+pub(crate) struct RankedAssembly<'request, 'cache, T> {
+    owner: &'request mut RankedRequest<'cache>,
+    expected: CursorBinding,
+    channels: ChannelState,
+    count: usize,
+    size: usize,
+    seen: usize,
+    metadata: usize,
+    charge: StateCharge,
+    rows: Vec<Vec<u8>>,
+    items: Vec<Option<T>>,
+    ranking: Vec<Option<ranking::RankedHit>>,
+}
+impl<T: Serialize> RankedAssembly<'_, '_, T> {
+    pub(crate) fn push_ref_at(&mut self, ordinal: usize, hit: &ranking::RankedHit, key: ContentHash, item: &T) -> Result<(), WireError>
+    where T: Clone {
+        if ordinal >= self.count || self.seen >= self.count
+            || (self.count > 1 && !self.rows[ordinal].is_empty()) { return Err(unavailable()); }
+        if self.count > 1 {
+            self.rows[ordinal] = encode(&RowRef { ranking: hit, key, item },
+                MAX_BYTES.saturating_sub(self.charge.reserved()), &mut self.charge)?;
+        }
+        if ordinal < self.size {
+            self.owner.admit_copy(&(hit, item))?;
+            self.items[ordinal] = Some(item.clone()); self.ranking[ordinal] = Some(hit.clone());
+        }
+        self.seen += 1;
+        Ok(())
+    }
+    pub(crate) fn push(&mut self, hit: ranking::RankedHit, key: ContentHash, item: T) -> Result<(), WireError> {
+        self.push_at(self.seen, hit, key, item)
+    }
+    pub(crate) fn push_at(&mut self, ordinal: usize, hit: ranking::RankedHit, key: ContentHash, item: T) -> Result<(), WireError> {
+        if ordinal >= self.count || self.seen >= self.count
+            || (self.count > 1 && !self.rows[ordinal].is_empty()) { return Err(unavailable()); }
+        if self.count > 1 {
+            self.rows[ordinal] = encode(&RowRef { ranking: &hit, key, item: &item },
+                MAX_BYTES.saturating_sub(self.charge.reserved()), &mut self.charge)?;
+        }
+        if ordinal < self.size {
+            self.owner.admit_copy(&item)?;
+            self.items[ordinal] = Some(item); self.ranking[ordinal] = Some(hit);
+        }
+        self.seen += 1;
+        Ok(())
+    }
+    pub(crate) fn finish(self) -> Result<(SectionPage<T>, Vec<ranking::RankedHit>), WireError> {
+        if self.seen != self.count { return Err(unavailable()); }
+        let continuation = if self.count > 1 {
+            let mut key = KeySink::new("native-ranked-result/v1");
+            for row in &self.rows { key.part(b"row", row); }
+            let digest = key.finish();
+            let sequence = self.owner.cache.sequence.fetch_add(1, Ordering::Relaxed) + 1;
+            let mut key = KeySink::new("native-ranked-entry/v1");
+            key.part(b"session", &self.owner.cache.session.0);
+            key.part(b"sequence", &sequence.to_le_bytes()); key.part(b"digest", &digest.0);
+            let result = key.finish();
+            self.owner.scratch.grow(size_of::<Cursor>().saturating_mul(8).saturating_add(self.metadata.saturating_mul(8)))
+                .map_err(|_| retention_refused())?;
+            let token = Cursor { binding: self.expected.clone(), after: CursorPosition::Ranked {
+                session: self.owner.cache.session, result, digest, offset: self.size.min(self.count) as u64,
+            }}.encode()?;
+            self.owner.pending = Some(Pending { result, entry: Entry {
+                binding: self.expected, digest, channels: self.channels, rows: self.rows, template: Vec::new(),
+                created: Instant::now(), charge: self.charge,
+            }});
+            Optional(Some(token))
+        } else { Optional::default() };
+        let omitted = self.count.saturating_sub(self.size) as u64;
+        Ok((SectionPage { availability: Availability::Available {}, items: self.items.into_iter().flatten().collect(), continuation,
+            omitted, truncated: omitted > 0 }, self.ranking.into_iter().flatten().collect()))
+    }
+}
 impl RankedResults {
     pub(crate) fn new(shared: &ResourceBudget) -> Self {
         let mut key = KeySink::new("native-ranked-session/v1");
@@ -171,6 +245,11 @@ impl JsonShape {
             .and_then(|bytes| bytes.checked_mul(copies)).ok_or_else(retention_refused)
     }
 }
+pub(crate) fn allocation_allowance(value: &impl Serialize) -> Result<usize, WireError> {
+    let mut shape = JsonShape::default();
+    serde_json::to_writer(&mut shape, value)?;
+    shape.allowance(1)
+}
 impl Write for JsonShape {
     fn write(&mut self, raw: &[u8]) -> io::Result<usize> {
         self.bytes = self.bytes.checked_add(raw.len()).ok_or_else(|| io::Error::other("ranked scratch size"))?;
@@ -193,7 +272,7 @@ impl Write for JsonShape {
     }
     fn flush(&mut self) -> io::Result<()> { Ok(()) }
 }
-impl RankedRequest<'_> {
+impl<'cache> RankedRequest<'cache> {
     /// Admit JSON tree/DTO scratch before parsing. The allocation-free counter includes
     /// array growth and map-node/key overhead as well as string/serialized copies.
     /// This is a conservative allocation allowance, not a process-RSS measurement.
@@ -208,70 +287,39 @@ impl RankedRequest<'_> {
         serde_json::to_writer(&mut shape, value)?;
         self.scratch.grow(shape.allowance(1)?).map_err(|_| retention_refused())
     }
-    /// First-page discovery supplies its order once. Nothing is retained in the map yet.
-    pub(crate) fn page<T: Serialize>(
-        &mut self,
-        values: Vec<(ranking::RankedHit, ContentHash, T)>,
-        request: &Request,
-        snapshot: &SnapshotHandle,
-        channels: &ChannelState,
-    ) -> Result<(SectionPage<T>, Vec<ranking::RankedHit>), WireError> {
+    /// Assemble frozen encoded authority incrementally; only the requested page keeps DTOs.
+    pub(crate) fn begin<'request, T: Serialize>(&'request mut self, count: usize, request: &Request,
+        snapshot: &SnapshotHandle, channels: &ChannelState) -> Result<RankedAssembly<'request, 'cache, T>, WireError> {
         if request.page().cursor.0.is_some() || self.pending.is_some() { return Err(unavailable()); }
         let expected = crate::pagination::binding(request, snapshot, channels,
             request.tool().name(), "results", None)?;
-        let count = values.len();
         let size = request.page().size as usize;
-        let continuation = if count > 1 {
-            let mut charge = StateCharge::new(&self.cache.shared, "native-ranked-retention");
-            // Include immutable Arc and map/node ownership as well as row-vector storage.
+        let mut charge = StateCharge::new(&self.cache.shared, "native-ranked-retention");
+        let metadata = channels_name_bytes(channels)
+            + expected.group.as_str().len() + expected.section.as_str().len()
+            + expected.snapshot.database.namespace.as_str().len()
+            + expected.snapshot.database.database.as_str().len();
+        if count > 1 {
             let base = (size_of::<Entry>() + 2 * size_of::<usize>() + size_of::<Retained>()
                 + size_of::<ContentHash>() + 32).checked_add(count.checked_mul(size_of::<Vec<u8>>())
                 .ok_or_else(retention_refused)?).ok_or_else(retention_refused)?;
             if base > MAX_BYTES { return Err(retention_refused()); }
-            charge.grow(base).map_err(|_| retention_refused())?;
-            // Metadata copies are charged before cloning; cursor encoding is request scratch.
-            let metadata = channels_name_bytes(channels)
-                + expected.group.as_str().len() + expected.section.as_str().len()
-                + expected.snapshot.database.namespace.as_str().len()
-                + expected.snapshot.database.database.as_str().len();
-            charge.grow(metadata).map_err(|_| retention_refused())?;
-            let mut rows = Vec::with_capacity(count);
-            for (ranking, key, item) in &values {
-                rows.push(encode(&RowRef { ranking, key: *key, item },
-                    MAX_BYTES.saturating_sub(charge.reserved()), &mut charge)?);
-            }
-            let mut key = KeySink::new("native-ranked-result/v1");
-            for row in &rows { key.part(b"row", row); }
-            let digest = key.finish();
-            let sequence = self.cache.sequence.fetch_add(1, Ordering::Relaxed) + 1;
-            let mut key = KeySink::new("native-ranked-entry/v1");
-            key.part(b"session", &self.cache.session.0);
-            key.part(b"sequence", &sequence.to_le_bytes());
-            key.part(b"digest", &digest.0);
-            let result = key.finish();
-            self.scratch.grow(size_of::<Cursor>().saturating_mul(8).saturating_add(metadata.saturating_mul(8)))
-                .map_err(|_| retention_refused())?;
-            let token = Cursor { binding: expected.clone(), after: CursorPosition::Ranked {
-                session: self.cache.session, result, digest, offset: size.min(count) as u64,
-            }}.encode()?;
-            self.pending = Some(Pending { result, entry: Entry {
-                binding: expected, digest, channels: channels.clone(), rows, template: Vec::new(),
-                created: Instant::now(), charge,
-            }});
-            Optional(Some(token))
-        } else { Optional::default() };
-        let returned = size.min(count);
-        self.scratch.grow(returned.saturating_mul(size_of::<T>() + size_of::<ranking::RankedHit>()))
-            .map_err(|_| retention_refused())?;
-        let mut items = Vec::with_capacity(returned);
-        let mut ranking = Vec::with_capacity(returned);
-        for (hit, _, item) in values.into_iter().take(returned) {
-            items.push(item);
-            ranking.push(hit);
+            charge.grow(base.checked_add(metadata).ok_or_else(retention_refused)?).map_err(|_| retention_refused())?;
         }
-        let omitted = count.saturating_sub(size) as u64;
-        Ok((SectionPage { availability: Availability::Available {}, items, continuation,
-            omitted, truncated: omitted > 0 }, ranking))
+        let returned = size.min(count);
+        self.scratch.grow(returned.saturating_mul(size_of::<Option<T>>() + size_of::<T>() + size_of::<Option<ranking::RankedHit>>() + size_of::<ranking::RankedHit>()))
+            .map_err(|_| retention_refused())?;
+        Ok(RankedAssembly { owner: self, expected, channels: channels.clone(), count, size, seen: 0,
+            metadata, charge, rows: (0..if count > 1 { count } else { 0 }).map(|_| Vec::new()).collect(),
+            items: (0..returned).map(|_| None).collect(), ranking: (0..returned).map(|_| None).collect() })
+    }
+    /// First-page discovery supplies its order once. Nothing is retained in the map yet.
+    pub(crate) fn page<T: Serialize>(&mut self, values: Vec<(ranking::RankedHit, ContentHash, T)>,
+        request: &Request, snapshot: &SnapshotHandle, channels: &ChannelState)
+        -> Result<(SectionPage<T>, Vec<ranking::RankedHit>), WireError> {
+        let mut assembly = self.begin(values.len(), request, snapshot, channels)?;
+        for (hit, key, item) in values { assembly.push(hit, key, item)?; }
+        assembly.finish()
     }
     /// Final packing determines whether a transient first-page cursor is needed.
     pub(crate) fn complete(&mut self, response: &mut Response) {
@@ -818,6 +866,34 @@ mod tests {
         serde_json::to_writer(&mut chunks, &value).unwrap();
         assert_eq!(whole.allowance(3).unwrap(), chunks.allowance(3).unwrap());
         assert!(whole.allowance(3).unwrap() > raw.len() * 3);
+    }
+
+    #[test]
+    fn grouped_incremental_assembly_preserves_frozen_order_and_clones_only_page() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        #[derive(Serialize)]
+        struct Packet { value: u8, #[serde(skip)] copies: Arc<AtomicUsize> }
+        impl Clone for Packet {
+            fn clone(&self) -> Self { self.copies.fetch_add(1, Ordering::SeqCst); Self { value: self.value, copies: self.copies.clone() } }
+        }
+        let cache = RankedResults::default();
+        let budget = budget();
+        let mut request = cache.request(&budget);
+        let values = values();
+        let copies = Arc::new(AtomicUsize::new(0));
+        let packets = (0..3).map(|value| Packet { value, copies: copies.clone() }).collect::<Vec<_>>();
+        let mut assembly = request.begin(3, &self::request(), &handle(), &channels()).unwrap();
+        for ordinal in [2, 0, 1] { assembly.push_ref_at(ordinal, &values[ordinal].0, values[ordinal].1, &packets[ordinal]).unwrap(); }
+        let (page, ranking) = assembly.finish().unwrap();
+        assert_eq!(copies.load(Ordering::SeqCst), 1, "off-page packets are encoded without DTO clones");
+        assert_eq!(page.items[0].value, 0);
+        assert_eq!(ranking[0].context, values[0].0.context);
+        let entry = &request.pending.as_ref().unwrap().entry;
+        let expected = values.iter().zip(&packets).map(|((ranking, key, _), item)| serde_json::to_vec(&RowRef { ranking, key: *key, item }).unwrap()).collect::<Vec<_>>();
+        assert_eq!(entry.rows, expected, "grouped preparation cannot change frozen ranked order");
+        assert!(cache.state.lock().unwrap().entries.is_empty(), "assembly grants no published continuation");
+        drop(request);
+        assert_eq!(budget.reserved(), 0);
     }
 
 }

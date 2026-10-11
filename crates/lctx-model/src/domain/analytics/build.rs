@@ -591,9 +591,8 @@ pub fn produce_with_policy(
             communities.stop = Stop::WorkLimit;
         } else {
             for (owner, targets) in scopes {
-                let values = targets.into_iter().collect::<Vec<_>>();
-                for (i, (left, le)) in values.iter().enumerate() {
-                    for (right, re) in &values[i + 1..] {
+                for (left, le) in &targets {
+                    for (right, re) in targets.range((std::ops::Bound::Excluded(left), std::ops::Bound::Unbounded)) {
                         contribute(
                             &mut out,
                             f.id(),

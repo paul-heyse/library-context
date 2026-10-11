@@ -316,7 +316,7 @@ impl EntryValueWitness {
         request: EntryRequest,
         budget: &resources::ResourceBudget,
     ) -> Result<Result<DerivedEntryValue, ObligationKind>, ModelError> {
-        Self::derive_source(data, request, None, budget)
+        Self::derive_source(data, request, None, None, budget)
     }
     pub fn derive_for(
         data: &EntryData,
@@ -324,12 +324,19 @@ impl EntryValueWitness {
         source: &EntryAccessSource,
         budget: &resources::ResourceBudget,
     ) -> Result<Result<DerivedEntryValue, ObligationKind>, ModelError> {
-        Self::derive_source(data, request, Some(source), budget)
+        Self::derive_source(data, request, Some(source), None, budget)
+    }
+    pub(crate) fn derive_for_prepared(
+        data: &EntryData, request: EntryRequest, source: &EntryAccessSource,
+        conditions: &super::PreparedConditions<'_>, budget: &resources::ResourceBudget,
+    ) -> Result<Result<DerivedEntryValue, ObligationKind>, ModelError> {
+        Self::derive_source(data, request, Some(source), Some(conditions), budget)
     }
     fn derive_source(
         data: &EntryData,
         request: EntryRequest,
         source: Option<&EntryAccessSource>,
+        prepared: Option<&super::PreparedConditions<'_>>,
         budget: &resources::ResourceBudget,
     ) -> Result<Result<DerivedEntryValue, ObligationKind>, ModelError> {
         let mut charge = charged::StateCharge::new(budget, "entry-value-derivation");
@@ -613,30 +620,34 @@ impl EntryValueWitness {
                 }
             };
             let mut access_q = exact(data, access_q, request)?.clone();
-            let bytes = data
-                .condition_nodes
-                .len()
-                .checked_mul(2048)
-                .ok_or(ObligationKind::ResourceRefused)?;
-            let _buffer = budget
-                .reserve("entry_condition_decode", bytes)
-                .map_err(|error| {
-                    resource_error = Some(error);
-                    ObligationKind::ResourceRefused
+            let local;
+            let prepared = if let Some(prepared) = prepared { prepared } else {
+                local = super::PreparedConditions::new(data.condition_nodes.iter(), budget)
+                    .map_err(|error| match error {
+                        ModelError::Resource { .. } => { resource_error = Some(error); ObligationKind::ResourceRefused }
+                        _ => ObligationKind::MissingEvidence,
+                    })?;
+                &local
+            };
+            let access = prepared.diagram(need(&data.conditions, access_q.condition)?)
+                .map_err(|error| match error {
+                    ModelError::Resource { .. } => { resource_error = Some(error); ObligationKind::ResourceRefused }
+                    _ => ObligationKind::MissingEvidence,
                 })?;
-            let nodes = data.condition_nodes.iter().cloned().collect::<Vec<_>>();
-            let mut access_condition =
-                super::Diagram::from_records(need(&data.conditions, access_q.condition)?, &nodes)
-                    .map_err(|_| ObligationKind::MissingEvidence)?;
+            let mut copy_charge = budget.reserve("entry-condition-copy", access.allocation_allowance())
+                .map_err(|error| { resource_error = Some(error); ObligationKind::ResourceRefused })?;
+            let mut access_condition = (**access).clone();
             if let Some(region_q) = region_q {
                 let region_q = exact(data, region_q, request)?;
-                let region_condition = super::Diagram::from_records(
-                    need(&data.conditions, region_q.condition)?,
-                    &nodes,
-                )
-                .map_err(|_| ObligationKind::MissingEvidence)?;
+                let region_condition = prepared.diagram(need(&data.conditions, region_q.condition)?)
+                .map_err(|error| match error {
+                    ModelError::Resource { .. } => { resource_error = Some(error); ObligationKind::ResourceRefused }
+                    _ => ObligationKind::MissingEvidence,
+                })?;
                 if matches!(source, EntryAccessSource::Guard { .. }) {
-                    access_condition = region_condition;
+                    copy_charge.try_resize(access_condition.allocation_allowance().saturating_add(region_condition.allocation_allowance()))
+                        .map_err(|error| { resource_error = Some(error); ObligationKind::ResourceRefused })?;
+                    access_condition = (**region_condition).clone();
                 } else {
                     let admitted = access_condition
                         .admitted_binary(
@@ -710,11 +721,11 @@ impl EntryValueWitness {
             let reaching_q = need(&data.qualifications, reaching.qualification)?;
             if use_q.condition != reaching_q.condition {
                 let use_condition = &access_condition;
-                let reaching_condition = super::Diagram::from_records(
-                    need(&data.conditions, reaching_q.condition)?,
-                    &nodes,
-                )
-                .map_err(|_| ObligationKind::MissingEvidence)?;
+                let reaching_condition = prepared.diagram(need(&data.conditions, reaching_q.condition)?)
+                .map_err(|error| match error {
+                    ModelError::Resource { .. } => { resource_error = Some(error); ObligationKind::ResourceRefused }
+                    _ => ObligationKind::MissingEvidence,
+                })?;
                 let covered = use_condition
                     .admitted_binary(
                         &reaching_condition,

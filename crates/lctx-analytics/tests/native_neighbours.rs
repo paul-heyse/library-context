@@ -38,6 +38,12 @@ struct Fixture {
 }
 impl Fixture {
     fn new(budget: &ResourceBudget, missing: bool) -> Self {
+        Self::with_vectors(budget, missing, vec![
+            (10, vec![[1.0, 0.0], [0.6, 0.8]]), (11, vec![[1.0, 0.0]]),
+            (12, vec![[0.0, 1.0]]), (13, vec![[1.0, 0.0]]),
+        ])
+    }
+    fn with_vectors(budget: &ResourceBudget, missing: bool, population: Vec<(u8, Vec<[f32; 2]>)>) -> Self {
         let mut data = ConsumptionData::new(budget);
         let spec = spec();
         let configuration =
@@ -73,12 +79,7 @@ impl Fixture {
         let mut keys = vec![];
         // Query has two windows. Two targets tie at cosine 1; a third is orthogonal to its best
         // corresponding window but reaches 0.8 overall, so item similarity must use the maximum.
-        for (n, vectors) in [
-            (10, vec![[1.0, 0.0], [0.6, 0.8]]),
-            (11, vec![[1.0, 0.0]]),
-            (12, vec![[0.0, 1.0]]),
-            (13, vec![[1.0, 0.0]]),
-        ] {
+        for (n, vectors) in population {
             let assessment = TextAssessment {
                 subject: id(n),
                 definition: definition.id(),
@@ -399,4 +400,45 @@ fn centroid_retains_all_original_winners_and_exact_passage_choice() {
     drop(m);
     drop(reversed);
     assert_eq!(b.reserved(), 0);
+}
+
+#[test]
+fn bounded_top_k_matches_the_exhaustive_population_for_every_target_subset() {
+    let budget = ResourceBudget::fixed(1 << 22).unwrap();
+    let fixture = Fixture::new(&budget, false);
+    let prepared = fixture.prepare(&budget).unwrap();
+    let query = fixture.keys[0];
+    // Independently known best-window scores for the fixture. Canonical target IDs break ties.
+    let scores = [(fixture.keys[1], 1.0), (fixture.keys[2], f64::from(0.8f32)), (fixture.keys[3], 1.0)];
+    for mask in 0..8 {
+        let targets = scores.iter().enumerate().filter(|(index, _)| mask & (1 << index) != 0)
+            .map(|(_, (key, _))| *key).rev().collect::<Vec<_>>();
+        for k in 1..=4 {
+            let result = prepared.nearest(&[query], &targets, Parameters { k, ..parameters() }).unwrap();
+            let mut expected = scores.iter().copied().filter(|(key, _)| targets.contains(key)).collect::<Vec<_>>();
+            expected.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+            expected.truncate(k);
+            assert_eq!(result.rows().iter().map(|row| (row.target, row.score.get())).collect::<Vec<_>>(), expected);
+            assert_eq!(result.window_pairs(), 2 * targets.len() as u64);
+        }
+    }
+}
+
+#[test]
+fn promoted_scalar_near_ties_survive_top_k_without_projection_renormalization() {
+    let budget = ResourceBudget::fixed(1 << 22).unwrap();
+    let fixture = Fixture::with_vectors(&budget, false, vec![
+        (10, vec![[1.0, 1e-4]]), (11, vec![[1.0, 2.0f32.powi(-24)]]),
+        (12, vec![[1.0, 2.0f32.powi(-25)]]),
+    ]);
+    let prepared = fixture.prepare(&budget).unwrap();
+    let result = prepared.nearest(&fixture.keys[..1], &fixture.keys[1..], Parameters { k: 2, ..parameters() }).unwrap();
+    assert_eq!(result.rows()[0].target, fixture.keys[1]);
+    assert_eq!(result.rows()[1].target, fixture.keys[2]);
+    let high = 1.0 + f64::from(1e-4f32) * f64::from(2.0f32.powi(-24));
+    let low = 1.0 + f64::from(1e-4f32) * f64::from(2.0f32.powi(-25));
+    assert_eq!([result.rows()[0].score.get(), result.rows()[1].score.get()], [high, low]);
+    assert!(high > low);
+    assert_eq!(high as f32, low as f32, "F32 score retention would erase this ordering");
+    assert!(high > 1.0, "scoring must not renormalize the admitted rounded projection");
 }

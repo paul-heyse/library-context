@@ -1,7 +1,7 @@
 //! One effect owner for token admission and immutable cache winners, shared by E1 and E0.
+use lctx_model::domain::embedding::Embedder;
 use crate::{
     CoreError,
-    embedding_service::Embedder,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
@@ -40,6 +40,13 @@ impl Error {
         matches!(self, Self::Service(CoreError::EmbeddingService(_)))
     }
 }
+fn service_error(error: ModelError) -> Error {
+    if let Some(message) = embedding::ServiceUnavailable::detail(&error) {
+        CoreError::EmbeddingService(message.to_owned()).into()
+    } else {
+        error.into()
+    }
+}
 
 pub struct Session<'a> {
     embedder: &'a dyn Embedder,
@@ -54,6 +61,10 @@ pub struct Session<'a> {
     // through the existing value admission; only compact immutable offsets survive a request.
     spool: Option<std::fs::File>,
     active: Option<(ContentHash, AdmittedValue)>,
+    pending: BTreeMap<ContentHash, String>,
+    pending_charge: charged::StateCharge,
+    pending_effect_bytes: usize,
+    pending_effect: Option<Box<dyn resources::Reservation>>,
 }
 #[derive(Clone)]
 enum Refusal {
@@ -153,6 +164,10 @@ impl<'a> Session<'a> {
             refusals: BTreeMap::new(),
             spool: None,
             active: None,
+            pending: BTreeMap::new(),
+            pending_charge: charged::StateCharge::new(budget, "embedding-request-batch"),
+            pending_effect_bytes: 0,
+            pending_effect: None,
         })
     }
     pub fn configuration(&self) -> &Configuration {
@@ -284,6 +299,14 @@ impl<'a> Session<'a> {
         if !self.values.contains_key(&input) && !self.refusals.contains_key(&input) {
             self.prepare([document]).await?;
         }
+        self.publish_input(input, output).await
+    }
+    /// Publish only an already resolved exact input. Queue acknowledgement is not completion.
+    pub async fn publish_input(
+        &mut self,
+        input: ContentHash,
+        output: &ProducerOutput,
+    ) -> Result<PublishedValue, Error> {
         if let Some(refusal) = self.refusals.get(&input).copied() {
             return Err(self.refusal_error(refusal)?);
         }
@@ -438,11 +461,17 @@ impl<'a> Session<'a> {
         &mut self,
         documents: impl IntoIterator<Item = &'d str>,
     ) -> Result<(), Error> {
-        const CHUNK: usize = 64;
-        let mut requests = BTreeMap::new();
-        let mut request_charge = charged::StateCharge::new(&self.budget, "embedding-request-batch");
-        let mut effect_bytes = 0usize;
         for document in documents {
+            self.queue_ready(document).await?;
+        }
+        self.flush_ready().await
+    }
+    pub fn resolved(&self, input: ContentHash) -> bool {
+        self.values.contains_key(&input) || self.refusals.contains_key(&input)
+    }
+    /// One selected Session owns pending exact encoder inputs across caller roots/windows.
+    /// Retained request text stays charged through native/cache completion of its effect chunk.
+    pub async fn queue_ready(&mut self, document: &str) -> Result<ContentHash, Error> {
             let spec = self.configuration.specification();
             let text_bound = document
                 .len()
@@ -467,58 +496,65 @@ impl<'a> Session<'a> {
             // not determine how many service buffers this session can admit together.
             let needed = self
                 .effect_bytes(text_bound)?
-                .checked_add(effect_bytes)
-                .and_then(|n| n.checked_add(bound))
+                .checked_add(bound)
                 .and_then(|n| n.checked_add(retained_bound))
                 .ok_or_else(|| {
                     ModelError::Invalid("embedding batch allocation overflow".into())
                 })?;
-            if !requests.is_empty()
+            if !self.pending.is_empty()
                 && needed > self.budget.limit().saturating_sub(self.budget.reserved())
             {
-                self.prepare_chunk(std::mem::take(&mut requests)).await?;
-                request_charge = charged::StateCharge::new(&self.budget, "embedding-request-batch");
-                effect_bytes = 0;
+                self.flush_ready().await?;
             }
             let _copy = self.budget.reserve("embedding-request", bound)?;
             let request = self.configuration.specification().document_text(document);
             let key = input_hash(&request);
-            if self.values.contains_key(&key)
-                || self.refusals.contains_key(&key)
-                || requests.contains_key(&key)
-            {
-                continue;
+            if let Some(previous) = self.pending.get(&key) {
+                if previous != &request {
+                    return Err(ModelError::Invalid("pending embedding input hash collision".into()).into());
+                }
+                return Ok(key);
             }
-            effect_bytes = effect_bytes.checked_add(self.effect_bytes(request.len())?).ok_or_else(|| {
+            if self.resolved(key) { return Ok(key); }
+            let next_effect_bytes = self.pending_effect_bytes.checked_add(self.effect_bytes(request.len())?).ok_or_else(|| {
                 ModelError::Invalid("embedding batch allocation overflow".into())
             })?;
-            request_charge.grow(request_bytes(request.len())?)?;
-            requests.insert(key, request);
-            drop(_copy);
-            if requests.len() == CHUNK {
-                self.prepare_chunk(std::mem::take(&mut requests)).await?;
-                request_charge = charged::StateCharge::new(&self.budget, "embedding-request-batch");
-                effect_bytes = 0;
+            if let Some(effect) = &mut self.pending_effect {
+                effect.try_resize(next_effect_bytes)?;
+            } else {
+                self.pending_effect = Some(self.budget.reserve("embedding-effect-buffers", next_effect_bytes)?);
             }
-        }
-        if !requests.is_empty() {
-            self.prepare_chunk(requests).await?;
-        }
-        Ok(())
+            self.pending_charge.grow(request_bytes(request.len())?)?;
+            self.pending_effect_bytes = next_effect_bytes;
+            self.pending.insert(key, request);
+            drop(_copy);
+            if self.pending.len() == 64 {
+                self.flush_ready().await?;
+            }
+            Ok(key)
+    }
+    pub async fn flush_ready(&mut self) -> Result<(), Error> {
+        if self.pending.is_empty() { return Ok(()); }
+        let requests = std::mem::take(&mut self.pending);
+        let charge = std::mem::replace(&mut self.pending_charge,
+            charged::StateCharge::new(&self.budget, "embedding-request-batch"));
+        self.pending_effect_bytes = 0;
+        let effect = self.pending_effect.take().expect("pending requests own their effect admission");
+        let result = self.prepare_chunk(requests, effect).await;
+        drop(charge);
+        result
     }
     async fn prepare_chunk(
         &mut self,
         requests: BTreeMap<ContentHash, String>,
+        _effect: Box<dyn resources::Reservation>,
     ) -> Result<(), Error> {
         let effect_bytes = requests.values().try_fold(0usize, |bytes, request| {
             bytes.checked_add(self.effect_bytes(request.len())?).ok_or_else(|| {
                 ModelError::Invalid("embedding batch allocation overflow".into())
             })
         })?;
-        let _effect = self.budget.reserve(
-            "embedding-effect-buffers",
-            effect_bytes,
-        )?;
+        if _effect.size() < effect_bytes { return Err(ModelError::Invalid("pending embedding effects exceed admitted buffers".into()).into()); }
         let spec = self.configuration.specification().clone();
         let keys = requests.keys().copied().collect::<Vec<_>>();
         let mut cached = if let Some(cache) = &self.cache {
@@ -569,7 +605,7 @@ impl<'a> Session<'a> {
                     })?;
                 Ok(tokenizer.encode(body)?.offsets.len())
             } else {
-                self.embedder.count_tokens(request).await
+                self.embedder.count_tokens(request).await.map_err(service_error)
             };
             match counted {
                 Ok(count) if count <= spec.max_document_tokens as usize => {
@@ -583,18 +619,18 @@ impl<'a> Session<'a> {
                         limit: spec.max_document_tokens,
                     },
                 )?,
-                Err(CoreError::EmbeddingService(message)) => {
+                Err(Error::Service(CoreError::EmbeddingService(message))) => {
                     self.refuse(*key, Refusal::ServiceUnavailable(message))?
                 }
-                Err(error) => return Err(error.into()),
+                Err(error) => return Err(error),
             }
         }
         if uncached.is_empty() {
             return Ok(());
         }
-        let vectors = match self.embedder.embed(&uncached).await {
+        let vectors = match self.embedder.embed(&uncached).await.map_err(service_error) {
             Ok(vectors) => vectors,
-            Err(CoreError::EmbeddingService(message)) => {
+            Err(Error::Service(CoreError::EmbeddingService(message))) => {
                 for request in &uncached {
                     self.refuse(
                         input_hash(request),
@@ -603,7 +639,7 @@ impl<'a> Session<'a> {
                 }
                 return Ok(());
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(error),
         };
         if vectors.len() != uncached.len() {
             return Err(ModelError::Invalid(
@@ -706,8 +742,19 @@ impl<'a> Session<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::embedding_service::{EmbedFuture, FakeEmbedder};
+    use crate::embedding_service::FakeEmbedder;
+use lctx_model::domain::embedding::{EmbedFuture};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    #[test]
+    fn service_error_adapts_only_typed_unavailability_at_the_compiler_boundary() {
+        let unavailable = ModelError::SharedCause(Arc::new(embedding::ServiceUnavailable::cause("offline")));
+        let adapted = service_error(unavailable);
+        assert!(adapted.unavailable());
+        assert!(matches!(adapted, Error::Service(CoreError::EmbeddingService(message)) if message == "offline"));
+        let invalid = service_error(ModelError::Invalid("invalid vector".into()));
+        assert!(!invalid.unavailable());
+        assert!(matches!(invalid, Error::Model(ModelError::Invalid(message)) if message == "invalid vector"));
+    }
     struct Counter {
         fake: FakeEmbedder,
         tokens: AtomicUsize,
@@ -765,7 +812,7 @@ mod tests {
                 };
                 batches.push(texts.to_vec());
                 if self.unavailable {
-                    return Err(CoreError::EmbeddingService("fixture unavailable".into()));
+                    return Err(embedding::ServiceUnavailable::cause("fixture unavailable"));
                 }
                 Ok(texts
                     .iter()
@@ -777,6 +824,32 @@ mod tests {
                     .collect())
             })
         }
+    }
+    #[tokio::test]
+    async fn queued_roots_share_one_effect_chunk_and_acknowledgement_is_not_a_winner() {
+        let provider = Changing { specification: FakeEmbedder::new().spec().clone(),
+            batches: Default::default(), unavailable: false };
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let configuration = Configuration::new(provider.spec(), provider.endpoint(), &budget).unwrap();
+        let mut session = Session::selected(configuration, &provider, None, &budget).unwrap();
+        let base = budget.reserved();
+        let first = session.queue_ready("first root").await.unwrap();
+        let second = session.queue_ready("second root").await.unwrap();
+        assert_eq!(session.queue_ready("first root").await.unwrap(), first);
+        assert_eq!(session.pending.len(), 2);
+        assert!(!session.resolved(first) && !session.resolved(second));
+        assert!(provider.batches.lock().unwrap().is_empty(), "queue acknowledgement performs no inference before a boundary");
+        assert!(budget.reserved() >= base + session.pending_effect_bytes + session.pending_charge.reserved());
+        session.flush_ready().await.unwrap();
+        assert!(session.pending.is_empty() && session.pending_effect.is_none());
+        assert_eq!(session.pending_charge.reserved(), 0);
+        assert!(session.resolved(first) && session.resolved(second));
+        assert_eq!(provider.batches.lock().unwrap()[0].len(), 2);
+        session.queue_ready("first root").await.unwrap();
+        session.flush_ready().await.unwrap();
+        assert_eq!(provider.batches.lock().unwrap().len(), 1, "resolved duplicate roots retain their first immutable winner");
+        drop(session);
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
     async fn effect_batches_follow_available_budget_and_keep_nonadjacent_winners() {

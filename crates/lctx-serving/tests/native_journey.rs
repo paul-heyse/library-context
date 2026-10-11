@@ -3,16 +3,17 @@
 mod native_fixture;
 #[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
 mod runtime;
+use lctx_model::domain::embedding::{EmbedFuture, Embedder};
 use cpg_core::{
     artifact,
     compilation::{self, PreparedCompilation},
-    embedding_service::{EmbedFuture, Embedder, FakeEmbedder},
+    embedding_service::FakeEmbedder,
     workspace::{Workspace, WorkspaceOptions},
 };
 use lctx_model::domain::{admission::Frontier, serving::*, stages::Profile, *};
 use lctx_serving::NativeService;
-use lctx_surrealdb::phase::{Phase, Terminal};
-use lctx_surrealdb::{NativeReader, RecordSelection, RuntimeConfig};
+use lctx_native::phase::{Phase, Terminal};
+use lctx_native::{NativeReader, RecordSelection, RuntimeConfig};
 use std::{io::Write, os::unix::fs::OpenOptionsExt, sync::Arc};
 use tracing::{Instrument, instrument::WithSubscriber};
 
@@ -202,7 +203,7 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires retained admitted fixture via just fixture --serving NAME"]
 async fn absent_library_returns_unknown_library_without_broad_view_lowering() {
-    let viewer = lctx_surrealdb::config::ViewerConfig::read(std::path::Path::new(
+    let viewer = lctx_native::config::ViewerConfig::read(std::path::Path::new(
         &std::env::var_os("LCTX_NATIVE_SERVING_CONFIG").expect("retained admitted serving fixture"),
     )).unwrap();
     let handle = viewer.selected().unwrap();
@@ -233,7 +234,7 @@ async fn published_service_refuses_executable_epoch_drift_before_library_lookup(
             .expect("validation maintenance installer"),
     ))
     .unwrap();
-    let viewer = lctx_surrealdb::config::ViewerConfig::read(std::path::Path::new(
+    let viewer = lctx_native::config::ViewerConfig::read(std::path::Path::new(
         &std::env::var_os("LCTX_NATIVE_SERVING_CONFIG").expect(
             "retained admitted synthetic serving fixture; run with just fixture --serving NAME",
         ),
@@ -243,7 +244,7 @@ async fn published_service_refuses_executable_epoch_drift_before_library_lookup(
     handle.validate_identity().unwrap();
     assert_eq!(
         installer.authentication,
-        lctx_surrealdb::AuthenticationScope::Root
+        lctx_native::AuthenticationScope::Root
     );
     assert_eq!(config.namespace.as_str(), "library_context");
     assert_eq!(config.database.as_str(), "validation");
@@ -263,13 +264,13 @@ async fn published_service_refuses_executable_epoch_drift_before_library_lookup(
         .await
         .unwrap();
     let result = async {
-        let admin = lctx_surrealdb::reader::connect(&installer.endpoint, &installer.writer_credentials(), installer.namespace.as_str(), installer.database.as_str()).await?;
+        let admin = lctx_native::reader::connect(&installer.endpoint, &installer.writer_credentials(), installer.namespace.as_str(), installer.database.as_str()).await?;
         let checked = async {
             async fn actual_function(
-                client: &lctx_surrealdb::surrealdb::Surreal<lctx_surrealdb::surrealdb::engine::remote::grpc::Client>,
+                client: &lctx_native::surrealdb::Surreal<lctx_native::surrealdb::engine::remote::grpc::Client>,
                 function: &str,
             ) -> Result<String, ModelError> {
-                use lctx_surrealdb::surrealdb::types::Value;
+                use lctx_native::surrealdb::types::Value;
                 let mut response = client.query("INFO FOR DB").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
                 let value: Value = response.take(0).map_err(ModelError::codec)?;
                 let Value::Object(info) = value else {
@@ -337,7 +338,7 @@ async fn catalog_journey() {
     let installed_selection_before = installed_selection.try_exists().unwrap()
         .then(|| std::fs::read(&installed_selection).unwrap());
     config.selection=scratch.path().join("selection.json");
-    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
+    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
         .await
         .unwrap();
     let workspace = Workspace::new(
@@ -686,7 +687,7 @@ async fn catalog_journey() {
     async fn executable_observation(
         reader: &NativeReader,
     ) -> Result<([String; 2], String), ModelError> {
-        use lctx_surrealdb::surrealdb::types::Value;
+        use lctx_native::surrealdb::types::Value;
         let mut response = reader.client().query("INFO FOR DB").await
             .map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         let value: Value = response.take(0).map_err(ModelError::codec)?;
@@ -723,7 +724,7 @@ async fn catalog_journey() {
     let a_executables_before = executable_observation(&reader).await.unwrap();
     assert_eq!(a_executables_before.1, lctx_serving::operation_definition().hex());
     let coexistence_phase = Phase::begin("distinct_capability_epoch_publication_coexists");
-    let b_native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Facts)
+    let b_native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Facts)
         .await
         .unwrap();
     let b_workspace = Workspace::new(
@@ -731,7 +732,7 @@ async fn catalog_journey() {
         WorkspaceOptions::default(),
         b_native,
     ).unwrap();
-    let b_identity = lctx_surrealdb::control::fresh_identity("native-journey-facts-coexistence").unwrap();
+    let b_identity = lctx_native::control::fresh_identity("native-journey-facts-coexistence").unwrap();
     let b_library = format!("native-coexistence-facts-{}", b_identity.hex());
     let b_captured = library_fixture_at("catalog_core", &b_library, b_workspace.budget());
     let b_settings = ContentHash::of(b"native-serving-distinct-facts-coexistence/v1");
@@ -743,11 +744,11 @@ async fn catalog_journey() {
         &b_workspace, &b_captured, Frontier::Facts, Profile::Catalog, b_settings,
     ).await.unwrap();
     let b_handle = lctx_publisher::seal_completed(
-        &b_admitted, &config, &lctx_surrealdb::materialization::native_definitions(),
+        &b_admitted, &config, &lctx_native::materialization::native_definitions(),
     ).await.unwrap();
     let mut b_reader = None;
     let observations = async {
-        lctx_publisher::inspection::audit(&config, &b_handle, &lctx_surrealdb::materialization::native_definitions()).await?;
+        lctx_publisher::inspection::audit(&config, &b_handle, &lctx_native::materialization::native_definitions()).await?;
         b_reader = Some(NativeReader::connect(
             &config.endpoint, &config.writer_credentials(), b_handle.clone(),
         ).await?);
@@ -976,7 +977,7 @@ async fn catalog_journey() {
             .write_all(&serde_json::to_vec(&handle).unwrap())
             .unwrap();
         selected.sync_all().unwrap();
-        let viewer = lctx_surrealdb::config::ViewerConfig {
+        let viewer = lctx_native::config::ViewerConfig {
             endpoint: config.endpoint.clone(),
             username: config.username.clone(),
             password: config.password.clone(),
@@ -1005,7 +1006,7 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
     let scratch=tempfile::tempdir().unwrap();
     let mut config=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();
     config.selection=scratch.path().join("selection.json");
-    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
+    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
         .await
         .unwrap();
     let workspace = Workspace::new(

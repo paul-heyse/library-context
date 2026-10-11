@@ -212,13 +212,13 @@ async def test_cancelled_worker_drains_actual_native_dispatch_before_session_clo
             request.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await request
-            assert len(executor._pending) == 1 and executor._slots._value == 1
+            assert len(executor._pending) == 1
             worker = next(iter(executor._pending))
             proxy.resume()
             result = await asyncio.wait_for(asyncio.shield(worker), timeout=10)
             assert json.loads(result)["entries"]["items"]
             await asyncio.sleep(0)
-            assert not executor._pending and executor._slots._value == 2
+            assert not executor._pending
             # The same actual native session remains usable after its abandoned read drains.
             result = await executor.execute("browse_library", {"library": library})
             assert json.loads(result)["entries"]["items"]
@@ -286,14 +286,33 @@ async def test_cancellation_retains_worker_admission_until_shutdown_drains():
     released = threading.Event()
     closed = threading.Event()
 
-    class OwnedThread:
-        def execute(self, tool, request, vector, remaining_ms):
+    class Request:
+        def retain(self, _bytes):
+            pass
+
+        def check(self):
+            pass
+
+        def cancel(self):
+            pass
+
+        def release(self):
+            pass
+
+        async def execute_async(self, vector, remaining_ms):
             assert 0 < remaining_ms <= 30_000
             entered.set()
-            assert released.wait(5), "test did not release its owned thread"
+            assert await asyncio.to_thread(released.wait, 5), "test did not release its owned thread"
             return "{}"
 
-        def close(self):
+    class OwnedThread:
+        def admit(self, tool, request):
+            return Request()
+
+        def stop_accepting(self):
+            pass
+
+        async def close_async(self):
             assert released.is_set()
             closed.set()
 
@@ -304,7 +323,6 @@ async def test_cancellation_retains_worker_admission_until_shutdown_drains():
     with pytest.raises(asyncio.CancelledError):
         await request
     assert len(executor._pending) == 1
-    assert executor._slots._value == 1
     shutdown = asyncio.create_task(executor.close())
     await asyncio.sleep(0)
     assert not shutdown.done()
@@ -312,7 +330,6 @@ async def test_cancellation_retains_worker_admission_until_shutdown_drains():
     released.set()
     await shutdown
     assert closed.is_set()
-    assert executor._slots._value == 2
     with pytest.raises(RuntimeError, match="Canonical serving is unavailable"):
         await executor.execute("browse_library", {"library": "control"})
 
@@ -483,3 +500,108 @@ async def test_actual_native_corruption_and_delayed_read_failures_are_safe_on_bo
                 # Reconnection/drain must permit a subsequent actual request on this pin.
                 result = await client.call_tool("get_capability", {"capability": capability})
                 assert not result.is_error
+
+
+@pytest.mark.anyio
+async def test_embedding_waits_leave_unrelated_tool_and_resource_requests_free():
+    """Scheduling control only: fake owners do not establish native drainage."""
+    from lctx_mcp.embedder import FakeEmbedder
+
+    entered = asyncio.Queue()
+    release = asyncio.Event()
+    events = []
+
+    class Preparation(FakeEmbedder):
+        async def embed(self, texts, *, retain=None):
+            await entered.put(True)
+            await release.wait()
+            return await super().embed(texts, retain=retain)
+
+        async def aclose(self):
+            events.append("http closed")
+
+    class Request:
+        stopped = False
+        released = False
+
+        def retain(self, count):
+            assert count >= 0 and not self.released
+
+        def check(self):
+            if self.stopped:
+                raise RuntimeError("preparation cooperatively cancelled")
+
+        def cancel(self):
+            self.stopped = True
+
+        def release(self):
+            assert not self.released
+            self.released = True
+
+        async def execute_async(self, vector, deadline):
+            assert deadline > 0
+            return "{}"
+
+    class Session:
+        closed = False
+        owners = []
+
+        def admit(self, tool, request):
+            assert not self.closed
+            owner = Request()
+            self.owners.append(owner)
+            return owner
+
+        def stop_accepting(self):
+            self.closed = True
+
+        async def close_async(self):
+            assert all(owner.released for owner in self.owners)
+            events.append("native closed")
+
+    session = Session()
+    executor = NativeExecutor(session, Preparation())
+    searches = [asyncio.create_task(executor.execute("search_operations",
+        {"library": "control", "query": "blocked"})) for _ in range(2)]
+    for _ in searches:
+        await asyncio.wait_for(entered.get(), 2)
+    # Both native tools and capability resources route through this executor.
+    assert await asyncio.wait_for(executor.execute("browse_library", {"library": "control"}), 2) == "{}"
+    assert await asyncio.wait_for(executor.execute("get_capability", {"capability": [0] * 16}), 2) == "{}"
+    assert len(executor._pending) == 2
+    searches[0].cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await searches[0]
+    closes = [asyncio.create_task(executor.close()) for _ in range(2)]
+    await asyncio.sleep(0)
+    assert not any(task.done() for task in closes)
+    assert "http closed" not in events
+    with pytest.raises(NativeFailure):
+        await executor.execute("browse_library", {"library": "control"})
+    release.set()
+    with pytest.raises(RuntimeError, match="cooperatively cancelled"):
+        await searches[1]
+    outcomes = await asyncio.gather(*closes, return_exceptions=True)
+    assert all(isinstance(error, ExceptionGroup) for error in outcomes)
+    assert events == ["native closed", "http closed"]
+    assert all(owner.released for owner in session.owners)
+
+
+@pytest.mark.anyio
+async def test_native_and_http_close_failures_both_survive():
+    class Session:
+        def stop_accepting(self):
+            pass
+
+        async def close_async(self):
+            raise RuntimeError("native finality unknown")
+
+    class Embedder:
+        async def aclose(self):
+            raise ValueError("HTTP close failed")
+
+    executor = NativeExecutor(Session(), Embedder())
+    with pytest.raises(ExceptionGroup) as failure:
+        await executor.close()
+    assert [str(error) for error in failure.value.exceptions] == [
+        "native finality unknown", "HTTP close failed"]

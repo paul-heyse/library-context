@@ -4,7 +4,7 @@ use lctx_model::domain::{
     resources::ResourceBudget,
     serving::{LibraryAdmissionData, LibraryDomainPacket, Name, PreparedLibraryDomains},
 };
-use lctx_surrealdb::NativeReader;
+use lctx_native::NativeReader;
 pub async fn resolve(
     reader: &NativeReader,
     name: Option<&Name>,
@@ -26,7 +26,7 @@ async fn resolve_inner(
     budget: &ResourceBudget,
     preparation: Option<&crate::preparation::Preparation<'_>>,
 ) -> Result<Vec<LibraryDomainPacket>, ModelError> {
-    let roots = lctx_surrealdb::scope::library_roots(reader, name.map(Name::as_str), budget).await?;
+    let roots = lctx_native::scope::library_roots(reader, name.map(Name::as_str), budget).await?;
     let cached;
     let fresh;
     let batches = if let Some(preparation) = preparation {
@@ -39,7 +39,11 @@ async fn resolve_inner(
                 crate::scope::OWNED_FIELDS,
             )
             .await?;
-        &*cached
+        let prepared = preparation.domains(&cached).await?;
+        let resolved = prepared.resolve(name).map_err(|_| {
+            ModelError::Serving(lctx_model::domain::serving::FailureKind::UnknownLibrary)
+        })?;
+        return Ok(resolved.metadata(budget)?.domains);
     } else {
         fresh =
             crate::scope::hydrate(reader, roots, &LibraryAdmissionData::inputs(), budget).await?;
@@ -59,7 +63,7 @@ async fn resolve_inner(
 mod blueprint_controls {
     #[test]
     fn actual_serving_blueprint_is_accepted_by_native_publication() {
-        lctx_surrealdb::materialization::validate_native_definitions(&crate::native_definitions())
+        lctx_native::materialization::validate_native_definitions(&crate::native_definitions())
             .unwrap();
     }
 }

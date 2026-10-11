@@ -2,7 +2,7 @@
 //! Runtime override/effective-value claims are never inferred from source/default IDs.
 use crate::records::{need, rows, wire, Prepared,PacketRows};
 use lctx_model::domain::{resources::ResourceBudget, serving::*, *};
-use lctx_surrealdb::NativeReader;
+use lctx_native::NativeReader;
 use std::collections::{BTreeMap, BTreeSet};
 fn unavailable(reason: &str) -> Result<Availability, ModelError> {
     Ok(Availability::Unavailable {

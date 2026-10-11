@@ -50,6 +50,22 @@ fn production_records_round_trip_explicit_schema() {
     );
 }
 #[test]
+fn checked_ingress_moves_exact_canonical_buffers_and_retains_charge() {
+    let model = model().unwrap();
+    let budget = budget();
+    let batch = Batch::new(&model, vec![source()], &budget).unwrap();
+    let column = batch.arrow().column(0).clone();
+    let checked = batch.into_checked().unwrap();
+    assert_eq!(checked.model(), model.digest());
+    assert_eq!(checked.relation().name(), SourceArtifact::NAME);
+    assert_eq!(checked.arrow().schema(), SourceArtifact::schema());
+    assert!(std::sync::Arc::ptr_eq(checked.arrow().column(0), &column));
+    assert!(checked.reserved() > 0);
+    assert_eq!(checked.reserved(), budget.reserved());
+    drop(checked);
+    assert_eq!(budget.reserved(), 0);
+}
+#[test]
 fn source_kind_and_structural_roles_separate_identity() {
     let py = source();
     let mut stub = py.clone();

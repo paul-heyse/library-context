@@ -1,21 +1,21 @@
 //! Publication consumes trusted verified compiler exports, without replaying producers.
-use cpg_core::artifact::VerifiedExport;
+use lctx_compiler_store::artifact::VerifiedExport;
 use futures::TryStreamExt;
 use lctx_model::domain::{
     ModelError,
     completion::{Completion, RemoteState, StorageState, complete},
     serving::SnapshotHandle,
 };
-use lctx_surrealdb::RuntimeConfig;
+use lctx_native::RuntimeConfig;
 mod native_publication;
 use native_publication::{Admission, Publication};
 /// Independently compare executable definitions during owned upgrade recovery.
 /// This performs no DDL and remains usable while ordinary admission is closed.
 pub async fn check_definitions(config: &RuntimeConfig, blueprint: &str) -> Result<lctx_model::domain::ContentHash, ModelError> {
-    let client = lctx_surrealdb::upgrade::maintenance_client(config).await?;
+    let client = lctx_native::upgrade::maintenance_client(config).await?;
     let result = async {
-        lctx_surrealdb::control::check_installation(&client, config.service_generation).await?;
-        let loader = lctx_surrealdb::Loader::new(client.clone());
+        lctx_native::control::check_installation(&client, config.service_generation).await?;
+        let loader = lctx_native::Loader::new(client.clone());
         crate::definitions::verify_epoch(&loader, blueprint).await
     }.await;
     let mut completion = Completion::default();
@@ -28,12 +28,12 @@ pub async fn install_definitions(
     config: &RuntimeConfig,
     blueprint: &str,
 ) -> Result<(), ModelError> {
-    if config.authentication != lctx_surrealdb::AuthenticationScope::Root {
+    if config.authentication != lctx_native::AuthenticationScope::Root {
         return Err(ModelError::Conflict(
             "definition installation requires root maintenance authority",
         ));
     }
-    let client = lctx_surrealdb::reader::connect(
+    let client = lctx_native::reader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         config.namespace.as_str(),
@@ -41,8 +41,8 @@ pub async fn install_definitions(
     )
     .await?;
     let result = async {
-        lctx_surrealdb::control::check_installation(&client, config.service_generation).await?;
-        let loader = lctx_surrealdb::Loader::new(client.clone());
+        lctx_native::control::check_installation(&client, config.service_generation).await?;
+        let loader = lctx_native::Loader::new(client.clone());
         crate::definitions::install_epoch(&loader, blueprint)
             .await
             .map(|_| ())
@@ -71,7 +71,7 @@ pub async fn publish(
     };
     let result = async {
         publication.install_definitions(native_definitions).await?;
-        let phase = lctx_surrealdb::phase::Phase::begin("publication_references");
+        let phase = lctx_native::phase::Phase::begin("publication_references");
         let references = async {
             let mut entities = Vec::new();
             let mut rows = export.native_entities().await?;
@@ -115,7 +115,7 @@ pub async fn publish(
 }
 /// Ordinary compilation retains its admitted native authority; no portable self-import.
 pub async fn seal_completed(
-    artifact: &cpg_core::artifact::AdmittedArtifact,
+    artifact: &lctx_compiler_store::artifact::AdmittedArtifact,
     config: &RuntimeConfig,
     native_definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
@@ -130,7 +130,7 @@ pub async fn seal_completed(
     };
     let result = async {
         publication.install_definitions(native_definitions).await?;
-        let phase = lctx_surrealdb::phase::Phase::begin("publication_references");
+        let phase = lctx_native::phase::Phase::begin("publication_references");
         let references = async {
             let mut entities = Vec::new();
             let mut rows = artifact.entities().await?;
@@ -173,7 +173,7 @@ pub async fn seal_completed(
     complete(result, completion)
 }
 async fn publication_completion<T>(
-    native: &std::sync::Arc<lctx_surrealdb::compiler::NativeCompilerStore>,
+    native: &std::sync::Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
     result: &Result<T, ModelError>,
 ) -> Completion {
     let mut completion = Completion::default();
@@ -201,8 +201,9 @@ async fn publication_completion<T>(
 mod publication_completion_controls {
     use super::*;
     use lctx_model::domain::{resources::ResourceBudget, admission::Frontier};
-    use lctx_surrealdb::{NativeReader, compiler::NativeCompilerStore};
-    use lctx_surrealdb::surrealdb::types::{RecordId, Variables};
+    use lctx_native::NativeReader;
+    use lctx_compiler_store::compiler::NativeCompilerStore;
+    use lctx_native::surrealdb::types::{RecordId, Variables};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn retained_publication_acknowledgement_prevents_abandon_on_confirmed_finalization_error() {
@@ -210,7 +211,7 @@ mod publication_completion_controls {
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
         )).unwrap();
         let native = NativeCompilerStore::begin(&config, Frontier::Facts).await.unwrap();
-        let client = lctx_surrealdb::compiler::check_installation(&config).await.unwrap();
+        let client = lctx_compiler_store::compiler::check_installation(&config).await.unwrap();
         let reader = NativeReader::private(client.clone());
         let result = async {
             let budget = ResourceBudget::fixed(256 << 20)?;

@@ -9,8 +9,7 @@
 //! plus every analyzer-readable file it can import. A `RECORD` is verification evidence, not
 //! analyzer input: its console-script lines carry the environment's location, so its in-site
 //! entries are digested into the distribution's verification and its bytes are not captured.
-use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
-use crate::contracts::supplier;
+use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use crate::{
     ExtractError,
@@ -22,20 +21,18 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use lctx_model::domain::{
     ContentHash, KeySink, ModelError, Record,
     artifact::ArtifactChunk,
-    attribution::{FactFamily, Provider},
+    attribution::Provider,
     input::*,
     resources::ResourceBudget,
     source::SourceArtifact,
-    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage},
+    stages::{Profile, ProviderOutcome, Stage},
 };
-use sha2::{Digest as _, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io::Read,
     path::{Path, PathBuf},
 };
 
-pub const ACQUIRE: &str = "acquire";
+pub use lctx_model::domain::producer_contract::facts::ACQUIRE;
 
 /// Whether a site-packages file belongs to the analyzer-readable closure: what Pyrefly's module
 /// finder reads, and the `.pth` files that extend its search path.
@@ -440,12 +437,14 @@ pub enum Acquisition {
 pub struct AcquiredInput {
     captured: CapturedInput,
     acquisition: Acquisition,
+    selected_absent: BTreeSet<String>,
 }
 impl AcquiredInput {
     pub fn new(captured: CapturedInput, acquisition: Acquisition) -> Self {
         Self {
             captured,
             acquisition,
+            selected_absent: BTreeSet::new(),
         }
     }
     pub fn tree(captured: CapturedInput, label: &str) -> Self {
@@ -455,6 +454,71 @@ impl AcquiredInput {
                 label: label.to_owned(),
             },
         )
+    }
+    /// Explicitly selected negative premises, checked against the complete frozen manifest.
+    pub fn with_selected_absent(mut self, paths: impl IntoIterator<Item=String>) -> Result<Self, ModelError> {
+        for path in paths {
+            validate_path(&path)?;
+            if self.captured.artifacts().iter().any(|a|a.path==path) {
+                return Err(ModelError::Conflict("selected absent artifact is captured"));
+            }
+            self.selected_absent.insert(path);
+        }
+        Ok(self)
+    }
+    /// The same typed inventory feeds request identity and acquisition emission.
+    pub fn descriptor(&self, library: Option<&AcquiredInput>) -> Result<lctx_model::domain::producer_contract::acquisition::CapturedAcquisition, ModelError> {
+        use lctx_model::domain::producer_contract::acquisition::CapturedAcquisition;
+        let revision=self.captured.revision();
+        let mut descriptor=CapturedAcquisition::tree(revision.clone(), String::new());
+        descriptor.origin=self.origin();
+        descriptor.selected_absent=self.selected_absent.clone();
+        descriptor.artifacts=self.captured.artifacts().to_vec();
+        descriptor.uses=self.uses();
+        let acquisition=InputAcquisition {input:revision.id(),origin:descriptor.origin.id()};
+        let artifacts=self.captured.artifacts().iter().map(|a|(a.path.as_str(),a)).collect::<BTreeMap<_,_>>();
+        for derivation in self.captured.derivations() {
+            let artifact=artifacts.get(derivation.path()).ok_or(ModelError::Conflict("derived artifact absent"))?.id();
+            descriptor.derivations.push(match derivation {
+                crate::capture::Derivation::PythonCodeBlock {document,ordinal,fence,..} => DerivedArtifact::PythonCodeBlock {
+                    artifact,document:artifacts.get(document.as_str()).ok_or(ModelError::Conflict("derivation document absent"))?.id(),
+                    ordinal:*ordinal,fence_start:fence.0,fence_end:fence.1},
+                crate::capture::Derivation::TaskReceipt {..} => DerivedArtifact::TaskReceipt {artifact,input:revision.id()},
+            });
+        }
+        let mut unowned=|artifact:&SourceArtifact|descriptor.unowned.push(UnownedArtifact {artifact:artifact.id(),acquisition:acquisition.id()});
+        match &self.acquisition {
+            Acquisition::Installed(installed) => {
+                descriptor.configuration=Some(installed.configuration);
+                descriptor.interpreter=Some((installed.python_version.clone(),installed.platform.clone()));
+                let mut verifications=BTreeMap::new();
+                for dist in &installed.distributions {
+                    let package=Package {name:dist.name.clone()};
+                    let release=Release {package:package.id(),version:dist.version.clone()};
+                    let mut hashes=dist.artifact_sha256.clone();hashes.sort();hashes.dedup();
+                    let verification=DistributionVerification {acquisition:acquisition.id(),release:release.id(),record_digest:dist.record_digest,artifact_sha256:hashes};
+                    descriptor.distributions.push(InputDistribution {input:revision.id(),release:release.id(),role:if dist.first_party {DistributionRole::FirstParty}else{DistributionRole::Dependency}});
+                    if dist.first_party {descriptor.fingerprints.push(EnvironmentFingerprint {acquisition:acquisition.id(),release:release.id(),lock_digest:installed.lock_digest,environment_digest:revision.manifest,python_version:installed.python_version.clone(),platform:installed.platform.clone()});}
+                    verifications.insert(dist.name.as_str(),verification.id());
+                    descriptor.packages.push(package);descriptor.releases.push(release);descriptor.verifications.push(verification);
+                }
+                for file in &installed.files {
+                    let artifact=artifacts.get(file.path.as_str()).ok_or(ModelError::Conflict("inventory file not captured"))?;
+                    if let Some(hash)=&file.record_sha256 {descriptor.record_sha256.insert(file.path.clone(),hash.clone());}
+                    if file.owners.is_empty(){unowned(artifact);}
+                    for owner in &file.owners {descriptor.ownership.push(ArtifactOwnership {artifact:artifact.id(),distribution:*verifications.get(owner.as_str()).ok_or(ModelError::Conflict("inventory file owner absent"))?});}
+                }
+            }
+            Acquisition::Corpus {..} => {
+                let library=library.ok_or(ModelError::Conflict("captured corpus library absent"))?;
+                descriptor.library=Some((library.captured.revision().id(),library.origin().id()));
+                for artifact in self.captured.artifacts().iter().filter(|a|!self.captured.derivations().iter().any(|d|d.path()==a.path)){unowned(artifact);}
+            }
+            Acquisition::Tree {..} => {
+                for artifact in self.captured.artifacts().iter().filter(|a|!self.captured.derivations().iter().any(|d|d.path()==a.path)){unowned(artifact);}
+            }
+        }
+        descriptor.canonicalize();descriptor.validate()?;Ok(descriptor)
     }
     pub fn captured(&self) -> &CapturedInput {
         &self.captured
@@ -528,7 +592,7 @@ impl AcquiredInput {
                 repository, commit, ..
             } => InputOrigin::Corpus {
                 repository: repository.clone(),
-                revision: commit.clone(),
+                revision: format!("base:{commit};captured:{}", self.captured.revision().manifest.hex()),
             },
             Acquisition::Tree { label } => InputOrigin::Tree {
                 label: label.clone(),
@@ -557,32 +621,21 @@ pub fn capture_receipts(
     }
     let library = &inventory.library;
     let paths: Vec<String> = library.files.iter().map(|file| file.path.clone()).collect();
-    let captured = CapturedInput::capture(&library.site_packages, &paths, budget)?;
-    for file in &library.files {
-        let Some(expected) = &file.record_sha256 else {
-            continue;
-        };
-        let mut frozen =
-            std::fs::File::open(captured.root().join(&file.path)).map_err(CaptureError::from)?;
-        let mut hasher = Sha256::new();
-        let mut buffer = vec![0u8; 64 * 1024];
-        loop {
-            let read = frozen.read(&mut buffer).map_err(CaptureError::from)?;
-            if read == 0 {
-                break;
+    let index_bytes = library.files.len().checked_mul(128).ok_or(CaptureError::Model(ModelError::Schema("RECORD verification index overflow")))?;
+    let _record_index = budget.reserve("captured-record-verification-index", index_bytes).map_err(CaptureError::from)?;
+    let files: BTreeMap<_,_> = library.files.iter().map(|file|(file.path.as_str(),file)).collect();
+    let captured = CapturedInput::capture_verified(&library.site_packages, &paths, budget, |path, sha256| {
+        let file = files.get(path).ok_or(ModelError::Schema("missing captured RECORD declaration"))?;
+        if let Some(expected) = &file.record_sha256 {
+            if URL_SAFE_NO_PAD.encode(sha256) != *expected {
+                return Err(CaptureError::Model(ModelError::Invalid(format!(
+                    "{}: {} does not match its RECORD sha256; run `lctx acquire {} --reinstall`",
+                    file.owners.join(", "), file.path, library.name,
+                ))));
             }
-            hasher.update(&buffer[..read]);
         }
-        if URL_SAFE_NO_PAD.encode(hasher.finalize()) != *expected {
-            return Err(fail(format!(
-                "{}: {} does not match its RECORD sha256; run `lctx acquire {} --reinstall`",
-                file.owners.join(", "),
-                file.path,
-                library.name
-            ))
-            .into());
-        }
-    }
+        Ok(())
+    })?;
     let mut inputs = vec![AcquiredInput::new(
         captured,
         Acquisition::Installed(library.clone()),
@@ -651,45 +704,13 @@ impl Acquire {
         Self::new(inventory.library.configuration)
     }
 }
-fn outputs() -> Vec<RelationUse> {
-    vec![
-        RelationUse::of::<Package>(),
-        RelationUse::of::<Release>(),
-        RelationUse::of::<InputRevision>(),
-        RelationUse::of::<InputOrigin>(),
-        RelationUse::of::<InputAcquisition>(),
-        RelationUse::of::<CorpusLibrary>(),
-        RelationUse::of::<InputDistribution>(),
-        RelationUse::of::<DistributionVerification>(),
-        RelationUse::of::<EnvironmentFingerprint>(),
-        RelationUse::of::<SourceArtifact>(),
-        RelationUse::of::<ArtifactChunk>(),
-        RelationUse::of::<ArtifactOwnership>(),
-        RelationUse::of::<UnownedArtifact>(),
-        RelationUse::of::<DerivedArtifact>(),
-        RelationUse::of::<ArtifactUse>(),
-    ]
-}
 fn capture_error(error: CaptureError) -> ModelError {
     match error {
         CaptureError::Model(error) => error,
         other => ModelError::Invalid(other.to_string()),
     }
 }
-pub fn contract() -> ProducerContract {
-        ProducerContract {
-            name: ACQUIRE,
-            inputs: vec![],
-            outputs: outputs(),
-            contributes: vec![],
-            profiles: vec![Profile::Catalog, Profile::Behavioral],
-            effect: Effect::Acquisition,
-            semantic_revision: 1,
-            configuration: ConfigurationBinding::ProducerSettings,
-            suppliers: vec![supplier("acquisition", "lctx-acquire", env!("CARGO_PKG_VERSION"), vec![FactFamily::Artifacts])],
-            not_requested: vec![],
-        }
-}
+pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::acquisition() }
 impl Declared for Acquire {
     fn declaration(&self, _: Profile) -> Stage {
         let provider = acquisition_provider();
@@ -716,144 +737,20 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for Acquire {
         let captured = context.captured();
         for input in captured.inputs() {
             let frozen = input.captured();
-            let revision = frozen.revision();
-            let origin = input.origin();
-            let acquisition = InputAcquisition {
-                input: revision.id(),
-                origin: origin.id(),
+            let library=match input.acquisition() {
+                Acquisition::Corpus {library,..} => Some(captured.inputs().get(*library).ok_or(ModelError::Conflict("captured corpus library absent"))?),
+                _ => None,
             };
-            context.emit(revision.clone())?;
-            context.emit(origin)?;
-            context.emit(acquisition.clone())?;
-            let artifacts: BTreeMap<&str, &SourceArtifact> = frozen
-                .artifacts()
-                .iter()
-                .map(|a| (a.path.as_str(), a))
-                .collect();
-            for artifact in frozen.artifacts() {
-                context.emit(artifact.clone())?;
-            }
+            let descriptor=input.descriptor(library)?;
+            context.emit(descriptor.revision.clone())?;
+            context.emit(descriptor.origin.clone())?;
+            context.emit(InputAcquisition {input:descriptor.revision.id(),origin:descriptor.origin.id()})?;
+            if let Some((library,_))=descriptor.library {context.emit(CorpusLibrary {corpus:descriptor.revision.id(),library})?;}
+            macro_rules! emit {($($field:ident),*)=>{$(for row in descriptor.$field {context.emit(row)?;})*};}
+            emit!(artifacts,packages,releases,distributions,verifications,fingerprints,ownership,unowned,derivations,uses);
             for index in 0..frozen.artifacts().len() {
-                frozen
-                    .emit_chunks(index, |chunk| context.emit(chunk.clone()))
-                    .map_err(capture_error)?;
+                frozen.emit_chunks(index,|chunk|context.emit(chunk.clone())).map_err(capture_error)?;
             }
-            let derived: BTreeMap<&str, &crate::capture::Derivation> =
-                frozen.derivations().iter().map(|d| (d.path(), d)).collect();
-            for derivation in frozen.derivations() {
-                let artifact = artifacts[derivation.path()].id();
-                context.emit(match derivation {
-                    crate::capture::Derivation::PythonCodeBlock {
-                        document,
-                        ordinal,
-                        fence,
-                        ..
-                    } => DerivedArtifact::PythonCodeBlock {
-                        artifact,
-                        document: artifacts[document.as_str()].id(),
-                        ordinal: *ordinal,
-                        fence_start: fence.0,
-                        fence_end: fence.1,
-                    },
-                    crate::capture::Derivation::TaskReceipt { .. } => {
-                        DerivedArtifact::TaskReceipt {
-                            artifact,
-                            input: revision.id(),
-                        }
-                    }
-                })?;
-            }
-            let unowned = |context: &mut StageContext<S>, artifact: &SourceArtifact| {
-                context.emit(UnownedArtifact {
-                    artifact: artifact.id(),
-                    acquisition: acquisition.id(),
-                })
-            };
-            match input.acquisition() {
-                Acquisition::Installed(library) => {
-                    let mut verifications = BTreeMap::new();
-                    for dist in &library.distributions {
-                        let package = Package {
-                            name: dist.name.clone(),
-                        };
-                        let release = Release {
-                            package: package.id(),
-                            version: dist.version.clone(),
-                        };
-                        let verification = DistributionVerification {
-                            acquisition: acquisition.id(),
-                            release: release.id(),
-                            record_digest: dist.record_digest,
-                            artifact_sha256: dist.artifact_sha256.clone(),
-                        };
-                        let role = if dist.first_party {
-                            DistributionRole::FirstParty
-                        } else {
-                            DistributionRole::Dependency
-                        };
-                        context.emit(InputDistribution {
-                            input: revision.id(),
-                            release: release.id(),
-                            role,
-                        })?;
-                        if dist.first_party {
-                            context.emit(EnvironmentFingerprint {
-                                acquisition: acquisition.id(),
-                                release: release.id(),
-                                lock_digest: library.lock_digest,
-                                environment_digest: revision.manifest,
-                                python_version: library.python_version.clone(),
-                                platform: library.platform.clone(),
-                            })?;
-                        }
-                        verifications.insert(dist.name.as_str(), verification.id());
-                        context.emit(package)?;
-                        context.emit(release)?;
-                        context.emit(verification)?;
-                    }
-                    for file in &library.files {
-                        let artifact = artifacts[file.path.as_str()];
-                        if file.owners.is_empty() {
-                            unowned(context, artifact)?;
-                        }
-                        for owner in &file.owners {
-                            context.emit(ArtifactOwnership {
-                                artifact: artifact.id(),
-                                distribution: verifications[owner.as_str()],
-                            })?;
-                        }
-                    }
-                }
-                Acquisition::Corpus { library, .. } => {
-                    let library = captured.inputs().get(*library).ok_or_else(|| {
-                        ModelError::Invalid("a corpus names an absent library input".into())
-                    })?;
-                    context.emit(CorpusLibrary {
-                        corpus: revision.id(),
-                        library: library.captured().revision().id(),
-                    })?;
-                    for artifact in frozen
-                        .artifacts()
-                        .iter()
-                        .filter(|a| !derived.contains_key(a.path.as_str()))
-                    {
-                        unowned(context, artifact)?;
-                    }
-                }
-                Acquisition::Tree { .. } => {
-                    for artifact in frozen
-                        .artifacts()
-                        .iter()
-                        .filter(|a| !derived.contains_key(a.path.as_str()))
-                    {
-                        unowned(context, artifact)?;
-                    }
-                }
-            }
-            for usage in input.uses() {
-                context.emit(usage)?;
-            }
-            frozen.verify().map_err(capture_error)?;
         }
         Ok(ProviderOutcome::Complete)
     }

@@ -40,6 +40,7 @@ pub fn derive(
     reaching_support: Id<FlowReachingSupport>,
     definition_support: Id<FlowDefinitionSupport>,
     use_support: Id<FlowUseSupport>,
+    conditions: &PreparedConditions<'_>,
     budget: &ResourceBudget,
 ) -> Result<Result<PathEmission, ObligationKind>, ModelError> {
     let descriptor = source.descriptor();
@@ -223,13 +224,9 @@ pub fn derive(
     };
     let reservation = budget.reserve(
         "summary-alias-conditions",
-        data.condition_nodes
-            .len()
-            .saturating_mul(2048)
-            .saturating_add(source.condition().allocation_allowance())
+        source.condition().allocation_allowance()
             .saturating_add(4096),
     )?;
-    let nodes = data.condition_nodes.iter().cloned().collect::<Vec<_>>();
     let mut condition = source.condition().clone();
     let mut charge = charged::StateCharge::new(budget, "summary-alias-combined-condition");
     for id in [
@@ -242,11 +239,10 @@ pub fn derive(
             .qualifications
             .get(id)
             .ok_or_else(|| invalid("alias qualification absent"))?;
-        let native = Diagram::from_records(
+        let native = conditions.diagram(
             data.conditions
                 .get(q.condition)
                 .ok_or_else(|| invalid("alias condition absent"))?,
-            &nodes,
         )?;
         let joined = match condition.admitted_binary(&native, BooleanOperation::Conjunction, budget)
         {

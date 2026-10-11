@@ -13,28 +13,29 @@ async fn run(profile: Profile) {
     .await;
     let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM local_flow_contributions) AS fixture_column_0,(SELECT count(*) FROM local_transfer_alternatives) AS fixture_column_1,(SELECT count(*) FROM local_flow_assessments WHERE reason IS NOT NULL) AS fixture_column_2").await;
     if profile == Profile::Behavioral {
-        assert!(counts.0 > 0);
-        assert!(counts.1 >= counts.0);
-        assert!(counts.2 > 0);
+        assert!(counts.0 > 0, "Behavioral local flow contributions are present");
+        assert!(counts.1 >= counts.0, "each Behavioral flow contribution retains a transfer alternative");
+        assert!(counts.2 > 0, "Behavioral local assessments retain explicit reasons");
     } else {
-        assert_eq!(counts, (0, 0, 0));
+        assert_eq!(counts, (0, 0, 0), "Catalog local semantics are unrequested");
         let statuses: Vec<i16> =
             catalog_runtime::query(&fixture, "SELECT status FROM local_analysis_outcomes").await;
-        assert!(!statuses.is_empty());
-        assert!(statuses.iter().all(|s| *s == 3));
+        assert!(!statuses.is_empty(), "Catalog local outcome population is present");
+        assert!(statuses.iter().all(|s| *s == 3), "Catalog local outcomes are explicitly not requested");
         let availabilities: Vec<i16> =
             catalog_runtime::query(&fixture, "SELECT availability FROM local_analysis_coverage")
                 .await;
-        assert!(!availabilities.is_empty());
+        assert!(!availabilities.is_empty(), "Catalog local coverage population is present");
         assert!(
             availabilities
                 .iter()
-                .all(|s| *s == normalized::coverage::EvidenceAvailability::NotRequested.code())
+                .all(|s| *s == normalized::coverage::EvidenceAvailability::NotRequested.code()),
+            "Catalog local coverage is explicitly not requested"
         );
     }
     let theory:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM local_type_domains) AS fixture_column_0,(SELECT count(*) FROM local_theory_witnesses) AS fixture_column_1,(SELECT count(*) FROM local_type_class_members) AS fixture_column_2").await;
     if profile == Profile::Behavioral {
-        assert!(theory.0 > 0 && theory.1 > 0 && theory.2 >= 4);
+        assert!(theory.0 > 0 && theory.1 > 0 && theory.2 >= 4, "Behavioral theory retains domains, witnesses and class membership");
         let decisions: Vec<(i64, i16)> = catalog_runtime::query(&fixture, "SELECT occurrence.start, decision.outcome FROM local_atom_decisions decision JOIN flow_test_leaf_observations leaf ON leaf.id=decision.leaf JOIN occurrences occurrence ON occurrence.id=leaf.test").await;
         let text = std::fs::read_to_string(root.join("cases.py")).unwrap();
         for (function, expected) in [
@@ -68,14 +69,14 @@ async fn run(profile: Profile) {
         let empty_refinements: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM local_atom_restrictions r JOIN local_atom_decisions d ON d.id=r.decision WHERE d.outcome=3").await;
         assert_eq!(empty_refinements, 0, "Never must not certify either branch");
     } else {
-        assert_eq!(theory, (0, 0, 0));
+        assert_eq!(theory, (0, 0, 0), "Catalog retains no local theory semantics");
     }
     let complete: i64 = catalog_runtime::one(
         &fixture,
         "SELECT count(*) FROM local_analysis_coverage WHERE availability=0",
     )
     .await;
-    assert_eq!(complete, 0);
+    assert_eq!(complete, 0, "local coverage must not claim complete evidence");
 }
 #[tokio::test]
 async fn actual_local_transfers_publish_from_native_completed_sources() {

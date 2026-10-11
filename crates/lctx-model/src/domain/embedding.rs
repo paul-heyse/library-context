@@ -5,6 +5,8 @@ pub mod configuration;
 pub mod consumption;
 pub mod projection;
 pub(crate) mod spec;
+pub mod service;
+pub use service::{EmbedFuture, Embedder, ServiceUnavailable};
 pub mod text;
 pub mod value;
 use super::*;

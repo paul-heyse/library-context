@@ -7,8 +7,8 @@ rust-version.workspace = true
 publish.workspace = true
 [dependencies]
 lctx-model = { path = "../lctx-model" }
-lctx-surrealdb = { path = "../lctx-surrealdb" }
-cpg-core = { path = "../cpg-core" }
+lctx-native = { path = "../lctx-native" }
+lctx-compiler-store = { path = "../lctx-compiler-store" }
 serde.workspace = true
 serde_json.workspace = true
 hex.workspace = true
@@ -20,6 +20,7 @@ bytes.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 [dev-dependencies]
+cpg-core = { path = "../cpg-core" }
 cpg-extract = { path = "../cpg-extract" }
 datafusion.workspace = true
 surrealdb-protocol = "=0.13.1"

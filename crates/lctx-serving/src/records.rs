@@ -1,7 +1,7 @@
 //! Typed request-local access over the canonical batch adapter.
 use lctx_model::domain::{Id, ModelError, Record, HeapSize, charged, resources::ResourceBudget};
 use std::{any::Any,collections::BTreeMap,sync::{Arc,Mutex}};
-use lctx_surrealdb::batches::CanonicalBatches;
+use lctx_native::batches::CanonicalBatches;
 fn decode_rows<R: Record>(source: &CanonicalBatches) -> Result<Vec<R>, ModelError> {
     source
         .batches

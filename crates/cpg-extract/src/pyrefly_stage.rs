@@ -20,8 +20,7 @@
 //! parameter's displayed annotation, and declaration links at exact name spans. Signatures are
 //! complete unless a declaration fails to attach, which is a boundary. Exports stay Partial until
 //! the public names are stated. A computed `__all__` is a subject boundary.
-use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
-use crate::contracts::supplier;
+use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use crate::{
     acquisition::{AcquiredInput, Acquisition},
@@ -49,23 +48,16 @@ use lctx_model::domain::{
     lexical::*,
     ruff::*,
     source::*,
-    stages::{Effect, Profile, ProviderOutcome, RelationUse, Stage},
+    stages::{Profile, ProviderOutcome, Stage},
     symbols::*,
     syntax::*,
     types::*,
 };
 use std::{collections::BTreeMap, path::Path};
 
-pub const PYREFLY: &str = "pyrefly";
+pub use lctx_model::domain::producer_contract::facts::PYREFLY;
 /// The families this phase covers.
-pub const FAMILIES: [FactFamily; 6] = [
-    FactFamily::Syntax,
-    FactFamily::Lexical,
-    FactFamily::Exports,
-    FactFamily::Signatures,
-    FactFamily::Calls,
-    FactFamily::Types,
-];
+pub use lctx_model::domain::producer_contract::facts::FAMILIES;
 
 /// The Pyrefly provider: the pinned fork and the sources that turn its session into facts.
 pub fn pyrefly_provider() -> Provider {
@@ -123,166 +115,7 @@ impl Pyrefly {
         }
     }
 }
-macro_rules! uses { ($($ty:ty),+ $(,)?) => { vec![$(RelationUse::of::<$ty>()),+] }; }
-fn outputs() -> Vec<RelationUse> {
-    uses!(
-        Module,
-        Occurrence,
-        RuffContextObservation,
-        RuffContextSupport,
-        RuffBindingObservation,
-        RuffBindingSupport,
-        RuffDefinitionObservation,
-        RuffDefinitionSupport,
-        RuffDiagnosticObservation,
-        RuffDiagnosticSupport,
-        PyreflyDiagnosticObservation,
-        PyreflyDiagnosticSupport,
-        DiagnosticSubject,
-        DiagnosticAnnotation,
-        NativeParameterDefinitionObservation,
-        NativeParameterDefinitionSupport,
-        SyntaxObservation,
-        SyntaxSupport,
-        SyntaxPlacement,
-        SyntaxPlacementSupport,
-        SyntaxDetailObservation,
-        SyntaxDetailSupport,
-        DeclarationObservation,
-        DeclarationSupport,
-        DeclarationDecorator,
-        DeclarationDecoratorSupport,
-        ImportAliasObservation,
-        ImportAliasSupport,
-        DunderAllObservation,
-        DunderAllSupport,
-        ParameterSyntaxObservation,
-        ParameterSyntaxSupport,
-        ClassFieldSyntaxObservation,
-        ClassFieldSyntaxSupport,
-        CallSyntax,
-        CallSyntaxSupport,
-        CallArgument,
-        LexicalScope,
-        BindingEvent,
-        LexicalTarget,
-        LexicalScopeObservation,
-        LexicalScopeSupport,
-        BindingObservation,
-        BindingSupport,
-        ReferenceObservation,
-        ReferenceSupport,
-        LexicalResolution,
-        LexicalResolutionSupport,
-        ProviderModule,
-        ProviderSymbol,
-        ParameterShape,
-        Signature,
-        SignatureSupport,
-        SignatureParameter,
-        SignatureEnumerationObservation,
-        SignatureEnumerationMember,
-        SignatureEnumerationSupport,
-        SymbolDeclaration,
-        SymbolDeclarationSupport,
-        ParameterDeclaration,
-        ParameterDeclarationSupport,
-        SymbolSequence,
-        SymbolSequenceMember,
-        lctx_model::domain::captures::CaptureObservation,
-        lctx_model::domain::captures::CaptureSupport,
-        SymbolObservation,
-        SymbolSupport,
-        FunctionTraitObservation,
-        FunctionTraitSupport,
-        ClassTraitObservation,
-        ClassTraitSupport,
-        ClassAncestryObservation,
-        ClassAncestrySupport,
-        ParameterAnnotationObservation,
-        ParameterAnnotationSupport,
-        ExportOrigin,
-        PublicNameObservation,
-        PublicNameSupport,
-        ParameterDocObservation,
-        ParameterDocSupport,
-        ModuleResolutionObservation,
-        ModuleResolutionSupport,
-        ProviderCallable,
-        CallOrigin,
-        CallOriginStep,
-        CallDestination,
-        CallChannel,
-        Receiver,
-        ProviderCallSite,
-        ProviderCallSiteSupport,
-        CallTarget,
-        CallTargetSupport,
-        CallResolution,
-        CallResolutionSupport,
-        CallResolutionMember,
-        ClassMetadataObservation,
-        ClassMetadataSupport,
-        ClassMemberObservation,
-        ClassMemberSupport,
-        RecordOptions,
-        RecordTransformDefaults,
-        RecordTransformFieldSpecifier,
-        TypeTerm,
-        TypeSequence,
-        TypeSequenceMember,
-        CallableParameterList,
-        CallableParameter,
-        TypedDictFieldList,
-        TypedDictField,
-        TypeVariable,
-        TypeVariableRestriction,
-        TypeRestrictionSupport,
-        NativeSignatureObservation,
-        NativeSignatureSupport,
-        NativeOverloadObservation,
-        NativeOverloadSupport,
-        NativeOverloadCandidate,
-        NativeOverloadCandidateSupport,
-        SignatureTypeSubject,
-        SignatureTypeObservation,
-        SignatureTypeSupport,
-        GenericSpecializationObservation,
-        GenericSpecializationSupport,
-        TypeObservation,
-        lctx_model::domain::types::TypeQueryObservation,
-        lctx_model::domain::types::TypeQuerySupport,
-        TypeSupport,
-        TypePresentation,
-        TypePresentationSupport,
-        FunctionBodyObservation,
-        FunctionBodySupport,
-        RecordFieldObservation,
-        RecordFieldSupport,
-        lctx_model::domain::protocols::NativeExitObservation,
-        lctx_model::domain::protocols::NativeExitSupport,
-        lctx_model::domain::protocols::NativeTerminalObservation,
-        lctx_model::domain::protocols::NativeTerminalSupport,
-        lctx_model::domain::protocols::NativeExitDiagnostic,
-        lctx_model::domain::protocols::NativeExitDiagnosticSupport,
-        ExportEnumerationObservation,
-        ExportEnumerationSupport
-    )
-}
-pub fn contract() -> ProducerContract {
-        ProducerContract {
-            name: PYREFLY,
-            inputs: vec![],
-            outputs: outputs(),
-            contributes: crate::assembly::vocabulary(),
-            profiles: vec![Profile::Catalog, Profile::Behavioral],
-            effect: Effect::Extraction,
-            semantic_revision: 1,
-            configuration: ConfigurationBinding::ProducerSettings,
-            suppliers: vec![supplier("pyrefly", "pyrefly", PYREFLY_REVISION, FAMILIES.into_iter().filter(|family|*family!=FactFamily::Syntax).collect()), supplier("pyrefly-ruff", "ruff", crate::ruff_context::RUFF_REVISION, vec![FactFamily::Syntax, FactFamily::Exports, FactFamily::Lexical])],
-            not_requested: vec![],
-        }
-}
+pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::pyrefly() }
 impl Declared for Pyrefly {
     fn declaration(&self, _: Profile) -> Stage {
         let provider = pyrefly_provider();
@@ -744,6 +577,7 @@ fn session<S: ProviderSink + 'static>(
         reason,
         diagnostic,
     };
+    let mut inherited_spans = InheritedFieldSpans::new(root, &analyzed, context.budget())?;
     for artifact in roots {
         let scope = CoverageScope::Artifact {
             artifact: artifact.id(),
@@ -1150,11 +984,10 @@ fn session<S: ProviderSink + 'static>(
                         &spans,
                         &mut natives,
                         context.budget(),
-                        &analyzed,
+                        &mut inherited_spans,
                         limits,
                         &ruff_run,
                         &ruff_surface,
-                        root,
                         ast,
                     )?;
                     types.reconcile_class_traits(&projected_classes)?;
@@ -1590,7 +1423,7 @@ fn session<S: ProviderSink + 'static>(
                     .map(|(_, h)| h.clone())
                     .collect::<Vec<_>>(),
                 Require::Everything,
-                None,
+                Some(analysis_pool()),
             );
             for (module, handle) in dependencies {
                 visited.insert(module);
@@ -2717,6 +2550,33 @@ fn write_calls<S: ProviderSink + 'static>(
     Ok(())
 }
 
+/// Source-only span preparation shared by every root in one joined analyzer session.
+/// Run/qualification receipts are discarded; occurrence IDs retain exact captured source identity.
+struct InheritedFieldSpans<'a> {
+    paths: BTreeMap<std::path::PathBuf, &'a SourceArtifact>,
+    cached: BTreeMap<lctx_model::domain::Id<SourceArtifact>, Option<Spans>>,
+    charge: lctx_model::domain::charged::StateCharge,
+}
+impl<'a> InheritedFieldSpans<'a> {
+    fn new(root: &Path, artifacts: &[&'a SourceArtifact], budget: &lctx_model::domain::resources::ResourceBudget) -> Result<Self, ModelError> {
+        let mut state = Self { paths: BTreeMap::new(), cached: BTreeMap::new(), charge: lctx_model::domain::charged::StateCharge::new(budget, "inherited_field_spans") };
+        for artifact in artifacts {
+            state.charge.grow(root.as_os_str().len().checked_add(artifact.path.len()).and_then(|n| n.checked_add(256)).ok_or_else(|| invalid("field span path accounting overflow".into()))?)?;
+            if state.paths.insert(root.join(&artifact.path), *artifact).is_some() {
+                return Err(invalid("ambiguous inherited field artifact path".into()));
+            }
+        }
+        Ok(state)
+    }
+    fn prepare(&mut self, artifact: lctx_model::domain::Id<SourceArtifact>, build: impl FnOnce() -> Result<Option<Spans>, ModelError>) -> Result<Option<&Spans>, ModelError> {
+        if let std::collections::btree_map::Entry::Vacant(entry) = self.cached.entry(artifact) {
+            self.charge.grow(256)?;
+            entry.insert(build()?);
+        }
+        Ok(self.cached[&artifact].as_ref())
+    }
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "Shared generated contracts and fixtures require this scoped exception"
@@ -2731,11 +2591,10 @@ fn types(
     spans: &Spans,
     natives: &mut Natives,
     budget: &lctx_model::domain::resources::ResourceBudget,
-    roots: &[&SourceArtifact],
+    inherited: &mut InheritedFieldSpans<'_>,
     limits: SyntaxLimits,
     run: &ProviderRun,
     surface: &ProviderSurface,
-    root: &Path,
     ast: &ruff_python_ast_latest::ModModule,
 ) -> Result<crate::type_records::Records, ModelError> {
     use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
@@ -2766,59 +2625,34 @@ fn types(
         }
         Some(ModuleAnswersContext::create(found, transaction, module_ids))
     };
-    let mut cached = BTreeMap::new();
-    let mut cache_charge =
-        lctx_model::domain::charged::StateCharge::new(budget, "inherited_field_spans");
     let mut field_occurrence = |class: &pyrefly_types::class::Class,
                                 range: ruff_text_size::TextRange| {
         let found = transaction
             .import_handle(handle, class.module().name(), None)
             .finding();
-        let Some(found) = found else {
+        let Some(found) = found else { return Ok(None) };
+        let Some(artifact) = inherited.paths.get(found.path().as_path()).copied() else {
             return Ok(None);
         };
-        let Some(artifact) = roots
-            .iter()
-            .find(|a| found.path().as_path() == root.join(&a.path))
-        else {
-            return Ok(None);
-        };
-        if let std::collections::btree_map::Entry::Vacant(e) = cached.entry(artifact.id()) {
+        Ok(inherited.prepare(artifact.id(), || {
             let info = transaction
                 .get_module_info(&found)
                 .ok_or_else(|| invalid("inherited field text unavailable".into()))?;
             let canonical = crate::ruff_context::CanonicalSyntax::parse(
-                artifact,
-                info.lined_buffer().contents(),
-                context_info,
-                crate::ruff_context::ContextSettings::default(),
-                budget,
+                artifact, info.lined_buffer().contents(), context_info,
+                crate::ruff_context::ContextSettings::default(), budget,
             )?;
-            let ast = canonical.module();
             let mut spans = Spans::new(budget);
-            let invocation = SyntaxInvocation {
-                source: artifact,
-                qualification,
-                run,
-                surface,
-            };
-            let complete = match typed_syntax::emit(
-                ast,
-                info.lined_buffer().contents(),
-                invocation,
-                limits,
+            let invocation = SyntaxInvocation { source: artifact, qualification, run, surface };
+            match typed_syntax::emit(
+                canonical.module(), info.lined_buffer().contents(), invocation, limits,
                 |event| spans.insert(&event.occurrence),
             ) {
-                Ok(_) => true,
-                Err(typed_syntax::SyntaxError::Refused { .. }) => false,
-                Err(typed_syntax::SyntaxError::Model(error)) => return Err(error),
-            };
-            cache_charge.grow(256)?;
-            e.insert(if complete { Some(spans) } else { None });
-        }
-        Ok(cached[&artifact.id()]
-            .as_ref()
-            .and_then(|s| s.event(range, Some(SyntaxKind::ExprName))))
+                Ok(_) => Ok(Some(spans)),
+                Err(typed_syntax::SyntaxError::Refused { .. }) => Ok(None),
+                Err(typed_syntax::SyntaxError::Model(error)) => Err(error),
+            }
+        })?.and_then(|spans| spans.event(range, Some(SyntaxKind::ExprName))))
     };
     crate::type_records::records(
         (transaction, handle, ast),
@@ -3165,4 +2999,41 @@ fn write_parameter_definitions<S: ProviderSink + 'static>(
         context.emit(row.clone())?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod inherited_span_controls {
+    use super::*;
+    use std::cell::Cell;
+    #[test]
+    fn session_prepares_each_exact_source_once_and_retains_refused_sources() {
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let input = lctx_model::domain::input::InputRevision::from_entries(vec![]).unwrap();
+        let first = SourceArtifact::from_bytes(input.id(), "a.py".into(), b"x").unwrap();
+        let second = SourceArtifact::from_bytes(input.id(), "b.py".into(), b"x").unwrap();
+        let calls = Cell::new(0);
+        let occurrence = Occurrence { source:first.id(), start:0, end:1, syntax_kind:SyntaxKind::ExprName, role:OccurrenceRole::Read, structural_path:vec![0] };
+        let mut cache = InheritedFieldSpans::new(Path::new("/retained"), &[&first, &second], &budget).unwrap();
+        assert_eq!(cache.paths[Path::new("/retained/a.py")].id(), first.id());
+        for _ in 0..2 {
+            let spans = cache.prepare(first.id(), || { calls.set(calls.get()+1);let mut spans=Spans::new(&budget);spans.insert(&occurrence)?;Ok(Some(spans)) }).unwrap().unwrap();
+            assert_eq!(spans.source(), Some(first.id()));
+            assert_eq!(spans.event(ruff_text_size::TextRange::new(ruff_text_size::TextSize::new(0),ruff_text_size::TextSize::new(1)),Some(SyntaxKind::ExprName)),Some(occurrence.id()));
+            assert!(cache.prepare(second.id(), || {calls.set(calls.get()+1);Ok(None)}).unwrap().is_none());
+        }
+        assert_eq!(calls.get(),2);
+        assert!(budget.reserved()>0);
+        drop(cache);assert_eq!(budget.reserved(),0);
+    }
+    #[test]
+    fn failed_preparation_does_not_certify_a_cached_absence() {
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let input = lctx_model::domain::input::InputRevision::from_entries(vec![]).unwrap();
+        let artifact = SourceArtifact::from_bytes(input.id(), "a.py".into(), b"x").unwrap();
+        let mut cache = InheritedFieldSpans::new(Path::new("/retained"), &[&artifact], &budget).unwrap();
+        assert!(cache.prepare(artifact.id(), ||Err(invalid("unavailable text".into()))).is_err());
+        assert!(!cache.cached.contains_key(&artifact.id()));
+        assert!(cache.prepare(artifact.id(), ||Ok(Some(Spans::new(&budget)))).unwrap().is_some());
+        drop(cache);assert_eq!(budget.reserved(),0);
+    }
 }

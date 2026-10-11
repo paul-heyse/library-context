@@ -1,7 +1,7 @@
 //! Incremental exact original-window consumption with one immutable selected effect Session.
+use lctx_model::domain::embedding::Embedder;
 use crate::{
     embedding_realization,
-    embedding_service::Embedder,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::{TryStreamExt, FutureExt};
@@ -216,11 +216,10 @@ pub async fn produce(
                     )?;
                     let windows = TextWindow::decode(&batch)?;
                     // Erase the borrowed iterator future before composing the stage (rustc #100013).
-                    service
-                        .prepare(windows.iter().map(|window| window.text.as_str()))
-                        .boxed()
-                        .await
-                        .map_err(ModelError::codec)?;
+                    for window in &windows {
+                        service.queue_ready(window.text.as_str()).boxed().await.map_err(ModelError::codec)?;
+                    }
+                    service.flush_ready().await.map_err(ModelError::codec)?;
                     for window in &windows {
                         let mut uses = Rows::new(runtime.budget());
                         match service.publish(window.text.as_str(), &output).await {

@@ -3,7 +3,7 @@ pub use lctx_model::domain::serving_scope::OWNED_FIELDS;
 use lctx_model::domain::{
     ModelError, ValidationInput, resources::ResourceBudget, serving_scope::ServingScopeProgram,
 };
-use lctx_surrealdb::{NativeReader, batches::CanonicalBatches};
+use lctx_native::{NativeReader, batches::CanonicalBatches};
 use std::collections::BTreeSet;
 use surrealdb::types::RecordId;
 
@@ -44,14 +44,14 @@ pub async fn hydrate_with_owners<Context>(
     budget: &ResourceBudget,
 ) -> Result<CanonicalBatches, ModelError> {
     let program = ServingScopeProgram::new(inputs, incoming_inputs, owned_fields, budget)?;
-    let prepared = lctx_surrealdb::scope::PreparedServingScope::new(program, budget)?;
+    let prepared = lctx_native::scope::PreparedServingScope::new(program, budget)?;
     hydrate_prepared_layout(reader, roots, &prepared, budget, None).await
 }
 
 pub(crate) async fn hydrate_prepared_layout<Context>(
     reader: &NativeReader<Context>,
     roots: Vec<RecordId>,
-    prepared: &lctx_surrealdb::scope::PreparedServingScope,
+    prepared: &lctx_native::scope::PreparedServingScope,
     budget: &ResourceBudget,
     cancelled: Option<&(dyn Fn() -> bool + Sync)>,
 ) -> Result<CanonicalBatches, ModelError> {

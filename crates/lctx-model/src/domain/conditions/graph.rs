@@ -215,43 +215,46 @@ impl Diagram {
                 _ => {}
             }
         }
-        let mut built: Vec<Option<Diagram>> = vec![None; graph.nodes.len()];
+        // One correspondence for the live root closure. Transient variables are bounded by
+        // the graph-node limit; effective support is checked only after root reduction.
+        let support = graph.nodes.iter().enumerate().filter_map(|(i, node)| match node {
+            CondNode::Leaf(atom) if live[i] => Some(*atom), _ => None,
+        }).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+        let ctx = super::kernel::context(&support);
+        let mut built: Vec<Option<biodivine_lib_bdd::Bdd>> = vec![None; graph.nodes.len()];
         let mut work = 0usize;
         for (i, node) in graph.nodes.iter().enumerate().filter(|(i, _)| live[*i]) {
             let get = |i: usize| built[i].as_ref().ok_or(KernelBoundary::MalformedGraph);
             let value = match node {
-                CondNode::False => Self::never(),
-                CondNode::True => Self::always(),
-                CondNode::Leaf(a) => Self::from_atom(*a),
-                CondNode::Not(a) => get(*a)?.not()?,
+                CondNode::False => ctx.mk_false(),
+                CondNode::True => ctx.mk_true(),
+                CondNode::Leaf(a) => ctx.mk_var(biodivine_lib_bdd::BddVariable::from_index(support.binary_search(a).expect("live atom"))),
+                CondNode::Not(a) => get(*a)?.not(),
                 CondNode::And(a, b) | CondNode::Or(a, b) => {
                     let (a, b) = (get(*a)?, get(*b)?);
                     work = work
-                        .checked_add(a.bdd.size().saturating_mul(b.bdd.size()))
+                        .checked_add(a.size().saturating_mul(b.size()))
                         .ok_or(KernelBoundary::WorkPreflight)?;
                     if work > super::kernel::MAX_PAIR_WORK {
                         return Err(KernelBoundary::WorkPreflight);
                     }
-                    if matches!(node, CondNode::And(..)) {
-                        a.and(b)?
-                    } else {
-                        a.or(b)?
-                    }
+                    super::kernel::apply(a, b, if matches!(node, CondNode::And(..)) {
+                        biodivine_lib_bdd::op_function::and
+                    } else { biodivine_lib_bdd::op_function::or })?
                 }
                 CondNode::Refused => return Err(KernelBoundary::WorkPreflight),
             };
             work = work
-                .checked_add(value.bdd.size())
+                .checked_add(value.size())
                 .ok_or(KernelBoundary::WorkPreflight)?;
             if work > super::kernel::MAX_PAIR_WORK {
                 return Err(KernelBoundary::WorkPreflight);
             }
             built[i] = Some(value);
         }
+        let bdd = built[graph.root].take().ok_or(KernelBoundary::MalformedGraph)?;
         Ok(GraphCondition {
-            diagram: built[graph.root]
-                .take()
-                .ok_or(KernelBoundary::MalformedGraph)?,
+            diagram: Self::effective(support, ctx, bdd)?,
             approximation: if graph.approximate {
                 crate::domain::assertion::Approximation::Unknown
             } else {

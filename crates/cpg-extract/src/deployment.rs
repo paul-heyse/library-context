@@ -1,10 +1,8 @@
 //! Deployment descriptions and explicitly captured reports; analyzed code is never executed.
-use lctx_model::domain::producer_contract::{ProducerContract, ConfigurationBinding};
-use crate::contracts::supplier;
+use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use crate::{
     acquisition::{AcquiredInput, Acquisition},
-    assembly,
     bundle::{Declared, ProviderStage, StageContext},
 };
 use lctx_model::domain::{
@@ -19,7 +17,7 @@ macro_rules! embedded_scripts {
     };
 }
 crate::runtime_scripts::runtime_scripts!(embedded_scripts);
-pub const DEPLOYMENT: &str = "deployment";
+pub use lctx_model::domain::producer_contract::facts::DEPLOYMENT;
 pub struct Deployment;
 pub fn provider() -> Provider {
     Provider {
@@ -46,31 +44,7 @@ macro_rules! outputs {
         )
     };
 }
-pub fn contract() -> ProducerContract {
-        macro_rules! uses {($($ty:ty),+)=>{vec![$(RelationUse::of::<$ty>()),+]}}
-        ProducerContract {
-            name: DEPLOYMENT,
-            inputs: uses!(
-                SourceArtifact,
-                ArtifactUse,
-                EnvironmentFingerprint,
-                Package,
-                Release,
-                InputAcquisition,
-                CorpusLibrary
-            ),
-            outputs: outputs!(uses),
-            contributes: assembly::vocabulary(),
-            profiles: vec![Profile::Catalog, Profile::Behavioral],
-            effect: Effect::Extraction,
-            semantic_revision: 1,
-            configuration: ConfigurationBinding::Fixed(ContentHash::of(
-                b"receipt-v1;64KiB;metadata-and-configuration=64MiB;report-only-runtime",
-            )),
-            suppliers: vec![supplier("deployment", "lctx-deployment", env!("CARGO_PKG_VERSION"), vec![FactFamily::Deployment])],
-            not_requested: vec![],
-        }
-}
+pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::deployment() }
 impl Declared for Deployment {
     fn declaration(&self, _: Profile) -> Stage {
         let provider = provider();

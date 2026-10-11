@@ -1,0 +1,32 @@
+[package]
+name = "lctx-compiler-store"
+description = "Validated compiler admission, immutable completed views and artifact transport."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+lctx-model = { path = "../lctx-model" }
+lctx-native = { path = "../lctx-native" }
+arrow-array.workspace = true
+arrow-schema.workspace = true
+datafusion.workspace = true
+futures.workspace = true
+async-trait = "=0.1.92"
+surrealdb = { version = "=3.3.0", default-features = false, features = ["protocol-grpc", "protocol-http", "rustls"] }
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+postcard.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

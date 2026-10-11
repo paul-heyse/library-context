@@ -383,7 +383,7 @@ impl SurrealDbService for Peer {
                 query_index: 0, batch_index: 0, kind: kind as i32,
                 statement_kind: rpc::QueryStatementKind::Other as i32, stats: None, error,
                 payload: Some(rpc::query_batch_frame::Payload::Values(rpc::ValueBatch {
-                    values: vec![proto::Value::try_from(lctx_surrealdb::surrealdb::types::Value::Null).unwrap()],
+                    values: vec![proto::Value::try_from(lctx_native::surrealdb::types::Value::Null).unwrap()],
                 })),
             };
             if send(Frame::Begin(rpc::QueryBegin { statement_count: 1, ..Default::default() })).await.is_err() { return; }

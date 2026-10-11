@@ -6,7 +6,7 @@ use crate::{
 use lctx_model::domain::{
     resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
 };
-use lctx_surrealdb::{NativeReader, reader::target_id};
+use lctx_native::{NativeReader, reader::target_id};
 pub async fn get(
     reader: &NativeReader,
     preparation: &crate::preparation::Preparation<'_>,
@@ -93,31 +93,35 @@ impl Prepared {
             originals: crate::originals::Prepared::new(data)?,
         })
     }
-    pub fn packet(
-        &self,
-        id: Id<synthesis::briefs::Brief>,
-        budget: &ResourceBudget,
-    ) -> Result<CapabilityPacket, ModelError> {
+    pub(crate) fn validate(&self, id: Id<synthesis::briefs::Brief>, budget: &ResourceBudget) -> Result<(), ModelError> {
+        self.packet_inner(id, budget, false).map(|_| ())
+    }
+    pub fn packet(&self, id: Id<synthesis::briefs::Brief>, budget: &ResourceBudget) -> Result<CapabilityPacket, ModelError> {
+        self.packet_inner(id, budget, true)?.ok_or(ModelError::Schema("selected capability packet"))
+    }
+    fn packet_inner(&self, id: Id<synthesis::briefs::Brief>, budget: &ResourceBudget, emit: bool)
+        -> Result<Option<CapabilityPacket>, ModelError> {
         let briefs = &self.briefs;
         let brief = need(briefs, id)?;
         let selected_documents = self.documents.select_for("brief", &[id])?;
         let mut documents = selected_documents.iter().collect::<Vec<_>>();
         documents.sort_by_key(|p| p.ordinal);
-        let _bytes = budget.reserve(
-            "native-capability-rendered",
-            usize::try_from(brief.bytes)
-                .map_err(ModelError::codec)?
-                .saturating_mul(2),
-        )?;
+        let declared_bytes = usize::try_from(brief.bytes).map_err(ModelError::codec)?;
+        let _bytes = budget.reserve("native-capability-rendered", if emit { declared_bytes.saturating_mul(2) } else { 0 })?;
         let mut rendered = String::new();
+        let mut digest = ContentHasher::default();
+        let mut rendered_bytes = 0usize;
+        let mut contains_nul = false;
         for (ordinal, part) in documents.iter().enumerate() {
             if part.ordinal != ordinal as i64 {
                 return Err(ModelError::Schema("brief part ordinal"));
             }
-            rendered.push_str(part.text.as_str());
+            digest.update(part.text.as_bytes());
+            rendered_bytes = rendered_bytes.checked_add(part.text.as_bytes().len()).ok_or(ModelError::Schema("brief rendered length overflow"))?;
+            contains_nul |= part.text.as_str().contains('\0');
+            if emit { rendered.push_str(part.text.as_str()); }
         }
-        if rendered.len() as i64 != brief.bytes
-            || ContentHash::of(rendered.as_bytes()) != brief.rendered
+        if rendered_bytes != declared_bytes || digest.finish() != brief.rendered
         {
             return Err(ModelError::Identity("brief rendered bytes"));
         }
@@ -181,7 +185,7 @@ impl Prepared {
                         derivation::RowRef::of(*witness)
                     }
                 };
-                attribution.push(AssertionSupportPacket {
+                let packet = AssertionSupportPacket {
                     support: support.id(),
                     role: support.role,
                     source: support.source,
@@ -189,20 +193,23 @@ impl Prepared {
                         ProofReference::from_canonical(derivation::RowRef::of(support.id()))?,
                         ProofReference::from_canonical(target)?,
                     ],
-                });
+                };
+                if emit { attribution.push(packet); }
             }
             attribution.sort_by_key(|s| s.support);
-            packets.push(AssertionPacket {
+            let claim_basis = claims.basis(assertion.qualification())?;
+            let text = Text::new(assertion.text()).map_err(wire)?;
+            if emit { packets.push(AssertionPacket {
                 assertion: assertion.id(),
                 kind: assertion.kind(),
                 section: assertion.section(),
                 status: assertion.status(),
                 qualification: assertion.qualification(),
-                claim_basis: claims.basis(assertion.qualification())?,
+                claim_basis,
                 terminal_question: Nullable(terminal_packet),
-                text: Text::new(assertion.text()).map_err(wire)?,
+                text,
                 supports: attribution,
-            });
+            }); }
         }
         let docs = &self.documentary;
         let mut originals = Vec::new();
@@ -212,22 +219,30 @@ impl Prepared {
                 .qualifications
                 .get(&doc.qualification())
                 .ok_or(ModelError::Schema("documentary qualification"))?;
-            originals.push(self.originals.range(
+            let original = self.originals.range(
                 &OriginalReference::Prose { slice: doc.prose },
                 Some(q.context),
                 None,
-            )?);
+            )?;
+            if emit { originals.push(original); }
         }
-        Ok(CapabilityPacket {
+        let title = Name::new(brief.title.as_str()).map_err(wire)?;
+        // The canonical document fragments are UTF-8 already. Validate the wire text
+        // bound without concatenating unselected bodies; the emitted packet uses Text.
+        if rendered_bytes > 262144 || contains_nul {
+            return Err(wire(WireError::Invalid("text byte bound or NUL".into())));
+        }
+        if !emit { return Ok(None); }
+        Ok(Some(CapabilityPacket {
             capability: id,
-            title: Name::new(brief.title.as_str()).map_err(wire)?,
+            title,
             rendered: Text::new(rendered).map_err(wire)?,
             assertions: packets,
             originals,
             availability: Availability::Available {},
             unreviewed: true,
             documentation_only: brief.documentation_only,
-        })
+        }))
     }
 }
 #[cfg(test)]

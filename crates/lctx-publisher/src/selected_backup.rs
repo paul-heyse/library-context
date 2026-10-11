@@ -2,7 +2,7 @@
 //! operational authority, service-wide content scan or per-page transaction is admitted.
 use crate::{backup_import, definitions, inspection};
 use lctx_model::domain::{ContentHash, ModelError, completed::{CompletedBinding, CompletedContribution, CompletedView}, recovery_closure::{RecoveryTraversal, RecoveryFamily, RECOVERY_FAMILIES}, resources::{ResourceBudget, Reservation}, serving::SnapshotHandle};
-use lctx_surrealdb::{prepared::PreparedQuery, reader::NativeRows, selection::SelectedPayloads, surrealdb::{method::Transaction, engine::remote::grpc::Client, types::{Object, RecordId, SurrealValue, Value, Variables}}};
+use lctx_native::{prepared::PreparedQuery, reader::NativeRows, selection::SelectedPayloads, surrealdb::{method::Transaction, engine::remote::grpc::Client, types::{Object, RecordId, SurrealValue, Value, Variables}}};
 use std::{collections::{BTreeMap, BTreeSet}, io::Write, path::Path, sync::Arc};
 
 struct Snapshot<'a> { transaction: &'a Arc<Transaction<Client>>, cancel: &'a crate::owned_read::Cancellation }
@@ -128,7 +128,7 @@ pub(crate) async fn export(
     }
     let closure = traversal.finish()?;
     let owners = physical.iter().map(|owner| {
-        let lctx_surrealdb::surrealdb::types::RecordIdKey::String(key) = &owner.key else { return Err(ModelError::Schema("snapshot contributor key")); };
+        let lctx_native::surrealdb::types::RecordIdKey::String(key) = &owner.key else { return Err(ModelError::Schema("snapshot contributor key")); };
         Ok(ContentHash(hex::decode(key).map_err(ModelError::codec)?.try_into().map_err(|_| ModelError::Schema("snapshot contributor hash"))?))
     }).collect::<Result<Vec<_>, _>>()?;
     let selected = SelectedPayloads::for_cancellable_transaction(transaction.transaction.clone(), &owners, true, cancel.flag(), budget).await?;
@@ -148,7 +148,7 @@ pub(crate) async fn export(
                 write_stream(&mut writer, encoded.as_mut(), rows, cancel).await?;
             },
             RecoveryFamily::GraphPayloads | RecoveryFamily::TypedBacking => {
-                for table in lctx_surrealdb::compiler::recovery_tables(family) {
+                for table in lctx_compiler_store::compiler::recovery_tables(family) {
                     let mut rows = selected.rows(table, "true", Variables::new(), vec![], "id", None)?;
                     let result = async { while let Some(row) = rows.next().await? {
                         cancel.check()?;
@@ -214,16 +214,16 @@ fn content_definition(sql: &str) -> Result<bool, ModelError> {
     };
     let Expr::Table(table) = table else { return Err(ModelError::Schema("snapshot definition table")); };
     let table = table.as_str();
-    Ok(lctx_surrealdb::compiler::classify_recovery_table(table).is_some())
+    Ok(lctx_compiler_store::compiler::classify_recovery_table(table).is_some())
 }
 /// One actual native read feeds reusable disk-backed family cursors. Related semantic
 /// families do not repeat native nomination or retain an in-memory payload collection.
-async fn capture_claims(mut rows: NativeRows, budget: &ResourceBudget, cancel: &crate::owned_read::Cancellation) -> Result<lctx_surrealdb::ordered_rows::PreparedRows, ModelError> {
-    let mut sorted = lctx_surrealdb::ordered_rows::SortedRows::with_budget(budget)?;
+async fn capture_claims(mut rows: NativeRows, budget: &ResourceBudget, cancel: &crate::owned_read::Cancellation) -> Result<lctx_native::ordered_rows::PreparedRows, ModelError> {
+    let mut sorted = lctx_native::ordered_rows::SortedRows::with_budget(budget)?;
     let result = async { while let Some(row) = rows.next().await? {
         cancel.check()?;
         let codec = backup_import::table_codec(id(&row)?.table.as_str())?;
-        let lctx_surrealdb::compiler::RecoveryTableKind::Content(family) = codec.kind else { return Err(ModelError::Schema("actual claim publication root")); };
+        let lctx_compiler_store::compiler::RecoveryTableKind::Content(family) = codec.kind else { return Err(ModelError::Schema("actual claim publication root")); };
         if !family.is_integrity_claim() { return Err(ModelError::Schema("actual claim content family")); }
         sorted.push(row)?;
     } Ok(()) }.await;
@@ -231,11 +231,11 @@ async fn capture_claims(mut rows: NativeRows, budget: &ResourceBudget, cancel: &
     lctx_model::domain::completion::complete(result, completion)?;
     Ok(sorted.finish()?.into_prepared())
 }
-fn write_claim_family(rows: &lctx_surrealdb::ordered_rows::PreparedRows, family: RecoveryFamily, writer: &mut impl Write, charge: &mut dyn Reservation, cancel: &crate::owned_read::Cancellation) -> Result<(), ModelError> {
+fn write_claim_family(rows: &lctx_native::ordered_rows::PreparedRows, family: RecoveryFamily, writer: &mut impl Write, charge: &mut dyn Reservation, cancel: &crate::owned_read::Cancellation) -> Result<(), ModelError> {
     let mut rows = rows.cursor()?;
     while let Some(row) = rows.next_row()? {
         cancel.check()?;
-        if backup_import::table_codec(id(&row)?.table.as_str())?.kind == lctx_surrealdb::compiler::RecoveryTableKind::Content(family) {
+        if backup_import::table_codec(id(&row)?.table.as_str())?.kind == lctx_compiler_store::compiler::RecoveryTableKind::Content(family) {
             backup_import::write_row(writer, row, charge)?;
         }
     }
@@ -248,10 +248,10 @@ mod tests {
     #[test]
     fn family_dispatch_exports_every_actual_claim_without_expected_row_filtering() {
         let budget = ResourceBudget::fixed(256 << 20).unwrap();
-        let mut sorted = lctx_surrealdb::ordered_rows::SortedRows::with_budget(&budget).unwrap();
+        let mut sorted = lctx_native::ordered_rows::SortedRows::with_budget(&budget).unwrap();
         let mut expected = Vec::new();
         for family in RECOVERY_FAMILIES.iter().copied().filter(|family| family.is_integrity_claim()) {
-            for table in lctx_surrealdb::compiler::recovery_tables(family) {
+            for table in lctx_compiler_store::compiler::recovery_tables(family) {
                 let mut object = Object::new(); object.insert("id", RecordId::new(*table, "unexpected-actual-claim"));
                 object.insert("field", "forged-role"); object.insert("deps", Vec::<RecordId>::new());
                 let row = Value::Object(object); expected.push(row.clone()); sorted.push(row).unwrap();
@@ -273,7 +273,7 @@ mod tests {
         use crate::backup::grpc_export_fixture::{Fixture, QueryFault};
         for fault in [QueryFault::Success, QueryFault::LateStatementError, QueryFault::OuterError, QueryFault::MissingOuterEnd, QueryFault::LateTransportError, QueryFault::LatePayload] {
             let fixture = Fixture::start_query(fault).await;
-            let session = lctx_surrealdb::reader::connect(&fixture.endpoint, &lctx_surrealdb::Credentials::Root { username: "fixture".into(), password: "fixture".into() }, "injected_export", "fixture").await.unwrap();
+            let session = lctx_native::reader::connect(&fixture.endpoint, &lctx_native::Credentials::Root { username: "fixture".into(), password: "fixture".into() }, "injected_export", "fixture").await.unwrap();
             let transaction = Arc::new(Arc::try_unwrap(session).unwrap().begin().retain_on_error().await.map_err(|(error, _)| error).unwrap());
             let (row_seen, row_ready) = tokio::sync::oneshot::channel();
             let (finished, terminal) = tokio::sync::oneshot::channel();
@@ -310,13 +310,13 @@ mod tests {
     }
     #[tokio::test(flavor = "multi_thread")]
     async fn selected_external_snapshot_pins_metadata_and_rows_then_acknowledges_cancel() {
-        let config = lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();
-        let writer = lctx_surrealdb::compiler::check_installation(&config).await.unwrap();
-        let nonce = lctx_surrealdb::control::fresh_identity("selected-snapshot-control").unwrap();
+        let config = lctx_native::RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();
+        let writer = lctx_compiler_store::compiler::check_installation(&config).await.unwrap();
+        let nonce = lctx_native::control::fresh_identity("selected-snapshot-control").unwrap();
         let source = RecordId::new("native_guard", format!("snapshot_{}", nonce.hex()));
         let vars = exact("source", source.clone());
         writer.query("CREATE $source SET revision=0,retired=false,phase='active',incarnation=1 RETURN NONE").bind(vars.clone()).await.unwrap().check().unwrap();
-        let session = lctx_surrealdb::reader::connect(&config.endpoint, &config.writer_credentials(), config.namespace.as_str(), config.database.as_str()).await.unwrap();
+        let session = lctx_native::reader::connect(&config.endpoint, &config.writer_credentials(), config.namespace.as_str(), config.database.as_str()).await.unwrap();
         let session = Arc::try_unwrap(session).unwrap();
         let transaction = Arc::new(session.begin().retain_on_error().await.map_err(|(error, _)| error).unwrap());
         let cancel = crate::owned_read::Cancellation::default(); let snapshot = Snapshot { transaction: &transaction, cancel: &cancel };
@@ -338,8 +338,8 @@ mod tests {
     }
     #[tokio::test(flavor = "multi_thread")]
     async fn selected_external_snapshot_late_statement_failure_is_checked_before_cancel() {
-        let config = lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();
-        let client = lctx_surrealdb::reader::connect(&config.endpoint, &config.writer_credentials(), config.namespace.as_str(), config.database.as_str()).await.unwrap();
+        let config = lctx_native::RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"))).unwrap();
+        let client = lctx_native::reader::connect(&config.endpoint, &config.writer_credentials(), config.namespace.as_str(), config.database.as_str()).await.unwrap();
         let transaction = Arc::new(Arc::try_unwrap(client).unwrap().begin().retain_on_error().await.map_err(|(error, _)| error).unwrap());
         let mut rows = PreparedQuery::new(Variables::new(), vec![], vec!["RETURN 1".into(), "THROW 'selected snapshot late engine failure'".into()]).unwrap().stream_transaction(&transaction).unwrap();
         assert!(rows.next().await.unwrap().is_some());

@@ -218,26 +218,35 @@ struct Branch<K: TransferKeyRecord> {
     _charge: Box<dyn Reservation>,
 }
 impl<K: TransferKeyRecord> TransferBranch<K> {
+    /// Copy an immutable prepared diagram only after the destination branch is admitted.
+    pub(crate) fn from_prepared(
+        key: K,
+        qualification: AssertionQualification,
+        condition: &Diagram,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let charge = Self::reserve(&key, &qualification, condition, budget)?;
+        Ok(Self(Arc::new(Branch { key, qualification, condition: condition.clone(), _charge: charge })))
+    }
     pub fn new(
         key: K,
         qualification: AssertionQualification,
         condition: Diagram,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        key.descriptor().check(&qualification)?;
+        let charge = Self::reserve(&key, &qualification, &condition, budget)?;
+        Ok(Self(Arc::new(Branch { key, qualification, condition, _charge: charge })))
+    }
+    fn reserve(key: &K, qualification: &AssertionQualification, condition: &Diagram,
+        budget: &ResourceBudget) -> Result<Box<dyn Reservation>, ModelError> {
+        key.descriptor().check(qualification)?;
         if qualification.condition != condition.id() {
             return Err(invalid("transfer condition differs from qualification"));
         }
-        let charge = budget.reserve(
+        budget.reserve(
             "transfer_branch",
             condition.allocation_allowance() + size_of::<Branch<K>>() + key.heap_bytes(),
-        )?;
-        Ok(Self(Arc::new(Branch {
-            key,
-            qualification,
-            condition,
-            _charge: charge,
-        })))
+        )
     }
     pub fn key(&self) -> &K {
         &self.0.key

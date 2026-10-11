@@ -1,6 +1,87 @@
 //! Canonical key continuations over exact request, representation and snapshot identities.
 use lctx_model::domain::{ContentHash, serving::*};
 
+/// Some semantic page identities hash the complete result. Visit every result once,
+/// but retain only the requested key range instead of a rich complete-domain array.
+pub(crate) struct PageCollector<T> {
+    position: Result<(CursorBinding, Option<ContentHash>), WireError>,
+    size: usize,
+    total: usize,
+    ordinal: usize,
+    values: std::collections::BTreeMap<(ContentHash, usize), (T, usize)>,
+    charge: lctx_model::domain::charged::StateCharge,
+}
+impl<T: serde::Serialize> PageCollector<T> {
+    #[allow(clippy::too_many_arguments, reason = "The same exact cursor binding as page is required")]
+    pub(crate) fn new(request: &Request, snapshot: &SnapshotHandle, channels: &ChannelState,
+        group: &str, section: &str,
+        member: Option<lctx_model::domain::Id<lctx_model::domain::catalog::CatalogMember>>,
+        budget: &lctx_model::domain::resources::ResourceBudget) -> Self {
+        let position = (|| {
+            let expected = binding(request, snapshot, channels, group, section, member)?;
+            let mut after = None;
+            if let Some(token) = &request.page().cursor.0 {
+                let bytes = hex::decode(token.as_str()).map_err(|_| WireError::Invalid("cursor encoding".into()))?;
+                let cursor: Cursor = serde_json::from_slice(&bytes)?;
+                if cursor.binding.group == expected.group && cursor.binding.section == expected.section {
+                    let cursor = Cursor::decode(token, &expected)?;
+                    let CursorPosition::Key { key } = cursor.after else {
+                        return Err(WireError::Continuation("key continuation required".into()));
+                    };
+                    after = Some(key);
+                }
+            }
+            Ok((expected, after))
+        })();
+        Self { position, size: request.page().size as usize, total: 0, ordinal: 0,
+            values: Default::default(), charge: lctx_model::domain::charged::StateCharge::new(budget, "bounded-section-page") }
+    }
+    pub(crate) fn push(&mut self, key: ContentHash, value: T) -> Result<(), lctx_model::domain::ModelError> {
+        // Cursor refusals are reported only after the exhaustive semantic/validation
+        // traversal, just as in the full-array page implementation.
+        let Ok((_, after)) = &self.position else { return Ok(()); };
+        let ordinal = self.ordinal;
+        self.ordinal = self.ordinal.checked_add(1).ok_or(lctx_model::domain::ModelError::Schema("page ordinal overflow"))?;
+        if after.is_some_and(|after| key <= after) { return Ok(()); }
+        self.total = self.total.checked_add(1).ok_or(lctx_model::domain::ModelError::Schema("page count overflow"))?;
+        let position = (key, ordinal);
+        if self.size == 0 || (self.values.len() == self.size && self.values.last_key_value().is_some_and(|(last, _)| position >= *last)) {
+            return Ok(());
+        }
+        let bytes = crate::ranked_results::allocation_allowance(&value).map_err(crate::records::wire)?
+            .checked_add(size_of::<T>() + size_of::<((ContentHash, usize), (T, usize))>() + 64)
+            .ok_or(lctx_model::domain::ModelError::Schema("page retention overflow"))?;
+        self.charge.grow(bytes)?;
+        self.values.insert(position, (value, bytes));
+        if self.values.len() > self.size {
+            let (_, (value, bytes)) = self.values.pop_last().expect("bounded page victim");
+            drop(value); self.charge.release(bytes);
+        }
+        Ok(())
+    }
+    pub(crate) fn finish(mut self, availability: Availability) -> Result<(SectionPage<T>, lctx_model::domain::charged::StateCharge), lctx_model::domain::ModelError> {
+        let (expected, _) = self.position.map_err(crate::records::wire)?;
+        let omitted = self.total.saturating_sub(self.size) as u64;
+        let continuation = if omitted > 0 {
+            let key = self.values.last_key_value().ok_or(lctx_model::domain::ModelError::Schema("positive page size"))?.0.0;
+            Optional(Some(Cursor { binding: expected, after: CursorPosition::Key { key } }.encode().map_err(crate::records::wire)?))
+        } else { Optional::default() };
+        self.charge.grow(self.values.len().saturating_mul(size_of::<T>()))?;
+        let items = self.values.into_values().map(|(value, _)| value).collect();
+        Ok((SectionPage { availability, items, continuation, omitted, truncated: omitted > 0 }, self.charge))
+    }
+}
+pub(crate) fn packet_key(value: &impl serde::Serialize) -> Result<ContentHash, lctx_model::domain::ModelError> {
+    struct Writer(lctx_model::domain::ContentHasher);
+    impl std::io::Write for Writer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> { self.0.update(bytes); Ok(bytes.len()) }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    let mut writer = Writer(Default::default());
+    serde_json::to_writer(&mut writer, value).map_err(lctx_model::domain::ModelError::codec)?;
+    Ok(writer.0.finish())
+}
+
 pub fn binding(
     request: &Request,
     snapshot: &SnapshotHandle,
@@ -9,18 +90,17 @@ pub fn binding(
     section: &str,
     member: Option<lctx_model::domain::Id<lctx_model::domain::catalog::CatalogMember>>,
 ) -> Result<CursorBinding, WireError> {
-    let ordering = ContentHash::of(if request.page().expanded {
-        b"serving-key-order/v2:expanded"
+    let constants = crate::executable_constants();
+    let ordering = if request.page().expanded {
+        constants.expanded_ordering
     } else {
-        b"serving-key-order/v2:default"
-    });
+        constants.default_ordering
+    };
     Ok(CursorBinding {
         snapshot: snapshot.clone(),
         request: request.canonical_identity()?,
-        policy: ranking::RankingPolicy::default()
-            .identity()
-            .map_err(|e| WireError::Invalid(e.to_string()))?,
-        wire: wire_identity(),
+        policy: *constants.policy.as_ref().map_err(|error| WireError::Invalid(error.clone()))?,
+        wire: constants.wire,
         channels: channels.identity(),
         group: Name::new(group)?,
         section: Name::new(section)?,
@@ -403,6 +483,9 @@ mod tests {
         changed.semantic = ContentHash::of(b"different content");
         assert!(validate(&next, &changed, &c).is_err());
         changed = h.clone();
+        changed.definition_epoch = ContentHash::of(b"different installed definition epoch");
+        assert!(validate(&next, &changed, &c).is_err());
+        changed = h.clone();
         changed.database.database = Name::new("different_database").unwrap();
         assert!(validate(&next, &changed, &c).is_err());
         let Request::FindOperations(v) = &mut next else {
@@ -543,4 +626,40 @@ mod tests {
         assert_eq!(last.items, vec!["last"]);
         assert!(last.continuation.0.is_none());
     }
+    #[test]
+    fn bounded_collector_matches_full_stable_pages_with_duplicate_keys() {
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let values = (0..4096u32).rev().map(|ordinal| (ContentHash::of(&(ordinal % 23).to_le_bytes()), format!("value-{ordinal:04}"))).collect::<Vec<_>>();
+        let mut request = request();
+        let handle = handle();
+        let channels = ChannelState { lexical: false, vector: VectorChannel::Disabled {} };
+        loop {
+            let expected = page(values.clone(), &request, &handle, &channels, "supported", "results", None, Availability::Available {}).unwrap();
+            let mut collector = PageCollector::new(&request, &handle, &channels, "supported", "results", None, &budget);
+            for (key, value) in &values { collector.push(*key, value.clone()).unwrap(); }
+            let (actual, charge) = collector.finish(Availability::Available {}).unwrap();
+            assert_eq!(actual, expected, "stable duplicate-key order, omission and cursor must agree");
+            assert_eq!(charge.reserved() > 0, !actual.items.is_empty(),
+                "only retained values require page storage, including an empty strict-key continuation");
+            drop(charge);
+            assert_eq!(budget.reserved(), 0);
+            let Some(cursor) = actual.continuation.0 else { break; };
+            let Request::FindOperations(r) = &mut request else { unreachable!() };
+            r.page.cursor = Optional(Some(cursor));
+        }
+    }
+    #[test]
+    fn packet_key_streams_exact_json_and_collector_defers_invalid_cursor() {
+        let value = serde_json::json!({"escaped":"quote\" slash\\ snow☃", "nested":[null, false, 1.25]});
+        assert_eq!(packet_key(&value).unwrap(), ContentHash::of(&serde_json::to_vec(&value).unwrap()));
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let mut request = request();
+        let Request::FindOperations(r) = &mut request else { unreachable!() };
+        r.page.cursor = Optional(Some(CursorToken::new("zz").unwrap()));
+        let mut collector = PageCollector::new(&request, &handle(), &ChannelState { lexical:false, vector:VectorChannel::Disabled {} }, "supported", "results", None, &budget);
+        collector.push(ContentHash::of(b"value"), value).unwrap();
+        assert!(collector.finish(Availability::Available {}).is_err());
+        assert_eq!(budget.reserved(), 0);
+    }
+
 }

@@ -8,7 +8,7 @@ use lctx_model::domain::{
     serving::{ranking::RankingPolicy, *},
     *,
 };
-use lctx_surrealdb::{NativeReader, loader::json_value, reader};
+use lctx_native::{NativeReader, loader::json_value, reader};
 #[path = "fixtures/scoped.rs"]
 mod scoped;
 use surrealdb::types::{RecordId, Value, Variables};
@@ -129,7 +129,7 @@ fn object(body: serde_json::Value, id: RecordId) -> surrealdb::types::Object {
 async fn extend(
     native: &mut NativeReader<()>,
     fixtures: &mut Vec<scoped::ScopedFixture>,
-    config: &lctx_surrealdb::RuntimeConfig,
+    config: &lctx_native::RuntimeConfig,
     entities: &[Entity],
 ) {
     let native_read_budget =
@@ -158,7 +158,7 @@ async fn extend(
 async fn freeze(
     native: &mut NativeReader<()>,
     fixtures: &mut Vec<scoped::ScopedFixture>,
-    config: &lctx_surrealdb::RuntimeConfig,
+    config: &lctx_native::RuntimeConfig,
 ) {
     let native_read_budget =
         lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
@@ -184,13 +184,13 @@ async fn freeze(
             ContentHash(hex::decode(id).unwrap().try_into().unwrap())
         })
         .collect();
-    let loader = lctx_surrealdb::Loader::for_attempt_views(
+    let loader = lctx_native::Loader::for_attempt_views(
         native.shared_client(),
         fixtures[0].store.attempt(),
         views,
     )
     .with_budget(&native_read_budget);
-    lctx_surrealdb::lexical_stats::materialize(&loader)
+    lctx_native::lexical_stats::materialize(&loader)
         .await
         .unwrap();
 }
@@ -217,11 +217,11 @@ fn occurrence(
     );
     obj.insert(
         "scope_input",
-        lctx_surrealdb::prepared::scope_string(&json_value(serde_json::json!(input)).unwrap()),
+        lctx_native::prepared::scope_string(&json_value(serde_json::json!(input)).unwrap()),
     );
     obj.insert(
         "scope_window",
-        lctx_surrealdb::prepared::scope_string(
+        lctx_native::prepared::scope_string(
             &json_value(serde_json::to_value(id::<SearchWindow>(7)).unwrap()).unwrap(),
         ),
     );
@@ -237,7 +237,7 @@ fn occurrence(
 async fn native_member_hydration_uses_bounded_physical_windows_without_family_scans() {
     use graph::Assertion;
     use input::{DistributionRole, InputDistribution, InputRevision, Package, Release};
-    use lctx_surrealdb::ordered_rows::Candidate;
+    use lctx_native::ordered_rows::Candidate;
     use source::{Module, SourceArtifact};
     let config = scoped::config();
     let input = InputRevision {
@@ -349,7 +349,7 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
         .map(|row| Candidate {
             relation: CatalogMember::NAME.into(),
             key: *row.id().bytes(),
-            node: lctx_surrealdb::loader::entity_payload_id(&Entity::from(row.clone())).unwrap(),
+            node: lctx_native::loader::entity_payload_id(&Entity::from(row.clone())).unwrap(),
             content: None,
         })
         .collect::<Vec<_>>();
@@ -523,7 +523,7 @@ impl ChannelContext {
             Entity::from(binding.clone()),
         ];
         let unit_payload =
-            lctx_surrealdb::loader::entity_payload_id(&Entity::from(unit.clone())).unwrap();
+            lctx_native::loader::entity_payload_id(&Entity::from(unit.clone())).unwrap();
         let mut dependencies = entities
             .iter()
             .chain(
@@ -534,7 +534,7 @@ impl ChannelContext {
                 ]
                 .iter(),
             )
-            .map(|entity| lctx_surrealdb::loader::entity_payload_id(entity).unwrap())
+            .map(|entity| lctx_native::loader::entity_payload_id(entity).unwrap())
             .collect::<Vec<_>>();
         dependencies.sort();
         dependencies.dedup();
@@ -565,7 +565,7 @@ impl ChannelContext {
         );
         row.insert(
             "scope_window",
-            lctx_surrealdb::prepared::scope_string(
+            lctx_native::prepared::scope_string(
                 &json_value(serde_json::to_value(self.window).unwrap()).unwrap(),
             ),
         );
@@ -601,7 +601,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         "scope",
         format!(
             "catalog_members|input|{}",
-            lctx_surrealdb::prepared::scope_string(
+            lctx_native::prepared::scope_string(
                 &json_value(serde_json::to_value(input).unwrap()).unwrap()
             )
         ),
@@ -813,7 +813,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         let source = record("vector", key);
 
         let obj = object(
-            serde_json::json!({"encoder_hash":spec.hex(),"policy_key":projection.hex(),"library_input":lctx_surrealdb::prepared::scope_string(&json_value(serde_json::to_value(input).unwrap()).unwrap()),"family":Family::ApiOptions as i16,"full_key":full.id().hex(),"projection_key":key,"embedding":vector}),
+            serde_json::json!({"encoder_hash":spec.hex(),"policy_key":projection.hex(),"library_input":lctx_native::prepared::scope_string(&json_value(serde_json::to_value(input).unwrap()).unwrap()),"family":Family::ApiOptions as i16,"full_key":full.id().hex(),"projection_key":key,"embedding":vector}),
             source.clone(),
         );
         vectors.push(Value::Object(obj));
@@ -838,7 +838,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     for n in 0..300 {
         let key = format!("foreign{n}");
         let source = record("vector", key.clone());
-        vectors.push(Value::Object(object(serde_json::json!({"encoder_hash":spec.hex(),"policy_key":projection.hex(),"library_input":lctx_surrealdb::prepared::scope_string(&json_value(serde_json::to_value(id::<input::InputRevision>(99)).unwrap()).unwrap()),"family":Family::ApiOptions as i16,"full_key":key,"projection_key":key,"embedding":query}),source.clone())));
+        vectors.push(Value::Object(object(serde_json::json!({"encoder_hash":spec.hex(),"policy_key":projection.hex(),"library_input":lctx_native::prepared::scope_string(&json_value(serde_json::to_value(id::<input::InputRevision>(99)).unwrap()).unwrap()),"family":Family::ApiOptions as i16,"full_key":key,"projection_key":key,"embedding":query}),source.clone())));
         vec_occurrences.push(primary.apply(occurrence(
             "vec_occurs",
             &key,
@@ -944,7 +944,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     explain.insert("family", Family::ApiOptions as i16);
     explain.insert(
         "input_keys",
-        vec![lctx_surrealdb::prepared::scope_string(
+        vec![lctx_native::prepared::scope_string(
             &json_value(serde_json::to_value(input).unwrap()).unwrap(),
         )],
     );
@@ -957,7 +957,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     explain.insert("documents", vec![record("vector", "explain-exact-source")]);
     let plan: serde_json::Value = native
         .query_prepared(
-            lctx_surrealdb::prepared::PreparedQuery::new(
+            lctx_native::prepared::PreparedQuery::new(
                 explain,
                 vec![],
                 vec![format!(
@@ -1028,7 +1028,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         let context = ChannelContext::new(&unit_record, &origin, &member, i64::from(n) + 2);
         for entity in &context.entities {
             quota_entities.insert(
-                lctx_surrealdb::loader::entity_payload_id(entity).unwrap(),
+                lctx_native::loader::entity_payload_id(entity).unwrap(),
                 entity.clone(),
             );
         }
@@ -1047,7 +1047,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     let beta_context = ChannelContext::new(&unit_record, &origin, &beta, 1402);
     for entity in &beta_context.entities {
         quota_entities.insert(
-            lctx_surrealdb::loader::entity_payload_id(entity).unwrap(),
+            lctx_native::loader::entity_payload_id(entity).unwrap(),
             entity.clone(),
         );
     }
@@ -1184,11 +1184,11 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
 
 /// Actual canonical windows share a nominal Unit while payload versions remain isolated.
 async fn lexical_fixture(
-    config: &lctx_surrealdb::RuntimeConfig,
+    config: &lctx_native::RuntimeConfig,
     input: Id<input::InputRevision>,
     context: Id<AnalysisContext>,
     texts: &[String],
-) -> (scoped::ScopedFixture, lctx_surrealdb::Loader, Vec<Unit>) {
+) -> (scoped::ScopedFixture, lctx_native::Loader, Vec<Unit>) {
     let native_read_budget =
         lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use retrieval::*;
@@ -1258,13 +1258,13 @@ async fn lexical_fixture(
     }
     let fixture = scoped::reader(config, &entities, &[]).await.unwrap();
     let views = selected_views(&fixture.reader);
-    let loader = lctx_surrealdb::Loader::for_attempt_views(
+    let loader = lctx_native::Loader::for_attempt_views(
         fixture.reader.shared_client(),
         fixture.store.attempt(),
         views,
     )
     .with_budget(&native_read_budget);
-    lctx_surrealdb::derived_search::materialize_search(&loader)
+    lctx_native::derived_search::materialize_search(&loader)
         .await
         .unwrap();
     (fixture, loader, units)
@@ -1283,7 +1283,7 @@ async fn indexed_occurrence_driver_checks_shared_dependencies_late_absence_and_u
     )
     .await;
     let unit = units[0].id();
-    let scope = lctx_surrealdb::prepared::scope_string(
+    let scope = lctx_native::prepared::scope_string(
         &json_value(serde_json::to_value(input).unwrap()).unwrap(),
     );
     let mut vars = Variables::new();
@@ -1348,7 +1348,7 @@ async fn indexed_occurrence_driver_checks_shared_dependencies_late_absence_and_u
         .unwrap();
     vars.insert("cases", ids.to_vec());
     let budget = search_budget();
-    let mut rows = lctx_surrealdb::derived_search::selected_occurrences(
+    let mut rows = lctx_native::derived_search::selected_occurrences(
         &fixture.reader,
         "lex_occurs",
         "eligible=true AND scope_input IN $input_keys AND family=$family AND id IN $cases",
@@ -1486,12 +1486,12 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
     let plan = a
         .reader
         .query_prepared_native::<Value>(
-            lctx_surrealdb::prepared::PreparedQuery::new(
+            lctx_native::prepared::PreparedQuery::new(
                 explain,
                 vec![],
                 vec![format!(
                     "{} EXPLAIN",
-                    lctx_surrealdb::derived_search::lexical_nomination_sql("search_api_options")
+                    lctx_native::derived_search::lexical_nomination_sql("search_api_options")
                         .unwrap()
                 )],
             )
@@ -1567,7 +1567,7 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         "distinct analyzed query terms contribute once"
     );
     for loader in [&aloader, &bloader, &newloader] {
-        lctx_surrealdb::derived_search::reconcile_search(loader)
+        lctx_native::derived_search::reconcile_search(loader)
             .await
             .unwrap();
     }
@@ -1758,7 +1758,7 @@ async fn selective_fulltext_matches_complete_analyzer_bm25_for_compounds_and_emp
             "query-owned state must release after {query:?}"
         );
     }
-    lctx_surrealdb::derived_search::reconcile_search(&loader)
+    lctx_native::derived_search::reconcile_search(&loader)
         .await
         .unwrap();
     fixture.close().await.unwrap();

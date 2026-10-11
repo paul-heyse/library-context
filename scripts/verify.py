@@ -262,7 +262,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
             Step(
                 "nextest",
                 "nextest",
-                packages=("lctx-surrealdb", "lctx-publisher"),
+                packages=("lctx-native", "lctx-compiler-store", "lctx-publisher"),
                 # publication.rs selects through this CLI when set, else in-process.
                 option_env=(("cli", "LCTX_REMEDIATION_CLI_BIN", "{artifacts}/lctx"),),
                 consumes=("cli?cli",),
@@ -814,7 +814,7 @@ def complete_boundary(boundary: Boundary) -> Boundary:
                         f"fixture-ignored-{index}",
                         "nextest",
                         argv=("--run-ignored", "only"),
-                        packages=("lctx-surrealdb",),
+                        packages=("lctx-native",),
                         targets=("--lib",),
                         required_filter=f"test(={name})",
                     )

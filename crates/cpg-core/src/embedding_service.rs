@@ -1,31 +1,6 @@
-//! Compile-time embedding service interface; semantic configuration belongs to lctx-model.
-use crate::CoreError;
+//! Compiler-owned deterministic embedding control. Service contracts belong to the model.
+use lctx_model::domain::embedding::{EmbedFuture, Embedder, Spec};
 use sha2::{Digest as _, Sha256};
-use std::{future::Future, pin::Pin};
-
-/// A future an embedder returns.
-pub type EmbedFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, CoreError>> + Send + 'a>>;
-
-pub use lctx_model::domain::embedding::{Spec, check_vector};
-
-/// The cache key of a request text: its SHA-256.
-pub use lctx_model::domain::embedding::value::input_hash;
-
-/// An embedding service under one spec.
-pub trait Embedder: Send + Sync {
-    fn spec(&self) -> &Spec;
-    fn endpoint(&self) -> &str;
-    /// Exact acquired local complete-document tokenizer, shared by every construction grain.
-    fn document_tokenizer(
-        &self,
-    ) -> Option<std::sync::Arc<dyn lctx_model::domain::retrieval::partition::Tokenizer>> {
-        None
-    }
-    /// The number of the served model's tokens in a request text.
-    fn count_tokens<'a>(&'a self, request_text: &'a str) -> EmbedFuture<'a, usize>;
-    /// One vector per request text, in order, each checked ([`check_vector`]).
-    fn embed<'a>(&'a self, request_texts: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>>;
-}
 
 /// A deterministic fake embedder with its own spec (DESIGN §11.1): each vector is a unit vector
 /// drawn by splitmix64 from the first 8 bytes (little-endian) of the request text's SHA-256, so

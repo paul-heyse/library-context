@@ -15,9 +15,15 @@ FORK = "git+https://github.com/paul-heyse/ruff"
 PATCH = ROOT / "third_party/ruff-0.16.10.patch"
 DRIVER = ROOT / "crates/cpg-extract/src/ruff_context.rs"
 LOCK = ROOT / "Cargo.lock"
+SEMANTIC_INVENTORY = ROOT / "crates/lctx-model/src/domain/producer_contract/facts.rs"
 PINS = ROOT / "docs/pins.md"
 LOCKED = re.compile(r'source = "' + re.escape(FORK) + r'\?[^"#]*#([0-9a-f]{40})"')
 CONSTANT = re.compile(r'pub const (RUFF_REVISION|RUFF_PATCH_SHA256): &str =\s*"([0-9a-f]+)"')
+
+
+def driver_contracts() -> str:
+    """Read model-owned revisions and adapter-owned observational patch identities."""
+    return SEMANTIC_INVENTORY.read_text() + "\n" + DRIVER.read_text()
 
 
 def one_revision(lock: str, driver: str, pins: str, patch: bytes) -> tuple[str | None, list[str]]:
@@ -43,7 +49,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--checkout", type=Path)
     args = parser.parse_args(argv)
     revision, problems = one_revision(
-        LOCK.read_text(), DRIVER.read_text(), PINS.read_text(), PATCH.read_bytes()
+        LOCK.read_text(), driver_contracts(), PINS.read_text(), PATCH.read_bytes()
     )
     if revision is None or problems:
         for problem in problems:

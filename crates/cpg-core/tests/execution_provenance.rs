@@ -139,6 +139,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
             &pending,
             &relations[0],
             &Provider::encode(std::slice::from_ref(&captured_supplier)).unwrap(),
+            &native_operation_budget,
         )
         .await
         .unwrap();
@@ -148,6 +149,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
             &pending,
             &relations[1],
             &Package::encode(&[package()]).unwrap(),
+            &native_operation_budget,
         )
         .await
         .unwrap();
@@ -186,8 +188,8 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     let config_path = std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
     );
-    let config = lctx_surrealdb::RuntimeConfig::read(&config_path).unwrap();
-    let admin = lctx_surrealdb::reader::connect(
+    let config = lctx_native::RuntimeConfig::read(&config_path).unwrap();
+    let admin = lctx_native::reader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         restored.native().namespace().as_str(),
@@ -195,7 +197,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
     )
     .await
     .unwrap();
-    lctx_surrealdb::Loader::for_attempt_views(admin, restored.native().attempt(), vec![])
+    lctx_native::Loader::for_attempt_views(admin, restored.native().attempt(), vec![])
         .entities(&[
             Entity::from(captured_supplier.clone()),
             Entity::from(package()),

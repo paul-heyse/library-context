@@ -3,7 +3,7 @@ use lctx_model::domain::{
     ModelError,
     resources::{MAX_ROW_BYTES, TRANSFER_BYTES},
 };
-use lctx_surrealdb::surrealdb::types::{
+use lctx_native::surrealdb::types::{
     Bytes, Number, Object, RecordId, RecordIdKey, ToSql, Value,
 };
 use std::io::Read;
@@ -16,11 +16,11 @@ pub(crate) const MAX_DUMP_RECORD_BYTES: usize = MAX_ROW_BYTES * 16;
 
 /// The native adapter owns the entire immutable dump inventory, including inert actual
 /// integrity claims. Runtime controls and regenerated secondary indexes have no dump codec.
-pub(crate) fn dump_tables() -> impl Iterator<Item = lctx_surrealdb::compiler::RecoveryTable> {
-    lctx_surrealdb::compiler::recovery_table_inventory()
+pub(crate) fn dump_tables() -> impl Iterator<Item = lctx_compiler_store::compiler::RecoveryTable> {
+    lctx_compiler_store::compiler::recovery_table_inventory()
 }
-pub(crate) fn table_codec(name: &str) -> Result<lctx_surrealdb::compiler::RecoveryTable, ModelError> {
-    lctx_surrealdb::compiler::classify_recovery_table(name)
+pub(crate) fn table_codec(name: &str) -> Result<lctx_compiler_store::compiler::RecoveryTable, ModelError> {
+    lctx_compiler_store::compiler::classify_recovery_table(name)
         .ok_or(ModelError::Schema("dump table outside immutable content inventory"))
 }
 
@@ -78,7 +78,7 @@ pub(crate) fn write_row(
     require_literal_value(&row)?;
     // Admit the actual value before SQL escaping and geometric String growth. A
     // tiny record must not reserve the maximum legal dump statement allowance.
-    let bound = lctx_surrealdb::loader::native_bytes(&row).saturating_mul(32).saturating_add(512);
+    let bound = lctx_native::loader::native_bytes(&row).saturating_mul(32).saturating_add(512);
     charge.try_resize(bound)?;
     let encoded = Value::Array(vec![row].into()).to_sql(); charge.try_resize(encoded.capacity())?;
     if encoded.len().saturating_add(8) > MAX_DUMP_RECORD_BYTES { return Err(ModelError::Schema("data dump statement bound")); }

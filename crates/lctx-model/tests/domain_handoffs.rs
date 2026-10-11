@@ -527,22 +527,42 @@ fn native_region_domain_stays_charged_during_the_reaching_implication() {
     let mut f = Fixture::with_conditional_reaching(false, true);
     let domain = f.reaching_domain();
     f.region(&domain);
-    let predecessor = f.data.entry.condition_nodes.len() * 2048;
-    let first = Diagram::always()
-        .binary_allocation_allowance(&domain)
-        .unwrap();
-    let implication = domain.binary_allocation_allowance(&domain).unwrap();
-    let retained = domain.allocation_allowance();
-    assert!(implication >= first);
-    // Decoding and the first apply fit. The implication must also account its still-live domain.
-    let budget = ResourceBudget::fixed(predecessor + implication + retained - 1).unwrap();
+    #[derive(Debug)]
+    struct RefuseImplication {
+        inner: ResourceBudget,
+        calls: std::sync::Mutex<Vec<(usize, usize)>>,
+    }
+    impl resources::ResourcePool for RefuseImplication {
+        fn reserve(&self, owner: &'static str, bytes: usize) -> Result<Box<dyn resources::Reservation>, ModelError> {
+            if owner == "condition_binary" {
+                let mut calls = self.calls.lock().unwrap();
+                calls.push((self.inner.reserved(), bytes));
+                // Direct coverage is temporary; the region domain is retained through the
+                // third apply, which checks its implication of the reaching alternative.
+                if calls.len() == 3 {
+                    return Err(ModelError::Resource { owner, requested: bytes,
+                        used: self.inner.reserved(), limit: self.inner.limit() });
+                }
+            }
+            self.inner.reserve(owner, bytes)
+        }
+        fn reserved(&self) -> usize { self.inner.reserved() }
+        fn limit(&self) -> usize { self.inner.limit() }
+    }
+    let pool = std::sync::Arc::new(RefuseImplication {
+        inner: ResourceBudget::fixed(8 << 20).unwrap(), calls: Default::default(),
+    });
+    let budget = ResourceBudget::from_pool(pool.clone()).unwrap();
     let result = handoffs::named_definition(&f.data, &f.read, f.context, &budget);
-    assert!(
-        matches!(result, Err(ModelError::Resource { owner: "condition_binary", used, requested, .. })
-        if used == predecessor + retained && requested == implication),
-        "the binary-operation refusal remains a Resource with its derived domain charged"
-    );
+    let calls = pool.calls.lock().unwrap();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[2].0, calls[1].0 + domain.allocation_allowance(),
+        "the retained region domain remains charged during implication");
+    assert_eq!(calls[2].1, domain.binary_allocation_allowance(&domain).unwrap());
+    assert!(matches!(result, Err(ModelError::Resource { owner: "condition_binary", used, requested, .. })
+        if (used, requested) == calls[2]));
     assert_eq!(budget.reserved(), 0);
+
 }
 
 #[test]

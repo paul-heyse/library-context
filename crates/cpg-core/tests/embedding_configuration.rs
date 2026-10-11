@@ -1,8 +1,9 @@
 //! Actual completed selection with service-free deterministic contract values.
 //! These effects validate wiring; they do not qualify a live embedding service.
+use lctx_model::domain::embedding::{Embedder};
 use cpg_core::{
     analysis_prepare, embedding_realization,
-    embedding_service::{Embedder, FakeEmbedder},
+    embedding_service::FakeEmbedder,
     workspace::{Workspace, WorkspaceOptions},
 };
 use lctx_model::domain::{

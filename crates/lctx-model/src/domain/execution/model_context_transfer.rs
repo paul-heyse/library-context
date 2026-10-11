@@ -59,6 +59,7 @@ impl CheckedContextTransfer {
         binding: &ContextEntryBinding,
         earlier: &CompletedEvaluations,
         data: &EntryData,
+        conditions: &conditions::PreparedConditions<'_>,
         entries: &Rows<EntryValueWitness>,
         sources: &Rows<EntryAccessSource>,
         produced: Option<&super::model_production::ActualInputs<'_>>,
@@ -120,7 +121,7 @@ impl CheckedContextTransfer {
         };
         let entry = match produced {
             Some(produced) => produced.local.entry(witness, source, budget)?,
-            None => match EntryValueWitness::derive_for(data, witness.request(), source, budget)? {
+            None => match EntryValueWitness::derive_for_prepared(data, witness.request(), source, conditions, budget)? {
                 Ok(value) => std::sync::Arc::new(value),
                 Err(reason) => return Ok(Err(reason)),
             },
@@ -132,15 +133,11 @@ impl CheckedContextTransfer {
         }
         let _nodes = budget.reserve(
             "context-transfer-condition-input",
-            data.condition_nodes
-                .len()
-                .saturating_mul(2048)
-                .saturating_add(entry.condition().allocation_allowance())
+            entry.condition().allocation_allowance()
                 .saturating_add(128),
         )?;
         let mut qualification = entry.qualification().clone();
         let mut condition = entry.condition().clone();
-        let nodes = data.condition_nodes.iter().cloned().collect::<Vec<_>>();
         let mut reservations = Vec::with_capacity(2);
         for q in [resource.qualification, binding.qualification] {
             let Some(q) = data.qualifications.get(q) else {
@@ -156,7 +153,7 @@ impl CheckedContextTransfer {
             let Some(record) = data.conditions.get(q.condition) else {
                 return Ok(Err(ObligationKind::MissingEvidence));
             };
-            let other = conditions::Diagram::from_records(record, &nodes)?;
+            let other = conditions.diagram(record)?;
             match condition.admitted_binary(
                 &other,
                 conditions::BooleanOperation::Conjunction,

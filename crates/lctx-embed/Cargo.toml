@@ -1,6 +1,6 @@
 [package]
 name = "lctx-embed"
-description = "The compile-time embedding client over a vLLM service (DESIGN §11.1; ADR-0010): implements cpg-core's Embedder, so reqwest stays out of cpg-core."
+description = "The compile-time embedding client over a vLLM service (DESIGN §11.1; ADR-0010): implements the model embedding contract, so reqwest stays out of cpg-core."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,12 +9,14 @@ publish.workspace = true
 [dependencies]
 schemars.workspace = true
 lctx-model = { path = "../lctx-model" }
-cpg-core = { path = "../cpg-core" }
+tokenizers.workspace = true
+sha2.workspace = true
 reqwest = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+tempfile.workspace = true
 jsonschema.workspace = true
 tokio.workspace = true
 

@@ -15,7 +15,7 @@ use crate::domain::{
     },
     assertion::AssertionQualification,
     attribution::Modality,
-    conditions::Diagram,
+    conditions::PreparedConditions,
     resources::ResourceBudget,
     *,
 };
@@ -52,6 +52,7 @@ pub(super) fn produce(
     invocation: &owner::AnalysisInvocation,
     definition: &analysis::AnalysisDefinition,
     out: &mut SummaryRecords,
+    conditions: &PreparedConditions<'_>,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let invalid = |s: &str| ModelError::Invalid(s.into());
@@ -139,12 +140,11 @@ pub(super) fn produce(
         let subject = owner::ObligationSubject::SummaryClaim {
             transfer: claim.id(),
         };
-        let condition = Diagram::from_records(
+        let condition = conditions.diagram(
             data.vocabulary
                 .conditions
                 .get(&q.condition)
                 .ok_or_else(|| invalid("terminal condition absent"))?,
-            &data.vocabulary.nodes.values().cloned().collect::<Vec<_>>(),
         )?;
         let evidence = owner::support::EvidencePremise::derived(&source, &witness, q, &condition)?;
         let (derivation, proposition, members, qualified) = owner::AnalysisDerivation::emit(

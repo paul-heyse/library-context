@@ -185,7 +185,7 @@ fn repository_provider_closure_has_only_its_local_production_members() {
         "crates/lctx-model-macros/Cargo.toml", "crates/lctx-model/Cargo.toml",
     ]);
     let compiler = fingerprint::capture(&root, &root.join("crates/cpg-core"));
-    for name in ["crates/cpg-core/src/native_bridge.rs", "crates/cpg-core/src/workspace.rs", "crates/lctx-surrealdb/src/compiler.rs"] {
+    for name in ["crates/cpg-core/src/native_bridge.rs", "crates/cpg-core/src/workspace.rs", "crates/lctx-compiler-store/src/compiler.rs", "crates/lctx-native/src/reader.rs", "crates/lctx-native/src/derived_search.rs"] {
         assert!(compiler.files.contains(&name.into()), "compiler omitted {name}");
         assert!(!provider.files.contains(&name.into()), "provider included {name}");
     }
@@ -196,4 +196,36 @@ fn repository_provider_closure_has_only_its_local_production_members() {
     for name in ["third_party/pyrefly-1.4.0-dev.3.patch", "third_party/ruff-0.16.10.patch", "third_party/allocative/src/lib.rs", "crates/lctx-model/models/external.toml", "specs/embedding/qwen3-embedding-8b.json", "scripts/deployment_check.py"] {
         assert!(provider.files.contains(&name.into()), "provider omitted {name}");
     }
+}
+
+#[test]
+fn actual_lower_and_publisher_production_closures_exclude_analyzers_and_track_native_semantics() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+    let owners = ["cpg-extract", "cpg-core", "lctx-compiler-store", "lctx-publisher"];
+    let closures: Vec<_> = owners.iter().map(|owner| capture(&root, owner)).collect();
+    for closure in &closures[2..] {
+        for excluded in ["cpg-core", "cpg-extract", "cpg-flow"] {
+            assert!(!closure.files.contains(&format!("crates/{excluded}/Cargo.toml")), "lower production closure includes analyzer/compiler owner {excluded}");
+        }
+    }
+    let copy = tempfile::tempdir().unwrap();
+    let files = closures.iter().flat_map(|closure| closure.files.iter()).collect::<std::collections::BTreeSet<_>>();
+    for name in files {
+        let target = copy.path().join(name);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::copy(root.join(name), target).unwrap();
+    }
+    let originals: Vec<_> = owners.iter().map(|owner| digest(copy.path(), owner)).collect();
+    for name in ["crates/lctx-native/src/reader.rs", "crates/lctx-native/src/derived_search.rs", "crates/lctx-compiler-store/src/artifact.rs", "crates/lctx-compiler-store/src/compiler.rs"] {
+        let path=copy.path().join(name);let old=std::fs::read(&path).unwrap();let mut changed=old.clone();changed.extend_from_slice(b"\n// responsible implementation mutation\n");std::fs::write(&path,changed).unwrap();
+        assert_eq!(originals[0],digest(copy.path(),owners[0]),"provider absorbed native-only responsibility {name}");
+        for index in 1..owners.len(){assert_ne!(originals[index],digest(copy.path(),owners[index]),"{} omitted {name}",owners[index]);}
+        std::fs::write(path,old).unwrap();
+    }
+    // A serving-only sibling is physically outside the responsible compiler closure.
+    write(copy.path(),"crates/lctx-serving/src/only_serving.rs","presentation only");
+    for (index,owner) in owners.iter().enumerate(){assert_eq!(originals[index],digest(copy.path(),owner));}
+    write(copy.path(),"crates/lctx-native/src/new_shared.rs","new shared selected-reader semantic");
+    assert_eq!(originals[0],digest(copy.path(),owners[0]));
+    for index in 1..owners.len(){assert_ne!(originals[index],digest(copy.path(),owners[index]));}
 }

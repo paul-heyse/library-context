@@ -1567,4 +1567,77 @@ mod canonical_admission_controls {
             .unwrap();
         assert!(validate_canonical(&data, &output, &budget).is_err());
     }
+    #[test]
+    fn prepared_delegation_reuses_skewed_adjacency_and_exposes_only_visited_corruption() {
+        use crate::domain::analysis::delegation::{Bounds, Inputs, PreparedDelegation, Stop};
+        use crate::domain::input::{ArtifactUse, SourceRole};
+        use crate::domain::projection::snapshot::MaterializedGraph;
+        let budget = ResourceBudget::fixed(32 << 20).unwrap();
+        let mut data = ProjectionData::new(&budget);
+        let input = InputRevision::from_entries(vec![]).unwrap();
+        let source = SourceArtifact::from_bytes(input.id(), "hub.py".into(), &[b' '; 1024]).unwrap();
+        data.artifacts.insert(source.clone()).unwrap();
+        let module = Module { source: source.id(), qualified_name: "hub".into() };
+        data.modules.insert(module.clone()).unwrap();
+        let seed = EntityRef::Module { module: module.id() };
+        data.refs.insert(seed.clone()).unwrap();
+        let mut isolated = None;
+        let mut isolated_owner = None;
+        let mut raw = ProjectionInput {
+            key: ProjectionKey { input: input.id(), context: nominal(1), name: ProjectionName::DefinitionContainment },
+            vertices: Rows::new(&budget), arcs: Default::default(), subjects: Rows::new(&budget),
+            gaps: Rows::new(&budget), coverage: Rows::new(&budget), charge: StateCharge::new(&budget, "delegation-fixture"),
+        };
+        raw.vertices.insert(seed.clone()).unwrap();
+        let mut owners = Vec::new();
+        for ordinal in 0..513 {
+            let occurrence = Occurrence { source: source.id(), start: ordinal, end: ordinal + 1,
+                syntax_kind: SyntaxKind::StmtFunctionDef, role: OccurrenceRole::Declaration,
+                structural_path: vec![ordinal as i32] };
+            data.occurrences.insert(occurrence.clone()).unwrap();
+            let callable = CallableEntity::Source { declaration: occurrence.id(), kind: CallableKind::Function };
+            data.callables.insert(callable.clone()).unwrap();
+            let target = EntityRef::Callable { callable: callable.id() };
+            data.refs.insert(target.clone()).unwrap();
+            raw.vertices.insert(target.clone()).unwrap();
+            let owner = OccurrenceOwnership { occurrence: occurrence.id(), owner: occurrence.id(), entity: seed.id() };
+            data.owners.insert(owner.clone()).unwrap();
+            if ordinal == 512 { isolated = Some(target.id()); isolated_owner = Some(owner.id()); }
+            else {
+                raw.arc(ArcId::SourceDefinition(owner.id()), seed.id(), target.id()).unwrap();
+                owners.push((target.id(), owner.id()));
+            }
+        }
+        let definition = MaterializedGraph::build(&raw, &budget).unwrap();
+        let mut calls = ProjectionInput { key: ProjectionKey { name: ProjectionName::CallableInvocation, ..raw.key },
+            vertices: Rows::new(&budget), arcs: Default::default(), subjects: Rows::new(&budget),
+            gaps: Rows::new(&budget), coverage: Rows::new(&budget), charge: StateCharge::new(&budget, "delegation-fixture") };
+        for row in raw.vertices.iter() { calls.vertices.insert(row.clone()).unwrap(); }
+        let invocation = MaterializedGraph::build(&calls, &budget).unwrap();
+        let mut uses = Rows::new(&budget);
+        uses.insert(ArtifactUse { artifact: source.id(), input: input.id(), role: SourceRole::Release }).unwrap();
+        let subsystem = raw.vertices.iter().map(Record::id).collect::<Vec<_>>();
+        let inputs = Inputs { invocation: &invocation, definition: &definition, data: &data, uses: &uses };
+        let prepared = PreparedDelegation::new(&inputs, &subsystem, &budget).unwrap();
+        let bounds = Bounds { depth: 2, vertices: 2, arcs: 1, witnesses: 1 };
+        let before = budget.reserved();
+        owners.sort_unstable();
+        for _ in 0..3 {
+            let result = prepared.traverse(seed.id(), bounds, &budget).unwrap();
+            assert_eq!(result.stop(), Some(Stop::Arcs));
+            assert_eq!(result.arcs_examined(), 1);
+            assert_eq!(result.reached()[0].target, owners[0].0);
+            assert!(budget.reserved() - before < 20_000, "per-seed charge follows bounds rather than hub degree");
+        }
+        assert_eq!(budget.reserved(), before);
+        // A separate raw corrupt edge sits on a callable that was previously isolated. Its
+        // canonical declaration owner is the module, so exposing it from this source is invalid.
+        raw.arc(ArcId::SourceDefinition(isolated_owner.unwrap()), isolated.unwrap(), isolated.unwrap()).unwrap();
+        let corrupt = MaterializedGraph::build(&raw, &budget).unwrap();
+        let bad = PreparedDelegation::new(&Inputs { definition: &corrupt, ..inputs }, &subsystem, &budget).unwrap();
+        assert!(bad.traverse(seed.id(), bounds, &budget).is_ok(), "unreachable corruption stays unexposed");
+        assert!(bad.traverse(isolated.unwrap(), Bounds { arcs: 0, ..bounds }, &budget).is_err(),
+            "visited corruption refuses even when the entire adjacency is a budget suffix");
+    }
+
 }

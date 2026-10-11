@@ -222,11 +222,18 @@ impl EntityScopes {
         let mut requests = Vec::new();
         let mut misses = Vec::new();
         if _requests.is_some() {
-            for (partition, root) in roots.iter().copied().enumerate() {
-                let domain = kernel_products::selected_domain(&selected, partition, root, &self.inputs, self.program, runtime).await?;
-                let request = domain.map(|domain| kernel_products::entity_request(output, domain, kernel)).transpose()?;
-                let hit = if let Some(request) = &request { kernel_products::entity_hit(request, runtime).await? } else { None };
+            let mut candidates=Vec::with_capacity(roots.len());
+            for (partition,root) in roots.iter().copied().enumerate(){
+                let domain=kernel_products::selected_domain(&selected,partition,root,&self.inputs,self.program,runtime).await?;
+                candidates.push(domain.map(|domain|kernel_products::entity_request(output,domain,kernel)).transpose()?);
+            }
+            let mut hits=kernel_products::lookup_window(&candidates,runtime).await?;
+            let mut point_fallback = false;
+            for (partition,request) in candidates.into_iter().enumerate() {
+                let entry = if point_fallback { if let Some(request) = &request { kernel_products::lookup_one(request,runtime).await? } else { None } } else { hits[partition].take() };
+                let hit=if let Some(request)=&request{kernel_products::entity_hit(request,entry,runtime).await?}else{None};
                 if let Some(rows) = hit {
+                    if !kernel_products::prepare_hits(&mut hits[partition+1..], kernel_products::entity_emission_bound(&rows,kernel), runtime.budget())? { point_fallback = true; }
                     emit_entities(&rows, output, matches!(kernel, entity_normalization::EntityKernel::Public | entity_normalization::EntityKernel::Enumeration)).await?;
                 } else { misses.push(partition); requests.push(request); }
             }
@@ -245,11 +252,13 @@ impl EntityScopes {
             &mut |_, input, batch| data.visit(input.name(), batch).map(|_| ()),
         )
         .await?;
+        let mut product_window = kernel_products::ProductWindow::new(requests.len(), runtime)?;
         for (partition, request) in requests.into_iter().enumerate() {
             runtime.cancellation().check()?;
             // Cache hits remove partitions. The surviving dense partition still belongs to
             // its original explicit root, never to an incidental supporting symbol.
             let demand = entity_demand(roots[misses[partition]], kernel, &self.roots)?;
+            let rows = product_window.compute(|| {
             macro_rules! selected_inputs {($($field:ident:$ty:ty => $family:ident,)*)=>{{
     $(let $field=if let Some(table)=self.inputs.iter().position(|input|input.type_id()==std::any::TypeId::of::<$ty>()){
       // Entity's former rich nominal work list refused required available premises. Keep that
@@ -258,14 +267,16 @@ impl EntityScopes {
       Some(crate::scoped_batch::SelectedRows::new(&selected,partition,table,&data.$field,runtime.budget())?)
     }else{None};)*
     let view=entity_normalization::EntityDataView{$($field:if let Some(selection)=&$field{selection.view()?}else{data.$field.view()},)*};
-    let rows=entity_normalization::normalize_demand_view(&view,&demand,runtime.budget())?;
-    if let Some(request) = request { kernel_products::retain_entity(request,&rows,kernel,runtime).await?; }
-    emit_entities(&rows,output,matches!(kernel,entity_normalization::EntityKernel::Public|entity_normalization::EntityKernel::Enumeration)).await?;
+    entity_normalization::normalize_demand_view(&view,&demand,runtime.budget())
    }};}
-            lctx_model::normalized_entity_inputs!(selected_inputs);
+            lctx_model::normalized_entity_inputs!(selected_inputs)
+            })?;
+            product_window.prepare_emission(kernel_products::entity_emission_bound(&rows,kernel), runtime.budget())?;
+            emit_entities(&rows, output, matches!(kernel, entity_normalization::EntityKernel::Public | entity_normalization::EntityKernel::Enumeration)).await?;
+            if let Some(request) = request { kernel_products::retain_entity(&mut product_window, request, &rows, kernel, runtime)?; }
             tokio::task::yield_now().await;
         }
-        Ok(())
+        product_window.finish(runtime).await
     }
 }
 fn emit_relations<'a>(
@@ -930,13 +941,19 @@ pub async fn callables(
                 let _requests_charge = runtime.product_cache()?.and_then(|_| runtime.budget().reserve("optional-callable-kernel-product-requests", roots.len().saturating_mul(4096)).ok());
                 let mut misses = Vec::new();
                 let mut requests = Vec::new();
-                for (partition, root) in roots.iter().copied().enumerate() {
-                    let request = if _requests_charge.is_some() {
-                        kernel_products::selected_domain(&selected, partition, root, scopes.inputs(), scopes.program(), runtime).await?
-                            .map(|domain| kernel_products::callable_request(&output, domain, kernel)).transpose()?
-                    } else { None };
-                    let hit = if let Some(request) = &request { kernel_products::callable_hit(request, runtime).await? } else { None };
-                    if let Some(rows) = hit { emit_callables(&rows, &output).await?; }
+                let mut candidates=Vec::with_capacity(roots.len());
+                for (partition,root) in roots.iter().copied().enumerate(){
+                    candidates.push(if _requests_charge.is_some(){kernel_products::selected_domain(&selected,partition,root,scopes.inputs(),scopes.program(),runtime).await?.map(|domain|kernel_products::callable_request(&output,domain,kernel)).transpose()?}else{None});
+                }
+                let mut hits=kernel_products::lookup_window(&candidates,runtime).await?;
+                let mut point_fallback = false;
+                for (partition,request) in candidates.into_iter().enumerate() {
+                    let entry = if point_fallback { if let Some(request) = &request { kernel_products::lookup_one(request,runtime).await? } else { None } } else { hits[partition].take() };
+                    let hit=if let Some(request)=&request{kernel_products::callable_hit(request,entry,runtime).await?}else{None};
+                    if let Some(rows) = hit {
+                        if !kernel_products::prepare_hits(&mut hits[partition+1..], kernel_products::callable_emission_bound(&rows), runtime.budget())? { point_fallback = true; }
+                        emit_callables(&rows, &output).await?;
+                    }
                     else { misses.push(partition); requests.push(request); }
                 }
                 if misses.is_empty() { continue; }
@@ -944,8 +961,10 @@ pub async fn callables(
                 let data = scopes
                     .load_batch(&selected, runtime.budget(), &runtime.cancellation())
                     .await?;
+                let mut product_window = kernel_products::ProductWindow::new(requests.len(), runtime)?;
                 for (partition, request) in requests.into_iter().enumerate() {
                     let index = start + misses[partition];
+                    let rows = product_window.compute(|| {
                     let selection = callable_scope::DataSelection::new(
                         &selected,
                         partition,
@@ -954,7 +973,6 @@ pub async fn callables(
                         runtime.budget(),
                     )?;
                     let view = selection.view()?;
-                    let rows =
                         crate::stage_runtime::borrowed_cpu(access.name(), || match kernel {
                             callable_scope::Kernel::Callable => {
                                 callable_normalization::normalize_callable_view(
@@ -977,10 +995,13 @@ pub async fn callables(
                                     runtime.budget(),
                                 )
                             }
-                        })?;
-                    if let Some(request) = request { kernel_products::retain_callable(request, &rows, runtime).await?; }
+                        })
+                    })?;
+                    product_window.prepare_emission(kernel_products::callable_emission_bound(&rows), runtime.budget())?;
                     emit_callables(&rows, &output).await?;
+                    if let Some(request) = request { kernel_products::retain_callable(&mut product_window, request, &rows, runtime)?; }
                 }
+                product_window.finish(runtime).await?;
             }
         }
         drop(scopes);
@@ -1075,13 +1096,18 @@ pub async fn aspects(
                 let _requests_charge = runtime.product_cache()?.and_then(|_| runtime.budget().reserve("optional-aspect-kernel-product-requests", requested.len().saturating_mul(4096)).ok());
                 let mut misses = Vec::new();
                 let mut products = Vec::new();
-                for (partition, request) in requested.iter().copied().enumerate() {
-                    let product = if _requests_charge.is_some() {
-                        kernel_products::selected_domain(&selected, partition, request, &prepared.inputs, prepared.program_identity(), runtime).await?
-                            .map(|domain| kernel_products::aspect_request(&output, domain, index)).transpose()?
-                    } else { None };
-                    let hit = if let Some(product) = &product { kernel_products::aspect_hit(product, runtime).await? } else { None };
+                let mut candidates=Vec::with_capacity(requested.len());
+                for (partition,root) in requested.iter().copied().enumerate(){
+                    candidates.push(if _requests_charge.is_some(){kernel_products::selected_domain(&selected,partition,root,&prepared.inputs,prepared.program_identity(),runtime).await?.map(|domain|kernel_products::aspect_request(&output,domain,index)).transpose()?}else{None});
+                }
+                let mut hits=kernel_products::lookup_window(&candidates,runtime).await?;
+                let mut point_fallback = false;
+                for (partition,product) in candidates.into_iter().enumerate() {
+                    let entry = if point_fallback { if let Some(request) = &product { kernel_products::lookup_one(request,runtime).await? } else { None } } else { hits[partition].take() };
+                    let request=requested[partition];
+                    let hit=if let Some(product)=&product{kernel_products::aspect_hit(product,entry,runtime).await?}else{None};
                     if let Some(rows) = hit {
+                        if !kernel_products::prepare_hits(&mut hits[partition+1..], kernel_products::aspect_emission_bound(&rows), runtime.budget())? { point_fallback = true; }
                         let kernel = crate::scoped_aspects::kernel(index, request.key)?;
                         emit_aspects(&rows, &output, matches!(kernel, AspectKernel::Class(_))).await?;
                     } else { misses.push(partition); products.push(product); }
@@ -1096,9 +1122,12 @@ pub async fn aspects(
                 )
                 .await?;
                 drop(prior);
+                let mut product_window = kernel_products::ProductWindow::new(products.len(), runtime)?;
                 for (partition, product) in products.into_iter().enumerate() {
                     let request = &requested[misses[partition]];
                     runtime.cancellation().check()?;
+                    let kernel = crate::scoped_aspects::kernel(index, request.key)?;
+                    let rows = product_window.compute(|| {
                     let owner = crate::scoped_aspects::AspectSelection::new(
                         &selected,
                         partition,
@@ -1106,18 +1135,20 @@ pub async fn aspects(
                         &data,
                         runtime.budget(),
                     )?;
-                    let kernel = crate::scoped_aspects::kernel(index, request.key)?;
-                    let rows = crate::stage_runtime::borrowed_cpu("callable_aspects", || {
+                    crate::stage_runtime::borrowed_cpu("callable_aspects", || {
                         callable_aspects::normalize_scope_view(
                             &owner.view()?,
                             kernel,
                             runtime.budget(),
                         )
+                    })
                     })?;
-                    if let Some(product) = product { kernel_products::retain_aspect(product, &rows, runtime).await?; }
+                    product_window.prepare_emission(kernel_products::aspect_emission_bound(&rows), runtime.budget())?;
                     // Class defaults are scratch; canonical emission remains field-owned.
                     emit_aspects(&rows, &output, matches!(kernel, AspectKernel::Class(_))).await?;
+                    if let Some(product) = product { kernel_products::retain_aspect(&mut product_window, product, &rows, runtime)?; }
                 }
+                product_window.finish(runtime).await?;
             }
         }
     }

@@ -84,6 +84,37 @@ impl CapturedInputs {
     }
 }
 
+/// Retains the exact captured closure through joined providers and accepted ingress cleanup.
+/// Persistent mismatch poisons this run; a later provider cannot reopen it as a fresh capture.
+#[derive(Clone)]
+pub struct CapturedTreeRunGuard {
+    captured: Arc<CapturedInputs>,
+    poisoned: Arc<AtomicBool>,
+}
+impl CapturedTreeRunGuard {
+    pub fn open(captured: Arc<CapturedInputs>) -> Result<Self, ModelError> {
+        let guard = Self { captured, poisoned: Arc::new(AtomicBool::new(false)) };
+        guard.verify_closed()?;
+        Ok(guard)
+    }
+    fn check(&self) -> Result<(), ModelError> {
+        if self.poisoned.load(Ordering::Acquire) {
+            return Err(ModelError::Conflict("captured tree run is poisoned"));
+        }
+        Ok(())
+    }
+    pub fn verify_closed(&self) -> Result<(), ModelError> {
+        self.check()?;
+        for input in self.captured.inputs() {
+            if let Err(error) = input.captured().verify() {
+                self.poisoned.store(true, Ordering::Release);
+                return Err(ModelError::codec(error));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Fallible typed batches streamed from one completed native-provider input.
 pub type ProviderBatchStream<R> = Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>;
 
@@ -144,6 +175,7 @@ pub struct StageContext<S: ProviderSink + 'static> {
     budget: ResourceBudget,
     limits: TransferLimits,
     captured: Arc<CapturedInputs>,
+    captured_run: CapturedTreeRunGuard,
     sink: Arc<S>,
     cancelled: Arc<AtomicBool>,
     attacher: Option<Attacher>,
@@ -357,6 +389,12 @@ impl<S: ProviderSink + 'static> StageContext<S> {
                 self.stage.name
             )));
         }
+        self.captured_run.check()?;
+        // Native providers have returned after joining all dependency waves. Assembly
+        // consumes completed rows only; acquisition checks bytes during artifact emission.
+        if !matches!(self.stage.name, crate::assembly::ASSEMBLE | crate::acquisition::ACQUIRE) {
+            self.captured_run.verify_closed()?;
+        }
         let writers: Vec<_> = std::mem::take(&mut self.contributions)
             .into_iter()
             .map(|(_, w)| w)
@@ -382,7 +420,7 @@ impl<S: ProviderSink + 'static> StageContext<S> {
     reason = "Explicit provider effects and captured inputs"
 )]
 pub async fn run_provider<S: ProviderSink>(
-    mut provider: Box<dyn ProviderStage<S>>,
+    provider: Box<dyn ProviderStage<S>>,
     profile: Profile,
     sink: Arc<S>,
     model: Arc<ValidatedModel>,
@@ -390,6 +428,23 @@ pub async fn run_provider<S: ProviderSink>(
     budget: ResourceBudget,
     limits: TransferLimits,
 ) -> Result<ProviderOutcome, ModelError> {
+    let guard = CapturedTreeRunGuard::open(captured)?;
+    run_provider_guarded(provider, profile, sink, model, guard, budget, limits).await
+}
+
+/// The compiler shares one opening guard across its ordered facts provider schedule.
+#[allow(clippy::too_many_arguments, reason = "Explicit provider effects and captured run ownership")]
+pub async fn run_provider_guarded<S: ProviderSink>(
+    mut provider: Box<dyn ProviderStage<S>>,
+    profile: Profile,
+    sink: Arc<S>,
+    model: Arc<ValidatedModel>,
+    captured_run: CapturedTreeRunGuard,
+    budget: ResourceBudget,
+    limits: TransferLimits,
+) -> Result<ProviderOutcome, ModelError> {
+    captured_run.check()?;
+    let captured = captured_run.captured.clone();
     captured.config().check_profile(profile)?;
     captured.config().check_budget(&budget)?;
     let stage = provider.declaration(profile);
@@ -410,6 +465,7 @@ pub async fn run_provider<S: ProviderSink>(
         budget,
         limits,
         captured,
+        captured_run,
         sink: sink.clone(),
         cancelled: cancelled.clone(),
         attacher: None,

@@ -8,8 +8,8 @@ use lctx_model::domain::{
     *,
 };
 use lctx_publisher::{materialize_search, reconcile_search};
-use lctx_surrealdb::surrealdb::types::{RecordId, Value, Variables};
-use lctx_surrealdb::{Loader, RuntimeConfig};
+use lctx_native::surrealdb::types::{RecordId, Value, Variables};
+use lctx_native::{Loader, RuntimeConfig};
 #[path = "../../lctx-serving/tests/fixtures/scoped.rs"]
 mod scoped;
 struct FixtureIdentity {
@@ -54,7 +54,7 @@ async fn rows(loader: &Loader, table: &str) -> Vec<Value> {
         "lex_occurs"
     };
     let budget = lctx_model::domain::resources::ResourceBudget::fixed(64 << 20).unwrap();
-    let mut stream = lctx_surrealdb::derived_search::selected_occurrences(
+    let mut stream = lctx_native::derived_search::selected_occurrences(
         &reader,
         occurrence_table,
         "true",
@@ -138,12 +138,12 @@ async fn stored_family_rows(loader: &Loader, baseline: &[Value]) -> Vec<Value> {
         .unwrap()
 }
 async fn occurrence_ids_with_budget(
-    reader: &lctx_surrealdb::NativeReader<()>,
+    reader: &lctx_native::NativeReader<()>,
     predicate: &str,
     vars: Variables,
     budget: &lctx_model::domain::resources::ResourceBudget,
 ) -> Result<Vec<RecordId>, ModelError> {
-    let mut rows = lctx_surrealdb::derived_search::selected_occurrences(
+    let mut rows = lctx_native::derived_search::selected_occurrences(
         reader,
         "lex_occurs",
         predicate,
@@ -498,7 +498,7 @@ async fn streamed_control(target: AuditTarget) {
             let Value::RecordId(view) = view else {
                 panic!("view ID")
             };
-            let lctx_surrealdb::surrealdb::types::RecordIdKey::String(hash) = &view.key else {
+            let lctx_native::surrealdb::types::RecordIdKey::String(hash) = &view.key else {
                 panic!("view hash")
             };
             ContentHash(hex::decode(hash).unwrap().try_into().unwrap())
@@ -516,7 +516,7 @@ async fn streamed_control(target: AuditTarget) {
                 .expect("maintenance installer config"),
         ))
         .unwrap();
-        let client = lctx_surrealdb::reader::connect(
+        let client = lctx_native::reader::connect(
             &installer.endpoint,
             &installer.writer_credentials(),
             installer.namespace.as_str(),
@@ -578,7 +578,7 @@ async fn streamed_control(target: AuditTarget) {
                 let Value::RecordId(view) = view else {
                     panic!("bound view ID")
                 };
-                let lctx_surrealdb::surrealdb::types::RecordIdKey::String(hash) = &view.key else {
+                let lctx_native::surrealdb::types::RecordIdKey::String(hash) = &view.key else {
                     panic!("bound view hash")
                 };
                 ContentHash(hex::decode(hash).unwrap().try_into().unwrap())
@@ -721,7 +721,7 @@ async fn streamed_control(target: AuditTarget) {
     for table in &tables[..4] {
         assert_eq!(rows(&loader, table).await.len(), 1);
     }
-    let physical = |value| lctx_surrealdb::loader::json_value(value).unwrap();
+    let physical = |value| lctx_native::loader::json_value(value).unwrap();
     let first_member = physical(serde_json::to_value(members[0].0).unwrap());
     for row in &lexical {
         let row = row.as_object().unwrap();
@@ -741,7 +741,7 @@ async fn streamed_control(target: AuditTarget) {
         // Its otherwise valid occurrence must not enter the first view's cold audit.
         let foreign_binding = foreign_binding.unwrap();
         let foreign_payload =
-            lctx_surrealdb::loader::entity_payload_id(&Entity::from(foreign_binding.clone()))
+            lctx_native::loader::entity_payload_id(&Entity::from(foreign_binding.clone()))
                 .unwrap();
         let mut foreign_entities = entities.clone();
         foreign_entities.push(Entity::from(foreign_binding));
@@ -758,7 +758,7 @@ async fn streamed_control(target: AuditTarget) {
                 let Value::RecordId(view) = view else {
                     panic!("foreign view ID")
                 };
-                let lctx_surrealdb::surrealdb::types::RecordIdKey::String(hash) = &view.key else {
+                let lctx_native::surrealdb::types::RecordIdKey::String(hash) = &view.key else {
                     panic!("foreign view hash")
                 };
                 ContentHash(hex::decode(hash).unwrap().try_into().unwrap())
@@ -837,7 +837,7 @@ async fn streamed_control(target: AuditTarget) {
             continue;
         }
         progress(&format!("lexical corruption {table}"));
-        let scope = lctx_surrealdb::lexical_stats::scope_identity(&loader.reader()).unwrap();
+        let scope = lctx_native::lexical_stats::scope_identity(&loader.reader()).unwrap();
         let mut bind = Variables::new();
         bind.insert("scope", scope.hex());
         let predicate = if table == "lexical_document" {
@@ -988,7 +988,7 @@ async fn streamed_control(target: AuditTarget) {
                 format!("{}-changed-{table}", identity.nonce),
             );
             if table.ends_with("occurs") {
-                let Some(Value::Number(lctx_surrealdb::surrealdb::types::Number::Int(family))) =
+                let Some(Value::Number(lctx_native::surrealdb::types::Number::Int(family))) =
                     object.get("family")
                 else {
                     panic!("occurrence family integer");

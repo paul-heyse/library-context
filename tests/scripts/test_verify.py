@@ -98,7 +98,7 @@ def test_invalid_target_is_named_against_the_actual_package_set():
     with pytest.raises(PlanError) as error:
         plan_of("--select", "store", "--nextest-args", "--test nope")
     message = str(error.value)
-    assert "lctx-surrealdb, lctx-publisher" in message and "publication" in message
+    assert "lctx-native, lctx-compiler-store, lctx-publisher" in message and "publication" in message
 
 
 def test_explicit_targets_replace_defaults_but_filters_keep_them():
@@ -1034,7 +1034,8 @@ def test_every_named_default_target_exists():
 # Review findings (2026-10-08): F02 shortcut options, F03 --cli, F04 evidence, F07, F08, targets
 
 TARGETS = {
-    "lctx-surrealdb": {"lib": {"lctx_surrealdb"}, "test": {"native", "cache"}},
+    "lctx-native": {"lib": {"lctx_native"}, "test": {"native", "cache"}},
+    "lctx-compiler-store": {"lib": {"lctx_compiler_store"}},
     "lctx-publisher": {"lib": {"lctx_publisher"}, "test": {"publication"}},
 }
 
@@ -1126,7 +1127,7 @@ def test_named_target_narrows_and_unknown_names_the_package_set():
     assert verify.narrow(store, step, ["--lib"], TARGETS)[0] == step.packages
     with pytest.raises(PlanError) as error:
         verify.narrow(store, step, ["--test=nope"], TARGETS)
-    assert "(lctx-surrealdb, lctx-publisher)" in str(error.value)
+    assert "(lctx-native, lctx-compiler-store, lctx-publisher)" in str(error.value)
     assert "lctx-publisher: publication" in str(error.value)
 
 

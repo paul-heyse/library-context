@@ -1,5 +1,7 @@
 //! Occurrence-keyed conditions. The sole persisted truth representation is a reduced ordered BDD.
 pub mod graph;
+mod preparation;
+pub use preparation::PreparedConditions;
 pub(super) mod kernel;
 pub(crate) mod substitution;
 pub use graph::{CondGraph, CondNode, GraphCondition};

@@ -26,7 +26,7 @@ def test_exact_source_and_digest_are_required() -> None:
 def test_repository_names_exact_locked_fork() -> None:
     revision, problems = fork.one_revision(
         fork.LOCK.read_text(),
-        fork.DRIVER.read_text(),
+        fork.driver_contracts(),
         fork.PINS.read_text(),
         fork.PATCH.read_bytes(),
     )

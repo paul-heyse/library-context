@@ -61,6 +61,9 @@ impl std::ops::Deref for AdmittedDiagram {
     }
 }
 impl AdmittedDiagram {
+    pub(super) fn from_parts(diagram: Diagram, reservation: Box<dyn Reservation>) -> Self {
+        Self { diagram, reservation }
+    }
     pub fn reserved_bytes(&self) -> usize {
         self.reservation.size()
     }
@@ -100,7 +103,7 @@ pub(super) fn context(support: &[AtomId]) -> BddVariableSet {
     BddVariableSet::new(&names.iter().map(String::as_str).collect::<Vec<_>>())
 }
 
-fn apply(
+pub(super) fn apply(
     left: &Bdd,
     right: &Bdd,
     op: fn(Option<bool>, Option<bool>) -> Option<bool>,
@@ -150,16 +153,7 @@ impl CondExpr {
         count
     }
 
-    fn atoms(&self, out: &mut BTreeSet<AtomId>) {
-        match self {
-            Self::True | Self::False => {}
-            Self::Atom(id) => {
-                out.insert(*id);
-            }
-            Self::Not(inner) => inner.atoms(out),
-            Self::And(parts) | Self::Or(parts) => parts.iter().for_each(|p| p.atoms(out)),
-        }
-    }
+
 }
 
 impl Diagram {
@@ -169,6 +163,9 @@ impl Diagram {
         bdd: Bdd,
     ) -> Result<Self, KernelBoundary> {
         let live = bdd.support_set();
+        if live.len() > MAX_ATOMS {
+            return Err(KernelBoundary::AtomLimit);
+        }
         if live.len() == support.len() {
             return Ok(Self { support, ctx, bdd });
         }
@@ -228,48 +225,39 @@ impl Diagram {
             return Err(KernelBoundary::WorkPreflight);
         }
         let mut atoms = BTreeSet::new();
-        expr.atoms(&mut atoms);
-        if atoms.len() > MAX_ATOMS {
-            return Err(KernelBoundary::AtomLimit);
+        let mut pending = vec![expr];
+        while let Some(part) = pending.pop() {
+            match part {
+                CondExpr::Atom(atom) => { atoms.insert(*atom); }
+                CondExpr::Not(inner) => pending.push(inner),
+                CondExpr::And(parts) | CondExpr::Or(parts) => pending.extend(parts),
+                CondExpr::True | CondExpr::False => {}
+            }
         }
-        let support: Vec<AtomId> = atoms.into_iter().collect();
+        let support = atoms.into_iter().collect::<Vec<_>>();
         let ctx = context(&support);
-        let mut work = MAX_PAIR_WORK;
-        fn build(
-            expr: &CondExpr,
-            support: &[AtomId],
-            ctx: &BddVariableSet,
-            work: &mut usize,
-        ) -> Result<Bdd, KernelBoundary> {
-            let fold = |parts: &[CondExpr],
-                        start: Bdd,
-                        op: fn(Option<bool>, Option<bool>) -> Option<bool>,
-                        work: &mut usize|
-             -> Result<Bdd, KernelBoundary> {
-                let mut acc = start;
-                for part in parts {
-                    let next = build(part, support, ctx, work)?;
-                    *work = work
-                        .checked_sub(acc.size().saturating_mul(next.size()))
-                        .ok_or(KernelBoundary::WorkPreflight)?;
-                    acc = apply(&acc, &next, op)?;
-                }
-                Ok(acc)
-            };
+        fn build(expr: &CondExpr, support: &[AtomId], ctx: &BddVariableSet, work: &mut usize) -> Result<Bdd, KernelBoundary> {
             match expr {
                 CondExpr::True => Ok(ctx.mk_true()),
                 CondExpr::False => Ok(ctx.mk_false()),
-                CondExpr::Atom(id) => {
-                    let index = support
-                        .binary_search(id)
-                        .expect("gathered into the support");
-                    Ok(ctx.mk_var(BddVariable::from_index(index)))
-                }
+                CondExpr::Atom(atom) => Ok(ctx.mk_var(BddVariable::from_index(support.binary_search(atom).expect("gathered atom")))),
                 CondExpr::Not(inner) => Ok(build(inner, support, ctx, work)?.not()),
-                CondExpr::And(parts) => fold(parts, ctx.mk_true(), op_function::and, work),
-                CondExpr::Or(parts) => fold(parts, ctx.mk_false(), op_function::or, work),
+                CondExpr::And(parts) | CondExpr::Or(parts) => {
+                    let and = matches!(expr, CondExpr::And(_));
+                    let mut acc = if and { ctx.mk_true() } else { ctx.mk_false() };
+                    for part in parts {
+                        let next = build(part, support, ctx, work)?;
+                        *work = work.checked_sub(acc.size().saturating_mul(next.size()))
+                            .ok_or(KernelBoundary::WorkPreflight)?;
+                        acc = apply(&acc, &next, if and { op_function::and } else { op_function::or })?;
+                    }
+                    Ok(acc)
+                }
             }
         }
+        // One expression-local correspondence may exceed the persisted support limit. Pair
+        // work and node limits still bound intermediates; only the reduced root owns atoms.
+        let mut work = MAX_PAIR_WORK;
         let bdd = build(expr, &support, &ctx, &mut work)?;
         Self::effective(support, ctx, bdd)
     }
@@ -439,14 +427,20 @@ impl Diagram {
         let mut catalog = BTreeMap::new();
         for node in nodes {
             node.validate()?;
-            if catalog.insert(node.id(), node.clone()).is_some() {
+            if catalog.insert(node.id(), node).is_some() {
                 return Err(ModelError::Conflict(ConditionNode::NAME));
             }
         }
-        let selected = closure(condition.root, &catalog)?;
+        Self::from_catalog(condition, &catalog)
+    }
+    pub(crate) fn from_catalog(
+        condition: &Condition,
+        catalog: &BTreeMap<Id<ConditionNode>, impl std::borrow::Borrow<ConditionNode>>,
+    ) -> Result<Self, ModelError> {
+        let selected = closure(condition.root, catalog)?;
         let support: Vec<_> = selected
             .iter()
-            .filter_map(|id| match &catalog[id] {
+            .filter_map(|id| match catalog[id].borrow() {
                 ConditionNode::Branch { atom, .. } => Some(*atom),
                 _ => None,
             })
@@ -460,7 +454,7 @@ impl Diagram {
         ];
         fn append(
             id: Id<ConditionNode>,
-            catalog: &BTreeMap<Id<ConditionNode>, ConditionNode>,
+            catalog: &BTreeMap<Id<ConditionNode>, impl std::borrow::Borrow<ConditionNode>>,
             support: &[AtomId],
             raw: &mut Vec<BddNode>,
             memo: &mut BTreeMap<Id<ConditionNode>, BddPointer>,
@@ -468,7 +462,7 @@ impl Diagram {
             if let Some(pointer) = memo.get(&id) {
                 return *pointer;
             }
-            let pointer = match &catalog[&id] {
+            let pointer = match catalog[&id].borrow() {
                 ConditionNode::False => BddPointer::zero(),
                 ConditionNode::True => BddPointer::one(),
                 ConditionNode::Branch { atom, low, high } => {
@@ -488,7 +482,7 @@ impl Diagram {
         }
         let root = append(
             condition.root,
-            &catalog,
+            catalog,
             &support,
             &mut raw,
             &mut BTreeMap::new(),
@@ -507,7 +501,7 @@ impl Diagram {
         }
         Ok(result)
     }
-    fn in_union(&self, union: &[AtomId]) -> Result<Bdd, KernelBoundary> {
+    fn in_union(&self, union: &[AtomId], ctx: &BddVariableSet) -> Result<Bdd, KernelBoundary> {
         if union.len() > MAX_ATOMS {
             return Err(KernelBoundary::AtomLimit);
         }
@@ -518,8 +512,7 @@ impl Diagram {
         {
             return Err(KernelBoundary::WorkPreflight);
         }
-        context(union)
-            .transfer_from(&self.bdd, &self.ctx)
+        ctx.transfer_from(&self.bdd, &self.ctx)
             .ok_or(KernelBoundary::TransferUnsupported)
     }
 
@@ -541,9 +534,9 @@ impl Diagram {
         if support.len() > MAX_ATOMS {
             return Err(KernelBoundary::AtomLimit);
         }
-        let left = self.in_union(&support)?;
-        let right = other.in_union(&support)?;
         let ctx = context(&support);
+        let left = self.in_union(&support, &ctx)?;
+        let right = other.in_union(&support, &ctx)?;
         Ok((support, ctx, left, right))
     }
 
@@ -824,8 +817,9 @@ impl Diagram {
     /// Whether both can hold together. Decided by a budgeted dry run; `Err` is unknown.
     pub fn compatible(&self, other: &Self) -> Result<bool, KernelBoundary> {
         let union = self.union_support(other);
-        let left = self.in_union(&union)?;
-        let right = other.in_union(&union)?;
+        let ctx = context(&union);
+        let left = self.in_union(&union, &ctx)?;
+        let right = other.in_union(&union, &ctx)?;
         Bdd::check_binary_op(MAX_PAIR_WORK, &left, &right, op_function::and)
             .map(|(nonempty, _tasks)| nonempty)
             .ok_or(KernelBoundary::WorkPreflight)
@@ -834,8 +828,9 @@ impl Diagram {
     /// Whether `self` implies `other` (`self ∧ ¬other` is unsatisfiable). `Err` is unknown.
     pub fn implies(&self, other: &Self) -> Result<bool, KernelBoundary> {
         let union = self.union_support(other);
-        let left = self.in_union(&union)?;
-        let right = other.in_union(&union)?;
+        let ctx = context(&union);
+        let left = self.in_union(&union, &ctx)?;
+        let right = other.in_union(&union, &ctx)?;
         Bdd::check_binary_op(MAX_PAIR_WORK, &left, &right, op_function::and_not)
             .map(|(nonempty, _tasks)| !nonempty)
             .ok_or(KernelBoundary::WorkPreflight)
@@ -844,7 +839,7 @@ impl Diagram {
 
 pub(crate) fn closure(
     root: Id<ConditionNode>,
-    nodes: &BTreeMap<Id<ConditionNode>, ConditionNode>,
+    nodes: &BTreeMap<Id<ConditionNode>, impl std::borrow::Borrow<ConditionNode>>,
 ) -> Result<BTreeSet<Id<ConditionNode>>, ModelError> {
     let mut found = BTreeSet::new();
     let mut atoms = BTreeSet::new();
@@ -858,7 +853,8 @@ pub(crate) fn closure(
         }
         let node = nodes
             .get(&id)
-            .ok_or_else(|| ModelError::Invalid("condition child absent".into()))?;
+            .ok_or_else(|| ModelError::Invalid("condition child absent".into()))?
+            .borrow();
         node.validate()?;
         if let ConditionNode::Branch { atom, low, high } = node {
             atoms.insert(*atom);
@@ -868,7 +864,8 @@ pub(crate) fn closure(
             for child in [low, high] {
                 let row = nodes
                     .get(child)
-                    .ok_or_else(|| ModelError::Invalid("condition child absent".into()))?;
+                    .ok_or_else(|| ModelError::Invalid("condition child absent".into()))?
+            .borrow();
                 if let ConditionNode::Branch {
                     atom: child_atom, ..
                 } = row

@@ -3,9 +3,9 @@
     reason = "Shared fixture runner serves focused compiler controls"
 )]
 //! Fixture inputs run through the actual persisted compiler; assertions inspect completed native views.
+use lctx_model::domain::embedding::Embedder;
 use cpg_core::{
     compilation::{self, PreparedCompilation},
-    embedding_service::Embedder,
     workspace::{Workspace, WorkspaceOptions},
 };
 use cpg_extract::{

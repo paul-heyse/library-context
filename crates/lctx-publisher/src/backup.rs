@@ -4,8 +4,8 @@ use lctx_model::domain::{
     completion::{Completion, RemoteState, complete},
     serving::SnapshotHandle,
 };
-use lctx_surrealdb::surrealdb::types::RecordId;
-use lctx_surrealdb::{NativeReader, RuntimeConfig};
+use lctx_native::surrealdb::types::RecordId;
+use lctx_native::{NativeReader, RuntimeConfig};
 use std::path::Path;
 
 /// Write only the exact recoverable closure through one transaction-bound native snapshot.
@@ -41,7 +41,7 @@ async fn backup_owned(config: &RuntimeConfig, handle: &SnapshotHandle, output: &
         let metadata = recovery_metadata(config, handle)?;
         // One dedicated exporter session, with one external transaction across all metadata,
         // closure and content reads. There is no independent export or per-page snapshot.
-        exporter = Some(lctx_surrealdb::reader::connect(&config.endpoint, &config.writer_credentials(), config.namespace.as_str(), config.database.as_str()).await?);
+        exporter = Some(lctx_native::reader::connect(&config.endpoint, &config.writer_credentials(), config.namespace.as_str(), config.database.as_str()).await?);
         cancel.check()?;
         let version = exporter.as_ref().expect("owned exporter").version().await.map_err(ModelError::codec)?.to_string();
         cancel.check()?;
@@ -60,7 +60,7 @@ async fn backup_owned(config: &RuntimeConfig, handle: &SnapshotHandle, output: &
             }
         };
         transaction = Some(snapshot.clone());
-        let budget = lctx_model::domain::resources::ResourceBudget::fixed(cpg_core::workspace::WorkspaceOptions::default().memory_bytes)?;
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)?;
         crate::selected_backup::export(&snapshot, &version, handle, native_definitions, staged.path(), &budget, cancel).await?;
         cancel.check()?;
         use std::io::Write;
@@ -238,7 +238,7 @@ pub async fn retire(
     if config.selection.try_exists().map_err(ModelError::codec)? && config.selected()? == *handle {
         return Err(ModelError::Conflict("cannot retire selected publication"));
     }
-    let client = lctx_surrealdb::reader::connect(
+    let client = lctx_native::reader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         config.namespace.as_str(),
@@ -246,7 +246,7 @@ pub async fn retire(
     )
     .await?;
     let result = async {
-        let progress = lctx_surrealdb::control::retire_reachable(
+        let progress = lctx_native::control::retire_reachable(
             &client,
             vec![RecordId::new("publication", handle.publication.hex())],
             4096,
@@ -280,7 +280,7 @@ mod tests {
     #[tokio::test]
     async fn backup_sdk_file_export_faults_never_publish_provisional_bytes() {
         use super::grpc_export_fixture::{Fault, Fixture, PARTIAL};
-        use lctx_surrealdb::Credentials;
+        use lctx_native::Credentials;
         for fault in [
             Fault::LateEngineError,
             Fault::LateTaskError,
@@ -293,7 +293,7 @@ mod tests {
             let staged = tempfile::NamedTempFile::new_in(scratch.path()).unwrap();
             let provisional = staged.path().to_owned();
             let output = scratch.path().join("snapshot.surql");
-            let client = lctx_surrealdb::reader::connect(
+            let client = lctx_native::reader::connect(
                 &fixture.endpoint,
                 &Credentials::Root {
                     username: "fixture".into(),
@@ -361,7 +361,7 @@ mod tests {
     #[tokio::test]
     async fn backup_sdk_destination_write_failure_discards_provisional_path() {
         use super::grpc_export_fixture::{Fault, Fixture};
-        use lctx_surrealdb::Credentials;
+        use lctx_native::Credentials;
         let fixture = Fixture::start(Fault::Success).await;
         let scratch = tempfile::tempdir().unwrap();
         let staged = tempfile::NamedTempFile::new_in(scratch.path()).unwrap();
@@ -371,7 +371,7 @@ mod tests {
         // /dev/full is a device, not operator data; no production injection hook is involved.
         std::fs::remove_file(&provisional).unwrap();
         std::os::unix::fs::symlink("/dev/full", &provisional).unwrap();
-        let client = lctx_surrealdb::reader::connect(
+        let client = lctx_native::reader::connect(
             &fixture.endpoint,
             &Credentials::Root {
                 username: "fixture".into(),
@@ -409,12 +409,12 @@ mod tests {
     #[tokio::test]
     async fn backup_sdk_terminal_success_publishes_exact_completed_bytes() {
         use super::grpc_export_fixture::{Fault, Fixture, PARTIAL};
-        use lctx_surrealdb::Credentials;
+        use lctx_native::Credentials;
         let fixture = Fixture::start(Fault::Success).await;
         let scratch = tempfile::tempdir().unwrap();
         let staged = tempfile::NamedTempFile::new_in(scratch.path()).unwrap();
         let output = scratch.path().join("snapshot.surql");
-        let client = lctx_surrealdb::reader::connect(
+        let client = lctx_native::reader::connect(
             &fixture.endpoint,
             &Credentials::Root {
                 username: "fixture".into(),

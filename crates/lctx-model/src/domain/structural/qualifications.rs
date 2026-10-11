@@ -6,19 +6,27 @@ use super::{
 use crate::domain::{
     assertion::AssertionQualification,
     assumptions::ResolvedAssumptions,
-    conditions::{BooleanOperation, Diagram},
+    conditions::BooleanOperation,
     resources::ResourceBudget,
     source::SourceArtifact,
     *,
 };
 
-pub(super) fn intersect(
+#[cfg(test)]
+pub(super) fn intersect(data: &Data, call: &AssertionQualification, local: &AssertionQualification,
+    alias: Option<&super::handoffs::ValueSource>, source: Id<SourceArtifact>, output: &mut Output,
+    budget: &ResourceBudget) -> Result<AssertionQualification, ModelError> {
+    let prepared = super::handoffs::Conditions::new(&data.handoffs, budget)?;
+    intersect_prepared(data, call, local, alias, source, output, &prepared, budget)
+}
+pub(super) fn intersect_prepared(
     data: &Data,
     call: &AssertionQualification,
     local: &AssertionQualification,
     alias: Option<&super::handoffs::ValueSource>,
     source: Id<SourceArtifact>,
     output: &mut Output,
+    prepared: &super::handoffs::Conditions<'_>,
     budget: &ResourceBudget,
 ) -> Result<AssertionQualification, ModelError> {
     if call.context != local.context
@@ -35,21 +43,8 @@ pub(super) fn intersect(
     }
     let entry = &data.handoffs.entry;
     let vocabulary = &data.handoffs.local;
-    let _charge = budget.reserve(
-        "structural qualification nodes",
-        vocabulary
-            .condition_nodes
-            .len()
-            .checked_mul(2048)
-            .ok_or_else(|| invalid("Structural condition allocation overflow"))?,
-    )?;
-    let nodes = vocabulary
-        .condition_nodes
-        .iter()
-        .cloned()
-        .collect::<Vec<_>>();
-    let a = Diagram::from_records(need(&vocabulary.conditions, call.condition)?, &nodes)?;
-    let b = Diagram::from_records(need(&vocabulary.conditions, local.condition)?, &nodes)?;
+    let a = prepared.local.diagram(need(&vocabulary.conditions, call.condition)?)?;
+    let b = prepared.local.diagram(need(&vocabulary.conditions, local.condition)?)?;
     let admitted = a
         .admitted_binary(&b, BooleanOperation::Conjunction, budget)
         .map_err(|e| match e {
@@ -66,7 +61,7 @@ pub(super) fn intersect(
     let mut alias_bases = Vec::new();
     let mut _alias_condition_charge = None;
     if let Some(alias) = alias {
-        let alias_condition = super::handoffs::named_condition(&data.handoffs, alias, budget)?;
+        let alias_condition = super::handoffs::named_condition_prepared(&data.handoffs, alias, &prepared.entry, budget)?;
         let admitted = condition
             .admitted_binary(&alias_condition, BooleanOperation::Conjunction, budget)
             .map_err(|e| match e {
@@ -152,6 +147,7 @@ pub(super) fn intersect(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::conditions::Diagram;
     use crate::domain::{
         assertion::Approximation,
         assumptions::{Assumption, AssumptionSet},

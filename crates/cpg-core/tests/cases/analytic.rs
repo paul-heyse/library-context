@@ -40,6 +40,23 @@ async fn run(
         },
     )
     .await;
+    // Independent persisted-frame join: every public candidate needs a decision, including
+    // rejected/budgeted candidates. This does not invoke the production preparation routine.
+    let expected_decisions: Vec<(Vec<u8>, Vec<u8>)> = catalog_runtime::query(&fixture, format!(
+        "SELECT plan.id,candidate.id FROM synthesis_seed_plans plan JOIN {} owner ON owner.id=plan.invocation JOIN structural_frames frame ON frame.configuration=plan.configuration JOIN {} parent ON parent.id=frame.invocation AND parent.input=owner.input AND parent.context=owner.context JOIN structural_public_candidates candidate ON candidate.frame=frame.id ORDER BY 1,2",
+        analysis::synthesis::Invocation::NAME, analysis::structural::Invocation::NAME,
+    )).await;
+    assert!(!expected_decisions.is_empty(), "automatic synthesis has an independently observed public candidate population");
+    let actual_decisions: Vec<(Vec<u8>, Vec<u8>)> = catalog_runtime::query(&fixture,
+        "SELECT plan,candidate FROM synthesis_automatic_seed_decisions ORDER BY 1,2").await;
+    assert_eq!(actual_decisions, expected_decisions, "automatic synthesis retains exactly one decision for every admitted public candidate");
+    let wrong_basis: i64 = catalog_runtime::one(&fixture, format!(
+        "SELECT count(*) FROM synthesis_automatic_seed_decisions WHERE (rank IS NOT NULL AND basis<>{}) OR (rank IS NULL AND basis<>{})",
+        synthesis::automatic::RankBasis::SelectedPageRank.code(),
+        if selected { synthesis::automatic::RankBasis::PageRankUnavailable.code() }
+        else { synthesis::automatic::RankBasis::OfficialUsage.code() },
+    )).await;
+    assert_eq!(wrong_basis, 0, "automatic synthesis retains selected-rank or explicit fallback attribution");
     if selected && vectors_available {
         replay_controls(&fixture).await;
     }
@@ -223,7 +240,7 @@ async fn run(
         );
     }
 }
-use cpg_core::embedding_service::{EmbedFuture, Embedder};
+use lctx_model::domain::embedding::{EmbedFuture, Embedder};
 struct ContractEmbedder {
     inner: cpg_core::embedding_service::FakeEmbedder,
     specification: embedding::Spec,
@@ -259,8 +276,8 @@ impl Embedder for ContractEmbedder {
             self.inner.count_tokens(text)
         } else {
             Box::pin(async {
-                Err(cpg_core::CoreError::EmbeddingService(
-                    "contract unavailable".into(),
+                Err(lctx_model::domain::embedding::ServiceUnavailable::cause(
+                    "contract unavailable",
                 ))
             })
         }
@@ -268,8 +285,8 @@ impl Embedder for ContractEmbedder {
     fn embed<'a>(&'a self, text: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>> {
         Box::pin(async move {
             if !self.available {
-                return Err(cpg_core::CoreError::EmbeddingService(
-                    "contract unavailable".into(),
+                return Err(lctx_model::domain::embedding::ServiceUnavailable::cause(
+                    "contract unavailable",
                 ));
             }
             Ok(text

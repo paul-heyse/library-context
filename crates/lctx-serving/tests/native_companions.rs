@@ -9,11 +9,11 @@ use lctx_model::domain::{
     source::{Module, SourceArtifact},
     *,
 };
-use lctx_surrealdb::reader;
+use lctx_native::reader;
 #[path = "fixtures/scoped.rs"]
 mod scoped;
 
-fn decode<R: Record>(batches: &lctx_surrealdb::batches::CanonicalBatches) -> Vec<R> {
+fn decode<R: Record>(batches: &lctx_native::batches::CanonicalBatches) -> Vec<R> {
     batches
         .batches
         .iter()
@@ -197,7 +197,7 @@ async fn canonical_input_companions_retain_corpus_distribution_without_retired_s
 #[tokio::test]
 async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_view() {
     use lctx_model::domain::serving_scope::ServingScopeProgram;
-    use lctx_surrealdb::scope::PreparedServingScope;
+    use lctx_native::scope::PreparedServingScope;
     let config = scoped::config();
     let package_a = Package {
         name: "shared-template-reader-a".into(),
@@ -287,7 +287,7 @@ async fn shared_serving_template_binds_each_frontier_and_hydration_to_its_exact_
     native_b.close().await.unwrap();
     let observed = observed.unwrap();
     let package_id = |package: &Package| {
-        lctx_surrealdb::loader::entity_payload_id(&Entity::from(package.clone())).unwrap()
+        lctx_native::loader::entity_payload_id(&Entity::from(package.clone())).unwrap()
     };
     assert_eq!(
         observed
@@ -327,7 +327,7 @@ async fn indexed_absent_library_and_foreign_package_preserve_empty_exact_roots()
     let other=scoped::reader(&config,&[Entity::from(foreign)],&[]).await.unwrap();
     let budget=ResourceBudget::fixed(2<<20).unwrap();
     for name in ["absent-library","foreign-library"] {
-        assert!(lctx_surrealdb::scope::library_roots(&native,Some(name),&budget).await.unwrap().is_empty());
+        assert!(lctx_native::scope::library_roots(&native,Some(name),&budget).await.unwrap().is_empty());
     }
     let mut bindings=surrealdb::types::Variables::new();
     let missing=Package{name:"absent-library".into()};

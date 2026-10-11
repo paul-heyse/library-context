@@ -6,7 +6,7 @@ use lctx_model::domain::{
     selection,
     serving::*,
 };
-use lctx_surrealdb::{
+use lctx_native::{
     NativeReader,
     reader::{NativeRows, target_id},
 };
@@ -94,8 +94,32 @@ impl ClassificationRequest {
 }
 
 pub struct MemberSelection {
-    pub prepared: selection::evaluate::Prepared,
+    pub prepared: PreparedSelection,
     pub selected: selection::evaluate::Selected,
+}
+/// The shared interpretation retains its viewer/pin lease through every request borrow.
+pub struct PreparedSelection(PreparedSelectionOwner);
+enum PreparedSelectionOwner {
+    Fresh(selection::evaluate::Prepared),
+    Cached(crate::preparation::PreparedClassification),
+}
+impl std::ops::Deref for PreparedSelection {
+    type Target = selection::evaluate::Prepared;
+    fn deref(&self) -> &Self::Target { match &self.0 {
+        PreparedSelectionOwner::Fresh(value) => value,
+        PreparedSelectionOwner::Cached(value) => value,
+    } }
+}
+pub(crate) fn interpret(batches: &lctx_native::batches::CanonicalBatches, budget: &ResourceBudget)
+    -> Result<selection::evaluate::Prepared, ModelError> {
+    let mut data = selection::classification::ClassificationData::new(budget);
+    let mut output = selection::build::Output::new(budget);
+    for (name, batch) in &batches.batches {
+        let input = data.visit(name, batch)?;
+        let result = output.visit(name, batch)?;
+        if !input && !result { return Err(ModelError::Schema("undeclared native classification input")); }
+    }
+    selection::evaluate::Prepared::from_local_rows(data, output, budget)
 }
 pub async fn classify(
     reader: &NativeReader,
@@ -126,10 +150,8 @@ async fn classify_inner(
     inputs.sort_by_key(ValidationInput::name);
     inputs.dedup_by_key(|i| i.name());
     let mut request = ClassificationRequest::new(members, budget)?;
-    let cached;
-    let fresh;
-    let batches = if let Some(preparation) = preparation {
-        cached = preparation
+    let prepared = if let Some(preparation) = preparation {
+        let cached = preparation
             .hydrate(
                 reader,
                 request.take_roots(),
@@ -138,22 +160,13 @@ async fn classify_inner(
                 crate::scope::OWNED_FIELDS,
             )
             .await?;
-        &*cached
+        request.release_roots();
+        PreparedSelection(PreparedSelectionOwner::Cached(preparation.classification(&cached).await?))
     } else {
-        fresh = crate::scope::hydrate(reader, request.take_roots(), &inputs, budget).await?;
-        &fresh
+        let fresh = crate::scope::hydrate(reader, request.take_roots(), &inputs, budget).await?;
+        request.release_roots();
+        PreparedSelection(PreparedSelectionOwner::Fresh(interpret(&fresh, budget)?))
     };
-    request.release_roots();
-    let mut data = selection::classification::ClassificationData::new(budget);
-    let mut output = selection::build::Output::new(budget);
-    for (name, batch) in &batches.batches {
-        let input = data.visit(name, batch)?;
-        let result = output.visit(name, batch)?;
-        if !input && !result {
-            return Err(ModelError::Schema("undeclared native classification input"));
-        }
-    }
-    let prepared = selection::evaluate::Prepared::from_local_rows(data, output, budget)?;
     let mut selected = prepared.select(selection, budget)?;
     selected
         .candidates
@@ -190,7 +203,7 @@ pub async fn members<Context>(
         }),
     );
     let mut sorted =
-        lctx_surrealdb::acknowledged_candidates::AsyncCandidateSort::new(budget).await?;
+        lctx_native::acknowledged_candidates::AsyncCandidateSort::new(budget).await?;
     let discovery = async {
         let packages = reader.query_stream(library_packages_sql(), vars.clone(), 1)?;
         collect_library_candidates(reader, &mut vars, packages, &mut sorted).await
@@ -270,7 +283,7 @@ async fn collect_library_candidates<Context>(
     reader: &NativeReader<Context>,
     vars: &mut Variables,
     mut packages: NativeRows,
-    sorted: &mut lctx_surrealdb::acknowledged_candidates::AsyncCandidateSort,
+    sorted: &mut lctx_native::acknowledged_candidates::AsyncCandidateSort,
 ) -> Result<(), ModelError> {
     let result = async {
         while let Some(package) = packages.next().await? {
@@ -292,7 +305,7 @@ async fn collect_library_candidates<Context>(
                                 "scope",
                                 format!(
                                     "catalog_members|input|{}",
-                                    lctx_surrealdb::prepared::scope_string(&input)
+                                    lctx_native::prepared::scope_string(&input)
                                 ),
                             );
                             let mut rows =
@@ -323,7 +336,7 @@ async fn collect_library_candidates<Context>(
                                             ModelError::Schema("native member key width")
                                         })?;
                                     sorted
-                                        .push(lctx_surrealdb::ordered_rows::Candidate {
+                                        .push(lctx_native::ordered_rows::Candidate {
                                             relation: catalog::CatalogMember::NAME.into(),
                                             key,
                                             node: node.clone(),
@@ -480,7 +493,7 @@ mod streamed_library_tests {
         input::{DistributionRole, InputDistribution, InputRevision, Package, Release},
         source::{Module, SourceArtifact},
     };
-    use lctx_surrealdb::reader;
+    use lctx_native::reader;
 
     #[tokio::test]
     async fn native_library_discovery_preserves_complete_eligibility_and_drains_late_upstream_failure()
@@ -693,7 +706,7 @@ mod streamed_library_tests {
                 2,
             )
             .unwrap();
-        let mut sorted = lctx_surrealdb::acknowledged_candidates::AsyncCandidateSort::new(&budget)
+        let mut sorted = lctx_native::acknowledged_candidates::AsyncCandidateSort::new(&budget)
             .await
             .unwrap();
         let before_candidates = budget.reserved();
