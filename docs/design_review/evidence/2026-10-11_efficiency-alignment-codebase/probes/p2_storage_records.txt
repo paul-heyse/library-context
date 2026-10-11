@@ -1,0 +1,12 @@
+objects: 700 files, 634937 bytes
+paths: 695 entries
+scopes: 683 entries
+admission: 1241 entries
+journals: 0 entries
+actions: 2 entries
+owners: 1 entries
+pass 0: 0.0064 s for 700 rows
+pass 1: 0.0062 s for 700 rows
+pass 2: 0.0068 s for 700 rows
+pass 3: 0.0057 s for 700 rows
+pass 4: 0.0059 s for 700 rows

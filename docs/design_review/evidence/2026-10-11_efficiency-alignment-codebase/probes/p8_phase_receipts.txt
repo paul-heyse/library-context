@@ -1,0 +1,66 @@
+== 20261009T055800.496Z-d3005d profile=behavioral phases=9
+   top: normalize_callable_aspects 1027.5s x3; normalize_callables 748.9s x3; normalize_relations 417.5s x3; normalize_entities 230.5s x3; normalize_receivers 104.9s x3; providers 93.6s x6; native_setup 10.7s x6; compiler_setup 0.2s x6; borrowed_cpu 0.0s x78
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261009T060142.629Z-c9c159 profile=catalog phases=64
+   top: native_journey 3426.3s x2; artifact_admission 882.4s x2; artifact_semantic_admission 874.5s x2; artifact_invariant_admission 867.8s x2; normalized_admission 752.7s x2; restore 570.3s x1; restore_canonical_copy 552.5s x1; restored_artifact_admission 529.1s x1; catalog_evidence 146.0s x2; catalog_selection 133.7s x2; normalize_callables 123.6s x2; normalize_callable_aspects 105.1s x2
+   unrequested-group 30.9s | catalog-group 430.9s | artifact_manifest 2.6s
+== 20261009T160744.103Z-5fd0d5 profile=behavioral phases=8
+   top: artifact_admission 285.9s x1; artifact_semantic_admission 285.8s x1; artifact_invariant_admission 285.8s x1; normalize_projections 1.6s x1; normalize_coverage 0.3s x1; native_content_freeze 0.0s x1; compiler_completion 0.0s x1; artifact_facts_admission 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261009T163757.029Z-9b0811 profile=behavioral phases=6
+   top: normalize_projections 1.7s x1; normalize_coverage 0.3s x1; native_content_freeze 0.0s x1; borrowed_cpu 0.0s x3; compiler_completion 0.0s x1; artifact_facts_admission 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261009T213536.960Z-54edcb profile=behavioral phases=48
+   top: normalized_admission 86.4s x3; providers 68.9s x3; evaluate_base 40.4s x3; reuse_control_checked_admission 32.3s x1; normalize_relations 27.4s x3; reuse_control_setup 23.1s x3; native_setup 23.0s x3; catalog_evidence 19.3s x3; synthesis 17.2s x2; analyze_local 16.5s x3; catalog_core 15.9s x3; analyze_structural 14.7s x3
+   unrequested-group 131.5s | catalog-group 77.3s | artifact_manifest 0.4s
+== 20261010T041013.131Z-c15f1b profile=? phases=7
+   top: restored_artifact_admission 18.9s x1; publication_references 16.6s x1; publication_seal 11.0s x1; publication_final_reconciliation 10.0s x1; publication_search 1.6s x1; native_canonical_preparation 0.3s x1; borrowed_cpu 0.1s x3
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261010T041912.896Z-a41f00 profile=? phases=9
+   top: publication_seal 22.1s x1; publication_references 17.0s x1; restored_artifact_admission 14.2s x1; publication_marker 7.5s x1; publication_final_reconciliation 3.4s x1; publication_search 1.7s x1; native_canonical_preparation 0.3s x1; publication_realization 0.0s x1; borrowed_cpu 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261010T043334.260Z-b5c688 profile=? phases=5
+   top: publication_seal 43.3s x1; publication_marker 6.6s x1; publication_final_reconciliation 3.9s x1; publication_readback 0.3s x1; publication_realization 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261010T045427.832Z-9dd5df profile=? phases=9
+   top: publication_seal 56.3s x1; publication_references 16.8s x1; restored_artifact_admission 13.2s x1; publication_marker 6.7s x1; publication_final_reconciliation 4.1s x1; publication_search 2.3s x1; publication_readback 0.6s x1; native_canonical_preparation 0.3s x1; publication_realization 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261010T050208.462Z-b150ac profile=? phases=7
+   top: publication_seal 62.2s x1; publication_references 30.3s x1; publication_marker 12.3s x1; publication_final_reconciliation 4.9s x1; publication_search 2.7s x1; publication_readback 0.7s x1; publication_realization 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261010T052010.244Z-dbf748 profile=? phases=7
+   top: publication_seal 46.9s x1; publication_references 16.5s x1; publication_marker 7.3s x1; publication_final_reconciliation 4.3s x1; publication_search 2.6s x1; publication_readback 0.4s x1; publication_realization 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261010T052948.598Z-5683cb profile=? phases=7
+   top: publication_seal 41.0s x1; publication_marker 6.8s x1; publication_final_reconciliation 4.0s x1; publication_search 2.3s x1; publication_readback 0.3s x1; native_setup 0.0s x1; publication_realization 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261010T055900.127Z-dc35ad profile=? phases=7
+   top: publication_seal 54.2s x1; publication_references 19.8s x1; publication_marker 8.2s x1; publication_final_reconciliation 4.4s x1; publication_search 2.6s x1; publication_readback 0.4s x1; publication_realization 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261010T063038.495Z-80228f profile=? phases=6
+   top: publication_seal 55.7s x1; publication_marker 10.3s x1; publication_final_reconciliation 4.5s x1; publication_readback 0.5s x1; native_setup 0.1s x2; publication_realization 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261010T070441.312Z-e94739 profile=? phases=7
+   top: artifact_admission 38.3s x1; artifact_semantic_admission 24.8s x1; artifact_invariant_admission 24.5s x1; artifact_manifest 8.6s x1; artifact_graph_admission 2.1s x1; native_canonical_preparation 0.9s x1; artifact_frontier_admission 0.3s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 8.6s
+== 20261010T073248.683Z-01e873 profile=? phases=5
+   top: publication_seal 65.4s x1; publication_readback 15.2s x1; publication_marker 8.0s x1; publication_final_reconciliation 5.2s x1; publication_realization 0.0s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 0.0s
+== 20261011T075948.716Z-184caa profile=catalog phases=19
+   top: artifact_journey 55.5s x1; providers 34.7s x1; artifact_admission 19.0s x1; provider_execution 18.8s x5; native_batch_write 18.3s x164; artifact_semantic_admission 16.2s x1; artifact_invariant_admission 16.2s x1; provider_completion 15.5s x5; native_contribution_complete_scoped 8.4s x5; artifact_manifest 1.2s x1; native_canonical_preparation 0.8s x1; artifact_graph_admission 0.4s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 1.2s
+== 20261011T083443.010Z-7f65a2 profile=? phases=7
+   top: artifact_admission 330.0s x2; artifact_manifest 165.6s x2; artifact_semantic_admission 44.8s x1; artifact_invariant_admission 44.7s x1; native_canonical_preparation 6.7s x2; artifact_graph_admission 3.6s x2; artifact_frontier_admission 0.2s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 165.6s
+== 20261011T085505.931Z-f5b488 profile=? phases=6
+   top: artifact_admission 356.1s x2; artifact_manifest 190.5s x2; publication_search 77.8s x2; publication_references 68.8s x2; native_canonical_preparation 3.6s x1; artifact_graph_admission 2.1s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 190.5s
+== 20261011T090609.217Z-6c0bdc profile=catalog phases=53
+   top: artifact_admission 161.6s x1; artifact_manifest 88.8s x1; native_batch_write 67.2s x548; catalog_evidence 40.9s x1; publication_references 40.8s x1; native_content_freeze 38.3s x1; providers 32.2s x1; native_contribution_complete_scoped 29.5s x35; artifact_semantic_admission 28.6s x1; artifact_invariant_admission 28.3s x1; publication_search 18.3s x1; provider_execution 16.9s x5
+   unrequested-group 32.9s | catalog-group 80.9s | artifact_manifest 88.8s
+== 20261011T093642.209Z-3a42ce profile=catalog phases=37
+   top: providers 24.4s x1; artifact_admission 18.4s x1; native_batch_write 14.0s x157; provider_completion 13.2s x5; provider_execution 10.7s x5; publication_seal 9.1s x1; artifact_manifest 8.4s x1; native_contribution_complete_scoped 7.1s x14; artifact_semantic_admission 5.7s x1; artifact_invariant_admission 5.7s x1; native_content_freeze 4.0s x1; normalize_relations 2.4s x1
+   unrequested-group 0.0s | catalog-group 0.0s | artifact_manifest 8.4s
+== 20261011T095410.471Z-4cb00b profile=catalog phases=57
+   top: artifact_admission 108.9s x1; native_batch_write 76.0s x596; artifact_manifest 65.1s x1; publication_seal 63.4s x1; native_content_freeze 34.1s x1; providers 22.7s x1; native_contribution_complete_scoped 20.0s x35; publication_final_reconciliation 14.2s x1; provider_completion 11.9s x5; provider_execution 10.4s x5; publication_references 10.2s x1; analyze_analytic 9.8s x1
+   unrequested-group 31.7s | catalog-group 32.9s | artifact_manifest 65.1s

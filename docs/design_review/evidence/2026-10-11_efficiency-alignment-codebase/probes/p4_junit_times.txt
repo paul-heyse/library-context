@@ -1,0 +1,46 @@
+boundary | step | run | step s | junit suite s | step - suite s | tests | sum test s
+model:rust | nextest | 20261011T071240 | 128.6 | 2.7 | 125.9 | 809 | 75.2
+analytics:rust | nextest | 20261011T071240 | 6.8 | 0.1 | 6.7 | 14 | 0.2
+providers:extract | nextest | 20261011T071240 | 632.6 | 280.8 | 351.8 | 76 | 8984.2
+
+slowest tests by median duration (boundary, binary, test) | runs | median s
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::completion_producer_reconciles_statement_inventory_and_finalizer_order') | 1 | 280.8
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::body_under_entry_refuses_async_and_unreachable_generator_yield') | 1 | 280.8
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::base_producer_reconciles_the_entire_root_inventory_and_actual_request_profile') | 1 | 280.8
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::native_base_completion_consumes_independent_evaluations_and_replays_pending_order') | 1 | 280.8
+('providers:extract', 'cpg-extract::extraction_calls', 'context_constructors::captured_context_constructors_keep_all_overloads_and_unknown_initializers') | 1 | 280.8
+('providers:extract', 'cpg-extract::extraction_calls', 'entry_value_witnesses::native_parameter_bridge_requires_the_exact_first_identifier_and_native_support') | 1 | 280.8
+('providers:extract', 'cpg-extract::extraction_calls', 'direct_usage::native_official_doc_sites_keep_alias_targets_and_source_receipts_without_flow') | 1 | 280.8
+('providers:extract', 'cpg-extract::extraction_calls', 'entry_value_witnesses::entry_identity_retains_parameter_and_receiver_but_refuses_rebinding_and_nested_reach') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::native_closed_expressions_skip_unentered_operands_and_preserve_limits') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'entry_value_witnesses::partial_family_native_singleton_requires_its_complete_attributed_inventory') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::source_body_is_under_entry_and_preserves_required_frame_cleanup') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::local_cross_context_and_budget_refuse_without_producing_proofs') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled_membership_forgery') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'entry_value_witnesses::stored_summary_substitution_replays_the_original_binding_prefix') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::base_completion_stored_replay_rejects_pending_order_and_coupled_proof_forgery') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::local_definitions_are_bound_to_code_parameters_and_interpretation') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::native_builtin_read_is_structural_and_refuses_shadowing_frame_and_forged_support') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::local_shared_replay_refuses_forged_transfer_guard_entry_influence_and_qualification') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::native_assignment_transfer_retains_exact_definition_premise_and_refuses_rebound_input') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'entry_value_witnesses::normalized_actual_and_receiver_guards_preserve_source_operations_and_qualified_influence') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'execution_channels::field_location_does_not_establish_exact_attribute_readiness') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::native_entry_sources_refuse_other_values_regions_supports_and_guard_phases') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::native_field_locations_keep_two_fields_and_unrelated_readers_distinct_and_state_open') | 1 | 280.7
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::native_builtin_type_predicates_use_supported_operands_and_refuse_shadowed_functions') | 1 | 280.6
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::native_field_locations_refuse_wrong_role_foreign_placement_support_and_context') | 1 | 280.6
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::native_finite_domains_scalar_refutation_and_complete_diamond_mro_retain_boundaries') | 1 | 280.6
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::native_local_parameter_receiver_and_class_receiver_return_transfers_are_witnessed') | 1 | 221.7
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::native_scalar_admission_refuses_a_type_known_only_outside_the_leaf_domain') | 1 | 178.7
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::native_type_domains_refuse_missing_prefix_mro_partial_coverage_and_foreign_frames') | 1 | 177.6
+('providers:extract', 'cpg-extract::extraction_calls', 'local_semantics::theory_shared_replay_refuses_forged_exhaustiveness_scalar_truth_and_ancestry_members') | 1 | 157.3
+('providers:extract', 'cpg-extract::acquisition', 'acquisition_follows_the_environment_and_its_lock') | 1 | 156.7
+('providers:extract', 'cpg-extract::extraction_calls', 'native_callable_deprecation::native_deprecation_preserves_overload_origin_and_optional_message') | 1 | 124.0
+('providers:extract', 'cpg-extract::acquisition', 'acquisition_is_location_independent') | 1 | 123.4
+('providers:extract', 'cpg-extract::acquisition', 'acquisition_never_writes_the_tree_the_environment_or_the_definition') | 1 | 103.1
+('providers:extract', 'cpg-extract::acquisition', 'an_installed_library_and_its_corpus_acquire_every_class_and_role') | 1 | 102.0
+('providers:extract', 'cpg-extract::acquisition', 'a_quoted_record_path_is_captured_and_verified') | 1 | 59.1
+('model:rust', 'lctx-model::domain_input', 'a_derivation_names_an_original_document_of_its_own_input') | 1 | 1.6
+('model:rust', 'lctx-model::domain_input', 'only_derived_artifacts_live_under_the_reserved_namespace') | 1 | 1.3
+('model:rust', 'lctx-model::domain_input', 'an_artifact_has_at_most_one_class') | 1 | 1.2

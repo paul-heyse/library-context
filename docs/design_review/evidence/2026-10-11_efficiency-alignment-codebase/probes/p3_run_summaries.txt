@@ -1,0 +1,53 @@
+boundary | runs | fixture | median total s | median steps s | median unaccounted s | max unaccounted s | first..last date
+analytics:rust | 6 | False | 3.1 | 3.0 | 0.0 | 0.3 | 20261008..20261011
+compiler:cli | 5 | True | 449.1 | 447.5 | 1.6 | 3.1 | 20261008..20261009
+compiler:producer | 23 | True | 562.1 | 560.1 | 1.7 | 2.9 | 20261008..20261011
+leaf:adr-lint | 3 | False | 0.4 | 0.4 | 0.0 | 0.0 | 20261008..20261009
+leaf:clippy | 9 | False | 74.4 | 74.4 | 0.0 | 0.0 | 20261008..20261009
+leaf:deps | 7 | False | 3.1 | 3.1 | 0.0 | 0.0 | 20261008..20261009
+leaf:docs-check | 2 | False | 1.8 | 1.8 | 0.0 | 0.0 | 20261008..20261009
+leaf:fixtures-check | 3 | False | 0.1 | 0.1 | 0.0 | 0.0 | 20261008..20261009
+leaf:gold | 3 | False | 0.1 | 0.1 | 0.0 | 0.0 | 20261008..20261009
+leaf:lint-agents | 3 | False | 0.1 | 0.1 | 0.0 | 0.0 | 20261008..20261009
+leaf:ruff | 6 | False | 0.0 | 0.0 | 0.0 | 0.0 | 20261008..20261009
+leaf:rules-scan | 4 | False | 0.2 | 0.2 | 0.0 | 0.0 | 20261008..20261009
+leaf:rules-test | 3 | False | 0.0 | 0.0 | 0.0 | 0.0 | 20261008..20261009
+leaf:types | 5 | False | 0.3 | 0.3 | 0.0 | 0.0 | 20261008..20261009
+model:rust | 18 | False | 146.2 | 146.2 | 0.0 | 4.7 | 20261008..20261011
+oracles:flow | 3 | True | 218.9 | 217.5 | 1.5 | 1.8 | 20261008..20261009
+providers:extract | 6 | True | 414.8 | 412.9 | 2.5 | 5.1 | 20261008..20261011
+providers:flow | 5 | False | 1.7 | 1.7 | 0.0 | 0.0 | 20261008..20261011
+serving:mcp | 8 | True | 733.0 | 730.7 | 2.8 | 4.1 | 20261008..20261011
+serving:rust | 2 | True | 172.2 | 170.8 | 1.4 | 1.5 | 20261008..20261009
+store:rust | 35 | True | 289.3 | 288.3 | 1.1 | 2.8 | 20261008..20261010
+tooling:docs | 2 | False | 104.7 | 104.7 | 0.0 | 0.0 | 20261008..20261009
+tooling:python | 5 | False | 55.0 | 55.0 | 0.0 | 0.1 | 20261008..20261010
+
+step (boundary, name) | runs | median s | min s
+('analytics:rust', 'nextest') | 6 | 3.0 | 1.0
+('compiler:cli', 'nextest') | 5 | 447.5 | 205.9
+('compiler:producer', 'nextest') | 23 | 560.1 | 0.0
+('leaf:adr-lint', 'adr-lint') | 3 | 0.4 | 0.4
+('leaf:clippy', 'clippy') | 9 | 74.4 | 0.9
+('leaf:deps', 'deps') | 7 | 3.1 | 2.2
+('leaf:docs-check', 'docs-check') | 2 | 1.8 | 0.4
+('leaf:fixtures-check', 'fixtures-check') | 3 | 0.1 | 0.1
+('leaf:gold', 'gold') | 3 | 0.1 | 0.1
+('leaf:lint-agents', 'lint-agents') | 3 | 0.1 | 0.0
+('leaf:ruff', 'ruff') | 6 | 0.0 | 0.0
+('leaf:rules-scan', 'rules-scan') | 4 | 0.2 | 0.2
+('leaf:rules-test', 'rules-test') | 3 | 0.0 | 0.0
+('leaf:types', 'types') | 5 | 0.3 | 0.2
+('model:rust', 'nextest') | 18 | 146.2 | 2.3
+('oracles:flow', 'build') | 3 | 99.2 | 0.4
+('oracles:flow', 'pytest') | 3 | 60.6 | 27.4
+('providers:extract', 'nextest') | 6 | 412.9 | 233.0
+('providers:flow', 'nextest') | 5 | 1.7 | 1.0
+('serving:mcp', 'build') | 8 | 129.4 | 0.4
+('serving:mcp', 'native_journey') | 8 | 579.0 | 163.3
+('serving:mcp', 'pytest') | 3 | 27.4 | 16.5
+('serving:rust', 'nextest') | 2 | 170.8 | 92.2
+('store:rust', 'build-cli') | 2 | 207.0 | 86.9
+('store:rust', 'nextest') | 35 | 273.3 | 35.1
+('tooling:docs', 'doctest') | 2 | 104.7 | 97.2
+('tooling:python', 'pytest') | 5 | 55.0 | 2.1
