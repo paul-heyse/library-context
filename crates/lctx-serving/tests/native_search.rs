@@ -872,7 +872,10 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     .unwrap();
     assert_eq!(vector.len(), 1);
     assert_eq!(vector[0].occurrence.context, good);
-    assert!(vector[0].score.unwrap() < 1.0);
+    // Independent finite scalar arithmetic supplies the expected served winner score;
+    // neither the production SQL nor a native EXPLAIN is the numerical oracle.
+    let expected = f64::from(0.8f32) / (f64::from(0.8f32).powi(2) + f64::from(0.6f32).powi(2)).sqrt();
+    assert!((vector[0].score.unwrap() - expected).abs() < 1e-12);
     // Brief eligibility precedes both channel caps and does not materialize a unit inventory.
     freeze(&mut native, &mut fixtures, &config).await;
     let brief_lexical = lctx_serving::search::lexical_scoped(

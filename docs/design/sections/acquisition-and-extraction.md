@@ -22,7 +22,7 @@ model kernels remain store-independent; actual producer-to-consumer controls use
 fixtures. Real-library qualification and operator activation remain held. Acquisition requirements
 own input verification, while typed row declarations own emission.
 
-> Decision: ADR-0145, ADR-0131
+> Decision: ADR-0145, ADR-0150
 
 ## §4 Pipeline
 

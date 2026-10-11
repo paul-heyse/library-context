@@ -161,7 +161,7 @@ Search and E1 analytics share that explicit1024 representation; bounded search r
 full winners. MCP's optional
 `--embedding-url` names the existing service. Omission disables vector search; service failure
 reports degradation while native lexical search remains available. No service is started or
-upgraded implicitly. BM25 and shared-vector HNSW candidates are restricted to eligible contextual
+upgraded implicitly. BM25 and exact selected-vector candidates are restricted to eligible contextual
 occurrences before distinct target/context channel caps. Exact name/path/option matches have an
 independent prioritized lane, including literal matches with zero BM25. Session-retained ranked
 continuations reuse the initial candidate pool and query vector under the original snapshot,

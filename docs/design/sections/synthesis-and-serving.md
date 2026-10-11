@@ -41,7 +41,7 @@ Each operation retains its own declared inputs; seed replay constructs its indep
 inventory. Actual consumed relations are completed immutable inputs; sharing does not authorize an
 unfinished or different source universe. ADR-0128 replaces the earlier persisted epoch mechanism.
 
-> Decision: ADR-0049, ADR-0071, ADR-0131, ADR-0086, ADR-0106, ADR-0108, ADR-0116
+> Decision: ADR-0049, ADR-0071, ADR-0150, ADR-0086, ADR-0106, ADR-0108, ADR-0116
 
 <a id="section-10-1"></a>
 
@@ -178,7 +178,7 @@ retain separate execution status.
 
 ## §11 Serving and agent interface
 
-> Decision: ADR-0145, ADR-0131, ADR-0114, ADR-0117
+> Decision: ADR-0145, ADR-0150, ADR-0114, ADR-0117
 
 **Implemented native serving, 2026-10-06 (ADR-0128); targeted verification passed and activation is separate.** A running service pins one exact published view and its immutable executable epoch. Rust owns operation meaning and uncertainty; native queries/functions
 implement connected access, text/vector search and coarse hydration. The
@@ -198,12 +198,12 @@ capability. First use checks the pinned Rust operation definition. No unrelated 
 
 ### §11.1 Embedding spec and vectors
 
-> Decision: ADR-0145, ADR-0131, ADR-0106
+> Decision: ADR-0145, ADR-0150, ADR-0106
 
-**Implemented replacement, 2026-10-06; integrated native acceptance pending (ADR-0131):** format3
+**Implemented replacement, 2026-10-06; integrated native acceptance pending (ADR-0150):** format3
 separates actual encoder/input, rendering, query and projection dependencies.
 One admitted normalized full4096 F32 winner per actual input supplies a deterministic normalized1024
-projection, shared by initial ANN and E1 analytics. F64 prefix-norm accumulation and one F32 rounding
+projection, shared by exact initial vector selection and E1 analytics. F64 prefix-norm accumulation and one F32 rounding
 are explicit policy; endpoint bitwise equivalence is not assumed. Full values serve bounded rescoring
 and offline references. Each E1 consumer carries its chosen representation and complete method/input
 identity; query-only changes do not invalidate document/E1 values.
@@ -223,7 +223,7 @@ acceptance, numerical parity, usefulness and operator adoption require their own
 
 ### §11.2 Retrieval
 
-> Decision: ADR-0145, ADR-0131
+> Decision: ADR-0145, ADR-0150
 
 **Implemented native retrieval, 2026-10-06; integrated acceptance pending and no Measured speed or quality claim.** Semantic text/vector identity is shared across eligible
 contextual occurrences. Native operations retain release/library eligibility, finite channels,
@@ -259,7 +259,7 @@ Do not enumerate in Rust merely to obtain examined-work counts or copy every occ
 The query planner and metrics are optional diagnostics for concrete query-shape questions.
 
 
-**Implemented extension, integrated acceptance pending (ADR-0131):** compiler-owned semantic windows,
+**Implemented extension, integrated acceptance pending (ADR-0150):** compiler-owned semantic windows,
 exact primary bindings and mandatory context replace broad fragment-parent applicability. Group
 eligible target/context alternatives, preserve zero-BM25 match eligibility and exact identifiers,
 and hydrate full values/evidence late. Evidence demands select compatible context-closed bundles;
@@ -317,4 +317,4 @@ invent a universal engine-step counter. Qualitative first-principles/library-inf
 these choices; quantitative speed/capacity claims require measurement. Custom APIs, WASM modules,
 buckets, reactive enrichment and external exporters are activated only by a current consumer.
 
-> Decision: ADR-0145, ADR-0131
+> Decision: ADR-0145, ADR-0150

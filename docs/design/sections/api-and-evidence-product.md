@@ -122,7 +122,7 @@ comparison serve the same product contract rather than expanding general analysi
 
 ## §14.3 Responsibilities and representation flow
 
-> Decision: ADR-0071, ADR-0073, ADR-0074, ADR-0085, ADR-0131
+> Decision: ADR-0071, ADR-0073, ADR-0074, ADR-0085, ADR-0150
 
 The flow is pinned sources and metadata → attributed facts → normalized relations → typed
 analysis/catalog owners → admitted graph artifacts → native SurrealDB publication. Native serving
@@ -152,7 +152,7 @@ pinned bytes with a mutable current web page.
 
 ## §14.4 Public API and configuration contracts
 
-> Decision: ADR-0071, ADR-0074, ADR-0131, ADR-0106, ADR-0108
+> Decision: ADR-0071, ADR-0074, ADR-0150, ADR-0106, ADR-0108
 
 **Public identity.** A public member names the release's exposed owner/name/access path independently
 of binding interpretation. It references declarations without renaming them. Alias/inherited origins,
@@ -268,7 +268,7 @@ pinned disposable environment, without a generic shell semantics engine or manda
 
 ## §14.7 Query semantics and customizable requirements
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0131, ADR-0081, ADR-0085, ADR-0114
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0150, ADR-0081, ADR-0085, ADR-0114
 
 **Accepted target (ADR-0128), 2026-10-05.** C2 owns the finite predicate and conjunction
 operations, contextual witnesses and completeness domains. The compiler prepares these from
@@ -330,7 +330,7 @@ its final limit; bounded ranking never claims exhaustiveness.
 
 ## §14.8 Retrieval units, witnesses and ranking
 
-> Decision: ADR-0131, ADR-0085, ADR-0145, ADR-0114
+> Decision: ADR-0150, ADR-0085, ADR-0145, ADR-0114
 
 **Implemented graph-native retrieval, 2026-10-06.** Fusion and winning-witness decisions remain
 one model operation over library numerical scores. Native realization derives vector indexes
@@ -351,7 +351,7 @@ original coordinates. Identical final encoder inputs share values while retainin
 occurrences and associations. Token refusal leaves originals addressable with explicit lexical-only
 availability. Query recipe changes preserve document winners; incompatible realizations never mix.
 
-The retained P5 ranking contract uses exact-symbol priority, BM25 and native HNSW candidate ranks, with
+The retained P5 ranking contract uses exact-symbol priority, BM25 and exact eligible vector candidate ranks, with
 one best contribution per family/member, deterministic ties and equal-weight family-normalized
 RRF K60. Duplicate examples are not extra votes. Return winning unit/channel/rank metadata rather
 than finding an approximate explanation afterward. A ranking witness is distinct from the evidence
@@ -363,7 +363,7 @@ semantic capture/specification identity. Native realization is derived from admi
 content; it does not introduce another semantic authority.
 
 
-**Implemented extension; targeted integrated acceptance pending, 2026-10-06 (ADR-0131).** The
+**Implemented extension; targeted integrated acceptance pending, 2026-10-06 (ADR-0150).** The
 [evidence/retrieval coordinator §2](../../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md#2-shared-target-and-responsibilities)
 owns the extension beyond these implemented unit/rank contracts. Evidence roots separate defining
 source and public access; primary parts retain their context closure, semantic windows their exact
@@ -378,7 +378,7 @@ analytics consume the declared shared normalized1024 projection; full values als
 candidate rescoring and independent offline numerical references. Provenance, rendering, query,
 projection and analytical policy identities remain separate dependencies. This requires new values,
 fresh results and all consuming adapters; neither lost dimensions nor endpoint bitwise parity can
-be inferred from current1024 data. Native exact identifier, code-aware BM25 and scoped HNSW
+be inferred from current1024 data. Native exact identifier, code-aware BM25 and scoped exact-vector
 candidate paths remain selected. Contributions aggregate within compatible applicable context;
 zero-BM25 matches remain matches, while duplicate windows do not multiply votes. Candidate tiers,
 RRF and full-vector rescoring are explicit experimental policies, never completeness guarantees.
@@ -387,7 +387,7 @@ RRF and full-vector rescoring are explicit experimental policies, never complete
 
 ## §14.9 Agent interface and bounded implementation packet
 
-> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081, ADR-0114, ADR-0131
+> Decision: ADR-0071, ADR-0073, ADR-0076, ADR-0081, ADR-0114, ADR-0150
 
 **Implemented graph-native interface, 2026-10-06 (ADR-0128).** Native serving retains pinned
 request context, one CPU admission owner, model-derived wire mappings, exact-input reconstruction
@@ -432,7 +432,7 @@ to qualify, not latency measurements. Natural language nominates candidates but 
 structured matches.
 
 
-**Implemented contextual delivery extension; selected native acceptance pending, 2026-10-06 (ADR-0131).** A request can
+**Implemented contextual delivery extension; selected native acceptance pending, 2026-10-06 (ADR-0150).** A request can
 state a bounded public evidence demand; private evaluator answers/witnesses are never request
 inputs. Evidence nomination, compatible expansion and context-closed bundle packing are separate
 operations. Member grouping cannot merge incompatible release, variant, setup, control-flow or
@@ -454,7 +454,7 @@ This is disposable session state, not a durable historical store.
 
 ## §14.10 Publication, optional analyses and rebuild boundaries
 
-> Decision: ADR-0071, ADR-0073, ADR-0131, ADR-0081, ADR-0085
+> Decision: ADR-0071, ADR-0073, ADR-0150, ADR-0081, ADR-0085
 
 Public catalog construction is independent of optional behavioral analysis and brief seeds. Catalog
 and behavioral profiles have explicit identity. Unrequested analysis is `NotRequested`; selected
@@ -534,7 +534,7 @@ Conditional alternatives retain consumer triggers in the [forward plan §7](../.
 
 Salsa/Ascent comparisons must include cycles, deletion, missing lookups, source coordinates, policy,
 complete outputs/provenance and cold/reused costs. Library availability does not prove speed or
-product advantage. Native SurrealDB BM25/HNSW are selected; comparative product benefit remains
+product advantage. Native SurrealDB BM25 and exact eligible vector ranking are selected; comparative product benefit remains
 an evaluation question, not an adoption prerequisite for native querying.
 
 Optional runtime surface inspection is isolated, bounded and explicitly attributed. Import or
@@ -636,7 +636,7 @@ a FastMCP pilot, live embedding qualification or product differentiation.
 This is a hard ownership replacement. Remove the PostgreSQL backend, lifecycle and old serving
 paths; retain pure domain definitions, independent regression obligations and product contracts.
 No compatibility reader, old-ID bridge or historical runtime retention is required. A validated
-native replacement is rebuilt from pinned inputs under ADR-0131; operator replacement remains a
+native replacement is rebuilt from pinned inputs under ADR-0150; operator replacement remains a
 separate authorized boundary.
 
 Native publication and serving integrate pinned requests, typed hydration, native loading,
@@ -650,4 +650,4 @@ migrated ER contracts and native prerequisite repair. PR6 retains separately aut
 and comparative work; its parity prerequisite cannot block the primary finite loop. The forward
 plan retains earlier receipts without promoting them to replacement qualification.
 
-> Decision: ADR-0071, ADR-0145, ADR-0131, ADR-0085, ADR-0073
+> Decision: ADR-0071, ADR-0145, ADR-0150, ADR-0085, ADR-0073

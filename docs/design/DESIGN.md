@@ -50,7 +50,7 @@ All ten serving tools have targeted actual native/MCP evidence in the graph-nati
 [§14.9](sections/api-and-evidence-product.md#section-14-9) owns the proposed tool adapter.
 Fixture qualification does not establish a real-library pilot or comparative product acceptance.
 
-> Decision: ADR-0071, ADR-0131, ADR-0025
+> Decision: ADR-0071, ADR-0150, ADR-0025
 
 <a id="section-1-2"></a>
 
@@ -579,7 +579,7 @@ selected nominal key to one payload; conflicting selected payloads fail. Full ge
 original bytes and typed graph roles survive transport. Arrow spill, prepared topology, search
 indexes and export projections remain derived. Native ownership governs reachability and pins.
 
-> Decision: ADR-0145, ADR-0131
+> Decision: ADR-0145, ADR-0150
 
 <a id="section-b13"></a>
 
@@ -592,13 +592,13 @@ Python stays a thin FastMCP adapter with no second classifier. Resources/cursors
 executable realization. Native deadlines/cancellation and response limits retain honest partial
 outcomes; no fictitious exact engine-work ceiling is exposed. Activation remains stopped until Q1.
 
-> Decision: ADR-0145, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0131
+> Decision: ADR-0145, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0150
 
 <a id="section-b14"></a>
 
 ### §B14 Actual embedding dependencies and exact consumed values
 
-**Accepted target, implementation Proposed, 2026-10-06 (ADR-0131).** Current code has the
+**Accepted target, implementation Proposed, 2026-10-06 (ADR-0150).** Current code has the
 format2 all-purpose1024 spec; the [combined plan](../plans/evidence-retrieval-and-evaluation-plan_2026-10-06.md)
 schedules wholesale replacement, not compatibility with it.
 
@@ -616,7 +616,7 @@ schedules wholesale replacement, not compatibility with it.
 - Current service/checkpoint locks remain; paths do not define values. Pure/fake controls establish
   seams only. Actual native/live usability, precision, quality and Q1 are separate evidence boundaries.
 
-> Decision: ADR-0131, ADR-0145
+> Decision: ADR-0150, ADR-0145
 
 ---
 

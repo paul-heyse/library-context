@@ -230,7 +230,7 @@ SurrealQL is the only executor; Python remains a thin adapter. Complex kernels c
 batched inputs. Search eligibility precedes channel limits; exact analytical neighbors remain a
 separate contract from approximate discovery. Resources and continuations pin complete realization.
 
-> Decision: ADR-0145, ADR-0071, ADR-0131, ADR-0049
+> Decision: ADR-0145, ADR-0071, ADR-0150, ADR-0049
 
 <a id="section-6-5"></a>
 
@@ -251,4 +251,4 @@ consumer. Historical runs/operation records are retired rather than reconstructe
 The [operator runbook](../../surrealdb.md) documents configuration, publication and explicit selection.
 Operator reconstruction, live vectors and activation belong to separately authorized Q1 work.
 
-> Decision: ADR-0145, ADR-0073, ADR-0131
+> Decision: ADR-0145, ADR-0073, ADR-0150

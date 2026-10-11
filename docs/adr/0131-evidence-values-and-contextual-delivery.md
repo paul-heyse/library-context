@@ -1,10 +1,10 @@
 ---
 id: ADR-0131
 title: Separate evidence applicability, encoder values and contextual delivery
-status: accepted
+status: superseded
 date: 2026-10-06
 supersedes: [ADR-0077, ADR-0078, ADR-0080]
-superseded-by: null
+superseded-by: ADR-0150
 design: [§B12, §B13, §B14, §6.4, §6.5, §11, §11.1, §11.2, §11.4, §14.3, §14.4, §14.7, §14.8, §14.9, §14.10, §14.13, §15]
 evidence: Proposed
 revisit: A supported task requires another representation, contextual binding or delivery policy, or a real external consumer requires compatibility or irreproducible history.

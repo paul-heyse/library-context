@@ -1,7 +1,7 @@
 """Private bounded numerical replay from one pinned native cohort, without inference.
 
 The ordinary CLI supplies its checked VIEWER/read-only boundary. This adapter reads
-canonical winning bytes and actual indexed ANN nominations; it never supplies
+canonical winning bytes and actual exact-vector nominations; it never supplies
 expected answers to production or labels a bounded cohort as the whole library.
 """
 
@@ -107,6 +107,15 @@ def _full(payload: str) -> list[float]:
     return values
 
 
+def _check_exact_order(actual: list[dict[str, Any]], expected: list[dict[str, Any]]) -> None:
+    if ([row.get("vector_id") for row in actual] != [row["id"] for row in expected]
+            or any(type(row.get("score")) not in (int, float)
+                   or not math.isfinite(row["score"])
+                   or not math.isclose(row["score"], wanted["score"], rel_tol=1e-12, abs_tol=1e-12)
+                   for row, wanted in zip(actual, expected))):
+        raise WorkerError("native exact ordering or scores differ from independent scalar reference")
+
+
 def native_numeric_reference(
     worker: Worker,
     native: NativeReference,
@@ -114,7 +123,7 @@ def native_numeric_reference(
     k: int = 4,
     cohort: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Exhaust one admitted eligible cohort of <=256 rows and compare actual ANN.
+    """Exhaust one admitted eligible cohort of <=256 rows and compare exact selection.
 
     A stored document winner is the query for this numerical control. This tests
     index/projection/rescore mechanics and declares no semantic query relevance.
@@ -198,18 +207,18 @@ def native_numeric_reference(
         if row["embedding"] != projected:
             raise WorkerError("native indexed projection differs from canonical winning bytes")
     query = full[rows[0]["full_key"]]
-    ann = native.rows(
-        "SELECT <string>id AS vector_id, vector::distance::knn() AS distance FROM vector "
-        f"WHERE {predicates} AND {eligibility} AND embedding <|{k},128|> "
-        f"{json.dumps(rows[0]['embedding'], allow_nan=False)}"
+    exact = native.rows(
+        "SELECT <string>id AS vector_id, vector::similarity::cosine(embedding,"
+        f"{json.dumps(rows[0]['embedding'], allow_nan=False)}) AS score FROM vector "
+        f"WHERE {predicates} AND {eligibility} ORDER BY score DESC,vector_id ASC LIMIT {k}"
     )
-    nominated = [row["vector_id"] for row in ann]
+    nominated = [row["vector_id"] for row in exact]
     if (
         not nominated
         or len(set(nominated)) != len(nominated)
         or any(key not in ids for key in nominated)
     ):
-        raise WorkerError("native ANN returned empty, duplicate or foreign scope")
+        raise WorkerError("native exact selection returned empty, duplicate or foreign scope")
     reference = stored_vector_reference(
         worker,
         {
@@ -227,13 +236,16 @@ def native_numeric_reference(
             "nominated_ids": nominated,
         },
     )
+    # Native SQL supplies observations, never expected answers. The independent worker
+    # exhausts stored F32 values with scalar F64 arithmetic and canonical identity ties.
+    _check_exact_order(exact, reference["projected"])
     return {
         "snapshot": native.snapshot,
         "cohort": cohort,
         "population_scope": "complete eligible admitted rows in this declared native cohort",
         "query_basis": "retained document full4096 winner, numerical control only",
         "inference_started": False,
-        "native_ann": ann,
-        "native_nomination_basis": "actual indexed HNSW1024, residual eligible occurrence, k/ef128",
+        "native_exact": exact,
+        "native_nomination_basis": "exact eligible1024 cosine, descending score and canonical identity ties",
         "reference": reference,
     }

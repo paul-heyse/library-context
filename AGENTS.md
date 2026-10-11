@@ -15,7 +15,7 @@ The pieces:
   - The accepted code-facts target links independent latest Ruff/ty and native Pyrefly in-process (ADR-0117/0118).
   - Latest Ruff owns canonical syntax. Pyrefly's embedded Ruff stays inside its adapter, and ty's runtime view has explicit source/role correspondence.
   - Current pins are in `docs/pins.md`. The Pyrefly CLI is only a parity-test oracle.
-  - Catalog compilation is the default (ADR-0131); `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
+  - Catalog compilation is the default (ADR-0150); `--profile behavioral` explicitly requests the flow provider and retained behavioral enrichment.
 - **Facts.**
   - Independent native providers stream bounded typed batches into attempt-owned persisted native contributions. Exact immutable completed views feed normalization and analyses.
   - Arrow/DataFusion is bounded compute/transfer, not completed IPC authority.
@@ -227,7 +227,7 @@ It is not a validation of the existing test scope. Long journeys, whole families
 
 ## Design-phase cutover
 
-After validating a change, fully pivot to the current design (ADR-0131):
+After validating a change, fully pivot to the current design (ADR-0150):
 - rebuild project stores and projections from pinned inputs;
 - remove obsolete generations, runtime copies, rollback assets and compatibility-only paths;
 - add no old-format readers, and retain no historical runtime records without a named current consumer;

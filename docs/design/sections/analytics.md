@@ -242,7 +242,7 @@ service/cache effects and exact cache keys. Cold stored-value replay needs no li
 Optional unavailability remains explicit and does not rewrite another completed invocation.
 Live embedding qualification, performance and ranking benefit are not claimed here.
 
-> Decision: ADR-0020, ADR-0106, ADR-0131
+> Decision: ADR-0020, ADR-0106, ADR-0150
 
 <a id="section-9-8"></a>
 
