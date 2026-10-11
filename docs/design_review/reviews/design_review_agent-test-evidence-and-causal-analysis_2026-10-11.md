@@ -426,9 +426,10 @@ append does not reinterpret prior references; concurrent runs stay separate; cit
 prevent retirement; changed/missing originals are explicit; selective requests do not repeat
 unrelated full-input processing.
 
-**Disposition:** F01–F04 are unscheduled target gaps in this source review. Trigger: adoption and
-planning of the evidence-tooling scope. Transfer scheduled status to one active plan with these
-source IDs. Deferral is not acceptance of the full target. F01/F02 establish meaning/attribution;
+**Disposition transferred, 2026-10-11:** the standalone
+[implementation plan §8](../../plans/agent-test-evidence-and-causal-analysis-plan_2026-10-11.md#8-sole-current-finding-disposition-and-checkpoint)
+owns current scheduled status for F01–F04 using these source IDs. This review retains its dated
+assessment and evidence; planning is not implementation or closure. F01/F02 establish meaning/attribution;
 F03 removes unnecessary execution and F04 unnecessary inspection. Their closure obligations
 remain distinct.
 
