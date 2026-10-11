@@ -67,3 +67,58 @@ pub(crate) fn product_fallback_allowed(error: &lctx_model::domain::ModelError) -
     }
     allowed(error)
 }
+
+#[cfg(test)]
+mod completion_controls {
+    use super::*;
+    use datafusion::error::DataFusionError;
+    use lctx_model::domain::{
+        ModelError,
+        completion::{self, Completion, LocalState, RemoteState},
+    };
+    use std::sync::Arc;
+
+    #[test]
+    fn shared_execution_context_preserves_native_completion_metadata() {
+        let primary = Arc::new(ModelError::Schema("native primary"));
+        for has_primary in [true, false] {
+            let mut terminal = Completion {
+                local: LocalState::Outstanding,
+                remote: RemoteState::Unknown,
+                ..Default::default()
+            };
+            terminal.committed("publication", "exact-view");
+            terminal.step("drain", Err(ModelError::Schema("cleanup cause")));
+            let result = if has_primary {
+                Err(ModelError::SharedCause(primary.clone()))
+            } else {
+                Ok(())
+            };
+            let shared = Arc::new(DataFusionError::Context(
+                "join execution".into(),
+                Box::new(DataFusionError::External(Box::new(
+                    completion::complete(result, terminal).unwrap_err(),
+                ))),
+            ));
+            // A live sibling holds the same execution error, preventing unwrapping.
+            let sibling = shared.clone();
+            let wrapped = model_error(DataFusionError::Shared(shared));
+            assert_eq!(Arc::strong_count(&sibling), 2);
+            assert_eq!(wrapped.primary().is_some(), has_primary);
+            if has_primary {
+                assert!(std::ptr::eq(wrapped.primary().unwrap(), primary.as_ref()));
+            }
+            assert!(!wrapped.permits_storage_cleanup());
+            assert!(wrapped.has_committed_effect());
+            assert!(!product_fallback_allowed(&wrapped));
+            let mut aggregate = Completion::default();
+            aggregate.step("execution", Err(wrapped));
+            assert_eq!(aggregate.local, LocalState::Outstanding);
+            assert_eq!(aggregate.remote, RemoteState::Unknown);
+            assert!(aggregate.committed.is_empty());
+            let aggregated = completion::complete(Ok(()), aggregate).unwrap_err();
+            assert!(aggregated.has_committed_effect());
+            assert!(aggregated.to_string().contains("exact-view"));
+        }
+    }
+}

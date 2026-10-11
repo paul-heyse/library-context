@@ -191,12 +191,18 @@ pub fn complete<T>(
         }
     }
 }
-// Context owners retain their typed ModelError as their immediate source. Inspect a
-// directly boxed ModelError first: its Error::source may skip completion metadata.
-fn contextual_model(error: &(dyn std::error::Error + 'static)) -> Option<&ModelError> {
-    error
-        .downcast_ref::<ModelError>()
-        .or_else(|| error.source()?.downcast_ref::<ModelError>())
+// Foreign context chains can contain several wrappers. Stop at the first typed
+// ModelError: its own interpretation must precede Error::source, which can skip
+// completion metadata or expose a cleanup failure when there was no primary.
+fn contextual_model<'a>(
+    mut error: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a ModelError> {
+    loop {
+        if let Some(model) = error.downcast_ref::<ModelError>() {
+            return Some(model);
+        }
+        error = error.source()?;
+    }
 }
 impl ModelError {
     pub fn primary(&self) -> Option<&ModelError> {
@@ -275,6 +281,53 @@ mod tests {
     }
     fn contextual(error: ModelError) -> ModelError {
         ModelError::Cause(Box::new(Context(error)))
+    }
+    #[derive(Debug)]
+    struct ForeignContext(Box<dyn std::error::Error + Send + Sync>);
+    impl std::fmt::Display for ForeignContext {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "foreign context: {}", self.0)
+        }
+    }
+    impl std::error::Error for ForeignContext {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(self.0.as_ref())
+        }
+    }
+    #[test]
+    fn multiple_foreign_contexts_preserve_the_first_model_completion() {
+        let original = std::sync::Arc::new(ModelError::Schema("exact primary"));
+        for has_primary in [true, false] {
+            let mut finality = Completion {
+                local: LocalState::Outstanding,
+                remote: RemoteState::Unknown,
+                ..Default::default()
+            };
+            finality.committed("publication", "exact-view");
+            finality.step("drain", Err(ModelError::Schema("cleanup cause")));
+            let result = if has_primary {
+                Err(ModelError::SharedCause(original.clone()))
+            } else {
+                Ok(())
+            };
+            let wrapped = ModelError::Cause(Box::new(ForeignContext(Box::new(ForeignContext(
+                Box::new(complete(result, finality).unwrap_err()),
+            )))));
+            assert_eq!(wrapped.primary().is_some(), has_primary);
+            if has_primary {
+                assert!(std::ptr::eq(wrapped.primary().unwrap(), original.as_ref()));
+            }
+            assert!(!wrapped.permits_storage_cleanup());
+            assert!(wrapped.has_committed_effect());
+            let mut aggregate = Completion::default();
+            aggregate.step("request", Err(wrapped));
+            assert_eq!(aggregate.local, LocalState::Outstanding);
+            assert_eq!(aggregate.remote, RemoteState::Unknown);
+            assert!(aggregate.committed.is_empty());
+            let aggregated = complete(Ok(()), aggregate).unwrap_err();
+            assert!(aggregated.has_committed_effect());
+            assert!(aggregated.to_string().contains("exact-view"));
+        }
     }
     #[test]
     fn request_context_preserves_completion_certainty_effects_and_primary_identity() {

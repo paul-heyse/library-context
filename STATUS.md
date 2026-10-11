@@ -2,7 +2,7 @@
 
 _Updated 2026-10-10 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: SurrealDB architecture SA0–SA9 execution,2026-10-10; shared main is dirty.**
+**Current scope: SurrealDB architecture SA0–SA9; paused for operator restart,2026-10-10.**
 The [architecture companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
 owns scope; [coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
 owns dispositions and receipts. [ADR-0146](docs/adr/0146-recoverable-native-upgrade-progress.md)
@@ -54,7 +54,7 @@ dispatch and budget repairs are source-accepted; functional qualification remain
 Earlier focused passes, source reviews and failed composites retain exact meaning in coordinator §9.1.
 Installed scopes are exact format5/0dcc; source4 refusal and owner readbacks passed. Nonce JWT rotation (`002712…3b030f`) passed; original old-JWT gap remains.
 Sparse/serving2/ty2 passed (`004041…3dbf50`); publisher cold/catalog/history parse/current CLI passed (`005233…7b60ee`).
-HS6 inventory/five nonce controls passed; assembled run cancelled after provider/core failures. New completion/sort corrections await runtime; disk exhausted, builds blocked.
+HS6 inventory/five nonce controls passed; assembled run cancelled after provider/core failures. Capacity restored; readiness05c21d passed. Focused5dfc57 stopped before test bodies for restart, exit143/cleanup confirmed.
 
 **Unified persistent SurrealDB UP0–UP9 / NE / PC / GK / GR integrated acceptance remains open.**
 The [unified companion](docs/plans/unified-persistent-surrealdb-plan_2026-10-09.md) owns surviving
@@ -108,7 +108,7 @@ Independent integrated review accepted examined scope. Focused tooling, publishe
 ADR and documentation checks passed; comprehensive product acceptance remains separately open.
 
 **Existing qualification follow-up:** source-specific failures require correction and affected reruns.
-Coordinator §9.1 retains failures/timeouts and source-accepted corrections; resume focused completion/sort/provider controls after capacity is freed.
+Coordinator §9.1 retains failures/timeouts and the source-accepted foreign-context completion correction; resume with `just ready`, focused completion/sort/native controls, then the facts-phase diagnostic.
 Qualify BC3 separately before installing the ordinary test profile; SM8 service survival remains separate.
 No measured speed or whole-plan completion is claimed.
 

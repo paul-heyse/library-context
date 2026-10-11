@@ -319,6 +319,15 @@ BC3 profile adoption, SM8 service-survival qualification and real-library/operat
 
 ## 9. Verification, cutover and completion
 
+**Restart checkpoint,2026-10-10:** execution is paused at the operator's request. Current source
+is integrated in main; independent review accepted the foreign-context completion correction.
+Readiness passed before final formatting, but the focused run was cancelled during compilation
+before any test body (exit143, cleanup confirmed). SA9 and all open findings remain open.
+Coordinator §9.1 owns exact receipts and the restart command; resume with `just ready`, focused
+completion/sort/native controls and the small facts-phase diagnostic before broader assurance.
+Frozen earlier-generation recovery/planner worktrees remain protected; no obsolete implementation
+is a new merge candidate. Reuse completed build artifacts without cleaning caches.
+
 Resolve current commands with `just verify --help` and `just verify --print --select FAMILY:BOUNDARY`;
 use actual test names and source identities. Relevant boundaries are `tooling:python`, `store:rust`,
 `serving:rust`, `compiler:producer`, `compiler:cli` and `serving:mcp`, with pure `model:rust` where
