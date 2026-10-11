@@ -125,6 +125,20 @@ controls and operator-scoped acceptance. Product qualification and measured effe
 
 > Decision: ADR-0142
 
+**Implemented / focused-Tested, 2026-10-11:** verification-owned native test evidence
+adds invocation/capture sidecars without replacing run supervision or boundary summaries.
+Nextest recording/JUnit/structured events and pytest reportlog own their respective captured
+observations; full logs remain authoritative for the human channel. File-backed preparation
+provides selective phase/attempt access and stable original-generation references. Capture health,
+command exit, postprocessing and fixture finalization remain separate. Source observations do
+not establish executable source closure. Exact-case planning uses verification's prerequisite
+declarations and launches nothing; existing boundary reruns remain unchanged. Reader admission,
+named citation holds and portable original validation use the existing storage owner.
+The [standalone plan §8](../plans/agent-test-evidence-and-causal-analysis-plan_2026-10-11.md#8-sole-current-finding-disposition-and-checkpoint)
+owns scoped acceptance; no whole-product or measured effectiveness claim follows.
+
+> Decision: ADR-0147
+
 **Implemented storage management; integrated qualification open, 2026-10-09:** owner-backed
 physical lifetimes and named consumer obligations govern independently disposable task roots,
 run receipts/logs, profile raw/reports, local attachments and documentation candidates.

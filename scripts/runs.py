@@ -392,6 +392,28 @@ class Owner:
             storage_owners.complete(receipt, consumer)
             if getattr(self, "_storage_log", None):
                 storage_owners.complete(self._storage_log, consumer)
+            # Verification's raw sidecar has its own shorter lifetime. Complete only the
+            # fixed, already-enrolled components after this owner confirmed cleanup.
+            if (self.dir / "verify-evidence.json").exists():
+                try:
+                    from storage_lifecycle import Storage
+
+                    allowed = {self.dir / "verify-evidence", self.dir / "verify-evidence-receipt"}
+                    for component in Storage().records():
+                        if (
+                            component.get("owner")
+                            == {"kind": "run", "path": str(self.dir.resolve())}
+                            and Path(component["path"]) in allowed
+                            and not component.get("retired_at")
+                            and component.get("category") in ("run-log", "run-receipt")
+                        ):
+                            storage_owners.complete(component["id"], consumer)
+                except Exception as error:
+                    print(
+                        f"storage: verification completion unresolved ({type(error).__name__}); "
+                        "content kept",
+                        file=sys.stderr,
+                    )
 
         if (self.dir / "compile-profile/record.json").exists() or (
             self.dir / "compile-profile-location.json"

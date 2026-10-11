@@ -5,6 +5,10 @@
     just verify --print …     static plan: commands, environment names, prerequisites, readiness
     just verify --list …      builds: tool discovery (nextest list, pytest --collect-only)
     just verify --rerun ID    the failed, blocked or unexecuted boundaries of run ID's selection
+    just verify report|cases|evidence|events RUN --json   selective native evidence
+    just verify compare RUN_A RUN_B --json              observed context differences
+    just verify rerun-plan RUN --case CASE --print --json   exact printed experiment
+    just verify export RUN --output PATH                owned portable evidence
     just verify test-all     every ordinary test boundary; no reuse or scope filters
     just verify qualify       every boundary and leaf; no reuse, no filters, no self-preparation
     just verify-<family> [--command BOUNDARY] [-- ARGS]   shortcut; ARGS reach the primary tool
@@ -37,7 +41,7 @@ import subprocess
 import sys
 import time
 import tomllib
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -46,6 +50,7 @@ import runs
 import workspace_env
 from build_environment import ROOT, normalized_env
 from harness import OUTCOMES, FileDisplay, tail_bytes, write_json_atomic
+from verify_evidence.contracts import LaunchRequest
 
 SCHEMA = 1
 DEFAULT_CARGO_PROFILE = "release"  # Change only after local-profile qualification.
@@ -84,6 +89,8 @@ class Step:
     target_filters: tuple[tuple[str, str | None, str], ...] = ()
     cargo_profile: str | None = None  # A production-only step, independent of local selection.
     artifact_target_dir: Path | None = None
+    consumes: tuple[str, ...] = ()
+    produces: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -250,6 +257,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 "cargo",
                 ("cargo", "build", "--locked", "-p", "lctx", "--bin", "lctx"),
                 when="cli",
+                produces=("cli",),
             ),
             Step(
                 "nextest",
@@ -257,6 +265,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 packages=("lctx-surrealdb", "lctx-publisher"),
                 # publication.rs selects through this CLI when set, else in-process.
                 option_env=(("cli", "LCTX_REMEDIATION_CLI_BIN", "{artifacts}/lctx"),),
+                consumes=("cli?cli",),
             ),
         ),
         STORE,
@@ -279,6 +288,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 "build",
                 "cargo",
                 ("cargo", "build", "--locked", "-p", "lctx-eval", "-p", "lctx"),
+                produces=("cli", "evaluator"),
             ),
             Step(
                 "native_journey",
@@ -296,6 +306,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 ),
                 env=(("LCTX_RETAIN_NATIVE_FIXTURE_CONFIG", "{serving}"),),
                 produces_serving=True,
+                produces=("serving",),
             ),
             Step(
                 "pytest",
@@ -313,6 +324,7 @@ BOUNDARIES: tuple[Boundary, ...] = (
                     ("LCTX_EVAL_WORKER", "{artifacts}/lctx-eval"),
                     ("LCTX_REMEDIATION_CLI_BIN", "{artifacts}/lctx"),
                 ),
+                consumes=("cli", "evaluator", "serving"),
             ),
         ),
         frozenset({"tools", "native-serving", "native-python"}),
@@ -329,11 +341,13 @@ BOUNDARIES: tuple[Boundary, ...] = (
                 ("cargo", "build", "--locked", "-p", "lctx"),
                 cargo_profile="release",
                 artifact_target_dir=ROOT / "target",
+                produces=("cli",),
             ),
             Step(
                 "pytest",
                 "pytest",
                 ("tests/scripts/test_flow_soundness.py",),
+                consumes=("cli",),
                 cargo_profile="release",
                 artifact_target_dir=ROOT / "target",
             ),
@@ -639,6 +653,10 @@ def step_receipt(planned: PlannedStep, target: Path) -> dict[str, Any]:
         "name": planned.step.name,
         "argv": list(planned.argv),
         "restart_after": planned.step.restart_after,
+        "dependencies": {
+            "consumes": list(planned.step.consumes),
+            "produces": list(planned.step.produces),
+        },
         "cargo_profile": planned.cargo_profile,
         "artifact_dir": str(
             artifact_directory(planned.step.artifact_target_dir or target, planned.cargo_profile)
@@ -1028,6 +1046,8 @@ class Runtime:
     base_env: Mapping[str, str] = field(default_factory=dict)
     target_dir: Path = ROOT / "target"
     stop: Callable[[], bool] = lambda: False
+    evidence: Any = None
+    launch_request: Callable[[LaunchRequest], LaunchResult] | None = None
 
 
 def _fixture_blocked(error: BaseException) -> str | None:
@@ -1044,6 +1064,29 @@ def _fixture_blocked(error: BaseException) -> str | None:
 
 
 def run_boundary(
+    planned: Planned,
+    runtime: Runtime,
+    options: Options,
+    log: Path,
+    live: bool,
+) -> dict[str, Any]:
+    result = None
+    error = None
+    try:
+        result = _run_boundary(planned, runtime, options, log, live)
+        return result
+    except BaseException as caught:
+        error = caught
+        raise
+    finally:
+        if runtime.evidence is not None:
+            try:
+                runtime.evidence.close_boundary(planned.boundary.id, result, error)
+            except Exception as capture_error:
+                runtime.evidence.warn(capture_error)
+
+
+def _run_boundary(
     planned: Planned,
     runtime: Runtime,
     options: Options,
@@ -1094,13 +1137,19 @@ def run_boundary(
                 runtime.fixture(options) if boundary.fixture else contextlib.nullcontext()
             )
             with fixture_scope as attachment:
-                return _run_steps(
+                completed = _run_steps(
                     planned, runtime, options, attachment, base, log, live, result, done
                 )
+            result["fixture_finalization"] = {
+                "status": "completed" if boundary.fixture else "not_required"
+            }
+            return completed
     except Interrupted:
         return done("not_run", "interrupted")
     except Exception as error:  # Interpret only explicit fixture outcomes.
         from surrealdb_fixture import FixtureFailed
+
+        result["fixture_finalization"] = {"status": "failed", "error": type(error).__name__}
 
         if isinstance(error, FixtureFailed):
             return done("failed", f"fixture {error.kind}: {error.detail}")
@@ -1140,6 +1189,9 @@ def _run_steps(
             "id": attachment.server.id,
             "kind": attachment.server.kind,
             "attachment": attachment.id,
+            "service_generation": getattr(attachment.server, "record", {}).get(
+                "service_generation"
+            ),
         }
         producing = any(s.step.produces_serving for s in planned.steps)
         if producing and options.serving:
@@ -1174,9 +1226,33 @@ def _run_steps(
             current_command=f"{boundary.id} {step.name}: {shlex.join(planned_step.argv)}"
         )
         began = time.monotonic()
-        launched = runtime.run(planned_step.argv, step_env, log, live)
+        invocation = None
+        if runtime.evidence is not None:
+            try:
+                invocation = runtime.evidence.start(
+                    boundary.id,
+                    step,
+                    planned_step.argv,
+                    step_env,
+                    result["fixture"],
+                    planned.selection,
+                    log,
+                )
+                record["invocation"] = invocation.row["id"]
+            except Exception as capture_error:
+                runtime.evidence.warn(capture_error)
+        if invocation is not None and runtime.launch_request is not None:
+            launched = runtime.launch_request(invocation.request(log, live))
+        else:
+            launched = runtime.run(planned_step.argv, step_env, log, live)
+        command_duration = round(time.monotonic() - began, 3)
+        if invocation is not None:
+            try:
+                invocation.command_finished(launched, duration=command_duration)
+            except Exception as capture_error:
+                invocation.owner.warn(capture_error)
         code = launched.exit
-        record.update(exit=code, duration=round(time.monotonic() - began, 3))
+        record.update(exit=code, duration=command_duration)
         if launched.launch_error is not None:
             record["launch_error"] = launched.launch_error
         if runtime.stop():
@@ -1216,6 +1292,8 @@ def _run_steps(
                     )
             return done("failed", f"step {step.name} exited {code}")
         record["outcome"] = "passed"
+        if invocation is not None:
+            invocation.save(postprocessing={"status": "started"})
         if step.produces_serving and options.retain_serving:
             identity = attachment.record_serving(options.retain_serving, planned_step.argv)
             result["fixture"]["serving_retained"] = identity
@@ -1227,6 +1305,8 @@ def _run_steps(
             env = attachment.environment(env)
             result["fixture"].setdefault("attempts", [previous_attempt]).append(attachment.id)
             result["fixture"]["attachment"] = attachment.id
+        if invocation is not None:
+            invocation.save(postprocessing={"status": "completed"})
     return done("passed", "")
 
 
@@ -1272,10 +1352,33 @@ def _report_result(result: dict[str, Any], report: Callable[[str], None], live: 
 # Real runtime pieces
 
 
-def launch(argv: Sequence[str], env: Mapping[str, str], log: Path, live: bool) -> LaunchResult:
+def launch(
+    argv: Sequence[str],
+    env: Mapping[str, str],
+    log: Path,
+    live: bool,
+    *,
+    stdout: Path | None = None,
+    observer: Callable[[dict[str, Any]], None] | None = None,
+) -> LaunchResult:
     """Run one step in this process group; its output goes to the boundary log (and stdout with
     --live). Actual launch errors are separate from a launched child's exit."""
-    with open(log, "ab") as handle:
+
+    def observe(event: dict[str, Any]) -> None:
+        if observer is not None:
+            try:
+                observer(event)
+            except Exception as error:
+                print(f"verify: capture observer failed ({type(error).__name__})", file=sys.stderr)
+
+    with contextlib.ExitStack() as stack:
+        handle = stack.enter_context(open(log, "ab"))
+        machine = handle
+        if stdout is not None:
+            try:
+                machine = stack.enter_context(open(stdout, "ab"))
+            except OSError as error:
+                observe({"stdout_capture": {"status": "failed", "reason": str(error)}})
         display_offset = handle.tell()
         handle.write(f"$ {shlex.join(argv)}\n".encode())
         handle.flush()
@@ -1285,12 +1388,19 @@ def launch(argv: Sequence[str], env: Mapping[str, str], log: Path, live: bool) -
                 cwd=ROOT,
                 env=dict(env),
                 stdin=subprocess.DEVNULL,
-                stdout=handle,
-                stderr=subprocess.STDOUT,
+                stdout=machine,
+                stderr=handle,
             )
         except OSError as error:
             handle.write(f"cannot launch {argv[0]}: {error}\n".encode())
             return LaunchResult(None, {"kind": type(error).__name__, "errno": error.errno})
+        from harness import ProcessIdentity
+
+        try:
+            identity = ProcessIdentity.of(child.pid).to_json()
+        except ProcessLookupError:
+            identity = {"pid": child.pid, "identity": "exited before observation"}
+        observe({"spawn": identity})
         display = FileDisplay(log, offset=display_offset).start() if live else None
         try:
             return LaunchResult(child.wait())
@@ -1300,7 +1410,7 @@ def launch(argv: Sequence[str], env: Mapping[str, str], log: Path, live: bool) -
 
 
 @contextlib.contextmanager
-def real_fixture(options: Options) -> Iterator[Any]:
+def real_fixture(options: Options) -> Generator[Any]:
     import surrealdb_fixture as sf
 
     server = sf.Server.open(options.attach)
@@ -1784,11 +1894,15 @@ def wrap_in_run(argv: Sequence[str]) -> int:
     command = [sys.executable, str(Path(runs.__file__).resolve()), "run", "--label", label[:120]]
     command += ["--", sys.executable, str(Path(__file__).resolve()), *argv]
     os.execv(sys.executable, command)
-    return 1  # unreachable
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     raw = list(sys.argv[1:] if argv is None else argv)
+    from verify_evidence.cli import COMMANDS
+    from verify_evidence.cli import main as evidence_main
+
+    if raw and raw[0] in COMMANDS:
+        return evidence_main(raw)
     try:
         translated = legacy(raw)
     except PlanError as error:
@@ -1880,7 +1994,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         target_dir=target,
         stop=lambda: bool(stopping),
     )
-    results = execute(plan, runtime, options, log_dir, live=args.live, on_result=summary.update)
+    from verify_evidence.capture import optional_owner
+
+    with optional_owner(run_dir, ROOT) as evidence:
+        runtime.evidence = evidence
+        runtime.launch_request = lambda request: launch(
+            request.argv,
+            request.env,
+            request.log,
+            request.live,
+            stdout=request.stdout,
+            observer=request.observer,
+        )
+        results = execute(plan, runtime, options, log_dir, live=args.live, on_result=summary.update)
     # Boundaries the interruption kept from starting are recorded, not dropped.
     termination = "interrupted" if stopping else "completed"
     summary.finish(results, termination)

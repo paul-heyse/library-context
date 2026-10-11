@@ -25,6 +25,8 @@ dev = [
     "fastmcp==4.0.5",
     # Independent original-evidence comparison baseline only; product search is native.
     "bm25s==0.3.12",
+    "pytest-reportlog==1.0.0",
+    "tomlkit==0.15.1",
 ]
 
 [tool.uv]

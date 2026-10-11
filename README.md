@@ -54,6 +54,37 @@ and other non-functional leaves. Bare `cargo nextest run --workspace --no-fail-f
 tests only and does not acquire native fixture configuration; use `just test-all` for the integrated
 repository scope or `just fixture -- cargo nextest run …` for a fixture-backed bare Rust selection.
 
+Managed verification also retains invocation-owned native evidence. Start with
+`just verify report RUN --json`, then `just verify cases RUN --outcome failed --limit 50 --json`.
+Use the returned invocation-qualified case or stable reference with
+`just verify evidence RUN --case CASE --phase call --limit-bytes 65536 --json`.
+Responses expose native coverage, omissions and opaque continuation cursors (`--cursor TOKEN`).
+Rows describe phases, attempts and supplemental observations; they are not counts of executions.
+`just verify events RUN --step STEP --json` selects durable milestones and native observations;
+`just verify compare RUN_A RUN_B --json` reports context differences without assigning causes.
+
+`just verify rerun-plan RUN --case CASE --print --json` prints an exact experiment and its actual
+prerequisites, environment bindings and remaining obligations. It launches nothing. Ambiguous
+partial Rust identities, count/slice partitions and unqualified pytest argument forms are refused.
+The existing `--rerun RUN` still repeats outstanding whole boundaries.
+
+`just verify export RUN --output build/evidence-bundles/NAME` creates a held portable bundle under
+a new run owner; inspection commands also accept that explicit directory. Native Nextest ZIPs
+have printed replay routes. Imported indexes are rebuilt from validated originals. Add
+`--consumer citation:TOPIC` to inspection to retain its exact raw/receipt components across sessions;
+responses give storage IDs and explicit release commands. Export does not release originals.
+Native outputs can contain arbitrary test text and are not sanitized for sharing.
+
+Capture health is separate from native results, command exit, postprocessing and cleanup.
+Unsupported/missing capture tooling leaves the original command intact and reports its gap;
+`just sync tools` explicitly prepares the pinned reporters. Interrupted complete JSONL prefixes
+remain readable; unfinished captured output and power-loss durability are not promised.
+A hard-stopped verifier can preserve private Nextest state without completing native UUID/export
+handoff. Such runs report unfinalized capture; rich replay is available only after supported native
+inspection/export resolves it. Source and binary digests describe observations, not proven build
+closure. Bare tools retain their native output behavior. The [standalone plan](docs/plans/agent-test-evidence-and-causal-analysis-plan_2026-10-11.md)
+owns scoped acceptance and remaining investigation limits.
+
 ## Documentation locally
 
 Run `just bootstrap-docs` once to install the declared documentation tools and cache isolated test

@@ -1,6 +1,6 @@
 # Agent test evidence and causal analysis — standalone implementation plan
 
-**Proposed · 2026-10-11 · implementation not started**
+**Implemented / focused-Tested · 2026-10-11 · TE0–TE6 complete**
 
 ## 1. Outcome, basis and boundary
 
@@ -39,7 +39,7 @@ Quantitative speed/productivity benefits remain unmeasured.
 | Storage lifecycle | Admission, named consumer obligations, reader protection, confirmed release and retirement govern originals and derived products. Receipt survival does not promise raw evidence survival. |
 | Compile profiling | Remains the opt-in compiler CPU/query analysis owner. Ordinary capture reuses suitable provenance mechanics, not profiling dependencies or its whole lifecycle. |
 
-**Chosen Proposed route:** native artifacts plus a thin, rebuildable verification read model.
+**Implemented route:** native artifacts plus a thin, rebuildable verification read model.
 Keep authoritative originals under run-owned storage. A qualified adapter prepares selective
 access once per artifact generation. Query handlers consume that preparation and hydrate only
 selected payloads. No telemetry database, permanent diagnostic service, semantic search,
@@ -77,9 +77,9 @@ handler. Additional output channels are introduced only for a named coverage gap
 
 ## 3. Contracts and data flow
 
-All contracts below are **Proposed**. Keep their executable definitions together under
-verification-owned tooling modules; neither prose nor a collection of loosely typed CLI responses
-may become a competing semantic authority. Local module names remain implementation choices.
+The contracts below are **Implemented / focused-Tested, 2026-10-11** in
+`scripts/verify_evidence/`, integrated through `scripts/verify.py` and `scripts/runs.py`.
+Executable definitions own validation; this prose describes their scope.
 
 ### 3.1 Invocation and durable observations
 
@@ -152,7 +152,7 @@ pytest phase reports likewise do not prove repeated execution.
 
 ### 3.4 Commands and causal investigation
 
-The following target commands are **not implemented**:
+The following commands are **Implemented / focused-Tested, 2026-10-11**:
 
 ```text
 just verify report RUN --json
@@ -235,9 +235,9 @@ max-output-size = "256MiB"
 
 The size and age values are exact `u64::MAX` bytes/seconds, neutralizing native cache retirement
 for this sole represented recording while leaving retirement to its existing owner. They allocate
-no resources. These are **source-qualified, Proposed** settings: locked bytesize2.7.0 parses a
+no resources. These are **native-Tested, 2026-10-11** settings: locked bytesize2.7.0 parses a
 quoted decimal exactly; humantime2.3.0 accepts integer seconds and Nextest saturates the age
-comparison. TE1 must verify parsing, effective overrides and finalization/export with small controls,
+comparison. TE1 verified parsing, effective overrides and finalization/export with small native controls,
 including a lowered-threshold demonstration of self-pruning and the selected protection.
 [Pinned retention](https://github.com/nextest-rs/nextest/blob/8af696ddcce8fff2962d6a5168b6d138b8616a35/nextest-runner/src/record/retention.rs#L71),
 [bytesize parser](https://docs.rs/crate/bytesize/2.7.0/source/src/parse.rs),
@@ -258,8 +258,9 @@ obligations even when selected work passes. Preserve those meanings and the pare
 
 ### 4.2 Pytest9.1.1 / Python3.14.7 and other steps
 
-Add exact development dependency `pytest-reportlog==1.0.0` during implementation, through the
-normal pinned-dependency route. Explicitly select the plugin and an uncompressed per-invocation
+Exact development dependencies `pytest-reportlog==1.0.0` and `tomlkit==0.15.1` are installed
+and locked. TOMLKit preserves configuration semantics while composing invocation-owned overrides.
+Explicitly select the plugin and an uncompressed per-invocation
 report-log destination. Preserve normal project plugin discovery, fd capture, warnings, useful
 passing output and long traceback chains. Minimal hooks supplement test starts, collection
 membership and deselections using native hooks/serialization; they do not implement another
@@ -302,7 +303,8 @@ cache is deleted as part of adoption; no operator service/database is touched.
 
 ## 5. Execution packages and dependencies
 
-All packages are **Open / not implemented**. One coordinator owns shared contracts, this plan,
+All packages are **Implemented / focused-Tested, 2026-10-11** (§7.4). One coordinator owns shared
+contracts, this plan,
 integration and acceptance. Delegate bounded adapters/readers only after consumed contracts settle;
 coordinate overlapping verification/storage files instead of inventing independent authorities.
 
@@ -379,11 +381,11 @@ applicable assembled scope instead of quietly extending this acceptance claim.
 
 | Item | Status / settling evidence / dependent work |
 |---|---|
-| Concrete locator/index route | Selected file-backed streaming route in §2; TE3 proves selective access, rebuildable identity and live-prefix handling before claiming F04 closure. |
-| Producer-version and config composition | TE0/TE2 qualify exact support, effective policy and controlled unsupported cases; upgrades rerun affected adapter controls. |
-| Native retention through finalization/export | Selected source-qualified private-store settings in §4.1; TE1 must verify parsing, effective overrides, interrupted retention and export before claiming durable native replay. |
-| Source-to-binary provenance | TE1 records only established linkage; TE6 demonstrates known/unknown cases. Exact historical recomputation is outside scope without independently retained build inputs. |
-| Starts, collection membership and deselection | TE2 selects minimal native hooks and composes them with reportlog; unfinished activity remains unknown until observed. |
+| Concrete locator/index route | Settled: file-backed segments/checkpoints and seekable payloads. Access-spy, rebuild, corruption and prefix controls passed in §7.4. |
+| Producer-version and config composition | Settled for Nextest0.9.146, pytest9.1.1/reportlog1.0.0 and TOMLKit0.15.1; native policy-equivalence and unsupported-capture controls passed. Upgrades rerun affected adapter controls. |
+| Native retention through finalization/export | Native complete and controlled-interruption recording/export/replay passed. Hard-stopped coordinators retain available files/private state, but do not automatically finalize native UUID/export; replay availability remains explicit. |
+| Source-to-binary provenance | Dirty/untracked and effective-configuration comparisons passed; available Cargo executable digests are separate observations. Exact executed-byte/source closure remains unknown without independent retained build inputs. |
+| Starts, collection membership and deselection | Native minimal hooks/reportlog composition passed; unfinished captured bytes and unobserved activity remain unknown. |
 | Additional unfinished-byte capture | **Deferred**. Trigger: a concrete investigation requires output absent from native completed reports; assess opt-in capture under existing supervision, with its own loss/overhead controls. |
 | Native-reader replacement for duplicated text | **Deferred**. Trigger: observed duplication/lifecycle burden becomes material and a qualified supported reader reduces total machinery. |
 | Perfetto SQL or another trace-analysis dependency | **Deferred**. Trigger: native exported trace and ordinary structured queries cannot answer a named temporal question. Qualify usefulness before adding tooling; no CPU attribution claim. |
@@ -397,29 +399,76 @@ in run `20261011T052916.677Z-80b055`; the
 exact command and limits. Installed Nextest interfaces/pinned source were inspected. These are
 baseline inputs, not execution of TE0–TE6 or qualification of new capture/configuration code.
 
-**not_run:** implementation, native recording/export/interruption composition, new selective
-commands, full product tests, whole-product acceptance and quantitative effectiveness measurement.
+**not_run for this tooling scope:** full product tests, whole-product acceptance and quantitative
+effectiveness measurement. The baseline receipt above does not establish the implementation below.
 **passed, 2026-10-11 (plan authoring):** `just docs-check` published391 canonical pages with
 zero link errors; `git diff --check` passed. Read-only independent design advice found no material
 coverage/contract gaps in this draft. These checks establish document validity and scoped design
 consistency, not implementation or native integration acceptance.
 
+### 7.4 Implemented tooling acceptance, 2026-10-11
+
+**passed:** focused assembled tooling run `20261011T063925.432Z-c62e7e`, exit0,
+termination completed, descendant cleanup confirmed. Its `record.json` and `output.log` retain
+the exact command and original output; a named `agent-test-evidence-plan` citation hold retains
+the run while this receipt is current. Storage IDs are
+`c1581df3-a4c0-4b65-adfc-cd765fb36a56` (receipt directory) and
+`16317d87-1e4a-464c-82a9-8951bdd9b387` (output log); release through `just storage release ID
+--consumer agent-test-evidence-plan --reason REASON` when the receipt loses its current consumer.
+
+```text
+just run --label 'TE0-TE6 scoped evidence acceptance' -- uv run --no-sync pytest -q tests/scripts/test_verify.py tests/scripts/test_verify_evidence_cli.py tests/scripts/test_verify_evidence_integration.py tests/scripts/test_verify_evidence_nextest.py tests/scripts/test_verify_evidence_projection.py tests/scripts/test_verify_evidence_pytest.py tests/scripts/test_runs.py tests/scripts/test_harness.py tests/scripts/test_storage_owners.py tests/scripts/test_storage_lifecycle.py tests/scripts/test_storage_archive.py
+```
+
+This exercises real native recording/configuration, self-pruning/truncation, controlled interruption,
+pytest phases/collection/starts, Cargo failure without cases, concurrent destination isolation,
+stdlib coordinator capture, source drift, exact selectors, relocated native replay, index rebuild,
+selected reads, corrupt/missing originals, pinned pagination, hard-stopped coordinator prefixes,
+command completion before later failure, immutable fixture attribution, exact reader protection,
+stable receipt replacement and raw-evidence citation lifetime. Small dependency-free native crates
+and isolated tooling inputs establish tooling behavior; they do not establish product correctness.
+
+The [independent integrated review](../design_review/reviews/design_review_agent-test-evidence-integrated_2026-10-11.md)
+accepts the scoped architecture at **Interface-checked** strength after its corrections.
+Its reviewer performed static inspection; the functional receipt above remains coordinator-owned.
+**passed:** scoped `uv run --no-sync ruff check` and `uv run --no-sync pyrefly check
+--min-severity warn` over `scripts/verify_evidence/`, `scripts/verify.py`, `scripts/runs.py` and
+the five `tests/scripts/test_verify_evidence_*.py` files; zero lint/type diagnostics. `just deps`,
+`just adr-lint`, `git diff --check` and scoped `just turn-end --paths …` passed (Cargo generation
+and Rust formatting inapplicable). `just docs-check` published393 canonical pages with zero link
+errors. After formatting and final narrow corrections, CLI/integration/projection controls passed
+again with `uv run --no-sync pytest -q` on their three test files. No Rust production source was
+changed. **passed:** required `just ready` dependency refresh rebuilt the stale native extension,
+confirmed locked synchronization, tool availability and checkout-local environment selection.
+
+Managed capture now creates separate raw `run-log` and stable-directory `run-receipt` components;
+atomic manifest updates occur inside the latter. The root manifest is a navigation link. Readers
+admit the exact components; exports flatten the manifest and rebuild access from original artifacts.
+This avoids both inode replacement invalidating a receipt and parent admission failing to protect
+an independently disposable child. Native recorded results are never promoted by capture success.
+
+Support limits remain deliberate: hard stops cannot retroactively finalize a recording; partial
+Nextest JSON lacks exact binary identity and is refused for exact rerun planning; unknown pytest
+selection grammar is refused. Native output truncation, XML normalization, missing unfinished
+bytes, unsupported parallel/retry plugins and absent executable-source closure remain explicit.
+No automatic product-failure diagnosis or performance improvement is claimed.
+
 ## 8. Sole current finding disposition and checkpoint
 
 | Source finding | Disposition | Responsible capability / closure evidence |
 |---|---|---|
-| [F01](../design_review/reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md#F01) | Open | TE0–TE3/TE6; independent case/phase/capture contracts, durable step/prefix evidence, native adverse/concurrency controls in §7. |
-| [F02](../design_review/reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md#F02) | Open | TE1/TE3/TE6; relevant content/config comparison, real binary attribution or explicit uncertainty, changed-context controls. |
-| [F03](../design_review/reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md#F03) | Open | TE4/TE6; exact-case argv, real dependency closure, preserved profiles/obligations, read-only planning and unsupported-case controls. |
-| [F04](../design_review/reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md#F04) | Open | TE1/TE3/TE5/TE6; selective access, original/citation identity, rebuild/prefix controls, protected readers and qualified relocated replay. |
+| [F01](../design_review/reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md#F01) | Closed / focused-Tested, 2026-10-11 | TE0–TE3/TE6: native phase/attempt and capture separation, prefix/command durability and adverse controls passed (§7.4). |
+| [F02](../design_review/reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md#F02) | Closed / focused-Tested, 2026-10-11 | TE1/TE3/TE6: tracked/untracked/config/tool drift and fixture freezing controls passed; binary/source uncertainty retained (§7.4). |
+| [F03](../design_review/reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md#F03) | Closed / focused-Tested, 2026-10-11 | TE4/TE6: native exact-selector parser, dependency/environment obligations and ambiguous-policy refusal controls passed (§7.4). |
+| [F04](../design_review/reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md#F04) | Closed / focused-Tested, 2026-10-11 | TE1/TE3/TE5/TE6: access-spy/rebuild/prefix/corruption, reader/retention and relocated native replay controls passed (§7.4). |
 
 Recommendations outside the four finding summaries are scheduled in §§3–7: capture defaults,
 diagnostic channels, grouping/passing comparisons, timing/native replay, context limits, exports,
 consumer documentation, alternatives and deferred investigations. Plan acceptance or an ADR
 does not close a finding. No separate implementation ledger or sibling-plan dependency is added.
 
-**Checkpoint, 2026-10-11:** plan authored; all implementation packages Open. Existing execution,
-fixture and storage foundations are available, but the new capture/read contracts are Proposed.
-Next: detailed execution planning for TE0 and the TE1 identity/lifecycle slice, including native
-retention qualification. Preserve unrelated configuration and failure evidence; paused product
-work retains its existing owners and verification boundary.
+**Checkpoint, 2026-10-11:** TE0–TE6 complete with focused tooling acceptance in §7.4.
+ADR-0147 and DESIGN §1.2 own the enduring native-authority/access decision; README and AGENTS
+own command usage. Source F01–F04 are closed at the named scoped evidence boundary. Deferred
+investigations in §7.2 retain their triggers; none blocks this delivered scope. Existing configuration,
+workspace-failure evidence and paused product plans remain preserved. No product testing was resumed.
