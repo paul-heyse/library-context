@@ -93,7 +93,9 @@ is shared where its topology and lifetime permit. Catalog availability does not 
 analytics or brief seeds.
 
 Native graph access is used during compilation; publication records an immutable manifest over exact admitted views in shared storage.
-`lctx-surrealdb`, `lctx-publisher` and `lctx-serving` implement these boundaries. The coordinator
+`lctx-native`, `lctx-compiler-store`, `lctx-publisher` and `lctx-serving` implement these boundaries.
+Compiler orchestration stays in `cpg-core`; private validated admission and restored capabilities
+are owned below it by `lctx-compiler-store` (ADR-0151). The coordinator
 records targeted functional controls and the authorized final UP9 assembled qualification boundary.
 
 > Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108

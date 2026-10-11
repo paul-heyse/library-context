@@ -52,6 +52,17 @@ the persisted coordinator retains actual migration receipts and enclosing accept
 
 ### §6.1 Admitted content and native publication
 
+**Accepted boundary / implementation in progress, 2026-10-11.** `lctx-native` owns shared physical
+installation, codec, control, transport and selected semantics. `lctx-compiler-store` owns native
+contributions, exact completed views and privately validated admitted/export/restored capabilities;
+compilation and independent restore share the actual admission rules. `cpg-core` retains analyzer
+orchestration and its completed-input session. Publisher consumes the lower capabilities without
+normal analyzer dependencies. Serving preparation/presentation remain above this boundary. Responsible
+model/ingestion/codec/derivation source and assets stay in conservative semantic fingerprint closures.
+The efficiency coordinator owns implementation and functional acceptance of this split.
+
+> Decision: ADR-0151
+
 Immutable payload identity includes model/codec, relation, nominal key and full content digest.
 Hash hits compare canonical bytes. Nominal anchors contain identity without view existence.
 Derived role edges connect source payloads to target anchors; exact completed views resolve the
@@ -59,7 +70,7 @@ selected target payload before forward or reverse traversal. Compact view mappin
 full keys, conflicts, absence and every generated backing family, including originals.
 
 Durable attempts and effect fences own pending contributions. Contribution completion is local;
-private core admission establishes the exact semantic boundary. Compatible retained admitted
+private compiler-store admission establishes the exact semantic boundary. Compatible retained admitted
 content can attach through checked current ownership without canonical replay. Current provenance,
 exact dependencies and independent cold admission remain mandatory. Unknown acknowledgement is
 reconciled through an operation identity, never inferred from local process cleanup.
@@ -142,6 +153,30 @@ assets; recovery metadata is not authority to restore live clients or execute im
 > Decision: ADR-0145, ADR-0088, ADR-0126
 
 ### §6.2 Readers
+
+**Accepted target / implementation in progress, 2026-10-11.** Retained native attachment holds
+expected physical record bytes and incarnation after receiver preflight. A view-scoped installation
+completion binds its selected dependency closure and exact membership realization before direct
+member absence becomes authoritative. Complete logical state freezes all six families independently
+of installation-local completion; durable admission reuse requires the protected physical epoch.
+Cold recovery and detached import earn fresh authority. Existing conservative checks remain until
+all consumers and actual migration controls qualify the replacement.
+
+> Decision: ADR-0152
+
+**Accepted campaign recovery target / implementation in progress, 2026-10-11.** An explicit
+named-attachment recovery retains original Unknown receipts and composes checked server execution
+join with independent installation-wide persisted native-owner reconciliation. For the exact reviewed
+already-serving binary, deliberate same-invocation SIGTERM and clean exited/0 can establish join
+through its pinned successful-return control flow, with a complete checked journal rejecting logged
+cleanup failures. This source-correlated premise does not claim a missing informational marker or
+resolve unknown per-request outcomes. Exclusive admission, exact dead-owner/borrower locks and
+durable separate host evidence precede local attachment release. Synthetic PD02 recovery additionally
+retains exact request/session/effect manifests and positive join logging. Shared and operator service
+state remain outside campaign recovery.
+
+> Decision: ADR-0153
+
 
 Compiler readers bind explicit immutable native completed views, including exact contribution
 membership and frozen semantic boundaries. Pending values cannot enter selections or absence
