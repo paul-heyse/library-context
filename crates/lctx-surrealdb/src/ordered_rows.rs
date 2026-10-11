@@ -234,8 +234,42 @@ fn merge<A: Adapter>(
     writer.flush().map_err(ModelError::codec)?;
     Ok(output)
 }
+fn merge_tail<A: Adapter>(
+    directory: &Path, disk: NamedTempFile, tail: &[Entry<A::Key>],
+    budget: Option<&ResourceBudget>, bounds: FrameBounds,
+) -> Result<NamedTempFile, ModelError> {
+    let _work = reserve(budget, 2 * bounds.work + 2 * IO_BYTES)?;
+    let output = NamedTempFile::new_in(directory).map_err(ModelError::codec)?;
+    let mut writer = BufWriter::with_capacity(IO_BYTES, output.reopen().map_err(ModelError::codec)?);
+    let mut reader = BufReader::with_capacity(IO_BYTES, disk.reopen().map_err(ModelError::codec)?);
+    let mut head = read::<A>(&mut reader, bounds)?;
+    let mut position = 0;
+    while head.is_some() || position < tail.len() {
+        let memory = tail.get(position);
+        match (head.as_ref(), memory) {
+            (Some(a), Some(b)) if a.key == b.key => {
+                if a.bytes != b.bytes { return Err(ModelError::Conflict(A::CONFLICT)); }
+                write(&mut writer, a)?;
+                head = read::<A>(&mut reader, bounds)?;
+                position += 1;
+            }
+            (Some(a), Some(b)) if a.key > b.key => {
+                write(&mut writer, b)?;
+                position += 1;
+            }
+            (Some(a), _) => {
+                write(&mut writer, a)?;
+                head = read::<A>(&mut reader, bounds)?;
+            }
+            (None, Some(b)) => { write(&mut writer, b)?; position += 1; }
+            (None, None) => break,
+        }
+    }
+    writer.flush().map_err(ModelError::codec)?;
+    Ok(output)
+}
 struct Sorter<A: Adapter> {
-    directory: TempDir,
+    directory: Option<TempDir>,
     pending: Vec<Entry<A::Key>>,
     payload_bytes: usize,
     limit: usize,
@@ -254,7 +288,7 @@ impl<A: Adapter> Sorter<A> {
         }
         let retained = reserve(budget.as_ref(), size_of::<Self>())?;
         let mut sorter = Self {
-            directory: tempfile::tempdir().map_err(ModelError::codec)?,
+            directory: None,
             pending: Vec::new(),
             payload_bytes: 0,
             limit,
@@ -269,18 +303,32 @@ impl<A: Adapter> Sorter<A> {
         Ok(sorter)
     }
     fn metadata_bytes(&self, capacity: usize) -> usize {
-        size_of::<Self>()
-            + self.directory.path().as_os_str().len()
-            + capacity
-                * (size_of::<Option<NamedTempFile>>()
-                    + self.directory.path().as_os_str().len()
-                    + 64)
+        let path_bytes = self.directory.as_ref().map_or(0, |dir| dir.path().as_os_str().len());
+        size_of::<Self>() + path_bytes
+            + capacity * (size_of::<Option<NamedTempFile>>() + path_bytes + 64)
     }
     fn charge(&mut self, pending: usize, run_capacity: usize) -> Result<(), ModelError> {
         let bytes = pending.saturating_add(self.metadata_bytes(run_capacity));
         if let Some(retained) = &mut self.retained {
             retained.try_resize(bytes)?;
         }
+        Ok(())
+    }
+    fn ensure_directory(&mut self) -> Result<(), ModelError> {
+        if self.directory.is_none() {
+            self.directory = Some(tempfile::tempdir().map_err(ModelError::codec)?);
+            self.charge(self.payload_bytes + self.pending.capacity() * size_of::<Entry<A::Key>>(), self.runs.capacity())?;
+        }
+        Ok(())
+    }
+    fn sort_pending(&mut self) -> Result<(), ModelError> {
+        self.pending.sort_unstable_by(|a, b| a.key.cmp(&b.key));
+        for pair in self.pending.windows(2) {
+            if pair[0].key == pair[1].key && pair[0].bytes != pair[1].bytes {
+                return Err(ModelError::Conflict(A::CONFLICT));
+            }
+        }
+        self.pending.dedup_by(|a, b| a.key == b.key);
         Ok(())
     }
     fn push(&mut self, value: A::Output) -> Result<(), ModelError> {
@@ -307,7 +355,14 @@ impl<A: Adapter> Sorter<A> {
             .payload_bytes
             .saturating_add(row_bytes)
             .saturating_add(capacity * size_of::<Entry<A::Key>>());
-        if projected > self.limit {
+        // Available reservation determines whether another accumulated row fits. The
+        // actual reservation still arbitrates races with sibling operations.
+        let available = self.budget.as_ref().map_or(usize::MAX, |budget|
+            budget.limit().saturating_sub(budget.reserved())
+                .saturating_add(self.retained.as_ref().map_or(0, |charge| charge.size()))
+                .saturating_sub(self.metadata_bytes(self.runs.capacity())));
+        let run_limit = self.limit.min(available);
+        if projected > run_limit {
             self.flush()?;
         }
         let capacity = if self.pending.len() == self.pending.capacity() {
@@ -322,7 +377,7 @@ impl<A: Adapter> Sorter<A> {
         // The frame limit admits individual rows; the run limit bounds accumulated
         // sorting state. A legal frame can exceed an empty run after allocation/key
         // metadata, so write it directly as one charged run without accumulating it.
-        if pending_bytes > self.limit {
+        if pending_bytes > run_limit {
             return self.spill_singleton(row);
         }
         self.charge(pending_bytes, self.runs.capacity())?;
@@ -344,10 +399,13 @@ impl<A: Adapter> Sorter<A> {
             .saturating_add(A::key_bytes(&row.key))
             .saturating_add(size_of::<Entry<A::Key>>());
         self.charge(bytes, self.runs.capacity())?;
-        let mut run = NamedTempFile::new_in(self.directory.path()).map_err(ModelError::codec)?;
+        self.ensure_directory()?;
+        let mut run = NamedTempFile::new_in(self.directory.as_ref().expect("spill directory").path()).map_err(ModelError::codec)?;
         {
-            let _work = reserve(self.budget.as_ref(), IO_BYTES)?;
-            let mut writer = BufWriter::with_capacity(IO_BYTES, run.as_file_mut());
+            let capacity = self.budget.as_ref().map_or(IO_BYTES, |budget|
+                IO_BYTES.min(budget.limit().saturating_sub(budget.reserved())));
+            let _work = reserve(self.budget.as_ref(), capacity)?;
+            let mut writer = BufWriter::with_capacity(capacity, run.as_file_mut());
             write(&mut writer, &row)?;
             writer.flush().map_err(ModelError::codec)?;
         }
@@ -360,11 +418,14 @@ impl<A: Adapter> Sorter<A> {
             return Ok(());
         }
         // Unstable sorting is in-place: no second result-sized sort allocation.
-        self.pending.sort_unstable_by(|a, b| a.key.cmp(&b.key));
-        let mut run = NamedTempFile::new_in(self.directory.path()).map_err(ModelError::codec)?;
+        self.sort_pending()?;
+        self.ensure_directory()?;
+        let mut run = NamedTempFile::new_in(self.directory.as_ref().expect("spill directory").path()).map_err(ModelError::codec)?;
         {
-            let _work = reserve(self.budget.as_ref(), IO_BYTES)?;
-            let mut writer = BufWriter::with_capacity(IO_BYTES, run.as_file_mut());
+            let capacity = self.budget.as_ref().map_or(IO_BYTES, |budget|
+                IO_BYTES.min(budget.limit().saturating_sub(budget.reserved())));
+            let _work = reserve(self.budget.as_ref(), capacity)?;
+            let mut writer = BufWriter::with_capacity(capacity, run.as_file_mut());
             for (index, row) in self.pending.iter().enumerate() {
                 if index > 0 && self.pending[index - 1].key == row.key {
                     if self.pending[index - 1].bytes != row.bytes {
@@ -395,7 +456,7 @@ impl<A: Adapter> Sorter<A> {
             match self.runs[level].take() {
                 Some(previous) => {
                     run = merge::<A>(
-                        self.directory.path(),
+                        self.directory.as_ref().expect("spill directory").path(),
                         previous,
                         run,
                         self.budget.as_ref(),
@@ -415,28 +476,43 @@ impl<A: Adapter> Sorter<A> {
         if self.poisoned {
             return Err(ModelError::Conflict("failed external ordering"));
         }
-        self.flush()?;
+        self.sort_pending()?;
         let mut final_run = None;
         for run in self.runs.into_iter().flatten() {
             final_run = Some(match final_run {
                 Some(previous) => merge::<A>(
-                    self.directory.path(),
-                    previous,
-                    run,
-                    self.budget.as_ref(),
-                    self.bounds,
+                    self.directory.as_ref().expect("spill directory").path(),
+                    previous, run, self.budget.as_ref(), self.bounds,
                 )?,
                 None => run,
             });
         }
-        let retained = reserve(
-            self.budget.as_ref(),
-            size_of::<Run<A>>() + self.directory.path().as_os_str().len(),
-        )?;
+        // A fitting result never creates scratch. When earlier runs exist, merge the
+        // fitting tail directly into their final run instead of writing a tail run.
+        let memory = if let Some(file) = final_run.take() {
+            if self.pending.is_empty() {
+                final_run = Some(file);
+            } else {
+                final_run = Some(merge_tail::<A>(
+                    self.directory.as_ref().expect("spill directory").path(),
+                    file, &self.pending, self.budget.as_ref(), self.bounds,
+                )?);
+            }
+            self.pending = Vec::new();
+            Vec::new()
+        } else {
+            self.pending
+        };
+        let path_bytes = self.directory.as_ref().map_or(0, |dir| dir.path().as_os_str().len());
+        let memory_bytes = memory.capacity() * size_of::<Entry<A::Key>>()
+            + memory.iter().map(|entry| entry.bytes.capacity() + A::key_bytes(&entry.key)).sum::<usize>();
+        let retained_bytes = size_of::<Run<A>>() + path_bytes + memory_bytes;
+        if let Some(retained) = &mut self.retained { retained.try_resize(retained_bytes)?; }
         let run = Arc::new(Run {
             file: final_run,
+            memory,
             _directory: self.directory,
-            _retained: retained,
+            _retained: self.retained,
             bounds: self.bounds,
             budget: self.budget,
             _adapter: PhantomData,
@@ -448,7 +524,8 @@ impl<A: Adapter> Sorter<A> {
 /// reader/decode reservation. The last run/cursor releases both scratch and owner charge.
 struct Run<A: Adapter> {
     file: Option<NamedTempFile>,
-    _directory: TempDir,
+    memory: Vec<Entry<A::Key>>,
+    _directory: Option<TempDir>,
     _retained: Option<Box<dyn Reservation>>,
     bounds: FrameBounds,
     budget: Option<ResourceBudget>,
@@ -457,6 +534,7 @@ struct Run<A: Adapter> {
 struct Ordered<A: Adapter> {
     reader: Option<BufReader<File>>,
     run: Arc<Run<A>>,
+    position: usize,
     _reader_charge: Option<Box<dyn Reservation>>,
 }
 impl<A: Adapter> Ordered<A> {
@@ -467,9 +545,9 @@ impl<A: Adapter> Ordered<A> {
     fn open_in(run: Arc<Run<A>>, budget: Option<ResourceBudget>) -> Result<Self, ModelError> {
         let reader_bytes = if run.file.is_some() {
             run.bounds.work + IO_BYTES
-        } else {
-            0
-        };
+        } else if !run.memory.is_empty() {
+            run.bounds.work
+        } else { 0 };
         let retained = reserve(budget.as_ref(), reader_bytes + size_of::<Self>())?;
         let reader = run
             .file
@@ -483,10 +561,12 @@ impl<A: Adapter> Ordered<A> {
         Ok(Self {
             reader,
             run,
+            position: 0,
             _reader_charge: retained,
         })
     }
     fn rewind(&mut self) -> Result<(), ModelError> {
+        self.position = 0;
         if let Some(reader) = &mut self.reader {
             reader.seek(SeekFrom::Start(0)).map_err(ModelError::codec)?;
         }
@@ -494,7 +574,10 @@ impl<A: Adapter> Ordered<A> {
     }
     fn next(&mut self) -> Result<Option<A::Output>, ModelError> {
         let Some(reader) = &mut self.reader else {
-            return Ok(None);
+            let Some(row) = self.run.memory.get(self.position) else { return Ok(None); };
+            let value = A::decode(&row.bytes)?;
+            self.position += 1;
+            return Ok(Some(value));
         };
         read::<A>(reader, self.run.bounds)?
             .map(|row| A::decode(&row.bytes))
@@ -546,7 +629,7 @@ impl PreparedRows {
         if let Some(file) = &self.0.file {
             let _work = budget.reserve(OWNER, self.0.bounds.work + 2 * IO_BYTES)?;
             let mut input = BufReader::with_capacity(IO_BYTES, file.reopen().map_err(ModelError::codec)?);
-            let output = NamedTempFile::new_in(self.0._directory.path()).map_err(ModelError::codec)?;
+            let output = NamedTempFile::new_in(self.0._directory.as_ref().expect("disk run directory").path()).map_err(ModelError::codec)?;
             let mut writer = BufWriter::with_capacity(IO_BYTES, output.reopen().map_err(ModelError::codec)?);
             loop {
                 let offset = input.stream_position().map_err(ModelError::codec)?;
@@ -557,7 +640,7 @@ impl PreparedRows {
             writer.flush().map_err(ModelError::codec)?;
             offsets = Some(output);
         }
-        let retained = budget.reserve(OWNER, size_of::<PointIndex>() + self.0._directory.path().as_os_str().len())?;
+        let retained = budget.reserve(OWNER, size_of::<PointIndex>() + self.0._directory.as_ref().map_or(0, |dir| dir.path().as_os_str().len()))?;
         Ok(PreparedPointRows(Arc::new(PointIndex { run: self.0.clone(), offsets, count, _retained: retained })))
     }
     pub fn cursor(&self) -> Result<OrderedRows, ModelError> {
@@ -599,7 +682,12 @@ impl PreparedPointRows {
 }
 impl PointRows {
     pub fn contains(&mut self, wanted: &RecordId) -> Result<bool, ModelError> {
-        let (Some(offsets), Some(rows)) = (&mut self.offsets, &mut self.rows) else { return Ok(false); };
+        if self.index.run.file.is_none() {
+            return Ok(self.index.run.memory.binary_search_by(|row| row.key.cmp(wanted)).is_ok());
+        }
+        let (Some(offsets), Some(rows)) = (&mut self.offsets, &mut self.rows) else {
+            return Err(ModelError::Schema("point index missing disk backing"));
+        };
         let mut low = 0u64;
         let mut high = self.index.count;
         while low < high {
@@ -713,19 +801,21 @@ mod tests {
     fn empty_candidate_ordering_needs_no_merge_or_reader_work_buffer() {
         let budget = ResourceBudget::fixed(4096).unwrap();
         let sorted = SortedCandidates::new(&budget).unwrap();
-        let directory = sorted.0.directory.path().to_owned();
+        let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
+        assert!(directory.is_none());
         let mut ordered = sorted.finish().unwrap();
+        assert!(ordered.0.run.file.is_none() && ordered.0.run._directory.is_none());
         assert!(ordered.next_candidate().unwrap().is_none());
         ordered.rewind().unwrap();
         drop(ordered);
         assert_eq!(budget.reserved(), 0);
-        assert!(!directory.exists());
+        assert!(!directory.as_ref().is_some_and(|path| path.exists()));
     }
     #[test]
     fn candidates_merge_overlapping_runs_in_nominal_not_physical_order() {
         let budget = ResourceBudget::fixed(4 * ROW_BYTES).unwrap();
         let mut sorted = SortedCandidates::with_run_bytes(&budget, 256).unwrap();
-        let directory = sorted.0.directory.path().to_owned();
+        let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
         for key in (0..200u8).rev() {
             // Physical pointers have the opposite order to the nominal keys.
             let row = candidate("entity", key, &format!("{:03}", 199 - key));
@@ -735,6 +825,8 @@ mod tests {
         assert!(sorted.0.runs.len() > 1);
         assert!(sorted.0.runs.len() <= 10);
         sorted.push(candidate("assertion", 199, "last")).unwrap();
+        assert!(directory.is_none());
+        let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
         let mut ordered = sorted.finish().unwrap();
         assert_eq!(
             ordered.next_candidate().unwrap(),
@@ -747,12 +839,12 @@ mod tests {
             );
         }
         assert!(ordered.next_candidate().unwrap().is_none());
-        assert!(directory.exists());
+        assert!(directory.as_ref().is_some_and(|path| path.exists()));
         assert!(budget.reserved() > 0);
         ordered.rewind().unwrap();
         assert!(ordered.next_candidate().unwrap().is_some());
         drop(ordered);
-        assert!(!directory.exists());
+        assert!(!directory.as_ref().is_some_and(|path| path.exists()));
         assert_eq!(budget.reserved(), 0);
     }
     #[test]
@@ -777,9 +869,11 @@ mod tests {
         for limit in [1, RUN_BYTES] {
             let budget = ResourceBudget::fixed(4 * ROW_BYTES).unwrap();
             let mut sorted = SortedCandidates::with_run_bytes(&budget, limit).unwrap();
-            let directory = sorted.0.directory.path().to_owned();
+            let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
             sorted.push(candidate("entity", 9, "first")).unwrap();
             let result = sorted.push(candidate("entity", 9, "different"));
+            assert!(directory.is_none());
+            let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
             let error = if limit == 1 {
                 let error = result.unwrap_err();
                 drop(sorted);
@@ -793,7 +887,7 @@ mod tests {
                 ModelError::Conflict("conflicting nominal candidate pointer")
             ));
             assert_eq!(budget.reserved(), 0);
-            assert!(!directory.exists());
+            assert!(!directory.as_ref().is_some_and(|path| path.exists()));
         }
     }
     #[test]
@@ -828,7 +922,8 @@ mod tests {
         sorted.push(candidate("entity", 1, "one")).unwrap();
         assert!(budget.reserved() > initial);
         let ordered = sorted.finish().unwrap();
-        assert!(budget.reserved() >= IO_BYTES);
+        assert!(ordered.0.run.file.is_none() && ordered.0.run._directory.is_none());
+        assert!(budget.reserved() > initial);
         assert!(budget.reserved() < 64 * 1024);
         drop(ordered);
         assert_eq!(budget.reserved(), 0);
@@ -837,14 +932,16 @@ mod tests {
         let budget = ResourceBudget::fixed(3 * IO_BYTES).unwrap();
         let outer = budget.reserve("scan-input", 1024).unwrap();
         let mut sorted = SortedCandidates::with_run_bytes(&budget, 1).unwrap();
-        let directory = sorted.0.directory.path().to_owned();
+        let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
         sorted.push(candidate("entity", 1, "one")).unwrap();
+        assert!(directory.is_none());
+        let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
         assert!(matches!(
             sorted.push(candidate("entity", 2, "two")),
             Err(ModelError::Resource { .. })
         ));
         drop(sorted);
-        assert!(!directory.exists());
+        assert!(!directory.as_ref().is_some_and(|path| path.exists()));
         assert_eq!(budget.reserved(), outer.size());
         drop(outer);
         assert_eq!(budget.reserved(), 0);
@@ -884,11 +981,12 @@ mod tests {
     fn prepared_physical_cursors_have_independent_offsets_charges_and_scratch() {
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let mut sort = SortedRows::with_budget(&budget).unwrap();
-        let directory = sort.0.directory.path().to_owned();
+        let directory = sort.0.directory.as_ref().map(|dir| dir.path().to_owned());
         sort.push(row("a", Value::Null)).unwrap();
         sort.push(row("b", Value::Bytes(Bytes::from(vec![0, 255]))))
             .unwrap();
         let prepared = sort.finish().unwrap().into_prepared();
+        assert!(directory.is_none() && prepared.0.file.is_none() && prepared.0._directory.is_none());
         let owner_bytes = budget.reserved();
         let mut first = prepared.cursor().unwrap();
         let first_bytes = budget.reserved();
@@ -897,7 +995,7 @@ mod tests {
         assert_eq!(first.next_row().unwrap(), second.next_row().unwrap());
         drop(first);
         drop(prepared);
-        assert!(directory.exists());
+        assert!(directory.is_none());
         assert_eq!(
             second.next_row().unwrap(),
             Some(row("b", Value::Bytes(Bytes::from(vec![0, 255]))))
@@ -905,21 +1003,23 @@ mod tests {
         assert!(second.next_row().unwrap().is_none());
         drop(second);
         assert_eq!(budget.reserved(), 0);
-        assert!(!directory.exists());
+        assert!(!directory.as_ref().is_some_and(|path| path.exists()));
     }
     #[test]
     fn disk_point_index_bounds_each_repeated_probe_and_retains_its_run() {
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
-        let mut sort = SortedRows::with_budget(&budget).unwrap();
-        let directory = sort.0.directory.path().to_owned();
+        let mut sort = Sorter::<Physical>::new(16 * 1024, Some(budget.clone())).map(SortedRows).unwrap();
+        let directory = sort.0.directory.as_ref().map(|dir| dir.path().to_owned());
         for n in (0..4096).rev() { sort.push(row(&format!("{n:04}"), Value::Null)).unwrap(); }
+        assert!(directory.is_none());
+        let directory = sort.0.directory.as_ref().map(|dir| dir.path().to_owned());
         let prepared = sort.finish().unwrap().into_prepared();
         let index = prepared.point_index(&budget).unwrap();
         let retained = budget.reserved();
         assert!(retained < 4096, "resident owner metadata must not contain a key per row");
         let mut points = index.cursor(&budget).unwrap();
         drop(prepared); drop(index);
-        assert!(directory.exists());
+        assert!(directory.as_ref().is_some_and(|path| path.exists()));
         for key in ["4095", "0000", "2048", "4096", "-absent", "0000", "4095"] {
             let before = points.probes;
             let expected = !matches!(key, "4096" | "-absent");
@@ -928,7 +1028,7 @@ mod tests {
         }
         assert!(!points.contains(&RecordId::new("other", "0000")).unwrap());
         drop(points);
-        assert!(!directory.exists()); assert_eq!(budget.reserved(), 0);
+        assert!(!directory.as_ref().is_some_and(|path| path.exists())); assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn sdk_serde_preserves_binary_record_ids_null_absence_and_signed_zero() {
@@ -995,7 +1095,7 @@ mod tests {
         }
         let budget = ResourceBudget::fixed(128 << 20).unwrap();
         let mut sorted = SortedRows::with_budget(&budget).unwrap();
-        let directory = sorted.0.directory.path().to_owned();
+        let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
         let before = row("before", Value::Null);
         let after = row("z-after", Value::Bytes(Bytes::from(vec![0, 255])));
         sorted.push(before.clone()).unwrap();
@@ -1004,6 +1104,8 @@ mod tests {
         assert_eq!(sorted.0.payload_bytes, 0);
         sorted.push(boundary.clone()).unwrap();
         sorted.push(after.clone()).unwrap();
+        assert!(directory.is_none());
+        let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
         let mut ordered = sorted.finish().unwrap();
         for expected in [before, boundary, after] {
             assert_eq!(ordered.next_row().unwrap(), Some(expected));
@@ -1011,23 +1113,25 @@ mod tests {
         assert!(ordered.next_row().unwrap().is_none());
         drop(ordered);
         assert_eq!(budget.reserved(), 0);
-        assert!(!directory.exists());
+        assert!(!directory.as_ref().is_some_and(|path| path.exists()));
     }
 
     #[test]
     fn legal_singleton_conflicts_with_a_different_full_value_across_runs() {
         let budget = ResourceBudget::fixed(128 << 20).unwrap();
         let mut sorted = SortedRows::with_budget(&budget).unwrap();
-        let directory = sorted.0.directory.path().to_owned();
+        let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
         sorted.push(row("before", Value::Null)).unwrap();
         sorted.push(ordinary_boundary_row("middle", 'x')).unwrap();
         sorted.push(ordinary_boundary_row("middle", 'y')).unwrap();
+        assert!(directory.is_none());
+        let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
         assert!(matches!(
             sorted.finish(),
             Err(ModelError::Conflict("conflicting physical row identity"))
         ));
         assert_eq!(budget.reserved(), 0);
-        assert!(!directory.exists());
+        assert!(!directory.as_ref().is_some_and(|path| path.exists()));
     }
 
     #[test]
@@ -1035,7 +1139,7 @@ mod tests {
         let budget = ResourceBudget::fixed(RUN_BYTES).unwrap();
         let outer = budget.reserve("retained-input", 1024).unwrap();
         let mut sorted = SortedRows::with_budget(&budget).unwrap();
-        let directory = sorted.0.directory.path().to_owned();
+        let directory = sorted.0.directory.as_ref().map(|dir| dir.path().to_owned());
         assert!(matches!(
             sorted.push(ordinary_boundary_row("middle", 'x')),
             Err(ModelError::Resource { .. })
@@ -1044,7 +1148,7 @@ mod tests {
             sorted.finish(),
             Err(ModelError::Conflict("failed external ordering"))
         ));
-        assert!(!directory.exists());
+        assert!(!directory.as_ref().is_some_and(|path| path.exists()));
         assert_eq!(budget.reserved(), outer.size());
         drop(outer);
         assert_eq!(budget.reserved(), 0);
@@ -1098,4 +1202,52 @@ mod tests {
             .is_err()
         );
     }
+    #[test]
+    fn fitting_memory_run_replays_and_points_without_creating_scratch() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let mut sorted = SortedRows::with_budget(&budget).unwrap();
+        sorted.push(row("b", Value::Null)).unwrap();
+        sorted.push(row("a", Value::Null)).unwrap();
+        sorted.push(row("a", Value::Null)).unwrap();
+        assert!(sorted.0.directory.is_none());
+        let prepared = sorted.finish().unwrap().into_prepared();
+        assert!(prepared.0.file.is_none() && prepared.0._directory.is_none());
+        let mut first = prepared.cursor().unwrap();
+        assert_eq!(first.next_row().unwrap(), Some(row("a", Value::Null)));
+        first.rewind().unwrap();
+        let mut second = prepared.cursor().unwrap();
+        assert_eq!(first.next_row().unwrap(), second.next_row().unwrap());
+        drop(first); drop(second);
+        let index = prepared.point_index(&budget).unwrap();
+        assert!(index.0.offsets.is_none());
+        let mut points = index.cursor(&budget).unwrap();
+        assert!(points.contains(&RecordId::new("test", "b")).unwrap());
+        assert!(!points.contains(&RecordId::new("test", "absent")).unwrap());
+        drop(prepared); drop(index); drop(points);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[test]
+    fn fitting_tail_merges_directly_and_refuses_a_late_full_value_collision() {
+        for conflict in [false, true] {
+            let budget = ResourceBudget::fixed(1 << 20).unwrap();
+            let mut sorted = Sorter::<Physical>::new(4096, Some(budget.clone())).map(SortedRows).unwrap();
+            sorted.push(row("same", Value::String("x".repeat(400)))).unwrap();
+            sorted.0.flush().unwrap();
+            sorted.push(row("same", Value::String(if conflict { "y".repeat(400) } else { "x".repeat(400) }))).unwrap();
+            assert!(!sorted.0.pending.is_empty());
+            let path = sorted.0.directory.as_ref().unwrap().path().to_owned();
+            let result = sorted.finish();
+            if conflict {
+                assert!(matches!(result, Err(ModelError::Conflict("conflicting physical row identity"))));
+            } else {
+                let mut ordered = result.unwrap();
+                assert!(ordered.next_row().unwrap().is_some());
+                assert!(ordered.next_row().unwrap().is_none());
+            }
+            assert!(!path.exists());
+            assert_eq!(budget.reserved(), 0);
+        }
+    }
+
 }
