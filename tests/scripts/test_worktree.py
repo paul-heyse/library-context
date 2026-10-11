@@ -28,6 +28,9 @@ def repo(tmp_path, monkeypatch):
         "GIT_CONFIG_NOSYSTEM": "1",
     }.items():
         monkeypatch.setenv(key, value)
+    # Throwaway Git/lifecycle controls do not inspect the operator installation.
+    # Service-dependency cases below supply their own explicit descriptor/observation.
+    monkeypatch.setenv("LCTX_SURREAL_SERVICE_CONFIG", str(tmp_path / "service/installation.json"))
     monkeypatch.setenv("CARGO_HOME", str(tmp_path / "cargo"))
     monkeypatch.setenv("LCTX_STORAGE_STATE", str(tmp_path / "storage"))
     root = tmp_path / "main"

@@ -99,6 +99,13 @@ fn invalid(message: String) -> ModelError {
 /// Pysa's reports of each analyzed module (definitions and call graphs as Pysa serializes them), by
 /// module name: the session hook the Pysa-CLI harness oracle compares.
 pub type PysaTap = std::sync::Arc<std::sync::Mutex<BTreeMap<String, serde_json::Value>>>;
+// Analysis invocations share the library's available-CPU worker pool. A State keeps
+// its inline executor for caller-owned ordered extraction and later lazy queries;
+// the parallel analysis run below joins before those phases inspect its answers.
+fn analysis_pool() -> &'static pyrefly_util::thread_pool::ThreadPool {
+    static POOL: std::sync::OnceLock<pyrefly_util::thread_pool::ThreadPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| pyrefly_util::thread_pool::ThreadPool::new(pyrefly_util::thread_pool::ThreadCount::AllThreads))
+}
 /// The `pyrefly` stage with its traversal limits.
 pub struct Pyrefly {
     limits: SyntaxLimits,
@@ -690,7 +697,7 @@ fn session<S: ProviderSink + 'static>(
         format: pyrefly::report::pysa::PysaFormat::Json,
         write_files: false,
     })));
-    transaction.run(&handles, Require::Everything, None);
+    transaction.run(&handles, Require::Everything, Some(analysis_pool()));
     let mut frozen = vec![(root, captured.artifacts())];
     if let Some(library) = library {
         frozen.push((library.captured().root(), library.captured().artifacts()));

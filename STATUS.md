@@ -2,16 +2,43 @@
 
 _Updated 2026-10-10 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: SurrealDB architecture plan authored,2026-10-10; shared main is dirty.**
+**Current scope: SurrealDB architecture SA0–SA9 execution,2026-10-10; shared main is dirty.**
 The [architecture companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
-develops SA0–SA9 for all seven source findings and nine capability avenues, integrated with HS/UP/NE.
-The source review remains **Revise**; [independent target assessment](docs/design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) accepts the amended **Proposed**
-contracts after correcting repeated-preflight recovery. Review RC01 and supplemental SA-RC04 were
-operator-accepted2026-10-10; transport/coordination retain their existing conditional decisions.
-Coordinator §8 owns SA/HS dispositions; §9.1 owns document and runtime receipts. Native/product acceptance stays open.
-Publication verification: `just docs-check` **passed**,2026-10-10,385 pages/zero link errors, including the independent review.
-Next: SA0's decision/owner/runbook changes and SA1–SA3's complete recoverable migration; independently ready access work may proceed.
-Authoring performed no migration restart, service change, production remediation or product tests.
+owns scope; [coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+owns dispositions and receipts. [ADR-0146](docs/adr/0146-recoverable-native-upgrade-progress.md)
+records accepted recovery progress and explicit format4→5 history-receipt evolution.
+Implemented source: complete bounded native recovery/provenance verification, separate atomic pass/page
+progress, immutable host reconciliation successor, operation-local catalog preparation, selective
+membership/FULLTEXT nomination, batched occurrence hydration and retirement registration.
+Selected-relation nomination passed12 focused model/native controls and actual indexed sparse access; enclosing acceptance stays open.
+Earlier scoped reviews retain their scope. Format5 history refuses old schemas before durable intent; private atomic rollback,
+controlled acknowledgement-loss and changed-parent controls are source-accepted and qualified on current page code.
+Enclosing acceptance remains open. **passed**,2026-10-10: integrated release all-test check (`205122…8bce5e`), format4 CLI build
+(`205515…0a28b6`, before final native verifier edits),156 host controls (`210205…d4556f`),
+and167 final host controls (`213908…523cb7`), followed by4 retry/legacy controls (`214033…0574dc`).
+Matching-source31 format4 pure controls passed (`210857…702d00`); installer2201b8d7 is frozen.
+Host executable-epoch sequencing is source-accepted. Restored candidate4 preserves exact target/protocol
+and acknowledged prefixes:11 controls (`214956…98f48c`), normal CLI
+build (`220003…793541`) and exact CLI/contract comparison (`220859…53038c`) **passed**.
+Retained reproducible source bundle `220233…7befdb/source` has its named replay hold. Actual nonempty
+observation/changed-body/missing-record/rollback/ack-reconciliation qualification **passed**
+(`220921…907c37`), preserving original native/credential identities and main publication.
+Checked successor `aab8e187…` resumed from revision3727; `221005…875935` then failed at revision5120
+(preflight/native_guard) on10s transaction timeout during severe host memory/swap pressure. Same-candidate retry
+`223906…f13581` was gracefully cancelled (exit143), revision12211/preflight/native_hold retained.
+Range qualification `232349…c2a264` passed exact128-row/body/order equality. Format5 finite controls passed
+before later assurance additions.39 finite controls (`224700…53f78f`),4 CLI controls (`224625…1d0bc0`),
+804 model controls (`225757…9af32f`),14 analytics and43 flow passed after stale finite fixtures were corrected.
+The ty oracle awaits its fixture. Main5 run (`233609…85699f`) passed2 pure controls, CLI build8m27s and native discovery.
+Exact CLI identity/source capture passed; native rerun (`002810…4b66fd`)7passed/1failed on sparse-reader immutable address collision.
+Repaired run/service fixture isolation passed57 lifecycle controls (`215936…26def5`), corrected
+formatter fixtures passed48 (`220402…21aca4`), and full tooling rerun passed (`220453…f6a787`).
+Current HTTP/service fixture controls passed203+5, final HTTP5 (`231916…a4df0a`); SM8 pure controls passed16.
+The latest full tooling rerun passed (`231238…1fac84`); original format4 recovery now passed separately.
+Corrected4 composite (`235000…320a5c`) passed2 pure controls/8m38s CLI build; contracts/source capture (`000334…8d8bec`) passed.
+Actual Protect rollback/ack/stale qualification (`000519…b5cc8e`) and full4 recovery (`000538…638d38`, exit0/cleanup confirmed) passed.
+After SA assurance, operator authorized **all remaining repository testing**,2026-10-10, with failures
+corrected/rerun toward all passing; BC3/SM8 retain separately attributed outcomes and activation boundaries.
 
 **Holistic state-management HS0–HS11 execution is interrupted.**
 The [holistic companion](docs/plans/holistic-state-management-plan_2026-10-10.md) owns this scope.
@@ -24,22 +51,10 @@ issuance eras/outcome references/history collection, compiler release and charge
 Writer fencing, recovery lineage, physical-terminal classification, search scratch and terminal-attempt
 cleanup corrections are source-accepted. The earlier assembled review's sparse first-request, family
 dispatch and budget repairs are source-accepted; functional qualification remains pending.
-**passed**,2026-10-10, historical receipts:99 host/storage and5 model controls (`162158…fe134a`);
-repaired all-test check (`163414…857f59`); repaired installer (`163332…1b9615`). Main migrated,
-but validation twice crashed the original server on transaction-timeout stack cancellation.
-Concurrent-index installation and exact same-target/original-native-ID recovery are implemented;
-114 mocked recovery controls passed. Separately owned exact3.3.0 server correction preserves runtime limits.
-Actual-size export admission/shared-pool pressure corrections passed67 pure controls (`171523…9388db`);
-all-test check (`170340…db2755`) passed. The locked DiskANN build defect received an exact local correction.
-Patched server build/adoption passed;185 composed tooling controls passed. Page-local origin reuse
-passed its three affected pure controls; final affected binaries compiled/listed, and guarded native sync passed.
-**failed**,2026-10-10: `20261010T174350.233Z-05d48c` validation translation exited1/cleaned at19:02:54UTC:
-`native_retirement.root_count` expected `int`, found `NONE`. Main's format4 checkpoint remains;
-validation stays format3/admission closed. Queued `181816…d35925` and `182220…e52348` failed
-prerequisite waits; their native test bodies are **not_run**. The password-fence observer still waits for format4.
-Python/product acceptance, native timeout regression and HS11 assembled qualification are **not_run**.
-Next: execute architecture SA0–SA3 before correcting/resuming the immutable migration;
-then source-matching revealing controls and scheduled HS11 acceptance. Earlier source acceptance is not runtime closure.
+Earlier focused passes, source reviews and failed composites retain exact meaning in coordinator §9.1.
+Installed scopes are exact format5/0dcc; source4 refusal and owner readbacks passed. Nonce JWT rotation (`002712…3b030f`) passed; original old-JWT gap remains.
+Sparse/serving2/ty2 passed (`004041…3dbf50`); publisher cold/catalog/history parse/current CLI passed (`005233…7b60ee`).
+HS6 inventory/five nonce controls passed; assembled run cancelled after provider/core failures. New completion/sort corrections await runtime; disk exhausted, builds blocked.
 
 **Unified persistent SurrealDB UP0–UP9 / NE / PC / GK / GR integrated acceptance remains open.**
 The [unified companion](docs/plans/unified-persistent-surrealdb-plan_2026-10-09.md) owns surviving
@@ -63,7 +78,7 @@ protective descriptors. Central skill stores and other repositories are excluded
 Backlog cleanup retired five obsolete captures (about98GiB raw samples), preserving/hash-verifying reports and receipts. Verification passed; automation remains off.
 **passed:**163 producer controls,63 lifecycle/build/service controls,34 archive/CLI/replay controls;
 native acquisition compile/five controls; scoped lint/types, ADR lint and docs publication.
-Independent bounded review accepted examined mechanisms. Acquisition crash receipts and sampled
+Lifecycle inventory (`234536…65cb09`) passed:354 objects/0 actions; no retirement authorized. Acquisition crash receipts and sampled
 import without meaningful symbols remain protected. Installed-service executable transfer
 **passed**,2026-10-10, through the native owner's checked stabilization route; maintenance is released.
 SM8 service-survival acceptance and coordinated matching-source `just qualify`/assembled review
@@ -86,30 +101,15 @@ PSE-arrow's patched WebSocket buffers query results; progressive server `query_s
 need an adapter with equivalent cancellation and backup support. PSE-arrow is unchanged.
 No dependency version or public artifact schema changed; [pins](docs/pins.md) owns the SDK hold.
 
-**Agent effectiveness AF0–AF9 implemented / focused-Tested, 2026-10-09:** the
-[follow-up plan §8/§9](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner)
-owns F01–F05, AE-24, selected capabilities and current receipts. ADR-0142 governs owned readiness,
-independent cleanup and detachable display. [Independent integrated review](docs/design_review/reviews/design_review_agent-effectiveness-integrated_2026-10-09.md)
-accepts the examined scope after closing its additional fixture-lock/retention and leader-reaping
-findings. Read-only freshness, checked SQL diagnostics and invocation-scoped native Codex MCP
-are implemented; process skills and permanent client registrations are unchanged.
-**passed:** nine affected tooling modules,313 controls (`20261009T231848.005Z-9bf4ac`);
-final fixture correction selection,20 controls; post-cleanup harness/run/verify,139 controls;
-publisher/ADR `just docs-test`,78 controls. Plan §9 retains exact scopes and earlier failures.
-Scoped Ruff/types, `just adr-lint` and `just docs-check` **passed** (374 pages, zero link errors).
-Comprehensive product tests and measured effectiveness **not_run**, per operator instruction.
-Next: reuse these owners in storage/unified-service work; existing product acceptance stays separate.
+**Agent effectiveness AF0–AF9 implemented / focused-Tested,2026-10-09:**
+[Follow-up plan §8/§9](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner)
+owns receipts and findings; ADR-0142 governs owned readiness, independent cleanup and detachable display.
+Independent integrated review accepted examined scope. Focused tooling, publisher/resolver, lint/types,
+ADR and documentation checks passed; comprehensive product acceptance remains separately open.
 
-**Earlier verification boundaries, 2026-10-09:** exact commands, source limits and failed composites
-remain in [coordinator §9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07).
-Patched native transport controls and extraction determinism passed focused reruns. Earlier assembled
-qualifications remain failed/cancelled partial receipts, including disk exhaustion, compiler/store/MCP
-failures and cache-matrix/analytics timeouts. Those results do not close the unified target. Current
-native ownership, search, restore and representative journeys must pass on the replacement source.
-BC3 candidate-profile qualification and unrelated real-library adoption remain `not_run`.
-
-**Existing qualification follow-up:** resolve source-specific failures without weakening controls.
-Qualify BC3 separately before installing the ordinary test profile. Record source-specific closure; retain failed composites.
+**Existing qualification follow-up:** source-specific failures require correction and affected reruns.
+Coordinator §9.1 retains failures/timeouts and source-accepted corrections; resume focused completion/sort/provider controls after capacity is freed.
+Qualify BC3 separately before installing the ordinary test profile; SM8 service survival remains separate.
 No measured speed or whole-plan completion is claimed.
 
 **Preservation and boundaries:** preserve operator hashing references, PC3's dirty isolated

@@ -1,10 +1,7 @@
 //! Independent dormant P4 answers over actual pinned native providers and the typed Base owner.
-#[path = "fixtures/transfer_composition.rs"]
-mod fixture;
-#[path = "fixtures/read_diagnostics.rs"]
-mod read_diagnostics;
-#[path = "fixtures/source_data.rs"]
-mod source_fixture;
+use crate::fixture;
+use crate::read_diagnostics;
+use crate::source_fixture;
 use lctx_model::domain::{
     analysis,
     execution::{self, read_channels::*},

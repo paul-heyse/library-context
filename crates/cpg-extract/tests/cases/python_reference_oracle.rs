@@ -6,8 +6,9 @@ use ruff_db::{
 use ruff_ranged_value::ValueSource;
 use ruff_text_size_latest::TextSize;
 use std::{
+    io::Read,
     collections::BTreeSet,
-    process::{Command, Stdio},
+    process::{Command, ExitStatus, Stdio},
     time::{Duration, Instant},
 };
 use ty_project::{Db, ProjectDatabase, ProjectMetadata, metadata::Options};
@@ -86,35 +87,72 @@ fn references(
     })
 }
 
-#[test]
-fn ty_reference_oracle_is_bounded_by_a_joined_process() {
+const CHILD_COMPLETED: &str = "LCTX_TY_REFERENCE_ORACLE_CHILD_COMPLETED";
+
+fn child_test_name() -> String {
+    // libtest omits the integration crate name, but retains the module path.
+    let (_, module) = module_path!().split_once("::").unwrap();
+    format!("{module}::ty_reference_oracle_child")
+}
+
+fn run_oracle_child(test_name: &str) -> (ExitStatus, String) {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "ty_reference_oracle_child",
+            test_name,
             "--ignored",
             "--nocapture",
         ])
         .env("LCTX_TY_REFERENCE_ORACLE_CHILD", "1")
         .stdin(Stdio::null())
+        .stdout(Stdio::piped())
         .spawn()
         .unwrap();
+    // Drain while the child runs, so diagnostic output cannot fill the pipe and
+    // turn the parent's existing process bound into an artificial timeout.
+    let mut stdout = child.stdout.take().unwrap();
+    let reader = std::thread::spawn(move || {
+        let mut output = String::new();
+        stdout.read_to_string(&mut output).unwrap();
+        output
+    });
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         if let Some(status) = child.try_wait().unwrap() {
-            assert!(
-                status.success(),
-                "native ty reference controls failed: {status}"
-            );
-            break;
+            return (status, reader.join().unwrap());
         }
         if Instant::now() >= deadline {
             child.kill().unwrap();
             child.wait().unwrap();
-            panic!("native ty reference oracle exceeded its 60-second process bound");
+            let output = reader.join().unwrap();
+            panic!("native ty reference oracle exceeded its 60-second process bound\n{output}");
         }
         std::thread::sleep(Duration::from_millis(50));
     }
+}
+
+fn child_completed(output: &str) -> bool {
+    // libtest may place its progress prefix on the same line under nocapture.
+    // This token is emitted only by the child after all assertions complete.
+    output.match_indices(CHILD_COMPLETED).count() == 1
+}
+
+#[test]
+fn ty_reference_oracle_is_bounded_by_a_joined_process() {
+    let (status, output) = run_oracle_child(&child_test_name());
+    print!("{output}");
+    assert!(status.success(), "native ty reference controls failed: {status}\n{output}");
+    assert!(child_completed(&output), "native ty reference child did not affirm completed controls; a successful zero-test exit is insufficient\n{output}");
+}
+
+#[test]
+fn ty_reference_oracle_refuses_successful_zero_test_child() {
+    assert_eq!(child_test_name(), "python_reference_oracle::ty_reference_oracle_child");
+    assert!(child_completed(&format!("test {} ... {CHILD_COMPLETED}\nok", child_test_name())));
+    assert!(!child_completed(&format!("{CHILD_COMPLETED}\n{CHILD_COMPLETED}")));
+    let (status, output) = run_oracle_child(&format!("{}__missing_control", child_test_name()));
+    assert!(status.success(), "zero-test harness control failed: {status}\n{output}");
+    assert!(!child_completed(&output), "zero-test child unexpectedly affirmed executed controls\n{output}");
 }
 
 #[test]
@@ -218,6 +256,9 @@ fn ty_reference_oracle_child() {
     println!(
         "policy=ResolveAliases with requested-spelling filter; empty-search=None; source_view=original; python=3.14; platform=linux; included=api.py,uses.py; dependencies=vendored-typeshed; provider=f7bdff69e1fb94ab0ed5b340e977aac0d26e9301; lexical-overlap=value names; scope-differences=keyword/member references"
     );
+    // Emit only after all semantic and normalized-fact assertions have passed.
+    // The leading newline keeps this separate from libtest's progress prefix.
+    println!("\n{CHILD_COMPLETED}");
 }
 
 use crate::typed_driver;

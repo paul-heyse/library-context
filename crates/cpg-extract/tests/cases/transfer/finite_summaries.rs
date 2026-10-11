@@ -1,6 +1,5 @@
 //! Actual captured native/normalized/Local inputs drive the finite summary kernel.
-#[path = "fixtures/transfer_composition.rs"]
-mod fixture;
+use crate::fixture;
 use lctx_model::domain::{
     analysis,
     execution::{self, summary_production::*},

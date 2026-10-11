@@ -4282,6 +4282,12 @@ mod tests {
             assert_eq!(template.ports[0].reference.table(), "fixed_port");
             assert!(Arc::ptr_eq(&template.ports[0].provider, &used));
         }
+        assert!(
+            context
+                .deregister_table("unrelated_port")
+                .unwrap()
+                .is_some()
+        );
         context
             .register_table("unrelated_port", provider("replaced-unrelated"))
             .unwrap();
@@ -4310,6 +4316,7 @@ mod tests {
         assert_eq!(budget.reserved(), retained_budget);
 
         let replacement = provider("replaced-used");
+        assert!(context.deregister_table("fixed_port").unwrap().is_some());
         context
             .register_table("fixed_port", replacement.clone())
             .unwrap();
@@ -4345,6 +4352,7 @@ mod tests {
         // Simulate catalog replacement during planning, followed by restoration before
         // inspection. Checking the current alias alone would miss this stale capture.
         let stale = crate::sql::query(&context, sql).await.unwrap();
+        assert!(context.deregister_table("fixed_port").unwrap().is_some());
         context.register_table("fixed_port", used.clone()).unwrap();
         assert!(matches!(
             prepared.prepare_template(stale.logical_plan(), &budget, sql.len()),
@@ -4368,6 +4376,7 @@ mod tests {
             Err(ModelError::Resource { .. })
         ));
         assert_eq!(refused_budget.reserved(), 0);
+        assert!(context.deregister_table("fixed_port").unwrap().is_some());
         context.register_table("fixed_port", replacement).unwrap();
         assert!(
             matches!(
@@ -4382,6 +4391,7 @@ mod tests {
         drop(captured);
         drop(stale);
         assert_eq!(budget.reserved(), retained_budget);
+        assert!(context.deregister_table("fixed_port").unwrap().is_some());
         context.register_table("fixed_port", used).unwrap();
         let concurrent_sql = "SELECT name AS copied_name FROM fixed_port";
         let (left, right) = tokio::join!(
@@ -4796,7 +4806,11 @@ mod tests {
         );
         let output = Arc::try_unwrap(output).ok().unwrap();
         output.finish(ProviderOutcome::Complete).await.unwrap();
-        let contributions = workspace.native().contributions(workspace.budget()).await.unwrap();
+        let contributions = workspace
+            .native()
+            .contributions(workspace.budget())
+            .await
+            .unwrap();
         assert_eq!(contributions.len(), 1);
         assert_eq!(contributions[0].outputs.len(), 2);
         assert_eq!(workspace.completed::<Package>().unwrap().rows(), 0);
@@ -4821,7 +4835,14 @@ mod tests {
             [],
         );
         assert!(refused.declare_async::<Package>().await.is_err());
-        assert!(workspace.native().contributions(workspace.budget()).await.unwrap().is_empty());
+        assert!(
+            workspace
+                .native()
+                .contributions(workspace.budget())
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(refused.finish(ProviderOutcome::Complete).await.is_err());
         let duplicate = workspace.output(
             "duplicate-async",
@@ -5048,11 +5069,30 @@ mod tests {
                 .unwrap(),
             [],
         );
+        let identity = output.contribution.clone();
         output.finish(ProviderOutcome::Complete).await.unwrap();
-        let contributions = workspace.native().contributions(workspace.budget()).await.unwrap();
-        assert_eq!(contributions.len(), 1);
-        assert!(contributions[0].spec.outputs.is_empty());
-        assert!(contributions[0].outputs.is_empty());
+        // Metadata-only completion is durable without inventing a relation binding. The
+        // publication closure accessor deliberately omits owners with no reachable outputs.
+        let identity = identity
+            .lock()
+            .unwrap()
+            .expect("metadata-only native registration");
+        let contribution = workspace
+            .native()
+            .completed_contribution(identity)
+            .await
+            .unwrap();
+        assert!(contribution.spec.outputs.is_empty());
+        assert!(contribution.outputs.is_empty());
+        assert_eq!(workspace.completed_owners.lock().unwrap().0.len(), 1);
+        assert!(
+            workspace
+                .native()
+                .contributions(workspace.budget())
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert!(workspace.completed::<Package>().is_err());
         let refused = workspace.output(
             "undeclared",

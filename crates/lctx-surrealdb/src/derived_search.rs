@@ -57,29 +57,117 @@ pub fn selected_occurrences<Context>(
 fn indexed_occurrence_rows<Context>(reader: &NativeReader<Context>, table: &str, predicate: &str, bindings: Variables, budget: &resources::ResourceBudget) -> Result<crate::reader::NativeRows, ModelError> {
     if !matches!(table, "lex_occurs" | "vec_occurs") { return Err(ModelError::Schema("indexed occurrence family")); }
     let index = if bindings.get("window_keys").is_some() { "window_occurrences" } else { "eligible_input" };
-    let reader = reader.transport_reader(); let table = table.to_owned(); let predicate = predicate.to_owned(); let budget = budget.clone();
-    crate::reader::NativeRows::owned(move |sender| async move {
-        let mut sorted = SortedRows::with_budget(&budget)?;
-        let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(bindings, vec![], vec![format!("SELECT id,unit_payload,dependencies FROM {table} WITH INDEX {index} WHERE ({predicate})")])?)?;
+    let nominations = reader.stream_prepared(crate::prepared::PreparedQuery::new(bindings, vec![], vec![format!("SELECT id,unit_payload,dependencies FROM {table} WITH INDEX {index} WHERE ({predicate})")])?)?;
+    hydrate_occurrence_nominations(reader, nominations, budget)
+}
+/// Table FULLTEXT nominates documents, while three independent equality indexes nominate
+/// exact occurrences even when the query has no analyzer terms. Neither branch has a
+/// pre-eligibility quota; unrelated publications cannot consume the selected frontier.
+pub fn lexical_nomination_sql(family_table: &str) -> Result<String, ModelError> {
+    if !TABLES[..4].contains(&family_table) { return Err(ModelError::Schema("lexical nomination family")); }
+    Ok(format!("SELECT id FROM {family_table} WITH INDEX lexical WHERE text @OR@ $query"))
+}
+pub fn lexical_occurrences<Context>(reader: &NativeReader<Context>, family_table: &str, predicate: &str, bindings: Variables, budget: &resources::ResourceBudget) -> Result<crate::reader::NativeRows, ModelError> {
+    let nomination_sql = lexical_nomination_sql(family_table)?;
+    let owner = reader.transport_reader(); let predicate = predicate.to_owned(); let budget_copy = budget.clone();
+    let nominations = crate::reader::NativeRows::owned(move |sender| async move {
+        let mut documents = owner.stream_prepared(crate::prepared::PreparedQuery::new(bindings.clone(), vec![], vec![nomination_sql])?)?;
         let result = async {
-            while let Some(row) = rows.next().await? {
+            loop {
+                if sender.is_closed() { documents.cancel_delivery(); break; }
+                let mut scratch = charged::StateCharge::new(&budget_copy, "lexical-document-nominations");
+                let mut ids = Vec::new();
+                while ids.len() < BATCH_ROWS {
+                    let Some(row) = documents.next().await? else { break; };
+                    scratch.grow(crate::loader::native_bytes(&row).saturating_mul(3))?;
+                    let object = Object::from_value(row).map_err(ModelError::codec)?;
+                    ids.push(RecordId::from_value(object.get("id").cloned().ok_or(ModelError::Schema("lexical document nomination"))?).map_err(ModelError::codec)?);
+                }
+                if ids.is_empty() { break; }
+                let mut vars = bindings.clone(); vars.insert("documents", ids);
+                let mut rows = owner.stream_prepared(crate::prepared::PreparedQuery::new(vars, vec![], vec![format!("SELECT id,unit_payload,dependencies FROM lex_occurs WITH INDEX document_occurrences WHERE in IN $documents AND ({predicate})")])?)?;
+                let result = async { while let Some(row) = rows.next().await? { if sender.send(row).await.is_err() { rows.cancel_delivery(); break; } } Ok(()) }.await;
+                let mut terminal = completion::Completion::default(); terminal.step("lexical document occurrences drainage", rows.drain_transport().await); completion::complete(result, terminal)?;
+            }
+            Ok(())
+        }.await;
+        let mut terminal = completion::Completion::default(); terminal.step("lexical fulltext nomination drainage", documents.drain_transport().await); completion::complete(result, terminal)?;
+        for field in ["exact_name", "exact_path", "exact_option"] {
+            if sender.is_closed() { return Ok(()); }
+            let mut rows = owner.stream_prepared(crate::prepared::PreparedQuery::new(bindings.clone(), vec![], vec![format!("SELECT id,unit_payload,dependencies FROM lex_occurs WITH INDEX {field} WHERE {field}=$query AND ({predicate})")])?)?;
+            let result = async { while let Some(row) = rows.next().await? { if sender.send(row).await.is_err() { rows.cancel_delivery(); break; } } Ok(()) }.await;
+            let mut terminal = completion::Completion::default(); terminal.step("lexical exact nomination drainage", rows.drain_transport().await); completion::complete(result, terminal)?;
+        }
+        Ok(())
+    })?;
+    hydrate_occurrence_nominations(reader, nominations, budget)
+}
+fn nomination_dependencies(object: &Object) -> Result<Vec<RecordId>, ModelError> {
+    let mut dependencies = Vec::<RecordId>::from_value(object.get("dependencies").cloned().ok_or(ModelError::Schema("occurrence dependencies"))?).map_err(ModelError::codec)?;
+    if dependencies.is_empty() { return Ok(dependencies); }
+    dependencies.push(RecordId::from_value(object.get("unit_payload").cloned().ok_or(ModelError::Schema("occurrence unit payload"))?).map_err(ModelError::codec)?);
+    dependencies.sort(); dependencies.dedup(); Ok(dependencies)
+}
+fn eligible_nomination_ids(window: &BTreeMap<RecordId, Object>, membership: &crate::selection::MembershipAnswers) -> Result<Vec<RecordId>, ModelError> {
+    let mut accepted = Vec::new();
+    for (id, object) in window {
+        let dependencies = nomination_dependencies(object)?;
+        if !dependencies.is_empty() && membership.contains_all(&dependencies) { accepted.push(id.clone()); }
+    }
+    Ok(accepted)
+}
+fn hydrate_occurrence_nominations<Context>(reader: &NativeReader<Context>, mut rows: crate::reader::NativeRows, budget: &resources::ResourceBudget) -> Result<crate::reader::NativeRows, ModelError> {
+    let retention = reader.transport_reader();
+    let reader = reader.transport_reader(); let budget = budget.clone();
+    let rows = crate::reader::NativeRows::owned(move |sender| async move {
+        let mut sorted = SortedRows::with_budget(&budget)?;
+        let result = async {
+            loop {
                 if sender.is_closed() { rows.cancel_delivery(); break; }
-                let _scratch = budget.reserve("indexed occurrence nomination", crate::loader::native_bytes(&row).saturating_mul(4))?;
-                let object = Object::from_value(row).map_err(ModelError::codec)?;
-                let mut dependencies = Vec::<RecordId>::from_value(object.get("dependencies").cloned().ok_or(ModelError::Schema("occurrence dependencies"))?).map_err(ModelError::codec)?;
-                if dependencies.is_empty() { continue; }
-                dependencies.push(RecordId::from_value(object.get("unit_payload").cloned().ok_or(ModelError::Schema("occurrence unit payload"))?).map_err(ModelError::codec)?);
-                dependencies.sort(); dependencies.dedup();
-                if reader.selected_candidate_ids(&dependencies, &budget).await?.len() != dependencies.len() { continue; }
-                let id = RecordId::from_value(object.get("id").cloned().ok_or(ModelError::Schema("occurrence identity"))?).map_err(ModelError::codec)?;
-                let mut payload = reader.stream_prepared(crate::prepared::PreparedQuery::new(Variables::from_iter([("node".into(), id.into_value())]), vec![], vec!["SELECT * FROM $node".into()])?)?;
-                let result = async { while let Some(row) = payload.next().await? { sorted.push(row)?; } Ok(()) }.await;
+                let mut scratch = charged::StateCharge::new(&budget, "indexed-occurrence-window");
+                let mut window = BTreeMap::new(); let mut union = BTreeSet::new(); let mut examined = 0;
+                while examined < BATCH_ROWS {
+                    let Some(row) = rows.next().await? else { break; }; examined += 1;
+                    scratch.grow(crate::loader::native_bytes(&row).saturating_mul(8))?;
+                    let object = Object::from_value(row).map_err(ModelError::codec)?;
+                    let dependencies = nomination_dependencies(&object)?;
+                    if dependencies.is_empty() { continue; }
+                    let id = RecordId::from_value(object.get("id").cloned().ok_or(ModelError::Schema("occurrence identity"))?).map_err(ModelError::codec)?;
+                    union.extend(dependencies.iter().cloned());
+                    if let Some(previous) = window.insert(id, object.clone()) { if previous != object { return Err(ModelError::Conflict("occurrence nomination changed")); } }
+                }
+                if examined == 0 { break; }
+                if window.is_empty() { continue; }
+                let union = union.into_iter().collect::<Vec<_>>();
+                let membership = reader.selected_membership(&union, &budget).await?;
+                let accepted = eligible_nomination_ids(&window, &membership)?;
+                if accepted.is_empty() { continue; }
+                let mut payload = reader.stream_prepared(crate::prepared::PreparedQuery::new(Variables::from_iter([("nodes".into(), accepted.clone().into_value())]), vec![], vec!["SELECT * FROM $nodes".into()])?)?;
+                let result = async {
+                    let mut seen = BTreeSet::new();
+                    while let Some(row) = payload.next().await? {
+                        let object = Object::from_value(row.clone()).map_err(ModelError::codec)?;
+                        let id = RecordId::from_value(object.get("id").cloned().ok_or(ModelError::Schema("occurrence payload identity"))?).map_err(ModelError::codec)?;
+                        if !accepted.contains(&id) || !seen.insert(id.clone()) { return Err(ModelError::Conflict("occurrence hydration correspondence")); }
+                        let expected = &window[&id];
+                        if ["dependencies", "unit_payload"].iter().any(|field| object.get(*field) != expected.get(*field)) { return Err(ModelError::Conflict("occurrence hydration dependencies changed")); }
+                        sorted.push(row)?;
+                    }
+                    if seen.len() != accepted.len() { return Err(ModelError::Schema("missing nominated occurrence payload")); }
+                    Ok(())
+                }.await;
                 let mut terminal = completion::Completion::default(); terminal.step("indexed occurrence payload drainage", payload.drain_transport().await); completion::complete(result, terminal)?;
-            } Ok(())
+            }
+            Ok(())
         }.await;
         let mut terminal = completion::Completion::default(); terminal.step("indexed occurrence nomination drainage", rows.drain_transport().await); completion::complete(result, terminal)?;
-        let mut sorted = sorted.finish()?; while let Some(row) = sorted.next_row()? { if sender.send(row).await.is_err() { break; } } Ok(())
-    })
+        let mut sorted = sorted.finish()?;
+        while sorted.next_row()?.is_some() {}
+        sorted.rewind()?;
+        while let Some(row) = sorted.next_row()? { if sender.send(row).await.is_err() { break; } }
+        Ok(())
+    })?;
+    Ok(retention.retain_rows(rows))
 }
 fn occurrence_rows<Context>(
     reader: &NativeReader<Context>, table: &str, predicate: &str, bindings: Variables, eligible: bool, budget: &resources::ResourceBudget,
@@ -133,6 +221,38 @@ fn occurrence_rows<Context>(
 #[cfg(test)]
 mod occurrence_budget_tests {
     use super::*;
+    #[test]
+    fn lexical_nomination_uses_an_indexed_family_table_without_score_or_quota_filter() {
+        for table in &TABLES[..4] {
+            let sql = lexical_nomination_sql(table).unwrap();
+            assert!(sql.contains(&format!("FROM {table} WITH INDEX lexical")));
+            assert!(sql.contains("text @OR@ $query")); assert!(!sql.contains("LIMIT")); assert!(!sql.contains("score"));
+        }
+        assert!(lexical_nomination_sql("$documents").is_err());
+    }
+    #[test]
+    fn occurrence_dependencies_require_every_dependency_and_the_unit_payload() {
+        let a = RecordId::new("entity", "a"); let b = RecordId::new("entity", "late-missing"); let unit = RecordId::new("entity", "unit");
+        let mut row = Object::new(); row.insert("dependencies", vec![a.clone(), a.clone(), b.clone()]); row.insert("unit_payload", unit.clone());
+        assert_eq!(nomination_dependencies(&row).unwrap(), vec![a, b, unit]);
+        row.insert("dependencies", Vec::<RecordId>::new()); assert!(nomination_dependencies(&row).unwrap().is_empty(), "empty dependency lists are never admitted solely by their unit");
+        row.insert("dependencies", vec![RecordId::new("entity", "a")]); row.remove("unit_payload"); assert!(nomination_dependencies(&row).is_err());
+    }
+    #[test]
+    fn occurrence_window_does_not_promote_one_present_dependency_to_all_present() {
+        let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let shared = RecordId::new("entity", "shared"); let unit = RecordId::new("entity", "unit");
+        let present = crate::selection::MembershipAnswers::unrestricted(&[shared.clone(), unit.clone()], &budget).unwrap();
+        let nomination = |dependencies: Vec<RecordId>, unit_payload: RecordId| { let mut object = Object::new(); object.insert("dependencies", dependencies); object.insert("unit_payload", unit_payload); object };
+        let good = RecordId::new("lex_occurs", "good");
+        let window = BTreeMap::from([
+            (good.clone(), nomination(vec![shared.clone()], unit.clone())),
+            (RecordId::new("lex_occurs", "late-missing"), nomination(vec![shared.clone(), RecordId::new("entity", "absent")], unit)),
+            (RecordId::new("lex_occurs", "missing-unit"), nomination(vec![shared], RecordId::new("entity", "other-unit"))),
+        ]);
+        assert_eq!(eligible_nomination_ids(&window, &present).unwrap(), vec![good]);
+        drop(present); assert_eq!(budget.reserved(), 0);
+    }
     #[tokio::test]
     async fn occurrence_preparation_refuses_unadmitted_input_before_native_access() {
         let budget = resources::ResourceBudget::fixed(BATCH_BYTES / 2).unwrap();
@@ -142,6 +262,132 @@ mod occurrence_budget_tests {
         assert!(matches!(error.primary(), Some(ModelError::Resource { .. })), "budget refusal must precede access to the unconnected native client: {error}");
         rows.drain_transport().await.unwrap(); drop(rows);
         assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn occurrence_driver_cancel_retains_session_and_charges_until_nomination_drainage() {
+        use futures::FutureExt;
+        let budget = resources::ResourceBudget::fixed(4 << 20).unwrap();
+        let client = std::sync::Arc::new(crate::surrealdb::Surreal::init());
+        let reader = NativeReader::for_views(client.clone(), vec![]).with_budget(&budget);
+        let baseline_handles = std::sync::Arc::strong_count(&client);
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let (release, gate) = tokio::sync::oneshot::channel();
+        let input = crate::reader::NativeRows::owned(move |sender| async move {
+            // Empty dependencies deliberately avoid native access. The second send
+            // establishes that the actual driver has consumed and charged the first.
+            let mut row = Object::new(); row.insert("dependencies", Vec::<RecordId>::new());
+            sender.send(Value::Object(row.clone())).await.map_err(ModelError::codec)?;
+            sender.send(Value::Object(row)).await.map_err(ModelError::codec)?;
+            entered.send(()).map_err(|_| ModelError::Conflict("occurrence gate receiver"))?;
+            gate.await.map_err(ModelError::codec)?;
+            Ok(())
+        }).unwrap().with_client(client.clone());
+        let mut rows = hydrate_occurrence_nominations(&reader, input, &budget).unwrap();
+        started.await.unwrap();
+        assert!(budget.reserved() > 0, "the nomination window is admitted before cancellation");
+        assert!(reader.close().await.is_err(), "the active driver retains the selected reader");
+        rows.cancel_delivery();
+        let mut drainage = Box::pin(rows.drain_transport());
+        assert!(drainage.as_mut().now_or_never().is_none(), "delivery cancellation cannot acknowledge the gated nomination terminal");
+        assert!(budget.reserved() > 0);
+        assert!(std::sync::Arc::strong_count(&client) > baseline_handles, "session handles remain owned through drainage");
+        assert!(reader.close().await.is_err());
+        release.send(()).unwrap();
+        drainage.await.unwrap();
+        drop(rows);
+        reader.close().await.unwrap();
+        assert_eq!(budget.reserved(), 0);
+        assert_eq!(std::sync::Arc::strong_count(&client), baseline_handles);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the installed stable validation service through just fixture"]
+    async fn occurrence_driver_refuses_changed_dependencies_unit_and_missing_payload() {
+        use crate::compiler::NativeCompilerStore;
+        use admission::Frontier;
+        use completed::ContributionSpec;
+        use stages::{Profile, ProviderOutcome};
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+        )).unwrap();
+        assert_eq!(config.database.as_str(), "validation");
+        let fixture_budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
+        let store = NativeCompilerStore::begin(&config, Frontier::Facts).await.unwrap();
+        let nonce = store.attempt().hex();
+        // A partial typed domain fixture, not publication admission. Only this
+        // completed Unit is selected; every mutation below owns a nonce occurrence.
+        let key = serde_json::json!(&store.attempt().0[..16]);
+        let unit = Unit {
+            input: serde_json::from_value(key.clone()).unwrap(),
+            context: serde_json::from_value(key.clone()).unwrap(),
+            family: Family::ApiOptions,
+            origin: serde_json::from_value(key.clone()).unwrap(),
+            corpus: serde_json::from_value(key).unwrap(),
+            title: format!("occurrence integrity {nonce}").into(),
+        };
+        let relation = Relation::of::<Unit>();
+        let contribution = store.begin_contribution(ContributionSpec {
+            captured_binding: None, producer: "occurrence-driver-control".into(),
+            profile: Profile::Catalog, model: model().unwrap().digest(),
+            implementation: ContentHash::of(b"occurrence-driver-control/v1"),
+            configuration: None, inputs: vec![], outputs: BTreeSet::from([Unit::NAME.into()]),
+        }).await.unwrap();
+        store.write_batch(&contribution, &relation, &Unit::encode(std::slice::from_ref(&unit)).unwrap()).await.unwrap();
+        let views = store.complete_contribution(contribution, ProviderOutcome::Complete,
+            std::slice::from_ref(&relation), &BTreeMap::new(), &fixture_budget).await.unwrap();
+        let views = views.values().map(|view| view.identity).collect::<Vec<_>>();
+        let client = crate::compiler::check_installation(&config).await.unwrap();
+        let loader = Loader::for_attempt_views(client.clone(), store.attempt(), views.clone()).with_budget(&fixture_budget);
+        loader.entity_references(&[graph::Entity::from(unit.clone())]).await.unwrap();
+        let reader = NativeReader::for_views(client.clone(), views).with_budget(&fixture_budget);
+        let payload = typed_payload(&unit).unwrap();
+        assert!(reader.selected_membership(std::slice::from_ref(&payload), &fixture_budget).await.unwrap().contains(&payload));
+        let document = RecordId::new("search_api_options", format!("occurrence-integrity-{nonce}"));
+        let ids = ["dependencies", "unit", "missing"].map(|case| RecordId::new("lex_occurs", format!("occurrence-integrity-{nonce}-{case}")));
+        let mut doc = Object::new(); doc.insert("id", document.clone());
+        doc.insert("text", format!("occurrence integrity {nonce}")); doc.insert("digest", ContentHash::of(nonce.as_bytes()).0.to_vec());
+        reader.query_native::<Value>("INSERT INTO search_api_options $rows RETURN NONE", Variables::from_iter([("rows".into(), vec![Value::Object(doc)].into_value())])).await.unwrap();
+        let anchor = target_id(Target::Entity(EntityId::of(unit.id())));
+        let mut occurrences = Vec::new();
+        for id in &ids {
+            let mut row = Object::from_value(crate::loader::json_value(serde_json::json!({
+                "family": Family::ApiOptions as i16, "unit": unit.id(), "window": unit.id(),
+                "part": unit.id(), "context": unit.context, "input": unit.input,
+                "binding": null, "member": null, "anchor": null,
+                "exact_name": "", "exact_path": "", "exact_option": "", "eligible": true,
+                "occurrence_key": format!("{nonce}-{:?}", id.key),
+            })).unwrap()).unwrap();
+            row.insert("id", id.clone()); row.insert("in", document.clone()); row.insert("out", anchor.clone());
+            row.insert("unit_node", anchor.clone()); row.insert("unit_payload", payload.clone()); row.insert("dependencies", vec![payload.clone()]);
+            occurrences.push(Value::Object(row));
+        }
+        reader.query_native::<Value>("INSERT RELATION INTO lex_occurs $rows RETURN NONE", Variables::from_iter([("rows".into(), occurrences.into_value())])).await.unwrap();
+        let nominations: Vec<Value> = reader.query_native("SELECT id,dependencies,unit_payload FROM $nodes ORDER BY id", Variables::from_iter([("nodes".into(), ids.to_vec().into_value())])).await.unwrap();
+        assert_eq!(nominations.len(), 3, "actual pre-mutation nominations");
+        for (id, expected) in ids.iter().zip([
+            "occurrence hydration dependencies changed", "occurrence hydration dependencies changed", "missing nominated occurrence payload",
+        ]) {
+            let nomination = nominations.iter().find(|value| value.as_object().unwrap().get("id") == Some(&Value::RecordId(id.clone()))).unwrap().clone();
+            let mut vars = Variables::new(); vars.insert("node", id.clone());
+            let mutation = if id == &ids[0] { "UPDATE ONLY $node SET dependencies=[] RETURN NONE" }
+                else if id == &ids[1] { vars.insert("other", RecordId::new("entity", format!("missing-unit-{nonce}"))); "UPDATE ONLY $node SET unit_payload=$other RETURN NONE" }
+                else { "DELETE ONLY $node RETURN NONE" };
+            reader.query_native::<Value>(mutation, vars).await.unwrap();
+            let nominations = crate::reader::NativeRows::owned(move |sender| async move {
+                sender.send(nomination).await.map_err(ModelError::codec)?; Ok(())
+            }).unwrap();
+            let budget = resources::ResourceBudget::fixed(16 << 20).unwrap();
+            let mut rows = hydrate_occurrence_nominations(&reader, nominations, &budget).unwrap();
+            let error = rows.next().await.unwrap_err();
+            assert!(error.to_string().contains(expected), "{error}");
+            assert!(rows.next().await.is_err(), "hydration failures stay sticky");
+            rows.drain_transport().await.unwrap(); drop(rows);
+            assert_eq!(budget.reserved(), 0, "failed hydration drains all request state");
+        }
+        reader.query_native::<Value>("DELETE $nodes RETURN NONE", Variables::from_iter([("nodes".into(), ids.to_vec().into_value())])).await.unwrap();
+        reader.query_native::<Value>("DELETE ONLY $document RETURN NONE", Variables::from_iter([("document".into(), document.into_value())])).await.unwrap();
+        drop(loader); reader.close().await.unwrap(); drop(reader);
+        client.invalidate().await.unwrap(); store.abandon().await.unwrap();
     }
 }
 fn typed_payload<R: Record>(row: &R) -> Result<RecordId, ModelError> {

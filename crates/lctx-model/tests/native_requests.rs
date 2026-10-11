@@ -1,14 +1,20 @@
 //! Pure exact-request controls over current domain identities and independently replayed Entry.
 fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
     use lctx_model::domain::serving::{DatabaseIdentity, Name, SnapshotHandle};
-    SnapshotHandle {
+    let mut handle = SnapshotHandle {
+        publication: lctx_model::domain::ContentHash([0; 32]),
+        view: lctx_model::domain::ContentHash([byte; 32]),
+        service_generation: lctx_model::domain::ContentHash([byte; 32]),
+        definition_epoch: lctx_model::domain::ContentHash([byte; 32]),
         semantic: lctx_model::domain::ContentHash([byte; 32]),
         realization: lctx_model::domain::ContentHash([byte; 32]),
         database: DatabaseIdentity {
             namespace: Name::new("lctx").unwrap(),
             database: Name::new(format!("snapshot_{byte}")).unwrap(),
         },
-    }
+    };
+    handle.publication = handle.expected_publication();
+    handle
 }
 #[path = "fixtures/stability.rs"]
 mod fixture;

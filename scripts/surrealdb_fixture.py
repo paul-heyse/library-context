@@ -375,7 +375,7 @@ class Server:
         statements: list[dict[str, Any]] = []
         try:
             request = self.request("/sql", sql.encode(), namespace, database)
-            with urllib.request.urlopen(request, timeout=25) as response:
+            with service.local_urlopen(request, timeout=25) as response:
                 transport["http_status"] = response.status
                 result = json.load(response)
             if not isinstance(result, list) or not result:

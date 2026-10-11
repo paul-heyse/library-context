@@ -217,6 +217,36 @@ same candidate. The persisted coordinator owns actual qualification; this route 
 successful migration. Installation uses concurrent index construction and waits for every desired
 index to report ready, including catalog-present indexes on a retry; source identity is unchanged.
 
+**Accepted recoverable transition (ADR-0146); runtime qualification open.** A separately checked
+advanced-state recovery uses `just service maintenance --reconcile-upgrade-installer PATH`.
+It preserves the original native migration/credential operations and exact completed main scope,
+then classifies actual validation state before adopting only recognized partial forms. The original
+replacement route remains absent/intent-only. `--upgrade-step-pages N` on reconciliation stops at
+a durable validation checkpoint with admission still closed; it does not limit normal compiler or
+test parallelism. Continue only the exact staged successor through `--upgrade-installer PATH`.
+
+The host stages each database's versioned execution contract privately and passes its exact path
+to `store upgrade --execution-contract PATH`. Contract metadata is separate from `store schema`.
+Preflight and all native passes carry atomic page progress, including nested cleanup cursors.
+Unknown acknowledgement reconciles that revision; normal advancement retains one native client.
+Native sealing, executable-definition completion and host scope completion are distinct. A sealed
+scope with a missing host checkpoint finishes definition checks rather than replaying translation.
+Migration overlays follow cold-service recovery, are excluded from selected portable content and
+remain protected until their named terminal recovery consumers release them.
+
+Native keyset scans retain native record IDs and excluded cursor bounds. On pinned
+SurrealDB3.3, the shared helper wraps the range in the identity `type::record(...)`
+so `DynamicScan` receives the page limit. The literal `RecordIdScan` path eagerly
+reads the remaining suffix before its outer limit. Regression controls require
+the pushed limit and exact complete page bodies/order; a small returned page alone
+does not demonstrate bounded examined work. This physical refinement preserves
+the migration protocol, schema, acknowledged prefix and runtime limits.
+
+The format3→4 recovery keeps its complete target unchanged. The subsequent explicit format4→5
+transition supplies bounded last-page history outcomes and expected-revision replay. Ordinary
+`store init` cannot install that changed runtime meaning; the explicit transition owns readback
+and publication. Existing era/horizon/reference protections continue to govern collection.
+
 For compatible executable-epoch installation, run the current build's `lctx store
 --runtime-config INSTALLER_CONFIG init --keep-closed` through `just service maintenance -- COMMAND`.
 It preserves existing era/fencing watermarks and prior pinned functions. The owner checks and
@@ -227,7 +257,7 @@ Native history maintenance also requires closed admission, actual host borrower 
 Root installer authority. `lctx store --runtime-config INSTALLER_CONFIG history qualify
 --evidence HASH` records the reviewed consumer qualification before `history cut` permanently
 closes the old issuance era. `history compact --limit 128` creates a bounded persisted collector;
-`history resume --identity HASH --limit 128` continues that exact collector. Named outcome
+`history resume --identity HASH --expected-revision REVISION --limit 128` continues that exact collector. Named outcome
 references, unresolved work, provenance and permanent object/authorization fences survive.
 This is an explicit owner operation, never an automatic age-based deletion policy.
 `store recover --cleanup HASH --retirement HASH --limit 128` claims distinct current-era

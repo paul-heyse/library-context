@@ -10,7 +10,7 @@ use lctx_model::domain::{
 use lctx_surrealdb::{
     Credentials, Loader, NativeEmbeddingCache, NativeReader, RecordSelection, reader,
 };
-use surrealdb::types::{Bytes, Value, Variables};
+use surrealdb::types::{Bytes, RecordId, Value, Variables};
 #[path = "fixtures/scoped.rs"]
 mod scoped;
 fn config() -> serde_json::Value {
@@ -579,6 +579,7 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
 
 #[tokio::test]
 async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_budget_lifetimes() {
+    use lctx_model::domain::retrieval::{CorpusText, Family, RENDER_VERSION, Unit};
     use lctx_surrealdb::prepared::PreparedQuery;
     let config = scoped::config();
     let nonce = lctx_surrealdb::control::fresh_identity("sparse-indexed-selection").unwrap();
@@ -588,15 +589,40 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
         root: serde_json::from_value(serde_json::to_value([13u8;16]).unwrap()).unwrap(),
         path: serde_json::from_value(serde_json::to_value([17u8;16]).unwrap()).unwrap(),
     };
-    let revision = source::SourceArtifact {
-        input: serde_json::from_value(serde_json::json!(nonce.0[..16])).unwrap(), path: "sparse.py".into(), content: nonce, byte_len: 1,
+    let text = format!("sparse indexed selection {}", nonce.hex());
+    let corpus = CorpusText {
+        family: Family::Scenario,
+        rendering_version: RENDER_VERSION,
+        digest: ContentHash::of(text.as_bytes()),
+        text: text.into(),
     };
+    let revision = Unit {
+        input: serde_json::from_value(serde_json::json!(nonce.0[..16])).unwrap(),
+        context: serde_json::from_value(serde_json::json!(nonce.0[16..])).unwrap(),
+        family: Family::Scenario,
+        origin: serde_json::from_value(serde_json::json!(nonce.0[..16])).unwrap(),
+        corpus: corpus.id(),
+        title: "Selected unit revision".into(),
+    };
+    let mut changed = revision.clone(); changed.title = "Foreign unit revision".into();
+    assert_eq!(revision.id(), changed.id(), "the conflict fixture shares one nominal unit key");
+    let original_entity = Entity::from(revision.clone());
+    let changed_entity = Entity::from(changed);
+    assert_ne!(original_entity.content(), changed_entity.content(), "nonkey title changes canonical content");
+    assert_ne!(lctx_surrealdb::loader::entity_payload_id(&original_entity).unwrap(), lctx_surrealdb::loader::entity_payload_id(&changed_entity).unwrap(), "the selected views must contain distinct immutable physical revisions");
     let mut entities = packages.iter().cloned().map(Entity::from).collect::<Vec<_>>();
-    entities.extend([Entity::from(release.clone()), Entity::from(place.clone()), Entity::from(revision.clone())]);
-    let selected = scoped::reader(&config, &entities, &[]).await.unwrap();
+    entities.extend([Entity::from(release.clone()), Entity::from(place.clone()), Entity::from(corpus.clone()), original_entity]);
+    let selected = scoped::reader_at_frontier(&config, admission::Frontier::Normalized, &entities, &[]).await.unwrap();
     let foreign_package = Package { name: format!("foreign-{}", nonce.hex()) };
-    let mut changed = revision.clone(); changed.byte_len = 2;
-    let foreign = scoped::reader(&config, &[Entity::from(foreign_package.clone()), Entity::from(changed)], &[]).await.unwrap();
+    let foreign = scoped::reader_at_frontier(&config, admission::Frontier::Normalized, &[Entity::from(foreign_package.clone()), Entity::from(packages[0].clone()), Entity::from(corpus), changed_entity], &[]).await.unwrap();
+    let extra_packages = ["a", "b"].map(|suffix| Package { name: format!("sparse-extra-{}-{suffix}", nonce.hex()) });
+    let mut extra_place = place.clone();
+    extra_place.root = serde_json::from_value(serde_json::json!(nonce.0[..16])).unwrap();
+    let compatible = scoped::reader_at_frontier(&config, admission::Frontier::Normalized, &[
+        Entity::from(packages[0].clone()), Entity::from(packages[128].clone()),
+        Entity::from(extra_packages[0].clone()), Entity::from(extra_packages[1].clone()),
+        Entity::from(place.clone()), Entity::from(extra_place.clone()),
+    ], &[]).await.unwrap();
     let retained = selected.reader.resource_budget().unwrap();
     let request = resources::ResourceBudget::scoped(&retained, 2 << 20).unwrap();
     let reader = selected.reader.with_request_budget_clone(&request);
@@ -611,17 +637,89 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
         assert_eq!(reader.records::<Release>(RecordSelection::Scope { field: "package".into(), values: vec![serde_json::to_value(packages[0].id()).unwrap()] }).await?, vec![release]);
         let alias = normalized::entities::EntityRef::Place { place: place.id() };
         assert_eq!(reader.records::<normalized::entities::EntityRef>(RecordSelection::Keys(vec![*alias.id().bytes()])).await?, vec![alias]);
+        let mut limited = reader.relation_bodies(Package::NAME, 2)?;
+        let mut actual = Vec::new(); while let Some(row) = limited.next().await? { actual.push(row); } limited.drain_transport().await?;
+        let mut expected = packages.iter().map(|package| package.id().hex()).collect::<Vec<_>>(); expected.sort();
+        assert_eq!(actual.len(), 2);
+        for (row, expected) in actual.iter().zip(expected.iter()) { let Value::Object(row) = row else { panic!("relation payload") }; assert_eq!(row.get("semantic_key"), Some(&Value::String(expected.clone()))); }
+        let mut alias_rows = reader.relation_bodies(normalized::entities::EntityRef::NAME, 8)?;
+        assert!(alias_rows.next().await?.is_some(), "relation-limited reads must follow alias sources in a different relation");
+        while alias_rows.next().await?.is_some() {} alias_rows.drain_transport().await?;
+        let mut empty = reader.relation_bodies(Package::NAME, 0)?; assert!(empty.next().await?.is_none()); empty.drain_transport().await?;
+        // Two compatible Package views share two payloads but also contain distinct
+        // rows. The 261-row prefix crosses native windows and must include rows from
+        // both views, irrespective of their hash order; one of 262 unique rows is cut.
+        let mut union_views = selected.views.clone(); union_views.extend(compatible.views.iter().copied());
+        let union = NativeReader::for_views(reader.shared_client(), union_views).with_budget(&retained).with_request_budget(&request);
+        let known_packages = packages.iter().chain(extra_packages.iter()).collect::<Vec<_>>();
+        let expected_keys = known_packages.iter().map(|package| package.id().hex()).collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(expected_keys.len(), 262);
+        let summary = |row: Value| -> Result<_, ModelError> {
+            use surrealdb::types::SurrealValue;
+            let Value::Object(row) = row else { return Err(ModelError::Schema("union relation envelope")); };
+            let key = String::from_value(row.get("semantic_key").cloned().ok_or(ModelError::Schema("union relation key"))?).map_err(ModelError::codec)?;
+            let payload = RecordId::from_value(row.get("id").cloned().ok_or(ModelError::Schema("union relation payload"))?).map_err(ModelError::codec)?;
+            let Some(Value::Bytes(canonical)) = row.get("canonical") else { return Err(ModelError::Schema("union relation canonical")); };
+            let entity = serde_json::from_slice::<Entity>(canonical.as_ref()).map_err(ModelError::codec)?;
+            Ok((key, payload, entity))
+        };
+        for limit in [expected_keys.len() - 1, expected_keys.len()] {
+            let expected = expected_keys.iter().take(limit).map(|key| {
+                let package = known_packages.iter().find(|package| package.id().hex() == *key).unwrap();
+                let entity = Entity::from((**package).clone());
+                Ok((key.clone(), lctx_surrealdb::loader::entity_payload_id(&entity)?, entity))
+            }).collect::<Result<Vec<_>, ModelError>>()?;
+            assert!(expected.iter().any(|row| extra_packages.iter().any(|package| package.id().hex() == row.0)), "limited prefix includes the second view's distinct payloads");
+            let mut rows = union.relation_bodies(Package::NAME, limit)?;
+            let mut actual = Vec::new(); while let Some(row) = rows.next().await? { actual.push(summary(row)?); }
+            rows.drain_transport().await?; drop(rows);
+            assert_eq!(actual, expected, "union order, physical payload, deduplication and limit are globally exact");
+            assert_eq!(request.reserved(), 0);
+        }
+        // The same union follows Place -> EntityRef aliases, retaining exact alias
+        // payloads and deduplicating the Place shared by both completed views.
+        let aliases = [place.clone(), extra_place.clone()].map(|place| normalized::entities::EntityRef::Place { place: place.id() });
+        let alias_keys = aliases.iter().map(|alias| alias.id().hex()).collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(alias_keys.len(), 2);
+        for limit in [1, 2] {
+            let expected = alias_keys.iter().take(limit).map(|key| {
+                let alias = aliases.iter().find(|alias| alias.id().hex() == *key).unwrap();
+                let entity = Entity::from(alias.clone());
+                Ok((key.clone(), lctx_surrealdb::loader::entity_payload_id(&entity)?, entity))
+            }).collect::<Result<Vec<_>, ModelError>>()?;
+            let mut rows = union.relation_bodies(normalized::entities::EntityRef::NAME, limit)?;
+            let mut actual = Vec::new(); while let Some(row) = rows.next().await? { actual.push(summary(row)?); }
+            rows.drain_transport().await?; drop(rows);
+            assert_eq!(actual, expected, "alias union has the same global ordering and exact limited payload contract");
+            assert_eq!(request.reserved(), 0);
+        }
+        union.close().await?; drop(union);
+        let mut bindings = Variables::new(); bindings.insert("view", RecordId::new("compiler_view", selected.views[0].hex())); bindings.insert("relation", Package::NAME);
+        let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(bindings, vec![], vec!["SELECT node AS id FROM compiler_view_member WITH INDEX view_key WHERE view=$view AND relation=$relation EXPLAIN".into()])?).await?;
+        assert!(format!("{plan:?}").contains("view_key"), "actual selected view/relation prefix nomination plan: {plan:?}");
         let mut bindings = Variables::new(); bindings.insert("type", Package::NAME); bindings.insert("keys", keys.iter().map(hex::encode).collect::<Vec<_>>());
-        let plan = reader.query_prepared_native::<Vec<Value>>(PreparedQuery::new(bindings, vec![], vec!["SELECT id FROM entity WITH INDEX semantic_key WHERE semantic_type=$type AND semantic_key IN $keys EXPLAIN".into()])?).await?;
+        let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(bindings, vec![], vec!["SELECT id FROM entity WITH INDEX semantic_key WHERE semantic_type=$type AND semantic_key IN $keys EXPLAIN".into()])?).await?;
         assert!(format!("{plan:?}").contains("semantic_key"), "actual key nomination plan: {plan:?}");
         let mut bindings = Variables::new(); bindings.insert("type", Release::NAME); bindings.insert("values", lctx_surrealdb::loader::json_value(serde_json::json!([packages[0].id()]))?);
         let mut preparation = vec![];
         let predicate = lctx_surrealdb::prepared::prepare_scope(&mut preparation, "record_scope", "$type", "package", "$values");
-        let plan = reader.query_prepared_native::<Vec<Value>>(PreparedQuery::new(bindings, preparation, vec![format!("SELECT id FROM entity WITH INDEX by_scope WHERE semantic_type=$type AND ({predicate}) EXPLAIN")])?).await?;
+        let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(bindings, preparation, vec![format!("SELECT id FROM entity WITH INDEX by_scope WHERE semantic_type=$type AND ({predicate}) EXPLAIN")])?).await?;
         assert!(format!("{plan:?}").contains("by_scope"), "actual scope nomination plan: {plan:?}");
         let mut views = selected.views.clone(); views.extend(foreign.views.iter().copied());
         let conflicted = NativeReader::for_views(reader.shared_client(), views).with_budget(&retained).with_request_budget(&request);
-        let conflict = conflicted.records::<source::SourceArtifact>(RecordSelection::Keys(vec![*revision.id().bytes()])).await;
+        let mut singleton_bindings = reader.view_bindings(); singleton_bindings.insert("relation", Unit::NAME); singleton_bindings.insert("key", revision.id().hex());
+        let physical: Vec<RecordId> = reader.query("SELECT VALUE node FROM compiler_view_member WITH INDEX view_key WHERE view IN $lctx_views AND relation=$relation AND semantic_key=$key", singleton_bindings).await?;
+        assert_eq!(physical.len(), 1);
+        assert!(conflicted.selected_membership(&physical, &request).await.is_err(), "a singleton search dependency must reject an un-nominated revision in another selected view");
+        let mut shared_bindings = reader.view_bindings(); shared_bindings.insert("relation", Package::NAME); shared_bindings.insert("key", packages[0].id().hex());
+        let shared: Vec<RecordId> = reader.query("SELECT VALUE node FROM compiler_view_member WITH INDEX view_key WHERE view IN $lctx_views AND relation=$relation AND semantic_key=$key", shared_bindings).await?;
+        assert_eq!(shared.len(), 1);
+        let shared_answers = conflicted.selected_membership(&shared, &request).await?;
+        assert!(shared_answers.contains_all(&shared)); assert_eq!(shared_answers.answers[0].witnesses.len(), 2, "identical physical/content admission in two exact views is legitimate"); drop(shared_answers);
+        let conflict = conflicted.records::<Unit>(RecordSelection::Keys(vec![*revision.id().bytes()])).await;
+        let mut limited_conflict = conflicted.relation_bodies(Unit::NAME, 1)?;
+        assert!(limited_conflict.next().await.is_err(), "a relation limit cannot hide conflicting selected physical revisions");
+        limited_conflict.drain_transport().await?; drop(limited_conflict);
         conflicted.close().await?; drop(conflicted);
         assert!(conflict.is_err(), "two selected physical revisions cannot silently choose one nominal result");
         Ok::<_, ModelError>(())
@@ -631,8 +729,9 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
     let mut terminal = completion::Completion::default();
     terminal.step("sparse selected fixture close", selected.close().await);
     terminal.step("sparse foreign fixture close", foreign.close().await);
+    terminal.step("sparse compatible union fixture close", compatible.close().await);
     completion::complete(result, terminal).unwrap();
-    drop(selected); drop(foreign);
+    drop(selected); drop(foreign); drop(compatible);
     assert_eq!(request.reserved(), 0);
     assert!(retained.reserved() > 0, "the immutable selected borrower retains its original charge after cache/owner release");
     drop(exact);

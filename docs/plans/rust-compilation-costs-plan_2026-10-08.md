@@ -144,6 +144,22 @@ Current source mapping found 42 top-level extraction driver consumers and 19 cor
 
 Reuse normal Cargo automatic target discovery; do not introduce a registration framework or one giant workspace harness. Generic assertion/decoder adapters remain small and local. A separate test-support crate is unnecessary for this selected grouping.
 
+**Additional driver consumers, implemented/source-accepted 2026-10-10; runtime pending.**
+SA assurance compilation exposed ten later transfer-fixture targets compiling the same substantial
+native driver independently. The existing BC4 mechanism now applies to them: retain
+`transfer_composition` with `finite_summaries`, `summary_consequences`, `symbolic_composition`
+and `symbolic_fields` case modules, and retain `read_channels` with `retired_read_expectations`,
+`source_calls`, `model_publication` and `final_coverage`. Cases live beneath `tests/cases/transfer/`.
+Each root includes the transfer driver once; the read root also shares its source/read helpers.
+No registration layer, dependency change or concurrency cap is introduced. Actual release discovery
+`20261010T224754.928Z-3c52d4` passed after1m05s preparation: all39 controls map exactly to22/17
+in the retained targets,16 root names unchanged and23 topic-prefixed moved names, identical ignored
+states. Comparison against `20261010T224625.531Z-1d0bc0` is retained with both runs. Independent
+source review accepted byte-identical assertions/bodies and unchanged existing groups/provider
+selection; no active selector referenced the retired targets. Extraction integration targets25→17;
+this count is not a measured compile-time or memory reduction. Runtime controls await current
+native recovery and remain part of the full workspace testing scope.
+
 Update `scripts/verify.py` target lists/narrowing and live documented invocations. `providers:extract` retains its existing case scope: extraction library tests, separate acquisition/bundle targets, and harness/typed_conformance/typed_flow/typed_calls/native_overload_origins/typed_ruff_context modules in their new targets. Express these module restrictions through the existing nextest filter mechanism; compose user filters by intersection. Do not accidentally broaden this boundary to every case in every newly selected group. `compiler:producer` continues to cover its declared full target set, while focused selections name the new target and module filter.
 
 Record an old-target/test-to-new-target/module discovery comparison. Remove obsolete top-level copies, their per-module driver inclusions and replaced current command references; historical receipts stay historical. Preserve disposable server/attempt ownership. Grouping merges a process, not test state: any exposed shared fixture namespace, environment mutation or static interference must be corrected in test/production ownership, never by a test-thread cap or whole-suite serial lock.

@@ -40,13 +40,14 @@ fn contribution_wire_requires_explicit_binding_and_its_identity_binds_roles() {
 }
 #[test]
 fn old_headers_reject_before_malformed_descriptors_are_reconstructed() {
-    for (artifact,state) in [(2,2),(ARTIFACT_FORMAT_VERSION,1)] {
+    for (artifact,state) in [(2,2),(ARTIFACT_FORMAT_VERSION,1),(ARTIFACT_FORMAT_VERSION,2)] {
         let bytes=serde_json::to_vec(&serde_json::json!({"format_version":artifact,"completed_state":{"format_version":state},"producers":"not a descriptor inventory"})).unwrap();
         let error=Manifest::decode(&bytes).unwrap_err();
         assert!(error.to_string().contains("unsupported artifact/completed-state format"));
     }
     use lctx_model::domain::completed::CompletedStateHeader;
     assert!(CompletedStateHeader::decode(br#"{"format_version":1}"#).is_err());
+    assert!(CompletedStateHeader::decode(br#"{"format_version":2}"#).is_err());
     assert!(CompletedStateHeader::decode(br#"{"table":"compiler_contribution","row":"old unframed descriptor"}"#).is_err());
-    assert_eq!(CompletedStateHeader::decode(br#"{"format_version":2}"#).unwrap(),CompletedStateHeader::current());
+    assert_eq!(CompletedStateHeader::decode(br#"{"format_version":3}"#).unwrap(),CompletedStateHeader::current());
 }

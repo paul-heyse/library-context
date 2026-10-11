@@ -1,6 +1,5 @@
 //! Actual captured native frames cannot be replaced by an empty later owner inventory.
-#[path = "fixtures/transfer_composition.rs"]
-mod fixture;
+use crate::fixture;
 use lctx_model::domain::{
     analysis::frontier::{self, FrontierData, Target},
     normalized::Rows,

@@ -359,13 +359,18 @@ def test_holders_come_from_the_kernel_lock_table(isolated_locks):
 
 
 def test_foreign_namespace_owner_counts_while_its_lock_is_held(isolated_locks):
-    (resource,) = resources_for("tools")
+    # Both the token reader and actual acquisition must select the fixture's
+    # lock registry, including when a managed qualifier holds the real one.
+    environment = dict(os.environ)
+    root = isolated_locks.parents[2] / "foreign-namespace-checkout"
+    (resource,) = resources_for("tools", root=root, env=environment)
     owner = {"pid": 4_000_000, "start_ticks": 1, "boot_id": harness.boot_id(), "pid_namespace": 1}
     entry = {"name": resource.name, "path": str(resource.path), "mode": "shared", "owner": owner}
-    token = {OWNERSHIP_KEY: json.dumps([entry])}
+    token = {**environment, OWNERSHIP_KEY: json.dumps([entry])}
     assert workspace_env.inherited(token) == {}
-    with ownership("shared", "tools", env={}):
+    with ownership("shared", "tools", root=root, env=environment):
         assert resource.name in workspace_env.inherited(token)
+    assert workspace_env.inherited(token) == {}
 
 
 def test_new_environment_is_enrolled_before_preparation_releases_ownership(

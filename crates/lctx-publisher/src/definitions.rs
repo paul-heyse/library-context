@@ -115,30 +115,18 @@ pub(crate) async fn install_epoch(
     blueprint: &str,
 ) -> Result<ContentHash, ModelError> {
     let (base, functions) = expected(blueprint)?;
-    let actual = inventory(loader).await?;
+    loader.check_read_admission()?;
+    let mut catalog = loader.installation_catalog().await?;
+    let actual = catalog.definitions();
     if base.iter().any(|definition| !actual.contains(definition)) {
         return Err(ModelError::Conflict(
             "installed native search/schema definitions",
         ));
     }
-    for definition in &functions {
-        if actual.contains(definition) {
-            continue;
-        }
-        // DEFINE's default refuses an existing conflicting immutable name. The readback
-        // independently compares its actual body; IF NOT EXISTS is never evidence of equality.
-        let created = loader
-            .client()
-            .query(definition)
-            .await
-            .and_then(|response| response.check());
-        if let Err(error) = created {
-            if !inventory(loader).await?.contains(definition) {
-                return Err(lctx_surrealdb::loader::write_failure(error));
-            }
-        }
-    }
-    verify_epoch(loader, blueprint).await
+    catalog.apply(&(functions.join(";\n") + ";"), "immutable executable epoch").await?;
+    loader.check_read_admission()?;
+    let version = loader.client().version().await.map_err(ModelError::codec)?.to_string();
+    verify_expected(blueprint, &version, &catalog.definitions(), &base, &functions)
 }
 pub(crate) async fn verify_epoch(
     loader: &Loader,
@@ -156,6 +144,9 @@ pub(crate) async fn verify_epoch(
 }
 pub(crate) fn verify_inventory(blueprint: &str, version: &str, actual: &BTreeSet<String>) -> Result<ContentHash, ModelError> {
     let (base, functions) = expected(blueprint)?;
+    verify_expected(blueprint, version, actual, &base, &functions)
+}
+fn verify_expected(blueprint: &str, version: &str, actual: &BTreeSet<String>, base: &[String], functions: &[String]) -> Result<ContentHash, ModelError> {
     let mut key = KeySink::new("native-view-realization/v1");
     if !version.starts_with("3.3.") {
         return Err(ModelError::Conflict("reviewed native engine family"));

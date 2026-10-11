@@ -50,7 +50,15 @@ pub async fn reader(
     entities: &[Entity],
     assertions: &[Assertion],
 ) -> Result<ScopedFixture, ModelError> {
-    let store = NativeCompilerStore::begin(config, Frontier::Facts).await?;
+    reader_at_frontier(config, Frontier::Facts, entities, assertions).await
+}
+pub async fn reader_at_frontier(
+    config: &RuntimeConfig,
+    frontier: Frontier,
+    entities: &[Entity],
+    assertions: &[Assertion],
+) -> Result<ScopedFixture, ModelError> {
+    let store = NativeCompilerStore::begin(config, frontier).await?;
     let model = lctx_model::domain::model()?;
     let budget = ResourceBudget::fixed(64 << 20)?;
     let mut groups = BTreeMap::<String, Vec<surrealdb::types::Value>>::new();

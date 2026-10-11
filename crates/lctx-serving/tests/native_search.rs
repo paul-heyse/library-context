@@ -893,6 +893,11 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     body.insert("exact_name", "beta");
     body.insert("exact_path", "pkg.beta");
     body.insert("exact_option", "quota_option");
+    let mut punctuation = body.clone();
+    punctuation.insert("id", record("lex_occurs", "quota_exact_punctuation"));
+    punctuation.insert("occurrence_key", format!("{}-quota_exact_punctuation", nonce()));
+    punctuation.insert("exact_option", "---");
+    crowd_occurrences.push(Value::Object(punctuation));
     crowd_occurrences.push(row);
     for chunk in crowd_docs.chunks(128) {
         insert(&native, "search_api_options", false, chunk.to_vec()).await;
@@ -905,7 +910,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         (*beta.id().bytes(), *good.bytes()),
     ];
     freeze(&mut native, &mut fixtures, &config).await;
-    for query in ["beta", "pkg.beta", "quota_option"] {
+    for query in ["beta", "pkg.beta", "quota_option", "---"] {
         let admitted = lctx_serving::search::lexical_scoped(
             &native,
             query,
@@ -1066,6 +1071,63 @@ async fn lexical_fixture(
     (fixture, loader, units)
 }
 #[tokio::test]
+async fn indexed_occurrence_driver_checks_shared_dependencies_late_absence_and_unit_membership() {
+    use surrealdb::types::SurrealValue;
+    let config = scoped::config();
+    let input = id::<input::InputRevision>(242);
+    let context = id::<AnalysisContext>(242);
+    let (fixture, loader, units) = lexical_fixture(
+        &config, input, context, &[format!("occurrence membership control {}", nonce())],
+    ).await;
+    let unit = units[0].id();
+    let scope = lctx_surrealdb::prepared::scope_string(&json_value(serde_json::to_value(input).unwrap()).unwrap());
+    let mut vars = Variables::new(); vars.insert("input_keys", vec![scope]);
+    vars.insert("unit", json_value(serde_json::to_value(unit).unwrap()).unwrap());
+    vars.insert("family", Family::ApiOptions as i16);
+    let originals: Vec<Value> = fixture.reader.query_native(
+        "SELECT * FROM lex_occurs WITH INDEX eligible_input WHERE eligible=true AND scope_input IN $input_keys AND family=$family AND unit=$unit", vars.clone(),
+    ).await.unwrap();
+    assert_eq!(originals.len(), 1, "one actual canonical occurrence supplies the selected dependency witnesses");
+    let original = originals[0].as_object().unwrap();
+    let dependencies = Vec::<RecordId>::from_value(original.get("dependencies").unwrap().clone()).unwrap();
+    let unit_payload = RecordId::from_value(original.get("unit_payload").unwrap().clone()).unwrap();
+    assert!(!dependencies.is_empty());
+    let ids = ["shared-a", "shared-b", "late-absent", "missing-unit"]
+        .map(|case| record("lex_occurs", format!("occurrence-driver-{case}")));
+    let absent = record("entity", "occurrence-driver-absent-dependency");
+    let missing_unit = record("entity", "occurrence-driver-absent-unit");
+    let answers = fixture.reader.selected_membership(&[absent.clone(), missing_unit.clone(), unit_payload], &search_budget()).await.unwrap();
+    assert!(!answers.contains(&absent)); assert!(!answers.contains(&missing_unit));
+    let mut rows = Vec::new();
+    for (index, id) in ids.iter().enumerate() {
+        let mut row = original.clone(); row.insert("id", id.clone());
+        row.insert("occurrence_key", format!("{}-occurrence-driver-{index}", nonce()));
+        if index == 2 {
+            let mut complete = dependencies.clone(); complete.push(absent.clone());
+            row.insert("dependencies", complete);
+        } else if index == 3 { row.insert("unit_payload", missing_unit.clone()); }
+        rows.push(Value::Object(row));
+    }
+    // Bypass insert(), which deliberately replaces the supplied dependencies.
+    fixture.reader.query_native::<Value>("INSERT RELATION INTO lex_occurs $rows RETURN NONE", Variables::from_iter([("rows".into(), rows.into_value())])).await.unwrap();
+    vars.insert("cases", ids.to_vec());
+    let budget = search_budget();
+    let mut rows = lctx_surrealdb::derived_search::selected_occurrences(
+        &fixture.reader, "lex_occurs",
+        "eligible=true AND scope_input IN $input_keys AND family=$family AND id IN $cases", vars, &budget,
+    ).unwrap();
+    let mut actual = std::collections::BTreeSet::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        let id = RecordId::from_value(row.as_object().unwrap().get("id").unwrap().clone()).unwrap();
+        assert!(actual.insert(id), "the driver emits each hydrated nomination once");
+    }
+    rows.drain_transport().await.unwrap(); drop(rows);
+    assert_eq!(actual, std::collections::BTreeSet::from([ids[0].clone(), ids[1].clone()]));
+    assert_eq!(budget.reserved(), 0, "membership and hydration state is released at checked completion");
+    fixture.reader.query_native::<Value>("DELETE $cases RETURN NONE", Variables::from_iter([("cases".into(), ids.to_vec().into_value())])).await.unwrap();
+    drop(answers); drop(loader); fixture.close().await.unwrap();
+}
+#[tokio::test]
 async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_same_unit() {
     let config = scoped::config();
     let input = id(210);
@@ -1141,6 +1203,11 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
             .collect::<Vec<_>>(),
         "pinned scores and order survive unrelated and changed-window insertions"
     );
+    let mut explain = Variables::new(); explain.insert("query", "needle absentterm");
+    let plan = a.reader.query_prepared_native::<Vec<Value>>(lctx_surrealdb::prepared::PreparedQuery::new(explain, vec![], vec![format!("{} EXPLAIN", lctx_surrealdb::derived_search::lexical_nomination_sql("search_api_options").unwrap())]).unwrap()).await.unwrap();
+    assert!(format!("{plan:?}").contains("lexical"), "FULLTEXT nomination must have a native family-table index executor: {plan:?}");
+    let or_match = lctx_serving::search::lexical_scoped(&a.reader, "needle absentterm", Family::ApiOptions, &[*input.bytes()], None, false, lctx_serving::search::UnitScope::All, 10, &policy, &search_budget()).await.unwrap();
+    assert_eq!(before.iter().map(|r| (&r.occurrence, r.score)).collect::<Vec<_>>(), or_match.iter().map(|r| (&r.occurrence, r.score)).collect::<Vec<_>>(), "OR nomination retains known terms when another term is absent");
     let absent = lctx_serving::search::lexical_scoped(
         &new.reader,
         "needle",
@@ -1185,6 +1252,73 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
     a.close().await.unwrap();
     b.close().await.unwrap();
     new.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn selective_fulltext_matches_complete_analyzer_bm25_for_compounds_and_empty_analysis() {
+    let config=scoped::config();let input=id(214);let context=id(215);let policy=RankingPolicy::default();
+    let texts=[
+        "connectHTTPServer retry_timeout retry_timeout",
+        "connect http server retry timeout longer surrounding descriptive context",
+        "HTTPServer fallback",
+        "retry_timeout isolated",
+        "alpha background",
+        "beta background !!!",
+        "gamma background",
+        "delta background",
+        "epsilon background",
+    ].map(|text|format!("{text} complete-oracle-{}",nonce()));
+    let (fixture,loader,units)=lexical_fixture(&config,input,context,&texts).await;
+    let queries=["connectHTTPServer","retry_timeout","connect-http.server","HTTPServer missingTerm","!!!"," \t",""];
+    let mut vars=Variables::new();
+    vars.insert("texts",texts.iter().map(String::as_str).chain(queries.iter().copied()).collect::<Vec<_>>());
+    // The declared native analyzer is the token authority. This complete small-corpus
+    // oracle independently enumerates every known document and computes BM25 in Rust;
+    // it does not use production nomination, frozen-statistic rows or ranking helpers.
+    let analyzed:Vec<Vec<String>>=fixture.reader.query("RETURN $texts.map(|$text|search::analyze('lctx_discovery',$text));",vars).await.unwrap();
+    assert_eq!(analyzed.len(),texts.len()+queries.len());
+    let (documents,query_tokens)=analyzed.split_at(texts.len());
+    assert!(query_tokens[0].len()>1,"camel compound must actually exercise analyzer splitting: {:?}",query_tokens[0]);
+    assert!(query_tokens[1].len()>1,"underscore compound must actually exercise analyzer splitting: {:?}",query_tokens[1]);
+    assert_eq!(query_tokens[4],vec!["!!!".to_owned()],"class/camel tokenizers retain a punctuation run as an analyzed term");
+    assert!(query_tokens[5..].iter().all(Vec::is_empty),"whitespace and empty raw query both have empty analyzed terms");
+    let lengths=documents.iter().map(Vec::len).collect::<Vec<_>>();
+    let average=lengths.iter().sum::<usize>() as f64/documents.len() as f64;
+    let frequencies=documents.iter().map(|tokens|{
+        let mut terms=std::collections::BTreeMap::<&str,usize>::new();for token in tokens{*terms.entry(token.as_str()).or_default()+=1;}terms
+    }).collect::<Vec<_>>();
+    for (query,tokens) in queries.iter().zip(query_tokens) {
+        let terms=tokens.iter().map(String::as_str).collect::<std::collections::BTreeSet<_>>();
+        // These canonical unit-only windows deliberately have empty exact fields.
+        // Thus an empty raw query still has an exact score-zero route, unlike
+        // whitespace with the same empty analysis. Punctuation has its own term
+        // and must match the corresponding document through FULLTEXT nomination.
+        let exact=query.is_empty();
+        let mut expected=frequencies.iter().enumerate().filter_map(|(index,document)|{
+            let matches=terms.iter().filter_map(|term|document.get(term).map(|tf|(*term,*tf))).collect::<Vec<_>>();
+            if matches.is_empty()&&!exact{return None;}
+            let score=matches.into_iter().map(|(term,tf)|{
+                let df=frequencies.iter().filter(|document|document.contains_key(term)).count() as f64;
+                let idf=((documents.len() as f64-df+0.5)/(df+0.5)).ln().max(0.0);
+                let tf=tf as f64;let length=lengths[index] as f64;
+                idf*tf*(policy.lexical.k1+1.0)/(tf+policy.lexical.k1*(1.0-policy.lexical.b+policy.lexical.b*length/average))
+            }).sum::<f64>();
+            Some((units[index].id(),units[index].context,score))
+        }).collect::<Vec<_>>();
+        expected.sort_by(|a,b|b.2.total_cmp(&a.2).then_with(||a.0.cmp(&b.0)).then_with(||a.1.cmp(&b.1)));
+        if *query=="!!!"{assert_eq!(expected.len(),1);assert_eq!(expected[0].0,units[5].id());assert!(expected[0].2>0.0,"punctuation exercises a positive lexical match, not an empty result");}
+        let budget=search_budget();
+        let actual=lctx_serving::search::lexical_scoped(&fixture.reader,query,Family::ApiOptions,&[*input.bytes()],None,false,lctx_serving::search::UnitScope::All,32,&policy,&budget).await.unwrap();
+        assert_eq!(actual.iter().map(|row|(row.occurrence.unit,row.occurrence.context)).collect::<Vec<_>>(),expected.iter().map(|(unit,context,_)|(*unit,*context)).collect::<Vec<_>>(),"selective nomination and complete ranking disagree for {query:?}");
+        for (row,(_,_,score)) in actual.iter().zip(&expected){
+            assert_eq!(row.occurrence.family,Family::ApiOptions);
+            let actual=row.score.expect("lexical score");assert!((actual-score).abs()<=1e-10*(1.0+score.abs()),"frozen score disagrees with complete corpus for {query:?}: {actual} vs {score}");
+        }
+        if exact{assert_eq!(actual.len(),texts.len());assert!(actual.iter().all(|row|row.score==Some(0.0)));}
+        drop(actual);assert_eq!(budget.reserved(),0,"query-owned state must release after {query:?}");
+    }
+    lctx_surrealdb::derived_search::reconcile_search(&loader).await.unwrap();
+    fixture.close().await.unwrap();
 }
 
 fn search_budget()->ResourceBudget {ResourceBudget::fixed(64*1024*1024).unwrap()}

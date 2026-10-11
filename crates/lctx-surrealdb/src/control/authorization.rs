@@ -188,7 +188,9 @@ async fn execute_owner(client: &Surreal<Client>, request: NativeRequest, owner: 
     let fence = if owner_id.is_some() {
         format!("LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.epoch!=$__epoch OR $__owner.era!=$__era OR $__owner.generation!=$__generation OR !({predicate}) {{ THROW 'native owner fenced'; }};")
     } else { String::new() };
-    let query = format!("BEGIN; {ERA_GUARD} LET $__operation=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__operation=NONE OR $__operation.request!=$__request OR $__operation.era!=$__era OR $__operation.generation!=$__generation {{ THROW 'native operation fenced'; }}; IF $__operation.resolved {{ IF !$__operation.committed {{ THROW 'native operation fenced uncommitted'; }}; }} ELSE {{ IF $__operation.epoch<=0 {{ THROW 'native operation epoch missing'; }}; LET $__epoch=$__operation.epoch; {fence} {sql}; UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; }}; COMMIT;");
+    // A payload RETURN belongs to that payload, never the outer transaction.
+    // The closure catches RETURN while errors still abort payload and receipt together.
+    let query = format!("BEGIN; {ERA_GUARD} LET $__operation=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__operation=NONE OR $__operation.request!=$__request OR $__operation.era!=$__era OR $__operation.generation!=$__generation {{ THROW 'native operation fenced'; }}; IF $__operation.resolved {{ IF !$__operation.committed {{ THROW 'native operation fenced uncommitted'; }}; }} ELSE {{ IF $__operation.epoch<=0 {{ THROW 'native operation epoch missing'; }}; LET $__epoch=$__operation.epoch; {fence} LET $__payload=|| {{ {sql}; }}; LET $__payload_result=$__payload(); UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; }}; COMMIT;");
     let result=match super::run_transaction(client, &query, bindings).await {
         Ok(())=>Ok(()),
         Err(error)=>match reconcile_request(client,request).await {

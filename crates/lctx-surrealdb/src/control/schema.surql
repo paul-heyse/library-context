@@ -124,6 +124,7 @@ DEFINE FIELD removed_records ON native_history_checkpoint TYPE int DEFAULT 0;
 DEFINE FIELD phase ON native_history_checkpoint TYPE string DEFAULT 'effect';
 DEFINE FIELD state ON native_history_checkpoint TYPE string;
 DEFINE FIELD after ON native_history_checkpoint TYPE option<record>;
+DEFINE FIELD last_page ON native_history_checkpoint TYPE option<object> FLEXIBLE;
 DEFINE TABLE native_upgrade SCHEMAFULL;
 DEFINE FIELD source ON native_upgrade TYPE string;
 DEFINE FIELD target ON native_upgrade TYPE string;

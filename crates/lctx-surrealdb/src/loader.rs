@@ -10,7 +10,10 @@ use surrealdb::{
     engine::remote::grpc::Client,
     types::{Bytes, Object, RecordId, SurrealValue, ToSql, Value, Variables},
 };
+mod catalog;
+pub use catalog::InstallationCatalog;
 
+#[cfg(test)]
 fn installation_definitions(sql: &str) -> Result<Vec<String>, ModelError> {
     use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
     surrealdb_syn::parse(sql)
@@ -43,11 +46,13 @@ fn installation_definitions(sql: &str) -> Result<Vec<String>, ModelError> {
         .collect()
 }
 
+#[derive(Clone)]
 struct InstallationIndex {
     execution: String,
     information: String,
     label: String,
 }
+#[cfg(test)]
 fn installation_index(sql: &str) -> Result<Option<InstallationIndex>, ModelError> {
     use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
     let mut parsed = surrealdb_syn::parse(sql).map_err(ModelError::codec)?.expressions;
@@ -189,12 +194,12 @@ impl Loader {
         self.client.clone()
     }
     pub async fn install(&self, native_definitions: &str) -> Result<(), ModelError> {
-        let physical = physical_native_definitions(native_definitions)?;
-        self.install_declarations(&crate::schema::canonical_schema(), "canonical schema")
-            .await?;
-        self.install_declarations(&physical, "native physical definitions")
-            .await?;
-        Ok(())
+        self.installation_catalog().await?.install(native_definitions).await
+    }
+    /// Capture actual definitions for one explicitly excluded installation operation.
+    /// The capture owns this exact session; it is never shared with another operation.
+    pub async fn installation_catalog(&self) -> Result<InstallationCatalog, ModelError> {
+        InstallationCatalog::capture(self.client.clone()).await
     }
     /// Explicit installation reconciles only repository-generated declarations. Existing
     /// definitions must match exactly; neither a retry nor a new client may overwrite them.
@@ -204,112 +209,7 @@ impl Loader {
         schema: &str,
         phase: &str,
     ) -> Result<(), ModelError> {
-        let statements = installation_definitions(schema)?;
-        let actual = self.installation_inventory().await
-            .map_err(|error| installation_failure(format!("{phase} initial declaration inventory"), error))?;
-        let indexes = statements.iter().filter_map(|statement| installation_index(statement).transpose()).collect::<Result<Vec<_>, _>>()?;
-        let missing = statements
-            .iter()
-            .filter(|statement| !actual.contains(*statement))
-            .cloned()
-            .collect::<Vec<_>>();
-        for (window, chunk) in missing.chunks(32).enumerate() {
-            let labels = chunk.iter().filter_map(|statement| installation_index(statement).transpose())
-                .collect::<Result<Vec<_>, _>>()?.into_iter().map(|index| index.label).collect::<Vec<_>>();
-            let context = |error| {
-                installation_failure(format!(
-                    "{phase} declaration window {} (statements {}-{}, indexes [{}])",
-                    window + 1,
-                    window * 32 + 1,
-                    window * 32 + chunk.len(), labels.join(", ")
-                ), error)
-            };
-            let execution = chunk.iter().map(|statement| {
-                Ok(installation_index(statement)?.map_or_else(|| statement.clone(), |index| index.execution))
-            }).collect::<Result<Vec<_>, ModelError>>()?;
-            self.client
-                .query(execution.join(";") + ";")
-                .await
-                .map_err(|error| context(write_failure(error)))?
-                .check()
-                .map_err(|error| context(ModelError::Cause(Box::new(error))))?;
-        }
-        let actual = self.installation_inventory().await
-            .map_err(|error| installation_failure(format!("{phase} declaration readback inventory"), error))?;
-        if statements
-            .iter()
-            .any(|statement| !actual.contains(statement))
-        {
-            return Err(installation_failure(format!("{phase} declaration readback"), ModelError::Conflict(
-                "installed native declaration readback",
-            )));
-        }
-        // Catalog presence is not readiness. Reconcile every desired index on retries,
-        // including a build retained by the server after a lost response or restart.
-        let mut pending = indexes;
-        while !pending.is_empty() {
-            let mut remaining = Vec::new();
-            for index in pending {
-                let context = |error| installation_failure(format!("{phase} index {} readiness", index.label), error);
-                let mut response = self.client.query(index.information.clone()).await
-                    .map_err(|error| context(ModelError::Cause(Box::new(error))))?
-                    .check().map_err(|error| context(ModelError::Cause(Box::new(error))))?;
-                let value: Value = response.take(0).map_err(|error| context(ModelError::Cause(Box::new(error))))?;
-                if !installation_index_ready(&value).map_err(context)? { remaining.push(index); }
-            }
-            pending = remaining;
-            if !pending.is_empty() { tokio::time::sleep(std::time::Duration::from_millis(100)).await; }
-        }
-        Ok(())
-    }
-    async fn installation_inventory(
-        &self,
-    ) -> Result<std::collections::BTreeSet<String>, ModelError> {
-        async fn info(client: &Surreal<Client>, sql: String) -> Result<Object, ModelError> {
-            let mut response = client
-                .query(sql)
-                .await
-                .map_err(ModelError::codec)?
-                .check()
-                .map_err(ModelError::codec)?;
-            let value: Value = response.take(0).map_err(ModelError::codec)?;
-            let Value::Object(object) = value else {
-                return Err(ModelError::Schema("installation definition inventory"));
-            };
-            Ok(object)
-        }
-        fn collect(
-            inventory: &mut std::collections::BTreeSet<String>,
-            object: &Object,
-            group: &str,
-        ) -> Result<(), ModelError> {
-            let Some(Value::Object(definitions)) = object.get(group) else {
-                return Err(ModelError::Schema("installation definition group"));
-            };
-            for value in definitions.values() {
-                let Value::String(sql) = value else {
-                    return Err(ModelError::Schema("installation definition text"));
-                };
-                inventory.extend(installation_definitions(sql)?);
-            }
-            Ok(())
-        }
-        let db = info(&self.client, "INFO FOR DB".into()).await?;
-        let mut inventory = std::collections::BTreeSet::new();
-        for group in ["functions", "analyzers", "tables"] {
-            collect(&mut inventory, &db, group)?;
-        }
-        let Some(Value::Object(tables)) = db.get("tables") else {
-            return Err(ModelError::Schema("installation table inventory"));
-        };
-        for name in tables.keys() {
-            let escaped = name.replace('`', "\\`");
-            let table = info(&self.client, format!("INFO FOR TABLE `{escaped}`")).await?;
-            for group in ["fields", "indexes"] {
-                collect(&mut inventory, &table, group)?;
-            }
-        }
-        Ok(inventory)
+        self.installation_catalog().await?.apply(schema, phase).await
     }
     pub(crate) async fn insert(
         &self,
@@ -1125,7 +1025,7 @@ mod tests {
                     "installer accepted conflicting function",
                 ));
             }
-            let actual = loader.installation_inventory().await?;
+            let actual = loader.installation_catalog().await?.definitions();
             if installation_definitions(&indexed_schema)?
                 .iter()
                 .any(|definition| !actual.contains(definition))

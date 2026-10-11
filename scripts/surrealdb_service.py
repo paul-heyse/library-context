@@ -27,6 +27,7 @@ import tarfile
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -404,10 +405,10 @@ class Installation:
                 raise FixtureBlocked(
                     "identity", "running service storage/endpoint differs from installation"
                 )
-            with urllib.request.urlopen(self.endpoint + "/ready", timeout=2) as response:
+            with local_urlopen(self.endpoint + "/ready", timeout=2) as response:
                 if response.status != 200:
                     raise ValueError("not ready")
-            with urllib.request.urlopen(self.endpoint + "/version", timeout=2) as response:
+            with local_urlopen(self.endpoint + "/version", timeout=2) as response:
                 if response.read().decode().strip() != self.record["binary"]["version"]:
                     raise FixtureBlocked("identity", "running server version differs from pin")
         except OSError, ValueError, KeyError:
@@ -458,6 +459,30 @@ class Installation:
         }
 
 
+class _NoLocalRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # An owned daemon response cannot move credentials or administrative SQL
+        # to a second endpoint. Let urllib report the original redirect as failure.
+        return None
+
+
+def local_urlopen(request: str | urllib.request.Request, *, timeout: float):
+    """Contact the owned loopback HTTP service directly, independent of proxy env."""
+    url = request.full_url if isinstance(request, urllib.request.Request) else request
+    endpoint = urllib.parse.urlsplit(url)
+    if (endpoint.scheme != "http" or endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or endpoint.username is not None or endpoint.password is not None
+            or endpoint.port is None):
+        raise ValueError("owned service requires a local HTTP endpoint")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoLocalRedirect())
+    try:
+        return opener.open(request, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        # Callers retain only the status/category; no error body remains borrowed.
+        error.close()
+        raise
+
+
 def sql(
     installation: Installation, statement: str, *, cfg: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
@@ -475,7 +500,7 @@ def sql(
         installation.endpoint + "/sql", data=statement.encode(), headers=headers
     )
     try:
-        with urllib.request.urlopen(request, timeout=25) as response:
+        with local_urlopen(request, timeout=25) as response:
             rows = json.load(response)
         if not isinstance(rows, list) or not rows or any(r.get("status") != "OK" for r in rows):
             raise FixtureFailed("query", "native statement failed; SQL and credentials withheld")
@@ -647,8 +672,6 @@ def install(installer: Path, *, env: Mapping[str, str] | None = None) -> Install
                 raise FixtureBlocked(
                     "ownership", "stable unit exists without this installation; refusing adoption"
                 )
-            for name in ("data", "tmp", "attachments", "serving"):
-                (root / name).mkdir(mode=0o700)
             installation_id = str(uuid.uuid4())
             generation = list(secrets.token_bytes(32))
             port = _available_port()
@@ -675,9 +698,13 @@ def install(installer: Path, *, env: Mapping[str, str] | None = None) -> Install
                 },
                 "installer": str(installer.resolve()),
                 "installer_generation": installer_generation,
-                "native_schema_version": 4,
             }
             installation = Installation(root, record)
+            declared = _upgrade_cli(installation, installer_generation, "main", "schema")
+            _upgrade_source(declared)
+            record["native_schema_version"] = declared["schema_version"]
+            for name in ("data", "tmp", "attachments", "serving"):
+                (root / name).mkdir(mode=0o700)
             root_user, root_pass = "library_context_installer", secrets.token_urlsafe(32)
             server_env = {"SURREAL_USER": root_user, "SURREAL_PASS": root_pass, **SERVER_SETTINGS}
             private_json(root / "installation.json", record)
@@ -722,7 +749,7 @@ def install(installer: Path, *, env: Mapping[str, str] | None = None) -> Install
         deadline = time.monotonic() + READY_TIMEOUT
         while True:
             try:
-                with urllib.request.urlopen(
+                with local_urlopen(
                     installation.endpoint + "/ready", timeout=1
                 ) as response:
                     if response.status == 200:
@@ -1635,7 +1662,20 @@ def _retire_recovery_predecessors(installation: Installation, marker: Mapping[st
 
 
 UPGRADE_SOURCE_SCHEMA = "464537d364bfabdc43acd2ca3f05037d6f9c29558ff7d72bdfdcea23f5870580"
+UPGRADE_SOURCES = {
+    4: {"schema_version": 3, "schema": UPGRADE_SOURCE_SCHEMA},
+    5: {"schema_version": 4, "schema": "0870158e2d5568650845dd61f61884384c44315071f0b0dc402d02994a4798da"},
+}
 UPGRADE_OPERATION = "native-schema-upgrade"
+
+
+def _upgrade_source(target: Mapping[str, Any]) -> dict:
+    version = target.get("schema_version")
+    if (type(version) is not int or version not in UPGRADE_SOURCES
+            or not isinstance(target.get("schema"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", target.get("schema", ""))):
+        raise FixtureBlocked("schema", "candidate does not declare a supported exact native transition")
+    return dict(UPGRADE_SOURCES[version])
 
 
 def _upgrade_executable(candidate: Mapping[str, Any]) -> Path:
@@ -1650,12 +1690,23 @@ def _upgrade_executable(candidate: Mapping[str, Any]) -> Path:
 
 def _upgrade_cli(installation: Installation, candidate: Mapping[str, Any], database: str,
                  action: str, *, config: Path | None = None, operation: str | None = None,
-                 native_operation: str | None = None) -> dict:
+                 native_operation: str | None = None, execution_contract: Path | None = None,
+                 stop_after_pages: int | None = None, expected_schema: str = UPGRADE_SOURCE_SCHEMA) -> dict:
     executable = _upgrade_executable(candidate)
     args = [str(executable), "store", "--runtime-config",
             str(config or installation.runtime_path(database, installer=True)), action]
-    if action == "upgrade":
-        args.extend(["--expected-schema", UPGRADE_SOURCE_SCHEMA, "--operation", native_operation or operation])
+    if action in ("upgrade", "upgrade-contract", "upgrade-qualify"):
+        args.extend(["--expected-schema", expected_schema, "--operation", native_operation or operation])
+    if action == "upgrade-contract":
+        args.extend(["--execution", operation])
+    if execution_contract is not None:
+        if action not in ("upgrade", "upgrade-qualify"):
+            raise FixtureBlocked("identity", "execution contracts apply only to native upgrade execution")
+        args.extend(["--execution-contract", str(execution_contract)])
+    if stop_after_pages is not None:
+        if execution_contract is None or database != "validation" or stop_after_pages <= 0:
+            raise FixtureBlocked("identity", "upgrade stepping requires the owned validation execution contract")
+        args.extend(["--stop-after-pages", str(stop_after_pages)])
     result = subprocess.run(args, capture_output=True, text=True, check=False,
                             env={**os.environ, "LCTX_SURREAL_SERVICE_CONFIG":
                                  str(installation.directory / "installation.json")})
@@ -1815,16 +1866,62 @@ def _upgrade_private_plan(installation: Installation, descriptor: Mapping[str, A
     if (not isinstance(completed, list) or any(db not in DATABASES for db in completed)
             or len(set(completed)) != len(completed)):
         raise FixtureBlocked("identity", "upgrade completed scope inventory is unavailable")
-    if (plan.get("source") != {db: {"schema_version": 3, "schema": UPGRADE_SOURCE_SCHEMA} for db in DATABASES}
-            or plan.get("target", {}).get("schema_version") != 4
-            or not re.fullmatch(r"[0-9a-f]{64}", plan.get("target", {}).get("schema", ""))
+    source = _upgrade_source(plan.get("target", {}))
+    if (plan.get("source") != {db: source for db in DATABASES}
             or plan.get("previous_installer") != descriptor.get("previous_installer")):
         raise FixtureBlocked("identity", "upgrade journal source or target is unavailable")
+    if plan.get("recovery_mode") == "reconcile" or "execution_contracts" in plan:
+        contracts = plan.get("execution_contracts")
+        if not isinstance(contracts, dict) or set(contracts) != set(DATABASES):
+            raise FixtureBlocked("identity", "reconciliation execution contracts are unavailable")
+        for db in DATABASES:
+            _validate_upgrade_contract(contracts[db], plan, db)
+            path = journal.parent / f"{db}-execution.json"
+            if (path.is_symlink() or not path.is_file() or path.stat().st_uid != os.getuid()
+                    or path.stat().st_mode & 0o077 or read_json(path) != contracts[db]):
+                raise FixtureBlocked("identity", "checkpointed upgrade execution contract changed")
     return journal, plan
 
 
+def _validate_upgrade_contract(contract: Mapping[str, Any], plan: Mapping[str, Any], db: str) -> None:
+    """Validate non-secret scope identities without inventing compiler-owned digests."""
+    identities = {"migration", "execution", "source", "target", "generation", "overlay",
+                  "protocol", "preflight", "verifier"}
+    additions = {"source_version", "kind"} if isinstance(contract, dict) and contract.get("format") == 2 else set()
+    if (not isinstance(contract, dict) or set(contract) != identities | {"format", "namespace", "database"} | additions
+            or type(contract.get("format")) is not int
+            or (contract.get("format"), plan["target"]["schema_version"]) not in {(1, 4), (2, 5)}):
+        raise FixtureBlocked("identity", "native upgrade execution contract shape differs")
+    if additions and (type(contract["source_version"]) is not int
+            or contract["source_version"] != 4 or contract["kind"] != "history_page_receipts_v5"):
+        raise FixtureBlocked("identity", "native upgrade transition contract differs")
+    for key in identities:
+        value = contract[key]
+        if (not isinstance(value, list) or len(value) != 32
+                or any(type(byte) is not int or not 0 <= byte <= 255 for byte in value)):
+            raise FixtureBlocked("identity", "native upgrade execution contract identity is unavailable")
+    expected = {"migration": plan["native_operation"], "execution": plan["operation"],
+                "source": plan["source"][db]["schema"], "target": plan["target"]["schema"],
+                "generation": bytes(plan["service_generation"]).hex()}
+    if (any(bytes(contract[key]).hex() != value for key, value in expected.items())
+            or contract["database"] != db or contract["namespace"] != plan["new_root"][db]["namespace"]):
+        raise FixtureBlocked("identity", "native upgrade execution contract differs from immutable host scope")
+
+
+def _upgrade_execution_contracts(installation: Installation, candidate: Mapping[str, Any],
+                                plan: Mapping[str, Any]) -> dict:
+    contracts = {}
+    for db in DATABASES:
+        contract = _upgrade_cli(installation, candidate, db, "upgrade-contract",
+            operation=plan["operation"], native_operation=plan["native_operation"],
+            expected_schema=plan["source"][db]["schema"])
+        _validate_upgrade_contract(contract, plan, db)
+        contracts[db] = contract
+    return contracts
+
+
 def _upgrade_replacement_preflight(installation: Installation, plans: Sequence[Mapping[str, Any]],
-                                   checkpoints: Mapping[str, Any]) -> dict:
+                                   checkpoints: Mapping[str, Any], *, reconcile: bool = False) -> dict:
     """Observe publication and every predecessor intent after confirmed daemon drainage.
 
     Unpublished scopes permit only absent/intent journals. Published scopes require the
@@ -1838,13 +1935,16 @@ def _upgrade_replacement_preflight(installation: Installation, plans: Sequence[M
         cfg = current["new_root"][db]
         published = checkpoints.get("scope-" + db) is True
         expected = {"generation": generation,
-                    "schema": current["target"]["schema"] if published else UPGRADE_SOURCE_SCHEMA,
-                    "schema_version": 4 if published else 3, "admission_open": False}
+                    "schema": current["target"]["schema"] if published else current["source"][db]["schema"],
+                    "schema_version": current["target"]["schema_version"] if published else current["source"][db]["schema_version"], "admission_open": False}
         rows = sql(installation,
                    "SELECT generation,schema,schema_version,admission_open FROM native_installation:current;",
                    cfg=cfg)
-        if len(rows) != 1 or rows[0].get("result") != [expected]:
-            raise FixtureBlocked("schema", "replacement requires exact closed schema3 source or checkpointed schema4 target markers")
+        actual_marker = rows[0].get("result") if len(rows) == 1 else None
+        sealed_uncheckpointed = (reconcile and not published and actual_marker == [{**expected,
+            "schema": current["target"]["schema"], "schema_version": current["target"]["schema_version"]}])
+        if actual_marker != [expected] and not sealed_uncheckpointed:
+            raise FixtureBlocked("schema", f"replacement requires exact closed schema{current['source'][db]['schema_version']} source or checkpointed schema{current['target']['schema_version']} target markers")
         info = sql(installation, "INFO FOR DB STRUCTURE;", cfg=cfg)
         structure = info[0].get("result") if len(info) == 1 else None
         tables = structure.get("tables") if isinstance(structure, dict) else None
@@ -1852,28 +1952,39 @@ def _upgrade_replacement_preflight(installation: Installation, plans: Sequence[M
                 or any(not isinstance(table, dict) or not isinstance(table.get("name"), str) for table in tables)
                 or len({table["name"] for table in tables}) != len(tables)):
             raise FixtureBlocked("identity", "replacement native journal inventory is unavailable")
+        native_by_migration = {}
         for plan in plans:
             operation = plan["operation"]
             migration = plan.get("native_operation", operation)
-            completed_migration = published and migration == native_operation
-            native = []
-            if any(table["name"] == "native_upgrade" for table in tables):
-                rows = sql(installation,
-                           f"SELECT id,generation,source,target,phase FROM native_upgrade:{migration};", cfg=cfg)
-                native = rows[0].get("result") if len(rows) == 1 else None
+            completed_migration = (published or sealed_uncheckpointed) and migration == native_operation
+            if migration not in native_by_migration:
+                native = []
+                if any(table["name"] == "native_upgrade" for table in tables):
+                    rows = sql(installation,
+                               f"SELECT id,generation,source,target,phase FROM native_upgrade:{migration};", cfg=cfg)
+                    native = rows[0].get("result") if len(rows) == 1 else None
+                native_by_migration[migration] = native
+            native = native_by_migration[migration]
             expected_journal = {"id": "native_upgrade:" + migration, "generation": generation,
                                 "source": plan["source"][db]["schema"],
                                 "target": plan["target"]["schema"],
                                 "phase": "published" if completed_migration else "intent"}
+            recognized_partial = (reconcile and migration == native_operation and not completed_migration
+                and isinstance(native, list) and len(native) == 1
+                and isinstance(native[0], dict)
+                and native[0].get("phase") in {"intent", "declarations",
+                    "verified" if plan["source"][db]["schema_version"] == 4 else "translated"}
+                and native[0] == {**expected_journal, "phase": native[0]["phase"]})
             if ((completed_migration and plan["target"] != current["target"])
-                    or (native != [expected_journal] and (completed_migration or native != []))):
+                    or (native != [expected_journal] and not recognized_partial
+                        and (completed_migration or native != []))):
                 raise FixtureBlocked("schema", "replacement refuses changed or advanced native upgrade journals")
             observed[operation][db] = native
     return observed
 
 
 def _upgrade_predecessor_observations(descriptor: Mapping[str, Any], ancestor: Mapping[str, Any],
-                                     current: Mapping[str, Any], observed: Mapping[str, Any]) -> None:
+                                     current: Mapping[str, Any], observed: Mapping[str, Any], *, reconcile: bool = False) -> None:
     """Historical observations stay immutable; only the retained migration can advance."""
     before = descriptor.get("native_journals")
     if observed == before:
@@ -1889,6 +2000,16 @@ def _upgrade_predecessor_observations(descriptor: Mapping[str, Any], ancestor: M
             continue
         if not previous and isinstance(previous, list) and actual:
             continue  # The retained migration may have established its exact intent.
+        if (reconcile and isinstance(previous, list) and isinstance(actual, list) and len(previous) == len(actual) == 1
+                and isinstance(previous[0], dict) and isinstance(actual[0], dict)):
+            phases = {"intent": 0, "declarations": 1,
+                "verified" if current["source"][db]["schema_version"] == 4 else "translated": 2,
+                "published": 3}
+            old, new = previous[0], actual[0]
+            if (old.get("phase") in phases and new.get("phase") in phases
+                    and phases[old["phase"]] <= phases[new["phase"]]
+                    and {**old, "phase": new["phase"]} == new):
+                continue
         if (isinstance(previous, list) and len(previous) == 1
                 and isinstance(previous[0], dict) and previous[0].get("phase") == "intent"
                 and actual == [{**previous[0], "phase": "published"}]):
@@ -1896,10 +2017,15 @@ def _upgrade_predecessor_observations(descriptor: Mapping[str, Any], ancestor: M
         raise FixtureBlocked("identity", "replacement predecessor native intent changed")
 
 
-def upgrade_installer(installation: Installation, source: Path, *, replace: bool = False) -> dict[str, Any]:
+def upgrade_installer(installation: Installation, source: Path, *, replace: bool = False,
+                      reconcile: bool = False, stop_after_pages: int | None = None) -> dict[str, Any]:
     """Explicit same-generation3→4 migration; immutable private plan, durable owned checkpoints."""
     from storage_lifecycle import admission, durable_json, fsync_directory
     from storage_service import prepare, tools_root
+    if replace and reconcile:
+        raise FixtureBlocked("identity", "replacement and reconciliation are distinct upgrade routes")
+    if stop_after_pages is not None and (type(stop_after_pages) is not int or stop_after_pages <= 0):
+        raise FixtureBlocked("identity", "upgrade stepping requires a positive checkpoint count")
     source = source.absolute()
     if (any(path.is_symlink() for path in (source, *source.parents))
             or not source.is_file() or source.stat().st_uid != os.getuid()
@@ -1925,7 +2051,7 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
                 if ProcessIdentity.from_json(marker["owner"]).alive():
                     raise FixtureBlocked("ownership", "upgrade owner is still alive")
                 upgrade = marker["upgrade"]
-                if not replace and file_sha256(source) != upgrade["candidate_sha256"]:
+                if not (replace or reconcile) and file_sha256(source) != upgrade["candidate_sha256"]:
                     raise FixtureBlocked("identity", "resume requires the exact checkpointed upgrade installer")
                 journal, plan = _upgrade_private_plan(installation, upgrade)
                 if any(upgrade.get("checkpoints", {}).get("scope-" + db) is not True
@@ -1933,11 +2059,17 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
                     raise FixtureBlocked("identity", "upgrade lost an immutable completed scope checkpoint")
                 if upgrade.get("predecessors", []) != plan.get("predecessors", []):
                     raise FixtureBlocked("identity", "upgrade predecessor inventory differs from its journal")
+                if stop_after_pages is not None and (not upgrade["checkpoints"].get("scope-main")
+                        or upgrade["checkpoints"].get("scope-validation")
+                        or (not reconcile and plan.get("recovery_mode") != "reconcile")):
+                    raise FixtureBlocked("identity", "upgrade stepping requires reconciliation-owned incomplete validation and completed main")
             else:
-                if replace:
+                if stop_after_pages is not None:
+                    raise FixtureBlocked("identity", "upgrade stepping requires an existing reconciliation-owned upgrade")
+                if replace or reconcile:
                     raise FixtureBlocked("maintenance", "replacement requires an incomplete explicit native upgrade")
-                if installation.record.get("native_schema_version", 3) != 3:
-                    raise FixtureBlocked("schema", "explicit upgrade requires the owned legacy schema3 installation")
+                if installation.record.get("native_schema_version", 3) not in (3, 4):
+                    raise FixtureBlocked("schema", "explicit upgrade requires a supported exact source installation")
                 # Validate every private scope before creating any native effect.
                 old_runtime = {db: installation.runtime(db) for db in DATABASES}
                 old_root = {db: installation.runtime(db, installer=True) for db in DATABASES}
@@ -1945,8 +2077,9 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
                     raise FixtureBlocked("identity", "owned root credentials disagree across upgrade scopes")
                 candidate = prepare(installation.directory, source)
                 target = _upgrade_cli(installation, candidate, "main", "schema")
-                if target.get("schema_version") != 4 or not re.fullmatch(r"[0-9a-f]{64}", target.get("schema", "")):
-                    raise FixtureBlocked("schema", "candidate does not declare the exact schema4 identity")
+                source_identity = _upgrade_source(target)
+                if installation.record.get("native_schema_version", 3) != source_identity["schema_version"]:
+                    raise FixtureBlocked("schema", "candidate source version differs from the installed generation")
                 operation = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
                 directory = installation.directory / "native-upgrades" / operation
                 directory.mkdir(parents=True, mode=0o700)
@@ -1967,15 +2100,17 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
                     "previous_installer": installation.record["installer"],
                     "previous_installer_sha256": file_sha256(Path(installation.record["installer"])),
                     "previous_installer_generation": installation.record.get("installer_generation"),
-                    "source": {db: {"schema_version": 3, "schema": UPGRADE_SOURCE_SCHEMA} for db in DATABASES},
+                    "source": {db: source_identity for db in DATABASES},
                     "target": target, "old_runtime": old_runtime, "old_root": old_root,
                     "new_runtime": new_runtime, "new_root": new_root,
                     "old_environment": old_environment,
                     "new_environment": "".join(f"{key}={value}\n" for key, value in environment.items())}
+                plan["execution_contracts"] = _upgrade_execution_contracts(installation, candidate, plan)
                 journal = directory / "plan.json"
                 durable_json(journal, plan)
                 for db in DATABASES:
                     durable_json(directory / f"{db}-new-installer.json", new_root[db])
+                    durable_json(directory / f"{db}-execution.json", plan["execution_contracts"][db])
                 fsync_directory(directory)
                 fsync_directory(directory.parent)
                 fsync_directory(installation.directory)
@@ -2005,8 +2140,10 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
             _stopped_attachment_commands(installation)
             candidate = plan["candidate"]
             points = upgrade["checkpoints"]
-            if replace:
-                if (installation.record.get("native_schema_version", 3) != 3
+            if replace and plan.get("recovery_mode") == "reconcile":
+                raise FixtureBlocked("identity", "reconciled state requires exact resume or a checked reconciliation successor")
+            if replace or reconcile:
+                if (installation.record.get("native_schema_version", 3) != plan["source"]["main"]["schema_version"]
                         or any(name.startswith("scope-") and (name not in {"scope-" + db for db in DATABASES}
                                or points[name] is not True) for name in points)
                         or not points.get("authentication-drained")
@@ -2037,10 +2174,11 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
                 if len({entry["operation"] for entry in [*ancestors, plan]}) != len(ancestors) + 1:
                     raise FixtureBlocked("identity", "replacement predecessor chain repeats an operation")
                 _upgrade_restart(installation)
-                observed = _upgrade_replacement_preflight(installation, [*ancestors, plan], points)
+                observed = _upgrade_replacement_preflight(installation, [*ancestors, plan], points,
+                                                          reconcile=reconcile)
                 for descriptor, ancestor in zip(predecessors, ancestors, strict=True):
                     _upgrade_predecessor_observations(descriptor, ancestor, plan,
-                                                     observed[descriptor["operation"]])
+                                                     observed[descriptor["operation"]], reconcile=reconcile)
                 source_sha256 = file_sha256(source)
                 candidate = prepare(installation.directory, source)
                 if (candidate.get("sha256") != source_sha256 or file_sha256(source) != source_sha256
@@ -2048,11 +2186,11 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
                     raise FixtureBlocked("identity", "replacement candidate generation differs or repeats its predecessor")
                 _upgrade_executable(candidate)
                 target = _upgrade_cli(installation, candidate, "main", "schema")
-                if (target.get("schema_version") != 4
-                        or not re.fullmatch(r"[0-9a-f]{64}", target.get("schema", ""))):
-                    raise FixtureBlocked("schema", "replacement candidate must declare the exact schema4 target")
+                if (_upgrade_source(target) != plan["source"]["main"]
+                        or target.get("schema_version") != plan["target"]["schema_version"]):
+                    raise FixtureBlocked("schema", "replacement candidate must preserve the exact transition source/version")
                 completed_scopes = [db for db in DATABASES if points.get("scope-" + db) is True]
-                if completed_scopes and target != plan["target"]:
+                if (completed_scopes or reconcile) and target != plan["target"]:
                     raise FixtureBlocked("schema", "published scopes require the identical complete schema target")
                 predecessor = {"operation": plan["operation"], "journal": str(journal),
                     "native_operation": plan.get("native_operation", plan["operation"]),
@@ -2066,14 +2204,18 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
                 directory = installation.directory / "native-upgrades" / operation
                 directory.mkdir(mode=0o700)
                 plan = {**plan, "operation": operation, "candidate": candidate, "target": target,
-                    "native_operation": plan.get("native_operation", plan["operation"]) if completed_scopes else operation,
+                    "native_operation": plan.get("native_operation", plan["operation"]) if completed_scopes or reconcile else operation,
                     "completed_scopes": completed_scopes,
                     "credential_operation": plan.get("credential_operation", plan["operation"]),
                     "predecessors": [*predecessors, predecessor]}
+                if reconcile:
+                    plan["recovery_mode"] = "reconcile"
+                plan["execution_contracts"] = _upgrade_execution_contracts(installation, candidate, plan)
                 journal = directory / "plan.json"
                 durable_json(journal, plan)
                 for db in DATABASES:
                     durable_json(directory / f"{db}-new-installer.json", plan["new_root"][db])
+                    durable_json(directory / f"{db}-execution.json", plan["execution_contracts"][db])
                 fsync_directory(directory)
                 fsync_directory(directory.parent)
                 fsync_directory(installation.directory)
@@ -2082,7 +2224,7 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
                     "candidate": candidate["path"], "previous_installer": plan["previous_installer"],
                     "journal": str(journal), "journal_sha256": file_sha256(journal),
                     "predecessors": plan["predecessors"],
-                    "phase": "replacement-prepared", "checkpoints": {"drained": True,
+                    "phase": "reconciliation-prepared" if reconcile else "replacement-prepared", "checkpoints": {"drained": True,
                         **{"scope-" + db: True for db in completed_scopes}}}
                 marker["upgrade"] = upgrade
                 durable_json(marker_path, marker)
@@ -2090,16 +2232,17 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
             if not points.get("drained"):
                 _bootstrap_owned(installation)
                 source_markers = _schema_identities(installation)
-                if any(row.get("schema") != UPGRADE_SOURCE_SCHEMA or row.get("schema_version") != 3
-                       for row in source_markers.values()):
-                    raise FixtureBlocked("schema", "installed source differs from the exact schema3 migration source")
+                if any(row.get("schema") != plan["source"][db]["schema"]
+                       or row.get("schema_version") != plan["source"][db]["schema_version"]
+                       for db, row in source_markers.items()):
+                    raise FixtureBlocked("schema", "installed source differs from the exact native migration source")
                 if file_sha256(Path(plan["previous_installer"])) != plan["previous_installer_sha256"]:
                     raise FixtureBlocked("identity", "previous maintenance executable changed")
                 _run_installer(installation, Path(plan["previous_installer"]), "close-admission")
                 _run_installer(installation, Path(plan["previous_installer"]), "drain")
                 _upgrade_restart(installation)
                 checkpoint("drained")
-            elif resumed and not replace:
+            elif resumed and not (replace or reconcile):
                 # Caller death can leave unknown server-side DDL/auth effects after its last
                 # checkpoint. Terminate that exact incarnation before reconciling/replaying.
                 _upgrade_restart(installation)
@@ -2125,32 +2268,106 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
             checkpoint("configs")
             _upgrade_restart(installation)
             checkpoint("authentication-drained")
+            # Closed admission and the immutable candidate keep a verified epoch valid
+            # for this operation. Reuse its proof instead of recapturing the same catalog.
+            definition_proofs = set()
+            if stop_after_pages is not None and (plan.get("recovery_mode") != "reconcile"
+                    or not points.get("scope-main") or points.get("scope-validation")):
+                raise FixtureBlocked("identity", "upgrade stepping requires reconciliation-owned incomplete validation and completed main")
+            if plan.get("recovery_mode") == "reconcile" and resumed and not reconcile:
+                current_native = _upgrade_replacement_preflight(installation, [plan], points,
+                    reconcile=True)[plan["operation"]]
+                for db in DATABASES:
+                    if points.get("scope-" + db) and points.get("definitions-" + db):
+                        proof = _upgrade_cli(installation, candidate, db, "upgrade-check",
+                            config=journal.parent / f"{db}-new-installer.json", operation=plan["operation"],
+                            native_operation=plan["native_operation"])
+                        if proof.get("definitions_complete") is not True or proof.get("ready") is not False:
+                            raise FixtureBlocked("schema", "completed scope executable definitions are unavailable")
+                        definition_proofs.add(db)
+            elif reconcile:
+                current_native = observed[predecessor["operation"]]
+            validation_sealed = (plan.get("recovery_mode") == "reconcile"
+                and bool(current_native["validation"])
+                and current_native["validation"][0]["phase"] == "published")
+            # Every new explicit protocol is qualified on closed validation before
+            # translating either scope. Frozen legacy plans keep their original CLI.
+            if ("execution_contracts" in plan and not points.get("qualification-validation")
+                    and not points.get("scope-validation") and not validation_sealed):
+                contract_path = journal.parent / "validation-execution.json"
+                proof = _upgrade_cli(installation, candidate, "validation", "upgrade-qualify",
+                    config=journal.parent / "validation-new-installer.json", operation=plan["operation"],
+                    native_operation=plan["native_operation"], execution_contract=contract_path,
+                    expected_schema=plan["source"]["validation"]["schema"])
+                qualification = proof.get("qualification", {})
+                if (proof.get("ready") is not False
+                        or any(qualification.get(key) is not True for key in
+                            ("rollback", "acknowledgement_reconciliation", "stale_revision_refusal"))):
+                    raise FixtureBlocked("schema", "validation upgrade atomic progress qualification is unavailable")
+                checkpoint("qualification-validation")
             for db in DATABASES:
-                if not points.get("scope-" + db):
+                if (not points.get("scope-" + db)
+                        or ("execution_contracts" in plan and not points.get("definitions-" + db))):
                     config = journal.parent / f"{db}-new-installer.json"
                     if read_json(config) != plan["new_root"][db] or config.stat().st_mode & 0o077:
                         raise FixtureBlocked("identity", "checkpointed installer credentials changed")
+                    execution_args = {}
+                    if "execution_contracts" in plan:
+                        contract_path = journal.parent / f"{db}-execution.json"
+                        if (contract_path.is_symlink() or not contract_path.is_file()
+                                or contract_path.stat().st_uid != os.getuid() or contract_path.stat().st_mode & 0o077
+                                or read_json(contract_path) != plan["execution_contracts"][db]):
+                            raise FixtureBlocked("identity", "checkpointed upgrade execution contract changed")
+                        execution_args = {"execution_contract": contract_path,
+                                          "stop_after_pages": stop_after_pages if db == "validation" else None}
                     result = _upgrade_cli(installation, candidate, db, "upgrade", config=config,
                                           operation=plan["operation"],
-                                          native_operation=plan.get("native_operation", plan["operation"]))
+                                          native_operation=plan.get("native_operation", plan["operation"]),
+                                          expected_schema=plan["source"][db]["schema"], **execution_args)
                     if result.get("ready") is not False:
                         raise FixtureBlocked("schema", "native upgrade must leave admission closed")
-                    checkpoint("scope-" + db)
+                    if "execution_contracts" in plan:
+                        advance = result.get("upgrade", {})
+                        if advance.get("published") is not True:
+                            if db != "validation" or stop_after_pages is None or type(advance.get("revision")) is not int:
+                                raise FixtureBlocked("schema", "native upgrade did not establish publication or a durable step")
+                            return {"outcome": "checkpointed", "upgrade_operation": plan["operation"],
+                                "native_operation": plan["native_operation"], "database": "validation",
+                                "progress": advance, "admission_open": False}
+                        if result.get("definitions_complete") is not True:
+                            raise FixtureBlocked("schema", "native seal lacks executable-definition completion")
+                        # upgrade installs/verifies actual immutable definitions before its
+                        # checked session completion. Closed exclusive ownership preserves
+                        # that proof here; reentry performs its own actual upgrade-check.
+                        definition_proofs.add(db)
+                        checkpoint("definitions-" + db)
+                    if not points.get("scope-" + db):
+                        checkpoint("scope-" + db)
+                    if stop_after_pages is not None and db == "validation":
+                        return {"outcome": "checkpointed", "upgrade_operation": plan["operation"],
+                            "native_operation": plan["native_operation"], "database": "validation",
+                            "progress": advance, "admission_open": False}
             # Check both native scopes using the new executable and credentials before handoff.
             for db in DATABASES:
                 _upgrade_cli(installation, candidate, db, "check",
                              config=journal.parent / f"{db}-new-installer.json", operation=plan["operation"],
                              native_operation=plan.get("native_operation", plan["operation"]))
+                if "execution_contracts" in plan and db not in definition_proofs:
+                    proof = _upgrade_cli(installation, candidate, db, "upgrade-check",
+                        config=journal.parent / f"{db}-new-installer.json", operation=plan["operation"],
+                        native_operation=plan["native_operation"])
+                    if proof.get("definitions_complete") is not True or proof.get("ready") is not False:
+                        raise FixtureBlocked("schema", "completed scope executable definitions are unavailable")
             for db in DATABASES:
                 rows = sql(installation,
                     "SELECT generation, schema, schema_version FROM native_installation:current;",
                     cfg=plan["new_runtime"][db])
                 expected = {"generation": bytes(plan["service_generation"]).hex(),
-                            "schema": plan["target"]["schema"], "schema_version": 4}
+                            "schema": plan["target"]["schema"], "schema_version": plan["target"]["schema_version"]}
                 if rows[0].get("result") != [expected]:
                     raise FixtureBlocked("schema", "upgraded target identity differs from checkpointed scope")
             installation.record.update(installer=candidate["path"], installer_generation=candidate,
-                native_schema_version=4, native_upgrade={
+                native_schema_version=plan["target"]["schema_version"], native_upgrade={
                     "operation": plan["operation"], "journal": str(journal),
                     "native_operation": plan.get("native_operation", plan["operation"]),
                     "journal_sha256": upgrade["journal_sha256"],
@@ -2169,7 +2386,7 @@ def upgrade_installer(installation: Installation, source: Path, *, replace: bool
             fsync_directory(installation.directory)
             return {"outcome": "passed", "installation_id": installation.id,
                     "service_generation": installation.record["service_generation"],
-                    "native_schema_version": 4, "installer_sha256": candidate["sha256"],
+                    "native_schema_version": plan["target"]["schema_version"], "installer_sha256": candidate["sha256"],
                     "upgrade_operation": plan["operation"]}
         finally:
             if use is not None:
@@ -2320,8 +2537,8 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
                 if plans:
                     current = plans[-1]
                     scopes = {db: {"generation": bytes(current["service_generation"]).hex(),
-                        "schema": current["target"]["schema"] if pending_upgrade["checkpoints"].get("scope-" + db) else UPGRADE_SOURCE_SCHEMA,
-                        "schema_version": 4 if pending_upgrade["checkpoints"].get("scope-" + db) else 3,
+                        "schema": current["target"]["schema"] if pending_upgrade["checkpoints"].get("scope-" + db) else current["source"][db]["schema"],
+                        "schema_version": current["target"]["schema_version"] if pending_upgrade["checkpoints"].get("scope-" + db) else current["source"][db]["schema_version"],
                         "admission_open": False} for db in DATABASES}
                 else:
                     installation.check_daemon()
@@ -2433,9 +2650,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="transfer the exact maintenance executable out of its supplying checkout",
     )
     operations.add_argument("--upgrade-installer", type=Path,
-                            help="explicit checkpointed native schema3 to4 installer upgrade")
+                            help="explicit checkpointed native installer upgrade through a supported exact transition")
     operations.add_argument("--replace-upgrade-installer", type=Path,
                             help="explicitly supersede an unpublished failed upgrade with a checked successor")
+    operations.add_argument("--reconcile-upgrade-installer", type=Path,
+                            help="explicit immutable successor for recognized partially translated upgrade state")
+    maintenance_parser.add_argument("--upgrade-step-pages", type=int,
+                            help="stop at durable validation checkpoints under reconciliation-owned upgrade")
     operations.add_argument("--server-generation", type=Path,
                             help="explicitly hand off the owned server to a reviewed immutable descriptor")
     maintenance_parser.add_argument(
@@ -2474,19 +2695,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         if (
             (reconcile and (not args.recover or not args.reconcile_database))
             or (args.reconcile_database and not reconcile)
-            or ((args.recover or args.upgrade_installer or args.replace_upgrade_installer or args.server_generation) and args.command)
+            or ((args.recover or args.upgrade_installer or args.replace_upgrade_installer or args.reconcile_upgrade_installer or args.server_generation) and args.command)
         ):
             parser.error(
                 "named reader reconciliation requires --recover, --reconcile-database "
                 "and an explicit inventory, without a command"
             )
+        if args.upgrade_step_pages is not None and (args.upgrade_step_pages <= 0
+                or not (args.upgrade_installer or args.reconcile_upgrade_installer)):
+            parser.error("--upgrade-step-pages requires a positive count and --upgrade-installer or --reconcile-upgrade-installer")
         if len(set(args.reconcile_pin)) != len(args.reconcile_pin) or len(
             set(args.reconcile_backup_hold)
         ) != len(args.reconcile_backup_hold):
             parser.error("named reconciliation identities must be distinct")
     if args.action == "maintenance" and args.native_clients:
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
-        if not command or args.restart or args.check or args.recover or args.stabilize_installer or args.upgrade_installer or args.replace_upgrade_installer or args.server_generation:
+        if not command or args.restart or args.check or args.recover or args.stabilize_installer or args.upgrade_installer or args.replace_upgrade_installer or args.reconcile_upgrade_installer or args.server_generation:
             parser.error("--native-clients requires only an explicit command after --")
     try:
         if args.action == "install":
@@ -2528,10 +2752,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.server_generation:
                     print(json.dumps(handoff_server(installation, args.server_generation), indent=2))
                     return 0
-                if args.upgrade_installer or args.replace_upgrade_installer:
+                if args.upgrade_installer or args.replace_upgrade_installer or args.reconcile_upgrade_installer:
                     print(json.dumps(upgrade_installer(installation,
-                        args.replace_upgrade_installer or args.upgrade_installer,
-                        replace=bool(args.replace_upgrade_installer)), indent=2))
+                        args.reconcile_upgrade_installer or args.replace_upgrade_installer or args.upgrade_installer,
+                        replace=bool(args.replace_upgrade_installer), reconcile=bool(args.reconcile_upgrade_installer),
+                        stop_after_pages=args.upgrade_step_pages), indent=2))
                     return 0
                 if args.recover:
                     gate = hold_lock(installation.directory / "admission.lock")

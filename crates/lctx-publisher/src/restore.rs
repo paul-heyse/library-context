@@ -1081,7 +1081,16 @@ mod definition_tests {
         let entities = vec![Entity::from(package), Entity::from(release)];
         let fixture = super::cold_claim_fixture::reader(&config, &entities, &[]).await.unwrap();
         let control_budget = budget();
-        let loader = lctx_surrealdb::Loader::for_views(fixture.shared_client(), fixture.store.bindings().await.unwrap().iter().filter(|binding| binding.boundary.is_none()).map(|binding| binding.view.identity).collect()).with_budget(&control_budget);
+        // This partial fixture completes views without creating publication bindings.
+        // Preserve its exact selected views rather than reconstructing an empty selection.
+        let selected = fixture.view_bindings();
+        let Some(Value::Array(selected)) = selected.get("lctx_views") else { panic!("scoped fixture selected native views"); };
+        let views = selected.iter().map(|value| {
+            let Value::RecordId(id) = value else { panic!("scoped fixture native view ID"); };
+            hash_record(id, "compiler_view").unwrap()
+        }).collect::<Vec<_>>();
+        assert_eq!(views.len(), 2, "Package and Release completed relation views");
+        let loader = lctx_surrealdb::Loader::for_views(fixture.shared_client(), views.clone()).with_budget(&control_budget);
         let mut actual = lctx_surrealdb::reconciliation::actual_roles(&loader.reader(), &control_budget).unwrap();
         let mut baseline = Vec::new(); while let Some(row) = actual.next().await.unwrap() { baseline.push(row); } actual.drain_transport().await.unwrap();
         assert_eq!(baseline.len(), 1, "one actual Package reference is independently generated from Release canonical data");
@@ -1092,11 +1101,11 @@ mod definition_tests {
             if fault == "extra" { let mut extra = claims[0].clone(); let Value::Object(row) = &mut extra else { unreachable!() }; row.insert("id", RecordId::new("reference", "unexpected-late-role")); claims.push(extra); }
             if fault == "occurrence" { let mut extra = row("lex_occurs", "unexpected-late-occurrence"); extra.insert("unit_payload", lctx_surrealdb::loader::entity_payload_id(&entities[0]).unwrap()); extra.insert("in", RecordId::new("search_source", "unexpected-value")); claims.push(Value::Object(extra)); }
             let scratch = tempfile::tempdir().unwrap(); let path = scratch.path().join("claims.surql"); let mut file = std::fs::File::create(&path).unwrap(); writeln!(file, "OPTION IMPORT;").unwrap();
-            let budget = ResourceBudget::fixed(256 << 20).unwrap(); let mut encoded = budget.reserve("cold-claim-encoded", 0).unwrap();
+            let budget = budget(); let mut encoded = budget.reserve("cold-claim-encoded", 0).unwrap();
             for claim in &claims { crate::backup_import::write_row(&mut file, claim.clone(), encoded.as_mut()).unwrap(); } drop(file);
             let dump = Dump::decode(&path, &budget).unwrap();
             let fake = claimed_fixture();
-            let prepared = PreparedClosure { handle: fake.handle, manifest: Manifest::decode(bytes(object(fake.rows.iter().find(|row| record_id(row).unwrap().table.as_str() == "publication").unwrap()).unwrap(), "manifest").unwrap()).unwrap(), bindings: vec![], originals: BTreeMap::new(), binding_rows: BTreeSet::new(), owners: BTreeSet::new(), owner_specs: BTreeMap::new(), views: fixture.store.bindings().await.unwrap().iter().map(|binding| binding.view.identity.hex()).collect(), nodes: entities.iter().map(|entity| lctx_surrealdb::loader::entity_payload_id(entity).unwrap()).collect(), derived_rows: claims.iter().map(|claim| record_id(claim).unwrap().clone()).collect(), _charge: budget.reserve("cold-claim-test-selection", 1024).unwrap() };
+            let prepared = PreparedClosure { handle: fake.handle, manifest: Manifest::decode(bytes(object(fake.rows.iter().find(|row| record_id(row).unwrap().table.as_str() == "publication").unwrap()).unwrap(), "manifest").unwrap()).unwrap(), bindings: vec![], originals: BTreeMap::new(), binding_rows: BTreeSet::new(), owners: BTreeSet::new(), owner_specs: BTreeMap::new(), views: views.iter().map(|view| view.hex()).collect(), nodes: entities.iter().map(|entity| lctx_surrealdb::loader::entity_payload_id(entity).unwrap()).collect(), derived_rows: claims.iter().map(|claim| record_id(claim).unwrap().clone()).collect(), _charge: budget.reserve("cold-claim-test-selection", 1024).unwrap() };
             let compared = compare_derived_claims(&dump, &prepared, &loader, &budget).await;
             assert_eq!(compared.is_ok(), fault == "baseline", "source claim {fault}: {compared:?}");
         }

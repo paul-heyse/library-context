@@ -1,6 +1,5 @@
 //! Captured native twins challenge the normalized/Local/uncertain Summary ownership boundary.
-#[path = "fixtures/transfer_composition.rs"]
-mod fixture;
+use crate::fixture;
 use lctx_model::domain::{
     analysis,
     execution::summary_production::SummaryData,

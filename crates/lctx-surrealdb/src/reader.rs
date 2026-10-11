@@ -189,13 +189,34 @@ impl<Context> NativeReader<Context> {
     /// A model-owned indexed query returns compact `id` nominations. Exact selected
     /// membership is checked before fetching their complete canonical payloads.
     pub fn candidate_payload_rows(&self, candidates: crate::prepared::PreparedQuery, table: &str, order: &str) -> Result<NativeRows, ModelError> {
+        self.check_read_admission()?;
         let budget = self.scratch_budget()?;
         let scope = self.scope.as_ref().ok_or(ModelError::Conflict("candidate read requires exact selected scope"))?;
         let mut rows = crate::selection::SelectedPayloads::sparse_candidate_rows(self.client.clone(), scope.views.clone(), self.cancellation.clone(), candidates, table, order, &budget)?;
         rows.scope = Some(scope.clone()); rows.client = Some(self.client.clone()); Ok(rows)
     }
+    /// One answer for each distinct requested physical identity, with exact view and
+    /// reverse-alias provenance. Absence is local to that identity, never an any-hit flag.
+    pub async fn selected_membership(&self, requested: &[RecordId], budget: &lctx_model::domain::resources::ResourceBudget) -> Result<crate::selection::MembershipAnswers, ModelError> {
+        self.check_read_admission()?;
+        let Some(scope) = self.scope.clone() else { return crate::selection::MembershipAnswers::unrestricted(requested, budget); };
+        let requested_charge = budget.reserve("selected-membership-task-input", requested.iter().map(crate::selection::node_bytes).sum::<usize>())?;
+        let requested = requested.to_vec(); let budget = budget.clone(); let client = self.client.clone(); let cancelled = self.cancellation.clone();
+        // Caller cancellation detaches delivery, not the admitted physical operation.
+        // The task retains its input charge and reader pin until every query is drained.
+        tokio::spawn(async move {
+            let _requested_charge = requested_charge;
+            let mut lease = SelectionLease { scope, confirmed: false };
+            let result = crate::selection::SelectedPayloads::view_membership(client, &lease.scope.views, cancelled, &requested, &budget).await;
+            lease.confirmed = result.as_ref().err().is_none_or(|error| error.permits_storage_cleanup());
+            result
+        }).await.map_err(ModelError::codec)?
+    }
+    pub(crate) fn retain_rows(&self, mut rows: NativeRows) -> NativeRows {
+        rows.scope = self.scope.clone(); rows.client = Some(self.client.clone()); rows
+    }
     pub async fn selected_candidate_ids(&self, requested: &[RecordId], budget: &lctx_model::domain::resources::ResourceBudget) -> Result<Vec<RecordId>, ModelError> {
-        match &self.scope { Some(scope) => crate::selection::SelectedPayloads::filter_view_candidates(self.client.clone(), &scope.views, self.cancellation.clone(), requested, budget).await, None => Ok(requested.to_vec()) }
+        Ok(self.selected_membership(requested, budget).await?.answers.into_iter().filter(|answer| answer.selected).map(|answer| answer.requested).collect())
     }
     pub fn record_stream_candidates<R: Record + DeserializeOwned>(&self, candidates: crate::prepared::PreparedQuery, order: &str) -> Result<CanonicalRecords<R>, ModelError> {
         let table = crate::schema::ScopeTable::for_relation(R::NAME)?.name();
@@ -215,9 +236,26 @@ impl<Context> NativeReader<Context> {
         self.selected_payload_rows(crate::schema::ScopeTable::for_relation(relation)?.name(), "semantic_type=$type", vars, vec![], "semantic_key", None)
     }
     pub fn relation_bodies(&self, relation: &str, limit: usize) -> Result<NativeRows, ModelError> {
-        if self.scope.is_none() { return Err(ModelError::Conflict("relation read requires exact published view")); }
-        let mut vars = Variables::new(); vars.insert("type", relation.to_owned());
-        self.selected_payload_rows(crate::schema::ScopeTable::for_relation(relation)?.name(), "semantic_type=$type", vars, vec![], "semantic_key", Some(limit))
+        self.check_read_admission()?;
+        let budget = self.scratch_budget()?;
+        let scope = self.scope.as_ref().ok_or(ModelError::Conflict("relation read requires exact published view"))?.clone();
+        let table = crate::schema::ScopeTable::for_relation(relation)?.name();
+        if limit == 0 || scope.views.is_empty() { return Ok(self.retain_rows(NativeRows::owned(|_| async { Ok(()) })?)); }
+        let mut input = crate::selection::SelectedPayloads::sparse_relation_rows(self.client.clone(), scope.views.clone(), self.cancellation.clone(), relation, table, &budget)?;
+        let mut rows = NativeRows::owned(move |sender| async move {
+            let result = async {
+                let mut emitted = 0usize;
+                while let Some(row) = input.next().await? {
+                    if sender.is_closed() { input.cancel_delivery(); break; }
+                    if emitted < limit { if sender.send(row).await.is_err() { input.cancel_delivery(); break; } emitted += 1; }
+                }
+                Ok(())
+            }.await;
+            let mut terminal = lctx_model::domain::completion::Completion::default();
+            terminal.step("relation candidate drainage", input.drain_transport().await);
+            lctx_model::domain::completion::complete(result, terminal)
+        })?;
+        rows.scope = Some(scope); rows.client = Some(self.client.clone()); Ok(rows)
     }
     pub fn query_stream(&self, sql: impl Into<String>, bindings: Variables, statements: usize) -> Result<NativeRows, ModelError> {
         self.stream_prepared(crate::prepared::PreparedQuery::from_sql(sql.into(), bindings, statements, (0..statements).collect())?)
@@ -1056,6 +1094,23 @@ pub async fn authenticated(
 mod streaming_tests {
     use super::*;
     use surrealdb::method::StreamItem;
+    #[tokio::test]
+    async fn empty_relation_scope_preserves_admission_and_budget_checks_without_native_queries() {
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let reader = NativeReader::for_views(Arc::new(Surreal::init()), vec![]).with_budget(&budget);
+        let mut rows = reader.relation_bodies("packages", 0).unwrap();
+        assert!(rows.next().await.unwrap().is_none()); rows.drain_transport().await.unwrap(); drop(rows);
+        let nonempty = NativeReader::for_views(Arc::new(Surreal::init()), vec![lctx_model::domain::ContentHash::of(b"zero-limit-view")]).with_budget(&budget);
+        let mut rows = nonempty.relation_bodies("packages", 0).unwrap();
+        assert!(rows.next().await.unwrap().is_none()); rows.drain_transport().await.unwrap(); drop(rows);
+        assert!(nonempty.relation_bodies("not-a-model-relation", 0).is_err(), "zero demand still validates the relation schema");
+        nonempty.close().await.unwrap();
+        assert_eq!(budget.reserved(), 0);
+        let cancelled = reader.with_read_cancellation(Arc::new(std::sync::atomic::AtomicBool::new(true)));
+        assert!(cancelled.relation_bodies("packages", 0).is_err());
+        let unadmitted = NativeReader::for_views(Arc::new(Surreal::init()), vec![]);
+        assert!(unadmitted.relation_bodies("packages", 0).is_err());
+    }
     #[tokio::test]
     async fn reader_terminal_guard_retains_actual_pin_on_unwind_without_an_extra_scope_borrower() {
         use futures::FutureExt;

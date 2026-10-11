@@ -95,8 +95,10 @@ fn eligibility(inputs: &[[u8;16]], pairs: Option<&[([u8;16],[u8;16])]>, family: 
     Ok((vars,charge))
 }
 const ELIGIBLE: &str = "eligible=true AND family=$family AND scope_input IN $input_keys AND ($member_mode=false OR (member!=NULL AND binding!=NULL)) AND ($pairs=NULL OR [member,context] IN $pairs)";
-async fn selected_frontier<Context>(reader: &NativeReader<Context>, table: &str, predicate: &str, vars: Variables, units: UnitScope,budget:&ResourceBudget) -> Result<(OrderedRows, OrderedRows), ModelError> {
-    let mut stream=lctx_surrealdb::derived_search::selected_occurrences(reader,table,predicate,vars,budget)?;
+async fn selected_frontier<Context>(reader: &NativeReader<Context>, table: &str, predicate: &str, vars: Variables, units: UnitScope,budget:&ResourceBudget)->Result<(OrderedRows, OrderedRows), ModelError> {
+    occurrence_frontier(reader, lctx_surrealdb::derived_search::selected_occurrences(reader,table,predicate,vars,budget)?, units, budget).await
+}
+async fn occurrence_frontier<Context>(reader: &NativeReader<Context>, mut stream: lctx_surrealdb::reader::NativeRows, units: UnitScope, budget: &ResourceBudget) -> Result<(OrderedRows, OrderedRows), ModelError> {
     let result=async {
         let mut occurrences=SortedRows::with_budget(budget)?;
         let mut documents=SortedRows::with_budget(budget)?;
@@ -258,16 +260,22 @@ pub async fn lexical_scoped<Context>(
     let scope = lctx_surrealdb::lexical_stats::scope_identity(reader)?;
     let (vars,mut query_charge) = eligibility(inputs, pairs, family, member_mode,budget)?;
     for (key,value) in vars.iter(){query_charge.grow(key.len()+size_of::<Value>()+32+native_heap(value)?)?;}
-    let (occurrences, documents) = selected_frontier(reader, "lex_occurs", ELIGIBLE, vars.clone(), units,budget).await?;
     let mut vars = vars;
     query_charge.grow(query.len()+3*(64+32+size_of::<Value>()))?;
     vars.insert("lexical_scope", scope.hex());
     vars.insert("corpus_id", lctx_surrealdb::lexical_stats::corpus_id(scope, family as i16));
     vars.insert("query", query.to_owned());
-    // Frozen lexical statistics remain scoped to the immutable publication; exact selected
-    // document IDs are the physical query source, never a complete family relation.
-    // The frozen analyzer terms implement the same OR match, including zero-IDF matches;
-    // native MATCHES on a RecordId SourceExpr has no table query executor and returns false.
+    let family_table = match family {
+        Family::ApiOptions => "search_api_options",
+        Family::DocumentationDeployment => "search_documentation_deployment",
+        Family::Scenario => "search_scenario",
+        Family::Source => "search_source",
+    };
+    let nominations = lctx_surrealdb::derived_search::lexical_occurrences(reader, family_table, ELIGIBLE, vars.clone(), budget)?;
+    let (occurrences, documents) = occurrence_frontier(reader, nominations, units, budget).await?;
+    // Native indexed table nomination precedes exact membership. Frozen publication
+    // statistics alone determine scores, including zero-IDF lexical matches. Exact
+    // equality nominations remain independently eligible at score zero.
     let sql = r#"RETURN {
  LET $corpus=(SELECT * FROM ONLY $corpus_id);
  IF $corpus=NONE { THROW 'missing frozen lexical corpus'; };

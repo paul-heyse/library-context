@@ -7,6 +7,7 @@ use lctx_model::domain::{
     stages::{Profile, Schedule},
 };
 use std::sync::Arc;
+use tracing::Instrument;
 
 /// Run the production facts providers, accepting their enumeration in any order. Dependency
 /// ordering is computed from declarations; runtime reads bind exact persisted completed inputs.
@@ -53,20 +54,36 @@ pub async fn compile_facts(
             declaration.inputs.iter().map(|r| r.name()),
         )?;
         let output = Arc::new(workspace.producer(declaration, profile, inputs));
-        bundle::run_provider(
-            provider,
-            profile,
-            output.clone(),
-            workspace.model().clone(),
-            captured.clone(),
-            workspace.budget().clone(),
-            limits,
-        )
+        let span = tracing::info_span!(target: "lctx_phase", "facts_provider", producer = declaration.name);
+        async {
+            let execution = lctx_surrealdb::phase::Phase::begin("provider_execution");
+            let result = bundle::run_provider(
+                provider,
+                profile,
+                output.clone(),
+                workspace.model().clone(),
+                captured.clone(),
+                workspace.budget().clone(),
+                limits,
+            )
+            .await;
+            execution.finish_result(&result);
+            result?;
+            let completion = lctx_surrealdb::phase::Phase::begin("provider_completion");
+            let result = async {
+                Arc::try_unwrap(output)
+                    .map_err(|_| {
+                        ModelError::Invalid("native provider retained output ownership".into())
+                    })?
+                    .complete()
+                    .await
+            }
+            .await;
+            completion.finish_result(&result);
+            result
+        }
+        .instrument(span)
         .await?;
-        Arc::try_unwrap(output)
-            .map_err(|_| ModelError::Invalid("native provider retained output ownership".into()))?
-            .complete()
-            .await?;
     }
     Ok(())
 }

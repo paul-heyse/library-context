@@ -105,6 +105,11 @@ impl Completion {
         if let ModelError::SharedCause(error) = error {
             self.observe(error);
         }
+        if let ModelError::Cause(error) = error {
+            if let Some(error) = contextual_model(error.as_ref()) {
+                self.observe(error);
+            }
+        }
         if let ModelError::Completion(outcome) = error {
             if outcome.completion.local == LocalState::Outstanding {
                 self.local = LocalState::Outstanding;
@@ -186,11 +191,22 @@ pub fn complete<T>(
         }
     }
 }
+// Context owners retain their typed ModelError as their immediate source. Inspect a
+// directly boxed ModelError first: its Error::source may skip completion metadata.
+fn contextual_model(error: &(dyn std::error::Error + 'static)) -> Option<&ModelError> {
+    error
+        .downcast_ref::<ModelError>()
+        .or_else(|| error.source()?.downcast_ref::<ModelError>())
+}
 impl ModelError {
     pub fn primary(&self) -> Option<&ModelError> {
         match self {
             Self::Completion(outcome) => outcome.primary.as_deref().and_then(Self::primary),
             Self::SharedCause(error) => error.primary(),
+            Self::Cause(error) => match contextual_model(error.as_ref()) {
+                Some(error) => error.primary(),
+                None => Some(self),
+            },
             other => Some(other),
         }
     }
@@ -210,6 +226,9 @@ impl ModelError {
                         .all(|f| f.error.permits_storage_cleanup())
             }
             Self::SharedCause(error) => error.permits_storage_cleanup(),
+            Self::Cause(error) => {
+                contextual_model(error.as_ref()).is_none_or(Self::permits_storage_cleanup)
+            }
             Self::Infrastructure {
                 class: super::Infrastructure::Unconfirmed,
                 ..
@@ -232,6 +251,9 @@ impl ModelError {
                         .any(|f| f.error.has_committed_effect())
             }
             Self::SharedCause(error) => error.has_committed_effect(),
+            Self::Cause(error) => {
+                contextual_model(error.as_ref()).is_some_and(Self::has_committed_effect)
+            }
             _ => false,
         }
     }
@@ -239,6 +261,90 @@ impl ModelError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[derive(Debug)]
+    struct Context(ModelError);
+    impl std::fmt::Display for Context {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "request context: {}", self.0)
+        }
+    }
+    impl std::error::Error for Context {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+    fn contextual(error: ModelError) -> ModelError {
+        ModelError::Cause(Box::new(Context(error)))
+    }
+    #[test]
+    fn request_context_preserves_completion_certainty_effects_and_primary_identity() {
+        let original = std::sync::Arc::new(ModelError::Schema("exact primary"));
+        let mut finality = Completion {
+            local: LocalState::Outstanding,
+            remote: RemoteState::Unknown,
+            ..Default::default()
+        };
+        finality.committed("published manifest", "exact-view");
+        let inner =
+            complete::<()>(Err(ModelError::SharedCause(original.clone())), finality).unwrap_err();
+        let wrapped = contextual(contextual(inner));
+        assert!(std::ptr::eq(wrapped.primary().unwrap(), original.as_ref()));
+        assert!(!wrapped.permits_storage_cleanup());
+        assert!(wrapped.has_committed_effect());
+        assert!(wrapped.to_string().contains("request context"));
+        let mut aggregate = Completion::default();
+        aggregate.step("request", Err(wrapped));
+        assert_eq!(aggregate.local, LocalState::Outstanding);
+        assert_eq!(aggregate.remote, RemoteState::Unknown);
+        let error = complete(Ok(()), aggregate).unwrap_err();
+        assert!(error.primary().is_none());
+        assert!(!error.permits_storage_cleanup());
+        assert!(error.has_committed_effect());
+    }
+    #[test]
+    fn directly_boxed_completion_keeps_metadata_before_its_error_source() {
+        for (local, remote) in [
+            (LocalState::Outstanding, RemoteState::Confirmed),
+            (LocalState::Terminal, RemoteState::Unknown),
+        ] {
+            let mut finality = Completion {
+                local,
+                remote,
+                ..Default::default()
+            };
+            finality.committed("publication", "view");
+            let wrapped = ModelError::Cause(Box::new(
+                complete::<()>(Err(ModelError::Schema("primary")), finality).unwrap_err(),
+            ));
+            assert!(!wrapped.permits_storage_cleanup());
+            assert!(wrapped.has_committed_effect());
+            assert!(matches!(
+                wrapped.primary(),
+                Some(ModelError::Schema("primary"))
+            ));
+            let mut aggregate = Completion::default();
+            aggregate.step("request", Err(wrapped));
+            assert_eq!(aggregate.local, local);
+            assert_eq!(aggregate.remote, remote);
+        }
+    }
+    #[test]
+    fn contextual_cleanup_only_and_opaque_causes_keep_their_meaning() {
+        let mut finality = Completion::default();
+        finality.step("drain", Err(ModelError::Schema("cleanup cause")));
+        let wrapped = contextual(complete(Ok(()), finality).unwrap_err());
+        assert!(wrapped.primary().is_none());
+        assert!(wrapped.permits_storage_cleanup());
+        assert!(!wrapped.has_committed_effect());
+        let opaque = ModelError::Cause(Box::new(std::io::Error::other("foreign cause")));
+        assert!(std::ptr::eq(opaque.primary().unwrap(), &opaque));
+        assert!(opaque.permits_storage_cleanup());
+        assert!(!opaque.has_committed_effect());
+        let mut aggregate = Completion::default();
+        aggregate.step("foreign", Err(opaque));
+        assert_eq!(aggregate.local, LocalState::Terminal);
+        assert_eq!(aggregate.remote, RemoteState::Confirmed);
+    }
     #[test]
     fn primary_and_all_finalization_causes_survive() {
         let mut finality = Completion::default();

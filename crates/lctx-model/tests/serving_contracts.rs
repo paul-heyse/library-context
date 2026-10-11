@@ -1,14 +1,20 @@
 //! Independent finite serving declaration controls; no mocked store admission is claimed.
 fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
     use lctx_model::domain::serving::{DatabaseIdentity, Name, SnapshotHandle};
-    SnapshotHandle {
+    let mut handle = SnapshotHandle {
+        publication: lctx_model::domain::ContentHash([0; 32]),
+        view: lctx_model::domain::ContentHash([byte; 32]),
+        service_generation: lctx_model::domain::ContentHash([byte; 32]),
+        definition_epoch: lctx_model::domain::ContentHash([byte; 32]),
         semantic: lctx_model::domain::ContentHash([byte; 32]),
         realization: lctx_model::domain::ContentHash([byte; 32]),
         database: DatabaseIdentity {
             namespace: Name::new("lctx").unwrap(),
             database: Name::new(format!("snapshot_{byte}")).unwrap(),
         },
-    }
+    };
+    handle.publication = handle.expected_publication();
+    handle
 }
 use lctx_model::{
     Domain,
@@ -239,6 +245,18 @@ fn continuation_rejects_each_invalidated_boundary() {
         },
         SnapshotHandle {
             realization: ContentHash::of(b"other operations"),
+            ..original.snapshot.clone()
+        },
+        SnapshotHandle {
+            view: ContentHash::of(b"other completed views"),
+            ..original.snapshot.clone()
+        },
+        SnapshotHandle {
+            service_generation: ContentHash::of(b"other installed generation"),
+            ..original.snapshot.clone()
+        },
+        SnapshotHandle {
+            definition_epoch: ContentHash::of(b"other executable definitions"),
             ..original.snapshot.clone()
         },
         SnapshotHandle {
@@ -616,7 +634,7 @@ fn packet_mapping_and_snapshot_schema_have_current_nominal_owners() {
     assert_eq!(snapshot["additionalProperties"], false);
     assert_eq!(
         snapshot["required"],
-        json!(["semantic", "realization", "database"])
+        json!(["publication", "semantic", "realization", "view", "service_generation", "definition_epoch", "database"])
     );
     let packet = operation_response(1);
     let raw = decode_response(

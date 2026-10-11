@@ -43,7 +43,12 @@ scratch service or per-test database fallback. Compiler, store, publisher and se
 existing semantic responsibilities. Patched gRPC preserves progressive streaming, cancellation
 and checked physical terminality. Optional transports must preserve those contracts.
 
-> Decision: ADR-0145
+**Implemented recovery refinement / integrated qualification open, 2026-10-10 (ADR-0146).**
+Native upgrades preserve atomic page effects and progress under immutable checked host successor
+authority. Schema evolution in §6.3 owns the complete transition and recovery contract;
+the persisted coordinator retains actual migration receipts and enclosing acceptance.
+
+> Decision: ADR-0145, ADR-0146
 
 ### §6.1 Admitted content and native publication
 
@@ -155,7 +160,7 @@ A partial diagnostic subgraph reports its boundary and cannot claim global compi
 
 ### §6.3 Schema evolution
 
-**Accepted recovery refinement / source-inspected, 2026-10-10; native qualification open.**
+**Implemented recovery refinement, 2026-10-10 (ADR-0146); integrated qualification open.**
 An explicit installer replacement follows owned-daemon restart/drainage and immutable predecessor
 inventory. Unpublished scopes require exact closed source markers and absent/intent-only native
 journals; potentially translated unpublished scope refuses replacement. Before any publication,
@@ -167,6 +172,26 @@ native migration operation for remaining intent-only scopes. It never refreshes 
 reruns proven completed work. Credentials, predecessor evidence and private diagnostics remain
 protected; durable successor creation precedes maintenance-owner transfer. Ordinary attachment and
 same-candidate retry cannot silently substitute an executable.
+
+A distinct checked reconciliation successor may adopt recognized partially translated unpublished
+state. Its immutable execution contract binds original native/credential operations, successor,
+scope/generation, exact source/target and overlay/protocol/preflight/verifier identities. Actual
+bounded reconciliation produces new successor progress, never fabricated predecessor receipts.
+Unknown mixed forms, foreign identities, live predecessors and uncertain unfenced effects refuse.
+Complete row assignments preserve protected legacy scope without relying on defaults to backfill.
+
+One migration-only overlay record per original migration/database records atomic page effects and
+progress, including preflight and nested cleanup cursors. Closed exclusive effects establish reuse
+validity; relevant source/predicate changes invalidate preflight, and verifier changes invalidate
+verification. The overlay has independently checked declarations and is outside runtime/content
+identity because ordinary consumers do not use it. Privileged cold recovery includes it. Native
+marker/journal/overlay sealing, executable-definition completion and host checkpoint are separate
+completion boundaries. Named recovery consumers govern later exact overlay retirement.
+
+The exact format3→4 target completes before the explicit format4→5 runtime transition that adds
+bounded history-page receipts. One collector advancement commits one bounded page and revision;
+expected-revision replay recovers exact removed/protected outcomes without per-item effect history.
+Its typed declaration belongs in runtime schema identity. Original eras, horizons and cursors survive.
 
 Index application may use execution-only concurrent construction without changing canonical schema
 identity. Catalog presence alone does not establish usability: every desired index, including one
@@ -183,7 +208,7 @@ engine coercions do not define semantic identity. Snapshot changes are explicit 
 codebooks remain append-only. Rebuild fresh from pinned inputs without old-format readers, legacy
 IDs, dual writes or rollback/runtime archives. Quiesce actual readers before replacing their state.
 
-> Decision: ADR-0145, ADR-0087, ADR-0048
+> Decision: ADR-0146, ADR-0145, ADR-0087, ADR-0048
 
 ### §6.4 Serving realizations
 

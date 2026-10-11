@@ -189,6 +189,15 @@ qualifying or globally earlier row. A zero/empty request retains required handle
 Complete reconciliation and global analytics keep explicitly complete routes. A limited relation request
 must not initialize complete unrelated selection preparation as its default.
 
+The [integrated review F01](../design_review/reviews/design_review_surrealdb-capability-integration_2026-10-10.md#F01)
+refines this target: direct nominations start at exact `(view, relation, semantic_key)` membership
+through the existing `view_key` index. Alias endpoint nominations start only at selected source
+relations governed by the model's canonical alias contract, then follow indexed `alias_source`
+edges. Do not scan every retained physical payload of the requested relation or duplicate the
+model's alias taxonomy in the reader. Complete relevant-relation conflict/order checks remain;
+zero output demand performs required authority/schema checks without nominating rows.
+Coordinator SA-INTEGRATION-F01 owns correction and closure; static diagnosis needs no timing campaign.
+
 ### 5.2 FULLTEXT nomination with frozen ranking
 
 Query actual indexed search-family **tables**, not RecordId sources, for matching document IDs.
@@ -239,6 +248,19 @@ Keep installation ordering initially. This work does not release migration refer
 history horizons, narrow backup protection or allow old issuance to act on a reactivated incarnation.
 HS5/HS6 successor and history qualification remain required before destructive collection.
 
+**Execution refinement,2026-10-10 (ADR-0146):** the existing SCHEMAFULL history checkpoint has
+no field for exact page outcomes. Preserve the current complete format3→4 target through recovery,
+then perform an explicitly identified format4→5 transition for one bounded last-page receipt on each
+collector checkpoint. Ordinary initialization checks the current hash before DDL and cannot supply
+this transition. The new field belongs in runtime identity; the migration overlay remains separate.
+
+Each public advancement commits one bounded candidate page and receipt with the checkpoint revision.
+An expected revision matching the last page replays that exact outcome; advancing from its returned
+revision acknowledges it and may replace it. Changed requests/older revisions refuse. Exact removed,
+protected and examined-range facts are atomic with deletion/cursor advance, without per-item effects.
+Original horizon/era/cursor/counters survive transition; missing historical page results are not invented.
+Existing collectors and CLI consumers migrate together. Qualify this refinement before its effects.
+
 ## 7. Capability decisions and bounded investigations
 
 These are design inputs or conditional work within existing owners. Record executed results in
@@ -248,11 +270,11 @@ settle fit; actual execution is needed for Tested/Measured claims and uncertain 
 | Avenue / package owner | Selected route, remaining question and dependent work |
 |---|---|
 | **Migration planning — SA0/SA2; native upgrade** | Select the small native progress protocol plus existing frozen host candidate/planning. Inspected SurrealKit `1.0.0-beta.6`, revision `fd7b075c7619138cf5b8704d9f1938a63e3c977f`, executes steps and completion marks separately; its lock-loss path does not establish cancellation. Its frozen-file/rollout planning benefits are real but duplicate existing candidate ownership without replacing page atomicity/fencing/index readiness. Reopen adoption for a named multi-rollout/schema-file planning consumer that removes more machinery than it adds. No dependency change now. |
-| **Native modeling — SA8; model/native/control** | Compare concrete backlinks/deletion rejection and named maintained aggregates with existing membership/hold/invariant consumers. `REFERENCE ... REJECT` is not assumed to check insertion-time target existence; retain explicit existence/admission checks unless exact evidence establishes replacement. Synchronous views/events add write work; async events cannot establish admission. Adopt only a concrete simplification with complete lifecycle/cold semantics; schema changes use a distinct explicit transition after current recovery. |
+| **Native modeling — SA8; model/native/control** | Retain explicit indexed holds and admission/retirement enforcement. Reference deletion rejection cannot replace ownership, epoch/incarnation fences, cutoffs or recovery lineage; no named maintained aggregate consumer was found in current native source. `REFERENCE ... REJECT` is not insertion-existence authority. Reopen for a specific backlink/aggregate consumer removing identified duplicate enforcement or lookup work, with complete insertion/deletion/cold/readiness/lifecycle semantics. Any schema change uses a distinct explicit transition. |
 | **Search — SA5/SA6; native/serving** | Qualify analyzer punctuation/compound/repeated/empty terms, zero scores, exact branches and composed plans at3.3.0. Compare independent complete small-case results; query fallback is a scoped exact nomination representation, not semantic narrowing. Gates selective lexical release. |
-| **Transport — SA8; NE0/UP5/HS9** | Compare a complete progressive WS `query_stream`/`query_cancel` adapter with maintained patched gRPC, including same-session backup, provisional/statement/outer/physical terminals, cancellation/retraction and connection loss. Retain gRPC unless the composed alternative wins; an endpoint edit or buffered stock WS route is insufficient. Does not delay F01–F07. |
+| **Transport — SA8; NE0/UP5/HS9** | Retain maintained patched gRPC. Stock/pse-arrow WebSocket buffering does not replace progressive physical-terminal ownership. Reopen for a complete progressive WS `query_stream`/`query_cancel` composition preserving same-session backup, provisional/statement/outer/physical terminals, cancellation/retraction and connection loss. Endpoint substitution alone is insufficient. Existing transport controls remain acceptance gates. |
 | **Cache/lifetime — SA8; NE7/GK/GR/HS8/HS9** | Finish exact absence/member mutation, one live flight under eviction, cancelled waiters, retention expiry, external borrows and shared-budget controls. Narrow snapshot-pin lifetime only after the capture-versus-retirement race and finalizer ownership are settled. No new cache-validity authority. Gates corresponding existing acceptance, not all native corrections. |
-| **Engine/service — SA8; UP1/UP7/HS11** | Establish effective installed RocksDB/cache/compaction/snapshot settings and executor width against concurrent compile/serve work. Use native metrics for named questions. Low-cache/embedded upstream reports are leads, not this failure's diagnosis; no inferred memory quota or fixed worker cap. Adopt settings only against exact configuration and preserved durability. |
+| **Engine/service — SA8; UP1/UP7/HS11** | Retain installed settings and durability. Actual systemd/process/RocksDB options and installed-source worker/cache defaults were inspected; coordinator §9.1 records exact observations. They establish configuration, not a tuning diagnosis. Reopen for a named workload question with native metrics and measured configuration evidence; upstream low-cache/embedded reports remain leads. No inferred memory quota or fixed worker cap. |
 | **Coordination — SA8; HS5/HS6** | Initial guard remains. Any narrower protocol must preserve era-cut and delayed-effect exclusion under snapshot isolation, restart and backup/recovery. Read-only optimism is not equivalent to a conflicting write. Equivalent interleavings gate narrowing, not batching. |
 | **Legacy release — SA8; HS6/UP8** | Inventory named migration consumers and sufficient original provenance; qualify explicit exact-reference release before collection. Conservative references are not automatically leaks. No age/size/resolved-flag deletion. Gates destructive release only. |
 | **Notifications — SA8; UP9 consumers** | No new LIVE/changefeed consumer is established. Keep a named-consumer trigger: adopt only when notification/synchronization removes real repeated lookup or supplies required behavior, with gap/reconnect handling. Durable outcomes/manifests retain authority. |

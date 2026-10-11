@@ -2,10 +2,54 @@
 //! Selection is preparation; independent readback and cold admission retain their own checks.
 use crate::{ordered_rows::{PreparedPointRows, PreparedRows, SortedRows}, reader::NativeRows};
 use lctx_model::domain::{ContentHash, ModelError, completion::{Completion, complete}, resources::{ResourceBudget, MAX_ROW_BYTES}};
-use std::sync::Arc;
+use std::{sync::Arc, collections::{BTreeMap, BTreeSet, VecDeque}};
+use lctx_model::domain::charged::StateCharge;
 use surrealdb::{Surreal, engine::remote::grpc::Client, types::{Object, RecordId, RecordIdKey, SurrealValue, Value, Variables}};
 
 const WINDOW: usize = 128;
+/// One exact selected-view witness. `ancestry` starts at the requested physical node
+/// and follows reverse aliases to the directly admitted member; cycles never repeat.
+#[derive(Debug)]
+pub struct MembershipWitness {
+    pub view: ContentHash,
+    pub member: RecordId,
+    pub relation: String,
+    pub semantic_key: String,
+    pub content: String,
+    pub ancestry: Vec<RecordId>,
+}
+#[derive(Debug)]
+pub struct NodeMembership {
+    pub requested: RecordId,
+    pub selected: bool,
+    pub witnesses: Vec<MembershipWitness>,
+}
+/// Request-local results retain their allocation authority through the last consumer.
+pub struct MembershipAnswers {
+    pub answers: Vec<NodeMembership>,
+    _charge: StateCharge,
+}
+impl MembershipAnswers {
+    pub fn contains(&self, node: &RecordId) -> bool {
+        self.answers.binary_search_by(|answer| answer.requested.cmp(node)).ok().is_some_and(|index| self.answers[index].selected)
+    }
+    pub fn contains_all(&self, nodes: &[RecordId]) -> bool { nodes.iter().all(|node| self.contains(node)) }
+    pub(crate) fn unrestricted(requested: &[RecordId], budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let mut charge = StateCharge::new(budget, "selected-membership-answers");
+        let mut answers = BTreeMap::new();
+        for node in requested {
+            if !answers.contains_key(node) {
+                charge.grow(node_bytes(node).saturating_mul(2).saturating_add(std::mem::size_of::<NodeMembership>() + 32))?;
+                answers.insert(node.clone(), NodeMembership { requested: node.clone(), selected: true, witnesses: vec![] });
+            }
+        }
+        Ok(Self { answers: answers.into_values().collect(), _charge: charge })
+    }
+}
+pub(crate) fn node_bytes(node: &RecordId) -> usize {
+    let key = match &node.key { RecordIdKey::String(key) => key.len(), RecordIdKey::Number(_) | RecordIdKey::Uuid(_) => 0, _ => MAX_ROW_BYTES };
+    std::mem::size_of::<RecordId>().saturating_add(node.table.as_str().len()).saturating_add(key)
+}
 #[derive(Clone)]
 pub struct SelectedPayloads {
     source: SelectionSource,
@@ -21,6 +65,10 @@ enum SelectionSource {
     Session(Arc<Surreal<Client>>),
     Transaction(Arc<surrealdb::method::Transaction<Client>>),
     Cancellable(Box<SelectionSource>, Arc<std::sync::atomic::AtomicBool>),
+}
+enum CandidateNominations {
+    Query(crate::prepared::PreparedQuery),
+    Relation(String),
 }
 impl SelectionSource {
     fn stream(&self, query: crate::prepared::PreparedQuery) -> Result<NativeRows, ModelError> {
@@ -117,14 +165,19 @@ impl SelectedPayloads {
                 nodes.push(pointer(node))
             }).await?;
         }
-        Self::expand(source, nodes.finish()?.into_prepared(), budget.clone(), false).await
+        Self::expand(source, nodes.finish()?.into_prepared(), budget.clone()).await
     }
-    async fn expand(source: SelectionSource, mut all: PreparedRows, budget: ResourceBudget, reverse: bool) -> Result<Self, ModelError> {
+    async fn expand(source: SelectionSource, all: PreparedRows, budget: ResourceBudget) -> Result<Self, ModelError> {
+        let (nodes, aliases) = Self::expand_nodes(&source, all, &budget, true).await?;
+        let membership = nodes.point_index(&budget)?;
+        Ok(Self { source, nodes, membership, aliases, budget })
+    }
+    async fn expand_nodes(source: &SelectionSource, mut all: PreparedRows, budget: &ResourceBudget, retain_aliases: bool) -> Result<(PreparedRows, PreparedRows), ModelError> {
         let mut frontier = all.clone();
-        let mut aliases = SortedRows::with_budget(&budget)?;
+        let mut aliases = SortedRows::with_budget(budget)?;
         loop {
-            let mut cursor = frontier.cursor_with_budget(&budget)?;
-            let mut candidates = SortedRows::with_budget(&budget)?;
+            let mut cursor = frontier.cursor_with_budget(budget)?;
+            let mut candidates = SortedRows::with_budget(budget)?;
             loop {
                 let mut batch = Vec::new();
                 while batch.len() < WINDOW {
@@ -134,20 +187,21 @@ impl SelectedPayloads {
                 }
                 if batch.is_empty() { break; }
                 let mut vars = Variables::new(); vars.insert("sources", batch);
-                let sql = if reverse { "SELECT source,target,id FROM compiler_alias WITH INDEX alias_target WHERE target IN $sources" } else { "SELECT * FROM compiler_alias WITH INDEX alias_source WHERE source IN $sources" };
-                consume(&source, sql.into(), vars, |row| {
+                let sql = "SELECT * FROM compiler_alias WITH INDEX alias_source WHERE source IN $sources";
+                consume(source, sql.into(), vars, |row| {
                     let Value::Object(object) = &row else { return Err(ModelError::Schema("selected alias")); };
-                    let target = RecordId::from_value(object.get(if reverse { "source" } else { "target" }).cloned().ok_or(ModelError::Schema("selected alias target"))?).map_err(ModelError::codec)?;
+                    let target = RecordId::from_value(object.get("target").cloned().ok_or(ModelError::Schema("selected alias target"))?).map_err(ModelError::codec)?;
                     if target.table.as_str() != "entity" { return Err(ModelError::Conflict("selected alias family")); }
-                    candidates.push(pointer(target))?; aliases.push(row)
+                    candidates.push(pointer(target))?;
+                    if retain_aliases { aliases.push(row)?; } Ok(())
                 }).await?;
             }
             // Merge on disk. The next frontier contains only unseen targets, so cycles finish.
-            let mut previous = all.cursor_with_budget(&budget)?;
+            let mut previous = all.cursor_with_budget(budget)?;
             let mut old = previous.next_row()?;
             let mut candidates = candidates.finish()?;
-            let mut merged = SortedRows::with_budget(&budget)?;
-            let mut next = SortedRows::with_budget(&budget)?;
+            let mut merged = SortedRows::with_budget(budget)?;
+            let mut next = SortedRows::with_budget(budget)?;
             let mut changed = false;
             while let Some(candidate) = candidates.next_row()? {
                 let key = id(&candidate)?;
@@ -164,8 +218,7 @@ impl SelectedPayloads {
             if !changed { break; }
             frontier = next.finish()?.into_prepared();
         }
-        let membership = all.point_index(&budget)?;
-        Ok(Self { source, nodes: all, membership, aliases: aliases.finish()?.into_prepared(), budget })
+        Ok((all, aliases.finish()?.into_prepared()))
     }
     /// Immutable borrowers own a fresh cursor; the shared selection never stores mutable position.
     pub fn pointers(&self) -> Result<crate::ordered_rows::OrderedRows, ModelError> { self.nodes.cursor_with_budget(&self.budget) }
@@ -233,41 +286,214 @@ impl SelectedPayloads {
     /// Sparse membership starts from nominated physical identities. Reverse aliases
     /// visit only their relevant ancestry; each ancestor window uses exact indexed view
     /// membership. No complete view or payload universe is prepared on this path.
-    async fn sparse_filter_members(source: &SelectionSource, views: &[ContentHash], requested: &[RecordId], budget: &ResourceBudget) -> Result<Vec<RecordId>, ModelError> {
-        async fn direct(source: &SelectionSource, views: &[ContentHash], nodes: &[RecordId]) -> Result<bool, ModelError> {
-            for view in views {
-                let mut vars = Variables::new(); vars.insert("view", RecordId::new("compiler_view", view.hex())); vars.insert("nodes", nodes.to_vec());
-                let mut found = false;
-                consume(source, "SELECT node AS id FROM compiler_view_member WITH INDEX view_nodes WHERE view=$view AND node IN $nodes".into(), vars, |row| {
-                    if !nodes.contains(&id(&row)?) { return Err(ModelError::Conflict("sparse membership returned foreign pointer")); } found = true; Ok(())
-                }).await?;
-                if found { return Ok(true); }
-            } Ok(false)
-        }
-        let mut accepted = Vec::new();
-        for node in requested {
-            if direct(source, views, std::slice::from_ref(node)).await? { accepted.push(node.clone()); continue; }
-            if node.table.as_str() != "entity" || views.is_empty() { continue; }
-            let mut seed = SortedRows::with_budget(budget)?; seed.push(pointer(node.clone()))?;
-            let ancestors = Self::expand(source.clone(), seed.finish()?.into_prepared(), budget.clone(), true).await?;
-            let mut cursor = ancestors.pointers_with_budget(budget)?;
-            loop {
-                let mut nodes = Vec::new(); while nodes.len() < WINDOW { let Some(row) = cursor.next_row()? else { break; }; nodes.push(id(&row)?); }
-                if nodes.is_empty() { break; }
-                if direct(source, views, &nodes).await? { accepted.push(node.clone()); break; }
+    async fn validate_nominal_membership(
+        source: &SelectionSource, views: &[ContentHash], direct: &BTreeMap<RecordId, BTreeMap<ContentHash, (String, String, String)>>, budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let mut charge = StateCharge::new(budget, "selected-nominal-membership");
+        let mut expected: BTreeMap<&str, BTreeMap<&str, (&RecordId, &str)>> = BTreeMap::new();
+        for (node, witnesses) in direct {
+            for (relation, key, content) in witnesses.values() {
+                if let Some(previous) = expected.get(relation.as_str()).and_then(|keys| keys.get(key.as_str())) {
+                    if previous != &(node, content.as_str()) { return Err(ModelError::Conflict("selected nominal membership variants")); }
+                } else {
+                    charge.grow(160)?;
+                    expected.entry(relation).or_default().insert(key, (node, content));
+                }
             }
         }
-        accepted.sort(); accepted.dedup(); Ok(accepted)
+        // A physical point hit alone cannot establish an unambiguous nominal answer:
+        // another selected view may admit an un-nominated revision of that same key.
+        // Probe only witnessed keys, using the exact view/relation index prefix.
+        for (relation, expected_keys) in &expected {
+            for view in views {
+                let mut keys = expected_keys.keys();
+                loop {
+                    let mut window = StateCharge::new(budget, "selected-nominal-membership-window");
+                    let mut nominated = Vec::new();
+                    while nominated.len() < WINDOW {
+                        let Some(key) = keys.next() else { break; };
+                        window.grow(key.len().saturating_mul(5).saturating_add(256))?;
+                        nominated.push((*key).to_owned());
+                    }
+                    if nominated.is_empty() { break; }
+                    let mut vars = Variables::new(); vars.insert("view", RecordId::new("compiler_view", view.hex())); vars.insert("relation", (*relation).to_owned()); vars.insert("keys", nominated.clone());
+                    let mut seen = BTreeSet::new();
+                    consume(source, "SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX view_key WHERE view=$view AND relation=$relation AND semantic_key IN $keys".into(), vars, |row| {
+                        let _scratch = budget.reserve("selected-nominal-membership-row", crate::loader::native_bytes(&row).saturating_mul(4))?;
+                        let node = id(&row)?;
+                        let Value::Object(object) = row else { return Err(ModelError::Schema("nominal membership witness object")); };
+                        let text = |name| String::from_value(object.get(name).cloned().ok_or(ModelError::Schema("nominal membership witness field"))?).map_err(ModelError::codec);
+                        let actual_relation = text("relation")?; let key = text("semantic_key")?; let content = text("content")?;
+                        if actual_relation != *relation || !nominated.contains(&key) { return Err(ModelError::Conflict("nominal membership returned foreign key")); }
+                        let Some((expected_node, expected_content)) = expected_keys.get(key.as_str()) else { return Err(ModelError::Conflict("nominal membership witness key")); };
+                        if &node != *expected_node || content != *expected_content { return Err(ModelError::Conflict("selected nominal membership variants")); }
+                        if !seen.insert(key) { return Err(ModelError::Conflict("duplicate nominal membership witness")); }
+                        Ok(())
+                    }).await?;
+                    for key in &nominated {
+                        let (node, _) = expected_keys[key.as_str()];
+                        if direct.get(node).is_some_and(|witnesses| witnesses.contains_key(view)) && !seen.contains(key) { return Err(ModelError::Conflict("nominal membership witness disappeared")); }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
-    pub(crate) async fn filter_view_candidates(client: Arc<Surreal<Client>>, views: &[ContentHash], cancelled: Option<Arc<std::sync::atomic::AtomicBool>>, requested: &[RecordId], budget: &ResourceBudget) -> Result<Vec<RecordId>, ModelError> {
+    async fn sparse_membership(source: &SelectionSource, views: &[ContentHash], requested: &[RecordId], budget: &ResourceBudget) -> Result<MembershipAnswers, ModelError> {
+        let mut graph_charge = StateCharge::new(budget, "selected-membership-ancestry");
+        let mut graph: BTreeMap<RecordId, BTreeSet<RecordId>> = BTreeMap::new();
+        let mut direct: BTreeMap<RecordId, BTreeMap<ContentHash, (String, String, String)>> = BTreeMap::new();
+        let mut requested_nodes = BTreeSet::new();
+        let mut frontier = VecDeque::new();
+        for node in requested {
+            if !graph.contains_key(node) {
+                graph_charge.grow(node_bytes(node).saturating_mul(4).saturating_add(192))?;
+                graph.insert(node.clone(), BTreeSet::new()); frontier.push_back(node.clone()); requested_nodes.insert(node.clone());
+            }
+        }
+        // Each physical ancestor is read once for the whole requested window. Queries
+        // stay finite even when several requests share an ancestry or form a cycle.
+        while !frontier.is_empty() && !views.is_empty() {
+            let mut window = StateCharge::new(budget, "selected-membership-window");
+            let mut nodes = Vec::new();
+            while nodes.len() < WINDOW {
+                let Some(node) = frontier.pop_front() else { break; };
+                window.grow(node_bytes(&node).saturating_mul(3))?; nodes.push(node);
+            }
+            for view in views {
+                let mut vars = Variables::new(); vars.insert("view", RecordId::new("compiler_view", view.hex())); vars.insert("nodes", nodes.clone());
+                consume(source, "SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX view_nodes WHERE view=$view AND node IN $nodes".into(), vars, |row| {
+                    let _scratch = budget.reserve("selected-membership-row", crate::loader::native_bytes(&row).saturating_mul(4))?;
+                    let node = id(&row)?;
+                    if !nodes.contains(&node) { return Err(ModelError::Conflict("sparse membership returned foreign pointer")); }
+                    let Value::Object(object) = row else { return Err(ModelError::Schema("membership witness object")); };
+                    let text = |name| String::from_value(object.get(name).cloned().ok_or(ModelError::Schema("membership witness field"))?).map_err(ModelError::codec);
+                    let nominal = (text("relation")?, text("semantic_key")?, text("content")?);
+                    if direct.get(&node).is_some_and(|members| members.values().any(|previous| previous != &nominal)) { return Err(ModelError::Conflict("membership physical/nominal witness changed")); }
+                    if let Some(previous) = direct.get(&node).and_then(|members| members.get(view)) {
+                        if previous != &nominal { return Err(ModelError::Conflict("membership physical/nominal witness changed")); }
+                    } else {
+                        graph_charge.grow(node_bytes(&node).saturating_add(256).saturating_add(nominal.0.len()).saturating_add(nominal.1.len()).saturating_add(nominal.2.len()))?;
+                        direct.entry(node).or_default().insert(*view, nominal);
+                    }
+                    Ok(())
+                }).await?;
+            }
+            nodes.retain(|node| node.table.as_str() == "entity");
+            if nodes.is_empty() { continue; }
+            let mut vars = Variables::new(); vars.insert("sources", nodes.clone());
+            consume(source, "SELECT source,target,id FROM compiler_alias WITH INDEX alias_target WHERE target IN $sources".into(), vars, |row| {
+                let _scratch = budget.reserve("selected-membership-alias-row", crate::loader::native_bytes(&row).saturating_mul(4))?;
+                let Value::Object(object) = row else { return Err(ModelError::Schema("sparse alias object")); };
+                let ancestor = RecordId::from_value(object.get("source").cloned().ok_or(ModelError::Schema("sparse alias source"))?).map_err(ModelError::codec)?;
+                let target = RecordId::from_value(object.get("target").cloned().ok_or(ModelError::Schema("sparse alias target"))?).map_err(ModelError::codec)?;
+                if ancestor.table.as_str() != "entity" || !nodes.contains(&target) { return Err(ModelError::Conflict("sparse alias ancestry")); }
+                if !graph.contains_key(&ancestor) {
+                    graph_charge.grow(node_bytes(&ancestor).saturating_mul(3).saturating_add(160))?;
+                    graph.insert(ancestor.clone(), BTreeSet::new()); frontier.push_back(ancestor.clone());
+                }
+                let parents = graph.get_mut(&target).ok_or(ModelError::Conflict("sparse alias frontier"))?;
+                if !parents.contains(&ancestor) { graph_charge.grow(node_bytes(&ancestor).saturating_add(32))?; parents.insert(ancestor); }
+                Ok(())
+            }).await?;
+        }
+        Self::validate_nominal_membership(source, views, &direct, budget).await?;
+        let mut charge = StateCharge::new(budget, "selected-membership-answers");
+        let mut answers = Vec::new();
+        for node in &requested_nodes {
+            charge.grow(node_bytes(node).saturating_add(std::mem::size_of::<NodeMembership>()))?;
+            let mut witnesses = Vec::new();
+            let mut scratch = StateCharge::new(budget, "selected-membership-paths");
+            scratch.grow(node_bytes(node).saturating_mul(3).saturating_add(96))?;
+            let mut paths = BTreeMap::from([(node.clone(), vec![node.clone()])]);
+            let mut pending = VecDeque::from([node.clone()]);
+            while let Some(member) = pending.pop_front() {
+                let path = &paths[&member];
+                if let Some(member_views) = direct.get(&member) {
+                    for (view, nominal) in member_views {
+                        charge.grow(nominal.0.len().saturating_add(nominal.1.len()).saturating_add(nominal.2.len()).saturating_add(std::mem::size_of::<MembershipWitness>().saturating_add(node_bytes(&member)).saturating_add(path.iter().map(node_bytes).sum::<usize>())))?;
+                        witnesses.push(MembershipWitness { view: *view, member: member.clone(), relation: nominal.0.clone(), semantic_key: nominal.1.clone(), content: nominal.2.clone(), ancestry: path.clone() });
+                    }
+                }
+                if let Some(parents) = graph.get(&member) {
+                    for parent in parents {
+                        if !paths.contains_key(parent) {
+                            let path = &paths[&member];
+                            scratch.grow(node_bytes(parent).saturating_mul(3).saturating_add(96).saturating_add(path.iter().map(node_bytes).sum::<usize>()))?;
+                            let mut path = path.clone(); path.push(parent.clone()); paths.insert(parent.clone(), path); pending.push_back(parent.clone());
+                        }
+                    }
+                }
+            }
+            answers.push(NodeMembership { requested: node.clone(), selected: !witnesses.is_empty(), witnesses });
+        }
+        Ok(MembershipAnswers { answers, _charge: charge })
+    }
+    pub(crate) async fn view_membership(client: Arc<Surreal<Client>>, views: &[ContentHash], cancelled: Option<Arc<std::sync::atomic::AtomicBool>>, requested: &[RecordId], budget: &ResourceBudget) -> Result<MembershipAnswers, ModelError> {
         let source = SelectionSource::Session(client);
         let source = if let Some(flag) = cancelled { SelectionSource::Cancellable(Box::new(source), flag) } else { source };
-        Self::sparse_filter_members(&source, views, requested, budget).await
+        Self::sparse_membership(&source, views, requested, budget).await
     }
     pub(crate) fn sparse_candidate_rows(client: Arc<Surreal<Client>>, views: Vec<ContentHash>, cancelled: Option<Arc<std::sync::atomic::AtomicBool>>, candidates: crate::prepared::PreparedQuery, table: &str, order: &str, budget: &ResourceBudget) -> Result<NativeRows, ModelError> {
         let source = SelectionSource::Session(client);
         let source = if let Some(flag) = cancelled { SelectionSource::Cancellable(Box::new(source), flag) } else { source };
         Self::candidate_rows_inner(source, None, views, candidates, table, order, budget)
+    }
+    pub(crate) fn sparse_relation_rows(client: Arc<Surreal<Client>>, views: Vec<ContentHash>, cancelled: Option<Arc<std::sync::atomic::AtomicBool>>, relation: &str, table: &str, budget: &ResourceBudget) -> Result<NativeRows, ModelError> {
+        let source = SelectionSource::Session(client);
+        let source = if let Some(flag) = cancelled { SelectionSource::Cancellable(Box::new(source), flag) } else { source };
+        Self::candidate_rows_from(source, None, views, CandidateNominations::Relation(relation.to_owned()), table, "semantic_key", budget)
+    }
+    /// Nominate from exact selected relation membership, not the global payload
+    /// family. Only model-governed endpoint sources can widen this input scope.
+    fn relation_nominations(source: SelectionSource, views: Vec<ContentHash>, relation: String, budget: ResourceBudget) -> Result<NativeRows, ModelError> {
+        NativeRows::owned(move |sender| async move {
+            let mut nominated = SortedRows::with_budget(&budget)?;
+            let mut seeds = SortedRows::with_budget(&budget)?;
+            let source_relations = lctx_model::domain::graph::Entity::canonical_place_endpoint_relations().iter()
+                .filter_map(|(source, target)| (*target == relation).then_some(*source)).collect::<BTreeSet<_>>();
+            for view in &views {
+                for selected_relation in std::iter::once(relation.as_str()).chain(source_relations.iter().copied()) {
+                    if sender.is_closed() { return Ok(()); }
+                    let mut vars = Variables::new(); vars.insert("view", RecordId::new("compiler_view", view.hex())); vars.insert("relation", selected_relation.to_owned());
+                    consume(&source, "SELECT node AS id FROM compiler_view_member WITH INDEX view_key WHERE view=$view AND relation=$relation".into(), vars, |row| {
+                        let node = id(&row)?;
+                        if selected_relation == relation { nominated.push(pointer(node)) }
+                        else if node.table.as_str() != "entity" { Err(ModelError::Conflict("canonical endpoint source family")) }
+                        else { seeds.push(pointer(node)) }
+                    }).await?;
+                }
+            }
+            if !source_relations.is_empty() && !sender.is_closed() {
+                // Reuse the cycle-safe disk-backed forward traversal on just these
+                // selected source relations. No complete view is prepared here.
+                let (expanded, _) = Self::expand_nodes(&source, seeds.finish()?.into_prepared(), &budget, false).await?;
+                let mut cursor = expanded.cursor_with_budget(&budget)?;
+                loop {
+                    if sender.is_closed() { return Ok(()); }
+                    let mut window = StateCharge::new(&budget, "relation-alias-window");
+                    let mut nodes = Vec::new();
+                    while nodes.len() < WINDOW {
+                        let Some(row) = cursor.next_row()? else { break; };
+                        let node = id(&row)?; window.grow(node_bytes(&node).saturating_mul(3))?; nodes.push(node);
+                    }
+                    if nodes.is_empty() { break; }
+                    let mut vars = Variables::new(); vars.insert("nodes", nodes.clone()); vars.insert("relation", relation.clone());
+                    // Exact reached IDs retain intermediates for chain traversal;
+                    // only endpoints of the requested relation become candidates.
+                    consume(&source, "SELECT id FROM $nodes WHERE semantic_type=$relation".into(), vars, |row| {
+                        let node = id(&row)?;
+                        if !nodes.contains(&node) { return Err(ModelError::Conflict("canonical endpoint nomination correspondence")); }
+                        nominated.push(pointer(node))
+                    }).await?;
+                }
+            }
+            let mut nominated = nominated.finish()?;
+            while let Some(row) = nominated.next_row()? {
+                if sender.send(row).await.is_err() { break; }
+            }
+            Ok(())
+        })
     }
     /// Compact indexed nominations are intersected with the exact selected identity set
     /// before any canonical/body payload is fetched. Sorting owns request scratch only.
@@ -276,12 +502,18 @@ impl SelectedPayloads {
         Self::candidate_rows_inner(self.source.clone(), Some(self.clone()), vec![], candidates, table, order, budget)
     }
     fn candidate_rows_inner(source: SelectionSource, selected: Option<Self>, views: Vec<ContentHash>, candidates: crate::prepared::PreparedQuery, table: &str, order: &str, budget: &ResourceBudget) -> Result<NativeRows, ModelError> {
+        Self::candidate_rows_from(source, selected, views, CandidateNominations::Query(candidates), table, order, budget)
+    }
+    fn candidate_rows_from(source: SelectionSource, selected: Option<Self>, views: Vec<ContentHash>, candidates: CandidateNominations, table: &str, order: &str, budget: &ResourceBudget) -> Result<NativeRows, ModelError> {
         if !matches!(table, "entity" | "assertion" | "compiler_record") { return Err(ModelError::Schema("selected candidate table")); }
         let order = order.split(',').map(str::trim).map(str::to_owned).collect::<Vec<_>>();
         if order.iter().any(|field| !matches!(field.as_str(), "id" | "anchor" | "semantic_key" | "body.projection" | "body.window")) { return Err(ModelError::Schema("selected candidate ordering")); }
         let table = table.to_owned(); let budget = budget.clone();
         NativeRows::owned(move |sender| async move {
-            let mut candidates = source.stream(candidates)?.with_row_bytes(MAX_ROW_BYTES);
+            let mut candidates = match candidates {
+                CandidateNominations::Query(query) => source.stream(query)?,
+                CandidateNominations::Relation(relation) => Self::relation_nominations(source.clone(), views.clone(), relation, budget.clone())?,
+            }.with_row_bytes(MAX_ROW_BYTES);
             let result = async {
                 let mut sorted = SortedRows::with_budget_and_row_bytes(&budget, MAX_ROW_BYTES)?;
                 loop {
@@ -297,22 +529,31 @@ impl SelectedPayloads {
                     }
                     if examined == 0 { break; }
                     if nominated.is_empty() { continue; }
-                    let nodes = match &selected { Some(selected) => selected.filter_members_with_budget(&nominated, &budget)?, None => Self::sparse_filter_members(&source, &views, &nominated, &budget).await? };
+                    let nodes = match &selected { Some(selected) => selected.filter_members_with_budget(&nominated, &budget)?, None => Self::sparse_membership(&source, &views, &nominated, &budget).await?.answers.into_iter().filter(|answer| answer.selected).map(|answer| answer.requested).collect() };
                     if nodes.is_empty() { continue; }
-                    let vars = Variables::from_iter([("nodes".into(), nodes.into_value())]);
+                    let vars = Variables::from_iter([("nodes".into(), nodes.clone().into_value())]);
                     let mut payloads = source.stream(crate::prepared::PreparedQuery::new(vars, vec![], vec!["SELECT * FROM $nodes".into()])?)?.with_row_bytes(MAX_ROW_BYTES);
                     let result = async {
+                        let mut seen = BTreeSet::new();
                         while let Some(row) = payloads.next().await? {
+                            let actual = id(&row)?;
+                            if !nodes.contains(&actual) || !seen.insert(actual) { return Err(ModelError::Conflict("candidate hydration correspondence")); }
                             let key = if order.as_slice() == ["semantic_key"] {
                                 let Value::Object(object) = &row else { return Err(ModelError::Schema("candidate semantic row")); };
                                 let Some(Value::String(key)) = object.get("semantic_key") else { return Err(ModelError::Schema("candidate semantic key")); }; key.clone()
                             } else { order_key(&row, &order)? };
                             let mut wrapped = Object::new(); wrapped.insert("id", RecordId::new("selected_order", key)); wrapped.insert("row", row); sorted.push(Value::Object(wrapped))?;
-                        } Ok(())
+                        }
+                        if seen.len() != nodes.len() { return Err(ModelError::Schema("missing selected candidate payload")); }
+                        Ok(())
                     }.await;
                     let mut terminal = Completion::default(); terminal.step("selected candidate payload drainage", payloads.drain_transport().await); complete(result, terminal)?;
                 }
                 let mut sorted = sorted.finish()?;
+                // Validate every relevant row before exposing a limited prefix. Merge
+                // conflicts can occur after an apparently valid first result.
+                while sorted.next_row()?.is_some() {}
+                sorted.rewind()?;
                 while let Some(row) = sorted.next_row()? {
                     let Value::Object(mut row) = row else { return Err(ModelError::Schema("selected candidate wrapper")); };
                     if sender.send(row.remove("row").ok_or(ModelError::Schema("selected candidate payload"))?).await.is_err() { break; }
@@ -414,6 +655,75 @@ mod tests {
         assert!(selected.filter_members(&[]).unwrap().is_empty());
     }
     #[tokio::test]
+    async fn relation_nominations_follow_selected_membership_independently_of_foreign_payload_growth() {
+        use lctx_model::domain::{Record, graph::Entity, input::Package, normalized::entities::EntityRef, value::Place};
+        for alias in [false, true] {
+            for admitted in [false, true] {
+                let mut baseline = None;
+                for foreign_count in [0, 4096] {
+                    let budget = ResourceBudget::fixed(8 << 20).unwrap();
+                    let view = ContentHash::of(b"relation-selected-view");
+                    let relation = if alias { EntityRef::NAME } else { Package::NAME };
+                    let source_relation = if alias { Place::NAME } else { Package::NAME };
+                    if alias { assert!(Entity::canonical_place_endpoint_relations().contains(&(source_relation, relation))); }
+                    let member = RecordId::new("entity", "chosen");
+                    let endpoint = RecordId::new("entity", "endpoint");
+                    let middle = RecordId::new("entity", "intermediate");
+                    let requested = if alias { endpoint.clone() } else { member.clone() };
+                    let mut payloads = BTreeMap::new();
+                    for (node, row_relation) in [(member.clone(), source_relation), (middle.clone(), Place::NAME), (endpoint.clone(), EntityRef::NAME)] {
+                        let mut row = Object::new(); row.insert("id", node.clone()); row.insert("semantic_type", row_relation); row.insert("semantic_key", format!("{:?}", node.key)); row.insert("content", "immutable"); payloads.insert(node, Value::Object(row));
+                    }
+                    for ordinal in 0..foreign_count {
+                        let node = RecordId::new("entity", format!("foreign-{ordinal:04}"));
+                        let mut row = Object::new(); row.insert("id", node.clone()); row.insert("semantic_type", relation); row.insert("semantic_key", format!("foreign-{ordinal:04}")); row.insert("content", "foreign"); payloads.insert(node, Value::Object(row));
+                    }
+                    let edges = if alias { vec![(member.clone(), middle.clone()), (middle.clone(), endpoint.clone()), (endpoint.clone(), member.clone())] } else { vec![] };
+                    let calls = Arc::new(std::sync::Mutex::new(Vec::new())); let observed = calls.clone();
+                    let hydrated = Arc::new(std::sync::Mutex::new(Vec::new())); let observed_hydrated = hydrated.clone();
+                    let source = SelectionSource::Fixture(Arc::new(move |query| {
+                        let (sql, vars) = query.into_request();
+                        let nodes = vars.get("nodes").or_else(|| vars.get("sources")).map(|value| Vec::<RecordId>::from_value(value.clone()).unwrap()).unwrap_or_default();
+                        observed.lock().unwrap().push((sql.clone(), nodes.clone()));
+                        let values = if sql == "SELECT node AS id FROM compiler_view_member WITH INDEX view_key WHERE view=$view AND relation=$relation;" {
+                            assert_eq!(vars.get("view"), Some(&RecordId::new("compiler_view", view.hex()).into_value()));
+                            if admitted && vars.get("relation") == Some(&Value::String(source_relation.into())) { vec![pointer(member.clone())] } else { vec![] }
+                        } else if sql.starts_with("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member") {
+                            assert_eq!(vars.get("view"), Some(&RecordId::new("compiler_view", view.hex()).into_value()));
+                            let hit = if vars.get("nodes").is_some() { nodes.contains(&member) } else {
+                                assert!(sql.contains("WITH INDEX view_key"));
+                                assert_eq!(vars.get("relation"), Some(&Value::String(source_relation.into())));
+                                Vec::<String>::from_value(vars.get("keys").unwrap().clone()).unwrap().contains(&format!("{:?}", member.key))
+                            };
+                            if admitted && hit { let mut row = Object::new(); row.insert("id", member.clone()); row.insert("relation", source_relation); row.insert("semantic_key", format!("{:?}", member.key)); row.insert("content", "immutable"); vec![Value::Object(row)] } else { vec![] }
+                        } else if sql.starts_with("SELECT * FROM compiler_alias WITH INDEX alias_source") || sql.starts_with("SELECT source,target,id FROM compiler_alias WITH INDEX alias_target") {
+                            let forward = sql.contains("WITH INDEX alias_source");
+                            edges.iter().filter(|(source, target)| nodes.contains(if forward { source } else { target })).map(|(source, target)| {
+            let mut row = Object::new(); row.insert("id", RecordId::new("compiler_alias", format!("{source:?}-{target:?}"))); row.insert("source", source.clone()); row.insert("target", target.clone()); Value::Object(row)
+                            }).collect()
+                        } else if sql == "SELECT id FROM $nodes WHERE semantic_type=$relation;" {
+                            nodes.iter().filter(|node| payloads.get(*node).and_then(Value::as_object).and_then(|row| row.get("semantic_type")) == vars.get("relation")).map(|node| pointer(node.clone())).collect()
+                        } else {
+                            assert_eq!(sql, "SELECT * FROM $nodes;", "relation reads cannot enumerate the global payload universe");
+                            observed_hydrated.lock().unwrap().extend(nodes.iter().cloned());
+                            nodes.iter().map(|node| payloads[node].clone()).collect()
+                        };
+                        NativeRows::owned(move |sender| async move { for row in values { if sender.send(row).await.is_err() { break; } } Ok(()) })
+                    }));
+                    let mut rows = SelectedPayloads::candidate_rows_from(source, None, vec![view], CandidateNominations::Relation(relation.into()), "entity", "semantic_key", &budget).unwrap();
+                    let mut actual = Vec::new(); while let Some(row) = rows.next().await.unwrap() { actual.push(id(&row).unwrap()); }
+                    rows.drain_transport().await.unwrap(); drop(rows);
+                    assert_eq!(actual, if admitted { vec![requested.clone()] } else { vec![] });
+                    assert_eq!(*hydrated.lock().unwrap(), actual);
+                    let work = calls.lock().unwrap().clone();
+                    assert!(work.iter().flat_map(|(_, nodes)| nodes).all(|node| !format!("{:?}", node.key).contains("foreign-")));
+                    if let Some(baseline) = &baseline { assert_eq!(&work, baseline, "foreign same-relation growth changes neither nominations nor exact membership/query work"); } else { baseline = Some(work); }
+                    assert_eq!(budget.reserved(), 0);
+                }
+            }
+        }
+    }
+    #[tokio::test]
     async fn sparse_candidate_driver_never_enumerates_payload_universe_and_composes_budgets() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let retained = ResourceBudget::fixed(8 << 20).unwrap();
@@ -429,9 +739,11 @@ mod tests {
                 let (sql, vars) = query.into_request();
                 let values = if sql == "NOMINATE;" {
                     vec![pointer(RecordId::new("entity", "selected-0001")), pointer(RecordId::new("entity", "outside-view"))]
-                } else if sql.starts_with("SELECT node AS id FROM compiler_view_member WITH INDEX view_nodes") {
+                } else if sql.starts_with("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX view_nodes") {
                     let nodes = Vec::<RecordId>::from_value(vars.get("nodes").unwrap().clone()).unwrap();
-                    assert!(nodes.len() <= WINDOW); nodes.into_iter().filter(|node| node == &RecordId::new("entity", "selected-0001")).map(pointer).collect()
+                    assert!(nodes.len() <= WINDOW); nodes.into_iter().filter(|node| node == &RecordId::new("entity", "selected-0001")).map(|node| { let mut row = Object::new(); row.insert("id", node); row.insert("relation", "packages"); row.insert("semantic_key", "key"); row.insert("content", "hash"); Value::Object(row) }).collect()
+                } else if sql.starts_with("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX view_key") {
+                    let mut row = Object::new(); row.insert("id", RecordId::new("entity", "selected-0001")); row.insert("relation", "packages"); row.insert("semantic_key", "key"); row.insert("content", "hash"); vec![Value::Object(row)]
                 } else if sql.starts_with("SELECT source,target,id FROM compiler_alias WITH INDEX alias_target") { vec![]
                 } else {
                     assert_eq!(sql, "SELECT * FROM $nodes;", "sparse candidates must never open a complete selected payload scan");
@@ -460,6 +772,100 @@ mod tests {
         assert_eq!(refused.reserved(), 0);
         let borrower = selected.clone(); drop(selected); assert_eq!(retained.reserved(), baseline);
         drop(borrower); assert_eq!(retained.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn sparse_membership_batches_shared_cyclic_ancestry_and_retains_per_node_witnesses() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let one = ContentHash::of(b"view-one"); let two = ContentHash::of(b"view-two");
+        let reverse = Arc::new(AtomicUsize::new(0)); let calls = reverse.clone();
+        let source = SelectionSource::Fixture(Arc::new(move |query| {
+            let (sql, vars) = query.into_request();
+            let values = if sql.starts_with("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member") {
+                let nodes = if let Some(nodes) = vars.get("nodes") { Vec::<RecordId>::from_value(nodes.clone()).unwrap() } else {
+                    let keys = Vec::<String>::from_value(vars.get("keys").unwrap().clone()).unwrap();
+                    ["c", "d"].into_iter().map(|key| RecordId::new("entity", key)).filter(|node| keys.contains(&format!("{:?}", node.key))).collect()
+                };
+                let view = RecordId::from_value(vars.get("view").unwrap().clone()).unwrap();
+                nodes.into_iter().filter(|node| (node == &RecordId::new("entity", "d") && view == RecordId::new("compiler_view", one.hex())) || (node == &RecordId::new("entity", "c") && view == RecordId::new("compiler_view", two.hex()))).map(|node| {
+                    let mut row = Object::new(); row.insert("semantic_key", format!("{:?}", node.key)); row.insert("id", node); row.insert("relation", "places"); row.insert("content", "immutable"); Value::Object(row)
+                }).collect::<Vec<_>>()
+            } else {
+                assert!(sql.starts_with("SELECT source,target,id FROM compiler_alias WITH INDEX alias_target")); calls.fetch_add(1, Ordering::SeqCst);
+                let nodes = Vec::<RecordId>::from_value(vars.get("sources").unwrap().clone()).unwrap();
+                [("c", "a"), ("c", "b"), ("d", "c"), ("a", "d")].into_iter().filter(|(_, target)| nodes.contains(&RecordId::new("entity", *target))).map(|(source, target)| {
+                    let mut row = Object::new(); row.insert("id", RecordId::new("compiler_alias", format!("{source}-{target}"))); row.insert("source", RecordId::new("entity", source)); row.insert("target", RecordId::new("entity", target)); Value::Object(row)
+                }).collect()
+            };
+            NativeRows::owned(move |sender| async move { for row in values { if sender.send(row).await.is_err() { break; } } Ok(()) })
+        }));
+        let requested = ["a", "b", "missing", "a"].map(|key| RecordId::new("entity", key));
+        let answers = SelectedPayloads::sparse_membership(&source, &[one, two], &requested, &budget).await.unwrap();
+        assert_eq!(answers.answers.len(), 3); assert!(answers.contains_all(&requested[..2])); assert!(!answers.contains(&requested[2]));
+        for answer in &answers.answers[..2] {
+            assert_eq!(answer.witnesses.len(), 2);
+            for witness in &answer.witnesses {
+                assert_eq!(witness.ancestry.first(), Some(&answer.requested)); assert_eq!(witness.ancestry.last(), Some(&witness.member));
+                assert_eq!(witness.ancestry.iter().collect::<BTreeSet<_>>().len(), witness.ancestry.len(), "cycles cannot duplicate an ancestry node");
+                assert_eq!(witness.relation, "places");
+            }
+        }
+        assert_eq!(reverse.load(Ordering::SeqCst), 3, "shared ancestor c and d are read once, independent of requested-node count");
+        assert!(budget.reserved() > 0); drop(answers); assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn relevant_nominal_conflict_is_rejected_before_any_prefix_is_exposed() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let mut nodes = SortedRows::with_budget(&budget).unwrap();
+        for key in ["a", "z"] { nodes.push(pointer(RecordId::new("entity", key))).unwrap(); }
+        let nodes = nodes.finish().unwrap().into_prepared(); let membership = nodes.point_index(&budget).unwrap();
+        let source = SelectionSource::Fixture(Arc::new(|query| {
+            let (sql, _) = query.into_request();
+            let values = if sql == "NOMINATE;" { ["a", "z"].into_iter().map(|key| pointer(RecordId::new("entity", key))).collect() } else {
+                assert_eq!(sql, "SELECT * FROM $nodes;");
+                ["a", "z"].into_iter().map(|key| { let mut row = Object::new(); row.insert("id", RecordId::new("entity", key)); row.insert("semantic_key", "same-nominal-id"); row.insert("content", key); Value::Object(row) }).collect::<Vec<_>>()
+            };
+            NativeRows::owned(move |sender| async move { for row in values { if sender.send(row).await.is_err() { break; } } Ok(()) })
+        }));
+        let selected = SelectedPayloads { source, nodes, membership, aliases: SortedRows::with_budget(&budget).unwrap().finish().unwrap().into_prepared(), budget: budget.clone() };
+        let query = crate::prepared::PreparedQuery::new(Variables::new(), vec![], vec!["NOMINATE".into()]).unwrap();
+        let mut rows = selected.candidate_rows(query, "entity", "semantic_key", &budget).unwrap();
+        assert!(rows.next().await.is_err(), "a valid first payload must not hide a later conflicting nominal variant");
+        rows.drain_transport().await.unwrap(); drop(rows); drop(selected); assert_eq!(budget.reserved(), 0);
+    }
+
+    #[tokio::test]
+    async fn singleton_membership_rejects_un_nominated_nominal_revision_but_accepts_shared_witness() {
+        let one = ContentHash::of(b"nominal-one"); let two = ContentHash::of(b"nominal-two");
+        for competing in [false, true] {
+            let budget = ResourceBudget::fixed(8 << 20).unwrap();
+            let source = SelectionSource::Fixture(Arc::new(move |query| {
+                let (sql, vars) = query.into_request();
+                let values = if sql.starts_with("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member") {
+                    let view = RecordId::from_value(vars.get("view").unwrap().clone()).unwrap();
+                    let second = view == RecordId::new("compiler_view", two.hex());
+                    let key = if second && competing { "revision-two" } else { "revision-one" };
+                    let node = RecordId::new("entity", key);
+                    let hit = if let Some(nodes) = vars.get("nodes") {
+                        Vec::<RecordId>::from_value(nodes.clone()).unwrap().contains(&node)
+                    } else {
+                        assert!(sql.contains("WITH INDEX view_key"));
+                        assert_eq!(vars.get("relation"), Some(&Value::String("source_artifacts".into())));
+                        assert_eq!(Vec::<String>::from_value(vars.get("keys").unwrap().clone()).unwrap(), vec!["same-nominal"]);
+                        true
+                    };
+                    if hit { let mut row = Object::new(); row.insert("id", node); row.insert("relation", "source_artifacts"); row.insert("semantic_key", "same-nominal"); row.insert("content", if second && competing { "content-two" } else { "content-one" }); vec![Value::Object(row)] } else { vec![] }
+                } else {
+                    assert!(sql.starts_with("SELECT source,target,id FROM compiler_alias WITH INDEX alias_target")); vec![]
+                };
+                NativeRows::owned(move |sender| async move { for row in values { if sender.send(row).await.is_err() { break; } } Ok(()) })
+            }));
+            let result = SelectedPayloads::sparse_membership(&source, &[one, two], &[RecordId::new("entity", "revision-one")], &budget).await;
+            if competing { assert!(result.is_err(), "singleton physical nominations cannot hide another selected revision"); }
+            else { let answers = result.unwrap(); assert_eq!(answers.answers.len(), 1); assert_eq!(answers.answers[0].witnesses.len(), 2); assert!(answers.answers[0].selected); drop(answers); }
+            assert_eq!(budget.reserved(), 0);
+        }
     }
 
 }

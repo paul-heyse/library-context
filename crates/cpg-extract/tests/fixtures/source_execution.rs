@@ -1,6 +1,5 @@
 //! Actual base operation outputs for retained source controls.
-#[path = "source_data.rs"]
-mod source_data;
+use crate::source_fixture as source_data;
 use lctx_model::domain::{analysis, execution, normalized::Rows, *};
 pub use source_data::data;
 pub fn base_rows_with_entries(

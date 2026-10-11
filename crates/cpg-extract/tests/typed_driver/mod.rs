@@ -23,6 +23,14 @@ pub fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 30).unwrap()
 }
 
+// Every driver invocation uses the same executable-declared model. Captured inputs,
+// provider configuration, budgets and attempt ownership remain invocation-specific.
+fn fixture_model() -> Result<Arc<ValidatedModel>, ModelError> {
+    static MODEL: std::sync::OnceLock<Result<Arc<ValidatedModel>, Arc<ModelError>>> = std::sync::OnceLock::new();
+    MODEL.get_or_init(|| model().map(Arc::new).map_err(Arc::new))
+        .as_ref().map(Arc::clone).map_err(|error| ModelError::SharedCause(error.clone()))
+}
+
 /// Every file of `fixtures/python/<fixture>`, by relative path.
 pub fn files(fixture: &str) -> BTreeMap<String, Vec<u8>> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -249,7 +257,7 @@ pub async fn run_profile_with_budget<I: Inspector>(
     reverse_providers: bool,
     resources: ResourceBudget,
 ) -> Result<ContentHash, ModelError> {
-    let model = Arc::new(model()?);
+    let model = fixture_model()?;
     let mut providers: Vec<Box<dyn ProviderStage<ProducerOutput>>> = vec![
         Box::new(Acquire::new(ContentHash::of(b"typed-driver"))),
         Box::new(pyrefly),
@@ -263,19 +271,32 @@ pub async fn run_profile_with_budget<I: Inspector>(
     if reverse_providers {
         providers.reverse();
     }
-    let workspace = Workspace::with_budget(
+    let native = native_fixture::create_native().await?;
+    let workspace = match Workspace::with_budget(
         model,
         WorkspaceOptions {
             memory_bytes: resources.limit(),
             ..WorkspaceOptions::default()
         },
         resources,
-        native_fixture::create_native().await?,
-    )?;
-    cpg_core::facts::compile_facts(&workspace, &captured, profile, providers, limits).await?;
-    workspace.validate().await?;
-    observe(&workspace, &inspect.tables(),inspect.demand()).await?;
-    workspace.identity()
+        native.clone(),
+    ) {
+        Ok(workspace) => workspace,
+        Err(error) => {
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step("provider fixture setup attempt abandonment", native.abandon().await);
+            return lctx_model::domain::completion::complete(Err(error), completion);
+        }
+    };
+    let result = async {
+        cpg_core::facts::compile_facts(&workspace, &captured, profile, providers, limits).await?;
+        workspace.validate().await?;
+        observe(&workspace, &inspect.tables(),inspect.demand()).await?;
+        workspace.identity()
+    }.await;
+    let mut completion = workspace.drain_report().await;
+    completion.step("provider fixture attempt abandonment and session invalidation", native.abandon().await);
+    lctx_model::domain::completion::complete(result, completion)
 }
 
 /// The artifact at `path` among `artifacts`.

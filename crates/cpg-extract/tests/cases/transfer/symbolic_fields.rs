@@ -1,5 +1,4 @@
-#[path = "fixtures/transfer_composition.rs"]
-mod fixture;
+use crate::fixture;
 use lctx_model::domain::{
     flow::*,
     normalized::{Rows, callable_aspects::*, symbolic_fields::*},

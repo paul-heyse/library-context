@@ -9,6 +9,19 @@ use lctx_model::domain::{
 use lctx_surrealdb::RuntimeConfig;
 mod native_publication;
 use native_publication::{Admission, Publication};
+/// Independently compare executable definitions during owned upgrade recovery.
+/// This performs no DDL and remains usable while ordinary admission is closed.
+pub async fn check_definitions(config: &RuntimeConfig, blueprint: &str) -> Result<lctx_model::domain::ContentHash, ModelError> {
+    let client = lctx_surrealdb::upgrade::maintenance_client(config).await?;
+    let result = async {
+        lctx_surrealdb::control::check_installation(&client, config.service_generation).await?;
+        let loader = lctx_surrealdb::Loader::new(client.clone());
+        crate::definitions::verify_epoch(&loader, blueprint).await
+    }.await;
+    let mut completion = Completion::default();
+    completion.step("definition verification session invalidation", client.invalidate().await.map_err(ModelError::codec));
+    complete(result, completion)
+}
 /// Install additive immutable executable definitions under explicit root maintenance authority.
 /// Normal compilation/publication only verifies this epoch and cannot create schema or users.
 pub async fn install_definitions(

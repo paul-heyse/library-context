@@ -327,7 +327,7 @@ def test_external_capture_completes_after_run_cleanup(tmp_path, monkeypatch):
     records = Storage().records()
     raw = next(row for row in records if row["category"] == "profile-raw")
     assert Path(raw["path"]).is_relative_to(selected)
-    assert next(iter(raw["obligations"].values()))["until"] is not None
+    assert next(iter(raw["obligations"].values()))["until"] is not None, launched.stderr
     run_dir = Path(raw["owner"]["path"])
     assert runs.view(run_dir)["cleanup"]["status"] == "confirmed"
     assert profile.profile_dir(str(run_dir)) == Path(raw["path"])

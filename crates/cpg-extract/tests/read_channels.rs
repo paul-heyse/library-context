@@ -4,6 +4,8 @@ mod fixture;
 mod read_diagnostics;
 #[path = "fixtures/source_data.rs"]
 mod source_fixture;
+#[path = "fixtures/source_execution.rs"]
+mod source_execution;
 use lctx_model::domain::{
     analysis,
     execution::{self, read_channels::*},
@@ -811,3 +813,16 @@ async fn release_wide_exec_eval_refuse_field_and_formal_negatives() {
             .all(|r| r.status == ReadAssessment::Unknown)
     );
 }
+
+
+#[path = "cases/transfer/retired_read_expectations.rs"]
+mod retired_read_expectations;
+
+#[path = "cases/transfer/source_calls.rs"]
+mod source_calls;
+
+#[path = "cases/transfer/model_publication.rs"]
+mod model_publication;
+
+#[path = "cases/transfer/final_coverage.rs"]
+mod final_coverage;

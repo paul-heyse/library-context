@@ -688,18 +688,30 @@ macro_rules! graph_entity_declarations {($apply:path,$consumer:ident)=>{$apply!{
 }};}
 crate::graph_entity_declarations!(graph_entities, intrinsic);
 
-impl Entity {
-    /// The nominal endpoint for a canonical place is intrinsic to that place's identity.
-    /// Upper analyses may introduce places after normalization; this companion carries no
-    /// qualification, evidence or normalization assessment. Importers must retain and check it.
-    pub fn canonical_place_endpoint(&self) -> Option<Self> {
-        match self {
-            Self::Place(row) => Some(Self::from(super::normalized::entities::EntityRef::Place {
-                place: row.id(),
-            })),
-            _ => None,
+// Construction and relation discovery share this declaration: storage readers must
+// not maintain a separate taxonomy of canonical endpoint sources.
+macro_rules! canonical_place_endpoints {
+    ($($variant:ident : $source:ty => $target:ty = $endpoint:expr),+ $(,)?) => {
+        impl Entity {
+            /// The nominal endpoint is intrinsic to the canonical place's identity.
+            /// Upper analyses may introduce places after normalization.
+            /// It carries no qualification, evidence or normalization assessment.
+            /// Importers must retain and check it.
+            pub fn canonical_place_endpoint(&self) -> Option<Self> {
+                match self {
+                    $(Self::$variant(row) => Some(Self::from(($endpoint)(row))),)+
+                    _ => None,
+                }
+            }
+            /// Source and endpoint relations governed by `canonical_place_endpoint`.
+            pub const fn canonical_place_endpoint_relations() -> &'static [(&'static str, &'static str)] {
+                &[$((<$source as Record>::NAME, <$target as Record>::NAME)),+]
+            }
         }
-    }
+    };
+}
+canonical_place_endpoints! {
+    Place: super::value::Place => super::normalized::entities::EntityRef = |row: &super::value::Place| super::normalized::entities::EntityRef::Place { place: row.id() },
 }
 
 /// Mechanical nominal mapping for the selected graph vocabulary. Unsupported internal compiler
@@ -14305,6 +14317,17 @@ fn semantic_contract_with_policy(
 #[cfg(test)]
 mod policy_controls {
     use super::*;
+    #[test]
+    fn canonical_place_endpoint_discovery_matches_construction() {
+        let place = crate::domain::value::Place {
+            root: serde_json::from_value(serde_json::to_value([13u8; 16]).unwrap()).unwrap(),
+            path: serde_json::from_value(serde_json::to_value([17u8; 16]).unwrap()).unwrap(),
+        };
+        let expected = Entity::from(crate::domain::normalized::entities::EntityRef::Place { place: place.id() });
+        assert_eq!(Entity::from(place).canonical_place_endpoint(), Some(expected));
+        assert_eq!(Entity::canonical_place_endpoint_relations(), &[(crate::domain::value::Place::NAME, crate::domain::normalized::entities::EntityRef::NAME)]);
+        assert!(Entity::from(crate::domain::input::Package { name: "ordinary member".into() }).canonical_place_endpoint().is_none());
+    }
     #[test]
     fn graph_policy_revisions_and_intrinsic_categories_enter_contract() {
         let model = crate::domain::model().unwrap();

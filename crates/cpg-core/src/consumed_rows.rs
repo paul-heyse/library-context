@@ -138,7 +138,15 @@ pub fn stream_where_at<'a, R: Record>(
     };
     let mut consume = consume;
     let visit: BatchConsumer<'a> = Box::new(move |batch| consume(input, batch));
-    stream_checked_owned(checked, declaration, session, selected, None, Some(inputs), visit)
+    stream_checked_owned(
+        checked,
+        declaration,
+        session,
+        selected,
+        None,
+        Some(inputs),
+        visit,
+    )
 }
 /// Stream an owner-declared SELECT after checking the exact nominal record and captured view.
 /// Joins and closure predicates are supplied by the owning semantic kernel.
@@ -215,7 +223,15 @@ fn stream_checked_owned<'a>(
     Box::pin(async move {
         let selected = selected?;
         checked?;
-        stream_batches_prepared(declaration, session, &selected, predicate, inputs, consume.as_mut()).await
+        stream_batches_prepared(
+            declaration,
+            session,
+            &selected,
+            predicate,
+            inputs,
+            consume.as_mut(),
+        )
+        .await
     })
 }
 
@@ -256,12 +272,19 @@ fn stream_batches_prepared<'a>(
         );
         let mut selected = match inputs {
             Some(inputs) => inputs.query_template(session, declaration, &sql).await?,
-            None => crate::sql::query(session, &sql).await.map_err(crate::sql::model_error)?,
+            None => crate::sql::query(session, &sql)
+                .await
+                .map_err(crate::sql::model_error)?,
         };
         if let Some(predicate) = predicate {
-            selected = selected.filter(predicate).map_err(crate::sql::model_error)?;
+            selected = selected
+                .filter(predicate)
+                .map_err(crate::sql::model_error)?;
         }
-        let mut batches = selected.execute_stream().await.map_err(crate::sql::model_error)?;
+        let mut batches = selected
+            .execute_stream()
+            .await
+            .map_err(crate::sql::model_error)?;
         while let Some(batch) = batches.try_next().await.map_err(crate::sql::model_error)? {
             consume(&batch)?;
             tokio::task::yield_now().await;
@@ -628,7 +651,10 @@ impl NominalClosure {
         budget: &ResourceBudget,
     ) -> Result<PreparedEdges, ModelError> {
         use datafusion::{
-            arrow::ipc::writer::FileWriter,
+            arrow::{
+                ipc::writer::FileWriter,
+                row::{RowConverter, SortField},
+            },
             execution::{options::ArrowReadOptions, session_state::SessionStateBuilder},
             prelude::col,
         };
@@ -667,12 +693,36 @@ impl NominalClosure {
                 false,
             ),
         ]));
-        // Materialize one pair at a time. ORDER BY over a UNION permits the optimizer to
-        // introduce one live sort/merge reservation per branch; an IPC scan is one sort input.
-        // The staging envelope covers its writer/footer block descriptors, not per-edge state.
+        // Preserve the complete lexicographic edge key as one lossless Arrow row encoding.
+        // DataFusion can then sort/merge the Binary column with its FieldCursor, avoiding
+        // multi-column RowCursor's additional encoded-key caches for every live run.
+        // Only private staging uses this representation; final IPC and graph keys stay typed.
+        let ordering_schema =
+            std::sync::Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+                "edge_order",
+                arrow_schema::DataType::Binary,
+                false,
+            )]));
         let mut staging_charge =
             charged::StateCharge::new(budget, "semantic-edge-staging-metadata");
         staging_charge.grow(4096)?;
+        let codec = RowConverter::new(
+            schema
+                .fields()
+                .iter()
+                .map(|field| {
+                    SortField::new_with_options(
+                        field.data_type().clone(),
+                        arrow_schema::SortOptions {
+                            descending: false,
+                            nulls_first: false,
+                        },
+                    )
+                })
+                .collect(),
+        )
+        .map_err(ModelError::codec)?;
+        // The staging envelope covers its writer/footer block descriptors, not per-edge state.
         // Copy fixed nominal values into one charged storage batch. Upstream sorting/filtering
         // can emit tiny fragments; neither IPC footer nor sparse index may grow per fragment.
         let coalescing_charge = budget.reserve(
@@ -682,9 +732,12 @@ impl NominalClosure {
                 .saturating_add(4096),
         )?;
         let mut buffer = EdgeBuffer::new(schema.clone());
-        let mut staged =
-            FileWriter::try_new(File::create(&pending).map_err(ModelError::codec)?, &schema)
-                .map_err(ModelError::codec)?;
+        staging_charge.grow(codec.size())?;
+        let mut staged = FileWriter::try_new(
+            File::create(&pending).map_err(ModelError::codec)?,
+            &ordering_schema,
+        )
+        .map_err(ModelError::codec)?;
         let mut provider_charge =
             charged::StateCharge::new(budget, "semantic-edge-provider-bindings");
         provider_charge.grow(
@@ -729,7 +782,10 @@ impl NominalClosure {
             let frame = crate::sql::query(&session, &Self::pair_sql(*source, *target, sql))
                 .await
                 .map_err(crate::sql::model_error)?;
-            let mut stream = frame.execute_stream().await.map_err(crate::sql::model_error)?;
+            let mut stream = frame
+                .execute_stream()
+                .await
+                .map_err(crate::sql::model_error)?;
             while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
                 let _transfer = budget.reserve(
                     "semantic-edge-transfer",
@@ -740,44 +796,46 @@ impl NominalClosure {
                 validate_edge_batch(&batch)?;
                 buffer.push(&batch, |edge_batch| {
                     staging_charge.grow(128)?;
-                    staged.write(&edge_batch).map_err(ModelError::codec)
+                    write_edge_ordering(&edge_batch, &codec, &ordering_schema, &mut staged, budget)
                 })?;
                 tokio::task::yield_now().await;
             }
         }
         if let Some(batch) = buffer.finish()? {
             staging_charge.grow(128)?;
-            staged.write(&batch).map_err(ModelError::codec)?;
+            write_edge_ordering(&batch, &codec, &ordering_schema, &mut staged, budget)?;
         }
         staged.finish().map_err(ModelError::codec)?;
         drop(staged);
         let frame = session
             .read_arrow(
                 pending.to_string_lossy().into_owned(),
-                ArrowReadOptions::default().schema(schema.as_ref()),
+                ArrowReadOptions::default().schema(ordering_schema.as_ref()),
             )
             .await
             .map_err(crate::sql::model_error)?
-            .sort(vec![
-                col("source_kind").sort(true, false),
-                col("source_id").sort(true, false),
-                col("target_kind").sort(true, false),
-                col("target_id").sort(true, false),
-            ])
+            .sort(vec![col("edge_order").sort(true, false)])
             .map_err(crate::sql::model_error)?;
-        let mut stream = frame.execute_stream().await.map_err(crate::sql::model_error)?;
+        let mut stream = frame
+            .execute_stream()
+            .await
+            .map_err(crate::sql::model_error)?;
         let mut batches = charged::ChargedVec::default();
         let mut index_charge = charged::StateCharge::new(budget, "semantic-edge-batch-index");
         let mut writer =
             FileWriter::try_new(File::create(&path).map_err(ModelError::codec)?, &schema)
                 .map_err(ModelError::codec)?;
-        while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
+        while let Some(encoded) = stream.try_next().await.map_err(crate::sql::model_error)? {
+            // The query stream owns its encoded input. Charge typed decoding, its row-slice
+            // vector and the outgoing copy before reconstructing this one compute batch.
             let _transfer = budget.reserve(
                 "semantic-edge-transfer",
-                logical_batch_bytes(&batch)?
-                    .saturating_mul(3)
+                encoded
+                    .num_rows()
+                    .saturating_mul(48 * 3 + size_of::<&[u8]>())
                     .saturating_add(4096),
             )?;
+            let batch = decode_edge_ordering(&encoded, &codec, &schema)?;
             validate_edge_batch(&batch)?;
             buffer.push(&batch, |edge_batch| {
                 write_edge_batch(&edge_batch, &mut writer, &mut batches, &mut index_charge)
@@ -834,6 +892,63 @@ impl NominalClosure {
             _directory: directory,
         })))
     }
+}
+/// Encode only a fixed native-key window. The Arrow codec preserves the exact four-field
+/// lexicographic order, including signed integers; this is an encoding, never a hash.
+fn write_edge_ordering(
+    batch: &arrow_array::RecordBatch,
+    codec: &datafusion::arrow::row::RowConverter,
+    schema: &arrow_schema::SchemaRef,
+    writer: &mut datafusion::arrow::ipc::writer::FileWriter<std::fs::File>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    // Each of the four fixed fields has one validity byte: 48 + 4 encoded bytes.
+    // Rows additionally owns usize offsets; Binary conversion allocates i32 offsets while
+    // retaining those offsets, and IPC serialization may copy the complete Binary window.
+    let _encoding = budget.reserve(
+        "semantic-edge-order-encoding",
+        batch
+            .num_rows()
+            .saturating_add(1)
+            .saturating_mul(52 * 2 + size_of::<usize>() + size_of::<i32>() * 2)
+            .saturating_add(4096),
+    )?;
+    validate_edge_batch(batch)?;
+    let binary = codec
+        .convert_columns(batch.columns())
+        .map_err(ModelError::codec)?
+        .try_into_binary()
+        .map_err(ModelError::codec)?;
+    let encoded =
+        arrow_array::RecordBatch::try_new(schema.clone(), vec![std::sync::Arc::new(binary)])
+            .map_err(ModelError::codec)?;
+    writer.write(&encoded).map_err(ModelError::codec)
+}
+
+/// These bytes originate exclusively from the same private codec and pass through a
+/// permutation-only DataFusion sort. They are not a general foreign row-codec admission API.
+fn decode_edge_ordering(
+    encoded: &arrow_array::RecordBatch,
+    codec: &datafusion::arrow::row::RowConverter,
+    schema: &arrow_schema::SchemaRef,
+) -> Result<arrow_array::RecordBatch, ModelError> {
+    use arrow_array::Array;
+    if encoded.num_columns() != 1 {
+        return Err(ModelError::Schema("nominal edge ordering column count"));
+    }
+    let binary = encoded
+        .column(0)
+        .as_any()
+        .downcast_ref::<arrow_array::BinaryArray>()
+        .ok_or(ModelError::Schema("nominal edge ordering binary type"))?;
+    if binary.null_count() != 0 || binary.iter().flatten().any(|value| value.len() != 52) {
+        return Err(ModelError::Schema("nominal edge ordering shape"));
+    }
+    let parser = codec.parser();
+    let columns = codec
+        .convert_rows(binary.iter().flatten().map(|value| parser.parse(value)))
+        .map_err(ModelError::codec)?;
+    arrow_array::RecordBatch::try_new(schema.clone(), columns).map_err(ModelError::codec)
 }
 /// A fixed Arrow builder window copies only nominal values, releasing each input fragment.
 /// Arrow's generic BatchCoalescer retains FixedSizeBinary slices until concatenation; that can
@@ -1809,78 +1924,155 @@ impl PreparedRootBatch {
     /// native row content before rich hydration. Dangling members and absent roots are
     /// explicit; a later matching insertion changes discovery even if old rows are unchanged.
     pub(crate) async fn content_domain(
-        &self, partition: usize, root: PreparedRoot, inputs: &[ValidationInput],
-        program: ContentHash, runtime: &crate::workspace::Workspace,
+        &self,
+        partition: usize,
+        root: PreparedRoot,
+        inputs: &[ValidationInput],
+        program: ContentHash,
+        runtime: &crate::workspace::Workspace,
     ) -> Result<Option<ContentHash>, ModelError> {
         use lctx_model::domain::Key;
         let budget = runtime.budget();
-        if self.union.edges._provider_charge.budget().is_none_or(|owner| !owner.shares_pool(budget)) {
-            return Err(ModelError::Conflict("selected domain foreign preparation budget"));
+        if self
+            .union
+            .edges
+            ._provider_charge
+            .budget()
+            .is_none_or(|owner| !owner.shares_pool(budget))
+        {
+            return Err(ModelError::Conflict(
+                "selected domain foreign preparation budget",
+            ));
         }
         for (table, input) in inputs.iter().enumerate() {
-            if self.relation(table)?.name() != input.name() { return Err(ModelError::Conflict("selected domain input binding")); }
+            if self.relation(table)?.name() != input.name() {
+                return Err(ModelError::Conflict("selected domain input binding"));
+            }
         }
         // The entire root group's fresh membership is already known. Fetch compact content
         // once per exact bound port, then derive independent root domains without native reads.
-        let tokens = self.content_tokens.get_or_try_init(|| async {
-            let mut charge = charged::StateCharge::new(budget, "selected-union-content-tokens");
-            let mut tables = Vec::new();
-            for (table, keys) in self.union.native_keys.iter().take(inputs.len()).enumerate() {
-                charge.grow(keys.len().saturating_mul(160).saturating_add(4096))?;
-                let provider = self.union.edges.providers[table].clone();
-                let requested = keys.clone();
-                let read_budget = budget.clone();
-                let found = runtime.native_call(async move {
-                    lctx_surrealdb::compiler_provider::content_tokens(&provider, requested.as_slice(), &read_budget).await
-                }).await?;
-                let Some(found) = found else { return Ok::<_, ModelError>(None); };
-                tables.push(found.into_iter().collect());
-            }
-            Ok(Some(UnionContentTokens { tables, _charge: charge }))
-        }).await?;
-        let Some(tokens) = tokens else { return Ok(None); };
-        if tokens.tables.len() != inputs.len() { return Err(ModelError::Conflict("selected domain input cardinality changed")); }
+        let tokens = self
+            .content_tokens
+            .get_or_try_init(|| async {
+                let mut charge = charged::StateCharge::new(budget, "selected-union-content-tokens");
+                let mut tables = Vec::new();
+                for (table, keys) in self.union.native_keys.iter().take(inputs.len()).enumerate() {
+                    charge.grow(keys.len().saturating_mul(160).saturating_add(4096))?;
+                    let provider = self.union.edges.providers[table].clone();
+                    let requested = keys.clone();
+                    let read_budget = budget.clone();
+                    let found = runtime
+                        .native_call(async move {
+                            lctx_surrealdb::compiler_provider::content_tokens(
+                                &provider,
+                                requested.as_slice(),
+                                &read_budget,
+                            )
+                            .await
+                        })
+                        .await?;
+                    let Some(found) = found else {
+                        return Ok::<_, ModelError>(None);
+                    };
+                    tables.push(found.into_iter().collect());
+                }
+                Ok(Some(UnionContentTokens {
+                    tables,
+                    _charge: charge,
+                }))
+            })
+            .await?;
+        let Some(tokens) = tokens else {
+            return Ok(None);
+        };
+        if tokens.tables.len() != inputs.len() {
+            return Err(ModelError::Conflict(
+                "selected domain input cardinality changed",
+            ));
+        }
         let mut charge = charged::StateCharge::new(budget, "selected-domain-content-tokens");
         let mut members = Vec::new();
         let mut context = lctx_model::domain::KeySink::new("complete-selected-domain-roles/v1");
         for (table, input) in inputs.iter().enumerate() {
-            if self.relation(table)?.name() != input.name() { return Err(ModelError::Conflict("selected domain input binding")); }
+            if self.relation(table)?.name() != input.name() {
+                return Err(ModelError::Conflict("selected domain input binding"));
+            }
             input.encode_contract(&mut context);
             let count = self.keys(partition, table)?.count();
             charge.grow(count.saturating_mul(352).saturating_add(4096))?;
             let keys = self.keys(partition, table)?.collect::<Vec<_>>();
             let table_tokens = &tokens.tables[table];
-            let role = format!("port/{table}/{}/{}", input.name(), input.prefix().map_or("", |prefix| prefix.name()));
+            let role = format!(
+                "port/{table}/{}/{}",
+                input.name(),
+                input.prefix().map_or("", |prefix| prefix.name())
+            );
             for key in keys {
                 let mut content = lctx_model::domain::KeySink::new("selected-member-presence/v1");
                 table_tokens.get(&key).copied().encode(&mut content);
                 members.push((role.clone(), key, content.finish()));
             }
         }
-        let outcome = match self.outcomes.get(partition).ok_or(ModelError::Conflict("selected domain partition"))? {
-            PreparedRootOutcome::Present => 0, PreparedRootOutcome::Absent => 1, PreparedRootOutcome::Virtual => 2,
+        let outcome = match self
+            .outcomes
+            .get(partition)
+            .ok_or(ModelError::Conflict("selected domain partition"))?
+        {
+            PreparedRootOutcome::Present => 0,
+            PreparedRootOutcome::Absent => 1,
+            PreparedRootOutcome::Virtual => 2,
         };
-        let roots = [(self.relation(root.table)?.name().to_owned(), root.key, outcome)];
-        Ok(Some(lctx_model::domain::compilation_product::domain_identity(program, context.finish(), &roots, &members)))
+        let roots = [(
+            self.relation(root.table)?.name().to_owned(),
+            root.key,
+            outcome,
+        )];
+        Ok(Some(
+            lctx_model::domain::compilation_product::domain_identity(
+                program,
+                context.finish(),
+                &roots,
+                &members,
+            ),
+        ))
     }
     /// Retain only cache misses for rich hydration, preserving exact logical memberships.
     /// This remaps dense partitions mechanically; it performs no second discovery traversal.
-    pub(crate) fn select_partitions(&self, partitions: &[usize], budget: &ResourceBudget) -> Result<Self, ModelError> {
+    pub(crate) fn select_partitions(
+        &self,
+        partitions: &[usize],
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
         let mut charge = charged::StateCharge::new(budget, "selected-miss-partitions");
-        charge.grow(partitions.len().saturating_mul(size_of::<PreparedRootOutcome>()))?;
+        charge.grow(
+            partitions
+                .len()
+                .saturating_mul(size_of::<PreparedRootOutcome>()),
+        )?;
         let mut outcomes = Vec::with_capacity(partitions.len());
         let mut memberships = charged::ChargedSet::default();
         let mut union_keys = charged::ChargedSet::default();
         let mut union_charge = charged::StateCharge::new(budget, "selected-miss-union-keys");
         for (next, partition) in partitions.iter().copied().enumerate() {
-            outcomes.push(*self.outcomes.get(partition).ok_or(ModelError::Conflict("selected miss partition absent"))?);
+            outcomes.push(
+                *self
+                    .outcomes
+                    .get(partition)
+                    .ok_or(ModelError::Conflict("selected miss partition absent"))?,
+            );
             for (table, key) in self.memberships(partition)? {
                 memberships.insert(&mut charge, (next, (table as i64, key)))?;
                 union_keys.insert(&mut union_charge, (table as i64, key))?;
             }
         }
         let union = PreparedEdges(self.union.edges.clone()).finish_keys(union_keys, budget)?;
-        Ok(Self { union, outcomes, memberships, content_tokens: tokio::sync::OnceCell::new(), _charge: charge })
+        Ok(Self {
+            union,
+            outcomes,
+            memberships,
+            content_tokens: tokio::sync::OnceCell::new(),
+            _charge: charge,
+        })
     }
     pub fn outcomes(&self) -> &[PreparedRootOutcome] {
         &self.outcomes
@@ -1970,34 +2162,107 @@ impl PreparedClosure {
     /// The input shape stays typed while its selected provider port is rebound. Native
     /// selected providers and borrowed columnar partitions need no SQL parse per grain;
     /// detached finite joins retain the checked relational helper.
-    pub(crate) async fn ordered_input(&self, table: usize, input: &ValidationInput) -> Result<datafusion::dataframe::DataFrame, ModelError> {
-        let relation = &self.edges.tables.get(table).ok_or(ModelError::Schema("ordered selected input"))?.relation;
+    pub(crate) async fn ordered_input(
+        &self,
+        table: usize,
+        input: &ValidationInput,
+    ) -> Result<datafusion::dataframe::DataFrame, ModelError> {
+        let relation = &self
+            .edges
+            .tables
+            .get(table)
+            .ok_or(ModelError::Schema("ordered selected input"))?
+            .relation;
         if relation.type_id() != input.type_id() || relation.name() != input.name() {
             return Err(ModelError::Conflict("ordered selected input nominal type"));
         }
         let selected = self.select(table)?;
-        let alias = self.selected_aliases.lock().map_err(|_| ModelError::Conflict("ordered selected input aliases"))?.get(&table).cloned();
-        if let Some(alias) = alias.filter(|_| self.session().copied_config().options().sql_parser.default_null_ordering == "nulls_max") {
-            let frame = self.session().table(alias.as_str()).await.map_err(crate::sql::model_error)?;
-            if input.order().is_empty() { return Ok(frame); }
-            return frame.sort(input.order().iter().map(|field| datafusion::prelude::col(*field).sort(true, false)).collect()).map_err(crate::sql::model_error);
+        let alias = self
+            .selected_aliases
+            .lock()
+            .map_err(|_| ModelError::Conflict("ordered selected input aliases"))?
+            .get(&table)
+            .cloned();
+        if let Some(alias) = alias.filter(|_| {
+            self.session()
+                .copied_config()
+                .options()
+                .sql_parser
+                .default_null_ordering
+                == "nulls_max"
+        }) {
+            let frame = self
+                .session()
+                .table(alias.as_str())
+                .await
+                .map_err(crate::sql::model_error)?;
+            if input.order().is_empty() {
+                return Ok(frame);
+            }
+            return frame
+                .sort(
+                    input
+                        .order()
+                        .iter()
+                        .map(|field| datafusion::prelude::col(*field).sort(true, false))
+                        .collect(),
+                )
+                .map_err(crate::sql::model_error);
         }
-        let order = input.order().iter().map(|field| identifier(field)).collect::<Vec<_>>().join(",");
-        let sql = format!("SELECT * FROM ({selected}) AS selected_input{}", if order.is_empty() { String::new() } else { format!(" ORDER BY {order}") });
-        crate::sql::query(self.session(), &sql).await.map_err(crate::sql::model_error)
+        let order = input
+            .order()
+            .iter()
+            .map(|field| identifier(field))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT * FROM ({selected}) AS selected_input{}",
+            if order.is_empty() {
+                String::new()
+            } else {
+                format!(" ORDER BY {order}")
+            }
+        );
+        crate::sql::query(self.session(), &sql)
+            .await
+            .map_err(crate::sql::model_error)
     }
     /// Bind already hydrated, ordered rows for an independent semantic check. The caller
     /// retains their charge until this scope is dropped; the scope owns catalog cleanup.
-    pub(crate) fn bind_prepared_rows(&self, table: usize, batches: Vec<arrow_array::RecordBatch>) -> Result<(), ModelError> {
-        let relation = &self.edges.tables.get(table).ok_or(ModelError::Schema("prepared admission table"))?.relation;
-        if batches.iter().any(|batch| batch.schema().as_ref() != relation.schema().as_ref()) {
+    pub(crate) fn bind_prepared_rows(
+        &self,
+        table: usize,
+        batches: Vec<arrow_array::RecordBatch>,
+    ) -> Result<(), ModelError> {
+        let relation = &self
+            .edges
+            .tables
+            .get(table)
+            .ok_or(ModelError::Schema("prepared admission table"))?
+            .relation;
+        if batches
+            .iter()
+            .any(|batch| batch.schema().as_ref() != relation.schema().as_ref())
+        {
             return Err(ModelError::Schema("prepared admission schema"));
         }
-        let provider = datafusion::datasource::MemTable::try_new(relation.schema().clone(), vec![batches]).map_err(ModelError::codec)?;
+        let provider =
+            datafusion::datasource::MemTable::try_new(relation.schema().clone(), vec![batches])
+                .map_err(ModelError::codec)?;
         let alias = scope_alias("admitted_input");
-        let mut aliases = self.selected_aliases.lock().map_err(|_| ModelError::Conflict("prepared admission aliases"))?;
-        if aliases.contains_key(&table) { return Err(ModelError::Conflict("prepared admission port already bound")); }
-        self.edges.session.register_table(&alias, std::sync::Arc::new(provider)).map_err(ModelError::codec)?;
+        let mut aliases = self
+            .selected_aliases
+            .lock()
+            .map_err(|_| ModelError::Conflict("prepared admission aliases"))?;
+        if aliases.contains_key(&table) {
+            return Err(ModelError::Conflict(
+                "prepared admission port already bound",
+            ));
+        }
+        self.edges
+            .session
+            .register_table(&alias, std::sync::Arc::new(provider))
+            .map_err(ModelError::codec)?;
         aliases.insert(table, alias);
         Ok(())
     }
@@ -2123,59 +2388,181 @@ mod nominal_closure_controls {
         (session, tables, releases, selected)
     }
     async fn native_domain(
-        config: &lctx_surrealdb::RuntimeConfig, packages: &[Package], releases: &[Release], root: Id<Package>,
+        config: &lctx_surrealdb::RuntimeConfig,
+        packages: &[Package],
+        releases: &[Release],
+        root: Id<Package>,
     ) -> ContentHash {
         use crate::workspace::{Workspace, WorkspaceOptions};
         use lctx_model::domain::{admission::Frontier, stages::Profile};
-        let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(config, Frontier::Facts).await.unwrap();
-        let workspace = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),
-            WorkspaceOptions { memory_bytes: 64 << 20, ..Default::default() }, native).unwrap();
-        let output = workspace.output("domain-fixture", Profile::Catalog, ContentHash::of(b"domain-fixture/v1"),
-            workspace.inputs("domain-fixture", Profile::Catalog, []).unwrap(), [Package::NAME, Release::NAME]);
+        let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(config, Frontier::Facts)
+            .await
+            .unwrap();
+        let workspace = Workspace::new(
+            Arc::new(lctx_model::domain::model().unwrap()),
+            WorkspaceOptions {
+                memory_bytes: 64 << 20,
+                ..Default::default()
+            },
+            native,
+        )
+        .unwrap();
+        let output = workspace.output(
+            "domain-fixture",
+            Profile::Catalog,
+            ContentHash::of(b"domain-fixture/v1"),
+            workspace
+                .inputs("domain-fixture", Profile::Catalog, [])
+                .unwrap(),
+            [Package::NAME, Release::NAME],
+        );
         output.declare_async::<Package>().await.unwrap();
         output.declare_async::<Release>().await.unwrap();
-        for package in packages { output.push(package.clone()).await.unwrap(); }
-        for release in releases { output.push(release.clone()).await.unwrap(); }
-        output.finish(lctx_model::domain::stages::ProviderOutcome::Complete).await.unwrap();
-        let inputs = vec![ValidationInput::of::<Release>(&["id"]), ValidationInput::of::<Package>(&["id"])];
-        let access = workspace.inputs("domain-consumer", Profile::Catalog, [Release::NAME, Package::NAME]).unwrap();
+        for package in packages {
+            output.push(package.clone()).await.unwrap();
+        }
+        for release in releases {
+            output.push(release.clone()).await.unwrap();
+        }
+        output
+            .finish(lctx_model::domain::stages::ProviderOutcome::Complete)
+            .await
+            .unwrap();
+        let inputs = vec![
+            ValidationInput::of::<Release>(&["id"]),
+            ValidationInput::of::<Package>(&["id"]),
+        ];
+        let access = workspace
+            .inputs(
+                "domain-consumer",
+                Profile::Catalog,
+                [Release::NAME, Package::NAME],
+            )
+            .unwrap();
         let session = access.session(&workspace).await.unwrap();
         let tables = vec![
-            ClosureTable { relation: Relation::of::<Release>(), alias: access.table_for(&inputs[0]).unwrap() },
-            ClosureTable { relation: Relation::of::<Package>(), alias: access.table_for(&inputs[1]).unwrap() },
+            ClosureTable {
+                relation: Relation::of::<Release>(),
+                alias: access.table_for(&inputs[0]).unwrap(),
+            },
+            ClosureTable {
+                relation: Relation::of::<Package>(),
+                alias: access.table_for(&inputs[1]).unwrap(),
+            },
         ];
         let mut plan = NominalClosure::new(tables).unwrap();
         plan.own_existing(0, "package", 1).unwrap();
         let edges = plan.prepare(&session, workspace.budget()).await.unwrap();
-        let root = PreparedRoot { table: 1, key: *root.bytes(), kind: PreparedRootKind::Physical };
+        let root = PreparedRoot {
+            table: 1,
+            key: *root.bytes(),
+            kind: PreparedRootKind::Physical,
+        };
         let batch = edges.batch(&[root], workspace.budget()).await.unwrap();
-        let domain = batch.content_domain(0, root, &inputs, ContentHash::of(b"complete-package-release-selection/v1"), &workspace)
-            .await.unwrap().expect("native exact source supports content tokens");
-        drop(batch); drop(edges); drop(session);
+        let domain = batch
+            .content_domain(
+                0,
+                root,
+                &inputs,
+                ContentHash::of(b"complete-package-release-selection/v1"),
+                &workspace,
+            )
+            .await
+            .unwrap()
+            .expect("native exact source supports content tokens");
+        drop(batch);
+        drop(edges);
+        drop(session);
         workspace.native().abandon().await.unwrap();
         domain
     }
     #[tokio::test]
-    async fn selected_native_domain_reuses_unrelated_changes_but_observes_insert_delete_and_absence() {
+    async fn selected_native_domain_reuses_unrelated_changes_but_observes_insert_delete_and_absence()
+     {
         let config = lctx_surrealdb::RuntimeConfig::read(std::path::Path::new(
-            &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"))).unwrap();
-        let selected = Package { name: "selected-domain".into() };
-        let unrelated = Package { name: "unrelated-domain".into() };
-        let selected_release = Release { package: selected.id(), version: "1".into() };
-        let unrelated_release = Release { package: unrelated.id(), version: "1".into() };
+            &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
+        ))
+        .unwrap();
+        let selected = Package {
+            name: "selected-domain".into(),
+        };
+        let unrelated = Package {
+            name: "unrelated-domain".into(),
+        };
+        let selected_release = Release {
+            package: selected.id(),
+            version: "1".into(),
+        };
+        let unrelated_release = Release {
+            package: unrelated.id(),
+            version: "1".into(),
+        };
         let packages = [selected.clone(), unrelated.clone()];
-        let base = native_domain(&config, &packages, &[selected_release.clone(), unrelated_release], selected.id()).await;
-        let unrelated_changed = Release { package: unrelated.id(), version: "2".into() };
-        assert_eq!(base, native_domain(&config, &packages, &[unrelated_changed.clone(), selected_release.clone()], selected.id()).await,
-            "whole view/provenance and unrelated selected domains must not invalidate this root");
-        let inserted = Release { package: selected.id(), version: "2".into() };
-        assert_ne!(base, native_domain(&config, &packages, &[selected_release.clone(), inserted, unrelated_changed.clone()], selected.id()).await,
-            "fresh reverse membership must include newly matching rows");
-        assert_ne!(base, native_domain(&config, &packages, &[unrelated_changed.clone()], selected.id()).await,
-            "deletion of a selected premise must invalidate the complete domain");
-        let absent = native_domain(&config, &[unrelated.clone()], &[unrelated_changed.clone()], selected.id()).await;
-        let present_empty = native_domain(&config, &packages, &[unrelated_changed], selected.id()).await;
-        assert_ne!(absent, present_empty, "an absent root and a present empty domain differ");
+        let base = native_domain(
+            &config,
+            &packages,
+            &[selected_release.clone(), unrelated_release],
+            selected.id(),
+        )
+        .await;
+        let unrelated_changed = Release {
+            package: unrelated.id(),
+            version: "2".into(),
+        };
+        assert_eq!(
+            base,
+            native_domain(
+                &config,
+                &packages,
+                &[unrelated_changed.clone(), selected_release.clone()],
+                selected.id()
+            )
+            .await,
+            "whole view/provenance and unrelated selected domains must not invalidate this root"
+        );
+        let inserted = Release {
+            package: selected.id(),
+            version: "2".into(),
+        };
+        assert_ne!(
+            base,
+            native_domain(
+                &config,
+                &packages,
+                &[
+                    selected_release.clone(),
+                    inserted,
+                    unrelated_changed.clone()
+                ],
+                selected.id()
+            )
+            .await,
+            "fresh reverse membership must include newly matching rows"
+        );
+        assert_ne!(
+            base,
+            native_domain(
+                &config,
+                &packages,
+                &[unrelated_changed.clone()],
+                selected.id()
+            )
+            .await,
+            "deletion of a selected premise must invalidate the complete domain"
+        );
+        let absent = native_domain(
+            &config,
+            &[unrelated.clone()],
+            &[unrelated_changed.clone()],
+            selected.id(),
+        )
+        .await;
+        let present_empty =
+            native_domain(&config, &packages, &[unrelated_changed], selected.id()).await;
+        assert_ne!(
+            absent, present_empty,
+            "an absent root and a present empty domain differ"
+        );
     }
 
     #[tokio::test]
@@ -2250,13 +2637,24 @@ mod nominal_closure_controls {
         assert_eq!(decode::<Package>(&batch.union, 1).await.len(), 1);
         assert!(budget.reserved() > prepared_charge);
         let misses = batch.select_partitions(&[1, 3, 1, 4], &budget).unwrap();
-        assert_eq!(misses.outcomes(), &[
-            PreparedRootOutcome::Present, PreparedRootOutcome::Absent,
-            PreparedRootOutcome::Present, PreparedRootOutcome::Virtual,
-        ]);
-        assert_eq!(misses.memberships(0).unwrap().collect::<Vec<_>>(), batch.memberships(1).unwrap().collect::<Vec<_>>());
+        assert_eq!(
+            misses.outcomes(),
+            &[
+                PreparedRootOutcome::Present,
+                PreparedRootOutcome::Absent,
+                PreparedRootOutcome::Present,
+                PreparedRootOutcome::Virtual,
+            ]
+        );
+        assert_eq!(
+            misses.memberships(0).unwrap().collect::<Vec<_>>(),
+            batch.memberships(1).unwrap().collect::<Vec<_>>()
+        );
         assert!(misses.memberships(1).unwrap().next().is_none());
-        assert_eq!(misses.memberships(2).unwrap().collect::<Vec<_>>(), misses.memberships(0).unwrap().collect::<Vec<_>>());
+        assert_eq!(
+            misses.memberships(2).unwrap().collect::<Vec<_>>(),
+            misses.memberships(0).unwrap().collect::<Vec<_>>()
+        );
         assert_eq!(decode::<Release>(&misses.union, 0).await.len(), 1);
         assert_eq!(decode::<Package>(&misses.union, 1).await.len(), 1);
         assert!(batch.select_partitions(&[6], &budget).is_err());
@@ -2407,8 +2805,11 @@ mod nominal_closure_controls {
         plan.follow(0, "package", 1).unwrap();
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let edges = plan.prepare(&session, &budget).await.unwrap();
-        assert_eq!(edges.0.session.copied_config().target_partitions(),
-            session.copied_config().target_partitions(), "preparation preserves available parallelism");
+        assert_eq!(
+            edges.0.session.copied_config().target_partitions(),
+            session.copied_config().target_partitions(),
+            "preparation preserves available parallelism"
+        );
         let index_usage = budget.reserved();
         assert!(index_usage > 0);
         let scope = edges
@@ -2708,6 +3109,125 @@ mod nominal_closure_controls {
     }
 
     #[tokio::test]
+    async fn lossless_binary_edge_order_matches_complete_typed_key_order() {
+        use datafusion::arrow::row::{RowConverter, SortField};
+        let values = vec![
+            (1, [0_u8; 16], 2, [9_u8; 16]),
+            (1, [0; 16], 2, [8; 16]),
+            (1, [0; 16], 1, [9; 16]),
+            (-1, [255; 16], 5, [0; 16]),
+            (1, [1; 16], 0, [0; 16]),
+            (1, [0; 16], 2, [9; 16]),
+        ];
+        let schema = Arc::new(arrow_schema::Schema::new(vec![
+            arrow_schema::Field::new("source_kind", arrow_schema::DataType::Int64, false),
+            arrow_schema::Field::new(
+                "source_id",
+                arrow_schema::DataType::FixedSizeBinary(16),
+                false,
+            ),
+            arrow_schema::Field::new("target_kind", arrow_schema::DataType::Int64, false),
+            arrow_schema::Field::new(
+                "target_id",
+                arrow_schema::DataType::FixedSizeBinary(16),
+                false,
+            ),
+        ]));
+        let batch = arrow_array::RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(arrow_array::Int64Array::from_iter_values(
+                    values.iter().map(|value| value.0),
+                )),
+                Arc::new(
+                    arrow_array::FixedSizeBinaryArray::try_from_iter(
+                        values.iter().map(|value| value.1.as_slice()),
+                    )
+                    .unwrap(),
+                ),
+                Arc::new(arrow_array::Int64Array::from_iter_values(
+                    values.iter().map(|value| value.2),
+                )),
+                Arc::new(
+                    arrow_array::FixedSizeBinaryArray::try_from_iter(
+                        values.iter().map(|value| value.3.as_slice()),
+                    )
+                    .unwrap(),
+                ),
+            ],
+        )
+        .unwrap();
+        let codec = RowConverter::new(
+            schema
+                .fields()
+                .iter()
+                .map(|field| {
+                    SortField::new_with_options(
+                        field.data_type().clone(),
+                        arrow_schema::SortOptions {
+                            descending: false,
+                            nulls_first: false,
+                        },
+                    )
+                })
+                .collect(),
+        )
+        .unwrap();
+        let ordering_schema = Arc::new(arrow_schema::Schema::new(vec![arrow_schema::Field::new(
+            "edge_order",
+            arrow_schema::DataType::Binary,
+            false,
+        )]));
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("edge-order-control.arrow");
+        let mut writer = datafusion::arrow::ipc::writer::FileWriter::try_new(
+            std::fs::File::create(&path).unwrap(),
+            &ordering_schema,
+        )
+        .unwrap();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        write_edge_ordering(&batch, &codec, &ordering_schema, &mut writer, &budget).unwrap();
+        assert_eq!(budget.reserved(), 0);
+        let refused = ResourceBudget::fixed(64).unwrap();
+        assert!(matches!(
+            write_edge_ordering(&batch, &codec, &ordering_schema, &mut writer, &refused),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(refused.reserved(), 0);
+        writer.finish().unwrap();
+        drop(writer);
+        let session = SessionContext::new();
+        let sorted = session
+            .read_arrow(
+                path.to_string_lossy().into_owned(),
+                datafusion::execution::options::ArrowReadOptions::default()
+                    .schema(ordering_schema.as_ref()),
+            )
+            .await
+            .unwrap()
+            .sort(vec![
+                datafusion::prelude::col("edge_order").sort(true, false),
+            ])
+            .unwrap();
+        let mut stream = sorted.execute_stream().await.unwrap();
+        let mut actual = Vec::new();
+        while let Some(encoded) = stream.try_next().await.unwrap() {
+            let decoded = decode_edge_ordering(&encoded, &codec, &schema).unwrap();
+            for row in 0..decoded.num_rows() {
+                let source = edge_key(&decoded, "source_kind", "source_id", row).unwrap();
+                let target = edge_key(&decoded, "target_kind", "target_id", row).unwrap();
+                actual.push((source.0, source.1, target.0, target.1));
+            }
+        }
+        let mut expected = values;
+        expected.sort_unstable();
+        assert_eq!(
+            actual, expected,
+            "ordering preserves all four fields and duplicate edges"
+        );
+    }
+
+    #[tokio::test]
     async fn many_pair_streams_share_one_external_sort_with_the_workspace_eight_mib_pool() {
         use crate::workspace::{Workspace, WorkspaceOptions};
         use lctx_model::domain::stages::Profile;
@@ -2769,8 +3289,11 @@ mod nominal_closure_controls {
             plan.follow(binding, "package", BINDINGS).unwrap();
         }
         let edges = plan.prepare(&session, workspace.budget()).await.unwrap();
-        assert_eq!(edges.0.session.copied_config().target_partitions(),
-            session.copied_config().target_partitions(), "preparation preserves its caller's partition target");
+        assert_eq!(
+            edges.0.session.copied_config().target_partitions(),
+            session.copied_config().target_partitions(),
+            "preparation preserves its caller's partition target"
+        );
         let edge_rows = ROWS * BINDINGS;
         assert_eq!(
             edges

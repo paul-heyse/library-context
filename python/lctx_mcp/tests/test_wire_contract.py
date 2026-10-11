@@ -129,9 +129,14 @@ async def test_real_mcp_listing_preserves_the_sole_native_inventory():
 
 def test_current_response_wraps_complete_dto_and_actual_snapshot_handle():
     response = {
+        # Controlled formatter DTO values; they do not name a native publication.
         "snapshot": {
+            "publication": [7] * 32,
             "semantic": [5] * 32,
             "realization": [6] * 32,
+            "view": [8] * 32,
+            "service_generation": [9] * 32,
+            "definition_epoch": [10] * 32,
             "database": {"namespace": "control", "database": "snapshot"},
         },
         "domains": [],

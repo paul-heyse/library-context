@@ -356,7 +356,7 @@ def test_sql_diagnostic_preserves_indexed_errors_without_native_secrets(installe
         {"status": "OK", "result": 3},
     ]
     monkeypatch.setattr(
-        fx.urllib.request, "urlopen", lambda *a, **kw: Response(json.dumps(body).encode())
+        fx.service, "local_urlopen", lambda *a, **kw: Response(json.dumps(body).encode())
     )
     observed = installed._diagnose("secret-query")
     assert observed["outcome"] == "failed"

@@ -77,7 +77,7 @@ async fn check(fixture: &str) {
         .arg(&toml)
         .arg("--report-pysa")
         .arg(&report)
-        .args(["--report-pysa-format", "json", "--summary=none", "-j", "1"])
+        .args(["--report-pysa-format", "json", "--summary=none"])
         .status()
         .expect("blocked: `uv` with the dev-group pyrefly is required (docs/pins.md)");
     assert!(status.code().is_some(), "pyrefly CLI was killed");

@@ -638,8 +638,8 @@ def test_incomplete_installation_proves_daemon_before_any_admin_query(recoverabl
     monkeypatch.setattr(service, "systemd_available", lambda **kw: None)
     monkeypatch.setattr(service, "systemctl", lambda *a, **kw: subprocess.CompletedProcess(a, 0))
     monkeypatch.setattr(
-        service.urllib.request,
-        "urlopen",
+        service,
+        "local_urlopen",
         lambda *a, **kw: contextlib.nullcontext(SimpleNamespace(status=200)),
     )
 
@@ -894,11 +894,27 @@ def upgradable(recoverable, monkeypatch):
         db: {"schema": service.UPGRADE_SOURCE_SCHEMA, "schema_version": 3} for db in service.DATABASES})
     def cli(inst, generation, db, action, **kw):
         assert service.lock_held(inst.directory / "admission.lock")
-        if action != "schema":
+        if action not in ("schema", "upgrade-contract"):
             assert service.lock_held(inst.directory / "borrowers.lock")
         actions.append((action, db))
         if action in ("upgrade", "check"):
             assert inst.record["installer"] != generation["path"]
+        if action == "upgrade-contract":
+            return {"format": 1, "namespace": service.NAMESPACE, "database": db,
+                "migration": list(bytes.fromhex(kw["native_operation"])),
+                "execution": list(bytes.fromhex(kw["operation"])),
+                "source": list(bytes.fromhex(service.UPGRADE_SOURCE_SCHEMA)),
+                "target": list(bytes.fromhex("b" * 64)), "generation": inst.record["service_generation"],
+                **{key: [7] * 32 for key in ("overlay", "protocol", "preflight", "verifier")}}
+        if action == "upgrade" and kw.get("execution_contract"):
+            return {"ready": False, "definitions_complete": True, "upgrade": {
+                "revision": 1, "phase": "published", "sealed": True, "published": True}}
+        if action == "upgrade-check":
+            return {"ready": False, "definitions_complete": True}
+        if action == "upgrade-qualify":
+            assert db == "validation"
+            return {"ready": False, "qualification": {"rollback": True,
+                "acknowledgement_reconciliation": True, "stale_revision_refusal": True}}
         return {"schema_version": 4, "schema": "b" * 64} if action == "schema" else {"ready": action != "upgrade"}
     monkeypatch.setattr(service, "_upgrade_cli", cli)
     monkeypatch.setattr(service, "sql", lambda inst, statement, **kw: [{"status": "OK", "result": [{
@@ -941,7 +957,7 @@ def test_explicit_upgrade_checkpoints_preserve_generation_and_handoff_last(upgra
     assert actions.index("restart-upgrade") < actions.index(("upgrade", "main"))
     assert actions.index(("check", "validation")) < actions.index("open-admission")
     assert actions.index(("rotate", "ROOT", "owned_root")) < actions.index(("upgrade", "main"))
-    assert actions[actions.index(("upgrade", "main")) - 1] == "restart-upgrade"
+    assert actions.index("restart-upgrade") < actions.index(("upgrade-qualify", "validation")) < actions.index(("upgrade", "main"))
     rotations = [item for item in actions if isinstance(item, tuple) and item[0] == "rotate"]
     assert rotations[-1][1:] == ("ROOT", "owned_root")
     assert len(rotations) == 5
@@ -973,11 +989,13 @@ def test_upgrade_unknown_native_effect_restarts_before_same_operation_replay(upg
         service.upgrade_installer(installation, candidate)
     marker = dead_upgrade_owner(installation)
     assert marker["upgrade"]["checkpoints"]["drained"]
+    assert marker["upgrade"]["checkpoints"]["qualification-validation"]
     assert "native_schema_version" not in installation.record
     actions.clear()
     service.upgrade_installer(installation, candidate)
     assert actions[0] == "restart-upgrade"
     assert "drain" not in actions and "close-admission" not in actions
+    assert ("upgrade-qualify", "validation") not in actions
     assert len(set(operations)) == 1
 
 
@@ -1035,7 +1053,7 @@ def test_upgrade_source_mismatch_and_unresolved_attachment_preserve_closed_asset
     installation, candidate, actions = upgradable
     monkeypatch.setattr(service, "_schema_identities", lambda inst: {
         db: {"schema": "c" * 64, "schema_version": 3} for db in service.DATABASES})
-    with pytest.raises(service.FixtureBlocked, match="exact schema3"):
+    with pytest.raises(service.FixtureBlocked, match="exact native migration source"):
         service.upgrade_installer(installation, candidate)
     assert not any(isinstance(a, tuple) and a[0] == "upgrade" for a in actions)
     assert (installation.directory / "maintenance.json").exists()
@@ -1143,8 +1161,18 @@ def replacement_ready(upgradable, monkeypatch):
         if action == "schema":
             actions.append((action, db))
             return {"schema_version": 4, "schema": state["target"]}
+        if action == "upgrade-contract":
+            contract = original_cli(inst, executable, db, action, **kw)
+            contract["target"] = list(bytes.fromhex(state["target"]))
+            return contract
         if action == "upgrade":
             migration = kw.get("native_operation", kw["operation"])
+            if state["markers"][db]["schema_version"] == 4:
+                # Already-published execution prepares definitions, without a data transition.
+                result = original_cli(inst, executable, db, action, **kw)
+                assert actions.pop() == ("upgrade", db)
+                actions.append(("published-definitions", db))
+                return result
             state["native_calls"].append((db, kw["operation"], migration, kw["config"]))
             if state["fail_upgrade"]:
                 state["journals"][db][migration] = {**native, "id": "native_upgrade:" + migration, "target": state["target"]}
@@ -1491,7 +1519,8 @@ def test_replacement_crash_before_marker_switch_preserves_original_and_orphan_is
     assert not any(isinstance(action, tuple) and action[0] in ("rotate", "upgrade") for action in actions)
 
 
-def test_upgrade_cli_failure_retains_unique_private_diagnostics_without_public_secrets(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("action", ["upgrade", "upgrade-check"])
+def test_upgrade_cli_failure_retains_unique_private_diagnostics_without_public_secrets(tmp_path, monkeypatch, capsys, action):
     operation = "e" * 64
     native_operation = "f" * 64
     directory = tmp_path / "service"
@@ -1505,13 +1534,16 @@ def test_upgrade_cli_failure_retains_unique_private_diagnostics_without_public_s
     generation = {"path": str(candidate), "sha256": service.file_sha256(candidate)}
     installation = SimpleNamespace(directory=directory)
     def failed(args, **kw):
-        assert args[args.index("--operation") + 1] == native_operation
+        if action == "upgrade":
+            assert args[args.index("--operation") + 1] == native_operation
+        else:
+            assert "--operation" not in args
         assert str(cfg) in args
         return subprocess.CompletedProcess(args, 12, "private-token", "SQL PASSWORD private-password")
     monkeypatch.setattr(service.subprocess, "run", failed)
     for _ in range(2):
         with pytest.raises(service.FixtureFailed) as error:
-            service._upgrade_cli(installation, generation, "main", "upgrade", config=cfg,
+            service._upgrade_cli(installation, generation, "main", action, config=cfg,
                                  operation=operation, native_operation=native_operation)
         assert "private diagnostic:" in str(error.value)
         assert "private-token" not in str(error.value) and "private-password" not in str(error.value)
@@ -1521,6 +1553,7 @@ def test_upgrade_cli_failure_retains_unique_private_diagnostics_without_public_s
         assert path.stat().st_mode & 0o077 == 0
         record = json.loads(path.read_text())
         assert record["operation"] == operation and record["native_operation"] == native_operation
+        assert record["action"] == action
         assert record["returncode"] == 12 and record["stdout"] == "private-token"
         assert record["stderr"] == "SQL PASSWORD private-password"
     assert capsys.readouterr() == ("", "")
@@ -1836,7 +1869,7 @@ def test_check_daemon_checks_patched_actual_http_version_after_exact_executable(
     monkeypatch.setattr(Path, "resolve", resolved)
     monkeypatch.setattr(Path, "read_bytes", bytes_for)
     reported = service.VERSION
-    monkeypatch.setattr(service.urllib.request, "urlopen", lambda *args, **kw:
+    monkeypatch.setattr(service, "local_urlopen", lambda *args, **kw:
         contextlib.nullcontext(SimpleNamespace(status=200, read=lambda: reported.encode())))
     with pytest.raises(service.FixtureBlocked, match="server version differs"):
         installation.check_daemon()
@@ -1938,3 +1971,614 @@ def test_patched_server_status_names_owned_generation_and_retained_dependencies(
     assert result["server"]["generation"] == generation["identity"]
     assert result["server"]["version"] == generation["http_version"]
     assert generation["provenance"]["build_path"] in {row["path"] for row in result["storage"]["dependencies"]}
+
+
+@pytest.fixture
+def reconciliation_ready(published_replacement_ready, monkeypatch):
+    installation, candidate, actions, state, journal, original_bytes = published_replacement_ready
+    original = json.loads(original_bytes)
+    migration = original["operation"]
+    state["journals"]["validation"][migration]["phase"] = "declarations"
+    state.update(step_revision=0, definition_proof=True, definition_drift=False,
+                 epoch_installs=0, malformed_contract=False)
+    cli = service._upgrade_cli
+    def reconcile_cli(inst, executable, db, action, **kw):
+        if action == "upgrade-contract":
+            actions.append((action, db))
+            contract = {"format": 1, "namespace": service.NAMESPACE, "database": db,
+                "migration": list(bytes.fromhex(kw["native_operation"])),
+                "execution": list(bytes.fromhex(kw["operation"])),
+                "source": list(bytes.fromhex(service.UPGRADE_SOURCE_SCHEMA)),
+                "target": list(bytes.fromhex(state["target"])),
+                "generation": original["service_generation"],
+                **{key: [7] * 32 for key in ("overlay", "protocol", "preflight", "verifier")}}
+            if state["malformed_contract"]:
+                contract["database"] = "main" if db == "validation" else "validation"
+            return contract
+        if action == "upgrade-check":
+            actions.append((action, db))
+            return {"ready": False, "definitions_complete": state["definition_proof"]}
+        if action == "upgrade-qualify":
+            assert db == "validation"
+            actions.append((action, db))
+            return {"ready": False, "qualification": {"rollback": True, "acknowledgement_reconciliation": True, "stale_revision_refusal": True}}
+        if action == "upgrade" and kw.get("execution_contract"):
+            contract = json.loads(kw["execution_contract"].read_text())
+            assert bytes(contract["migration"]).hex() == migration
+            assert bytes(contract["execution"]).hex() == kw["operation"]
+            if state["markers"][db]["schema_version"] == 4:
+                marker = json.loads((inst.directory / "maintenance.json").read_text())
+                assert marker["upgrade"]["operation"] == kw["operation"] != migration
+                successor = json.loads(Path(marker["upgrade"]["journal"]).read_text())
+                assert successor["native_operation"] == migration
+                assert successor["execution_contracts"][db] == contract
+                assert kw.get("stop_after_pages") is None
+                if state["definition_drift"]:
+                    raise service.FixtureBlocked("schema", "conflicting pinned executable definition")
+                if not state["definition_proof"]:
+                    state["definition_proof"] = True
+                    state["epoch_installs"] += 1
+            if kw.get("stop_after_pages"):
+                actions.append((action, db))
+                state["step_revision"] += kw["stop_after_pages"]
+                return {"ready": False, "definitions_complete": False, "upgrade": {
+                    "revision": state["step_revision"], "phase": "preflight", "sealed": False, "published": False}}
+            result = cli(inst, executable, db, action, **kw)
+            return {**result, "definitions_complete": True, "upgrade": {
+                "revision": state["step_revision"] + 1, "phase": "published", "sealed": True, "published": True}}
+        return cli(inst, executable, db, action, **kw)
+    monkeypatch.setattr(service, "_upgrade_cli", reconcile_cli)
+    return published_replacement_ready
+
+
+def test_reconciliation_adopts_partial_validation_with_exact_native_and_credential_identities(reconciliation_ready):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    original = json.loads(original_bytes)
+    result = service.upgrade_installer(installation, candidate, reconcile=True)
+    current = json.loads(Path(installation.record["native_upgrade"]["journal"]).read_text())
+    assert current["operation"] != original["operation"]
+    assert current["native_operation"] == current["credential_operation"] == original["operation"]
+    assert current["completed_scopes"] == ["main"]
+    assert current["recovery_mode"] == "reconcile"
+    assert journal.read_bytes() == original_bytes
+    assert ("upgrade", "main") not in actions
+    assert actions.index(("published-definitions", "main")) < actions.index(("upgrade", "validation"))
+    assert ("upgrade-check", "main") not in actions, "reuse verified epoch within closed operation"
+    assert result["outcome"] == "passed"
+    for db, contract in current["execution_contracts"].items():
+        path = Path(installation.record["native_upgrade"]["journal"]).parent / f"{db}-execution.json"
+        assert json.loads(path.read_text()) == contract
+        assert path.stat().st_mode & 0o077 == 0
+
+
+def test_reconciliation_steps_only_validation_and_exact_resume_retains_contract(reconciliation_ready):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    first = service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    assert first["outcome"] == "checkpointed" and first["admission_open"] is False
+    assert first["database"] == "validation" and first["progress"]["revision"] == 1
+    marker = dead_upgrade_owner(installation)
+    current_path = Path(marker["upgrade"]["journal"])
+    immutable = current_path.read_bytes()
+    assert marker["upgrade"]["checkpoints"]["scope-main"]
+    assert not marker["upgrade"]["checkpoints"].get("scope-validation")
+    assert "open-admission" not in actions
+    actions.clear()
+    second = service.upgrade_installer(installation, candidate, stop_after_pages=2)
+    assert second["upgrade_operation"] == first["upgrade_operation"]
+    assert second["progress"]["revision"] == 3
+    assert current_path.read_bytes() == immutable and journal.read_bytes() == original_bytes
+    assert actions[0] == "restart-upgrade" and ("upgrade", "main") not in actions
+
+
+def test_reconciliation_installs_missing_epoch_after_durable_successor_without_native_retranslation(reconciliation_ready):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    original = json.loads(original_bytes)
+    native_before = dict(state["journals"]["main"][original["operation"]])
+    state["definition_proof"] = False
+    result = service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    marker = json.loads((installation.directory / "maintenance.json").read_text())
+    assert result["database"] == "validation" and result["progress"]["revision"] == 1
+    assert marker["upgrade"]["operation"] != original["operation"]
+    assert marker["upgrade"]["checkpoints"]["scope-main"]
+    assert marker["upgrade"]["checkpoints"]["definitions-main"]
+    assert actions.index(("upgrade-contract", "validation")) < actions.index(("published-definitions", "main"))
+    assert actions.index(("published-definitions", "main")) < actions.index(("upgrade", "validation"))
+    assert ("upgrade-check", "main") not in actions, "reuse verified epoch within closed operation"
+    assert state["epoch_installs"] == 1 and state["native_calls"] == []
+    assert state["journals"]["main"][original["operation"]] == native_before
+    assert journal.read_bytes() == original_bytes and "open-admission" not in actions
+
+
+def test_reconciliation_definition_drift_refuses_after_successor_and_keeps_admission_closed(reconciliation_ready):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    state["definition_drift"] = True
+    with pytest.raises(service.FixtureBlocked, match="conflicting pinned executable"):
+        service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    marker = json.loads((installation.directory / "maintenance.json").read_text())
+    assert marker["upgrade"]["operation"] != json.loads(original_bytes)["operation"]
+    assert Path(marker["upgrade"]["journal"]).is_file()
+    assert marker["upgrade"]["checkpoints"]["scope-main"]
+    assert not marker["upgrade"]["checkpoints"].get("definitions-main")
+    assert state["step_revision"] == state["epoch_installs"] == 0
+    assert journal.read_bytes() == original_bytes and "open-admission" not in actions
+
+
+def test_reconciliation_reconciles_epoch_ddl_before_host_checkpoint_without_reinstalling(reconciliation_ready, monkeypatch):
+    import storage_lifecycle
+
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    state["definition_proof"] = False
+    persist = storage_lifecycle.durable_json
+    interrupted = False
+    def lose_checkpoint(path, value):
+        nonlocal interrupted
+        if (path == installation.directory / "maintenance.json" and not interrupted
+                and value.get("upgrade", {}).get("checkpoints", {}).get("definitions-main")):
+            interrupted = True
+            raise OSError("interrupted after epoch DDL before host receipt")
+        return persist(path, value)
+    monkeypatch.setattr(storage_lifecycle, "durable_json", lose_checkpoint)
+    with pytest.raises(OSError, match="after epoch DDL"):
+        service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    marker = dead_upgrade_owner(installation)
+    successor_journal = Path(marker["upgrade"]["journal"])
+    immutable = successor_journal.read_bytes()
+    assert state["epoch_installs"] == 1 and state["definition_proof"]
+    assert not marker["upgrade"]["checkpoints"].get("definitions-main")
+    assert state["step_revision"] == 0
+    actions.clear()
+    result = service.upgrade_installer(installation, candidate, stop_after_pages=1)
+    assert result["upgrade_operation"] == marker["upgrade"]["operation"]
+    assert ("published-definitions", "main") in actions and ("upgrade", "main") not in actions
+    assert state["epoch_installs"] == 1 and state["native_calls"] == []
+    assert successor_journal.read_bytes() == immutable and journal.read_bytes() == original_bytes
+    after = json.loads((installation.directory / "maintenance.json").read_text())
+    assert after["upgrade"]["checkpoints"]["definitions-main"]
+    assert "open-admission" not in actions
+
+
+def test_reconciliation_rechecks_checkpointed_epoch_before_resuming_validation(reconciliation_ready):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    marker = dead_upgrade_owner(installation)
+    assert marker["upgrade"]["checkpoints"]["definitions-main"]
+    state["definition_proof"] = False
+    actions.clear()
+    with pytest.raises(service.FixtureBlocked, match="completed scope executable definitions"):
+        service.upgrade_installer(installation, candidate, stop_after_pages=1)
+    assert ("upgrade-check", "main") in actions
+    assert ("published-definitions", "main") not in actions and ("upgrade", "validation") not in actions
+    assert state["step_revision"] == 1 and journal.read_bytes() == original_bytes
+    assert "open-admission" not in actions
+
+
+def test_reconciliation_main_cannot_return_a_validation_step(reconciliation_ready, monkeypatch):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    cli = service._upgrade_cli
+    def unpublished(inst, executable, db, action, **kw):
+        if action == "upgrade" and db == "main":
+            assert kw.get("stop_after_pages") is None
+            return {"ready": False, "definitions_complete": False, "upgrade": {
+                "revision": 1, "phase": "preflight", "sealed": False, "published": False}}
+        return cli(inst, executable, db, action, **kw)
+    monkeypatch.setattr(service, "_upgrade_cli", unpublished)
+    with pytest.raises(service.FixtureBlocked, match="did not establish publication"):
+        service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    assert state["step_revision"] == 0 and ("upgrade", "validation") not in actions
+    assert journal.read_bytes() == original_bytes and "open-admission" not in actions
+
+
+@pytest.mark.parametrize("version,phase,recognized", [
+    (3, "translated", True), (3, "verified", False),
+    (4, "verified", True), (4, "translated", False),
+])
+def test_reconciliation_partial_phases_are_exact_to_the_transition(version, phase, recognized, monkeypatch):
+    operation = "a" * 64
+    generation = "07" * 32
+    source = service.UPGRADE_SOURCES[version + 1]
+    target = {"schema_version": version + 1, "schema": "b" * 64}
+    plan = {"operation": operation, "service_generation": [7] * 32,
+        "source": {db: source for db in service.DATABASES}, "target": target,
+        "new_root": {db: {"database": db} for db in service.DATABASES}}
+    def native(db, selected_phase):
+        return {"id": "native_upgrade:" + operation, "generation": generation,
+            "source": source["schema"], "target": target["schema"], "phase": selected_phase}
+    def sql(inst, statement, *, cfg):
+        db = cfg["database"]
+        if "FROM native_installation" in statement:
+            result = [{"generation": generation, **(target if db == "main" else source), "admission_open": False}]
+        elif statement == "INFO FOR DB STRUCTURE;":
+            result = {"tables": [{"name": "native_upgrade"}]}
+        else:
+            result = [native(db, "published" if db == "main" else phase)]
+        return [{"status": "OK", "result": result}]
+    monkeypatch.setattr(service, "sql", sql)
+    descriptor = {"native_journals": {"main": [native("main", "published")],
+                                     "validation": [native("validation", "intent")]}}
+    observed = {"main": [native("main", "published")], "validation": [native("validation", phase)]}
+    if recognized:
+        result = service._upgrade_replacement_preflight(None, [plan], {"scope-main": True}, reconcile=True)
+        assert result[operation] == observed
+        service._upgrade_predecessor_observations(descriptor, plan, plan, observed, reconcile=True)
+    else:
+        with pytest.raises(service.FixtureBlocked, match="advanced native upgrade journals"):
+            service._upgrade_replacement_preflight(None, [plan], {"scope-main": True}, reconcile=True)
+        with pytest.raises(service.FixtureBlocked, match="predecessor native intent changed"):
+            service._upgrade_predecessor_observations(descriptor, plan, plan, observed, reconcile=True)
+
+
+@pytest.mark.parametrize("change", ["unknown-phase", "foreign-generation", "changed-target", "malformed-contract"])
+def test_reconciliation_refuses_unrecognized_state_before_authority_transfer(reconciliation_ready, change):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    migration = json.loads(original_bytes)["operation"]
+    before = json.loads((installation.directory / "maintenance.json").read_text())["upgrade"]["operation"]
+    if change == "unknown-phase":
+        state["journals"]["validation"][migration]["phase"] = "foreign"
+    elif change == "foreign-generation":
+        state["journals"]["validation"][migration]["generation"] = "d" * 64
+    elif change == "changed-target":
+        state["target"] = "d" * 64
+    else:
+        state["malformed_contract"] = True
+    with pytest.raises(service.FixtureBlocked):
+        service.upgrade_installer(installation, candidate, reconcile=True)
+    marker = json.loads((installation.directory / "maintenance.json").read_text())
+    assert marker["upgrade"]["operation"] == before
+    assert state["native_calls"] == [] and journal.read_bytes() == original_bytes
+
+
+def test_reconciliation_replays_native_seal_without_fabricating_host_scope(reconciliation_ready):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    migration = json.loads(original_bytes)["operation"]
+    state["markers"]["validation"].update(schema_version=4, schema=state["target"])
+    state["journals"]["validation"][migration]["phase"] = "published"
+    service.upgrade_installer(installation, candidate, reconcile=True)
+    # A seal alone cannot skip executable definition installation or the host checkpoint.
+    assert ("published-definitions", "validation") in actions and ("upgrade", "main") not in actions
+    plan = json.loads(Path(installation.record["native_upgrade"]["journal"]).read_text())
+    assert plan["completed_scopes"] == ["main"]
+
+
+def test_reconciliation_tampered_execution_file_blocks_exact_resume(reconciliation_ready):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    marker = dead_upgrade_owner(installation)
+    execution = Path(marker["upgrade"]["journal"]).parent / "validation-execution.json"
+    contract = json.loads(execution.read_text())
+    contract["execution"] = [0] * 32
+    service.private_json(execution, contract)
+    actions.clear()
+    with pytest.raises(service.FixtureBlocked, match="execution contract changed"):
+        service.upgrade_installer(installation, candidate, stop_after_pages=1)
+    assert ("upgrade", "validation") not in actions
+
+
+@pytest.mark.parametrize("args", [
+    ["maintenance", "--reconcile-upgrade-installer", "/candidate", "--replace-upgrade-installer", "/candidate"],
+    ["maintenance", "--reconcile-upgrade-installer", "/candidate", "--native-clients", "--", "true"],
+    ["maintenance", "--upgrade-step-pages", "1"],
+    ["maintenance", "--reconcile-upgrade-installer", "/candidate", "--upgrade-step-pages", "0"],
+])
+def test_reconciliation_cli_cannot_bypass_maintenance(args):
+    with pytest.raises(SystemExit) as error:
+        service.main(args)
+    assert error.value.code == 2
+
+
+def test_upgrade_step_of_sealed_validation_never_hands_off_or_opens_admission(reconciliation_ready, monkeypatch):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    cli = service._upgrade_cli
+    def sealed(inst, executable, db, action, **kw):
+        result = cli(inst, executable, db, action, **kw)
+        if action == "upgrade" and kw.get("stop_after_pages"):
+            return {"ready": False, "definitions_complete": True, "upgrade": {
+                "revision": 1, "phase": "published", "sealed": True, "published": True}}
+        return result
+    monkeypatch.setattr(service, "_upgrade_cli", sealed)
+    result = service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    assert result["outcome"] == "checkpointed" and result["admission_open"] is False
+    assert (installation.directory / "maintenance.json").exists()
+    assert "open-admission" not in actions
+    assert "native_upgrade" not in installation.record
+    marker = json.loads((installation.directory / "maintenance.json").read_text())
+    assert marker["upgrade"]["checkpoints"]["scope-validation"]
+    assert marker["upgrade"]["checkpoints"]["definitions-validation"]
+
+
+def test_upgrade_stepping_refuses_main_without_native_or_host_effects(replacement_ready):
+    installation, candidate, actions, state, journal, original_bytes = replacement_ready
+    with pytest.raises(service.FixtureBlocked, match="completed main"):
+        service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    assert actions == [] and journal.read_bytes() == original_bytes
+
+
+def test_reconciliation_qualifies_primitives_before_first_page_and_reuses_exact_host_receipt(reconciliation_ready):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    assert actions.index(("upgrade-qualify", "validation")) < actions.index(("upgrade", "validation"))
+    marker = dead_upgrade_owner(installation)
+    assert marker["upgrade"]["checkpoints"]["qualification-validation"]
+    actions.clear()
+    service.upgrade_installer(installation, candidate, stop_after_pages=1)
+    assert ("upgrade-qualify", "validation") not in actions
+
+
+def test_reconciliation_failed_qualification_cannot_translate(reconciliation_ready, monkeypatch):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    cli = service._upgrade_cli
+    def incomplete(*args, **kw):
+        result = cli(*args, **kw)
+        if args[3] == "upgrade-qualify":
+            result["qualification"]["rollback"] = False
+        return result
+    monkeypatch.setattr(service, "_upgrade_cli", incomplete)
+    with pytest.raises(service.FixtureBlocked, match="atomic progress qualification"):
+        service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    assert ("upgrade", "validation") not in actions and "open-admission" not in actions
+    marker = json.loads((installation.directory / "maintenance.json").read_text())
+    assert not marker["upgrade"]["checkpoints"].get("qualification-validation")
+
+
+def test_reconciliation_successor_reuses_one_native_journal_observation_per_database(reconciliation_ready):
+    installation, candidate, actions, state, journal, original_bytes = reconciliation_ready
+    service.upgrade_installer(installation, candidate, reconcile=True, stop_after_pages=1)
+    first = dead_upgrade_owner(installation)
+    predecessor_journal = Path(first["upgrade"]["journal"])
+    immutable = predecessor_journal.read_bytes()
+    next_candidate = candidate.with_name("lctx-reconciliation-successor")
+    next_candidate.write_bytes(b"next-reconciliation-executable")
+    next_candidate.chmod(0o700)
+    actions.clear()
+    result = service.upgrade_installer(installation, next_candidate, reconcile=True, stop_after_pages=1)
+    migration = json.loads(original_bytes)["operation"]
+    assert result["native_operation"] == migration
+    assert result["upgrade_operation"] != first["upgrade"]["operation"]
+    assert actions.count(("inspect-intent", "main", migration)) == 1
+    assert actions.count(("inspect-intent", "validation", migration)) == 1
+    assert predecessor_journal.read_bytes() == immutable and journal.read_bytes() == original_bytes
+
+
+def test_upgrade_cli_passes_explicit_contract_and_step_identity(tmp_path, monkeypatch):
+    candidate = tmp_path / "lctx"
+    candidate.write_bytes(b"owned-candidate")
+    candidate.chmod(0o700)
+    generation = {"path": str(candidate), "sha256": service.file_sha256(candidate)}
+    contract = tmp_path / "validation-execution.json"
+    calls = []
+    def command(args, **kw):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, '{"ready":false}', "")
+    monkeypatch.setattr(service.subprocess, "run", command)
+    installation = SimpleNamespace(directory=tmp_path)
+    service._upgrade_cli(installation, generation, "validation", "upgrade", config=tmp_path / "validation.json",
+        operation="a" * 64, native_operation="b" * 64, execution_contract=contract, stop_after_pages=2)
+    assert calls[0][calls[0].index("--operation") + 1] == "b" * 64
+    assert calls[0][calls[0].index("--execution-contract") + 1] == str(contract)
+    assert calls[0][calls[0].index("--stop-after-pages") + 1] == "2"
+    with pytest.raises(service.FixtureBlocked, match="owned validation"):
+        service._upgrade_cli(installation, generation, "main", "upgrade", config=tmp_path / "main.json",
+            operation="a" * 64, native_operation="b" * 64, execution_contract=contract, stop_after_pages=1)
+    assert len(calls) == 1
+
+
+def test_initial_upgrade_durably_binds_explicit_execution_contracts(upgradable):
+    installation, candidate, actions = upgradable
+    service.upgrade_installer(installation, candidate)
+    journal = Path(installation.record["native_upgrade"]["journal"])
+    plan = json.loads(journal.read_text())
+    for db in service.DATABASES:
+        contract = json.loads((journal.parent / f"{db}-execution.json").read_text())
+        assert contract == plan["execution_contracts"][db]
+        assert bytes(contract["execution"]).hex() == plan["operation"]
+        assert bytes(contract["migration"]).hex() == plan["native_operation"]
+        assert contract["database"] == db
+
+
+def test_initial_upgrade_failed_qualification_cannot_translate_either_scope(upgradable, monkeypatch):
+    installation, candidate, actions = upgradable
+    cli = service._upgrade_cli
+
+    def incomplete(*args, **kw):
+        result = cli(*args, **kw)
+        if args[3] == "upgrade-qualify":
+            result["qualification"]["acknowledgement_reconciliation"] = False
+        return result
+
+    monkeypatch.setattr(service, "_upgrade_cli", incomplete)
+    with pytest.raises(service.FixtureBlocked, match="atomic progress qualification"):
+        service.upgrade_installer(installation, candidate)
+    assert not any(("upgrade", db) in actions for db in service.DATABASES)
+    assert "open-admission" not in actions
+    marker = json.loads((installation.directory / "maintenance.json").read_text())
+    assert not marker["upgrade"]["checkpoints"].get("qualification-validation")
+
+
+def test_legacy_immutable_plan_resumes_only_its_frozen_command_contract(replacement_ready, monkeypatch):
+    installation, successor, actions, state, journal, original_bytes = replacement_ready
+    plan = json.loads(original_bytes)
+    del plan["execution_contracts"]
+    service.private_json(journal, plan)
+    for db in service.DATABASES:
+        (journal.parent / f"{db}-execution.json").unlink()
+    marker_path = installation.directory / "maintenance.json"
+    marker = json.loads(marker_path.read_text())
+    marker["upgrade"]["journal_sha256"] = service.file_sha256(journal)
+    marker["upgrade"]["checkpoints"].pop("qualification-validation", None)
+    service.private_json(marker_path, marker)
+    cli = service._upgrade_cli
+    def frozen(inst, executable, db, action, **kw):
+        if action == "upgrade":
+            assert executable == plan["candidate"]
+            assert "execution_contract" not in kw
+        assert action != "upgrade-contract", "immutable legacy plan is not rewritten with fabricated execution metadata"
+        assert action != "upgrade-qualify", "historical command contract does not gain a qualification protocol"
+        return cli(inst, executable, db, action, **kw)
+    monkeypatch.setattr(service, "_upgrade_cli", frozen)
+    state["target"] = plan["target"]["schema"]
+    service.upgrade_installer(installation, Path(plan["candidate"]["path"]))
+    assert json.loads(journal.read_text()) == plan
+
+
+def test_history_receipt_upgrade_uses_exact_v4_source_and_new_contract(upgradable, monkeypatch):
+    installation, candidate, actions = upgradable
+    installation.record["native_schema_version"] = 4
+    source = service.UPGRADE_SOURCES[5]
+    target = {"schema_version": 5, "schema": "c" * 64}
+    legacy_cli = service._upgrade_cli
+    seen_sources = []
+
+    def cli(inst, generation, db, action, **kw):
+        if action == "schema":
+            return target
+        if action == "upgrade-contract":
+            seen_sources.append(kw["expected_schema"])
+            return {"format": 2, "source_version": 4, "kind": "history_page_receipts_v5",
+                "namespace": service.NAMESPACE, "database": db,
+                "migration": list(bytes.fromhex(kw["native_operation"])),
+                "execution": list(bytes.fromhex(kw["operation"])),
+                "source": list(bytes.fromhex(source["schema"])),
+                "target": list(bytes.fromhex(target["schema"])),
+                "generation": inst.record["service_generation"],
+                **{key: [7] * 32 for key in ("overlay", "protocol", "preflight", "verifier")}}
+        if action == "upgrade":
+            seen_sources.append(kw["expected_schema"])
+        return legacy_cli(inst, generation, db, action, **kw)
+
+    monkeypatch.setattr(service, "_upgrade_cli", cli)
+    monkeypatch.setattr(service, "_schema_identities", lambda inst: {db: source for db in service.DATABASES})
+    monkeypatch.setattr(service, "sql", lambda inst, statement, **kw: [{"status": "OK", "result": [{
+        **target, "generation": bytes(inst.record["service_generation"]).hex()}]}])
+    result = service.upgrade_installer(installation, candidate)
+    assert result["native_schema_version"] == installation.record["native_schema_version"] == 5
+    assert seen_sources == [source["schema"]] * 4
+    plan_path = Path(installation.record["native_upgrade"]["journal"])
+    plan = json.loads(plan_path.read_text())
+    assert plan["source"] == {db: source for db in service.DATABASES}
+    service._upgrade_private_plan(installation, {
+        **installation.record["native_upgrade"], "candidate": plan["candidate"]["path"]})
+    assert actions.index("drain") < actions.index(("upgrade", "main"))
+    assert actions.index(("upgrade-qualify", "validation")) < actions.index(("upgrade", "main"))
+
+
+@pytest.mark.parametrize("version", [3, 6, True])
+def test_upgrade_refuses_unrecognized_transition_before_contract_creation(version):
+    with pytest.raises(service.FixtureBlocked, match="supported exact native transition"):
+        service._upgrade_source({"schema_version": version, "schema": "a" * 64})
+
+
+def test_failed_install_metadata_can_retry_corrected_candidate_before_owned_directories(tmp_path, monkeypatch):
+    import storage_service
+
+    root = tmp_path / "installation"
+    candidate = tmp_path / "lctx"
+    candidate.write_bytes(b"candidate")
+    candidate.chmod(0o700)
+    monkeypatch.setattr(service, "verify_binary", lambda env: candidate)
+    monkeypatch.setattr(service, "systemd_available", lambda **kw: None)
+    monkeypatch.setattr(service, "unit_properties", lambda *a: {"LoadState": "not-found"})
+    monkeypatch.setattr(service, "_unit_path", lambda: tmp_path / "service-unit")
+    monkeypatch.setattr(service, "_available_port", lambda: 29000)
+    monkeypatch.setattr(storage_service, "prepare", lambda directory, source: {
+        "path": str(source), "sha256": service.file_sha256(source)})
+    valid = False
+
+    def metadata(*args, **kwargs):
+        if not valid:
+            raise service.FixtureBlocked("schema", "unsupported candidate metadata")
+        return {"schema_version": 5, "schema": "b" * 64}
+
+    monkeypatch.setattr(service, "_upgrade_cli", metadata)
+    monkeypatch.setattr(service, "systemctl", lambda *a: subprocess.CompletedProcess(a, 1, "", "test stop"))
+    env = {"LCTX_SURREAL_SERVICE_CONFIG": str(root / "installation.json")}
+    with pytest.raises(service.FixtureBlocked, match="unsupported candidate metadata"):
+        service.install(candidate, env=env)
+    assert not (root / "installation.json").exists()
+    assert all(not (root / name).exists() for name in ("data", "tmp", "attachments", "serving"))
+    valid = True
+    with pytest.raises(service.FixtureBlocked, match="daemon-reload failed"):
+        service.install(candidate, env=env)
+    assert json.loads((root / "installation.json").read_text())["native_schema_version"] == 5
+    assert all((root / name).is_dir() for name in ("data", "tmp", "attachments", "serving"))
+
+
+def test_owned_http_bypasses_proxies_and_refuses_redirected_credentials(monkeypatch):
+    import http.server
+    import threading
+    import urllib.error
+    import urllib.request
+
+    target_calls = []
+    proxy_calls = []
+
+    class Target(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            target_calls.append((self.path, self.headers.get("Authorization")))
+            if self.path == "/redirect":
+                self.send_response(302)
+                self.send_header("Location", proxy_url + "/sink")
+                body = b""
+            else:
+                self.send_response(200)
+                body = b'[{"status":"OK","result":1}]'
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    class Proxy(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            proxy_calls.append(self.path)
+            self.send_response(502)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        do_GET = do_POST
+
+        def log_message(self, *args):
+            pass
+
+    servers = [http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+               for handler in (Target, Proxy)]
+    target_url, proxy_url = [f"http://127.0.0.1:{server.server_port}" for server in servers]
+    threads = [threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
+               for server in servers]
+    for thread in threads:
+        thread.start()
+    try:
+        for name in list(os.environ):
+            if name.lower().endswith("_proxy"):
+                monkeypatch.delenv(name)
+        monkeypatch.setenv("http_proxy", proxy_url)
+        monkeypatch.setenv("NO_PROXY", "")
+        cfg = {"username": "synthetic-user", "password": "synthetic-password",
+               "database": "validation", "authentication": "database"}
+        rows = service.sql(SimpleNamespace(endpoint=target_url), "RETURN 1;", cfg=cfg)
+        assert rows == [{"status": "OK", "result": 1}]
+        request = urllib.request.Request(target_url + "/redirect", data=b"synthetic admin SQL",
+                                         headers={"Authorization": "Basic synthetic-only"})
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            service.local_urlopen(request, timeout=2)
+        assert refused.value.code == 302
+        refused.value.close()
+        assert [path for path, _auth in target_calls] == ["/sql", "/redirect"]
+        assert target_calls[0][1].startswith("Basic ")
+        assert proxy_calls == [], "neither proxy routing nor redirect may forward local requests"
+    finally:
+        for server in servers:
+            server.shutdown()
+            server.server_close()
+        for thread in threads:
+            thread.join()
+
+
+@pytest.mark.parametrize("url", ["https://127.0.0.1:8000/sql", "http://example.com:8000/sql",
+                                  "http://user:secret@127.0.0.1:8000/sql", "http://127.0.0.1/sql"])
+def test_owned_http_refuses_foreign_or_credential_bearing_endpoints(url, monkeypatch):
+    def unexpected(*args):
+        pytest.fail("invalid owned endpoint must fail before opening a transport")
+    monkeypatch.setattr(service.urllib.request, "build_opener", unexpected)
+    with pytest.raises(ValueError, match="local HTTP endpoint"):
+        service.local_urlopen(url, timeout=2)

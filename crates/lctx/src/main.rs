@@ -212,12 +212,37 @@ enum StoreCommand {
     Check,
     /// Print this executable's native schema identity without accessing stored state.
     Schema,
+    /// Print the exact resumable upgrade contract without accessing stored state.
+    UpgradeContract {
+        #[arg(long, value_parser=content_hash)]
+        expected_schema: lctx_model::domain::ContentHash,
+        #[arg(long, value_parser=content_hash)]
+        operation: lctx_model::domain::ContentHash,
+        #[arg(long, value_parser=content_hash)]
+        execution: lctx_model::domain::ContentHash,
+    },
+    /// Independently check base installation and pinned executable definitions.
+    UpgradeCheck,
+    /// Qualify atomic progress primitives on the exact owned validation upgrade slot.
+    UpgradeQualify {
+        #[arg(long, value_parser=content_hash)]
+        expected_schema: lctx_model::domain::ContentHash,
+        #[arg(long, value_parser=content_hash)]
+        operation: lctx_model::domain::ContentHash,
+        #[arg(long)]
+        execution_contract: PathBuf,
+    },
     /// Upgrade one exact legacy scope while its service owner holds closed maintenance.
     Upgrade {
         #[arg(long, value_parser=content_hash)]
         expected_schema: lctx_model::domain::ContentHash,
         #[arg(long, value_parser=content_hash)]
         operation: lctx_model::domain::ContentHash,
+        #[arg(long)]
+        execution_contract: PathBuf,
+        /// Stop after durable checkpoints; only an explicit execution contract permits stepping.
+        #[arg(long, requires="execution_contract", value_parser=clap::value_parser!(u64).range(1..))]
+        stop_after_pages: Option<u64>,
     },
     /// Explicit drained maintenance of retained control history.
     History {
@@ -268,6 +293,9 @@ enum HistoryCommand {
     Resume {
         #[arg(long, value_parser=content_hash)]
         identity: lctx_model::domain::ContentHash,
+        /// Revision returned by the previous page; retry it to recover the same outcome.
+        #[arg(long)]
+        expected_revision: u64,
         #[arg(long, default_value_t = 128)]
         limit: usize,
     },
@@ -930,6 +958,13 @@ fn run() -> anyhow::Result<()> {
                 return Ok(());
             }
             let config = newnative::config(&runtime_config)?;
+            if let StoreCommand::UpgradeContract { expected_schema, operation, execution } = &command {
+                let contract = lctx_surrealdb::upgrade::UpgradeExecutionContract::current(
+                    *operation, *execution, *expected_schema, &config);
+                contract.validate(&config)?;
+                println!("{}", serde_json::to_string(&contract)?);
+                return Ok(());
+            }
             let runtime = runtime()?;
             let reports_ready = !matches!(
                 &command,
@@ -938,6 +973,8 @@ fn run() -> anyhow::Result<()> {
                     | StoreCommand::CloseAdmission
                     | StoreCommand::Reconcile { .. }
                     | StoreCommand::Upgrade { .. }
+                    | StoreCommand::UpgradeCheck
+                    | StoreCommand::UpgradeQualify { .. }
                     | StoreCommand::History { .. }
                     | StoreCommand::Recover { .. }
             );
@@ -949,53 +986,97 @@ fn run() -> anyhow::Result<()> {
                     runtime.block_on(newnative::ready(&config))?;
                 }
                 StoreCommand::Schema => unreachable!("metadata command returned above"),
-                StoreCommand::Upgrade { expected_schema, operation } => {
-                    runtime.block_on(async {
+                StoreCommand::UpgradeContract { .. } => unreachable!("metadata command returned above"),
+                StoreCommand::UpgradeCheck => {
+                    let definitions = runtime.block_on(async {
+                        lctx_publisher::check_definitions(&config, &lctx_serving::native_definitions()).await
+                    })?;
+                    println!("{}", serde_json::json!({"ready":false,"definitions_complete":true,
+                        "definitions":definitions.hex(),"namespace":config.namespace,"database":config.database}));
+                    return Ok(());
+                }
+                StoreCommand::UpgradeQualify { expected_schema, operation, execution_contract } => {
+                    anyhow::ensure!(config.database.as_str() == "validation", "upgrade qualification requires validation");
+                    let contract: lctx_surrealdb::upgrade::UpgradeExecutionContract =
+                        serde_json::from_slice(&std::fs::read(execution_contract)?)?;
+                    anyhow::ensure!(contract.migration == operation && contract.source == expected_schema,
+                        "upgrade qualification arguments differ from immutable execution contract");
+                    let qualification = runtime.block_on(lctx_surrealdb::upgrade::qualify_upgrade_pages(&config, &contract))?;
+                    println!("{}", serde_json::json!({"ready":false,"qualification":qualification,
+                        "namespace":config.namespace,"database":config.database}));
+                    return Ok(());
+                }
+                StoreCommand::Upgrade { expected_schema, operation, execution_contract, stop_after_pages } => {
+                    let advance = runtime.block_on(async {
                         let blueprint=lctx_serving::native_definitions();
-                        lctx_surrealdb::upgrade::upgrade(&config, expected_schema, operation, &blueprint).await?;
+                        let advance = {
+                            anyhow::ensure!(stop_after_pages.is_none() || config.database.as_str() == "validation",
+                                "upgrade stepping is restricted to the owned validation scope");
+                            let contract: lctx_surrealdb::upgrade::UpgradeExecutionContract =
+                                serde_json::from_slice(&std::fs::read(execution_contract)?)?;
+                            anyhow::ensure!(contract.migration == operation && contract.source == expected_schema,
+                                "upgrade arguments differ from immutable execution contract");
+                            lctx_surrealdb::upgrade::upgrade_with_contract(&config, &contract, &blueprint, stop_after_pages).await?
+                        };
                         // Executable epochs have a separate owner from the base format marker.
                         // Repeat safely after unknown installation acknowledgement; stay closed.
-                        lctx_publisher::install_definitions(&config,&blueprint).await?;
-                        anyhow::Ok(())
+                        if advance.published {
+                            lctx_publisher::install_definitions(&config,&blueprint).await?;
+                        }
+                        anyhow::Ok(advance)
                     })?;
+                    println!("{}", serde_json::json!({"ready":false,"definitions_complete":advance.published,
+                        "upgrade":advance,"namespace":config.namespace,"database":config.database}));
+                    return Ok(());
                 }
                 StoreCommand::History { command } => {
-                    runtime.block_on(async {
+                    let receipt = runtime.block_on(async {
+                        use lctx_model::domain::{ModelError, completion::{Completion, complete}};
                         let client = lctx_surrealdb::upgrade::maintenance_client(&config).await?;
-                        let receipt = match command {
-                            HistoryCommand::Qualify { evidence } => {
-                                lctx_surrealdb::control::qualify_history_inventory(&client, evidence).await?;
-                                serde_json::json!({"inventory":evidence.hex()})
+                        let result = async {
+                            match command {
+                                HistoryCommand::Qualify { evidence } => {
+                                    lctx_surrealdb::control::qualify_history_inventory(&client, evidence).await?;
+                                    Ok(serde_json::json!({"inventory":evidence.hex()}))
+                                }
+                                HistoryCommand::Cut => serde_json::to_value(lctx_surrealdb::control::cut_era(&client).await?).map_err(ModelError::codec),
+                                HistoryCommand::Compact { limit } => serde_json::to_value(lctx_surrealdb::control::compact_history(&client, limit).await?).map_err(ModelError::codec),
+                                HistoryCommand::Resume { identity, expected_revision, limit } => serde_json::to_value(lctx_surrealdb::control::resume_history_compaction(&client, identity, expected_revision, limit).await?).map_err(ModelError::codec),
                             }
-                            HistoryCommand::Cut => serde_json::to_value(lctx_surrealdb::control::cut_era(&client).await?)?,
-                            HistoryCommand::Compact { limit } => serde_json::to_value(lctx_surrealdb::control::compact_history(&client, limit).await?)?,
-                            HistoryCommand::Resume { identity, limit } => serde_json::to_value(lctx_surrealdb::control::resume_history_compaction(&client, identity, limit).await?)?,
-                        };
-                        println!("{}", serde_json::to_string(&serde_json::json!({"ready":false,"receipt":receipt}))?);
-                        anyhow::Ok(())
+                        }.await;
+                        let mut completion = Completion::default();
+                        completion.step("history maintenance session invalidation",client.invalidate().await.map_err(ModelError::codec));
+                        complete(result, completion)
                     })?;
+                    println!("{}", serde_json::to_string(&serde_json::json!({"ready":false,"receipt":receipt}))?);
                     return Ok(());
                 }
                 StoreCommand::Recover { cleanup, retirement, limit } => {
-                    runtime.block_on(async {
+                    let receipts = runtime.block_on(async {
+                        use lctx_model::domain::{ModelError, completion::{Completion, complete}};
                         anyhow::ensure!(!cleanup.is_empty() || !retirement.is_empty(), "recover requires named obligations");
                         let client = lctx_surrealdb::upgrade::maintenance_client(&config).await?;
-                        let mut receipts=Vec::new();
-                        for predecessor in cleanup {
-                            let successor=lctx_surrealdb::control::recover_cleanup(&client, predecessor).await?;
-                            // Emit the durable identity before continuing: a later error cannot hide it.
-                            println!("{}",serde_json::json!({"cleanup_predecessor":predecessor.hex(),"successor":successor.hex()}));
-                            lctx_surrealdb::control::resume_cleanup(&client,successor).await?;
-                            receipts.push(serde_json::json!({"cleanup":successor.hex(),"completed":true}));
-                        }
-                        for predecessor in retirement {
-                            let successor=lctx_surrealdb::control::recover_retirement(&client,predecessor).await?;
-                            println!("{}",serde_json::json!({"retirement_predecessor":predecessor.hex(),"successor":successor.hex()}));
-                            receipts.push(serde_json::to_value(lctx_surrealdb::control::resume_retirement(&client,successor,limit).await?)?);
-                        }
-                        println!("{}",serde_json::json!({"ready":false,"receipts":receipts}));
-                        anyhow::Ok(())
+                        let result = async {
+                            let mut receipts=Vec::new();
+                            for predecessor in cleanup {
+                                let successor=lctx_surrealdb::control::recover_cleanup(&client, predecessor).await?;
+                                // Emit the durable identity before continuing: a later error cannot hide it.
+                                println!("{}",serde_json::json!({"cleanup_predecessor":predecessor.hex(),"successor":successor.hex()}));
+                                lctx_surrealdb::control::resume_cleanup(&client,successor).await?;
+                                receipts.push(serde_json::json!({"cleanup":successor.hex(),"completed":true}));
+                            }
+                            for predecessor in retirement {
+                                let successor=lctx_surrealdb::control::recover_retirement(&client,predecessor).await?;
+                                println!("{}",serde_json::json!({"retirement_predecessor":predecessor.hex(),"successor":successor.hex()}));
+                                receipts.push(serde_json::to_value(lctx_surrealdb::control::resume_retirement(&client,successor,limit).await?).map_err(ModelError::codec)?);
+                            }
+                            Ok::<_, ModelError>(receipts)
+                        }.await;
+                        let mut completion = Completion::default();
+                        completion.step("recovery maintenance session invalidation",client.invalidate().await.map_err(ModelError::codec));
+                        Ok::<_, anyhow::Error>(complete(result,completion)?)
                     })?;
+                    println!("{}",serde_json::json!({"ready":false,"receipts":receipts}));
                     return Ok(());
                 }
                 StoreCommand::Drain => {
@@ -1090,10 +1171,20 @@ mod tests {
         let identity="ab".repeat(32);
         assert!(parse(&["store","schema"]).is_ok());
         assert!(parse(&["store","upgrade"]).is_err());
-        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity]).is_ok());
+        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity]).is_err());
+        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity,"--execution-contract","/owned/execution.json"]).is_ok());
         assert!(parse(&["store","upgrade","--expected-schema","wrong","--operation",&identity]).is_err());
+        assert!(parse(&["store","upgrade-contract","--expected-schema",&identity,"--operation",&identity,"--execution",&identity]).is_ok());
+        assert!(parse(&["store","upgrade-contract","--expected-schema",&identity,"--operation",&identity]).is_err());
+        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity,"--stop-after-pages","1"]).is_err());
+        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity,"--execution-contract","/owned/execution.json","--stop-after-pages","1"]).is_ok());
+        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity,"--execution-contract","/owned/execution.json","--stop-after-pages","0"]).is_err());
+        assert!(parse(&["store","upgrade-qualify","--expected-schema",&identity,"--operation",&identity,"--execution-contract","/owned/execution.json"]).is_ok());
+        assert!(parse(&["store","upgrade-qualify","--expected-schema",&identity,"--operation",&identity]).is_err());
         assert!(parse(&["store","history","qualify","--evidence",&identity]).is_ok());
-        assert!(parse(&["store","history","resume","--identity",&identity]).is_ok());
+        assert!(parse(&["store","history","resume","--identity",&identity]).is_err());
+        assert!(parse(&["store","history","resume","--identity",&identity,"--expected-revision","0"]).is_ok());
+        assert!(parse(&["store","history","resume","--identity",&identity,"--expected-revision","-1"]).is_err());
         assert!(parse(&["store","history","resume"]).is_err());
         assert!(parse(&["store","recover","--cleanup",&identity,"--retirement",&identity]).is_ok());
     }

@@ -16,7 +16,7 @@ use surrealdb::{
 
 // Failed transactions include NotExecuted frames before the causal error. Inspect every
 // statement so contention remains retryable and permanent refusals retain their actual cause.
-fn checked_transaction(
+pub(crate) fn checked_transaction(
     mut response: surrealdb::IndexedResults,
 ) -> Result<surrealdb::IndexedResults, ModelError> {
     transaction_errors(response.take_errors().into_iter().collect())?;
@@ -104,9 +104,14 @@ pub fn fresh_identity(kind: &str) -> Result<ContentHash, ModelError> {
     );
     Ok(sink.finish())
 }
-// Use a native primary-key range, rather than a filter that repeatedly scans the
-// already-consumed prefix or sorts a different composite index on every page.
+// A native primary-key range avoids rescanning consumed prefixes. At the pinned
+// engine, a literal range uses RecordIdScan, which eagerly materializes its entire
+// suffix before the outer LIMIT. The identity cast selects DynamicScan instead,
+// carrying LIMIT into the same ordered native range lookup and storage scanner.
 fn keyset_source(table:&str,after:&Value)->Result<String,ModelError>{
+    keyset_range_source(table,after,std::ops::Bound::Unbounded)
+}
+fn keyset_range_source(table:&str,after:&Value,end:std::ops::Bound<surrealdb::types::RecordIdKey>)->Result<String,ModelError>{
     use std::ops::Bound;
     use surrealdb::types::{RecordIdKey,RecordIdKeyRange,ToSql};
     let start=match after {
@@ -114,21 +119,21 @@ fn keyset_source(table:&str,after:&Value)->Result<String,ModelError>{
         Value::RecordId(id) if id.table.as_str()==table=>Bound::Excluded(id.key.clone()),
         _=>return Err(ModelError::Conflict("native keyset cursor table")),
     };
-    Ok(RecordId::new(table,RecordIdKeyRange::from((start,Bound::Unbounded))).to_sql())
+    let range=RecordId::new(table,RecordIdKeyRange::from((start,end)));
+    Ok(format!("type::record({})",range.to_sql()))
 }
 
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 mod authorization;
 mod retirement;
 mod history;
 mod cleanup;
 use cleanup::CleanupHolds;
 pub use cleanup::{recover_cleanup, resume_cleanup};
-mod migration;
+pub(crate) mod migration;
 pub use authorization::{IssuanceEra, NativeRequest, NativeRequestError, NativeAttemptError, NativeLifecycleError, EffectDisposition};
 pub use retirement::{retire, retire_reachable, resume_retirement, recover_retirement, register_retirement_roots};
 pub use history::{cut_era, compact_history, HistoryCompaction, retain_outcome, retain_native_outcome, release_outcome, release_outcome_reference, qualify_history_inventory, resume_history_compaction};
-pub(crate) use migration::migrate_legacy_state;
 pub fn schema() -> &'static str {
     include_str!("control/schema.surql")
 }
@@ -221,7 +226,7 @@ pub async fn drain_effects(client: &Surreal<Client>) -> Result<(), ModelError> {
 pub async fn guarded_effect(client:&Surreal<Client>,attempt:Option<ContentHash>,objects:Vec<RecordId>,sql:&str,mut bindings:Variables)->Result<(),ModelError>{
     let guards=objects.iter().map(|id|guard_id(&Value::RecordId(id.clone()))).collect::<Result<Vec<_>,_>>()?;
     bindings.insert("__write_guards",guards);
-    let guarded=format!("FOR $__guard IN $__write_guards {{ LET $__prior=SELECT * FROM ONLY $__guard FOR UPDATE; IF $__prior.phase='retiring' {{ THROW 'native object retiring; resume its original lifecycle'; }}; IF $__epoch<=($__prior.retired_through ?? 0) {{ THROW 'native state epoch retired'; }}; UPSERT $__guard SET revision=(revision ?? 0)+1,retired=false,phase='active',incarnation=($__prior.incarnation ?? 1)+<int>($__prior.phase='retired'),retiring_item=NONE,retired_through=(retired_through ?? 0) RETURN NONE; }}; {sql}");
+    let guarded=format!("FOR $__guard IN $__write_guards {{ LET $__prior=SELECT * FROM ONLY $__guard FOR UPDATE; IF $__prior.phase='retiring' {{ THROW 'native object retiring; resume its original lifecycle'; }}; IF $__epoch<=($__prior.retired_through ?? 0) {{ THROW 'native state epoch retired'; }}; UPSERT $__guard SET revision=(revision ?? 0)+1,retired=false,phase='active',incarnation=($__prior.incarnation ?? 1)+(IF $__prior.phase='retired' {{ 1 }} ELSE {{ 0 }}),retiring_item=NONE,retired_through=(retired_through ?? 0) RETURN NONE; }}; {sql}");
     effect(client,attempt,&guarded,bindings).await
 }
 
@@ -269,7 +274,7 @@ pub async fn ensure_rows_owned(
         ""
     };
     let sql = format!(
-        "{fence} FOR $i IN 0..array::len($rows) {{ LET $row=$rows[$i]; LET $guard=$guards[$i]; LET $prior=SELECT * FROM ONLY $guard FOR UPDATE; IF $prior.phase='retiring' {{ THROW 'native object retiring; resume its original lifecycle'; }}; IF $__epoch<=($prior.retired_through ?? 0) {{ THROW 'native content epoch retired'; }}; UPSERT $guard SET revision=(revision ?? 0)+1,retired=false,phase='active',incarnation=($prior.incarnation ?? 1)+<int>($prior.phase='retired'),retiring_item=NONE,retired_through=(retired_through ?? 0) RETURN NONE; LET $existing=SELECT * FROM ONLY $row.id; IF $existing != NONE AND $existing != $row {{ THROW 'native immutable address collision'; }}; IF $existing=NONE {{ IF record::table($row.id) IN ['participant','reference','lex_occurs','vec_occurs'] {{ INSERT RELATION $row RETURN NONE; }} ELSE {{ CREATE $row.id CONTENT $row RETURN NONE; }}; }}; }}"
+        "{fence} FOR $i IN 0..array::len($rows) {{ LET $row=$rows[$i]; LET $guard=$guards[$i]; LET $prior=SELECT * FROM ONLY $guard FOR UPDATE; IF $prior.phase='retiring' {{ THROW 'native object retiring; resume its original lifecycle'; }}; IF $__epoch<=($prior.retired_through ?? 0) {{ THROW 'native content epoch retired'; }}; UPSERT $guard SET revision=(revision ?? 0)+1,retired=false,phase='active',incarnation=($prior.incarnation ?? 1)+(IF $prior.phase='retired' {{ 1 }} ELSE {{ 0 }}),retiring_item=NONE,retired_through=(retired_through ?? 0) RETURN NONE; LET $existing=SELECT * FROM ONLY $row.id; IF $existing != NONE AND $existing != $row {{ THROW 'native immutable address collision'; }}; IF $existing=NONE {{ IF record::table($row.id) IN ['participant','reference','lex_occurs','vec_occurs'] {{ INSERT RELATION $row RETURN NONE; }} ELSE {{ CREATE $row.id CONTENT $row RETURN NONE; }}; }}; }}"
     );
     effect(client, attempt, &sql, bindings).await
 }
@@ -358,7 +363,7 @@ pub async fn hold_many(
             .map(EffectOwner::Pin)
             .unwrap_or(EffectOwner::Installation)
     };
-    effect_for_owner(client,owner,"FOR $guard IN $guards { LET $prior=SELECT * FROM ONLY $guard FOR UPDATE; IF $prior.phase='retiring' { THROW 'native object retiring; resume its original lifecycle'; }; IF $__epoch<=($prior.retired_through ?? 0) { THROW 'native attachment epoch retired'; }; UPSERT $guard SET revision=(revision ?? 0)+1,retired=false,phase='active',incarnation=($prior.incarnation ?? 1)+<int>($prior.phase='retired'),retiring_item=NONE,retired_through=(retired_through ?? 0) RETURN NONE; }; FOR $row IN $holds { IF (SELECT VALUE id FROM ONLY $row.object)=NONE { THROW 'native attachment target missing'; }; UPSERT $row.id CONTENT $row RETURN NONE; }",bindings).await
+    effect_for_owner(client,owner,"FOR $guard IN $guards { LET $prior=SELECT * FROM ONLY $guard FOR UPDATE; IF $prior.phase='retiring' { THROW 'native object retiring; resume its original lifecycle'; }; IF $__epoch<=($prior.retired_through ?? 0) { THROW 'native attachment epoch retired'; }; UPSERT $guard SET revision=(revision ?? 0)+1,retired=false,phase='active',incarnation=($prior.incarnation ?? 1)+(IF $prior.phase='retired' { 1 } ELSE { 0 }),retiring_item=NONE,retired_through=(retired_through ?? 0) RETURN NONE; }; FOR $row IN $holds { IF (SELECT VALUE id FROM ONLY $row.object)=NONE { THROW 'native attachment target missing'; }; UPSERT $row.id CONTENT $row RETURN NONE; }",bindings).await
 }
 
 pub async fn pin_views(
@@ -647,6 +652,79 @@ impl Drop for ReaderPin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn keyset_identity_cast_preserves_native_key_types_and_excluded_bounds(){
+        use surrealdb::types::{RecordIdKey,ToSql};
+        let mut composite=Object::new();composite.insert("part","quoted:' key");
+        let keys=vec![RecordIdKey::Number(7),RecordIdKey::String("7".into()),RecordIdKey::Uuid(surrealdb::types::Uuid::new_v4()),RecordIdKey::String("quoted:' key".into()),RecordIdKey::Array(vec![Value::String("scope".into()),Value::Number(surrealdb::types::Number::Int(7))].into()),RecordIdKey::Object(composite)];
+        assert_eq!(keyset_source("native_guard",&Value::None).unwrap(),"type::record(native_guard:..)");
+        for key in keys {
+            let source=keyset_source("native_guard",&Value::RecordId(RecordId::new("native_guard",key.clone()))).unwrap();
+            assert_eq!(source,format!("type::record(native_guard:{}>..)",key.to_sql()));
+            surrealdb_syn::parse(&format!("SELECT * FROM {source} LIMIT 128;")).unwrap();
+            let bounded=keyset_range_source("native_guard",&Value::RecordId(RecordId::new("native_guard",key.clone())),std::ops::Bound::Included(key.clone())).unwrap();
+            assert_eq!(bounded,format!("type::record(native_guard:{}>..={})",key.to_sql(),key.to_sql()));
+            surrealdb_syn::parse(&format!("SELECT * FROM {bounded} LIMIT 128;")).unwrap();
+        }
+        surrealdb_syn::parse(&format!("SELECT * FROM {} LIMIT 128;",keyset_source("native_guard",&Value::None).unwrap())).unwrap();
+    }
+    #[test]
+    fn keyset_cursor_rejects_foreign_tables_and_non_native_values(){
+        for after in [Value::RecordId(RecordId::new("native_hold","cursor")),Value::String("native_guard:cursor".into()),Value::Null,Value::Number(surrealdb::types::Number::Int(1))] {
+            assert!(keyset_source("native_guard",&after).is_err());
+        }
+    }
+    #[tokio::test(flavor="multi_thread")]
+    #[ignore="requires installed stable validation fixture; creates and removes only nonce-owned guards"]
+    async fn native_keyset_dynamic_scan_pushes_limit_and_preserves_full_ordered_pages(){
+        use surrealdb::types::RecordIdKey;
+        let path=std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime");
+        let config=crate::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+        assert_eq!(config.database.as_str(),"validation","qualification cannot touch operator scope");
+        let prefix=format!("sa_keyset_{}_",fresh_identity("native-keyset-limit-control").unwrap().hex());
+        let client=crate::compiler::check_installation(&config).await.unwrap();
+        let ids=(0..260).map(|index|RecordId::new("native_guard",format!("{prefix}{index:04}"))).collect::<Vec<_>>();
+        let expected=ids.iter().enumerate().map(|(index,id)|{
+            let mut row=Object::new();row.insert("id",id.clone());row.insert("revision",index as i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row
+        }).collect::<Vec<_>>();
+        let result=async {
+            for rows in expected.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
+                let rows=rows.iter().cloned().map(Value::Object).collect::<Vec<_>>();
+                checked_transaction(client.query("BEGIN; INSERT INTO native_guard $rows RETURN NONE; COMMIT;").bind(("rows",rows)).await.map_err(ModelError::codec)?)?;
+            }
+            let end=std::ops::Bound::Included(ids.last().unwrap().key.clone());
+            let mut after=Value::RecordId(RecordId::new("native_guard",RecordIdKey::String(prefix)));
+            let mut offset=0;
+            for count in [128,128,4,0] {
+                let source=keyset_range_source("native_guard",&after,end.clone())?;
+                let sql=format!("SELECT * FROM {source} LIMIT {}",crate::loader::NATIVE_WINDOW_ROWS);
+                let mut response=client.query(format!("EXPLAIN {sql}; {sql};")).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                let plan:Value=response.take(0).map_err(ModelError::codec)?;
+                let Value::String(plan)=plan else {return Err(ModelError::Schema("native keyset explanation shape"));};
+                if !plan.contains("DynamicScan") || !plan.contains("limit: 128") || plan.contains("RecordIdScan") || plan.contains("Sort") {
+                    return Err(ModelError::Invalid(format!("native keyset must push the page limit into DynamicScan: {plan}")));
+                }
+                let actual:Vec<Object>=response.take(1).map_err(ModelError::codec)?;
+                if actual!=expected[offset..offset+count] {return Err(ModelError::Conflict("native keyset full ordered page"));}
+                offset+=count;
+                if let Some(last)=actual.last(){after=last.get("id").cloned().ok_or(ModelError::Schema("native keyset row identity"))?;}
+            }
+            Ok::<_,ModelError>(())
+        }.await;
+        let mut completion=lctx_model::domain::completion::Completion::default();
+        for rows in expected.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
+            completion.step("native keyset nonce-owned guard cleanup",async {
+                let ids=rows.iter().map(|row|row.get("id").cloned().unwrap()).collect::<Vec<_>>();
+                let rows=rows.iter().cloned().map(Value::Object).collect::<Vec<_>>();
+                // One bounded lookup checks full bodies; missing rows are safe after
+                // partial insertion, while changed rows retain cleanup uncertainty.
+                checked_transaction(client.query("BEGIN; LET $actual=(SELECT * FROM $ids); FOR $row IN $actual { IF $row NOT IN $rows { THROW 'native keyset owned guard changed before cleanup'; }; }; DELETE $ids RETURN NONE; COMMIT;").bind(("ids",ids)).bind(("rows",rows)).await.map_err(ModelError::codec)?)?;
+                Ok::<_,ModelError>(())
+            }.await);
+        }
+        completion.step("native keyset qualification session invalidation",client.invalidate().await.map_err(ModelError::codec));
+        lctx_model::domain::completion::complete(result,completion).unwrap();
+    }
     #[test]
     fn transaction_classification_preserves_primary_and_secondary_without_replaying_mixed_errors() {
         let aborted = || {

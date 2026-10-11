@@ -20,9 +20,14 @@ def source_case() -> tuple[dict[str, Any], dict[str, Any]]:
         "truncated": False,
     }
     response = {
+        # Controlled formatter DTO values; they do not name a native publication.
         "snapshot": {
+            "publication": [7] * 32,
             "semantic": [5] * 32,
             "realization": [6] * 32,
+            "view": [8] * 32,
+            "service_generation": [9] * 32,
+            "definition_epoch": [10] * 32,
             "database": {"namespace": "control", "database": "renderer"},
         },
         "evidence": {

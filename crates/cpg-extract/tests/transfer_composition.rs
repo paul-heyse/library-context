@@ -998,3 +998,16 @@ async fn selected_source_signature_witness_replay_refuses_missing_and_foreign_do
         );
     }
 }
+
+
+#[path = "cases/transfer/finite_summaries.rs"]
+mod finite_summaries;
+
+#[path = "cases/transfer/summary_consequences.rs"]
+mod summary_consequences;
+
+#[path = "cases/transfer/symbolic_composition.rs"]
+mod symbolic_composition;
+
+#[path = "cases/transfer/symbolic_fields.rs"]
+mod symbolic_fields;

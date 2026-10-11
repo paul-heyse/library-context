@@ -1,7 +1,5 @@
-#[path = "fixtures/transfer_composition.rs"]
-mod fixture;
-#[path = "fixtures/source_execution.rs"]
-mod source_fixture;
+use crate::fixture;
+use crate::source_execution as source_fixture;
 use lctx_model::domain::{
     analysis::native::NativeInventory,
     conditions::entry::EntryData,

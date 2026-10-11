@@ -196,8 +196,17 @@ fn assert_acknowledged_immutable_collision(failure: &ModelError) {
     };
     assert_eq!(wire.get("code"), Some(&Value::Number(Number::Int(-32006))));
     let mut envelope = failure;
-    while let ModelError::SharedCause(inner) = envelope {
-        envelope = inner.as_ref();
+    loop {
+        match envelope {
+            ModelError::SharedCause(inner) => envelope = inner.as_ref(),
+            ModelError::Cause(cause) => {
+                let request = cause
+                    .downcast_ref::<lctx_surrealdb::control::NativeRequestError>()
+                    .expect("retained native request context");
+                envelope = &request.source;
+            }
+            _ => break,
+        }
     }
     let ModelError::Completion(outcome) = envelope else {
         panic!("checked native transaction failure: {failure:?}");
@@ -212,7 +221,8 @@ fn assert_acknowledged_immutable_collision(failure: &ModelError) {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::{FiniteF64, ModelError, analytics::QualityStep};
     use lctx_surrealdb::surrealdb::types::{Number, Value, Variables};
     let path = std::path::PathBuf::from(
@@ -242,10 +252,13 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .await
         .unwrap();
     let views = store
-        .complete_contribution(contribution,
+        .complete_contribution(
+            contribution,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &BTreeMap::new(), &native_operation_budget)
+            &BTreeMap::new(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     let view = views[relation.name()].clone();
@@ -265,19 +278,30 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .unwrap();
     store.verify_state(&native_operation_budget).await.unwrap();
     let file = tempfile::NamedTempFile::new().unwrap();
-    let state = store.export_state(file.path(), &native_operation_budget).await.unwrap();
+    let state = store
+        .export_state(file.path(), &native_operation_budget)
+        .await
+        .unwrap();
     assert_eq!(state.backing_rows, 1);
     let restored =
         NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
             .await
             .unwrap();
-    restored.import_state(file.path(), &state, &native_operation_budget).await.unwrap();
+    restored
+        .import_state(file.path(), &state, &native_operation_budget)
+        .await
+        .unwrap();
     restored.abandon().await.unwrap();
     let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
     assert_eq!(backing_nodes.len(), 1);
 
-    let mut before = admin.query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
-        .bind(("nodes", backing_nodes.clone())).await.unwrap().check().unwrap();
+    let mut before = admin
+        .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
     let saved: Vec<Value> = before.take(0).unwrap();
     assert_eq!(saved.len(), 1, "exact owned quality backing row");
     let mut mutation = admin
@@ -288,7 +312,11 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .check()
         .unwrap();
     let changed: Vec<Value> = mutation.take(0).unwrap();
-    assert_eq!(changed.len(), 1, "mutation affects the exact owned backing row");
+    assert_eq!(
+        changed.len(),
+        1,
+        "mutation affects the exact owned backing row"
+    );
     assert_ne!(changed, saved, "body mutation is substantive");
     let verification = store.verify_state(&native_operation_budget).await;
     let completed = store.completed_state(&native_operation_budget).await;
@@ -299,17 +327,42 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .unwrap()
         .check()
         .unwrap();
-    let mut readback = admin.query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
-        .bind(("nodes", backing_nodes.clone())).await.unwrap().check().unwrap();
+    let mut readback = admin
+        .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
     let restored_rows: Vec<Value> = readback.take(0).unwrap();
-    assert_eq!(restored_rows, saved, "restore exact physical row before refusal assertions");
-    assert!(matches!(&verification, Err(ModelError::Conflict("compiler backing typed identity"))),
-        "body-only corruption independent verification: {verification:?}");
-    assert!(matches!(&completed, Err(ModelError::Conflict("compiler backing typed identity"))),
-        "body-only corruption completed state: {completed:?}");
+    assert_eq!(
+        restored_rows, saved,
+        "restore exact physical row before refusal assertions"
+    );
+    assert!(
+        matches!(
+            &verification,
+            Err(ModelError::Conflict("compiler backing typed identity"))
+        ),
+        "body-only corruption independent verification: {verification:?}"
+    );
+    assert!(
+        matches!(
+            &completed,
+            Err(ModelError::Conflict("compiler backing typed identity"))
+        ),
+        "body-only corruption completed state: {completed:?}"
+    );
     // Independently reach canonical-byte validation without changing the content address:
     // keep the actual body and id intact, but encode a different valid body in canonical.
-    let mut mismatched_body = saved[0].as_object().unwrap().get("body").unwrap().as_object().unwrap().clone();
+    let mut mismatched_body = saved[0]
+        .as_object()
+        .unwrap()
+        .get("body")
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .clone();
     mismatched_body.insert("value", Value::Number(Number::Float(2.0)));
     let mismatched_canonical = lctx_surrealdb::surrealdb::types::Bytes::from(
         serde_json::to_vec(&Value::Object(mismatched_body)).unwrap(),
@@ -320,23 +373,66 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
     let changed: Vec<Value> = mutation.take(0).unwrap();
     let verification = store.verify_state(&native_operation_budget).await;
     let completed = store.completed_state(&native_operation_budget).await;
-    admin.query("UPDATE $nodes SET canonical=$canonical WHERE record::table(id)='compiler_record'")
+    admin
+        .query("UPDATE $nodes SET canonical=$canonical WHERE record::table(id)='compiler_record'")
         .bind(("nodes", backing_nodes.clone()))
-        .bind(("canonical", saved[0].as_object().unwrap().get("canonical").unwrap().clone()))
-        .await.unwrap().check().unwrap();
-    let mut readback = admin.query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
-        .bind(("nodes", backing_nodes.clone())).await.unwrap().check().unwrap();
+        .bind((
+            "canonical",
+            saved[0]
+                .as_object()
+                .unwrap()
+                .get("canonical")
+                .unwrap()
+                .clone(),
+        ))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let mut readback = admin
+        .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
     let restored_rows: Vec<Value> = readback.take(0).unwrap();
-    assert_eq!(restored_rows, saved, "restore canonical bytes before refusal assertions");
-    assert_eq!(changed.len(), 1, "canonical-only mutation affects one owned row");
+    assert_eq!(
+        restored_rows, saved,
+        "restore canonical bytes before refusal assertions"
+    );
+    assert_eq!(
+        changed.len(),
+        1,
+        "canonical-only mutation affects one owned row"
+    );
     assert_ne!(changed, saved, "canonical-only mutation is substantive");
-    assert_eq!(changed[0].as_object().unwrap().get("body"), saved[0].as_object().unwrap().get("body"));
-    assert_eq!(changed[0].as_object().unwrap().get("id"), saved[0].as_object().unwrap().get("id"));
-    assert_eq!(changed[0].as_object().unwrap().get("canonical"), Some(&Value::Bytes(mismatched_canonical)));
-    assert!(matches!(&verification, Err(ModelError::Conflict("compiler backing canonical body"))),
-        "canonical-only corruption independent verification: {verification:?}");
-    assert!(matches!(&completed, Err(ModelError::Conflict("compiler backing canonical body"))),
-        "canonical-only corruption completed state: {completed:?}");
+    assert_eq!(
+        changed[0].as_object().unwrap().get("body"),
+        saved[0].as_object().unwrap().get("body")
+    );
+    assert_eq!(
+        changed[0].as_object().unwrap().get("id"),
+        saved[0].as_object().unwrap().get("id")
+    );
+    assert_eq!(
+        changed[0].as_object().unwrap().get("canonical"),
+        Some(&Value::Bytes(mismatched_canonical))
+    );
+    assert!(
+        matches!(
+            &verification,
+            Err(ModelError::Conflict("compiler backing canonical body"))
+        ),
+        "canonical-only corruption independent verification: {verification:?}"
+    );
+    assert!(
+        matches!(
+            &completed,
+            Err(ModelError::Conflict("compiler backing canonical body"))
+        ),
+        "canonical-only corruption completed state: {completed:?}"
+    );
     let mut bindings = Variables::new();
     bindings.insert("key", "00".repeat(16));
     let mut mutation = admin
@@ -348,9 +444,15 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .check()
         .unwrap();
     let changed: Vec<Value> = mutation.take(0).unwrap();
-    assert_eq!(changed.len(), 1, "false typed key mutation affects one owned row");
-    assert_eq!(changed[0].as_object().unwrap().get("semantic_key"),
-        Some(&Value::String("00".repeat(16))));
+    assert_eq!(
+        changed.len(),
+        1,
+        "false typed key mutation affects one owned row"
+    );
+    assert_eq!(
+        changed[0].as_object().unwrap().get("semantic_key"),
+        Some(&Value::String("00".repeat(16)))
+    );
     assert_ne!(changed, saved, "false typed key mutation is substantive");
     let verification = store.verify_state(&native_operation_budget).await;
     let completed = store.completed_state(&native_operation_budget).await;
@@ -364,15 +466,39 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .unwrap()
         .check()
         .unwrap();
-    let mut readback = admin.query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
-        .bind(("nodes", backing_nodes.clone())).await.unwrap().check().unwrap();
+    let mut readback = admin
+        .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
+        .bind(("nodes", backing_nodes.clone()))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
     let restored_rows: Vec<Value> = readback.take(0).unwrap();
-    assert_eq!(restored_rows, saved, "restore exact physical key before refusal assertions");
-    assert!(matches!(&verification, Err(ModelError::Conflict("compiler backing typed identity"))),
-        "false typed key independent verification: {verification:?}");
-    assert!(matches!(&completed, Err(ModelError::Conflict("compiler backing typed identity"))),
-        "false typed key completed state: {completed:?}");
-    assert_eq!(store.completed_state(&native_operation_budget).await.unwrap(), state);
+    assert_eq!(
+        restored_rows, saved,
+        "restore exact physical key before refusal assertions"
+    );
+    assert!(
+        matches!(
+            &verification,
+            Err(ModelError::Conflict("compiler backing typed identity"))
+        ),
+        "false typed key independent verification: {verification:?}"
+    );
+    assert!(
+        matches!(
+            &completed,
+            Err(ModelError::Conflict("compiler backing typed identity"))
+        ),
+        "false typed key completed state: {completed:?}"
+    );
+    assert_eq!(
+        store
+            .completed_state(&native_operation_budget)
+            .await
+            .unwrap(),
+        state
+    );
 
     // External transport must reject the row before trusting even an outer state identity.
     #[derive(serde::Serialize, serde::Deserialize)]
@@ -400,7 +526,10 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
             body.insert("value", Value::Number(Number::Float(2.0)));
         }
     }
-    assert_eq!(changed_backing_rows, 1, "external mutation changes one selected backing envelope");
+    assert_eq!(
+        changed_backing_rows, 1,
+        "external mutation changes one selected backing envelope"
+    );
     let text = header.to_string()
         + "\n"
         + &envelopes
@@ -412,7 +541,10 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
             .await
             .unwrap();
-    let error = altered.import_state(file.path(), &state, &native_operation_budget).await.unwrap_err();
+    let error = altered
+        .import_state(file.path(), &state, &native_operation_budget)
+        .await
+        .unwrap_err();
     assert!(
         matches!(
             error.primary(),
@@ -432,7 +564,8 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn cold_backing_rejects_coherently_renamed_membership_identity() {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::ModelError;
     use lctx_surrealdb::surrealdb::types::{RecordId, Value, Variables};
 
@@ -462,10 +595,13 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
         .await
         .unwrap();
     store
-        .complete_contribution(contribution,
+        .complete_contribution(
+            contribution,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &BTreeMap::new(), &native_operation_budget)
+            &BTreeMap::new(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     store.verify_state(&native_operation_budget).await.unwrap();
@@ -538,7 +674,8 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn pending_overlap_frozen_selection_and_state_transport() {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use futures::FutureExt;
     use lctx_model::domain::{ModelError, completion};
     use std::panic::AssertUnwindSafe;
@@ -585,10 +722,13 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             .await
             .unwrap();
         let views = store
-            .complete_contribution(a,
+            .complete_contribution(
+                a,
                 ProviderOutcome::Complete,
                 std::slice::from_ref(&relation),
-                &BTreeMap::new(), &native_operation_budget)
+                &BTreeMap::new(),
+                &native_operation_budget,
+            )
             .await
             .unwrap();
         let frozen = views[relation.name()].clone();
@@ -623,10 +763,13 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             "pending values cannot widen a frozen view"
         );
         let current = store
-            .complete_contribution(b,
+            .complete_contribution(
+                b,
                 ProviderOutcome::Complete,
                 std::slice::from_ref(&relation),
-                &views, &native_operation_budget)
+                &views,
+                &native_operation_budget,
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -666,7 +809,11 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
         assert_eq!(Package::decode(&selected).unwrap(), vec![second]);
         assert!(rows.try_next().await.unwrap().is_none());
         assert_eq!(
-            store.completed_state(&native_operation_budget).await.unwrap().contributions,
+            store
+                .completed_state(&native_operation_budget)
+                .await
+                .unwrap()
+                .contributions,
             0,
             "unbound intermediate views are not completed-state roots"
         );
@@ -685,11 +832,20 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             })
             .await
             .unwrap();
-        let state = store.completed_state(&native_operation_budget).await.unwrap();
+        let state = store
+            .completed_state(&native_operation_budget)
+            .await
+            .unwrap();
         assert_eq!(state.contributions, 2);
         assert_eq!(state.memberships, 3);
         let file = tempfile::NamedTempFile::new().unwrap();
-        assert_eq!(store.export_state(file.path(), &native_operation_budget).await.unwrap(), state);
+        assert_eq!(
+            store
+                .export_state(file.path(), &native_operation_budget)
+                .await
+                .unwrap(),
+            state
+        );
         restored_owner = Some(
             NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
                 .await
@@ -708,8 +864,17 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             ])
             .await
             .unwrap();
-        restored.import_state(file.path(), &state, &native_operation_budget).await.unwrap();
-        assert_eq!(restored.completed_state(&native_operation_budget).await.unwrap(), state);
+        restored
+            .import_state(file.path(), &state, &native_operation_budget)
+            .await
+            .unwrap();
+        assert_eq!(
+            restored
+                .completed_state(&native_operation_budget)
+                .await
+                .unwrap(),
+            state
+        );
         // Replay compares complete immutable membership rows, rather than replacing corrupted
         // metadata or silently ignoring an existing key. Published graph payloads remain identical.
         let replay = restored
@@ -785,7 +950,8 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_conflict() {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::{
         EvidenceBytes, artifact::ArtifactChunk, input::InputRevision, source::SourceArtifact,
     };
@@ -834,10 +1000,13 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         .await
         .unwrap();
     let views = store
-        .complete_contribution(contribution,
+        .complete_contribution(
+            contribution,
             ProviderOutcome::Complete,
             &[relation.clone(), source_relation.clone()],
-            &BTreeMap::new(), &native_operation_budget)
+            &BTreeMap::new(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     for output in [&relation, &source_relation] {
@@ -896,7 +1065,10 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     let metadata: Vec<lctx_surrealdb::surrealdb::types::Value> = response.take(0).unwrap();
     assert!(metadata.iter().all(|body|matches!(body,lctx_surrealdb::surrealdb::types::Value::Object(object) if !object.contains_key("body"))));
     store.verify_state(&native_operation_budget).await.unwrap();
-    let state = store.completed_state(&native_operation_budget).await.unwrap();
+    let state = store
+        .completed_state(&native_operation_budget)
+        .await
+        .unwrap();
     assert_eq!(state.contributions, 1);
     assert_eq!(state.memberships, 2);
     assert_eq!(state.backing_rows, 1);
@@ -926,7 +1098,13 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         .unwrap()
         .check()
         .unwrap();
-    assert_eq!(store.completed_state(&native_operation_budget).await.unwrap(), state);
+    assert_eq!(
+        store
+            .completed_state(&native_operation_budget)
+            .await
+            .unwrap(),
+        state
+    );
     // Metadata is intact; the independently read physical byte owner must still agree.
     let mut response = admin
         .query("SELECT * FROM original_chunk WHERE source=$source ORDER BY start LIMIT 1")
@@ -1003,7 +1181,8 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
 
 #[tokio::test(flavor = "multi_thread")]
 async fn overlapping_membership_windows_count_distinct_keys_across_contributors() {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let path = std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
     );
@@ -1045,10 +1224,13 @@ async fn overlapping_membership_windows_count_distinct_keys_across_contributors(
                 .unwrap();
         }
         views = store
-            .complete_contribution(contribution,
+            .complete_contribution(
+                contribution,
                 ProviderOutcome::Complete,
                 std::slice::from_ref(&relation),
-                &views, &native_operation_budget)
+                &views,
+                &native_operation_budget,
+            )
             .await
             .unwrap();
         let view = views[relation.name()].clone();
@@ -1081,7 +1263,8 @@ async fn overlapping_membership_windows_count_distinct_keys_across_contributors(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership() {
-    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use arrow_array::{FixedSizeBinaryArray, StringArray};
     use lctx_model::domain::{graph::Entity, input::Release};
     use lctx_surrealdb::compiler_provider::{select_field_table, select_table};
@@ -1141,10 +1324,13 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
             .await
             .unwrap();
         views = store
-            .complete_contribution(contribution,
+            .complete_contribution(
+                contribution,
                 ProviderOutcome::Complete,
                 std::slice::from_ref(&relation),
-                &views, &native_operation_budget)
+                &views,
+                &native_operation_budget,
+            )
             .await
             .unwrap();
     }
@@ -1226,10 +1412,13 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
     for completed in [false, true] {
         if completed {
             views = store
-                .complete_contribution(newer,
+                .complete_contribution(
+                    newer,
                     ProviderOutcome::Complete,
                     std::slice::from_ref(&relation),
-                    &views, &native_operation_budget)
+                    &views,
+                    &native_operation_budget,
+                )
                 .await
                 .unwrap();
             assert_eq!(views[relation.name()].rows, 720);
@@ -1535,7 +1724,8 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
-    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     use lctx_model::domain::{FiniteF64, analytics::QualityStep, graph::Entity};
     use lctx_surrealdb::surrealdb::types::{Bytes, RecordId, SurrealValue, Value, Variables};
@@ -1584,10 +1774,13 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
         .await
         .unwrap();
     store
-        .complete_contribution(complete,
+        .complete_contribution(
+            complete,
             ProviderOutcome::Complete,
             &[relation.clone(), metadata],
-            &BTreeMap::new(), &native_operation_budget)
+            &BTreeMap::new(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     let uncompleted = store
@@ -1650,7 +1843,8 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
-    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     use lctx_model::domain::completed::CompletedView;
     let path = std::path::PathBuf::from(
@@ -1666,10 +1860,13 @@ async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
         .await
         .unwrap();
     let views = store
-        .complete_contribution(empty,
+        .complete_contribution(
+            empty,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &BTreeMap::new(), &native_operation_budget)
+            &BTreeMap::new(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     let frozen = views[relation.name()].clone();
@@ -1731,10 +1928,13 @@ async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
         .await
         .unwrap();
     let current = store
-        .complete_contribution(next,
+        .complete_contribution(
+            next,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &views, &native_operation_budget)
+            &views,
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     let view = &current[relation.name()];
@@ -1821,7 +2021,8 @@ async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn membership_prefix_selection_uses_scalar_index_and_exact_owners() {
-    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_surrealdb::surrealdb::types::{ToSql, Value, Variables};
     let path = std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
@@ -1869,10 +2070,13 @@ async fn membership_prefix_selection_uses_scalar_index_and_exact_owners() {
             .await
             .unwrap();
         views = store
-            .complete_contribution(id,
+            .complete_contribution(
+                id,
                 ProviderOutcome::Complete,
                 std::slice::from_ref(&relation),
-                &views, &native_operation_budget)
+                &views,
+                &native_operation_budget,
+            )
             .await
             .unwrap();
     }
@@ -2037,7 +2241,8 @@ async fn membership_prefix_selection_uses_scalar_index_and_exact_owners() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn local_membership_preparation_refusal_does_not_poison_later_consumer() {
-    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::ModelError;
     let path = std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
@@ -2063,10 +2268,13 @@ async fn local_membership_preparation_refusal_does_not_poison_later_consumer() {
         .await
         .unwrap();
     let views = store
-        .complete_contribution(contribution,
+        .complete_contribution(
+            contribution,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &BTreeMap::new(), &native_operation_budget)
+            &BTreeMap::new(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     let view = &views[relation.name()];
@@ -2119,7 +2327,8 @@ async fn local_membership_preparation_refusal_does_not_poison_later_consumer() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn optional_singleton_capture_preserves_completed_state_and_refuses_unowned_reads() {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::{ModelError, completed::CompletedView, source::Occurrence};
     use lctx_surrealdb::surrealdb::types::{Bytes, RecordId, Variables};
     let config = RuntimeConfig::read(&std::path::PathBuf::from(
@@ -2151,10 +2360,13 @@ async fn optional_singleton_capture_preserves_completed_state_and_refuses_unowne
                 .await
                 .unwrap();
             previous = store
-                .complete_contribution(id,
+                .complete_contribution(
+                    id,
                     ProviderOutcome::Complete,
                     std::slice::from_ref(&relation),
-                    &previous, &native_operation_budget)
+                    &previous,
+                    &native_operation_budget,
+                )
                 .await
                 .unwrap();
             if name == "second" {
@@ -2181,7 +2393,12 @@ async fn optional_singleton_capture_preserves_completed_state_and_refuses_unowne
     let expected = off.completed_state(&native_operation_budget).await.unwrap();
     assert_eq!(expected.contributions, 2);
     assert_eq!(expected.memberships, 2);
-    assert_eq!(cold.completed_state(&native_operation_budget).await.unwrap(), expected);
+    assert_eq!(
+        cold.completed_state(&native_operation_budget)
+            .await
+            .unwrap(),
+        expected
+    );
     let mut stream = cold
         .scan_contribution_batches(second, &relation, &budget, 32)
         .await
@@ -2199,7 +2416,9 @@ async fn optional_singleton_capture_preserves_completed_state_and_refuses_unowne
         "capture excludes prior cumulative output"
     );
     assert_eq!(
-        cold.completed_state(&native_operation_budget).await.unwrap(),
+        cold.completed_state(&native_operation_budget)
+            .await
+            .unwrap(),
         expected,
         "optional cold capture changes no retained state"
     );
