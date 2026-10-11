@@ -1034,7 +1034,7 @@ impl NativeCompilerStore {
             let mut descriptors = Vec::new();
             let mut dependencies = BTreeMap::new();
             for owner in self.view_owners(&view)? {
-                owners.insert(owner);
+                let first_owner = owners.insert(owner);
                 let mut stream = self.track_rows(NativeRows::new(
                     self.read_client()?
                         .query("SELECT * FROM $owner WHERE completed=true")
@@ -1054,7 +1054,10 @@ impl NativeCompilerStore {
                     ));
                 }
                 let descriptor: CompletedContribution = decode_descriptor(&row)?;
-                for input in &descriptor.spec.inputs {
+                // RecoveryTraversal checks every output's exact contributor inventory,
+                // but traverses a contribution's dependencies only on its first inclusion.
+                // Keep the fresh descriptor check above for repeated physical owners.
+                for input in descriptor.spec.inputs.iter().filter(|_| first_owner) {
                     if dependencies.contains_key(&input.view()) {
                         continue;
                     }
@@ -1125,24 +1128,33 @@ impl NativeCompilerStore {
         budget: &ResourceBudget,
     ) -> Result<AuditCapture, ModelError> {
         let bindings = self.bindings_inner().await?;
-        let (closure, owners) = self.logical_recovery_closure(&bindings).await?;
+        let phase = crate::phase::Phase::begin("native_audit_logical_closure");
+        let closure = self.logical_recovery_closure(&bindings).await;
+        phase.finish_result(&closure);
+        let (closure, owners) = closure?;
         let selection_owners = owners.iter().copied().collect::<Vec<_>>();
-        let client = self.client.clone();
-        let cancellation = self.read_cancellation()?;
-        let lease = self.retained_scan()?;
-        let retained_budget = budget.clone();
-        let task = self.runtime.spawn(async move {
-            let result = lease
-                .within(crate::selection::SelectedPayloads::for_cancellable_owners(
-                    client,
-                    &selection_owners,
-                    cancellation,
-                    &retained_budget,
-                ))
-                .await;
-            lease.finish_with(result)
-        });
-        let payloads = task.await.map_err(ModelError::codec)??;
+        let phase = crate::phase::Phase::begin("native_audit_payload_selection");
+        let payloads = async {
+            let client = self.client.clone();
+            let cancellation = self.read_cancellation()?;
+            let lease = self.retained_scan()?;
+            let retained_budget = budget.clone();
+            let task = self.runtime.spawn(async move {
+                let result = lease
+                    .within(crate::selection::SelectedPayloads::for_cancellable_owners(
+                        client,
+                        &selection_owners,
+                        cancellation,
+                        &retained_budget,
+                    ))
+                    .await;
+                lease.finish_with(result)
+            });
+            task.await.map_err(ModelError::codec)?
+        }
+        .await;
+        phase.finish_result(&payloads);
+        let payloads = payloads?;
         let mut variables = Variables::new();
         variables.insert(
             "state_owners",
@@ -1206,15 +1218,26 @@ impl NativeCompilerStore {
         let client = self.client.clone();
         let table = table.to_owned();
         let cancellation = self.read_cancellation()?;
+        let budget = selection.budget.clone();
         NativeRows::owned(move |sender| async move {
-            for root in roots {
+            for roots in roots.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
+                if sender.is_closed() {
+                    break;
+                }
+                let mut charge = d::charged::StateCharge::new(&budget, "state-root-window");
+                charge.grow(
+                    roots
+                        .iter()
+                        .map(|root| crate::loader::native_bytes(root).saturating_mul(2))
+                        .sum(),
+                )?;
                 let sql = if table == "compiler_membership" {
-                    "SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$root"
+                    "SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $roots"
                 } else {
-                    "SELECT * FROM $root"
+                    "SELECT * FROM $roots"
                 };
                 let mut source = crate::prepared::PreparedQuery::new(
-                    Variables::from_iter([("root".into(), root)]),
+                    Variables::from_iter([("roots".into(), roots.to_vec().into_value())]),
                     vec![],
                     vec![sql.into()],
                 )?

@@ -16,14 +16,29 @@ use std::{
 fn invalid(message: impl Into<String>) -> ModelError {
     ModelError::Invalid(message.into())
 }
-async fn visit<R:Record>(workspace:&Workspace,mut accept:impl FnMut(&R)->Result<(),ModelError>)->Result<(),ModelError>{
+async fn visit<R: Record>(
+    workspace: &Workspace,
+    mut accept: impl FnMut(&R) -> Result<(), ModelError>,
+) -> Result<(), ModelError> {
     use futures::TryStreamExt;
-    let source=workspace.completed::<R>()?;
-    let mut stream=workspace.native().scan_batches(source.view(),&Relation::of::<R>(),None,None,workspace.budget(),workspace.options().batch_rows).await?;
-    while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{
+    let source = workspace.completed::<R>()?;
+    let mut stream = workspace
+        .native()
+        .scan_batches(
+            source.view(),
+            &Relation::of::<R>(),
+            None,
+            None,
+            workspace.budget(),
+            workspace.options().batch_rows,
+        )
+        .await?;
+    while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
         workspace.cancellation().check()?;
-        let batch=Batch::<R>::read(workspace.model(),&batch,workspace.budget())?;
-        for row in batch.rows(){accept(row)?;}
+        let batch = Batch::<R>::read(workspace.model(), &batch, workspace.budget())?;
+        for row in batch.rows() {
+            accept(row)?;
+        }
     }
     Ok(())
 }
@@ -93,16 +108,22 @@ pub async fn populate(
             + originals.len() * size_of::<Original>()
             + families.len() * size_of::<FamilyContent>(),
     )?;
-    let producers=producer_inventory(workspace,&mut charge).await?;
-    let outcomes = semantic_outcomes(
-        workspace,
-        frontier,
-        profile,
-        &captures,
-        &mut charge,
-    ).await?;
-    let projections = projections(workspace, frontier, &mut charge).await?;
-    let embeddings = embeddings(workspace, profile, &mut charge).await?;
+    let phase = lctx_surrealdb::phase::Phase::begin("manifest_producer_inventory");
+    let result = producer_inventory(workspace, &mut charge).await;
+    phase.finish_result(&result);
+    let producers = result?;
+    let phase = lctx_surrealdb::phase::Phase::begin("manifest_semantic_outcomes");
+    let result = semantic_outcomes(workspace, frontier, profile, &captures, &mut charge).await;
+    phase.finish_result(&result);
+    let outcomes = result?;
+    let phase = lctx_surrealdb::phase::Phase::begin("manifest_projections");
+    let result = projections(workspace, frontier, &mut charge).await;
+    phase.finish_result(&result);
+    let projections = result?;
+    let phase = lctx_surrealdb::phase::Phase::begin("manifest_embeddings");
+    let result = embeddings(workspace, profile, &mut charge).await;
+    phase.finish_result(&result);
+    let embeddings = result?;
     captures.sort_unstable();
     if captures.windows(2).any(|w| w[0] == w[1]) {
         return Err(invalid("duplicate manifest capture"));
@@ -115,10 +136,18 @@ pub async fn populate(
     if families.windows(2).any(|w| w[0].family == w[1].family) {
         return Err(invalid("duplicate manifest family"));
     }
+    let phase = lctx_surrealdb::phase::Phase::begin("manifest_admission_contract");
+    let result = workspace.admitted_facts_async(profile).await;
+    phase.finish_result(&result);
+    let admission_contract = result?.contract;
+    let phase = lctx_surrealdb::phase::Phase::begin("manifest_completed_state");
+    let result = workspace.native().completed_state(workspace.budget()).await;
+    phase.finish_result(&result);
+    let completed_state = result?;
     let manifest = Manifest {
-        admission_contract: workspace.admitted_facts_async(profile).await?.contract,
+        admission_contract,
         format_version: ARTIFACT_FORMAT_VERSION,
-        completed_state: workspace.native().completed_state(workspace.budget()).await?,
+        completed_state,
         frontier,
         profile,
         captures,
@@ -136,17 +165,37 @@ pub async fn populate(
     Ok((manifest, charge))
 }
 
-pub(crate) async fn producer_inventory(workspace:&Workspace,charge:&mut charged::StateCharge)->Result<Vec<ProducerImplementation>,ModelError>{
+pub(crate) async fn producer_inventory(
+    workspace: &Workspace,
+    charge: &mut charged::StateCharge,
+) -> Result<Vec<ProducerImplementation>, ModelError> {
     let mut producers = BTreeMap::new();
     for contribution in workspace.native().contributions(workspace.budget()).await? {
-        let spec=contribution.spec;
-        let configuration=spec.configuration.ok_or_else(||invalid(format!("{} has no declared producer configuration",spec.producer)))?;
-        let value=ProducerImplementation{contract:spec.captured_binding.as_ref().map(|binding|binding.contract),producer:spec.producer,implementation:spec.implementation,configuration};
-        if let Some(old)=producers.get(&value.producer) {
-            if old!=&value{return Err(invalid("conflicting producer implementation or configuration"));}
+        let spec = contribution.spec;
+        let configuration = spec.configuration.ok_or_else(|| {
+            invalid(format!(
+                "{} has no declared producer configuration",
+                spec.producer
+            ))
+        })?;
+        let value = ProducerImplementation {
+            contract: spec
+                .captured_binding
+                .as_ref()
+                .map(|binding| binding.contract),
+            producer: spec.producer,
+            implementation: spec.implementation,
+            configuration,
+        };
+        if let Some(old) = producers.get(&value.producer) {
+            if old != &value {
+                return Err(invalid(
+                    "conflicting producer implementation or configuration",
+                ));
+            }
         } else {
-            charge.grow(size_of::<ProducerImplementation>()+value.producer.len()+32)?;
-            producers.insert(value.producer.clone(),value);
+            charge.grow(size_of::<ProducerImplementation>() + value.producer.len() + 32)?;
+            producers.insert(value.producer.clone(), value);
         }
     }
     Ok(producers.into_values().collect())
@@ -166,7 +215,9 @@ async fn semantic_outcomes(
     let reporting = &admitted.reporting;
     let mut expected = BTreeMap::new();
     for evidence in available.evidence() {
-        let producer = *reporting.get(&(evidence.family,evidence.provider)).ok_or_else(||invalid("coverage lacks declared reporting owner"))?;
+        let producer = *reporting
+            .get(&(evidence.family, evidence.provider))
+            .ok_or_else(|| invalid("coverage lacks declared reporting owner"))?;
         let mut domain = KeySink::new("native-outcome-domain/v1");
         evidence.family.encode(&mut domain);
         evidence.provider.encode(&mut domain);
@@ -204,7 +255,8 @@ async fn semantic_outcomes(
                 detail: row.reason.map(|reason| format!("{reason:?}")),
             },
         )
-    }).await?;
+    })
+    .await?;
     if !expected.is_empty() {
         return Err(invalid("missing native outcome"));
     }
@@ -214,7 +266,8 @@ async fn semantic_outcomes(
             charge.grow(size_of::<Id<d::analysis::AnalysisDefinition>>() + 32)?;
             definitions.insert(row.id());
             Ok(())
-        }).await?;
+        })
+        .await?;
     }
     let capture_set = captures.iter().copied().collect::<BTreeSet<_>>();
     macro_rules! upper {
@@ -255,7 +308,8 @@ async fn semantic_outcomes(
                     return Err(invalid("duplicate analysis invocation"));
                 }
                 Ok(())
-            }).await?;
+            })
+            .await?;
             visit::<d::analysis::$owner::AnalysisOutcome>(workspace, |row| {
                 let key = invocations
                     .remove(&row.invocation)
@@ -276,7 +330,8 @@ async fn semantic_outcomes(
                         detail: row.reason.map(|reason| format!("{reason:?}")),
                     },
                 )
-            }).await?;
+            })
+            .await?;
             if !invocations.is_empty() {
                 return Err(invalid(concat!(
                     stringify!($owner),
@@ -317,7 +372,8 @@ pub(crate) async fn verify_outcomes(
         manifest.profile,
         &manifest.captures,
         &mut charge,
-    ).await?;
+    )
+    .await?;
     if actual.keys().cloned().collect::<Vec<_>>() != manifest.required_outcomes
         || actual.into_values().collect::<Vec<_>>() != manifest.outcomes
     {
@@ -340,13 +396,15 @@ async fn projections(
     visit::<d::projection::ProjectionSourceAssessment>(workspace, |row| {
         names.insert(row.projection);
         Ok(())
-    }).await?;
+    })
+    .await?;
     let mut definitions = BTreeMap::new();
     if matches!(frontier, Frontier::Analysis | Frontier::Catalog) {
         visit::<d::analysis::ProjectionDefinition>(workspace, |row| {
             definitions.insert(row.id(), row.clone());
             Ok(())
-        }).await?;
+        })
+        .await?;
     }
     let mut uses = BTreeMap::<d::projection::ProjectionName, KeySink>::new();
     let completed = workspace
@@ -373,7 +431,8 @@ async fn projections(
                     );
                     row.content_digest().encode(sink);
                     Ok(())
-                }).await?;
+                })
+                .await?;
             }
         };
     }
@@ -467,7 +526,8 @@ async fn embeddings(
         charge.grow(64)?;
         encoders.insert(row.id(), (row.service_hash, row.dimensions));
         Ok(())
-    }).await?;
+    })
+    .await?;
     let mut vectors = BTreeMap::new();
     visit::<d::embedding::value::FullValue>(workspace, |row| {
         row.validate()?;
@@ -490,6 +550,7 @@ async fn embeddings(
         charge.grow(size_of::<EmbeddingConsumption>() + 64)?;
         vectors.insert(key, value);
         Ok(())
-    }).await?;
+    })
+    .await?;
     Ok(vectors.into_values().collect())
 }

@@ -87,6 +87,9 @@ async fn insert<Context>(
             let Value::Object(row) = row else {
                 panic!("kernel row")
             };
+            if row.contains_key("dependencies") {
+                continue;
+            }
             row.insert("dependencies", dependencies.clone());
             if table != "vector" {
                 let mut vars = reader.view_bindings();
@@ -129,7 +132,8 @@ async fn extend(
     config: &lctx_surrealdb::RuntimeConfig,
     entities: &[Entity],
 ) {
-    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let added = scoped::reader(config, entities, &[]).await.unwrap();
     let mut views = Vec::new();
     for reader in [&*native, &added.reader] {
@@ -147,7 +151,8 @@ async fn extend(
             views.push(ContentHash(hex::decode(id).unwrap().try_into().unwrap()));
         }
     }
-    *native = NativeReader::for_views(native.shared_client(), views).with_budget(&native_read_budget);
+    *native =
+        NativeReader::for_views(native.shared_client(), views).with_budget(&native_read_budget);
     fixtures.push(added);
 }
 async fn freeze(
@@ -155,7 +160,8 @@ async fn freeze(
     fixtures: &mut Vec<scoped::ScopedFixture>,
     config: &lctx_surrealdb::RuntimeConfig,
 ) {
-    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let marker = input::InputRevision {
         manifest: ContentHash::of(
             format!("{}-lexical-phase-{}", nonce(), fixtures.len()).as_bytes(),
@@ -182,7 +188,8 @@ async fn freeze(
         native.shared_client(),
         fixtures[0].store.attempt(),
         views,
-    ).with_budget(&native_read_budget);
+    )
+    .with_budget(&native_read_budget);
     lctx_surrealdb::lexical_stats::materialize(&loader)
         .await
         .unwrap();
@@ -441,18 +448,136 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
     // physical pointer that was never admitted into this exact completed view.
     let mut bindings = Variables::new();
     bindings.insert("node", candidates[1].node.clone());
-    native.query::<serde_json::Value>("DELETE ONLY $node RETURN NONE", bindings).await.unwrap();
+    native
+        .query::<serde_json::Value>("DELETE ONLY $node RETURN NONE", bindings)
+        .await
+        .unwrap();
     assert!(matches!(
-        native.records_from_candidates::<CatalogMember>(&candidates[1..2]).await,
+        native
+            .records_from_candidates::<CatalogMember>(&candidates[1..2])
+            .await,
         Err(ModelError::Conflict("native candidate backing missing"))
     ));
     drop(members);
     assert_eq!(budget.reserved(), 0);
     native.close().await.unwrap();
 }
+/// Genuine selected canonical context for synthetic channel/ranking rows. Each
+/// occurrence carries only its own witnesses, rather than the quota fixture's union.
+struct ChannelContext {
+    window: Id<SearchWindow>,
+    part: Id<ContentPart>,
+    binding: Id<WindowBinding>,
+    unit_payload: RecordId,
+    dependencies: Vec<RecordId>,
+    entities: Vec<Entity>,
+}
+impl ChannelContext {
+    fn new(unit: &Unit, origin: &retrieval::Origin, member: &CatalogMember, ordinal: i64) -> Self {
+        use retrieval::*;
+        let text = "selected primary channel witness";
+        let part = ContentPart {
+            unit: unit.id(),
+            ordinal: 0,
+            purpose: PartPurpose::Primary,
+            scope: None,
+            qualification: None,
+            digest: ContentHash::of(text.as_bytes()),
+            text: text.into(),
+        };
+        let window = SearchWindow {
+            definition: id(7),
+            unit: unit.id(),
+            ordinal,
+            corpus: unit.corpus,
+            digest: part.digest,
+            text: text.into(),
+            input_text: text.into(),
+            tokenizer: None,
+            encoded_digest: embedding::value::input_hash(text),
+            tokens: None,
+            availability: WindowAvailability::TokenizerUnavailable,
+        };
+        let link = WindowPart {
+            window: window.id(),
+            ordinal: 0,
+            part: part.id(),
+            start: 0,
+            end: text.len() as i64,
+        };
+        let subject = Subject::Member {
+            member: member.id(),
+        };
+        let binding = WindowBinding {
+            window: window.id(),
+            part: part.id(),
+            subject: subject.id(),
+            basis: BindingBasis::PublicContract,
+            qualification: None,
+        };
+        let entities = vec![
+            Entity::from(part.clone()),
+            Entity::from(window.clone()),
+            Entity::from(link),
+            Entity::from(subject),
+            Entity::from(binding.clone()),
+        ];
+        let unit_payload =
+            lctx_surrealdb::loader::entity_payload_id(&Entity::from(unit.clone())).unwrap();
+        let mut dependencies = entities
+            .iter()
+            .chain(
+                [
+                    Entity::from(unit.clone()),
+                    Entity::from(origin.clone()),
+                    Entity::from(member.clone()),
+                ]
+                .iter(),
+            )
+            .map(|entity| lctx_surrealdb::loader::entity_payload_id(entity).unwrap())
+            .collect::<Vec<_>>();
+        dependencies.sort();
+        dependencies.dedup();
+        Self {
+            window: window.id(),
+            part: part.id(),
+            binding: binding.id(),
+            unit_payload,
+            dependencies,
+            entities,
+        }
+    }
+    fn apply(&self, mut occurrence: Value) -> Value {
+        let Value::Object(ref mut row) = occurrence else {
+            panic!("channel occurrence")
+        };
+        row.insert(
+            "window",
+            json_value(serde_json::to_value(self.window).unwrap()).unwrap(),
+        );
+        row.insert(
+            "part",
+            json_value(serde_json::to_value(self.part).unwrap()).unwrap(),
+        );
+        row.insert(
+            "binding",
+            json_value(serde_json::to_value(self.binding).unwrap()).unwrap(),
+        );
+        row.insert(
+            "scope_window",
+            lctx_surrealdb::prepared::scope_string(
+                &json_value(serde_json::to_value(self.window).unwrap()).unwrap(),
+            ),
+        );
+        row.insert("unit_payload", self.unit_payload.clone());
+        row.insert("dependencies", self.dependencies.clone());
+        occurrence
+    }
+}
 #[tokio::test]
 async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_caps() {
-    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let config = scoped::config();
     let input = id::<input::InputRevision>(1);
     let member = CatalogMember {
@@ -468,7 +593,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     let mut native = NativeReader::for_views(
         initial.reader.shared_client(),
         selected_views(&initial.reader),
-    ).with_budget(&native_read_budget);
+    )
+    .with_budget(&native_read_budget);
     let mut fixtures = vec![initial];
     let mut member_vars = Variables::new();
     member_vars.insert(
@@ -516,9 +642,23 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         &mut native,
         &mut fixtures,
         &config,
-        &[Entity::from(origin.clone()), Entity::from(unit_record)],
+        &[
+            Entity::from(origin.clone()),
+            Entity::from(unit_record.clone()),
+        ],
     )
     .await;
+    let primary = ChannelContext::new(&unit_record, &origin, &member, 0);
+    let secondary = ChannelContext::new(&unit_record, &origin, &member, 1);
+    let mut context_entities = primary.entities.clone();
+    context_entities.extend(
+        secondary
+            .entities
+            .iter()
+            .filter(|entity| !primary.entities.contains(entity))
+            .cloned(),
+    );
+    extend(&mut native, &mut fixtures, &config, &context_entities).await;
     let inputs = [*input.bytes()];
     let pairs = [(*member.id().bytes(), *good.bytes())];
     let mut docs = vec![];
@@ -536,7 +676,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),
             doc.clone(),
         )));
-        occurrences.push(occurrence(
+        let witness = occurrence(
             "lex_occurs",
             &key,
             doc,
@@ -545,7 +685,12 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             if n == 101 { Some(member.id()) } else { None },
             good,
             if n == 101 { unit } else { id(55) },
-        ));
+        );
+        occurrences.push(if n == 101 {
+            primary.apply(witness)
+        } else {
+            witness
+        });
     }
     let bad = record("search_api_options", "other_context");
     docs.push(Value::Object(object(serde_json::json!({"text":"connect connect connect","digest":ContentHash::of(b"connect connect connect")}),bad.clone())));
@@ -581,16 +726,36 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         lctx_serving::search::UnitScope::All,
         100,
         &policy,
-    &search_budget(),)
+        &search_budget(),
+    )
     .await
     .unwrap();
     assert_eq!(lexical.len(), 1);
     assert_eq!(lexical[0].occurrence.context, good);
     assert_eq!(lexical[0].score, Some(0.0));
-    let tiny_search=ResourceBudget::fixed(4096).unwrap();
-    let refused=lctx_serving::search::lexical_scoped(&native,"connect absentterm",Family::ApiOptions,&inputs,Some(&pairs),true,lctx_serving::search::UnitScope::All,100,&policy,&tiny_search).await;
-    assert!(refused.is_err(),"populated native search must pay the selected request pool");
-    assert_eq!(tiny_search.reserved(),0,"checked failure drains request-owned native and ranking state");
+    let tiny_search = ResourceBudget::fixed(4096).unwrap();
+    let refused = lctx_serving::search::lexical_scoped(
+        &native,
+        "connect absentterm",
+        Family::ApiOptions,
+        &inputs,
+        Some(&pairs),
+        true,
+        lctx_serving::search::UnitScope::All,
+        100,
+        &policy,
+        &tiny_search,
+    )
+    .await;
+    assert!(
+        refused.is_err(),
+        "populated native search must pay the selected request pool"
+    );
+    assert_eq!(
+        tiny_search.reserved(),
+        0,
+        "checked failure drains request-owned native and ranking state"
+    );
     let selected: embedding::Spec = serde_json::from_slice(include_bytes!(
         "../../../specs/embedding/qwen3-embedding-8b.json"
     ))
@@ -660,25 +825,13 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             *input.bytes(),
             Some(member.id()),
             context,
-            if key == "eligible" { unit } else { id(55) },
+            if key == "excluded" { id(55) } else { unit },
         );
-        if key == "secondary" {
-            let Value::Object(ref mut row) = witness else {
-                panic!("occurrence")
-            };
-            row.insert(
-                "window",
-                json_value(serde_json::to_value(id::<SearchWindow>(17)).unwrap()).unwrap(),
-            );
-            row.insert(
-                "part",
-                json_value(serde_json::to_value(id::<ContentPart>(18)).unwrap()).unwrap(),
-            );
-            row.insert(
-                "binding",
-                json_value(serde_json::to_value(id::<WindowBinding>(19)).unwrap()).unwrap(),
-            );
-        }
+        witness = match key {
+            "eligible" => primary.apply(witness),
+            "secondary" => secondary.apply(witness),
+            _ => witness,
+        };
         vec_occurrences.push(witness);
     }
     // Nearer vectors in a foreign library cohort cannot enter through an otherwise matching edge.
@@ -686,7 +839,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         let key = format!("foreign{n}");
         let source = record("vector", key.clone());
         vectors.push(Value::Object(object(serde_json::json!({"encoder_hash":spec.hex(),"policy_key":projection.hex(),"library_input":lctx_surrealdb::prepared::scope_string(&json_value(serde_json::to_value(id::<input::InputRevision>(99)).unwrap()).unwrap()),"family":Family::ApiOptions as i16,"full_key":key,"projection_key":key,"embedding":query}),source.clone())));
-        vec_occurrences.push(occurrence(
+        vec_occurrences.push(primary.apply(occurrence(
             "vec_occurs",
             &key,
             source,
@@ -695,7 +848,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             Some(member.id()),
             good,
             unit,
-        ));
+        )));
     }
     insert(&native, "vector", false, vectors).await;
     insert(&native, "vec_occurs", true, vec_occurrences).await;
@@ -713,7 +866,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         lctx_serving::search::UnitScope::All,
         100,
         &policy,
-    &search_budget(),)
+        &search_budget(),
+    )
     .await
     .unwrap();
     assert_eq!(vector.len(), 1);
@@ -731,7 +885,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         lctx_serving::search::UnitScope::BriefOrigins,
         1,
         &policy,
-    &search_budget(),)
+        &search_budget(),
+    )
     .await
     .unwrap();
     assert_eq!(brief_lexical.len(), 1);
@@ -750,7 +905,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         lctx_serving::search::UnitScope::BriefOrigins,
         1,
         &policy,
-    &search_budget(),)
+        &search_budget(),
+    )
     .await
     .unwrap();
     assert_eq!(brief_vector.len(), 1);
@@ -764,10 +920,15 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         recipe: selected.query_recipe(),
         projection,
     };
-    let rescored =
-        lctx_serving::search::rescore_union_scoped(&native, &query_value, &lexical, &policy,&search_budget())
-            .await
-            .unwrap();
+    let rescored = lctx_serving::search::rescore_union_scoped(
+        &native,
+        &query_value,
+        &lexical,
+        &policy,
+        &search_budget(),
+    )
+    .await
+    .unwrap();
     assert_eq!(rescored.len(), 1);
     assert!(
         (rescored[0].score.unwrap() - 0.4).abs() < 1e-6,
@@ -826,7 +987,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         lctx_serving::search::UnitScope::All,
         128,
         &policy,
-    &search_budget(),)
+        &search_budget(),
+    )
     .await
     .unwrap();
     assert_eq!(option.len(), 1);
@@ -851,6 +1013,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     .await;
     let mut crowd_docs = Vec::new();
     let mut crowd_occurrences = Vec::new();
+    let mut quota_entities = std::collections::BTreeMap::new();
     for n in 0..1400u32 {
         let key = format!("quota{n:04}");
         let text = format!("beta pkg quota_option --- crowded window {n}");
@@ -859,7 +1022,14 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),
             source.clone(),
         )));
-        let mut row = occurrence(
+        let context = ChannelContext::new(&unit_record, &origin, &member, i64::from(n) + 2);
+        for entity in &context.entities {
+            quota_entities.insert(
+                lctx_surrealdb::loader::entity_payload_id(entity).unwrap(),
+                entity.clone(),
+            );
+        }
+        let row = occurrence(
             "lex_occurs",
             &key,
             source,
@@ -869,24 +1039,29 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             good,
             unit,
         );
-        let Value::Object(ref mut body) = row else {
-            panic!("occurrence")
-        };
-        let mut window = [7u8; 16];
-        window[..4].copy_from_slice(&n.to_le_bytes());
-        body.insert(
-            "window",
-            json_value(serde_json::to_value(window).unwrap()).unwrap(),
-        );
-        crowd_occurrences.push(row);
+        crowd_occurrences.push(context.apply(row));
     }
+    let beta_context = ChannelContext::new(&unit_record, &origin, &beta, 1402);
+    for entity in &beta_context.entities {
+        quota_entities.insert(
+            lctx_surrealdb::loader::entity_payload_id(entity).unwrap(),
+            entity.clone(),
+        );
+    }
+    extend(
+        &mut native,
+        &mut fixtures,
+        &config,
+        &quota_entities.into_values().collect::<Vec<_>>(),
+    )
+    .await;
     let source = record("search_api_options", "quota_exact");
     let text = "independent literal-only route";
     crowd_docs.push(Value::Object(object(
         serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),
         source.clone(),
     )));
-    let mut row = occurrence(
+    let mut row = beta_context.apply(occurrence(
         "lex_occurs",
         "quota_exact",
         source,
@@ -895,7 +1070,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         Some(beta.id()),
         good,
         unit,
-    );
+    ));
     let Value::Object(ref mut body) = row else {
         panic!("occurrence")
     };
@@ -904,7 +1079,10 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     body.insert("exact_option", "quota_option");
     let mut punctuation = body.clone();
     punctuation.insert("id", record("lex_occurs", "quota_exact_punctuation"));
-    punctuation.insert("occurrence_key", format!("{}-quota_exact_punctuation", nonce()));
+    punctuation.insert(
+        "occurrence_key",
+        format!("{}-quota_exact_punctuation", nonce()),
+    );
     punctuation.insert("exact_option", "---");
     crowd_occurrences.push(Value::Object(punctuation));
     crowd_occurrences.push(row);
@@ -930,7 +1108,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             lctx_serving::search::UnitScope::All,
             1024,
             &policy,
-        &search_budget(),)
+            &search_budget(),
+        )
         .await
         .unwrap();
         assert_eq!(
@@ -970,7 +1149,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         &native,
         "vec_occurs",
         true,
-        vec![occurrence(
+        vec![primary.apply(occurrence(
             "vec_occurs",
             "competing",
             source,
@@ -979,13 +1158,19 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
             Some(member.id()),
             good,
             unit,
-        )],
+        ))],
     )
     .await;
     assert!(
-        lctx_serving::search::rescore_union_scoped(&native, &query_value, &lexical, &policy,&search_budget())
-            .await
-            .is_err(),
+        lctx_serving::search::rescore_union_scoped(
+            &native,
+            &query_value,
+            &lexical,
+            &policy,
+            &search_budget()
+        )
+        .await
+        .is_err(),
         "competing canonical full winners must refuse"
     );
     native.close().await.unwrap();
@@ -1001,7 +1186,8 @@ async fn lexical_fixture(
     context: Id<AnalysisContext>,
     texts: &[String],
 ) -> (scoped::ScopedFixture, lctx_surrealdb::Loader, Vec<Unit>) {
-    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use retrieval::*;
     let origin = Origin::Brief { brief: id(200) };
     let mut entities = vec![Entity::from(origin.clone())];
@@ -1073,7 +1259,8 @@ async fn lexical_fixture(
         fixture.reader.shared_client(),
         fixture.store.attempt(),
         views,
-    ).with_budget(&native_read_budget);
+    )
+    .with_budget(&native_read_budget);
     lctx_surrealdb::derived_search::materialize_search(&loader)
         .await
         .unwrap();
@@ -1086,55 +1273,116 @@ async fn indexed_occurrence_driver_checks_shared_dependencies_late_absence_and_u
     let input = id::<input::InputRevision>(242);
     let context = id::<AnalysisContext>(242);
     let (fixture, loader, units) = lexical_fixture(
-        &config, input, context, &[format!("occurrence membership control {}", nonce())],
-    ).await;
+        &config,
+        input,
+        context,
+        &[format!("occurrence membership control {}", nonce())],
+    )
+    .await;
     let unit = units[0].id();
-    let scope = lctx_surrealdb::prepared::scope_string(&json_value(serde_json::to_value(input).unwrap()).unwrap());
-    let mut vars = Variables::new(); vars.insert("input_keys", vec![scope]);
-    vars.insert("unit", json_value(serde_json::to_value(unit).unwrap()).unwrap());
+    let scope = lctx_surrealdb::prepared::scope_string(
+        &json_value(serde_json::to_value(input).unwrap()).unwrap(),
+    );
+    let mut vars = Variables::new();
+    vars.insert("input_keys", vec![scope]);
+    vars.insert(
+        "unit",
+        json_value(serde_json::to_value(unit).unwrap()).unwrap(),
+    );
     vars.insert("family", Family::ApiOptions as i16);
     let originals: Vec<Value> = fixture.reader.query_native(
         "SELECT * FROM lex_occurs WITH INDEX eligible_input WHERE eligible=true AND scope_input IN $input_keys AND family=$family AND unit=$unit", vars.clone(),
     ).await.unwrap();
-    assert_eq!(originals.len(), 1, "one actual canonical occurrence supplies the selected dependency witnesses");
+    assert_eq!(
+        originals.len(),
+        1,
+        "one actual canonical occurrence supplies the selected dependency witnesses"
+    );
     let original = originals[0].as_object().unwrap();
-    let dependencies = Vec::<RecordId>::from_value(original.get("dependencies").unwrap().clone()).unwrap();
+    let dependencies =
+        Vec::<RecordId>::from_value(original.get("dependencies").unwrap().clone()).unwrap();
     let unit_payload = RecordId::from_value(original.get("unit_payload").unwrap().clone()).unwrap();
     assert!(!dependencies.is_empty());
     let ids = ["shared-a", "shared-b", "late-absent", "missing-unit"]
         .map(|case| record("lex_occurs", format!("occurrence-driver-{case}")));
     let absent = record("entity", "occurrence-driver-absent-dependency");
     let missing_unit = record("entity", "occurrence-driver-absent-unit");
-    let answers = fixture.reader.selected_membership(&[absent.clone(), missing_unit.clone(), unit_payload], &search_budget()).await.unwrap();
-    assert!(!answers.contains(&absent)); assert!(!answers.contains(&missing_unit));
+    let answers = fixture
+        .reader
+        .selected_membership(
+            &[absent.clone(), missing_unit.clone(), unit_payload],
+            &search_budget(),
+        )
+        .await
+        .unwrap();
+    assert!(!answers.contains(&absent));
+    assert!(!answers.contains(&missing_unit));
     let mut rows = Vec::new();
     for (index, id) in ids.iter().enumerate() {
-        let mut row = original.clone(); row.insert("id", id.clone());
-        row.insert("occurrence_key", format!("{}-occurrence-driver-{index}", nonce()));
+        let mut row = original.clone();
+        row.insert("id", id.clone());
+        row.insert(
+            "occurrence_key",
+            format!("{}-occurrence-driver-{index}", nonce()),
+        );
         if index == 2 {
-            let mut complete = dependencies.clone(); complete.push(absent.clone());
+            let mut complete = dependencies.clone();
+            complete.push(absent.clone());
             row.insert("dependencies", complete);
-        } else if index == 3 { row.insert("unit_payload", missing_unit.clone()); }
+        } else if index == 3 {
+            row.insert("unit_payload", missing_unit.clone());
+        }
         rows.push(Value::Object(row));
     }
     // Bypass insert(), which deliberately replaces the supplied dependencies.
-    fixture.reader.query_native::<Value>("INSERT RELATION INTO lex_occurs $rows RETURN NONE", Variables::from_iter([("rows".into(), rows.into_value())])).await.unwrap();
+    fixture
+        .reader
+        .query_native::<Value>(
+            "INSERT RELATION INTO lex_occurs $rows RETURN NONE",
+            Variables::from_iter([("rows".into(), rows.into_value())]),
+        )
+        .await
+        .unwrap();
     vars.insert("cases", ids.to_vec());
     let budget = search_budget();
     let mut rows = lctx_surrealdb::derived_search::selected_occurrences(
-        &fixture.reader, "lex_occurs",
-        "eligible=true AND scope_input IN $input_keys AND family=$family AND id IN $cases", vars, &budget,
-    ).unwrap();
+        &fixture.reader,
+        "lex_occurs",
+        "eligible=true AND scope_input IN $input_keys AND family=$family AND id IN $cases",
+        vars,
+        &budget,
+    )
+    .unwrap();
     let mut actual = std::collections::BTreeSet::new();
     while let Some(row) = rows.next().await.unwrap() {
         let id = RecordId::from_value(row.as_object().unwrap().get("id").unwrap().clone()).unwrap();
-        assert!(actual.insert(id), "the driver emits each hydrated nomination once");
+        assert!(
+            actual.insert(id),
+            "the driver emits each hydrated nomination once"
+        );
     }
-    rows.drain_transport().await.unwrap(); drop(rows);
-    assert_eq!(actual, std::collections::BTreeSet::from([ids[0].clone(), ids[1].clone()]));
-    assert_eq!(budget.reserved(), 0, "membership and hydration state is released at checked completion");
-    fixture.reader.query_native::<Value>("DELETE $cases RETURN NONE", Variables::from_iter([("cases".into(), ids.to_vec().into_value())])).await.unwrap();
-    drop(answers); drop(loader); fixture.close().await.unwrap();
+    rows.drain_transport().await.unwrap();
+    drop(rows);
+    assert_eq!(
+        actual,
+        std::collections::BTreeSet::from([ids[0].clone(), ids[1].clone()])
+    );
+    assert_eq!(
+        budget.reserved(),
+        0,
+        "membership and hydration state is released at checked completion"
+    );
+    fixture
+        .reader
+        .query_native::<Value>(
+            "DELETE $cases RETURN NONE",
+            Variables::from_iter([("cases".into(), ids.to_vec().into_value())]),
+        )
+        .await
+        .unwrap();
+    drop(answers);
+    drop(loader);
+    fixture.close().await.unwrap();
 }
 #[tokio::test]
 async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_same_unit() {
@@ -1162,7 +1410,8 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         lctx_serving::search::UnitScope::All,
         10,
         &policy,
-    &search_budget(),)
+        &search_budget(),
+    )
     .await
     .unwrap();
     assert_eq!(before.len(), 2);
@@ -1173,12 +1422,28 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         .collect::<Vec<_>>();
     let (b, bloader, _) = lexical_fixture(&config, id(212), id(213), &btexts).await;
     let common = lctx_serving::search::lexical_scoped(
-        &b.reader, "NEEDLE absent_query_term", Family::ApiOptions,
-        &[*id::<lctx_model::domain::input::InputRevision>(212).bytes()], None, false,
-        lctx_serving::search::UnitScope::All, 32, &policy,
-    &search_budget(),).await.unwrap();
-    assert_eq!(common.len(),24,"OR match uses the frozen analyzer terms even with an unmatched query term");
-    assert!(common.iter().all(|row| row.score == Some(0.0)),"zero IDF is a real match, not absence");
+        &b.reader,
+        "NEEDLE absent_query_term",
+        Family::ApiOptions,
+        &[*id::<lctx_model::domain::input::InputRevision>(212).bytes()],
+        None,
+        false,
+        lctx_serving::search::UnitScope::All,
+        32,
+        &policy,
+        &search_budget(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        common.len(),
+        24,
+        "OR match uses the frozen analyzer terms even with an unmatched query term"
+    );
+    assert!(
+        common.iter().all(|row| row.score == Some(0.0)),
+        "zero IDF is a real match, not absence"
+    );
 
     let mut changed = atexts.clone();
     changed[0] = format!("replacement absent word {}", nonce());
@@ -1198,7 +1463,8 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         lctx_serving::search::UnitScope::All,
         10,
         &policy,
-    &search_budget(),)
+        &search_budget(),
+    )
     .await
     .unwrap();
     assert_eq!(
@@ -1212,11 +1478,53 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
             .collect::<Vec<_>>(),
         "pinned scores and order survive unrelated and changed-window insertions"
     );
-    let mut explain = Variables::new(); explain.insert("query", "needle absentterm");
-    let plan = a.reader.query_prepared_native::<Value>(lctx_surrealdb::prepared::PreparedQuery::new(explain, vec![], vec![format!("{} EXPLAIN", lctx_surrealdb::derived_search::lexical_nomination_sql("search_api_options").unwrap())]).unwrap()).await.unwrap();
-    assert!(format!("{plan:?}").contains("lexical"), "FULLTEXT nomination must have a native family-table index executor: {plan:?}");
-    let or_match = lctx_serving::search::lexical_scoped(&a.reader, "needle absentterm", Family::ApiOptions, &[*input.bytes()], None, false, lctx_serving::search::UnitScope::All, 10, &policy, &search_budget()).await.unwrap();
-    assert_eq!(before.iter().map(|r| (&r.occurrence, r.score)).collect::<Vec<_>>(), or_match.iter().map(|r| (&r.occurrence, r.score)).collect::<Vec<_>>(), "OR nomination retains known terms when another term is absent");
+    let mut explain = Variables::new();
+    explain.insert("query", "needle absentterm");
+    let plan = a
+        .reader
+        .query_prepared_native::<Value>(
+            lctx_surrealdb::prepared::PreparedQuery::new(
+                explain,
+                vec![],
+                vec![format!(
+                    "{} EXPLAIN",
+                    lctx_surrealdb::derived_search::lexical_nomination_sql("search_api_options")
+                        .unwrap()
+                )],
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        format!("{plan:?}").contains("lexical"),
+        "FULLTEXT nomination must have a native family-table index executor: {plan:?}"
+    );
+    let or_match = lctx_serving::search::lexical_scoped(
+        &a.reader,
+        "needle absentterm",
+        Family::ApiOptions,
+        &[*input.bytes()],
+        None,
+        false,
+        lctx_serving::search::UnitScope::All,
+        10,
+        &policy,
+        &search_budget(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        before
+            .iter()
+            .map(|r| (&r.occurrence, r.score))
+            .collect::<Vec<_>>(),
+        or_match
+            .iter()
+            .map(|r| (&r.occurrence, r.score))
+            .collect::<Vec<_>>(),
+        "OR nomination retains known terms when another term is absent"
+    );
     let absent = lctx_serving::search::lexical_scoped(
         &new.reader,
         "needle",
@@ -1227,7 +1535,8 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         lctx_serving::search::UnitScope::All,
         10,
         &policy,
-    &search_budget(),)
+        &search_budget(),
+    )
     .await
     .unwrap();
     assert!(
@@ -1245,7 +1554,8 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         lctx_serving::search::UnitScope::All,
         10,
         &policy,
-    &search_budget(),)
+        &search_budget(),
+    )
     .await
     .unwrap();
     assert_eq!(
@@ -1265,8 +1575,11 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
 
 #[tokio::test]
 async fn selective_fulltext_matches_complete_analyzer_bm25_for_compounds_and_empty_analysis() {
-    let config=scoped::config();let input=id(214);let context=id(215);let policy=RankingPolicy::default();
-    let texts=[
+    let config = scoped::config();
+    let input = id(214);
+    let context = id(215);
+    let policy = RankingPolicy::default();
+    let texts = [
         "connectHTTPServer retry_timeout retry_timeout",
         "connect http server retry timeout longer surrounding descriptive context",
         "HTTPServer fallback",
@@ -1276,58 +1589,178 @@ async fn selective_fulltext_matches_complete_analyzer_bm25_for_compounds_and_emp
         "gamma background",
         "delta background",
         "epsilon background",
-    ].map(|text|format!("{text} complete-oracle-{}",nonce()));
-    let (fixture,loader,units)=lexical_fixture(&config,input,context,&texts).await;
-    let queries=["connectHTTPServer","retry_timeout","connect-http.server","HTTPServer missingTerm","!!!"," \t",""];
-    let mut vars=Variables::new();
-    vars.insert("texts",texts.iter().map(String::as_str).chain(queries.iter().copied()).collect::<Vec<_>>());
+    ]
+    .map(|text| format!("{text} complete-oracle-{}", nonce()));
+    let (fixture, loader, units) = lexical_fixture(&config, input, context, &texts).await;
+    let queries = [
+        "connectHTTPServer",
+        "retry_timeout",
+        "connect-http.server",
+        "HTTPServer missingTerm",
+        "!!!",
+        " \t",
+        "",
+    ];
+    let mut vars = Variables::new();
+    vars.insert(
+        "texts",
+        texts
+            .iter()
+            .map(String::as_str)
+            .chain(queries.iter().copied())
+            .collect::<Vec<_>>(),
+    );
     // The declared native analyzer is the token authority. This complete small-corpus
     // oracle independently enumerates every known document and computes BM25 in Rust;
     // it does not use production nomination, frozen-statistic rows or ranking helpers.
-    let analyzed:Vec<Vec<String>>=fixture.reader.query("RETURN $texts.map(|$text|search::analyze('lctx_discovery',$text));",vars).await.unwrap();
-    assert_eq!(analyzed.len(),texts.len()+queries.len());
-    let (documents,query_tokens)=analyzed.split_at(texts.len());
-    assert!(query_tokens[0].len()>1,"camel compound must actually exercise analyzer splitting: {:?}",query_tokens[0]);
-    assert!(query_tokens[1].len()>1,"underscore compound must actually exercise analyzer splitting: {:?}",query_tokens[1]);
-    assert_eq!(query_tokens[4],vec!["!!!".to_owned()],"class/camel tokenizers retain a punctuation run as an analyzed term");
-    assert!(query_tokens[5..].iter().all(Vec::is_empty),"whitespace and empty raw query both have empty analyzed terms");
-    let lengths=documents.iter().map(Vec::len).collect::<Vec<_>>();
-    let average=lengths.iter().sum::<usize>() as f64/documents.len() as f64;
-    let frequencies=documents.iter().map(|tokens|{
-        let mut terms=std::collections::BTreeMap::<&str,usize>::new();for token in tokens{*terms.entry(token.as_str()).or_default()+=1;}terms
-    }).collect::<Vec<_>>();
-    for (query,tokens) in queries.iter().zip(query_tokens) {
-        let terms=tokens.iter().map(String::as_str).collect::<std::collections::BTreeSet<_>>();
+    let analyzed: Vec<Vec<String>> = fixture
+        .reader
+        .query(
+            "RETURN $texts.map(|$text|search::analyze('lctx_discovery',$text));",
+            vars,
+        )
+        .await
+        .unwrap();
+    assert_eq!(analyzed.len(), texts.len() + queries.len());
+    let (documents, query_tokens) = analyzed.split_at(texts.len());
+    assert!(
+        query_tokens[0].len() > 1,
+        "camel compound must actually exercise analyzer splitting: {:?}",
+        query_tokens[0]
+    );
+    assert!(
+        query_tokens[1].len() > 1,
+        "underscore compound must actually exercise analyzer splitting: {:?}",
+        query_tokens[1]
+    );
+    assert_eq!(
+        query_tokens[4],
+        vec!["!!!".to_owned()],
+        "class/camel tokenizers retain a punctuation run as an analyzed term"
+    );
+    assert!(
+        query_tokens[5..].iter().all(Vec::is_empty),
+        "whitespace and empty raw query both have empty analyzed terms"
+    );
+    let lengths = documents.iter().map(Vec::len).collect::<Vec<_>>();
+    let average = lengths.iter().sum::<usize>() as f64 / documents.len() as f64;
+    let frequencies = documents
+        .iter()
+        .map(|tokens| {
+            let mut terms = std::collections::BTreeMap::<&str, usize>::new();
+            for token in tokens {
+                *terms.entry(token.as_str()).or_default() += 1;
+            }
+            terms
+        })
+        .collect::<Vec<_>>();
+    for (query, tokens) in queries.iter().zip(query_tokens) {
+        let terms = tokens
+            .iter()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>();
         // These canonical unit-only windows deliberately have empty exact fields.
         // Thus an empty raw query still has an exact score-zero route, unlike
         // whitespace with the same empty analysis. Punctuation has its own term
         // and must match the corresponding document through FULLTEXT nomination.
-        let exact=query.is_empty();
-        let mut expected=frequencies.iter().enumerate().filter_map(|(index,document)|{
-            let matches=terms.iter().filter_map(|term|document.get(term).map(|tf|(*term,*tf))).collect::<Vec<_>>();
-            if matches.is_empty()&&!exact{return None;}
-            let score=matches.into_iter().map(|(term,tf)|{
-                let df=frequencies.iter().filter(|document|document.contains_key(term)).count() as f64;
-                let idf=((documents.len() as f64-df+0.5)/(df+0.5)).ln().max(0.0);
-                let tf=tf as f64;let length=lengths[index] as f64;
-                idf*tf*(policy.lexical.k1+1.0)/(tf+policy.lexical.k1*(1.0-policy.lexical.b+policy.lexical.b*length/average))
-            }).sum::<f64>();
-            Some((units[index].id(),units[index].context,score))
-        }).collect::<Vec<_>>();
-        expected.sort_by(|a,b|b.2.total_cmp(&a.2).then_with(||a.0.cmp(&b.0)).then_with(||a.1.cmp(&b.1)));
-        if *query=="!!!"{assert_eq!(expected.len(),1);assert_eq!(expected[0].0,units[5].id());assert!(expected[0].2>0.0,"punctuation exercises a positive lexical match, not an empty result");}
-        let budget=search_budget();
-        let actual=lctx_serving::search::lexical_scoped(&fixture.reader,query,Family::ApiOptions,&[*input.bytes()],None,false,lctx_serving::search::UnitScope::All,32,&policy,&budget).await.unwrap();
-        assert_eq!(actual.iter().map(|row|(row.occurrence.unit,row.occurrence.context)).collect::<Vec<_>>(),expected.iter().map(|(unit,context,_)|(*unit,*context)).collect::<Vec<_>>(),"selective nomination and complete ranking disagree for {query:?}");
-        for (row,(_,_,score)) in actual.iter().zip(&expected){
-            assert_eq!(row.occurrence.family,Family::ApiOptions);
-            let actual=row.score.expect("lexical score");assert!((actual-score).abs()<=1e-10*(1.0+score.abs()),"frozen score disagrees with complete corpus for {query:?}: {actual} vs {score}");
+        let exact = query.is_empty();
+        let mut expected = frequencies
+            .iter()
+            .enumerate()
+            .filter_map(|(index, document)| {
+                let matches = terms
+                    .iter()
+                    .filter_map(|term| document.get(term).map(|tf| (*term, *tf)))
+                    .collect::<Vec<_>>();
+                if matches.is_empty() && !exact {
+                    return None;
+                }
+                let score = matches
+                    .into_iter()
+                    .map(|(term, tf)| {
+                        let df = frequencies
+                            .iter()
+                            .filter(|document| document.contains_key(term))
+                            .count() as f64;
+                        let idf = ((documents.len() as f64 - df + 0.5) / (df + 0.5))
+                            .ln()
+                            .max(0.0);
+                        let tf = tf as f64;
+                        let length = lengths[index] as f64;
+                        idf * tf * (policy.lexical.k1 + 1.0)
+                            / (tf
+                                + policy.lexical.k1
+                                    * (1.0 - policy.lexical.b
+                                        + policy.lexical.b * length / average))
+                    })
+                    .sum::<f64>();
+                Some((units[index].id(), units[index].context, score))
+            })
+            .collect::<Vec<_>>();
+        expected.sort_by(|a, b| {
+            b.2.total_cmp(&a.2)
+                .then_with(|| a.0.cmp(&b.0))
+                .then_with(|| a.1.cmp(&b.1))
+        });
+        if *query == "!!!" {
+            assert_eq!(expected.len(), 1);
+            assert_eq!(expected[0].0, units[5].id());
+            assert!(
+                expected[0].2 > 0.0,
+                "punctuation exercises a positive lexical match, not an empty result"
+            );
         }
-        if exact{assert_eq!(actual.len(),texts.len());assert!(actual.iter().all(|row|row.score==Some(0.0)));}
-        drop(actual);assert_eq!(budget.reserved(),0,"query-owned state must release after {query:?}");
+        let budget = search_budget();
+        let actual = lctx_serving::search::lexical_scoped(
+            &fixture.reader,
+            query,
+            Family::ApiOptions,
+            &[*input.bytes()],
+            None,
+            false,
+            lctx_serving::search::UnitScope::All,
+            32,
+            &policy,
+            &budget,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            actual
+                .iter()
+                .map(|row| (row.occurrence.unit, row.occurrence.context))
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|(unit, context, _)| (*unit, *context))
+                .collect::<Vec<_>>(),
+            "selective nomination and complete ranking disagree for {query:?}"
+        );
+        for (row, (_, _, score)) in actual.iter().zip(&expected) {
+            assert_eq!(row.occurrence.family, Family::ApiOptions);
+            let actual = row.score.expect("lexical score");
+            assert!(
+                (actual - score).abs() <= 1e-10 * (1.0 + score.abs()),
+                "frozen score disagrees with complete corpus for {query:?}: {actual} vs {score}"
+            );
+        }
+        if exact {
+            assert_eq!(actual.len(), texts.len());
+            assert!(actual.iter().all(|row| row.score == Some(0.0)));
+        }
+        drop(actual);
+        assert_eq!(
+            budget.reserved(),
+            0,
+            "query-owned state must release after {query:?}"
+        );
     }
-    lctx_surrealdb::derived_search::reconcile_search(&loader).await.unwrap();
+    lctx_surrealdb::derived_search::reconcile_search(&loader)
+        .await
+        .unwrap();
     fixture.close().await.unwrap();
 }
 
-fn search_budget()->ResourceBudget {ResourceBudget::fixed(64*1024*1024).unwrap()}
+fn search_budget() -> ResourceBudget {
+    ResourceBudget::fixed(64 * 1024 * 1024).unwrap()
+}

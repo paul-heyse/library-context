@@ -240,6 +240,19 @@ scores, so inserting unrelated content cannot change an older publication's rank
 uses distinct analyzed query terms and an explicitly identified exact eligible-vector route.
 Publication reconstructs and reconciles these derived statistics from selected canonical content.
 
+**Implemented eligibility correction, qualification pending,2026-10-11:** positive dependency
+membership alone cannot represent a selected window/part's absence of bindings or its complete
+current supporting context. Eligibility also requires the current canonical witness dependencies
+and binding context before ranking, cold comparison or selected backup capture. An added first
+binding excludes an older unbound claim from the larger view; an added supporting link, map or
+winning anchor cannot leave a stale subset claim eligible. This shares bounded canonical context
+access, without preparing every vector or whitelisting independently expected occurrence IDs.
+Extra eligible physical claims remain visible to exhaustive independent cold validation.
+The [coordinator §9.1](../../plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
+owns paired-view failure/correction evidence and focused first-binding, corruption and channel
+passes. Published backup/fresh-owner assurance was interrupted; retained-serving restart and
+current-source integrated qualification remain outstanding. SA-F06 remains open.
+
 Use native adjacency, index composition and bounded coarse hydration. Fixed evidence
 paths execute natively; variable exploration retains a frontier when continuation is meaningful.
 Do not enumerate in Rust merely to obtain examined-work counts or copy every occurrence's ANN vector.

@@ -124,6 +124,18 @@ necessary outcomes, guards and watermarks remain protected; age or a resolved fl
 Compiler/audit selection follows one model closure declaration with native/dump adapters, while
 actual stored rows and cold admission remain independent checks. An audit owns its read owner,
 pin and session until admitted tails drain, including failed preparation and cancellation.
+**Implemented, qualification pending2026-10-11:** full selected-membership preparation and
+completed-state metadata scans submit at most128 exact owner/view roots per indexed native
+crossing, charging each input window before binding. Complete external ordering, deduplication,
+independent actual-state validation and cancellation/drainage remain unchanged; this removes
+singleton root crossings without reusing a prior audit as authority. Recovery traversal fetches
+a physical contributor's input-view descriptors on its first inclusion; every output still freshly
+validates its contributor descriptor and exact model-owned inventory/collision constraints.
+Focused pure/native batching/session controls passed within the
+[coordinator §9.1](../../plans/persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
+boundary. Published shared-window backup/fresh-owner assurance was interrupted by the operator;
+its complete assertions and integrated qualification remain unproven. §11 owns resumption and
+stopped-run cleanup uncertainty; host process cleanup does not establish native pin release.
 Logical content backups reference separately protected cold-service recovery
 assets; recovery metadata is not authority to restore live clients or execute imported commands.
 

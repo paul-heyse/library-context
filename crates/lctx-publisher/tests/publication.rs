@@ -5,7 +5,10 @@ mod backup_decode;
 mod native_fixture;
 #[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
 mod runtime;
-#[allow(dead_code, reason = "The shared scoped fixture also serves standalone native controls")]
+#[allow(
+    dead_code,
+    reason = "The shared scoped fixture also serves standalone native controls"
+)]
 #[path = "../../lctx-serving/tests/fixtures/scoped.rs"]
 mod scoped_search_fixture;
 use cpg_core::{
@@ -115,7 +118,8 @@ async fn restored_derived_excess_is_refused(
     definitions: &str,
     table: &'static str,
 ) {
-    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_surrealdb::surrealdb::types::{Object, RecordId, Value, Variables};
     assert_eq!(
         reader.handle(),
@@ -131,7 +135,8 @@ async fn restored_derived_excess_is_refused(
             .filter(|binding| binding.boundary.is_none())
             .map(|binding| binding.view.identity)
             .collect(),
-    ).with_budget(&native_read_budget);
+    )
+    .with_budget(&native_read_budget);
     let mut response=reader.client().query("SELECT node AS payload,node.anchor AS anchor FROM compiler_view_member WHERE view IN $lctx_views AND node.semantic_type='source_artifacts' LIMIT 1").bind(reader.view_bindings()).await.unwrap().check().unwrap();
     let targets: Vec<Object> = response.take(0).unwrap();
     let target = match targets[0].get("anchor").unwrap() {
@@ -512,14 +517,20 @@ struct SmallPublication {
     source: Vec<u8>,
 }
 async fn small_publication(case: &str) -> Result<SmallPublication, ModelError> {
+    small_publication_from_source(case, Frontier::Normalized, None).await
+}
+async fn small_publication_from_source(
+    case: &str,
+    frontier: Frontier,
+    source_tail: Option<&[u8]>,
+) -> Result<SmallPublication, ModelError> {
     cpg_extract::logging::init_logging();
     let scratch = tempfile::tempdir().map_err(ModelError::codec)?;
     let mut config = RuntimeConfig::read(std::path::Path::new(
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
     ))?;
     config.selection = scratch.path().join("selected.json");
-    let native =
-        lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, Frontier::Normalized).await?;
+    let native = lctx_surrealdb::compiler::NativeCompilerStore::begin(&config, frontier).await?;
     let mut publication_owns_completion = false;
     let built = async {
         let workspace = Workspace::new(
@@ -542,10 +553,13 @@ async fn small_publication(case: &str) -> Result<SmallPublication, ModelError> {
         let path = format!("{nonce}.py");
         let mut source =
             format!("# Independently owned publication control {nonce}\n").into_bytes();
-        source.extend(
-            std::fs::read(runtime::root("native_signature").join("native_signature.py"))
-                .map_err(ModelError::codec)?,
-        );
+        match source_tail {
+            Some(bytes) => source.extend_from_slice(bytes),
+            None => source.extend(
+                std::fs::read(runtime::root("native_signature").join("native_signature.py"))
+                    .map_err(ModelError::codec)?,
+            ),
+        }
         std::fs::write(root.join(&path), &source).map_err(ModelError::codec)?;
         let captured = Arc::new(cpg_extract::bundle::CapturedInputs::new(
             vec![cpg_extract::acquisition::AcquiredInput::tree(
@@ -560,25 +574,31 @@ async fn small_publication(case: &str) -> Result<SmallPublication, ModelError> {
             .map_err(ModelError::codec)?,
         ));
         let settings = ContentHash::of(nonce.as_bytes());
+        let prepared = if frontier == Frontier::Catalog {
+            Some(compilation::PreparedCompilation::new(
+                frontier,
+                runtime::settings(&nonce),
+                captured.config().catalog(),
+                None,
+                workspace.budget(),
+            )?)
+        } else {
+            None
+        };
         compilation::compile(
             &workspace,
             captured.clone(),
             Profile::Catalog,
             settings,
-            Frontier::Normalized,
-            None,
+            frontier,
+            prepared.as_ref(),
             None,
             None,
         )
         .await?;
-        let admitted = artifact::admit(
-            &workspace,
-            &captured,
-            Frontier::Normalized,
-            Profile::Catalog,
-            settings,
-        )
-        .await?;
+        drop(prepared);
+        let admitted =
+            artifact::admit(&workspace, &captured, frontier, Profile::Catalog, settings).await?;
         let manifest = admitted.manifest().clone();
         // Once entered, publication owns attempt/session completion on either outcome.
         publication_owns_completion = true;
@@ -659,9 +679,16 @@ fn logical_backup_rows(
     while let Some(item) = dump.next().unwrap() {
         if let backup_decode::Item::Rows(rows) = item {
             for row in rows {
-                let Value::Object(object) = &row else { panic!("logical backup object"); };
-                let Some(Value::RecordId(id)) = object.get("id") else { panic!("logical backup identity"); };
-                assert!(inventory.insert(id.clone(), row).is_none(), "duplicate logical backup row");
+                let Value::Object(object) = &row else {
+                    panic!("logical backup object");
+                };
+                let Some(Value::RecordId(id)) = object.get("id") else {
+                    panic!("logical backup identity");
+                };
+                assert!(
+                    inventory.insert(id.clone(), row).is_none(),
+                    "duplicate logical backup row"
+                );
             }
         }
     }
@@ -677,22 +704,34 @@ async fn retire_publication_completely(
     handle: &SnapshotHandle,
 ) -> Result<(), ModelError> {
     let client = lctx_surrealdb::reader::connect(
-        &config.endpoint, &config.writer_credentials(),
-        config.namespace.as_str(), config.database.as_str(),
-    ).await?;
+        &config.endpoint,
+        &config.writer_credentials(),
+        config.namespace.as_str(),
+        config.database.as_str(),
+    )
+    .await?;
     let result = async {
         let mut progress = lctx_publisher::backup::retire(config, handle, true).await?;
         loop {
-            if progress.remaining.is_empty() { return Ok(()); }
-            let next = lctx_surrealdb::control::resume_retirement(&client, progress.identity, 4096).await?;
+            if progress.remaining.is_empty() {
+                return Ok(());
+            }
+            let next = lctx_surrealdb::control::resume_retirement(&client, progress.identity, 4096)
+                .await?;
             if next == progress {
-                return Err(ModelError::Conflict("composed backup retirement made no progress"));
+                return Err(ModelError::Conflict(
+                    "composed backup retirement made no progress",
+                ));
             }
             progress = next;
         }
-    }.await;
+    }
+    .await;
     let mut completion = completion::Completion::default();
-    completion.step("composed backup retirement session invalidation", client.invalidate().await.map_err(ModelError::codec));
+    completion.step(
+        "composed backup retirement session invalidation",
+        client.invalidate().await.map_err(ModelError::codec),
+    );
     completion::complete(result, completion)
 }
 
@@ -701,14 +740,19 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
     use lctx_surrealdb::surrealdb::types::{RecordId, Value};
     let fixture = small_publication("selected_backup_composed").await.unwrap();
     let definitions = lctx_surrealdb::materialization::native_definitions();
-    let reader_budget = resources::ResourceBudget::fixed(WorkspaceOptions::default().memory_bytes).unwrap();
+    let reader_budget =
+        resources::ResourceBudget::fixed(WorkspaceOptions::default().memory_bytes).unwrap();
     let mut unrelated_owner = None;
     let mut churn_owner = None;
     let mut restored_owner = None;
     let observer = lctx_surrealdb::reader::connect(
-        &fixture.config.endpoint, &fixture.config.writer_credentials(),
-        fixture.config.namespace.as_str(), fixture.config.database.as_str(),
-    ).await.unwrap();
+        &fixture.config.endpoint,
+        &fixture.config.writer_credentials(),
+        fixture.config.namespace.as_str(),
+        fixture.config.database.as_str(),
+    )
+    .await
+    .unwrap();
     let outcome = AssertUnwindSafe(async {
         let baseline = fixture.scratch.path().join("baseline.surql");
         lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &baseline, &definitions).await.unwrap();
@@ -776,13 +820,30 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
         lctx_publisher::inspection::audit(&unrelated.config, &unrelated.handle, &definitions).await.unwrap();
     }).catch_unwind().await;
     let mut completion = finalize_reader_owners([&mut restored_owner]).await;
-    completion.step("composed backup observer invalidation", observer.invalidate().await.map_err(ModelError::codec));
-    for owned in [Some(&fixture), unrelated_owner.as_ref(), churn_owner.as_ref()].into_iter().flatten() {
-        completion.step("composed backup publication retirement", retire_publication_completely(&owned.config, &owned.handle).await);
+    completion.step(
+        "composed backup observer invalidation",
+        observer.invalidate().await.map_err(ModelError::codec),
+    );
+    for owned in [
+        Some(&fixture),
+        unrelated_owner.as_ref(),
+        churn_owner.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        completion.step(
+            "composed backup publication retirement",
+            retire_publication_completely(&owned.config, &owned.handle).await,
+        );
     }
     let cleanup = completion::complete(Ok(()), completion);
     if let Err(primary) = outcome {
-        if let Err(secondary) = cleanup { eprintln!("composed backup assertion failed; owned cleanup also failed: {secondary:#?}"); }
+        if let Err(secondary) = cleanup {
+            eprintln!(
+                "composed backup assertion failed; owned cleanup also failed: {secondary:#?}"
+            );
+        }
         std::panic::resume_unwind(primary);
     }
     cleanup.unwrap();
@@ -792,9 +853,16 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
 async fn selected_backup_restores_fresh_ownership_while_foreign_window_binding_coexists() {
     use lctx_surrealdb::surrealdb::types::{RecordId, RecordIdKey, Value, Variables};
     use retrieval::{BindingBasis, WindowBinding};
-    let fixture = small_publication("selected_backup_foreign_binding").await.unwrap();
+    let fixture = small_publication_from_source(
+        "selected_backup_foreign_binding",
+        Frontier::Catalog,
+        Some(b"pass\n"),
+    )
+    .await
+    .unwrap();
     let definitions = lctx_surrealdb::materialization::native_definitions();
-    let budget = resources::ResourceBudget::fixed(WorkspaceOptions::default().memory_bytes).unwrap();
+    let budget =
+        resources::ResourceBudget::fixed(WorkspaceOptions::default().memory_bytes).unwrap();
     let mut selected_owner = None;
     let mut restored_owner = None;
     let mut foreign_owner = None;
@@ -831,7 +899,7 @@ async fn selected_backup_restores_fresh_ownership_while_foreign_window_binding_c
             graph::Entity::RetrievalWindowBinding(binding) => Some(binding.clone()), _ => None,
         }).expect("real published fixture has a window binding");
         let foreign_binding = WindowBinding {
-            basis: if binding.basis == BindingBasis::PublicContract { BindingBasis::DirectDefinition } else { BindingBasis::PublicContract },
+            basis: if binding.basis == BindingBasis::Source { BindingBasis::DirectDefinition } else { BindingBasis::Source },
             ..binding.clone()
         };
         let foreign_payload = lctx_surrealdb::loader::entity_payload_id(&graph::Entity::from(foreign_binding.clone())).unwrap();
@@ -850,6 +918,7 @@ async fn selected_backup_restores_fresh_ownership_while_foreign_window_binding_c
             foreign.store.attempt(), views).with_budget(&budget);
         lctx_publisher::materialize_search(&foreign_loader).await.unwrap();
         lctx_publisher::reconcile_search(&foreign_loader).await.unwrap();
+        lctx_publisher::inspection::audit(&fixture.config, &fixture.handle, &definitions).await.unwrap();
         let mut binding_vars = Variables::new();
         binding_vars.insert("binding", lctx_surrealdb::loader::json_value(serde_json::json!(foreign_binding.id().bytes())).unwrap());
         let foreign_rows: Vec<Value> = foreign.reader.query_native(
@@ -909,18 +978,43 @@ async fn selected_backup_restores_fresh_ownership_while_foreign_window_binding_c
         }).await.unwrap();
         assert_eq!(foreign_binding_after.len(), 1, "B's exact foreign payload remains present through restore");
     }).catch_unwind().await;
-    let mut completion = finalize_reader_owners([&mut selected_owner, &mut restored_owner]).await;
+    let mut completion = completion::Completion::default();
     if let Some(foreign) = foreign_owner.as_ref() {
         completion.step("foreign shared search view cleanup", foreign.close().await);
-        completion.step("foreign shared search reader invalidation", foreign.reader.client().invalidate().await.map_err(ModelError::codec));
+        completion.step(
+            "foreign shared search reader invalidation",
+            foreign
+                .reader
+                .client()
+                .invalidate()
+                .await
+                .map_err(ModelError::codec),
+        );
     }
-    completion.step("shared-window backup publication retirement", retire_publication_completely(&fixture.config, &fixture.handle).await);
-    let cleanup=completion::complete(Ok(()), completion);
-    if let Err(primary)=outcome {
-        if let Err(secondary)=cleanup { eprintln!("shared-window backup assertion failed; owned cleanup also failed: {secondary:#?}"); }
-        std::panic::resume_unwind(primary);
-    }
-    cleanup.unwrap();
+    let cleanup = completion::complete(Ok(()), completion);
+    let outcome = match outcome {
+        Err(primary) => {
+            if let Err(secondary) = cleanup {
+                eprintln!(
+                    "shared-window backup assertion failed; foreign cleanup also failed: {secondary:#?}"
+                );
+            }
+            Err(primary)
+        }
+        Ok(()) => {
+            AssertUnwindSafe(async {
+                cleanup.unwrap();
+            })
+            .catch_unwind()
+            .await
+        }
+    };
+    finish_small_publication(
+        &fixture,
+        outcome,
+        [&mut selected_owner, &mut restored_owner],
+    )
+    .await;
 }
 
 #[tokio::test]

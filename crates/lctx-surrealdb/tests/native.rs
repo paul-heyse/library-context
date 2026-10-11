@@ -19,15 +19,30 @@ fn config() -> serde_json::Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 async fn selected_rows<Context>(reader: &NativeReader<Context>, predicate: &str) -> Vec<Value> {
-    let mut rows = reader.selected_payload_rows("entity", predicate, Variables::new(), vec![], "id", None).unwrap();
-    let mut result = Vec::new(); while let Some(row) = rows.next().await.unwrap() { result.push(row); }
-    rows.drain_transport().await.unwrap(); result
+    let mut rows = reader
+        .selected_payload_rows("entity", predicate, Variables::new(), vec![], "id", None)
+        .unwrap();
+    let mut result = Vec::new();
+    while let Some(row) = rows.next().await.unwrap() {
+        result.push(row);
+    }
+    rows.drain_transport().await.unwrap();
+    result
 }
-fn body(row: &Value) -> &surrealdb::types::Object { row.as_object().unwrap().get("body").unwrap().as_object().unwrap() }
+fn body(row: &Value) -> &surrealdb::types::Object {
+    row.as_object()
+        .unwrap()
+        .get("body")
+        .unwrap()
+        .as_object()
+        .unwrap()
+}
 #[tokio::test]
 async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisions() {
-    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
-    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_surrealdb::compiler::NativeCompilerStore;
     use std::collections::{BTreeMap, BTreeSet};
     let cfg = scoped::config();
@@ -95,10 +110,13 @@ async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisi
             .await
             .unwrap();
         let views = store
-            .complete_contribution(owner,
+            .complete_contribution(
+                owner,
                 stages::ProviderOutcome::Complete,
                 &relations,
-                &BTreeMap::new(), &native_operation_budget)
+                &BTreeMap::new(),
+                &native_operation_budget,
+            )
             .await
             .unwrap();
         if producer == "selected" {
@@ -110,7 +128,8 @@ async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisi
             .await
             .unwrap(),
         selected_views,
-    ).with_budget(&native_read_budget);
+    )
+    .with_budget(&native_read_budget);
     let alias = normalized::entities::EntityRef::Place { place: place.id() };
     let result = async {
         let aliases = native
@@ -373,7 +392,25 @@ async fn native_codec_graph_search_and_immutable_winners() {
     );
     let candidates: Vec<surrealdb::types::Object> = reader.query_native("SELECT in AS id,in.semantic_type AS semantic_type FROM reference WITH INDEX incoming WHERE out=$key", b).await.unwrap();
     let selected = reader.prepare_selection().await.unwrap().unwrap();
-    let adjacency = candidates.into_iter().filter(|row| selected.contains_all(&[<surrealdb::types::RecordId as surrealdb::types::SurrealValue>::from_value(row.get("id").unwrap().clone()).unwrap()]).unwrap()).map(|row| <String as surrealdb::types::SurrealValue>::from_value(row.get("semantic_type").unwrap().clone()).unwrap()).collect::<Vec<_>>();
+    let adjacency = candidates
+        .into_iter()
+        .filter(|row| {
+            selected
+                .contains_all(&[
+                    <surrealdb::types::RecordId as surrealdb::types::SurrealValue>::from_value(
+                        row.get("id").unwrap().clone(),
+                    )
+                    .unwrap(),
+                ])
+                .unwrap()
+        })
+        .map(|row| {
+            <String as surrealdb::types::SurrealValue>::from_value(
+                row.get("semantic_type").unwrap().clone(),
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
     assert_eq!(adjacency, vec!["releases"]);
     // Raw SQL preserves flexible bodies; independent admission owns semantic closure.
     let mut bindings = Variables::new();
@@ -515,13 +552,34 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
     let native = &fixture.reader;
     let client = native.shared_client();
     let loader = Loader::new(client.clone());
-    let texts = selected_rows(native, "semantic_type='retrieval_corpus_texts'").await.into_iter().map(|row| <String as surrealdb::types::SurrealValue>::from_value(body(&row).get("text").unwrap().clone()).unwrap()).collect::<Vec<_>>();
+    let texts = selected_rows(native, "semantic_type='retrieval_corpus_texts'")
+        .await
+        .into_iter()
+        .map(|row| {
+            <String as surrealdb::types::SurrealValue>::from_value(
+                body(&row).get("text").unwrap().clone(),
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
     assert_eq!(texts, vec![text.to_owned()]);
-    let titles = selected_rows(native, "semantic_type='retrieval_units'").await.into_iter().map(|row| <String as surrealdb::types::SurrealValue>::from_value(body(&row).get("title").unwrap().clone()).unwrap()).collect::<Vec<_>>();
+    let titles = selected_rows(native, "semantic_type='retrieval_units'")
+        .await
+        .into_iter()
+        .map(|row| {
+            <String as surrealdb::types::SurrealValue>::from_value(
+                body(&row).get("title").unwrap().clone(),
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
     assert_eq!(titles, vec!["Usage scenario 雪".to_owned()]);
     let mut literal_rows = selected_rows(native, "semantic_type='literal_values'").await;
     literal_rows.sort_by_key(|row| row.as_object().unwrap().get("subtype").unwrap().clone());
-    let literal_bodies = literal_rows.iter().map(|row| Value::Object(body(row).clone())).collect::<Vec<_>>();
+    let literal_bodies = literal_rows
+        .iter()
+        .map(|row| Value::Object(body(row).clone()))
+        .collect::<Vec<_>>();
     assert_eq!(literal_bodies.len(), 2);
     let textual = literal_bodies[0].as_object().unwrap();
     let opaque_body = literal_bodies[1].as_object().unwrap();
@@ -581,24 +639,40 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
 async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_budget_lifetimes() {
     use lctx_model::domain::retrieval::{CorpusText, Family, RENDER_VERSION, Unit};
     use lctx_surrealdb::prepared::PreparedQuery;
-    async fn limited_relation(reader: &NativeReader<()>, relation: &str) -> Result<Vec<Value>, ModelError> {
+    async fn limited_relation(
+        reader: &NativeReader<()>,
+        relation: &str,
+    ) -> Result<Vec<Value>, ModelError> {
         let mut rows = reader.relation_bodies(relation, 1)?;
         let result = async {
             let mut values = Vec::new();
-            while let Some(row) = rows.next().await? { values.push(row); }
+            while let Some(row) = rows.next().await? {
+                values.push(row);
+            }
             Ok(values)
-        }.await;
+        }
+        .await;
         let mut terminal = completion::Completion::default();
-        terminal.step("tiny selected relation drainage", rows.drain_transport().await);
+        terminal.step(
+            "tiny selected relation drainage",
+            rows.drain_transport().await,
+        );
         completion::complete(result, terminal)
     }
     let config = scoped::config();
     let nonce = lctx_surrealdb::control::fresh_identity("sparse-indexed-selection").unwrap();
-    let packages = (0..260).map(|ordinal| Package { name: format!("sparse-{}-{ordinal:04}", nonce.hex()) }).collect::<Vec<_>>();
-    let release = Release { package: packages[0].id(), version: "1".into() };
+    let packages = (0..260)
+        .map(|ordinal| Package {
+            name: format!("sparse-{}-{ordinal:04}", nonce.hex()),
+        })
+        .collect::<Vec<_>>();
+    let release = Release {
+        package: packages[0].id(),
+        version: "1".into(),
+    };
     let place = value::Place {
-        root: serde_json::from_value(serde_json::to_value([13u8;16]).unwrap()).unwrap(),
-        path: serde_json::from_value(serde_json::to_value([17u8;16]).unwrap()).unwrap(),
+        root: serde_json::from_value(serde_json::to_value([13u8; 16]).unwrap()).unwrap(),
+        path: serde_json::from_value(serde_json::to_value([17u8; 16]).unwrap()).unwrap(),
     };
     let text = format!("sparse indexed selection {}", nonce.hex());
     let corpus = CorpusText {
@@ -615,25 +689,76 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
         corpus: corpus.id(),
         title: "Selected unit revision".into(),
     };
-    let mut changed = revision.clone(); changed.title = "Foreign unit revision".into();
-    assert_eq!(revision.id(), changed.id(), "the conflict fixture shares one nominal unit key");
+    let mut changed = revision.clone();
+    changed.title = "Foreign unit revision".into();
+    assert_eq!(
+        revision.id(),
+        changed.id(),
+        "the conflict fixture shares one nominal unit key"
+    );
     let original_entity = Entity::from(revision.clone());
     let changed_entity = Entity::from(changed);
-    assert_ne!(original_entity.content(), changed_entity.content(), "nonkey title changes canonical content");
-    assert_ne!(lctx_surrealdb::loader::entity_payload_id(&original_entity).unwrap(), lctx_surrealdb::loader::entity_payload_id(&changed_entity).unwrap(), "the selected views must contain distinct immutable physical revisions");
-    let mut entities = packages.iter().cloned().map(Entity::from).collect::<Vec<_>>();
-    entities.extend([Entity::from(release.clone()), Entity::from(place.clone()), Entity::from(corpus.clone()), original_entity]);
-    let selected = scoped::reader_at_frontier(&config, admission::Frontier::Normalized, &entities, &[]).await.unwrap();
-    let foreign_package = Package { name: format!("foreign-{}", nonce.hex()) };
-    let foreign = scoped::reader_at_frontier(&config, admission::Frontier::Normalized, &[Entity::from(foreign_package.clone()), Entity::from(packages[0].clone()), Entity::from(corpus), changed_entity], &[]).await.unwrap();
-    let extra_packages = ["a", "b"].map(|suffix| Package { name: format!("sparse-extra-{}-{suffix}", nonce.hex()) });
+    assert_ne!(
+        original_entity.content(),
+        changed_entity.content(),
+        "nonkey title changes canonical content"
+    );
+    assert_ne!(
+        lctx_surrealdb::loader::entity_payload_id(&original_entity).unwrap(),
+        lctx_surrealdb::loader::entity_payload_id(&changed_entity).unwrap(),
+        "the selected views must contain distinct immutable physical revisions"
+    );
+    let mut entities = packages
+        .iter()
+        .cloned()
+        .map(Entity::from)
+        .collect::<Vec<_>>();
+    entities.extend([
+        Entity::from(release.clone()),
+        Entity::from(place.clone()),
+        Entity::from(corpus.clone()),
+        original_entity,
+    ]);
+    let selected =
+        scoped::reader_at_frontier(&config, admission::Frontier::Normalized, &entities, &[])
+            .await
+            .unwrap();
+    let foreign_package = Package {
+        name: format!("foreign-{}", nonce.hex()),
+    };
+    let foreign = scoped::reader_at_frontier(
+        &config,
+        admission::Frontier::Normalized,
+        &[
+            Entity::from(foreign_package.clone()),
+            Entity::from(packages[0].clone()),
+            Entity::from(corpus),
+            changed_entity,
+        ],
+        &[],
+    )
+    .await
+    .unwrap();
+    let extra_packages = ["a", "b"].map(|suffix| Package {
+        name: format!("sparse-extra-{}-{suffix}", nonce.hex()),
+    });
     let mut extra_place = place.clone();
     extra_place.root = serde_json::from_value(serde_json::json!(nonce.0[..16])).unwrap();
-    let compatible = scoped::reader_at_frontier(&config, admission::Frontier::Normalized, &[
-        Entity::from(packages[0].clone()), Entity::from(packages[128].clone()),
-        Entity::from(extra_packages[0].clone()), Entity::from(extra_packages[1].clone()),
-        Entity::from(place.clone()), Entity::from(extra_place.clone()),
-    ], &[]).await.unwrap();
+    let compatible = scoped::reader_at_frontier(
+        &config,
+        admission::Frontier::Normalized,
+        &[
+            Entity::from(packages[0].clone()),
+            Entity::from(packages[128].clone()),
+            Entity::from(extra_packages[0].clone()),
+            Entity::from(extra_packages[1].clone()),
+            Entity::from(place.clone()),
+            Entity::from(extra_place.clone()),
+        ],
+        &[],
+    )
+    .await
+    .unwrap();
     let retained = selected.reader.resource_budget().unwrap();
     let request = resources::ResourceBudget::scoped(&retained, 2 << 20).unwrap();
     let reader = selected.reader.with_request_budget_clone(&request);
@@ -689,6 +814,40 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
         // rows. The 261-row prefix crosses native windows and must include rows from
         // both views, irrespective of their hash order; one of 262 unique rows is cut.
         let mut union_views = selected.views.clone(); union_views.extend(compatible.views.iter().copied());
+        // Complete root windows use the same exact union as singleton reads, including
+        // every physical membership field; foreign coexisting roots grant no authority.
+        for owners in [true, false] {
+            let (table, index, field, root_table) = if owners {
+                ("compiler_membership", "contribution_rows", "contribution", "compiler_contribution")
+            } else { ("compiler_view_member", "view_nodes", "view", "compiler_view") };
+            let roots = if owners { vec![selected.contribution, compatible.contribution] } else { union_views.clone() };
+            let roots = roots.into_iter().map(|root| RecordId::new(root_table, root.hex())).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+            assert!(roots.len() > 1);
+            let by_id = |rows: Vec<Value>| -> Result<std::collections::BTreeMap<RecordId, Value>, ModelError> {
+                rows.into_iter().map(|row| { let id = row.as_object().and_then(|row| row.get("id")).and_then(Value::as_record).cloned().ok_or(ModelError::Schema("exact root row ID"))?; Ok((id, row)) }).collect()
+            };
+            let mut singleton_members = Vec::new(); let mut singleton_descriptors = Vec::new();
+            for root in &roots {
+                let mut vars = Variables::new(); vars.insert("root", root.clone());
+                singleton_members.extend(reader.query_native::<Vec<Value>>(format!("SELECT * FROM {table} WITH INDEX {index} WHERE {field}=$root"), vars.clone()).await?);
+                singleton_descriptors.extend(reader.query_native::<Vec<Value>>("SELECT * FROM $root", vars).await?);
+            }
+            let mut window_members = Vec::new(); let mut window_descriptors = Vec::new();
+            for roots in roots.chunks(128) {
+                let mut vars = Variables::new(); vars.insert("roots", roots.to_vec());
+                window_members.extend(reader.query_native::<Vec<Value>>(format!("SELECT * FROM {table} WITH INDEX {index} WHERE {field} IN $roots"), vars.clone()).await?);
+                window_descriptors.extend(reader.query_native::<Vec<Value>>("SELECT * FROM $roots", vars.clone()).await?);
+                let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(vars, vec![], vec![format!("SELECT * FROM {table} WITH INDEX {index} WHERE {field} IN $roots EXPLAIN")])?).await?;
+                assert!(format!("{plan:?}").contains(index), "exact root IN plan: {plan:?}");
+            }
+            let actual = by_id(window_members)?;
+            assert_eq!(actual, by_id(singleton_members)?, "complete membership fields agree across root query shapes");
+            assert_eq!(by_id(window_descriptors)?, by_id(singleton_descriptors)?, "exact descriptor roots agree across query shapes");
+            let foreign_payload = lctx_surrealdb::loader::entity_payload_id(&Entity::from(foreign_package.clone()))?;
+            let shared_payload = lctx_surrealdb::loader::entity_payload_id(&Entity::from(packages[0].clone()))?;
+            assert!(actual.values().all(|row| row.as_object().unwrap().get("node") != Some(&Value::RecordId(foreign_payload.clone()))));
+            assert!(actual.values().any(|row| row.as_object().unwrap().get("node") == Some(&Value::RecordId(shared_payload.clone()))));
+        }
         let union = NativeReader::for_views(reader.shared_client(), union_views).with_budget(&retained).with_request_budget(&request);
         let known_packages = packages.iter().chain(extra_packages.iter()).collect::<Vec<_>>();
         let expected_keys = known_packages.iter().map(|package| package.id().hex()).collect::<std::collections::BTreeSet<_>>();
@@ -768,12 +927,23 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
     let mut terminal = completion::Completion::default();
     terminal.step("sparse selected fixture close", selected.close().await);
     terminal.step("sparse foreign fixture close", foreign.close().await);
-    terminal.step("sparse compatible union fixture close", compatible.close().await);
-    if let Some(growth) = &growth { terminal.step("sparse foreign growth fixture close", growth.close().await); }
+    terminal.step(
+        "sparse compatible union fixture close",
+        compatible.close().await,
+    );
+    if let Some(growth) = &growth {
+        terminal.step("sparse foreign growth fixture close", growth.close().await);
+    }
     completion::complete(result, terminal).unwrap();
-    drop(selected); drop(foreign); drop(compatible); drop(growth);
+    drop(selected);
+    drop(foreign);
+    drop(compatible);
+    drop(growth);
     assert_eq!(request.reserved(), 0);
-    assert!(retained.reserved() > 0, "the immutable selected borrower retains its original charge after cache/owner release");
+    assert!(
+        retained.reserved() > 0,
+        "the immutable selected borrower retains its original charge after cache/owner release"
+    );
     drop(exact);
     assert_eq!(retained.reserved(), 0);
 }

@@ -18,6 +18,12 @@ store-failure-output = true
 filter = 'test(behavioral_terminal_frontiers_retain_scoped_basis_and_unknown_twins)'
 slow-timeout = { period = "60s", terminate-after = 15 }
 
+# This new Catalog journey also publishes, takes two exact backups, creates a foreign
+# search view and independently restores/audits fresh ownership before cleanup.
+[[profile.default.overrides]]
+filter = 'test(=selected_backup_restores_fresh_ownership_while_foreign_window_binding_coexists)'
+slow-timeout = { period = "60s", terminate-after = 15 }
+
 # Independently selectable frontier/profile admission and export controls retain their
 # original orchestration allowance.
 [[profile.default.overrides]]

@@ -48,37 +48,129 @@ async fn execute(loader: &Loader, sql: impl Into<String>, bindings: Variables) {
 }
 async fn rows(loader: &Loader, table: &str) -> Vec<Value> {
     let reader = loader.reader();
-    let occurrence_table = if table == "vector" || table == "vec_occurs" { "vec_occurs" } else { "lex_occurs" };
+    let occurrence_table = if table == "vector" || table == "vec_occurs" {
+        "vec_occurs"
+    } else {
+        "lex_occurs"
+    };
     let budget = lctx_model::domain::resources::ResourceBudget::fixed(64 << 20).unwrap();
-    let mut stream = lctx_surrealdb::derived_search::selected_occurrences(&reader, occurrence_table, "true", Variables::new(), &budget).unwrap();
-    let mut rows = Vec::new(); let mut sources = std::collections::BTreeSet::new();
+    let mut stream = lctx_surrealdb::derived_search::selected_occurrences(
+        &reader,
+        occurrence_table,
+        "true",
+        Variables::new(),
+        &budget,
+    )
+    .unwrap();
+    let mut rows = Vec::new();
+    let mut sources = std::collections::BTreeSet::new();
     while let Some(row) = stream.next().await.unwrap() {
-        if table == occurrence_table { rows.push(row); } else { sources.insert(row.as_object().unwrap().get("in").unwrap().as_record().unwrap().clone()); }
+        if table == occurrence_table {
+            rows.push(row);
+        } else {
+            sources.insert(
+                row.as_object()
+                    .unwrap()
+                    .get("in")
+                    .unwrap()
+                    .as_record()
+                    .unwrap()
+                    .clone(),
+            );
+        }
     }
     stream.drain_transport().await.unwrap();
     let sources = sources.into_iter().collect::<Vec<_>>();
     for sources in sources.chunks(128) {
-        let mut vars = Variables::new(); vars.insert("sources", sources.to_vec()); vars.insert("table", table.to_owned());
-        let mut stream = reader.query_stream("SELECT * FROM $sources WHERE record::table(id)=$table ORDER BY id", vars, 1).unwrap();
-        while let Some(row) = stream.next().await.unwrap() { rows.push(row); }
+        let mut vars = Variables::new();
+        vars.insert("sources", sources.to_vec());
+        vars.insert("table", table.to_owned());
+        let mut stream = reader
+            .query_stream(
+                "SELECT * FROM $sources WHERE record::table(id)=$table ORDER BY id",
+                vars,
+                1,
+            )
+            .unwrap();
+        while let Some(row) = stream.next().await.unwrap() {
+            rows.push(row);
+        }
         stream.drain_transport().await.unwrap();
     }
-    rows.sort_by_key(|row| row.as_object().unwrap().get("id").unwrap().clone()); rows
+    rows.sort_by_key(|row| row.as_object().unwrap().get("id").unwrap().clone());
+    rows
 }
 async fn recovery_search_counts(loader: &Loader) -> (usize, usize, usize) {
     let selected = loader.reader().prepare_selection().await.unwrap().unwrap();
     let mut rows = selected.recovery_search().unwrap();
     let mut counts = (0, 0, 0);
     while let Some(row) = rows.next().await.unwrap() {
-        match row.as_object().unwrap().get("id").unwrap().as_record().unwrap().table.as_str() {
+        match row
+            .as_object()
+            .unwrap()
+            .get("id")
+            .unwrap()
+            .as_record()
+            .unwrap()
+            .table
+            .as_str()
+        {
             "lex_occurs" => counts.0 += 1,
             "vec_occurs" => counts.1 += 1,
             "vector" => counts.2 += 1,
-            _ => {},
+            _ => {}
         }
     }
     rows.drain_transport().await.unwrap();
     counts
+}
+async fn stored_family_rows(loader: &Loader, baseline: &[Value]) -> Vec<Value> {
+    let ids = baseline
+        .iter()
+        .map(|row| row.as_object().unwrap().get("id").unwrap().clone())
+        .collect::<Vec<_>>();
+    let mut vars = Variables::new();
+    vars.insert("ids", ids);
+    loader
+        .reader()
+        .query_native("SELECT * FROM $ids ORDER BY id", vars)
+        .await
+        .unwrap()
+}
+async fn occurrence_ids_with_budget(
+    reader: &lctx_surrealdb::NativeReader<()>,
+    predicate: &str,
+    vars: Variables,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Result<Vec<RecordId>, ModelError> {
+    let mut rows = lctx_surrealdb::derived_search::selected_occurrences(
+        reader,
+        "lex_occurs",
+        predicate,
+        vars,
+        budget,
+    )?;
+    let result = async {
+        let mut ids = Vec::new();
+        while let Some(row) = rows.next().await? {
+            ids.push(
+                row.as_object()
+                    .ok_or(ModelError::Schema("budget control occurrence"))?
+                    .get("id")
+                    .and_then(Value::as_record)
+                    .ok_or(ModelError::Schema("budget control occurrence ID"))?
+                    .clone(),
+            );
+        }
+        Ok(ids)
+    }
+    .await;
+    let mut terminal = completion::Completion::default();
+    terminal.step(
+        "budget control occurrence drainage",
+        rows.drain_transport().await,
+    );
+    completion::complete(result, terminal)
 }
 
 async fn restore(loader: &Loader, row: &Value, relation: bool) {
@@ -105,9 +197,19 @@ async fn restore(loader: &Loader, row: &Value, relation: bool) {
 async fn streamed_witnesses_and_complete_read_only_cold_audit() {
     streamed_control(AuditTarget::Baseline).await;
 }
+#[tokio::test]
+async fn streamed_first_binding_superset_preserves_each_exact_view() {
+    streamed_control(AuditTarget::FirstBinding).await;
+}
+#[tokio::test]
+async fn streamed_additive_window_part_preserves_each_exact_view() {
+    streamed_control(AuditTarget::AdditiveLink).await;
+}
 #[derive(Clone, Copy, Debug)]
 enum AuditTarget {
     Baseline,
+    FirstBinding,
+    AdditiveLink,
     Lexical(&'static str),
     Physical(&'static str),
     Definitions,
@@ -141,7 +243,8 @@ async fn installed_scope_definition_drift_is_detected_read_only() {
     streamed_control(AuditTarget::Definitions).await;
 }
 async fn streamed_control(target: AuditTarget) {
-    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let identity = FixtureIdentity::new();
     let maintenance = matches!(target, AuditTarget::Definitions);
     let started = std::time::Instant::now();
@@ -210,6 +313,7 @@ async fn streamed_control(target: AuditTarget) {
     let mut units = Vec::new();
     let mut expected_anchor = Vec::new();
     let mut foreign_binding = None;
+    let mut additional_link = None;
     entities.push(Entity::from(Origin::Api {
         member: members[0].0,
     }));
@@ -297,13 +401,22 @@ async fn streamed_control(target: AuditTarget) {
                     start: 0,
                     end: text.len() as i64,
                 }));
-                entities.push(Entity::from(WindowBinding {
+                additional_link.get_or_insert(WindowPart {
                     window: window.id(),
+                    ordinal: 1,
                     part: part.id(),
-                    subject: members[0].1,
-                    basis: BindingBasis::PublicContract,
-                    qualification: None,
-                }));
+                    start: 0,
+                    end: text.len() as i64,
+                });
+                if !matches!(target, AuditTarget::FirstBinding) || foreign_binding.is_some() {
+                    entities.push(Entity::from(WindowBinding {
+                        window: window.id(),
+                        part: part.id(),
+                        subject: members[0].1,
+                        basis: BindingBasis::PublicContract,
+                        qualification: None,
+                    }));
+                }
                 foreign_binding.get_or_insert(WindowBinding {
                     window: window.id(),
                     part: part.id(),
@@ -395,7 +508,8 @@ async fn streamed_control(target: AuditTarget) {
         fixture.reader.shared_client(),
         fixture.store.attempt(),
         views.clone(),
-    ).with_budget(&native_read_budget);
+    )
+    .with_budget(&native_read_budget);
     let privileged = if maintenance {
         let installer = RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
@@ -418,7 +532,177 @@ async fn streamed_control(target: AuditTarget) {
     // Sparse canonical scope keys support its frontiers; full graph closure is
     // exercised by the separate admitted publication journey.
     progress("materialize search");
-    materialize_search(&loader).await.unwrap();
+    let initial_materialization = materialize_search(&loader).await;
+    if matches!(
+        target,
+        AuditTarget::FirstBinding | AuditTarget::AdditiveLink
+    ) && initial_materialization.is_err()
+    {
+        progress("initial materialization refusal: fixture cleanup");
+        let fixture_cleanup = fixture.close().await;
+        let session_cleanup = loader.client().invalidate().await;
+        panic!(
+            "initial companion-context materialization: {initial_materialization:?}; fixture cleanup: {fixture_cleanup:?}; session cleanup: {session_cleanup:?}"
+        );
+    }
+    initial_materialization.unwrap();
+    if matches!(
+        target,
+        AuditTarget::FirstBinding | AuditTarget::AdditiveLink
+    ) {
+        let initial = rows(&loader, "lex_occurs").await;
+        assert_eq!(initial.len(), 80);
+        assert_eq!(
+            initial
+                .iter()
+                .filter(|row| row.as_object().unwrap().get("binding") == Some(&Value::Null))
+                .count(),
+            usize::from(matches!(target, AuditTarget::FirstBinding))
+        );
+        let mut bound_entities = entities.clone();
+        bound_entities.push(if matches!(target, AuditTarget::FirstBinding) {
+            Entity::from(foreign_binding.unwrap())
+        } else {
+            Entity::from(additional_link.unwrap())
+        });
+        let bound = scoped::reader(&config, &bound_entities, &assertions)
+            .await
+            .unwrap();
+        let bound_vars = bound.reader.view_bindings();
+        let Some(Value::Array(selected)) = bound_vars.get("lctx_views") else {
+            panic!("explicit bound fixture views")
+        };
+        let bound_views = selected
+            .iter()
+            .map(|view| {
+                let Value::RecordId(view) = view else {
+                    panic!("bound view ID")
+                };
+                let lctx_surrealdb::surrealdb::types::RecordIdKey::String(hash) = &view.key else {
+                    panic!("bound view hash")
+                };
+                ContentHash(hex::decode(hash).unwrap().try_into().unwrap())
+            })
+            .collect::<Vec<_>>();
+        let bound_loader = Loader::for_attempt_views(
+            bound.reader.shared_client(),
+            bound.store.attempt(),
+            bound_views,
+        )
+        .with_budget(&native_read_budget);
+        progress("materialize companion-context superset");
+        let bound_materialization = materialize_search(&bound_loader).await;
+        progress("independent unbound-view cold audit");
+        let unbound_cold = reconcile_search(&loader).await;
+        progress("independent first-binding-view cold audit");
+        let bound_cold = reconcile_search(&bound_loader).await;
+        eprintln!(
+            "companion-context results: materialization={bound_materialization:?}, original_cold={unbound_cold:?}, superset_cold={bound_cold:?}"
+        );
+        let unbound_counts = (
+            rows(&loader, "lex_occurs").await.len(),
+            rows(&loader, "vec_occurs").await.len(),
+        );
+        let bound_counts = (
+            rows(&bound_loader, "lex_occurs").await.len(),
+            rows(&bound_loader, "vec_occurs").await.len(),
+        );
+        let original_recovery = recovery_search_counts(&loader).await;
+        let superset_recovery = recovery_search_counts(&bound_loader).await;
+        let budget_correspondence = if matches!(target, AuditTarget::FirstBinding) {
+            let reader = loader.reader();
+            reader.prepare_selection().await.unwrap();
+            let inherited_baseline = native_read_budget.reserved();
+            let inherited_hold = native_read_budget
+                .reserve(
+                    "context control inherited pool saturation",
+                    native_read_budget.limit() - inherited_baseline,
+                )
+                .unwrap();
+            let request = lctx_model::domain::resources::ResourceBudget::fixed(64 << 20).unwrap();
+            let complete =
+                occurrence_ids_with_budget(&reader, "true", Variables::new(), &request).await;
+            let inputs = initial
+                .iter()
+                .map(|row| {
+                    let Value::String(input) = row.as_object().unwrap().get("scope_input").unwrap()
+                    else {
+                        panic!("occurrence input key")
+                    };
+                    input.clone()
+                })
+                .collect::<std::collections::BTreeSet<_>>();
+            let mut vars = Variables::new();
+            vars.insert("input_keys", inputs.into_iter().collect::<Vec<_>>());
+            let indexed =
+                occurrence_ids_with_budget(&reader, "scope_input IN $input_keys", vars, &request)
+                    .await;
+            let inherited_during = native_read_budget.reserved();
+            let caller_after = request.reserved();
+            drop(inherited_hold);
+            let inherited_after = native_read_budget.reserved();
+            reader.release_preparation().await.unwrap();
+            Some((
+                complete,
+                indexed,
+                inherited_baseline,
+                inherited_during,
+                inherited_after,
+                caller_after,
+            ))
+        } else {
+            None
+        };
+        progress("paired fixture cleanup");
+        bound.close().await.unwrap();
+        fixture.close().await.unwrap();
+        loader.client().invalidate().await.unwrap();
+        assert!(
+            bound_materialization.is_ok(),
+            "first-binding superset materialization: {bound_materialization:?}"
+        );
+        assert!(unbound_cold.is_ok(), "unbound exact view: {unbound_cold:?}");
+        assert!(
+            bound_cold.is_ok(),
+            "first-binding exact view: {bound_cold:?}"
+        );
+        assert_eq!(unbound_counts, (80, 160));
+        assert_eq!(bound_counts, (80, 160));
+        assert_eq!(original_recovery, (80, 160, 8));
+        assert_eq!(superset_recovery, (80, 160, 8));
+        if let Some((complete, indexed, baseline, during, after, caller_after)) =
+            budget_correspondence
+        {
+            let expected = initial
+                .iter()
+                .map(|row| {
+                    row.as_object()
+                        .unwrap()
+                        .get("id")
+                        .unwrap()
+                        .as_record()
+                        .unwrap()
+                        .clone()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(complete.unwrap(), expected);
+            assert_eq!(indexed.unwrap(), expected);
+            assert_eq!(
+                during,
+                native_read_budget.limit(),
+                "context queries use the caller pool while the inherited pool is unavailable"
+            );
+            assert_eq!(
+                after, baseline,
+                "the inherited reservation is released before fixture cleanup"
+            );
+            assert_eq!(
+                caller_after, 0,
+                "both context drivers release caller charges after drainage"
+            );
+        }
+        return;
+    }
     progress("read materialized witnesses");
     let tables = [
         "search_api_options",
@@ -456,18 +740,36 @@ async fn streamed_control(target: AuditTarget) {
         // A second exact view shares the unit/window while adding a distinct binding.
         // Its otherwise valid occurrence must not enter the first view's cold audit.
         let foreign_binding = foreign_binding.unwrap();
-        let foreign_payload = lctx_surrealdb::loader::entity_payload_id(&Entity::from(foreign_binding.clone())).unwrap();
+        let foreign_payload =
+            lctx_surrealdb::loader::entity_payload_id(&Entity::from(foreign_binding.clone()))
+                .unwrap();
         let mut foreign_entities = entities.clone();
         foreign_entities.push(Entity::from(foreign_binding));
-        let foreign = scoped::reader(&config, &foreign_entities, &assertions).await.unwrap();
+        let foreign = scoped::reader(&config, &foreign_entities, &assertions)
+            .await
+            .unwrap();
         let foreign_vars = foreign.reader.view_bindings();
-        let Some(Value::Array(selected)) = foreign_vars.get("lctx_views") else { panic!("explicit foreign fixture views") };
-        let foreign_views = selected.iter().map(|view| {
-            let Value::RecordId(view) = view else { panic!("foreign view ID") };
-            let lctx_surrealdb::surrealdb::types::RecordIdKey::String(hash) = &view.key else { panic!("foreign view hash") };
-            ContentHash(hex::decode(hash).unwrap().try_into().unwrap())
-        }).collect::<Vec<_>>();
-        let foreign_loader = Loader::for_attempt_views(foreign.reader.shared_client(), foreign.store.attempt(), foreign_views).with_budget(&native_read_budget);
+        let Some(Value::Array(selected)) = foreign_vars.get("lctx_views") else {
+            panic!("explicit foreign fixture views")
+        };
+        let foreign_views = selected
+            .iter()
+            .map(|view| {
+                let Value::RecordId(view) = view else {
+                    panic!("foreign view ID")
+                };
+                let lctx_surrealdb::surrealdb::types::RecordIdKey::String(hash) = &view.key else {
+                    panic!("foreign view hash")
+                };
+                ContentHash(hex::decode(hash).unwrap().try_into().unwrap())
+            })
+            .collect::<Vec<_>>();
+        let foreign_loader = Loader::for_attempt_views(
+            foreign.reader.shared_client(),
+            foreign.store.attempt(),
+            foreign_views,
+        )
+        .with_budget(&native_read_budget);
         materialize_search(&foreign_loader).await.unwrap();
         assert_eq!(rows(&foreign_loader, "lex_occurs").await.len(), 81);
         assert_eq!(rows(&foreign_loader, "vec_occurs").await.len(), 162);
@@ -480,17 +782,41 @@ async fn streamed_control(target: AuditTarget) {
         // Filtering a corrupted expected occurrence must still fail the exhaustive
         // comparison, and neither refusal may repair the persisted dependency list.
         let saved = lexical[0].clone();
-        let mut dependencies = saved.as_object().unwrap().get("dependencies").unwrap().as_array().unwrap().clone();
+        let mut dependencies = saved
+            .as_object()
+            .unwrap()
+            .get("dependencies")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .clone();
         dependencies.push(Value::RecordId(foreign_payload));
         let mut mutation = Variables::new();
         mutation.insert("id", saved.as_object().unwrap().get("id").unwrap().clone());
         mutation.insert("dependencies", dependencies);
-        execute(&loader, "UPDATE $id SET dependencies=$dependencies", mutation.clone()).await;
-        let changed: Value = loader.reader().query_native("SELECT * FROM ONLY $id", mutation.clone()).await.unwrap();
+        execute(
+            &loader,
+            "UPDATE $id SET dependencies=$dependencies",
+            mutation.clone(),
+        )
+        .await;
+        let changed: Value = loader
+            .reader()
+            .query_native("SELECT * FROM ONLY $id", mutation.clone())
+            .await
+            .unwrap();
         let first_refusal = reconcile_search(&loader).await;
-        let after: Value = loader.reader().query_native("SELECT * FROM ONLY $id", mutation.clone()).await.unwrap();
+        let after: Value = loader
+            .reader()
+            .query_native("SELECT * FROM ONLY $id", mutation.clone())
+            .await
+            .unwrap();
         let second_refusal = reconcile_search(&loader).await;
-        let after_second: Value = loader.reader().query_native("SELECT * FROM ONLY $id", mutation.clone()).await.unwrap();
+        let after_second: Value = loader
+            .reader()
+            .query_native("SELECT * FROM ONLY $id", mutation.clone())
+            .await
+            .unwrap();
         mutation.insert("saved", saved);
         execute(&loader, "UPDATE $id CONTENT $saved", mutation).await;
         assert!(first_refusal.is_err());
@@ -723,12 +1049,12 @@ async fn streamed_control(target: AuditTarget) {
                 let mut mutation = bind.clone();
                 mutation.extend(mutation_values.clone());
                 execute(&loader, format!("UPDATE $id SET {change}"), mutation).await;
-                let changed = rows(&loader, table).await;
+                let changed = stored_family_rows(&loader, &family_rows).await;
                 let first_refusal = reconcile_search(&loader).await;
-                let after = rows(&loader, table).await;
+                let after = stored_family_rows(&loader, &family_rows).await;
                 // Refusal is read-only: a second audit observes the same exact persisted row set.
                 let second_refusal = reconcile_search(&loader).await;
-                let after_second = rows(&loader, table).await;
+                let after_second = stored_family_rows(&loader, &family_rows).await;
                 let mut original = bind.clone();
                 original.insert("saved", saved.clone());
                 execute(&loader, "UPDATE $id CONTENT $saved", original).await;
