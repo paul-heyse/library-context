@@ -1,7 +1,7 @@
 //! Pure facts inventory shared by cold admission and executable adapter binding.
 
 
-use super::{ConfigurationBinding, ProducerContract, SupplierRole};
+use super::{ConfigurationBinding, ContextDependencyPolicy, OutputProfilePolicy, ProducerContract, SupplierRole};
 use crate::domain::{
     ContentHash, artifact::ArtifactChunk, attribution::*, calls::*, class_metadata::*,
     declarations::*, deployment::*, diagnostics::*, documents::*, flow::*,
@@ -65,6 +65,7 @@ pub fn vocabulary() -> Vec<lctx_model::domain::stages::RelationUse> {
         ProviderSurface,
         CoverageScope,
         ProviderCoverage,
+        crate::domain::uniform_outcome::UniformNotRequested,
         SubjectBoundary,
         AttachmentOutcome,
         AttachmentCandidate,
@@ -104,10 +105,12 @@ pub fn acquisition() -> ProducerContract {
             outputs: acquisition_outputs(),
             contributes: vec![],
             profiles: vec![Profile::Catalog, Profile::Behavioral],
+            output_profile: OutputProfilePolicy::Neutral,
+            context_dependency: ContextDependencyPolicy::AcquisitionOnly,
             effect: Effect::Acquisition,
-            semantic_revision: 1,
+            semantic_revision: 2,
             configuration: ConfigurationBinding::ProducerSettings,
-            suppliers: vec![supplier("acquisition", "lctx-acquire", env!("CARGO_PKG_VERSION"), vec![FactFamily::Artifacts])],
+            suppliers: vec![SupplierRole {configuration:ConfigurationBinding::CurrentAssemblyContext,..supplier("acquisition", "lctx-acquire", env!("CARGO_PKG_VERSION"), vec![FactFamily::Artifacts])}],
             not_requested: vec![],
         }
 }
@@ -265,8 +268,10 @@ pub fn pyrefly() -> ProducerContract {
             outputs: pyrefly_outputs(),
             contributes: vocabulary(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
+            output_profile: OutputProfilePolicy::Specific,
+            context_dependency: ContextDependencyPolicy::ModelSelection,
             effect: Effect::Extraction,
-            semantic_revision: 1,
+            semantic_revision: 2,
             configuration: ConfigurationBinding::ProducerSettings,
             suppliers: vec![supplier("pyrefly", "pyrefly", PYREFLY_REVISION, FAMILIES.into_iter().filter(|family|*family!=FactFamily::Syntax).collect()), supplier("pyrefly-ruff", "ruff", RUFF_REVISION, vec![FactFamily::Syntax, FactFamily::Exports, FactFamily::Lexical])],
             not_requested: vec![],
@@ -336,8 +341,10 @@ pub fn ty_flow() -> ProducerContract {
             outputs: output_types!(uses),
             contributes: vocabulary(),
             profiles: vec![Profile::Behavioral],
+            output_profile: OutputProfilePolicy::Specific,
+            context_dependency: ContextDependencyPolicy::ModelSelection,
             effect: Effect::Extraction,
-            semantic_revision: 1,
+            semantic_revision: 2,
             configuration: ConfigurationBinding::ProducerSettings,
             suppliers: vec![supplier("ty-flow", "ty", TY_REVISION, vec![FactFamily::Flow])],
             not_requested: vec![FactFamily::Flow],
@@ -383,8 +390,10 @@ pub fn documents() -> ProducerContract {
             outputs: document_types!(uses),
             contributes: vocabulary(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
+            output_profile: OutputProfilePolicy::Neutral,
+            context_dependency: ContextDependencyPolicy::SemanticContext,
             effect: Effect::Extraction,
-            semantic_revision: 1,
+            semantic_revision: 2,
             configuration: ConfigurationBinding::Fixed(ContentHash::of(
                 b"mdx-frontmatter; source=64MiB; nodes=1000000; depth=256",
             )),
@@ -425,8 +434,10 @@ pub fn deployment() -> ProducerContract {
             outputs: outputs!(uses),
             contributes: vocabulary(),
             profiles: vec![Profile::Catalog, Profile::Behavioral],
+            output_profile: OutputProfilePolicy::Neutral,
+            context_dependency: ContextDependencyPolicy::SemanticContext,
             effect: Effect::Extraction,
-            semantic_revision: 1,
+            semantic_revision: 2,
             configuration: ConfigurationBinding::Fixed(ContentHash::of(
                 b"receipt-v1;64KiB;metadata-and-configuration=64MiB;report-only-runtime",
             )),
@@ -442,8 +453,10 @@ pub fn assembly() -> ProducerContract {
             outputs: vocabulary(),
             contributes: vec![],
             profiles: vec![Profile::Catalog, Profile::Behavioral],
+            output_profile: OutputProfilePolicy::Specific,
+            context_dependency: ContextDependencyPolicy::SemanticContext,
             effect: Effect::Pure,
-            semantic_revision: 1,
+            semantic_revision: 2,
             configuration: ConfigurationBinding::Fixed(ContentHash::of(b"assemble")),
             suppliers: vec![],
             not_requested: vec![],

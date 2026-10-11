@@ -87,6 +87,8 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0152](0152-native-completion-and-freeze.md) | Protect retained native realizations and freeze complete logical state | 2026-10-11 | storage-and-publication §6.1, storage-and-publication §6.2 | Proposed |  |
 | [ADR-0154](0154-joint-campaign-native-owner-recovery.md) | Recover an explicit joint campaign attachment scope without promoting legacy finality | 2026-10-11 | storage-and-publication §6.2 | Proposed | ADR-0153 |
 | [ADR-0155](0155-native-write-predicate-coordination.md) | Coordinate native effects through write stripes and exact predicate guards | 2026-10-11 | storage-and-publication §6.1, storage-and-publication §6.3 | Proposed |  |
+| [ADR-0156](0156-publication-staging-and-derivation.md) | Publish one held staging root under an exact derivation identity | 2026-10-11 | storage-and-publication §6.1, storage-and-publication §6.2 | Proposed |  |
+| [ADR-0157](0157-canonical-binding-descriptors.md) | Retain complete immutable binding descriptors independently of attempt slots | 2026-10-11 | storage-and-publication §6.1, storage-and-publication §6.2 | Proposed |  |
 
 ## Proposed: open choices, not accepted decisions
 

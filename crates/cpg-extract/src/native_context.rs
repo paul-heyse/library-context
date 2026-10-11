@@ -98,10 +98,9 @@ impl NativeContextConfig {
         }
         Ok(())
     }
-    pub fn digest(&self) -> ContentHash {
-        let mut hash = KeySink::new("native-context-configuration");
-        hash.part(b"profile", self.profile.name().as_bytes());
-        hash.part(b"authored-catalog", &self.catalog().digest().0);
+    /// Analyzer semantics exclude model selection; consumers bind that selection separately.
+    pub fn semantic_digest(&self) -> ContentHash {
+        let mut hash = KeySink::new("native-semantic-context-configuration/v2");
         hash.part(
             b"ruff-context",
             &serde_json::to_vec(&self.ruff).expect("owned contextual settings serialize"),

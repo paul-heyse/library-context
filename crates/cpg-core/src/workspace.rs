@@ -2080,6 +2080,7 @@ pub struct ProducerOutput {
     captured_request: std::sync::OnceLock<Result<(lctx_model::domain::producer_contract::request::CapturedRequest, Box<dyn Reservation>), Arc<ModelError>>>,
 }
 impl ProducerOutput {
+    pub(crate) fn implementation_identity(&self) -> ContentHash { self.implementation }
     pub fn inputs(&self) -> &CompletedInputs {
         &self.inputs
     }
@@ -2139,7 +2140,7 @@ impl ProducerOutput {
         lctx_model::domain::completed::ContributionSpec {
             captured_binding: self.captured_binding.clone(),
             producer: self.name.into(),
-            profile: self.profile,
+            profile: lctx_model::domain::producer_contract::output_profile(self.name, self.captured_binding.as_ref(), self.profile),
             model: self.workspace.model.digest(),
             implementation: self.implementation,
             configuration: self.configuration,

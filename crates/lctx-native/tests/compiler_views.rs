@@ -6,10 +6,8 @@ use lctx_model::domain::{
     resources::ResourceBudget,
     stages::{Profile, ProviderOutcome},
 };
-use lctx_native::{
-    RuntimeConfig,
-    compiler::{NativeCompilerStore, NativePredicate},
-};
+use lctx_native::RuntimeConfig;
+use lctx_compiler_store::compiler::{NativeCompilerStore, NativePredicate};
 use std::collections::{BTreeMap, BTreeSet};
 
 async fn fixture_client(
@@ -32,7 +30,7 @@ fn spec(producer: &str, relation: &Relation) -> ContributionSpec {
     ContributionSpec {
         captured_binding: None,
         producer: producer.into(),
-        profile: Profile::Catalog,
+        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
         model: ContentHash::of(b"view-fixture-model"),
         implementation: ContentHash::of(b"view-fixture-implementation"),
         configuration: None,
@@ -1045,7 +1043,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     );
     assert!(rows.try_next().await.unwrap().is_none());
     let mut response = admin
-        .query("SELECT count() AS rows FROM original_chunk WHERE source=$source GROUP ALL")
+        .query("SELECT count() AS rows FROM original_chunk WHERE blob=$source.blob GROUP ALL")
         .bind((
             "source",
             lctx_native::surrealdb::types::RecordId::new(
@@ -1113,7 +1111,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
     );
     // Metadata is intact; the independently read physical byte owner must still agree.
     let mut response = admin
-        .query("SELECT * FROM original_chunk WHERE source=$source ORDER BY start LIMIT 1")
+        .query("SELECT * FROM original_chunk WHERE blob=$source.blob ORDER BY start LIMIT 1")
         .bind((
             "source",
             lctx_native::surrealdb::types::RecordId::new(
@@ -2511,4 +2509,50 @@ async fn optional_singleton_capture_preserves_completed_state_and_refuses_unowne
     admin.invalidate().await.unwrap();
     off.abandon().await.unwrap();
     cold.abandon().await.unwrap();
+}
+
+/// Arbitrary raw relation order is a public ingress contract. Replay lives in native
+/// attempt ownership, while path/revision layouts share only their complete byte blob.
+#[tokio::test(flavor="multi_thread")]
+async fn missing_source_headers_replay_native_staging_into_shared_and_empty_blobs(){
+    use futures::FutureExt;
+    use lctx_model::domain::{artifact::ArtifactChunk,input::InputRevision,source::SourceArtifact,EvidenceBytes,completion};
+    use lctx_native::surrealdb::types::RecordId;
+    let budget=ResourceBudget::fixed(256<<20).unwrap();
+    let config=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"))).unwrap();
+    let store=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+    let admin=fixture_client(&store,&config).await;
+    let reader=lctx_native::NativeReader::private(admin.clone()).with_budget(&budget);
+    let result=std::panic::AssertUnwindSafe(async{
+        let mut bytes=vec![0xff;1024*1024];bytes[..32].copy_from_slice(&store.attempt().0);
+        let input=InputRevision::from_entries(vec![]).unwrap().id();
+        let first=SourceArtifact::from_bytes(input,"first.bin".into(),&bytes).unwrap();
+        let second=SourceArtifact::from_bytes(input,"second.bin".into(),&bytes).unwrap();
+        let empty=SourceArtifact::from_bytes(input,"empty.bin".into(),b"").unwrap();
+        let chunk_relation=Relation::of::<ArtifactChunk>();let source_relation=Relation::of::<SourceArtifact>();
+        let mut specification=spec("native-staging-order",&chunk_relation);specification.outputs.insert(source_relation.name().into());
+        let contribution=store.begin_contribution(specification).await.unwrap();
+        let first_chunk=ArtifactChunk{artifact:first.id(),ordinal:0,body:EvidenceBytes(bytes.clone())};
+        store.write_batch(&contribution,&chunk_relation,&ArtifactChunk::encode(std::slice::from_ref(&first_chunk)).unwrap(),&budget).await.unwrap();
+        // Exact raw replay earns no second ordinal or byte copy in private staging.
+        store.write_batch(&contribution,&chunk_relation,&ArtifactChunk::encode(std::slice::from_ref(&first_chunk)).unwrap(),&budget).await.unwrap();
+        let mut response=admin.query("SELECT VALUE id FROM native_pending_original WITH INDEX pending_attempt WHERE attempt=$attempt").bind(("attempt",RecordId::new("native_attempt",store.attempt().hex()))).await.unwrap().check().unwrap();
+        let roots:Vec<RecordId>=response.take(0).unwrap();assert_eq!(roots.len(),1,"one attempt/source replay root before any header");
+        store.write_batch(&contribution,&source_relation,&SourceArtifact::encode(&[first.clone(),second.clone(),empty.clone()]).unwrap(),&budget).await.unwrap();
+        let second_chunk=ArtifactChunk{artifact:second.id(),ordinal:0,body:EvidenceBytes(bytes.clone())};
+        store.write_batch(&contribution,&chunk_relation,&ArtifactChunk::encode(&[second_chunk]).unwrap(),&budget).await.unwrap();
+        // A new local preparation object can replay the durable staging without a host index.
+        lctx_native::originals::complete_pending(&reader,store.attempt(),&budget).await.unwrap();
+        store.complete_contribution(contribution,ProviderOutcome::Complete,&[chunk_relation,source_relation],&BTreeMap::new(),&budget).await.unwrap();
+        let a=lctx_native::originals::Layout::source(&first).unwrap();let b=lctx_native::originals::Layout::source(&second).unwrap();
+        assert_ne!(a.id,b.id,"logical path identity is retained");assert_eq!(a.blob.id(),b.blob.id(),"only full exact byte blobs are shared");
+        let page=reader.original_bytes(lctx_model::domain::graph::EntityId::of(first.id()),65534,4).await.unwrap();assert_eq!(page.as_ref(),&bytes[65534..65538]);
+        assert!(reader.original_bytes(lctx_model::domain::graph::EntityId::of(empty.id()),0,0).await.unwrap().is_empty(),"empty content earns explicit completion");
+        let mut response=admin.query("SELECT count() AS n FROM original_chunk WITH INDEX position WHERE blob=$blob GROUP ALL; SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt AND object IN $roots").bind(("blob",a.blob.id())).bind(("attempt",RecordId::new("native_attempt",store.attempt().hex()))).bind(("roots",roots.clone())).await.unwrap().check().unwrap();
+        let counts:Vec<serde_json::Value>=response.take(0).unwrap();let held:Vec<RecordId>=response.take(1).unwrap();
+        assert_eq!(counts,vec![serde_json::json!({"n":16})],"two logical artifacts retain one shared physical body");assert_eq!(held.len(),1,"staging remains owned until terminal cleanup acknowledges nomination");
+    }).catch_unwind().await;
+    let mut cleanup=completion::Completion::default();cleanup.step("staging reader close",reader.close().await);cleanup.step("staging attempt cleanup",store.abandon().await);cleanup.step("staging observer invalidation",admin.invalidate().await.map_err(ModelError::codec));
+    let cleanup=completion::complete(Ok(()),cleanup);
+    if let Err(primary)=result{if let Err(secondary)=cleanup{eprintln!("staging control cleanup failed: {secondary:#?}");}std::panic::resume_unwind(primary);}cleanup.unwrap();
 }

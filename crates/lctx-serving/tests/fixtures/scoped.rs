@@ -72,7 +72,7 @@ pub async fn reader(
         .begin_contribution(ContributionSpec {
             captured_binding: None,
             producer: "scoped-native-kernel-fixture".into(),
-            profile: Profile::Catalog,
+            profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
             model: model.digest(),
             implementation: ContentHash::of(b"scoped-native-kernel-fixture/v1"),
             configuration: None,

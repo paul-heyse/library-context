@@ -11,9 +11,9 @@ impl ProductKind {
     fn code(self) -> u8 { match self {Self::Program=>0,Self::Membership=>1,Self::Topology=>2,Self::PureRows=>3,Self::PureValue=>4} }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DependencyKind { ExactView, CompleteDomain, Topology, PureValue, Provenance }
+pub enum DependencyKind { ExactView, CompleteDomain, Topology, PureValue, Provenance, RelationValue }
 impl DependencyKind {
-    fn code(self)->u8 {match self {Self::ExactView=>0,Self::CompleteDomain=>1,Self::Topology=>2,Self::PureValue=>3,Self::Provenance=>4}}
+    fn code(self)->u8 {match self {Self::ExactView=>0,Self::CompleteDomain=>1,Self::Topology=>2,Self::PureValue=>3,Self::Provenance=>4,Self::RelationValue=>5}}
 }
 /// Order is the operation's declared input order; role and prefix distinguish equal views.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,5 +160,40 @@ mod tests {
         assert_ne!(domain_identity(p,c,&root,&[]),domain_identity(p,c,&[],&[]));
         assert_ne!(domain_identity(p,c,&root,&[]),domain_identity(p,c,&root,&[("callable".into(),[1;16],c)]));
         let invalid=PortableProduct{request:request(),outcome:ProductOutcome::Complete,sections:vec![]};assert!(invalid.validate().is_err());
+    }
+}
+
+/// Canonical content of one explicitly selected semantic relation. This is a computation
+/// dependency, never an admission grant. The caller owns independent complete-domain discovery
+/// and retains the current exact source capability for attribution and cold validation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RelationValue {
+    pub relation: String,
+    pub contract: ContentHash,
+    pub domain: ContentHash,
+    pub outcome: RelationValueOutcome,
+    pub rows: u64,
+    pub content: ContentHash,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelationValueOutcome { Complete, Partial, NotRequested }
+impl RelationValue {
+    pub fn identity(&self) -> Result<ContentHash, ModelError> {
+        if self.relation.is_empty() {return Err(ModelError::Conflict("relation value has no semantic relation"));}
+        let mut sink=KeySink::new("compiled-relation-value/v1");
+        self.relation.encode(&mut sink); self.contract.encode(&mut sink); self.domain.encode(&mut sink);
+        sink.part(b"outcome", &[match self.outcome {RelationValueOutcome::Complete=>0,RelationValueOutcome::Partial=>1,RelationValueOutcome::NotRequested=>2}]);
+        sink.part(b"rows", &self.rows.to_le_bytes()); self.content.encode(&mut sink); Ok(sink.finish())
+    }
+    /// Typed rows are already in the owning relation's canonical key order. The token binds
+    /// every consumed field and nominal ID, explicit zero rows, domain and completeness.
+    pub fn of_rows<'a,R:super::Record>(domain:ContentHash,outcome:RelationValueOutcome,rows:impl IntoIterator<Item=&'a R>)->Result<Self,ModelError> {
+        let mut sink=KeySink::new("compiled-relation-content/v1"); let mut count=0u64;
+        for row in rows {row.id().encode(&mut sink);row.content_digest().encode(&mut sink);count=count.checked_add(1).ok_or(ModelError::Schema("relation value row count"))?;}
+        Ok(Self{relation:R::NAME.into(),contract:ContentHash::of(R::CONTRACT.as_bytes()),domain,outcome,rows:count,content:sink.finish()})
+    }
+    pub fn dependency(&self,role:impl Into<String>,prefix:Option<String>)->Result<DependencyToken,ModelError> {
+        Ok(DependencyToken{kind:DependencyKind::RelationValue,role:role.into(),relation:self.relation.clone(),prefix,identity:self.identity()?})
     }
 }

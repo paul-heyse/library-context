@@ -194,11 +194,13 @@ async fn audit_owned(
         if manifest.semantic_contract != semantic_contract(&lctx_model::domain::model()?) {
             return Err(ModelError::Conflict("audit semantic contract"));
         }
+        let completed=lctx_native::completed_state::published_completed_state(&reader,&budget).await?;
         let compiler = lctx_compiler_store::compiler::NativeCompilerStore::publication_owner(
             reader.shared_client(), config.namespace.clone(), config.database.clone(), bindings.clone(),
         )?;
         compiler.set_read_cancellation(cancel.flag())?;
         owner = Some(compiler.clone());
+        compiler.register_published_inventory(&completed,&budget)?;
         let capture = compiler.capture_audit(&budget).await?;
         cancel.check()?;
         compiler.verify_captured(&capture).await?;
@@ -206,11 +208,7 @@ async fn audit_owned(
         if compiler.completed_state_captured(&capture).await? != manifest.completed_state {
             return Err(ModelError::Conflict("audit exact completed state"));
         }
-        let loader = Loader::for_views(
-            reader.shared_client(),
-            bindings.iter().filter(|binding| binding.boundary.is_none())
-                .map(|binding| binding.view.identity).collect(),
-        ).with_budget(&budget).with_read_cancellation(cancel.flag());
+        let loader = Loader::for_published(&completed,&budget)?.with_read_cancellation(cancel.flag());
         cancel.check()?;
         loader.reconcile(&manifest).await?;
         cancel.check()?;

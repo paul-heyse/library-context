@@ -46,7 +46,7 @@ fn configuration_has_nominal_catalog_closure_and_refuses_foreign_selection() {
     assert!(Configuration::new(&changed, [(p, d)], &budget).is_err());
     let model = ValidatedModel::declared(configuration_relations()).unwrap();
     for profile in Profile::ALL {
-        Schedule::build(&model, vec![rows.declaration()], &[], profile).unwrap();
+        Schedule::build(&model, rows.declarations(), &[], profile).unwrap();
     }
     let relation = Relation::of::<MethodParameters>();
     assert!(relation.fields().iter().any(|field| {

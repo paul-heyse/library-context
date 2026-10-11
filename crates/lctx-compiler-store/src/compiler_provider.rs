@@ -1,4 +1,5 @@
 //! Optimizer-visible projected reads over one exact completed native membership universe.
+mod demand;
 use crate::{
     compiler::{NativeCompilerStore, NativePredicate, ProducingScope},
     projected_arrow::ProjectedBuilder,
@@ -198,6 +199,9 @@ impl TableProvider for NativeTable {
             .map(|expr| {
                 if SupportedFilter::interpret(expr, &self.relation).is_some() {
                     TableProviderFilterPushDown::Exact
+                } else if demand::recognizes(expr, self.schema().as_ref()) {
+                    // Necessary key pruning does not evaluate the rest of this expression.
+                    TableProviderFilterPushDown::Inexact
                 } else {
                     TableProviderFilterPushDown::Unsupported
                 }
@@ -215,12 +219,27 @@ impl TableProvider for NativeTable {
             Some(projection) => Arc::new(self.schema().project(projection)?),
             None => self.schema(),
         };
+        let mut keys = self.keys.clone();
+        if let Some((nominal, charge)) =
+            demand::extract(filters, self.schema().as_ref(), &self.budget).map_err(df_error)?
+        {
+            keys.push(SelectedKeys {
+                keys: Arc::new(nominal),
+                field: None,
+                _charge: Arc::new(charge),
+            });
+        }
         let mut bindings = Variables::new();
         let mut predicates = Vec::new();
         let mut preparation = Vec::new();
         let mut driver = None;
         for (index, filter) in filters.iter().enumerate() {
             if let Some(supported) = SupportedFilter::interpret(filter, &self.relation) {
+                if demand::only_nominal(filter) && demand::recognizes(filter, self.schema().as_ref()) {
+                    // The charged nominal intersection already fully enforces this
+                    // accepted exact id predicate; retain every other native/residual test.
+                    continue;
+                }
                 let mut translated = supported.render(&self.relation, &format!("f{index}_"));
                 if driver.is_none() {
                     driver = translated.driver.take();
@@ -232,7 +251,7 @@ impl TableProvider for NativeTable {
         }
         let predicate = (!predicates.is_empty()).then(|| {
             let sql = predicates.join(" AND ");
-            if self.keys.is_empty()
+            if keys.is_empty()
                 && let Some((field, values)) = driver
             {
                 NativePredicate::FieldSql {
@@ -258,7 +277,7 @@ impl TableProvider for NativeTable {
             projection: projection.cloned(),
             schema: schema.clone(),
             predicate,
-            keys: self.keys.clone(),
+            keys: keys.clone(),
             budget: self.budget.clone(),
             batch_rows: self.batch_rows,
         });
@@ -266,7 +285,7 @@ impl TableProvider for NativeTable {
         let statistics = Arc::new(row_statistics(
             &schema,
             self.view.rows,
-            &self.keys,
+            &keys,
             !filters.is_empty(),
         ));
         // scan_rows orders globally by nominal semantic_key, which is exactly Arrow id:
@@ -1416,4 +1435,90 @@ mod tests {
         .unwrap();
         assert_eq!(scans, 1);
     }
+    #[tokio::test]
+    async fn nominal_demand_retains_residual_projection_limit_and_plan_charge() {
+        use datafusion::prelude::{col, lit};
+        let relation = Relation::of::<Release>();
+        let store = NativeCompilerStore::from_existing(Arc::new(surrealdb::Surreal::init()),
+            Name::new("demand").unwrap(), Name::new("demand").unwrap());
+        let view = CompletedView::new(Release::NAME.into(),
+            [ContentHash::of(b"demand")].into(), 7).unwrap();
+        let budget = ResourceBudget::fixed(4 << 20).unwrap();
+        let provider = table_provider(store, view, relation.clone(), budget.clone(), 128).unwrap();
+        let reversed = lit(ScalarValue::FixedSizeBinary(16,Some(vec![1;16]))).eq(col("id"));
+        let residual = col("version").like(lit("%x%"));
+        let combined = reversed.clone().and(residual.clone());
+        assert_eq!(provider.supports_filters_pushdown(&[&reversed,&combined,&residual]).unwrap(),
+            [TableProviderFilterPushDown::Inexact,TableProviderFilterPushDown::Inexact,
+                TableProviderFilterPushDown::Unsupported]);
+        let session = SessionContext::new();
+        let plan = provider.scan(&session.state(),Some(&vec![0,2]),&[combined.clone()],Some(1))
+            .await.unwrap();
+        assert_eq!(plan.fetch(),None,"residual evaluation owns the limit");
+        assert_eq!(plan.schema(),Arc::new(relation.schema().project(&[0,2]).unwrap()));
+        let statistics = datafusion::physical_plan::StatisticsContext::new()
+            .compute(plan.as_ref(),&datafusion::physical_plan::StatisticsArgs::new()).unwrap();
+        assert_eq!(statistics.num_rows,Precision::Inexact(1));
+        assert!(budget.reserved() >= 16,"plan retains the nominal request owner");
+        drop(plan);
+        assert_eq!(budget.reserved(),0);
+        session.register_table("demand",provider).unwrap();
+        let frame = session.table("demand").await.unwrap().filter(combined).unwrap()
+            .select(vec![col("id").alias("source_id")]).unwrap().limit(0,Some(1)).unwrap();
+        let optimized = frame.into_optimized_plan().unwrap();
+        let mut saw_residual = false;
+        let mut saw_demand = false;
+        optimized.apply(|plan| {
+            match plan {
+                LogicalPlan::Filter(filter) => {
+                    saw_residual = true;
+                    assert!(filter.predicate.to_string().contains("version"));
+                }
+                LogicalPlan::TableScan(scan) => {
+                    assert_eq!(scan.fetch,None);
+                    assert!(scan.projected_schema.has_column_with_unqualified_name("version"));
+                    saw_demand |= scan.filters.iter().any(|expr|
+                        demand::recognizes(expr,relation.schema().as_ref()));
+                }
+                _ => {}
+            }
+            Ok(TreeNodeRecursion::Continue)
+        }).unwrap();
+        assert!(saw_residual && saw_demand,"real analyzer/optimizer retains demand and residual");
+    }
+    #[tokio::test]
+    async fn actual_binary_coercion_does_not_strip_a_column_cast() {
+        use datafusion::prelude::{col, lit};
+        let relation = Relation::of::<Release>();
+        let store = NativeCompilerStore::from_existing(Arc::new(surrealdb::Surreal::init()),
+            Name::new("coercion").unwrap(), Name::new("coercion").unwrap());
+        let view = CompletedView::new(Release::NAME.into(),
+            [ContentHash::of(b"coercion")].into(), 7).unwrap();
+        let provider = table_provider(store,view,relation.clone(),
+            ResourceBudget::fixed(4 << 20).unwrap(),128).unwrap();
+        let session = SessionContext::new();
+        session.register_table("coercion",provider).unwrap();
+        // Locked 55.1 coerces FixedSizeBinary/Binary equality to Binary. This is
+        // deliberately not native nominal demand, even though the bytes are length 16.
+        let frame = session.table("coercion").await.unwrap()
+            .filter(col("id").eq(lit(ScalarValue::Binary(Some(vec![1;16]))))).unwrap();
+        let plan = frame.into_optimized_plan().unwrap();
+        let mut residuals = 0;
+        plan.apply(|plan| {
+            if let LogicalPlan::Filter(filter) = plan {
+                residuals += 1;
+                assert!(!demand::recognizes(&filter.predicate,relation.schema().as_ref()));
+                assert!(SupportedFilter::interpret(&filter.predicate,&relation).is_none());
+                let mut casts = 0;
+                filter.predicate.apply(|expr| {
+                    if matches!(expr,Expr::Cast(_)) { casts += 1; }
+                    Ok(TreeNodeRecursion::Continue)
+                })?;
+                assert!(casts > 0);
+            }
+            Ok(TreeNodeRecursion::Continue)
+        }).unwrap();
+        assert_eq!(residuals,1);
+    }
+
 }

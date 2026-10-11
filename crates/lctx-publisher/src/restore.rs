@@ -103,13 +103,13 @@ impl Dump {
                         for row in rows {
                             let table = record_id(&row)?.table.to_string();
                             if table == "original_chunk" {
-                                let Some(Value::RecordId(source)) = object(&row)?.get("source")
+                                let Some(Value::RecordId(source)) = object(&row)?.get("blob")
                                 else {
                                     return Err(ModelError::Schema(
                                         "restore original chunk source",
                                     ));
                                 };
-                                if source.table.as_str() != "original" {
+                                if source.table.as_str() != "original_blob" {
                                     return Err(ModelError::Schema(
                                         "restore original chunk control identity",
                                     ));
@@ -392,6 +392,8 @@ struct PreparedClosure {
     manifest: Manifest,
     bindings: Vec<CompletedBinding>,
     originals: BTreeMap<RecordId, lctx_model::domain::graph::Original>,
+    layouts: BTreeMap<RecordId,lctx_native::originals::Layout>,
+    blobs: BTreeMap<RecordId,lctx_native::originals::Blob>,
     binding_rows: BTreeSet<RecordId>,
     owners: BTreeSet<RecordId>,
     owner_specs: BTreeMap<RecordId, lctx_model::domain::completed::ContributionSpec>,
@@ -660,11 +662,30 @@ impl PreparedClosure {
                 }
             }
         }
+        let mut layouts=BTreeMap::new();let mut blobs=BTreeMap::new();
+        for (source,original) in &originals {
+            let header=dump.rows("original")?.find_map(|row|match row {Ok(row) if record_id(&row).ok()==Some(source)=>Some(Ok(row)),Err(error)=>Some(Err(error)),_=>None}).transpose()?.ok_or(ModelError::Conflict("restore original layout absent"))?;
+            let layout=lctx_native::originals::decode_layout(header)?;
+            if layout.blob.content!=original.content || layout.blob.byte_len!=original.byte_len || !nodes.contains(&layout.artifact) {return Err(ModelError::Conflict("restore original exact source authority"));}
+            let artifact=dump.rows("entity")?.find_map(|row|match row {Ok(row) if record_id(&row).ok()==Some(&layout.artifact)=>Some(Ok(row)),Err(error)=>Some(Err(error)),_=>None}).transpose()?.ok_or(ModelError::Conflict("restore original source payload absent"))?;
+            let entity:Entity=serde_json::from_slice(bytes(object(&artifact)?,"canonical")?).map_err(ModelError::codec)?;entity.validate()?;
+            let Entity::Source(source_row)=entity else{return Err(ModelError::Schema("restore original source kind"));};layout.validate_source(&source_row)?;
+            if !blobs.contains_key(&layout.blob.id()) {
+                selection_charge.try_resize(selection_charge.size().saturating_add(1024))?;
+                let header=dump.rows("original_blob")?.find_map(|row|match row {Ok(row) if record_id(&row).ok()==Some(&layout.blob.id())=>Some(Ok(row)),Err(error)=>Some(Err(error)),_=>None}).transpose()?.ok_or(ModelError::Conflict("restore original blob absent"))?;
+                let (blob,completed)=lctx_native::originals::decode_blob(header)?;
+                if blob!=layout.blob || !completed{return Err(ModelError::Conflict("restore original blob incomplete"));}
+                blobs.insert(blob.id(),blob);
+            }
+            selection_charge.try_resize(selection_charge.size().saturating_add(1024))?;
+            layouts.insert(source.clone(),layout);
+        }
         let prepared = Self {
             handle,
             manifest,
             bindings,
             originals,
+            layouts,blobs,
             binding_rows,
             owners,
             owner_specs,
@@ -683,6 +704,7 @@ impl PreparedClosure {
         if id.table.as_str() != table { return Err(ModelError::Schema("restore row table/key")); }
         Ok(match table_codec(table)?.kind {
             RecoveryTableKind::PublicationRoot => id == &RecordId::new("publication", self.handle.publication.hex()),
+            RecoveryTableKind::InstallationWitness => false,
             RecoveryTableKind::Content(family) => match family {
                 RecoveryFamily::Contributions => self.owners.contains(id),
                 RecoveryFamily::Memberships => obj.get("contribution").is_some_and(|v| matches!(v, Value::RecordId(owner) if self.owners.contains(owner))),
@@ -690,8 +712,8 @@ impl PreparedClosure {
                 RecoveryFamily::GraphPayloads | RecoveryFamily::TypedBacking => self.nodes.contains(id),
                 RecoveryFamily::Bindings => self.binding_rows.contains(id),
                 RecoveryFamily::Aliases => obj.get("source").is_some_and(|v| matches!(v,Value::RecordId(source) if self.nodes.contains(source))),
-                RecoveryFamily::OriginalHeaders => self.originals.contains_key(id),
-                RecoveryFamily::OriginalChunks => obj.get("source").is_some_and(|v| matches!(v,Value::RecordId(source) if self.originals.contains_key(source))),
+                RecoveryFamily::OriginalHeaders => if table=="original" {self.layouts.contains_key(id)} else {self.blobs.contains_key(id)},
+                RecoveryFamily::OriginalChunks => obj.get("blob").is_some_and(|v| matches!(v,Value::RecordId(blob) if self.blobs.contains_key(blob))),
                 RecoveryFamily::GraphRoles | RecoveryFamily::ExternalEndpoints | RecoveryFamily::SearchOccurrences |
                 RecoveryFamily::SearchDocuments | RecoveryFamily::SearchVectors => self.derived_rows.contains(id),
             },
@@ -703,6 +725,7 @@ impl PreparedClosure {
         let mut binding_keys = BTreeSet::new();
         for table in dump_tables().filter(|table| match table.kind {
             lctx_compiler_store::compiler::RecoveryTableKind::PublicationRoot => true,
+            lctx_compiler_store::compiler::RecoveryTableKind::InstallationWitness => false,
             lctx_compiler_store::compiler::RecoveryTableKind::Content(family) => !family.is_integrity_claim() && family != RecoveryFamily::OriginalChunks,
         }).map(|table| table.name) {
             for row in dump.rows(table)? {
@@ -747,62 +770,24 @@ impl PreparedClosure {
                 "restore required binding absent from dump",
             ));
         }
-        for (source, original) in &self.originals {
-            if !ids.contains(source) {
-                return Err(ModelError::Conflict(
-                    "restore original header absent from dump",
-                ));
-            }
-            // Positional writes validate arbitrarily ordered dump chunks without retaining bytes.
-            let mut file = tempfile::tempfile().map_err(ModelError::codec)?;
-            let mut seen = BTreeSet::new();
-            let mut total = 0u64;
-            for row in dump.original_rows(source)?.into_iter().flatten() {
-                let row = row?;
-                let obj = object(&row)?;
-                let Some(Value::Number(lctx_native::surrealdb::types::Number::Int(start))) =
-                    obj.get("start")
-                else {
-                    return Err(ModelError::Schema("restore original offset"));
-                };
-                let start = u64::try_from(*start).map_err(ModelError::codec)?;
-                let chunk = bytes(obj, "bytes")?;
-                if start >= original.byte_len
-                    || start % 65536 != 0
-                    || chunk.len() as u64 != (original.byte_len - start).min(65536)
-                    || !seen.insert(start)
-                    || record_id(&row)?
-                        != &RecordId::new(
-                            "original_chunk",
-                            format!("{}_{}", original.source.0.hex(), start),
-                        )
-                    || obj.get("source") != Some(&Value::RecordId(source.clone()))
-                    || obj.get("content") != Some(&Value::String(ContentHash::of(chunk).hex()))
-                {
-                    return Err(ModelError::Conflict("restore original chunk continuity"));
-                }
+        for source in self.layouts.keys() {if !ids.contains(source){return Err(ModelError::Conflict("restore original layout absent"));}}
+        for (blob_id,blob) in &self.blobs {
+            if !ids.contains(blob_id){return Err(ModelError::Conflict("restore original blob absent"));}
+            let mut file=tempfile::tempfile().map_err(ModelError::codec)?;
+            let mut seen=BTreeSet::new();let mut total=0u64;
+            for row in dump.original_rows(blob_id)?.into_iter().flatten(){
+                let piece=lctx_native::originals::decode_piece(row?,blob)?;
                 charge.try_resize(charge.size().saturating_add(256))?;
-                file.seek(std::io::SeekFrom::Start(start))
-                    .map_err(ModelError::codec)?;
-                file.write_all(chunk).map_err(ModelError::codec)?;
-                total += chunk.len() as u64;
+                if !seen.insert(piece.start){return Err(ModelError::Conflict("restore duplicate original piece"));}
+                file.seek(std::io::SeekFrom::Start(piece.start)).map_err(ModelError::codec)?;
+                file.write_all(&piece.bytes).map_err(ModelError::codec)?;
+                total=total.checked_add(piece.bytes.len() as u64).ok_or(ModelError::Schema("restore original piece total"))?;
             }
-            if total != original.byte_len {
-                return Err(ModelError::Conflict("restore original length"));
-            }
+            if total!=blob.byte_len || seen.len() as u64!=blob.piece_count(){return Err(ModelError::Conflict("restore original length"));}
             file.rewind().map_err(ModelError::codec)?;
-            let mut hasher = lctx_model::domain::ContentHasher::default();
-            let mut window = [0u8; 65536];
-            loop {
-                let n = file.read(&mut window).map_err(ModelError::codec)?;
-                if n == 0 {
-                    break;
-                }
-                hasher.update(&window[..n]);
-            }
-            if hasher.finish() != original.content {
-                return Err(ModelError::Conflict("restore original content"));
-            }
+            let mut hasher=lctx_model::domain::ContentHasher::default();let mut window=[0u8;65536];
+            loop {let count=file.read(&mut window).map_err(ModelError::codec)?;if count==0{break;}hasher.update(&window[..count]);}
+            if hasher.finish()!=blob.content{return Err(ModelError::Conflict("restore original full content"));}
         }
         Ok(())
     }
@@ -829,9 +814,8 @@ pub(crate) async fn restore(
             )?;
             runtime = Some(owner.clone());
             let admitted = reconstruct(&dump, &owner, &prepared, &budget).await?;
-            let publication = Publication::new(Admission::Restored(&admitted), config).await?;
+            let publication = Publication::new(Admission::Restored(&admitted), config, definitions).await?;
             let result = async {
-                publication.install_definitions(definitions).await?;
                 publication.materialize_search().await?;
                 compare_derived_claims(&dump, &prepared, publication.loader(), &budget).await?;
                 publication.seal(config, definitions).await
@@ -915,7 +899,9 @@ fn hash_record(value: &RecordId, table: &str) -> Result<ContentHash, ModelError>
 }
 async fn compare_derived_claims(dump: &Dump, prepared: &PreparedClosure, loader: &lctx_native::Loader, budget: &ResourceBudget) -> Result<(), ModelError> {
     let views = prepared.views.iter().map(|view| hash_hex(view)).collect::<Result<Vec<_>, _>>()?;
-    let all = lctx_native::NativeReader::for_views(loader.reader().shared_client(), views).with_budget(budget);
+    let staging=loader.staging().ok_or(ModelError::Conflict("restore derived comparison staging owner"))?;
+    let all=lctx_native::NativeReader::for_completed_views(loader.reader().shared_client(),
+        staging.completed_owner(),views,budget).await?.with_derivation(loader.derivation()?);
     let mut graph_tables = Vec::new(); let mut search_tables = Vec::new();
     for family in RECOVERY_FAMILIES.iter().copied() {
         match family {
@@ -925,7 +911,7 @@ async fn compare_derived_claims(dump: &Dump, prepared: &PreparedClosure, loader:
             RecoveryFamily::Bindings | RecoveryFamily::Aliases | RecoveryFamily::GraphPayloads | RecoveryFamily::OriginalHeaders | RecoveryFamily::OriginalChunks => {},
         }
     }
-    for (tables, actual) in [
+    let result=async { for (tables, actual) in [
         (graph_tables, lctx_native::reconciliation::actual_roles(&all, budget)?),
         (search_tables, lctx_native::derived_search::actual_search_rows(&loader.reader().with_budget(budget), budget)?),
     ] {
@@ -933,8 +919,13 @@ async fn compare_derived_claims(dump: &Dump, prepared: &PreparedClosure, loader:
         for table in tables { for row in dump.rows(table)? { let row = row?; if prepared.keep_row(table, &row)? { claimed.push(row)?; } } }
         let mut actual = actual;
         claimed.finish()?.reconcile(&mut actual).await?;
-    }
-    Ok(())
+    } Ok(()) }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();
+    let released=all.release_preparation().await;
+    if released.is_err(){all.retain_unknown();}
+    completion.step("restore derived comparison preparation release",released);
+    completion.step("restore derived comparison reader close",all.close().await);
+    lctx_model::domain::completion::complete(result,completion)
 }
 
 async fn reconstruct(
@@ -992,49 +983,25 @@ async fn reconstruct(
         drop(assertions);
         batch_charge.try_resize(0)?;
     }
-    for original in prepared.originals.values() {
-        let mut file = tempfile::tempfile().map_err(ModelError::codec)?;
-        let source = RecordId::new("original", original.source.0.hex());
-        let mut seen = BTreeSet::new();
-        let mut total = 0u64;
-        let mut chunks_charge = budget.reserve("restore-original-chunk-positions", 0)?;
-        for row in dump.original_rows(&source)?.into_iter().flatten() {
-            let row = row?;
-            let row = object(&row)?;
-            if row.get("source") == Some(&Value::RecordId(source.clone())) {
-                let Some(Value::Number(lctx_native::surrealdb::types::Number::Int(start))) =
-                    row.get("start")
-                else {
-                    return Err(ModelError::Schema("restore original offset"));
-                };
-                let start = u64::try_from(*start).map_err(ModelError::codec)?;
-                let chunk = bytes(row, "bytes")?;
-                if start >= original.byte_len
-                    || start % 65536 != 0
-                    || chunk.len() as u64 != (original.byte_len - start).min(65536)
-                    || !seen.insert(start)
-                {
-                    return Err(ModelError::Conflict("restore original chunk continuity"));
-                }
-                chunks_charge.try_resize(seen.len().saturating_mul(64))?;
-                file.seek(std::io::SeekFrom::Start(start))
-                    .map_err(ModelError::codec)?;
-                file.write_all(chunk).map_err(ModelError::codec)?;
-                total += chunk.len() as u64;
-            }
+    for (blob_id,blob) in &prepared.blobs {
+        let mut file=tempfile::tempfile().map_err(ModelError::codec)?;
+        let mut seen=BTreeSet::new();let mut total=0u64;
+        let mut chunks_charge=budget.reserve("restore-original-chunk-positions",0)?;
+        for row in dump.original_rows(blob_id)?.into_iter().flatten(){
+            let piece=lctx_native::originals::decode_piece(row?,blob)?;
+            if !seen.insert(piece.start){return Err(ModelError::Conflict("restore duplicate original piece"));}
+            chunks_charge.try_resize(seen.len().saturating_mul(64))?;
+            file.seek(std::io::SeekFrom::Start(piece.start)).map_err(ModelError::codec)?;
+            file.write_all(&piece.bytes).map_err(ModelError::codec)?;total+=piece.bytes.len() as u64;
         }
-        if total != original.byte_len {
-            return Err(ModelError::Conflict("restore original length"));
+        if total!=blob.byte_len{return Err(ModelError::Conflict("restore original length"));}
+        for (source,layout) in &prepared.layouts {
+            if &layout.blob.id()!=blob_id {continue;}
+            let original=&prepared.originals[source];
+            file.rewind().map_err(ModelError::codec)?;
+            // Destination admission earns completion and full-byte warm replay afresh.
+            native.import_original_stream(original.source.0,original.content,original.byte_len,&mut file,budget).await?;
         }
-        file.rewind().map_err(ModelError::codec)?;
-        native
-            .import_original_stream(
-                original.source.0,
-                original.content,
-                original.byte_len,
-                &mut file,
-            )
-            .await?;
     }
     let _state_buffer = budget.reserve("restore-completed-state-buffer", SPOOL_BUFFER_BYTES)?;
     let mut state = tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
@@ -1111,7 +1078,7 @@ mod definition_tests {
             for claim in &claims { crate::backup_import::write_row(&mut file, claim.clone(), encoded.as_mut()).unwrap(); } drop(file);
             let dump = Dump::decode(&path, &budget).unwrap();
             let fake = claimed_fixture();
-            let prepared = PreparedClosure { handle: fake.handle, manifest: Manifest::decode(bytes(object(fake.rows.iter().find(|row| record_id(row).unwrap().table.as_str() == "publication").unwrap()).unwrap(), "manifest").unwrap()).unwrap(), bindings: vec![], originals: BTreeMap::new(), binding_rows: BTreeSet::new(), owners: BTreeSet::new(), owner_specs: BTreeMap::new(), views: views.iter().map(|view| view.hex()).collect(), nodes: entities.iter().map(|entity| lctx_native::loader::entity_payload_id(entity).unwrap()).collect(), derived_rows: claims.iter().map(|claim| record_id(claim).unwrap().clone()).collect(), _charge: budget.reserve("cold-claim-test-selection", 1024).unwrap() };
+            let prepared = PreparedClosure { handle: fake.handle, manifest: Manifest::decode(bytes(object(fake.rows.iter().find(|row| record_id(row).unwrap().table.as_str() == "publication").unwrap()).unwrap(), "manifest").unwrap()).unwrap(), bindings: vec![], originals: BTreeMap::new(), layouts:BTreeMap::new(),blobs:BTreeMap::new(), binding_rows: BTreeSet::new(), owners: BTreeSet::new(), owner_specs: BTreeMap::new(), views: views.iter().map(|view| view.hex()).collect(), nodes: entities.iter().map(|entity| lctx_native::loader::entity_payload_id(entity).unwrap()).collect(), derived_rows: claims.iter().map(|claim| record_id(claim).unwrap().clone()).collect(), _charge: budget.reserve("cold-claim-test-selection", 1024).unwrap() };
             let compared = compare_derived_claims(&dump, &prepared, &loader, &budget).await;
             assert_eq!(compared.is_ok(), fault == "baseline", "source claim {fault}: {compared:?}");
         }
@@ -1190,7 +1157,7 @@ mod definition_tests {
                 spec: ContributionSpec {
                     captured_binding: None,
                     producer: producer.into(),
-                    profile: Profile::Catalog,
+                    profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
                     model: model.digest(),
                     implementation: ContentHash::of(b"pure-transport-test"),
                     configuration: None,
@@ -1250,7 +1217,7 @@ mod definition_tests {
             "z-equivalent-binding",
             &binding,
         )));
-        let nodes = BTreeSet::from([
+        let mut nodes = BTreeSet::from([
             RecordId::new("entity", "seed"),
             RecordId::new("entity", "root"),
             RecordId::new("compiler_record", "extra"),
@@ -1299,18 +1266,15 @@ mod definition_tests {
             );
             rows.push(Value::Object(value));
         }
-        let source = ContentHash::of(b"claimed-original");
         let original = b"original; bytes remain exact";
-        let mut header = row("original", &source.hex());
-        header.insert("content", ContentHash::of(original).hex());
-        header.insert("byte_len", original.len() as i64);
-        rows.push(Value::Object(header));
-        let mut chunk = row("original_chunk", &format!("{}_0", source.hex()));
-        chunk.insert("source", RecordId::new("original", source.hex()));
-        chunk.insert("start", 0i64);
-        chunk.insert("bytes", Bytes::from(original.to_vec()));
-        chunk.insert("content", ContentHash::of(original).hex());
-        rows.push(Value::Object(chunk));
+        let input:lctx_model::domain::Id<lctx_model::domain::input::InputRevision>=serde_json::from_value(serde_json::to_value([3u8;16]).unwrap()).unwrap();
+        let source_row=lctx_model::domain::source::SourceArtifact::from_bytes(input,"claimed.py".into(),original).unwrap();
+        let layout=lctx_native::originals::Layout::source(&source_row).unwrap();
+        let source=lctx_model::domain::graph::EntityId::of(source_row.id()).0;
+        nodes.insert(layout.artifact.clone());
+        let mut artifact=Object::new();artifact.insert("id",layout.artifact.clone());artifact.insert("canonical",Bytes::from(serde_json::to_vec(&Entity::Source(source_row)).unwrap()));rows.push(Value::Object(artifact));
+        let mut member=row("compiler_membership","source-artifact-member");member.insert("contribution",RecordId::new("compiler_contribution","a-root"));member.insert("node",layout.artifact.clone());rows.push(Value::Object(member));
+        rows.push(layout.value());rows.push(layout.blob.value(true));rows.push(layout.blob.piece(0,original).unwrap());
         let manifest = Manifest {
             admission_contract: ContentHash::of(b"claimed-only"),
             completed_state: lctx_model::domain::completed::CompletedStateIdentity {
@@ -1498,8 +1462,8 @@ mod definition_tests {
                     RecoveryFamily::TypedBacking | RecoveryFamily::GraphPayloads => { prepared.nodes.insert(RecordId::new(*table, "family-control")); },
                     RecoveryFamily::Bindings => { prepared.binding_rows.insert(RecordId::new(*table, "family-control")); },
                     RecoveryFamily::Aliases => { selected.insert("source", prepared.nodes.first().unwrap().clone()); },
-                    RecoveryFamily::OriginalHeaders => { selected.insert("id", prepared.originals.keys().next().unwrap().clone()); },
-                    RecoveryFamily::OriginalChunks => { selected.insert("source", prepared.originals.keys().next().unwrap().clone()); },
+                    RecoveryFamily::OriginalHeaders => { selected.insert("id", if *table=="original" {prepared.layouts.keys().next().unwrap().clone()} else {prepared.blobs.keys().next().unwrap().clone()}); },
+                    RecoveryFamily::OriginalChunks => { selected.insert("blob", prepared.blobs.keys().next().unwrap().clone()); },
                     RecoveryFamily::GraphRoles | RecoveryFamily::ExternalEndpoints | RecoveryFamily::SearchOccurrences |
                     RecoveryFamily::SearchDocuments | RecoveryFamily::SearchVectors => { prepared.derived_rows.insert(RecordId::new(*table, "family-control")); },
                 }
@@ -1507,6 +1471,7 @@ mod definition_tests {
                 let mut unrelated = row(table, "unselected-control");
                 unrelated.insert("contribution", RecordId::new("compiler_contribution", "unselected"));
                 unrelated.insert("source", RecordId::new("original", "unselected"));
+                unrelated.insert("blob", RecordId::new("original_blob","unselected"));
                 assert!(!prepared.keep_row(table, &Value::Object(unrelated)).unwrap(), "exact exclusion: {family:?}/{table}");
             }
         }
@@ -1582,10 +1547,7 @@ mod definition_tests {
             RecordId::new("compiler_record", "extra"),
             RecordId::new("compiler_record", "alias-b"),
             RecordId::new("compiler_binding", "selected-binding"),
-            RecordId::new(
-                "original_chunk",
-                format!("{}_0", ContentHash::of(b"claimed-original").hex()),
-            ),
+            lctx_native::originals::chunk_id(&lctx_native::originals::Blob::new(ContentHash::of(b"original; bytes remain exact"),b"original; bytes remain exact".len() as u64).unwrap().id(),0).unwrap(),
         ] {
             let rows = fixture
                 .rows

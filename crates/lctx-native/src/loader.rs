@@ -102,6 +102,10 @@ pub struct Loader {
     client: Arc<Surreal<Client>>,
     views: Option<Vec<ContentHash>>,
     attempt: Option<ContentHash>,
+    derivation: Option<ContentHash>,
+    staging: Option<Arc<crate::control::staging::DerivedStaging>>,
+    prepared_reader:Option<crate::NativeReader<()>>,
+    _published_view_charge:Option<Box<dyn lctx_model::domain::resources::Reservation>>,
     cancellation: Option<Arc<std::sync::atomic::AtomicBool>>,
     budget: Option<lctx_model::domain::resources::ResourceBudget>,
 }
@@ -148,15 +152,23 @@ impl Loader {
         Self {
             client,
             views: None,
-            attempt: None, cancellation: None, budget: None,
+            attempt: None, cancellation: None, budget: None, derivation:None, staging:None, prepared_reader:None, _published_view_charge:None,
         }
     }
     pub fn for_views(client: Arc<Surreal<Client>>, views: Vec<ContentHash>) -> Self {
         Self {
             client,
             views: Some(views),
-            attempt: None, cancellation: None, budget: None,
+            attempt: None, cancellation: None, budget: None, derivation:None, staging:None, prepared_reader:None, _published_view_charge:None,
         }
+    }
+    /// Borrow the exact publication reader/pin already earned by the caller. Its
+    /// enclosing read owner drains all consumers before explicitly closing that reader.
+    pub fn for_published(completed:&crate::completed_state::PublishedCompletedState,budget:&lctx_model::domain::resources::ResourceBudget)->Result<Self,ModelError>{
+        let reader=completed.retained_reader();
+        let charge=budget.reserve("published loader exact view inventory",completed.inventory().bindings().len().saturating_mul(std::mem::size_of::<ContentHash>()).saturating_add(256))?;
+        let views=completed.inventory().bindings().iter().filter(|binding|binding.boundary.is_none()).map(|binding|binding.view.identity).collect();
+        Ok(Self{client:reader.shared_client(),views:Some(views),attempt:None,cancellation:None,budget:Some(budget.clone()),derivation:Some(reader.derivation()?),staging:None,prepared_reader:Some(reader.transport_reader().with_budget(budget)),_published_view_charge:Some(charge)})
     }
     pub fn for_attempt_views(
         client: Arc<Surreal<Client>>,
@@ -166,18 +178,43 @@ impl Loader {
         Self {
             client,
             views: Some(views),
-            attempt: Some(attempt), cancellation: None, budget: None,
+            attempt: Some(attempt), cancellation: None, budget: None, derivation:None, staging:None, prepared_reader:None, _published_view_charge:None,
         }
+    }
+    pub fn staging_root(&self)->Option<&RecordId>{self.staging.as_ref().map(|staging|staging.root())}
+    pub fn staging(&self)->Option<&Arc<crate::control::staging::DerivedStaging>>{self.staging.as_ref()}
+    pub fn with_derivation(mut self,namespace:ContentHash)->Self{self.derivation=Some(namespace);self}
+    pub fn derivation(&self)->Result<ContentHash,ModelError>{self.derivation.ok_or(ModelError::Conflict("derived loader requires exact realization"))}
+    pub fn with_staging(mut self,staging:Arc<crate::control::staging::DerivedStaging>)->Result<Self,ModelError>{
+        if self.attempt!=Some(staging.attempt()) || self.derivation!=Some(staging.derivation()){return Err(ModelError::Conflict("derived loader staging scope"));}
+        self.staging=Some(staging);Ok(self)
+    }
+    /// Prepare exact physical view selection once, under the staging completion owner.
+    pub async fn prepare_completed_reader(mut self)->Result<Self,ModelError>{
+        let staging=self.staging.as_ref().ok_or(ModelError::Conflict("completed reader requires staging owner"))?;
+        let views=self.views.as_ref().ok_or(ModelError::Conflict("completed reader exact view inventory"))?;
+        let reader=crate::NativeReader::for_completed_views(self.client.clone(),staging.completed_owner(),views,&self.read_budget()?).await?
+            .with_derivation(self.derivation()?);
+        self.prepared_reader=Some(reader);Ok(self)
+    }
+    pub async fn close_reader(&self)->Result<(),ModelError>{
+        let Some(reader)=&self.prepared_reader else{return Ok(());};
+        let prepared=reader.release_preparation().await;
+        if prepared.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()){reader.retain_unknown();}
+        let mut completion=lctx_model::domain::completion::Completion::default();
+        completion.step("publication completed reader pin release",reader.close().await);
+        lctx_model::domain::completion::complete(prepared,completion)
     }
     pub fn with_budget(mut self, budget: &lctx_model::domain::resources::ResourceBudget) -> Self { self.budget = Some(budget.clone()); self }
     pub fn read_budget(&self) -> Result<lctx_model::domain::resources::ResourceBudget, ModelError> { self.budget.clone().ok_or(ModelError::Conflict("native operation requires caller budget")) }
     pub fn with_read_cancellation(mut self, flag: Arc<std::sync::atomic::AtomicBool>) -> Self { self.cancellation = Some(flag); self }
     pub fn check_read_admission(&self) -> Result<(), ModelError> { crate::prepared::check_read_cancellation(self.cancellation.as_ref()) }
     pub fn reader(&self) -> crate::NativeReader<()> {
-        let reader = match &self.views {
+        let reader = if let Some(reader)=&self.prepared_reader{reader.clone()}else{match &self.views {
             Some(views) => crate::NativeReader::for_views(self.client.clone(), views.clone()),
             None => crate::NativeReader::private(self.client.clone()),
-        };
+        }};
+        let reader = if let Some(derivation)=self.derivation{reader.with_derivation(derivation)}else{reader};
         let reader = if let Some(budget) = &self.budget { reader.with_budget(budget) } else { reader };
         if let Some(flag) = &self.cancellation { reader.with_read_cancellation(flag.clone()) } else { reader }
     }
@@ -221,6 +258,7 @@ impl Loader {
             return Ok(());
         }
         let _ = (table, relation);
+        if let Some(staging)=&self.staging{return staging.insert(&self.client,rows,&self.read_budget()?).await;}
         let owner = self.attempt.map(|attempt| RecordId::new("native_attempt", attempt.hex()));
         for window in crate::control::ImmutableWindows::for_loading(rows, self.attempt, owner).with_budget(self.budget.as_ref()) {
             crate::control::install_window(&self.client, self.attempt, window?, self.budget.as_ref()).await?;
@@ -388,6 +426,15 @@ impl Loader {
         }
         self.flush_references("participant", &mut pending).await
     }
+    /// Qualify physical adjacency while keeping canonical semantic endpoints unchanged.
+    pub fn reference_value(&self,value:Value)->Result<Value,ModelError>{
+        let Value::Object(mut row)=value else{return Err(ModelError::Schema("derived reference object"));};
+        let Some(Value::RecordId(id))=row.get("id") else{return Err(ModelError::Schema("derived reference ID"));};
+        if !matches!(id.table.as_str(),"participant"|"reference"){return Err(ModelError::Schema("derived reference family"));}
+        let namespace=self.derivation()?;
+        let id=crate::derivation::address(namespace,id.table.as_str(),&serde_json::to_vec(id).map_err(ModelError::codec)?);
+        row.insert("id",id);row.insert("derivation",namespace.hex());Ok(Value::Object(row))
+    }
     async fn reference_write(
         &self,
         table: &str,
@@ -395,6 +442,7 @@ impl Loader {
         value: Value,
         endpoint: Option<Value>,
     ) -> Result<(), ModelError> {
+        let value=self.reference_value(value)?;
         let bytes = native_bytes(&value).saturating_add(endpoint.as_ref().map_or(0, native_bytes));
         let limits = lctx_model::domain::batching::TransferLimits::default();
         require_row(bytes, limits)?;
@@ -446,77 +494,43 @@ impl Loader {
             .await
     }
     async fn original_stream_inner(
-        &self,
-        source: ContentHash,
-        content: ContentHash,
-        length: u64,
-        input: &mut impl std::io::Read,
-        reuse: bool,
+        &self, source: ContentHash, content: ContentHash, length: u64,
+        input: &mut impl std::io::Read, _reuse: bool,
     ) -> Result<(), ModelError> {
-        let source_key = source.hex();
-        let source = RecordId::new("original", source_key.clone());
-        let mut header = Object::new();
-        header.insert("id", source.clone());
-        header.insert("content", content.hex());
-        header.insert(
-            "byte_len",
-            i64::try_from(length).map_err(ModelError::codec)?,
-        );
-        self.original_rows("original", vec![Value::Object(header)], reuse)
-            .await?;
-        let mut hasher = lctx_model::domain::ContentHasher::default();
-        let mut position = 0u64;
-        let mut buffer = vec![0u8; 65536];
-        let mut pending = Vec::new();
+        let budget=self.read_budget()?;
+        let reader=self.reader();
+        // This reader borrows the loader's authenticated session. Close its local scope on
+        // every result; the caller remains the sole owner of session invalidation.
+        let result=async {
+        let layout=crate::originals::resolve_source(&reader,source,content,length,&budget).await?;
+        // Include exact replays in installation so this attempt earns its own holds.
+        self.insert("original",vec![layout.value()],false).await?;
+        let _charge=budget.reserve("original stream buffers",65536*64*4+65536)?;
+        let mut buffer=vec![0u8;crate::originals::CHUNK_BYTES];
+        let mut pending=Vec::new();let mut position=0u64;
+        let mut hasher=lctx_model::domain::ContentHasher::default();
         loop {
-            let mut count = 0;
-            while count < buffer.len() {
-                let next = input
-                    .read(&mut buffer[count..])
-                    .map_err(ModelError::codec)?;
-                if next == 0 {
-                    break;
-                }
-                count += next;
+            self.check_read_admission()?;
+            let mut count=0;
+            while count<buffer.len(){
+                let next=input.read(&mut buffer[count..]).map_err(ModelError::codec)?;
+                if next==0 {break;} count+=next;
             }
-            if count == 0 {
-                break;
-            }
+            if count==0 {break;}
             hasher.update(&buffer[..count]);
-            let mut row = Object::new();
-            row.insert(
-                "id",
-                RecordId::new("original_chunk", format!("{source_key}_{position}")),
-            );
-            row.insert("source", source.clone());
-            row.insert("start", i64::try_from(position).map_err(ModelError::codec)?);
-            row.insert("bytes", Bytes::from(buffer[..count].to_vec()));
-            row.insert("content", ContentHash::of(&buffer[..count]).hex());
-            pending.push(Value::Object(row));
-            if pending.len() == 64 {
-                self.original_rows("original_chunk", std::mem::take(&mut pending), reuse)
-                    .await?;
-            }
-            position += count as u64;
+            pending.push(layout.blob.piece(position,&buffer[..count])?);
+            position=position.checked_add(count as u64).ok_or(ModelError::Schema("original stream bounds"))?;
+            if pending.len()==64 {self.insert("original_chunk",std::mem::take(&mut pending),false).await?;}
         }
-        self.original_rows("original_chunk", pending, reuse).await?;
-        if position != length || hasher.finish() != content {
-            return Err(ModelError::Conflict("original bytes"));
-        }
-        Ok(())
+        self.insert("original_chunk",pending,false).await?;
+        if position!=length || hasher.finish()!=content {return Err(ModelError::Conflict("original bytes"));}
+        crate::originals::complete_blob(&reader,self.attempt,&layout,&budget).await
+        }.await;
+        let mut completion=lctx_model::domain::completion::Completion::default();
+        completion.step("original import reader close",reader.close().await);
+        lctx_model::domain::completion::complete(result,completion)
     }
-    async fn original_rows(
-        &self,
-        table: &str,
-        rows: Vec<Value>,
-        reuse: bool,
-    ) -> Result<(), ModelError> {
-        if reuse {
-            self.ensure(table, rows).await
-        } else {
-            self.insert(table, rows, false).await
-        }
-    }
+
 }
 fn external_value(target: &Target) -> Result<Option<Value>, ModelError> {
     if !matches!(target, Target::External { .. }) {
@@ -530,6 +544,23 @@ fn external_value(target: &Target) -> Result<Option<Value>, ModelError> {
     );
     Ok(Some(Value::Object(object)))
 }
+/// Canonical endpoint backing is installed while the producer is open. Derived role
+/// publication later compares these exact rows without creating canonical content.
+pub fn entity_endpoint_values(row:&Entity)->Result<Vec<Value>,ModelError>{
+    row.validate()?;
+    codec::entity_references(row).iter().map(|reference|{
+        let target=lctx_model::domain::graph::reference_target(reference)?.0;
+        external_value(&target)?.ok_or(ModelError::Schema("canonical entity endpoint"))
+    }).collect()
+}
+pub fn assertion_endpoint_values(row:&Assertion)->Result<Vec<Value>,ModelError>{
+    row.validate()?;
+    let mut output=Vec::new();
+    for participant in &row.participants {output.push(external_value(&participant.target)?.ok_or(ModelError::Schema("canonical assertion participant endpoint"))?);}
+    for (target,_) in row.references()?{output.push(external_value(&target)?.ok_or(ModelError::Schema("canonical assertion reference endpoint"))?);}
+    Ok(output)
+}
+
 pub fn anchor_value(target: Target) -> Value {
     let id = target_id(target);
     let mut row = Object::new();

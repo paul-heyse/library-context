@@ -4065,8 +4065,11 @@ name = "lctx-native"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
+ "arrow-row",
  "arrow-schema",
  "async-trait",
+ "blake3",
+ "datafusion",
  "futures 0.3.34",
  "hex",
  "insta",
@@ -4080,6 +4083,7 @@ dependencies = [
  "surrealdb-syn",
  "tempfile",
  "tokio",
+ "toml 1.1.6+spec-1.1.0",
  "tonic",
  "tracing",
  "tracing-subscriber",
@@ -4089,6 +4093,7 @@ dependencies = [
 name = "lctx-publisher"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "bytes",
  "cpg-core",
  "cpg-extract",
@@ -4106,6 +4111,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-stream",
+ "toml 1.1.6+spec-1.1.0",
  "tonic",
  "tracing",
 ]

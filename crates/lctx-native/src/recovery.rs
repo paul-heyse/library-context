@@ -7,6 +7,9 @@ use lctx_model::domain as d;
 pub enum RecoveryTableKind {
     Content(d::recovery_closure::RecoveryFamily),
     PublicationRoot,
+    /// Local integrity/ownership witnesses survive a database checkpoint. Portable
+    /// completed content never imports their authority; destination factories re-earn it.
+    InstallationWitness,
 }
 #[derive(Debug, Clone, Copy)]
 pub struct RecoveryTable {
@@ -29,7 +32,7 @@ pub const fn recovery_tables(
         GraphPayloads => &["entity", "assertion"],
         GraphRoles => &["participant", "reference"],
         ExternalEndpoints => &["external"],
-        OriginalHeaders => &["original"],
+        OriginalHeaders => &["original", "original_blob"],
         OriginalChunks => &["original_chunk"],
         SearchOccurrences => &["lex_occurs", "vec_occurs"],
         SearchDocuments => &[
@@ -64,6 +67,9 @@ pub fn recovery_table_inventory() -> impl Iterator<Item = RecoveryTable> {
                     relation: recovery_relation(family),
                 })
         })
+        .chain(INSTALLATION_WITNESS_TABLES.iter().map(|name| RecoveryTable {
+            name, kind: RecoveryTableKind::InstallationWitness, relation: false,
+        }))
         .chain(std::iter::once(RecoveryTable {
             name: "publication",
             kind: RecoveryTableKind::PublicationRoot,
@@ -86,3 +92,16 @@ pub const STATE_TABLES: [&str; 6] = {
     }
     names
 };
+
+/// Attempt-owned replay work is operational state, never completed closure content.
+/// Database checkpoint/recovery retains it together with native holds/effect receipts.
+pub const PENDING_ORIGINAL_TABLES: [&str;3] = ["native_pending_original", "native_pending_original_ordinal", "native_pending_original_piece"];
+
+/// Exact physical completion/admission and retained canonical binding witnesses are
+/// installation-local. This inventory is deliberately outside COMPLETED_FAMILIES and
+/// STATE_TABLES, whose six logical roots remain the portable semantic authority.
+pub const INSTALLATION_WITNESS_TABLES: [&str; 7] = [
+    "compiler_view_realization", "compiler_view_member", "compiler_view_completion",
+    "native_completed_state", "native_completed_view", "native_completed_admission",
+    "compiler_binding_descriptor",
+];

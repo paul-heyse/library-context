@@ -38,6 +38,8 @@ async fn backup_owned(config: &RuntimeConfig, handle: &SnapshotHandle, output: &
     let mut exporter = None;
     let result = async {
         cancel.check()?;
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)?;
+        let completed=lctx_native::completed_state::published_completed_state(&viewer,&budget).await?;
         let metadata = recovery_metadata(config, handle)?;
         // One dedicated exporter session, with one external transaction across all metadata,
         // closure and content reads. There is no independent export or per-page snapshot.
@@ -60,8 +62,7 @@ async fn backup_owned(config: &RuntimeConfig, handle: &SnapshotHandle, output: &
             }
         };
         transaction = Some(snapshot.clone());
-        let budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)?;
-        crate::selected_backup::export(&snapshot, &version, handle, native_definitions, staged.path(), &budget, cancel).await?;
+        crate::selected_backup::export(&snapshot, &completed, &version, handle, native_definitions, staged.path(), &budget, cancel).await?;
         cancel.check()?;
         use std::io::Write;
         let mut file = std::fs::OpenOptions::new().append(true).open(staged.path()).map_err(ModelError::codec)?;

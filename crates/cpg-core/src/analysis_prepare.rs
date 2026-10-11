@@ -2,7 +2,7 @@
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use futures::future::BoxFuture;
 use lctx_model::domain::{
-    analysis::{native::*, preparation::Configuration, *},
+    analysis::{native::*, preparation::{Configuration, ConfigurationGroup}, *},
     assertion::AssertionQualification,
     models::{AuthoredContextProtocol, AuthoredModel, AuthoredTarget, ModelCatalog},
     stages::*,
@@ -16,6 +16,7 @@ pub async fn configuration(
     _model: &ValidatedModel,
     runtime: &Workspace,
     configuration: &Configuration,
+    group: ConfigurationGroup,
 ) -> Result<(), ModelError> {
     configuration.check_budget(runtime.budget())?;
     macro_rules! write {
@@ -26,18 +27,21 @@ pub async fn configuration(
             }
         }};
     }
-    write!(ModelCatalog, configuration.catalogs().catalogs);
-    write!(AuthoredTarget, configuration.catalogs().targets);
-    write!(AuthoredModel, configuration.catalogs().models);
-    write!(AuthoredContextProtocol, configuration.catalogs().protocols);
-    write!(MethodParameters, configuration.parameters());
-    write!(AnalysisDefinition, configuration.definitions());
-    write!(ProjectionDefinition, configuration.projections());
-    write!(settings::AnalyticsConfiguration, configuration.analytics());
-    write!(
-        lctx_model::domain::retrieval::RetrievalDefinition,
-        configuration.retrieval()
-    );
+    match group {
+        ConfigurationGroup::Authored => {
+            write!(ModelCatalog, configuration.catalogs().catalogs);
+            write!(AuthoredTarget, configuration.catalogs().targets);
+            write!(AuthoredModel, configuration.catalogs().models);
+            write!(AuthoredContextProtocol, configuration.catalogs().protocols);
+        }
+        ConfigurationGroup::Methods => {
+            write!(MethodParameters, configuration.parameters());
+            write!(AnalysisDefinition, configuration.definitions());
+        }
+        ConfigurationGroup::Projections => write!(ProjectionDefinition, configuration.projections()),
+        ConfigurationGroup::Analytics => write!(settings::AnalyticsConfiguration, configuration.analytics()),
+        ConfigurationGroup::Retrieval => write!(lctx_model::domain::retrieval::RetrievalDefinition, configuration.retrieval()),
+    }
     output.finish(ProviderOutcome::Complete).await
 }
 

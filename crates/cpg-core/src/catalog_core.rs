@@ -240,14 +240,30 @@ pub async fn produce(
                 .await?;
             let data = load_scope(&scopes, &scope, &access, runtime).await?;
             drop(scope);
-            let budget = runtime.budget().clone();
-            let (data, rows) = tokio::task::spawn_blocking(move || {
-                let rows = build::build(&data, &budget)?;
-                Ok::<_, ModelError>((data, rows))
-            })
-            .await
-            .map_err(ModelError::codec)??;
+            let mut domain = KeySink::new("catalog-root-window-domain/v1");
+            for key in &keys {key.encode(&mut domain);}
+            let domain = domain.finish();
+            let request = crate::catalog_products::request(&data, &output, domain, runtime)?;
+            let hit = match &request {
+                Some((request, _)) => crate::catalog_products::lookup(request, runtime).await?,
+                None => None,
+            };
+            let reused = hit.is_some();
+            // Optional lookup metadata must not reduce the feasibility of fresh computation.
+            drop(request);
+            let (data, rows) = if let Some(rows) = hit {(data, rows)} else {
+                let budget = runtime.budget().clone();
+                tokio::task::spawn_blocking(move || {
+                    let rows = build::build(&data, &budget)?;
+                    Ok::<_, ModelError>((data, rows))
+                }).await.map_err(ModelError::codec)??
+            };
+            // Bind only semantic payload rows from the cache. The current invocation frame
+            // and all exact receipts above belong to this attempt and are never replayed.
             let links = build::invocation_links(&data, &rows, &invocations, runtime.budget())?;
+            if !reused {if let Some((request, _hold))=crate::catalog_products::request(&data,&output,domain,runtime)? {
+                crate::catalog_products::retain(&request,&rows,runtime).await?;
+            }}
             drop(data);
             emit_rows(&rows, &output).await?;
             for link in links.iter() {

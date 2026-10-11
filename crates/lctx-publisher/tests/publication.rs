@@ -447,7 +447,7 @@ async fn publication_control() {
         let expected =
             std::fs::read(export.join(format!("original-{}.bin", original.source.0.hex())))
                 .unwrap();
-        assert_eq!(bytes, &expected[..bytes.len()]);
+        assert_eq!(bytes.as_ref(), &expected[..bytes.len()]);
     }
     let cli = std::env::var_os("LCTX_REMEDIATION_CLI_BIN").map(std::path::PathBuf::from);
     if let Some(binary) = &cli {
@@ -757,7 +757,7 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
         let baseline = fixture.scratch.path().join("baseline.surql");
         lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &baseline, &definitions).await.unwrap();
         let expected = logical_backup_rows(&baseline);
-        for table in ["entity", "original", "original_chunk", "lex_occurs"] {
+        for table in ["entity", "original", "original_blob", "original_chunk", "lex_occurs"] {
             assert!(expected.keys().any(|id| id.table.as_str() == table), "selected fixture must exercise {table}");
         }
         unrelated_owner = Some(small_publication("selected_backup_unrelated_retained").await.unwrap());
@@ -786,7 +786,7 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
         lctx_publisher::inspection::audit(&unrelated.config, &unrelated.handle, &definitions).await.unwrap();
         retire_publication_completely(&fixture.config, &fixture.handle).await.unwrap();
         let mut absent = vec![RecordId::new("publication", fixture.handle.publication.hex())];
-        absent.extend(expected.keys().filter(|id| matches!(id.table.as_str(), "original" | "original_chunk" | "compiler_contribution" | "compiler_membership")).cloned());
+        absent.extend(expected.keys().filter(|id| matches!(id.table.as_str(), "original" | "original_blob" | "original_chunk" | "compiler_contribution" | "compiler_membership")).cloned());
         for window in absent.chunks(128) {
             let mut response = observer.query("SELECT VALUE id FROM $rows")
                 .bind(("rows", window.to_vec())).await.unwrap().check().unwrap();
@@ -1160,7 +1160,7 @@ async fn backup_omissions_and_concurrent_cold_restores_preserve_fresh_ownership(
         for original in &fixture.manifest.originals {
             let bytes = restored_viewer.original_bytes(original.source, 0,
                 usize::try_from(original.byte_len.min(256 << 10)).unwrap()).await.unwrap();
-            assert_eq!(bytes, &fixture.source[..bytes.len()]);
+            assert_eq!(bytes.as_ref(), &fixture.source[..bytes.len()]);
         }
         assert_eq!(viewer.handle(), &handle);
     }).catch_unwind().await;

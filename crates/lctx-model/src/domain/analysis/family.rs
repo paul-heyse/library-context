@@ -57,9 +57,10 @@ macro_rules! analysis_family {
                 #[model(code=0)] Native {#[model(premise)] coverage:Id<ProviderCoverage>},
                 $(#[model(code=1)] Normalized {#[model(premise)] coverage:Id<$normalized>},)?
                 #[model(code=2)] Analysis {#[model(premise)] coverage:Id<AnalysisCoverage>},
+                #[model(code=16)] UniformNative {#[model(premise)] descriptor:Id<uniform_outcome::UniformNotRequested>,scope:Id<CoverageScope>},
                 $(#[model(code=$code)] $variant {#[model(premise)] coverage:Id<super::$predecessor::AnalysisCoverage>},)*
             }
-            impl CoverageSource {pub fn reference(&self)->derivation::RowRef {match self {Self::Native {coverage}=>derivation::RowRef::of(*coverage),$(Self::Normalized {coverage}=>derivation::RowRef::of::<$normalized>(*coverage),)?Self::Analysis {coverage}=>derivation::RowRef::of(*coverage),$(Self::$variant {coverage}=>derivation::RowRef::of(*coverage),)*}}}
+            impl CoverageSource {pub fn reference(&self)->derivation::RowRef {match self {Self::UniformNative{descriptor,..}=>derivation::RowRef::of(*descriptor),Self::Native {coverage}=>derivation::RowRef::of(*coverage),$(Self::Normalized {coverage}=>derivation::RowRef::of::<$normalized>(*coverage),)?Self::Analysis {coverage}=>derivation::RowRef::of(*coverage),$(Self::$variant {coverage}=>derivation::RowRef::of(*coverage),)*}}}
             #[allow(unused_variables,clippy::ptr_arg,reason="Owners without final normalization coverage instantiate an empty repetition")]
             fn normalized_coverage_inputs(inputs:&mut Vec<ValidationInput>) {$(inputs.push(ValidationInput::of::<$normalized>(&["id"]));)?}
             #[allow(unused_variables,unreachable_code,reason="Owners with final normalization coverage return before the fallback error")]

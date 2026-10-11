@@ -214,6 +214,7 @@ async fn semantic_outcomes(
     let available = &admitted.availability;
     let reporting = &admitted.reporting;
     let mut expected = BTreeMap::new();
+    let mut outcomes = BTreeMap::new();
     for evidence in available.evidence() {
         let producer = *reporting
             .get(&(evidence.family, evidence.provider))
@@ -226,14 +227,30 @@ async fn semantic_outcomes(
             scope: EntityId::of(evidence.scope),
             domain: domain.finish(),
         };
-        charge.grow(
-            size_of::<(Id<d::attribution::ProviderCoverage>, OutcomeKey)>() + producer.len() + 32,
-        )?;
-        if expected.insert(evidence.coverage, key).is_some() {
-            return Err(invalid("duplicate native obligation"));
+        match evidence.coverage {
+            d::uniform_outcome::CoverageAuthority::Scoped { coverage } => {
+                charge.grow(
+                    size_of::<(Id<d::attribution::ProviderCoverage>, OutcomeKey)>()
+                        + producer.len() + 32,
+                )?;
+                if expected.insert(coverage, key).is_some() {
+                    return Err(invalid("duplicate native obligation"));
+                }
+            }
+            d::uniform_outcome::CoverageAuthority::Uniform { .. } => {
+                // ScopedAvailability retains the selected semantic owner and exact domain.
+                // A compact outcome has no ProviderCoverage row to visit or invent here.
+                if evidence.provider.is_some()
+                    || evidence.availability != d::admission::Availability::NotRequested
+                {
+                    return Err(invalid("compact native outcome is not uniformly unrequested"));
+                }
+                add_outcome(&mut outcomes, charge, Outcome {
+                    key, status: OutcomeKind::NotRequested, observed: None, detail: None,
+                })?;
+            }
         }
     }
-    let mut outcomes = BTreeMap::new();
     visit::<d::attribution::ProviderCoverage>(workspace, |row| {
         let key = expected
             .remove(&row.id())

@@ -35,30 +35,38 @@ impl ImmutableWindow {
             rows.push(Value::Object(value));
         }
         let mut references = Vec::new();
-        if let Some(owner) = owner {
+        if id.table.as_str()=="original_chunk" {
+            let Some(Value::RecordId(blob))=object.get("blob") else { return Err(ModelError::Schema("native original piece parent")); };
+            references.push((blob.clone(),id.clone()));
+        } else if let Some(owner) = owner {
             references.push((owner.clone(), id.clone()));
-            for field in ["anchor", "in", "out", "unit_node", "source"] {
-                if field == "unit_node" && !unit_references { continue; }
-                if let Some(Value::RecordId(target)) = object.get(field) {
+            let fields: &[&str] = if id.table.as_str()=="original" { &["artifact","blob"] } else { &["anchor","in","out","unit_node","source"] };
+            for field in fields {
+                if *field == "unit_node" && !unit_references { continue; }
+                if let Some(Value::RecordId(target)) = object.get(*field) {
                     references.push((id.clone(), target.clone()));
-                    if field == "source" && id.table.as_str() == "original_chunk" {
-                        // Source hydration owns the immutable original pieces as well
-                        // as each piece retaining its source identity.
-                        references.push((target.clone(), id.clone()));
-                    }
                 }
             }
         }
+        let original_blob=if id.table.as_str()=="original" {Some(crate::originals::decode_layout(row.clone())?.blob)} else {None};
         rows.push(row);
         let row_count = rows.len();
         let (mut sql, mut bindings) = immutable_row_plan(attempt, contribution, rows)?
             .ok_or(ModelError::Schema("native immutable unit"))?;
+        if let Some(blob)=original_blob {
+            bindings.insert("original_blobs",vec![blob.value(false)]);
+            let mut scope=Variables::new();scope.insert("__write_guards",vec![guard_id(&Value::RecordId(blob.id()))?]);scope.insert("__guard_records",guard_records(std::iter::once(&blob.id()))?);
+            merge_plan_bindings(&mut bindings,scope)?;
+            // Declaration and logical layout ownership have one atomic outcome. Completion
+            // is mutable, while immutable declaration fields and exact header shape collide.
+            sql=format!("FOR $i IN 0..array::len($original_blobs) {{ LET $row=$original_blobs[$i]; LET $blob=$row.id; fn::native_incidence_insert($row); LET $prior=SELECT * FROM ONLY $blob FOR UPDATE; IF $prior=NONE {{ CREATE $blob CONTENT $row RETURN NONE; }} ELSE {{ IF $prior.id!=$row.id OR $prior.content!=$row.content OR $prior.byte_len!=$row.byte_len OR $prior.format!=$row.format OR type::is::bool($prior.completed)=false OR array::len(object::keys($prior))!=5 {{ THROW 'original blob declaration collision'; }}; }}; }}; {sql}");
+        }
         if let Some((hold_owner, hold_sql, holds)) = hold_plan(attempt, references)? {
             if !matches!(hold_owner, EffectOwner::OpenAttempt(_) | EffectOwner::Installation) {
                 return Err(ModelError::Conflict("native immutable window authority"));
             }
             sql.push(';'); sql.push_str(&hold_sql);
-            bindings.extend(holds);
+            merge_plan_bindings(&mut bindings,holds)?;
         }
         let bytes = plan_bytes(&sql, &bindings)?;
         if bytes > MAX_ROW_BYTES {
@@ -88,7 +96,7 @@ impl ImmutableWindow {
         Ok(())
     }
 }
-fn plan_bytes(sql: &str, bindings: &Variables) -> Result<usize, ModelError> {
+pub(super) fn plan_bytes(sql: &str, bindings: &Variables) -> Result<usize, ModelError> {
     // Full native containers, serialization, request hashing and intent/payload controls
     // coexist. Include guard/hold expansion rather than budgeting only the input row.
     let native = bindings.iter().map(|(key, value)| key.len().saturating_add(crate::loader::native_bytes(value))).fold(0usize, usize::saturating_add);
@@ -142,7 +150,7 @@ impl Iterator for ImmutableWindows<'_> {
                 let mut unit = ImmutableWindow::unit(row, self.attempt, self.contribution, self.owner.as_ref(), self.unit_references, self.budget.as_ref())?;
                 unit.charges.extend(input_charge);
                 if let Some(window) = &output {
-                    if window.rows + unit.rows > crate::loader::NATIVE_WINDOW_ROWS || window.bytes.saturating_add(unit.bytes) > TRANSFER_BYTES {
+                    if window.sql!=unit.sql || window.rows + unit.rows > crate::loader::NATIVE_WINDOW_ROWS || window.bytes.saturating_add(unit.bytes) > TRANSFER_BYTES {
                         self.pending = Some(unit); break;
                     }
                 }
@@ -159,20 +167,51 @@ pub async fn install_window(client: &Surreal<Client>, attempt: Option<ContentHas
     effect(client, attempt, &window.sql, window.bindings.into()).await
 }
 
+
+/// A frozen derivation can only retain derived children and exact existing canonical
+/// external endpoints. It cannot introduce a canonical payload after native freeze.
+pub(super) async fn install_staging_window(client:&Surreal<Client>,staging:&staging::DerivedStaging,
+    mut window:ImmutableWindow,budget:&ResourceBudget)->Result<(),ModelError>{
+    let _charge=if window.charges.is_empty(){Some(budget.reserve("publication derived immutable window",window.bytes)?)}else{None};
+    let Some(Value::Array(rows))=window.bindings.get("rows") else{return Err(ModelError::Schema("publication immutable rows"));};
+    for row in rows.iter(){
+        let Value::Object(row)=row else{return Err(ModelError::Schema("publication derived object"));};
+        let Some(Value::RecordId(id))=row.get("id") else{return Err(ModelError::Schema("publication derived address"));};
+        if crate::derivation::FAMILIES.contains(&id.table.as_str()){
+            crate::derivation::require_namespace(row,staging.derivation())?;
+        }else if !matches!(id.table.as_str(),"external"|"entity_anchor"|"assertion_anchor"){
+            return Err(ModelError::Conflict("publication derived immutable family"));
+        }
+    }
+    // The ensuing immutable write and object-incarnation guard share this transaction.
+    // Thus canonical endpoint comparison cannot race a retirement/replacement.
+    let _guard_charge=budget.reserve("publication canonical endpoint guard construction",8192)?;
+    window.sql=format!("FOR $row IN $rows {{ IF record::table($row.id) IN ['external','entity_anchor','assertion_anchor'] {{ LET $canonical_id=$row.id; LET $canonical=SELECT * FROM ONLY $canonical_id FOR UPDATE; IF $canonical=NONE OR $canonical!=$row {{ THROW 'frozen canonical endpoint missing or changed'; }}; }}; }}; {}",window.sql);
+    staging.effect(client,&window.sql,window.bindings.into(),budget).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn original(name: &str, size: i64) -> Value {
-        let mut row = Object::new();
-        row.insert("id", RecordId::new("original", name));
-        row.insert("byte_len", size); row.insert("content", ContentHash::of(name.as_bytes()).hex());
+    fn immutable_control_row(name: &str, size: i64) -> Value {
+        let mut target = lctx_model::domain::graph::Target::External {
+            provider:lctx_model::domain::graph::EntityId(ContentHash::of(b"immutable fixture provider")),
+            context:lctx_model::domain::graph::EntityId(ContentHash::of(b"immutable fixture context")),
+            name:format!("{name}:0"), reason:lctx_model::domain::normalized::entities::EntityReason::ProviderExternal,
+        };
+        let id=crate::reader::target_id(target.clone());
+        // The late collision deliberately substitutes different full canonical bytes at
+        // an occupied address. The initially installed endpoint has its exact model ID.
+        if let lctx_model::domain::graph::Target::External{name:label,..}=&mut target{*label=format!("{name}:{size}");}
+        let mut row = Object::new();row.insert("id",id);
+        row.insert("canonical",surrealdb::types::Bytes::from(serde_json::to_vec(&target).unwrap()));
         Value::Object(row)
     }
     #[test]
     fn windows_account_for_guards_and_holds_and_bound_complete_units() {
         let attempt = ContentHash::of(b"window owner");
         let owner = RecordId::new("native_attempt", attempt.hex());
-        let rows = (0..300).map(|n| original(&format!("item-{n}"), 0)).collect();
+        let rows = (0..300).map(|n| immutable_control_row(&format!("item-{n}"), 0)).collect();
         let windows = ImmutableWindows::new(rows, Some(attempt), None, Some(owner)).collect::<Result<Vec<_>, _>>().unwrap();
         assert!(windows.len() > 1);
         assert_eq!(windows.iter().map(|window| window.rows).sum::<usize>(), 300);
@@ -188,7 +227,7 @@ mod tests {
     #[tokio::test]
     async fn budget_refusal_precedes_native_effect_and_releases_reservation() {
         let attempt = ContentHash::of(b"window owner");
-        let window = ImmutableWindows::new(vec![original("budget-refusal", 0)], Some(attempt), None,
+        let window = ImmutableWindows::new(vec![immutable_control_row("budget-refusal", 0)], Some(attempt), None,
             Some(RecordId::new("native_attempt", attempt.hex()))).next().unwrap().unwrap();
         let budget = ResourceBudget::fixed(window.bytes - 1).unwrap();
         assert!(matches!(install_window(&Surreal::init(), Some(attempt), window, Some(&budget)).await, Err(ModelError::Resource { .. })));
@@ -197,14 +236,14 @@ mod tests {
     #[test]
     fn construction_is_admitted_and_lookahead_stays_charged_until_drop() {
         let budget = ResourceBudget::fixed(4 * 1024 * 1024).unwrap();
-        let rows = (0..300).map(|n| original(&format!("charged-{n}"), 0)).collect();
+        let rows = (0..300).map(|n| immutable_control_row(&format!("charged-{n}"), 0)).collect();
         let mut windows = ImmutableWindows::new(rows, None, None, None).with_budget(Some(&budget));
         let first = windows.next().unwrap().unwrap();
         assert!(budget.reserved() > first.bytes, "one pending complete unit remains charged");
         drop(first); assert!(budget.reserved() > 0);
         drop(windows); assert_eq!(budget.reserved(), 0);
         let tiny = ResourceBudget::fixed(1).unwrap();
-        assert!(matches!(ImmutableWindows::new(vec![original("refuse", 0)], None, None, None)
+        assert!(matches!(ImmutableWindows::new(vec![immutable_control_row("refuse", 0)], None, None, None)
             .with_budget(Some(&tiny)).next().unwrap(), Err(ModelError::Resource { .. })));
         assert_eq!(tiny.reserved(), 0);
     }
@@ -215,14 +254,14 @@ mod tests {
         let client = lctx_compiler_store::reader::connect(&config.endpoint, &config.writer_credentials(), store.namespace().as_str(), store.database().as_str()).await.unwrap();
         let attempt = store.attempt(); let owner = RecordId::new("native_attempt", attempt.hex());
         let existing = format!("{}-existing", attempt.hex()); let absent = format!("{}-absent", attempt.hex());
-        let first = ImmutableWindows::new(vec![original(&existing, 0)], Some(attempt), None, Some(owner.clone())).next().unwrap().unwrap();
+        let first = ImmutableWindows::new(vec![immutable_control_row(&existing, 0)], Some(attempt), None, Some(owner.clone())).next().unwrap().unwrap();
         install_window(&client, Some(attempt), first, None).await.unwrap();
-        let mut windows = ImmutableWindows::new(vec![original(&absent, 0), original(&existing, 1)], Some(attempt), None, Some(owner));
+        let mut windows = ImmutableWindows::new(vec![immutable_control_row(&absent, 0), immutable_control_row(&existing, 1)], Some(attempt), None, Some(owner));
         let collision = windows.next().unwrap().unwrap(); assert!(windows.next().is_none());
         let result = install_window(&client, Some(attempt), collision, None).await;
         assert!(result.is_err(), "full-value collision must refuse");
         let mut response = client.query("SELECT * FROM $absent; SELECT * FROM native_hold WHERE object=$absent")
-            .bind(("absent", RecordId::new("original", absent))).await.unwrap().check().unwrap();
+            .bind(("absent", match immutable_control_row(&absent,0){Value::Object(row)=>row.get("id").unwrap().clone(),_=>unreachable!()})).await.unwrap().check().unwrap();
         let rows: Vec<Value> = response.take(0).unwrap(); let holds: Vec<Value> = response.take(1).unwrap();
         assert!(rows.is_empty()); assert!(holds.is_empty());
         client.invalidate().await.unwrap(); store.abandon().await.unwrap();

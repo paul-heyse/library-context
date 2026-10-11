@@ -94,6 +94,7 @@ pub(super) fn prepare_hits(hits: &mut [Option<lctx_compiler_store::product_cache
 }
 pub(super) async fn lookup_one(request: &ProductRequest, runtime: &Workspace)
     -> Result<Option<lctx_compiler_store::product_cache::LeasedProduct>, ModelError> {
+    if !runtime.product_reuse_enabled() {return Ok(None);}
     let Some(cache) = runtime.product_cache()? else { return Ok(None); };
     let hold = match runtime.budget().reserve("optional-product-point-request", request.retained_bytes()?) {
         Ok(hold) => hold, Err(ModelError::Resource { .. }) => return Ok(None), Err(error) => return Err(error),
@@ -150,6 +151,7 @@ pub(super) fn entity_request(output: &ProducerOutput, domain: ContentHash,
     };
     request.operation = format!("normalized-entity-kernel/{name}");
     request.parameters = name.as_bytes().to_vec();
+    request.profile = "neutral-algorithm".into();
     request.dependencies = vec![DependencyToken { kind: DependencyKind::CompleteDomain,
         role: "complete-selected-entity-inputs".into(), relation: "entity-scope-domain".into(),
         prefix: None, identity: domain }];
@@ -247,6 +249,7 @@ pub(super) fn callable_request(output: &ProducerOutput, domain: ContentHash,
     };
     request.operation = format!("normalized-callable-kernel/{name}");
     request.parameters = name.as_bytes().to_vec();
+    request.profile = "neutral-algorithm".into();
     request.dependencies = vec![DependencyToken { kind: DependencyKind::CompleteDomain,
         role: "complete-selected-callable-inputs".into(), relation: "callable-scope-domain".into(),
         prefix: None, identity: domain }];
@@ -316,6 +319,7 @@ pub(super) fn aspect_request(output: &ProducerOutput, domain: ContentHash,
     };
     request.operation = format!("normalized-aspect-kernel/{name}");
     request.parameters = name.as_bytes().to_vec();
+    request.profile = "neutral-algorithm".into();
     request.dependencies = vec![DependencyToken { kind: DependencyKind::CompleteDomain,
         role: "complete-selected-aspect-inputs".into(), relation: "aspect-scope-domain".into(),
         prefix: None, identity: domain }];
@@ -379,6 +383,7 @@ pub(super) fn retain_aspect(window: &mut ProductWindow, request: ProductRequest,
 /// The existing root window owns one optional cache lookup before rich hydration of misses.
 pub(super) async fn lookup_window(requests:&[Option<ProductRequest>],runtime:&Workspace)->Result<Vec<Option<lctx_compiler_store::product_cache::LeasedProduct>>,ModelError>{
     let empty=||std::iter::repeat_with(||None).take(requests.len()).collect::<Vec<_>>();
+    if !runtime.product_reuse_enabled(){return Ok(empty());}
     let Some(cache)=runtime.product_cache()? else{return Ok(empty())};
     let metadata=match runtime.budget().reserve("optional-selected-product-window",requests.len().saturating_mul(256)){Ok(charge)=>charge,Err(ModelError::Resource{..})=>return Ok(empty()),Err(error)=>return Err(error)};
     let mut lookups=Vec::with_capacity(requests.len());let mut holds=Vec::with_capacity(requests.len());let mut positions=Vec::with_capacity(requests.len());

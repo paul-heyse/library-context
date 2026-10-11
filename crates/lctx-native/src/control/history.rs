@@ -23,24 +23,28 @@ pub async fn retain_outcome(client:&Surreal<Client>,request:NativeRequest,owner:
     if owner.is_empty() || !matches!(kind,"caller"|"recovery"|"evidence"|"migration") {return Err(ModelError::Invalid("native outcome retention consumer".into()));}
     let mut bindings=Variables::new();bindings.insert("target_effect",RecordId::new("native_effect",request.operation.hex()));bindings.insert("target_request",request.request.hex());bindings.insert("target_generation",request.issuance.generation.hex());bindings.insert("target_era",request.issuance.era);bindings.insert("owner",owner.to_owned());bindings.insert("kind",kind.to_owned());
     bindings.insert("reference",RecordId::new("native_outcome_ref",ContentHash::of(&serde_json::to_vec(&(request.operation,owner,kind)).map_err(ModelError::codec)?).hex()));
-    effect(client,None,"LET $outcome=SELECT * FROM ONLY $target_effect FOR UPDATE; IF $outcome=NONE OR $outcome.request!=$target_request OR $outcome.generation!=$target_generation OR $outcome.era!=$target_era { THROW 'native retained outcome unavailable'; }; UPSERT $reference SET effect=$target_effect,owner=$owner,kind=$kind RETURN NONE",bindings).await
+    effect(client,None,"fn::native_touch($target_effect); fn::native_touch($reference); LET $outcome=SELECT * FROM ONLY $target_effect FOR UPDATE; IF $outcome=NONE OR $outcome.request!=$target_request OR $outcome.generation!=$target_generation OR $outcome.era!=$target_era { THROW 'native retained outcome unavailable'; }; UPSERT $reference SET effect=$target_effect,owner=$owner,kind=$kind RETURN NONE",bindings).await
 }
 pub async fn release_outcome(client:&Surreal<Client>,request:NativeRequest,owner:&str,kind:&str)->Result<(),ModelError>{
     let mut bindings=Variables::new();bindings.insert("reference",RecordId::new("native_outcome_ref",ContentHash::of(&serde_json::to_vec(&(request.operation,owner,kind)).map_err(ModelError::codec)?).hex()));
     bindings.insert("effect",RecordId::new("native_effect",request.operation.hex()));bindings.insert("owner",owner.to_owned());bindings.insert("kind",kind.to_owned());
-    effect(client,None,"LET $reference_state=SELECT * FROM ONLY $reference FOR UPDATE; IF $reference_state!=NONE { IF $reference_state.effect!=$effect OR $reference_state.owner!=$owner OR $reference_state.kind!=$kind { THROW 'native outcome reference collision'; }; DELETE $reference RETURN NONE; };",bindings).await
+    effect(client,None,"fn::native_touch($effect); fn::native_touch($reference); LET $reference_state=SELECT * FROM ONLY $reference FOR UPDATE; IF $reference_state!=NONE { IF $reference_state.effect!=$effect OR $reference_state.owner!=$owner OR $reference_state.kind!=$kind { THROW 'native outcome reference collision'; }; DELETE $reference RETURN NONE; };",bindings).await
 }
 /// Record the explicit consumer inventory that permits maintenance collection. The caller
 /// owns qualification evidence; installation authority alone never implies qualification.
 pub async fn qualify_history_inventory(client:&Surreal<Client>,evidence:ContentHash)->Result<(),ModelError>{
     let mut bindings=Variables::new();bindings.insert("evidence",evidence.hex());
-    effect(client,None,"IF $__installation.admission_open { THROW 'history inventory requires drained maintenance'; }; IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','closing'] LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1)>0 { THROW 'history inventory borrowers remain'; }; UPDATE native_installation:current SET history_inventory=$evidence RETURN NONE",bindings).await
+    coordination::bind_all_stripes(&mut bindings);
+    let sql=format!("{} IF $__installation.admission_open {{ THROW 'history inventory requires drained maintenance'; }}; {} UPDATE native_installation:current SET history_inventory=$evidence RETURN NONE",coordination::ALL_STRIPES_GUARD,coordination::DRAINED_PREDICATE);
+    effect(client,None,&sql,bindings).await
 }
 pub async fn cut_era(client:&Surreal<Client>)->Result<IssuanceEra,ModelError>{
     let issuance=IssuanceEra::capture(client).await?;
     if issuance.era==i64::MAX{return Err(ModelError::Invalid("native issuance era exhausted".into()));}
     let mut bindings=Variables::new();bindings.insert("original_era",issuance.era);bindings.insert("original_generation",issuance.generation.hex());
-    effect(client,None,"IF $__era!=$original_era OR $__generation!=$original_generation { THROW 'era closure issuance changed'; }; IF $__installation.admission_open { THROW 'era closure requires drained maintenance'; }; IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','closing'] LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1)>0 { THROW 'era closure borrowers remain'; }; IF array::len(SELECT VALUE id FROM native_retirement WITH INDEX live_retirements WHERE state='registering' LIMIT 1)>0 { THROW 'era closure has incomplete retirement registration'; }; UPDATE native_installation:current SET closed_through=$__era,era=$__era+1,control_revision+=1 RETURN NONE",bindings).await?;
+    coordination::bind_all_stripes(&mut bindings);
+    let sql=format!("{} IF $__era!=$original_era OR $__generation!=$original_generation OR $__installation.admission_open {{ THROW 'era closure requires original drained maintenance'; }}; {} FOR $stripe IN $__stripes {{ UPDATE $stripe SET closed_through=$__era,era=$__era+1 RETURN NONE; }}; UPDATE native_installation:current SET closed_through=$__era,era=$__era+1,control_revision+=1 RETURN NONE",coordination::ALL_STRIPES_GUARD,coordination::DRAINED_PREDICATE);
+    effect(client,None,&sql,bindings).await?;
     Ok(IssuanceEra{generation:issuance.generation,era:issuance.era+1})
 }
 #[derive(Clone,Debug,PartialEq,Eq,serde::Serialize,serde::Deserialize)]
@@ -58,22 +62,23 @@ pub async fn compact_history(client:&Surreal<Client>,limit:usize)->Result<Histor
     let closed=history_horizon(row,issuance)?;
     let mut bindings=Variables::new();bindings.insert("checkpoint",RecordId::new("native_history_checkpoint",identity.hex()));bindings.insert("closed",closed);bindings.insert("issuance",issuance.era);
     bind_runtime_schema(&mut bindings);
-    let creation=format!("{RUNTIME_SCHEMA_GUARD} IF $__era!=$issuance OR $__installation.admission_open OR $__installation.history_inventory=NONE OR $__installation.closed_through!=$closed {{ THROW 'native history horizon changed'; }}; CREATE $checkpoint SET generation=$__generation,era=$__era,epoch=$__epoch,closed_through=$closed,revision=0,removed_effects=0,state='open' RETURN NONE");
+    let creation=format!("{RUNTIME_SCHEMA_GUARD} IF $__era!=$issuance OR $__installation.admission_open OR $__installation.history_inventory=NONE OR $__installation.closed_through!=$closed {{ THROW 'native history horizon changed'; }}; fn::native_touch($checkpoint); CREATE $checkpoint SET generation=$__generation,era=$__era,epoch=$__epoch,closed_through=$closed,revision=0,removed_effects=0,state='open' RETURN NONE");
     effect(client,None,&creation,bindings).await.map_err(|error|authorization::lifecycle_error("history invocation",identity,issuance,error))?;
     resume_history_compaction(client,identity,0,limit).await
 }
 // Ordering releases child provenance before its terminal owner. Any reference that clears
 // behind this invocation's cursor is reconsidered by a fresh invocation, never by rewinding.
-const PHASES:&[(&str,&str)]=&[("effect","native_effect"),("cleanup","native_cleanup"),("retirement_item","native_retirement_item"),("retirement","native_retirement"),("pin","native_pin"),("backup","native_backup_hold"),("attempt","native_attempt"),("checkpoint","native_history_checkpoint")];
+const PHASES:&[(&str,&str)]=&[("effect","native_effect"),("cleanup","native_cleanup"),("retirement_item","native_retirement_item"),("retirement","native_retirement"),("pin","native_pin"),("backup","native_backup_hold"),("attempt","native_attempt"),("operation_owner","native_operation_owner"),("checkpoint","native_history_checkpoint")];
 fn eligible(phase:&str)->Result<&'static str,ModelError>{
     Ok(match phase {
         "effect"=>"$candidate_state.resolved AND $candidate_state.era<=$closed AND array::len(SELECT VALUE id FROM native_outcome_ref WITH INDEX effect_outcome_refs WHERE effect=$candidate LIMIT 1)=0",
-        "cleanup"=>"$candidate_state.era<=$closed AND $candidate_state.state IN ['done','superseded'] AND ($candidate_state.state='superseded' OR array::len($candidate_state.owners)=0)",
+        "cleanup"=>"$candidate_state.era<=$closed AND $candidate_state.state IN ['done','superseded'] AND ($candidate_state.state='superseded' OR array::len($candidate_state.owners)=0) AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX cleanup_predecessor WHERE predecessor=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX cleanup_successor WHERE successor=$candidate LIMIT 1)=0",
         "retirement_item"=>"$candidate_state.state IN ['done','superseded'] AND $parent!=NONE AND $parent.era<=$closed AND $parent.state!='legacy_protected' AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX lineage_retirements WHERE lineage=$parent.lineage AND state='recovering' LIMIT 1)=0",
-        "retirement"=>"$candidate_state.era<=$closed AND $candidate_state.state IN ['open','done','superseded'] AND $candidate_state.root_count=$candidate_state.roots_registered AND array::len(SELECT VALUE id FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX lineage_retirements WHERE lineage=$candidate_state.lineage AND state IN ['registering','recovering','open'] AND id!=$candidate LIMIT 1)=0",
+        "retirement"=>"$candidate_state.era<=$closed AND $candidate_state.state IN ['open','done','superseded'] AND $candidate_state.root_count=$candidate_state.roots_registered AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX retirement_predecessor WHERE predecessor=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX retirement_successor WHERE successor=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX retirement_recovery_source WHERE recovery_source=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX lineage_retirements WHERE lineage=$candidate_state.lineage AND state IN ['registering','recovering','open'] AND id!=$candidate LIMIT 1)=0",
         "pin"=>"$candidate_state.era<=$closed AND $candidate_state.released",
         "backup"=>"$candidate_state.era<=$closed AND !$candidate_state.active",
-        "attempt"=>"$candidate_state.era<=$closed AND $candidate_state.epoch>0 AND $candidate_state.state IN ['closed','abandoned','frozen','maintenance_fenced'] AND array::len(SELECT VALUE id FROM compiler_contribution WITH INDEX attempt_contributions WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM compiler_binding WITH INDEX binding_attempt WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX attempt_cleanup WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_effect WITH INDEX attempt_effects WHERE attempt=$candidate LIMIT 1)=0",
+        "attempt"=>"$candidate_state.era<=$closed AND $candidate_state.epoch>0 AND $candidate_state.state IN ['closed','abandoned','maintenance_fenced'] AND array::len(SELECT VALUE id FROM compiler_contribution WITH INDEX attempt_contributions WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM compiler_binding WITH INDEX binding_attempt WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_pending_original WITH INDEX pending_attempt WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_publication_staging WITH INDEX attempt_staging WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX attempt_cleanup WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_effect WITH INDEX attempt_effects WHERE attempt=$candidate LIMIT 1)=0",
+        "operation_owner"=>"$candidate_state.era<=$closed AND $candidate_state.state='done'",
         "checkpoint"=>"$candidate_state.era<=$closed AND $candidate_state.state IN ['open','done'] AND $candidate!=$checkpoint",
         _=>return Err(ModelError::Schema("native history phase")),
     })
@@ -154,7 +159,9 @@ pub async fn resume_history_compaction(client:&Surreal<Client>,identity:ContentH
     let rows=charge_candidates(client,phase,candidates).await?;
     let sql=page_sql(phase,position,rows.len())?;
     let mut bindings=Variables::new();bindings.insert("checkpoint",checkpoint.clone());bindings.insert("closed",closed);bindings.insert("after",after);bindings.insert("phase",phase.clone());bindings.insert("__generation",current.generation.hex());bindings.insert("__era",current.era);bindings.insert("expected_revision",expected_revision as i64);bindings.insert("request",request.hex());bindings.insert("rows",rows);
+    coordination::bind_stripe(&mut bindings,request);
     bind_runtime_schema(&mut bindings);
+    coordination::preflight(&sql,&bindings)?;
     let result=collection_page(client,identity,&sql,bindings).await;
     resolve_collection_page(client,identity,current,expected_revision,request,result).await
 }
@@ -203,12 +210,12 @@ fn charged_candidate_rows(candidates:Vec<Object>,parents:&std::collections::BTre
 }
 fn page_sql(phase:&str,position:usize,count:usize)->Result<String,ModelError>{
     if count>crate::loader::NATIVE_WINDOW_ROWS || PHASES.get(position).map(|entry|entry.0)!=Some(phase){return Err(ModelError::Schema("native history bounded phase"));}
-    let mut sql=format!("BEGIN; {} {RUNTIME_SCHEMA_GUARD} LET $progress=SELECT * FROM ONLY $checkpoint FOR UPDATE; IF $__installation.admission_open OR $__installation.history_inventory=NONE OR $__installation.closed_through<$closed {{ THROW 'native history horizon changed'; }}; IF $progress=NONE OR $progress.generation!=$__generation OR $progress.era!=$__era OR $progress.closed_through!=$closed OR ($progress.after ?? NONE)!=$after OR $progress.phase!=$phase OR $progress.state!='open' OR $progress.revision!=$expected_revision {{ THROW 'native history cursor changed'; }};",authorization::ERA_GUARD);
+    let mut sql=format!("BEGIN; {} {RUNTIME_SCHEMA_GUARD} fn::native_touch($checkpoint); LET $progress=SELECT * FROM ONLY $checkpoint FOR UPDATE; IF $__installation.admission_open OR $__installation.history_inventory=NONE OR $__installation.closed_through<$closed {{ THROW 'native history horizon changed'; }}; IF $progress=NONE OR $progress.generation!=$__generation OR $progress.era!=$__era OR $progress.closed_through!=$closed OR ($progress.after ?? NONE)!=$after OR $progress.phase!=$phase OR $progress.state!='open' OR $progress.revision!=$expected_revision {{ THROW 'native history cursor changed'; }};",coordination::ERA_GUARD);
     let mut removed=Vec::new();let mut protected=Vec::new();
     for index in 0..count {
-        let parent=if phase=="retirement_item"{"LET $parent_id=$candidate_state.job; LET $parent=SELECT * FROM ONLY $parent_id FOR UPDATE; IF $parent!=$row.parent { THROW 'native history parent changed'; };"}else{"LET $parent=NONE;"};
+        let parent=if phase=="retirement_item"{"LET $parent_id=$candidate_state.job; fn::native_touch($parent_id); LET $parent=SELECT * FROM ONLY $parent_id FOR UPDATE; fn::native_touch($parent.lineage); IF $parent!=$row.parent { THROW 'native history parent changed'; };"}else{"LET $parent=NONE;"};
         let generation=if phase=="retirement_item"{"$parent.generation=$__generation"}else{"$candidate_state.generation=$__generation"};
-        sql.push_str(&format!(" LET $row=$rows[{index}]; LET $candidate=$row.candidate.id; LET $candidate_state=SELECT * FROM ONLY $candidate FOR UPDATE; IF $candidate_state!=$row.candidate {{ THROW 'native history candidate changed'; }}; {parent} LET $deleted_{index}=IF $candidate_state!=NONE AND ({generation}) AND ({}) AND array::len(SELECT VALUE id FROM native_outcome_ref WITH INDEX object_outcome_refs WHERE object=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_effect WITH INDEX owner_effects WHERE owner=$candidate LIMIT 1)=0 {{ DELETE $candidate RETURN NONE; true }} ELSE {{ false }};",eligible(phase)?));
+        sql.push_str(&format!(" LET $row=$rows[{index}]; LET $candidate=$row.candidate.id; fn::native_touch($candidate); LET $candidate_state=SELECT * FROM ONLY $candidate FOR UPDATE; IF $candidate_state!=$row.candidate {{ THROW 'native history candidate changed'; }}; {parent} fn::native_incidence($candidate_state); LET $deleted_{index}=IF $candidate_state!=NONE AND ({generation}) AND ({}) AND array::len(SELECT VALUE id FROM native_outcome_ref WITH INDEX object_outcome_refs WHERE object=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_effect WITH INDEX owner_effects WHERE owner=$candidate LIMIT 1)=0 {{ fn::native_incidence($candidate_state); DELETE $candidate RETURN NONE; true }} ELSE {{ false }};",eligible(phase)?));
         removed.push(format!("IF $deleted_{index} {{ [$rows[{index}].candidate.id] }} ELSE {{ [] }}"));
         protected.push(format!("IF $deleted_{index} {{ [] }} ELSE {{ [$rows[{index}].candidate.id] }}"));
     }
@@ -235,7 +242,7 @@ pub async fn retain_native_outcome(client:&Surreal<Client>,object:RecordId,owner
     if owner.is_empty() || !matches!(kind,"caller"|"recovery"|"evidence"|"migration") || !matches!(object.table.as_str(),"native_effect"|"native_attempt"|"native_pin"|"native_backup_hold"|"native_cleanup"|"native_retirement"|"native_retirement_item"|"native_history_checkpoint"){return Err(ModelError::Invalid("native exact outcome retention".into()));}
     let reference=RecordId::new("native_outcome_ref",ContentHash::of(&serde_json::to_vec(&("native-lifecycle-outcome/v4",&object,owner,kind)).map_err(ModelError::codec)?).hex());
     let mut bindings=Variables::new();bindings.insert("object",object);bindings.insert("reference",reference.clone());bindings.insert("owner",owner.to_owned());bindings.insert("kind",kind.to_owned());
-    effect(client,None,"LET $target=SELECT * FROM ONLY $object FOR UPDATE; IF $target=NONE { THROW 'native lifecycle outcome unavailable'; }; LET $prior=SELECT * FROM ONLY $reference FOR UPDATE; IF $prior!=NONE AND ($prior.object!=$object OR $prior.owner!=$owner OR $prior.kind!=$kind) { THROW 'native lifecycle outcome reference collision'; }; UPSERT $reference SET object=$object,owner=$owner,kind=$kind RETURN NONE",bindings).await?;
+    effect(client,None,"fn::native_touch($object); fn::native_touch($reference); LET $target=SELECT * FROM ONLY $object FOR UPDATE; IF $target=NONE { THROW 'native lifecycle outcome unavailable'; }; LET $prior=SELECT * FROM ONLY $reference FOR UPDATE; IF $prior!=NONE AND ($prior.object!=$object OR $prior.owner!=$owner OR $prior.kind!=$kind) { THROW 'native lifecycle outcome reference collision'; }; UPSERT $reference SET object=$object,owner=$owner,kind=$kind RETURN NONE",bindings).await?;
     Ok(reference)
 }
 /// Release one named legacy or lifecycle retention reference after its actual consumer ends.
@@ -243,7 +250,7 @@ pub async fn retain_native_outcome(client:&Surreal<Client>,object:RecordId,owner
 pub async fn release_outcome_reference(client:&Surreal<Client>,reference:RecordId,owner:&str,kind:&str)->Result<(),ModelError>{
     if reference.table.as_str()!="native_outcome_ref" {return Err(ModelError::Invalid("native outcome reference table".into()));}
     let mut bindings=Variables::new();bindings.insert("reference",reference);bindings.insert("owner",owner.to_owned());bindings.insert("kind",kind.to_owned());
-    effect(client,None,"LET $prior=SELECT * FROM ONLY $reference FOR UPDATE; IF $prior!=NONE { IF $prior.owner!=$owner OR $prior.kind!=$kind { THROW 'native outcome reference consumer mismatch'; }; DELETE $reference RETURN NONE; };",bindings).await
+    effect(client,None,"fn::native_touch($reference); LET $prior=SELECT * FROM ONLY $reference FOR UPDATE; IF $prior!=NONE { fn::native_incidence($prior); IF $prior.owner!=$owner OR $prior.kind!=$kind { THROW 'native outcome reference consumer mismatch'; }; DELETE $reference RETURN NONE; };",bindings).await
 }
 
 #[cfg(test)]
@@ -251,12 +258,12 @@ mod tests {
     use super::*;
     // One-off actual evidence acquisition, deliberately separate from qualification and
     // collector controls. The host/run owners supply exclusion and artifact retention.
-    const INVENTORY_TABLES:[&str;18]=[
+    const INVENTORY_TABLES:[&str;22]=[
         "native_outcome_ref","native_effect","native_attempt","native_hold",
         "native_cleanup","native_retirement","native_retirement_item","native_guard",
         "native_pin","native_backup_hold","native_history_checkpoint","native_product",
         "compiler_contribution","compiler_binding","compiler_view","native_upgrade",
-        "native_upgrade_progress_v1","native_installation",
+        "native_upgrade_progress_v1","native_installation","native_admission_stripe","native_backup_gate","native_predicate","native_operation_owner",
     ];
     #[derive(serde::Serialize)]
     struct InventoryPage {
@@ -462,13 +469,13 @@ mod tests {
         let parents=if phase=="retirement_item"{(1..=2).map(|index|RecordId::new("native_retirement",format!("{prefix}_{index}"))).collect::<Vec<_>>()}else{Vec::new()};
         let after=Value::RecordId(RecordId::new(table,format!("{prefix}_0")));
         let rows=candidates.iter().enumerate().map(|(index,id)|{let mut row=Object::new();row.insert("id",id.clone());if let Some(parent)=parents.get(index){row.insert("parent",parent.clone());row.insert("object",RecordId::new("native_guard",format!("{prefix}_object_{index}")));}Value::Object(row)}).collect::<Vec<_>>();
-        let mut bindings=Variables::new();bindings.insert("__generation",current.generation.hex());bindings.insert("__era",current.era);bindings.insert("closed",closed);bindings.insert("checkpoint",RecordId::new("native_history_checkpoint",identity.hex()));bindings.insert("phase",phase);bindings.insert("after",after.clone());bindings.insert("rows",rows);bindings.insert("inventory",std::env::var("LCTX_HISTORY_INVENTORY_EVIDENCE").expect("qualified existing inventory"));bindings.insert("root_digest",ContentHash::of(b"qualification-owned-single-root").hex());bind_runtime_schema(&mut bindings);
+        let mut bindings=Variables::new();bindings.insert("__generation",current.generation.hex());bindings.insert("__era",current.era);bindings.insert("closed",closed);bindings.insert("checkpoint",RecordId::new("native_history_checkpoint",identity.hex()));bindings.insert("phase",phase);bindings.insert("after",after.clone());bindings.insert("rows",rows);bindings.insert("inventory",std::env::var("LCTX_HISTORY_INVENTORY_EVIDENCE").expect("qualified existing inventory"));bindings.insert("root_digest",ContentHash::of(b"qualification-owned-single-root").hex());bind_runtime_schema(&mut bindings);coordination::bind_stripe(&mut bindings,identity);
         let body=if phase=="retirement_item" {
-            "FOR $row IN $rows { LET $parent=$row.parent; LET $object=$row.object; LET $id=$row.id; CREATE $parent SET generation=$__generation,era=$closed,epoch=1,revision=0,examined=1,retired=1,root_digest=$root_digest,lineage=$parent,state='done',root_count=1,roots_registered=1 RETURN NONE; CREATE $object SET revision=0,retired=true,retired_through=0,phase='retired',incarnation=1 RETURN NONE; CREATE $id SET job=$parent,object=$object,state='done',incarnation=1,cutoff=0 RETURN NONE; };"
+            "FOR $row IN $rows { LET $parent=$row.parent; LET $object=$row.object; LET $id=$row.id; CREATE $parent SET generation=$__generation,era=$closed,epoch=1,revision=0,examined=1,retired=1,root_digest=$root_digest,lineage=$parent,state='done',root_count=1,roots_registered=1 RETURN NONE; CREATE $object SET revision=0,retired=true,tombstone_revision=0,phase='retired',incarnation=1 RETURN NONE; CREATE $id SET job=$parent,object=$object,state='done',incarnation=1,cutoff=0 RETURN NONE; };"
         }else {
             "FOR $row IN $rows { LET $id=$row.id; CREATE $id SET generation=$__generation,era=$closed,epoch=1,state='closed',admitted=false,revision=0 RETURN NONE; };"
         };
-        let sql=format!("BEGIN; {} {RUNTIME_SCHEMA_GUARD} IF $__installation.admission_open OR $__installation.history_inventory!=$inventory OR $__installation.closed_through!=$closed {{ THROW 'history qualification requires original qualified maintenance horizon'; }}; {body} CREATE $checkpoint SET generation=$__generation,era=$__era,epoch=1,closed_through=$closed,phase=$phase,after=$after,state='open',removed_effects=0,removed_records=0,revision=0 RETURN NONE; COMMIT;",authorization::ERA_GUARD);
+        let sql=format!("BEGIN; {} {RUNTIME_SCHEMA_GUARD} IF $__installation.admission_open OR $__installation.history_inventory!=$inventory OR $__installation.closed_through!=$closed {{ THROW 'history qualification requires original qualified maintenance horizon'; }}; {body} fn::native_touch($checkpoint); CREATE $checkpoint SET generation=$__generation,era=$__era,epoch=1,closed_through=$closed,phase=$phase,after=$after,state='open',removed_effects=0,removed_records=0,revision=0 RETURN NONE; COMMIT;",coordination::ERA_GUARD);
         checked_transaction(client.query(sql).bind(bindings).await.map_err(ModelError::codec)?)?;
         Ok(QualifiedPage{identity,current,closed,phase,after,candidates,parents})
     }
@@ -479,12 +486,12 @@ mod tests {
         let rows=charge_candidates(client,page.phase,candidates).await?;
         let position=PHASES.iter().position(|entry|entry.0==page.phase).ok_or(ModelError::Schema("qualified history phase"))?;
         let sql=page_sql(page.phase,position,rows.len())?;let request=page_request(page.identity,0,2)?;
-        let mut bindings=Variables::new();bindings.insert("checkpoint",RecordId::new("native_history_checkpoint",page.identity.hex()));bindings.insert("closed",page.closed);bindings.insert("after",page.after.clone());bindings.insert("phase",page.phase);bindings.insert("__generation",page.current.generation.hex());bindings.insert("__era",page.current.era);bindings.insert("expected_revision",0i64);bindings.insert("request",request.hex());bindings.insert("rows",rows);bindings.insert("candidate_first",page.candidates[0].clone());bind_runtime_schema(&mut bindings);
+        let mut bindings=Variables::new();bindings.insert("checkpoint",RecordId::new("native_history_checkpoint",page.identity.hex()));bindings.insert("closed",page.closed);bindings.insert("after",page.after.clone());bindings.insert("phase",page.phase);bindings.insert("__generation",page.current.generation.hex());bindings.insert("__era",page.current.era);bindings.insert("expected_revision",0i64);bindings.insert("request",request.hex());bindings.insert("rows",rows);bindings.insert("candidate_first",page.candidates[0].clone());bind_runtime_schema(&mut bindings);coordination::bind_stripe(&mut bindings,request);
         Ok((sql,bindings,request))
     }
     async fn qualified_snapshot(client:&Surreal<Client>,page:&QualifiedPage)->Result<Vec<Value>,ModelError>{
         let records=page.candidates.iter().chain(page.parents.iter()).cloned().chain(std::iter::once(RecordId::new("native_history_checkpoint",page.identity.hex()))).collect::<Vec<_>>();
-        let mut response=client.query("SELECT * FROM $records; SELECT control_revision,admission_revision FROM native_installation:current; SELECT count() FROM native_effect GROUP ALL; SELECT count() FROM native_outcome_ref GROUP ALL;").bind(("records",records)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let mut response=client.query("SELECT * FROM $records; SELECT control_revision FROM native_installation:current; SELECT count() FROM native_effect GROUP ALL; SELECT count() FROM native_outcome_ref GROUP ALL;").bind(("records",records)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         (0..4).map(|index|response.take::<Value>(index).map_err(ModelError::codec)).collect()
     }
     #[tokio::test(flavor="multi_thread")]
@@ -521,8 +528,8 @@ mod tests {
         let result=async {
             let page=seed_qualified_page(&client,current,closed,"retirement_item").await?;
             let (sql,bindings,request)=qualified_page_query(&client,&page).await?;
-            let mut change=Variables::new();change.insert("__generation",current.generation.hex());change.insert("__era",current.era);change.insert("parent",page.parents[1].clone());bind_runtime_schema(&mut change);
-            let change_sql=format!("BEGIN; {} {RUNTIME_SCHEMA_GUARD} IF $__installation.admission_open {{ THROW 'qualification maintenance ended'; }}; UPDATE $parent SET revision+=1 RETURN NONE; COMMIT;",authorization::ERA_GUARD);
+            let mut change=Variables::new();change.insert("__generation",current.generation.hex());change.insert("__era",current.era);change.insert("parent",page.parents[1].clone());bind_runtime_schema(&mut change);coordination::bind_stripe(&mut change,page.identity);
+            let change_sql=format!("BEGIN; {} {RUNTIME_SCHEMA_GUARD} IF $__installation.admission_open {{ THROW 'qualification maintenance ended'; }}; UPDATE $parent SET revision+=1 RETURN NONE; COMMIT;",coordination::ERA_GUARD);
             checked_transaction(client.query(change_sql).bind(change).await.map_err(ModelError::codec)?)?;
             let before=qualified_snapshot(&client,&page).await?;
             let guarded=check_preceding_deletion_sql(&sql);

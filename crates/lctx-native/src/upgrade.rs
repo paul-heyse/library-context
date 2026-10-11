@@ -4,6 +4,8 @@ use crate::{AuthenticationScope, Loader, RuntimeConfig, reader};
 use lctx_model::domain::{ContentHash, ModelError};
 use surrealdb::{Surreal, engine::remote::grpc::Client, types::{Object, Value, Variables}};
 mod contract;
+pub(crate) mod source5_originals;
+pub(crate) mod source5_rows;
 pub use contract::{UpgradeExecutionContract, overlay_schema_identity, transition_protocol_identity, preflight_contract_identity, verifier_identity};
 pub(crate) mod progress;
 pub use progress::UpgradeAdvance;

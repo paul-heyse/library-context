@@ -219,7 +219,7 @@ impl Stage {
             .iter()
             .any(|r| r.type_id == TypeId::of::<R>())
     }
-    /// The declaration's identity, as the schedule digest includes it; independent of list order.
+    /// The schedule binds input declaration roles in order. Output inventories are sets.
     pub fn digest(&self) -> ContentHash {
         let mut digest = KeySink::new("stage-declaration");
         self.encode(&mut digest);
@@ -231,13 +231,12 @@ impl Stage {
         digest.part(b"effect", self.effect.name().as_bytes());
         digest.part(b"code", &self.code.0);
         digest.part(b"configuration", &self.configuration.0);
-        let mut reads: Vec<_> = self.inputs.iter().collect();
-        reads.sort_by_key(|r| (r.name, r.prefix));
+        digest.part(b"input-roles", &(self.inputs.len() as u64).to_le_bytes());
         let mut writes: Vec<_> = self.outputs.iter().map(|r| r.name).collect();
         writes.sort();
         let mut contributes: Vec<_> = self.contributes.iter().map(|r| r.name).collect();
         contributes.sort();
-        for input in reads {
+        for input in &self.inputs {
             digest.part(b"read", input.name.as_bytes());
             if let Some(epoch) = input.prefix {
                 digest.part(b"prefix", &[epoch.code()]);

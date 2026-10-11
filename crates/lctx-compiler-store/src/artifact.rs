@@ -923,6 +923,7 @@ async fn readmit_detached(
             .map_err(ModelError::codec)?;
         let native = runtime.native().clone();
         let original = original.clone();
+        let budget=runtime.budget().clone();
         runtime
             .native_call(async move {
                 native
@@ -931,6 +932,7 @@ async fn readmit_detached(
                         original.content,
                         original.byte_len,
                         &mut file,
+                        &budget,
                     )
                     .await
             })

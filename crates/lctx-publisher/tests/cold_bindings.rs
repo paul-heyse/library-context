@@ -184,8 +184,8 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         let mut captured = stage.captured_binding.unwrap();
         captured.sources = vec![CapturedSourceBinding {
             input: input.id(),
-            context: context.id(),
-            configuration: context.config_digest,
+            context: Some(context.id()),
+            configuration: Some(context.config_digest),
             acquisition: lctx_model::domain::producer_contract::acquisition::CapturedAcquisition::tree(input.clone(), "captured fixture".into()).into(),
         }];
         let outputs = contract
@@ -197,7 +197,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         let spec = ContributionSpec {
             captured_binding: Some(captured),
             producer: contract.name.into(),
-            profile: Profile::Catalog,
+            profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
             model: source.model().digest(),
             implementation: stage.code,
             configuration: Some(settings),

@@ -176,7 +176,8 @@ impl AdmissionRuntime {
    charge.grow(serde_json::to_vec(&contribution).map_err(ModelError::codec)?.len().saturating_mul(4).saturating_add(256))?;
    if owners.insert(contribution.spec.identity()?,contribution.clone()).is_some(){return Err(ModelError::Conflict("duplicate restored contribution owner"));}
    contribution.identity()?;
-   if contribution.spec.model!=self.model.digest() || contribution.spec.profile!=profile{return Err(ModelError::Conflict("restored contribution model or profile"));}
+   if contribution.spec.model!=self.model.digest(){return Err(ModelError::Conflict("restored contribution model"));}
+   contribution.spec.validate_profile(profile)?;
    for input in &contribution.spec.inputs {if input.model()!=self.model.digest() || input.rows()<0 || self.model.relation(input.relation()).is_none(){return Err(ModelError::Conflict("restored contribution dependency model"));}}
    for output in &contribution.spec.outputs {if self.model.relation(output).is_none(){return Err(ModelError::Schema("restored contribution output relation"));}names.insert(output.clone());}
   }

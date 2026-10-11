@@ -1,0 +1,51 @@
+# NativeReader accepted-query lifetime and exact result-shape blocker
+
+Source assessment, 2026-10-11. Consumer: root efficiency-alignment integration review. No production patch was written or applied. Baseline HEAD 45e816a37b276420647a6538f9b8652a33c3bf2e plus concurrent main changes; source hashes below identify examined files. No Cargo, native/service operation, quality tool, formatting, or tests were run. Root closed this assignment as dependent evidence, with full repair open.
+
+## Exact source findings
+
+1. `crates/lctx-native/src/reader.rs:628-651` (`checked_native_value`, shared by serde/native prepared queries and query_native) directly awaits the SDK buffered query, checks every statement, checks result inventory, and takes the exact selected Value. Unlike stream_prepared, the accepted operation has no NativeRows cancellation/drain owner. The future can disappear while awaiting the SDK; explicit reader.close has no extra scope borrower for this accepted query.
+2. `third_party/surrealdb/src/method/query.rs:164-227` already joins engine execution with output forwarding. Its `stream_items_for:244-275` flattens QueryStreamItem::Rows and ::Value into the same Row event. Rebuilding an array from these events changes scalar/object/SELECT ONLY results. A bare one-row object and an array containing that object are indistinguishable. A scalar array must remain that exact scalar-array value, not be wrapped again.
+3. The missing fact is earlier still: `third_party/surrealdb/src/engine/remote/grpc.rs:992-1006` drops the payload event for SINGLE with absent/empty payload. `Statement::finish:2011-2036` in the buffered path preserves that as Value::None. Empty batched results instead finish as an empty Value::Array. Exposing current QueryStreamItem batches fixes nonempty shape loss but cannot recover empty-SINGLE versus empty-array shape. No downstream collector or inferred row count can repair this.
+4. The external pinned `surrealdb-rpc-3.3.0/src/stream.rs:40-62` enum has Rows, Value, Finished, with no EmptyValue or explicit terminal result-shape. SDK Router owns Arc<dyn SurrealEngine>; the external pinned `surrealdb-engine-api-3.3.0/src/lib.rs` query_stream interface accepts Sender<QueryStreamItem>. A local new SDK enum alone cannot carry missing metadata through that interface. No existing shape-preserving public stream API was found in the patched SDK query method/engine paths inspected.
+5. `crates/lctx-native/src/prepared.rs:124-151` suppresses NONE preparation rows but rejects other unselected payload. The current buffered checked_native_value accepts and discards any unselected successful result. Its replacement must preserve that behavior; blindly using stream_prepared/select_rows adds a new preparation-payload refusal.
+6. `crates/lctx-native/src/reader.rs:1526-1569` NativeRows Drop drains only when scope exists. NativeReader::private has scope=None even if it retains a real client and resource budget. A replacement must retain/drain private accepted queries too, with actual client/session ownership; merely reusing current Drop is insufficient. Pin retention, no-runtime failure, and unknown remote finality must remain conservative. A detached SDK task or server-side registry does not establish the local owner's known terminal.
+7. Buffered Query::into_future (`query.rs:403-435`) registers LIVE notification streams and excludes KILL from num_statements. Streaming explicitly does not subscribe. `grpc.rs:1028-1033` maps only Live/Kill to those types; SELECT/RETURN map Other. No LIVE or KILL token was found in crates/lctx-native/src Rust sources. The caller inventory is retained in callers.txt, including query_prepared and query_prepared_native, since they share checked_native_value. These APIs accept strings and the source scan is not proof about external callers. A future finite read API must document its SELECT/RETURN-only contract and avoid advertising buffered subscription parity; refusing non-Other after execution is not a pre-execution read-only authorization fence.
+8. Native SDK buffering (`grpc.rs:793-867`, Statement::push:1975-2008) grows result vectors before returning any Value. Reserving only after buffered await would account retained output after the fact, not ingress/accumulation. No bounded-memory claim is justified for that approach.
+
+## Minimal repair options, not implemented
+
+A. Preserve the missing shape at the engine boundary. Add an explicit raw EmptyValue/shape event to the pinned RPC stream interface and update the exact engine/API consumers and exhaustive matches. Empty SINGLE emits the new event; existing SDK stream_items deliberately maps it to no Row, preserving existing behavior. A separate SDK raw-batch method shares the joined driver and exposes Rows/Value/EmptyValue/Finished without altering stream_items. This needs a reviewed exact-source dependency patch/vendor arrangement for surrealdb-rpc/engine-api, not a version change or server/protocol change. Root explicitly declined that expansion during this package.
+
+B. Add a SDK-local shape-aware gRPC hook that preserves the original wire SINGLE/BATCHED kind before batch_items. This avoids modifying external enums but needs a concrete engine capability through Router/connection construction (currently erased behind Arc<dyn SurrealEngine>), plus gRPC and Any connection integration. It is wider than a method/reexport and must be designed/reviewed as such. Do not encode a missing scalar as an empty Rows sentinel: other engines legally use empty Rows for an empty array.
+
+C. Independently protect the existing buffered SDK future in an admitted owner with retained scope/client and acknowledged terminal/error ownership. This can repair cancellation/drain lifetime while preserving exact buffered results, but cannot supply incremental charged accumulation; explicitly leave that half open. Root requested dependent evidence instead of this partial repair here.
+
+## Collector contract once the boundary is available
+
+- Check cancellation, actual pin/scope liveness, selected single-result inventory, and caller budget before accepting execution. Retain the original shared Arc client/session, scope/pin, and charge; do not use SDK into_owned cloning to manufacture a new session.
+- Record result kind independently of row count, including empty SINGLE and empty array. Return the exact SDK-native Value, preserving record IDs, nested Object/Array, NONE/NULL, bytes and scalar variants. Decode serde/SurrealValue only after every expected statement and physical transport completion succeeds.
+- Account ingress and vector/payload growth before retaining/expanding each admitted payload, including vector capacity and decode overlap. Retain the reservation through final conversion or explicit ownership transfer. Describe unavoidable SDK/tonic transport queue allocation separately; an item-bounded queue is not a request-byte reservation. No new concurrency cap or arbitrary maximum guess substitutes for the actual caller budget.
+- Drain all unselected successful payload without the stricter preparation-payload assumption, while checking all statement positions, terminal order/inventory, all statement errors, and outer physical EOF. Keep the first typed primary error and every later terminal/transport/cleanup error composed; no accepted output after any provisional row is retracted.
+- On cancellation/drop, transfer the exact accepted stream and ownership into the drain machinery. Keep the stream alive rather than infer finality from dropping/cancelling SDK delivery. Scope=None private readers require the same client/session lifetime; reader/session close must see actual in-flight ownership. RemoteUnknown stays unknown and retains pin/host obligations. No abort or deadline weakening.
+- Expose no subscription equivalence for LIVE/KILL. Establish/document the finite generated SELECT/RETURN contract and inspect all callers when applied.
+
+## Needed revealing controls (all not_run)
+
+1. Exact buffered-vs-new values for empty SELECT, RETURN NONE, RETURN NULL, scalar number/object, SELECT ONLY object, one-row SELECT array, scalar/nested arrays, record IDs and bytes. Include a synthetic SINGLE with no payload, since an actual RETURN NONE may encode a populated NONE value and would not reveal the missing-wire-payload edge.
+2. A preparation SELECT/RETURN with successful non-NONE payload must be ignored as buffered checked_native_value does; selected payload and all preparation errors remain checked.
+3. Multiple statement errors: original typed first error plus later statement error and late physical transport failure survive explicit drainage and interrupted/resumed drainage.
+4. Drop after acceptance before first row, during row delivery, after logical terminal before physical EOF, and after final transport with decode failure. Scope/pin/session and charges remain owned until actual terminal; private unscoped readers are covered separately.
+5. Budget refusal while growing result: original refusal plus drain errors retained, no provisional output, reservations released only after owner completion. Verify accumulation and conversion overlap are charged, without claiming SDK transport RSS is fully accounted.
+6. Missing/extra/out-of-order terminal and End-before-late-error cases remain unknown; no pin release/close success from a joined local wrapper alone.
+7. Pre-admission cancellation starts no query; cancellation of healthy accepted query completes exact drain without poll/drop race loss. Terminal result retained after abandoned delivery, not log-only.
+8. Explicit finite SELECT/RETURN statement kinds and independently documented LIVE/KILL streaming subscription difference.
+
+## Examined source SHA256
+
+- reader.rs: 7982822d57efd24dde7bac702b210cec0eba1a7c607cc608d36813c77152082e
+- prepared.rs: 7a0d0d9953ba20cf47bd20ca625750c639dae0f96c68c212c66ad660ca5f6b9f
+- patched SDK method/query.rs: 86cc1723789c682aa845c192d536722a17bfd7572d79b6028b08c79c346b610d
+- patched SDK engine/remote/grpc.rs: 7bbf0bea73195914391d06ac0241e7af480c8e7faf0081c4b41bd7f0699d97e6
+
+No patch/apply-check exists because no implementation was produced. Evidence is source-reviewed only, not tested or accepted functional closure. Temporary artifacts are for this immediate root review; no unrelated storage content was altered.

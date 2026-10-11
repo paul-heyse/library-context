@@ -11,9 +11,8 @@ fn captured(inputs:Vec<AcquiredInput>,budget:&ResourceBudget)->CapturedInputs {
     CapturedInputs::new(inputs,NativeContextConfig::committed(Profile::Catalog,budget).unwrap())
 }
 fn request(inputs:&CapturedInputs)->CapturedRequest {
-    let mut stage=Acquire::new(ContentHash::of(b"settings")).declaration(Profile::Catalog);
-    stage.captured_binding.as_mut().unwrap().sources=cpg_extract::contracts::captured_sources(inputs).unwrap();
-    CapturedRequest::new(ContributionSpec {captured_binding:stage.captured_binding,producer:stage.name.into(),profile:Profile::Catalog,
+    let stage=cpg_extract::contracts::bind_stage(Acquire::new(ContentHash::of(b"settings")).declaration(Profile::Catalog),inputs).unwrap();
+    CapturedRequest::new(ContributionSpec {captured_binding:stage.captured_binding,producer:stage.name.into(),profile:lctx_model::domain::completed::OutputProfile::Neutral,
         model:ContentHash::of(b"model"),implementation:stage.code,configuration:Some(stage.configuration),inputs:vec![],
         outputs:stage.outputs.iter().chain(&stage.contributes).map(|r|r.name().into()).collect()},ContentHash::of(b"output contract"),vec![DependencyToken {kind:DependencyKind::ExactView,role:"imports".into(),relation:"source_artifacts".into(),prefix:None,identity:ContentHash::of(b"exact dependency")}]).unwrap()
 }
@@ -134,7 +133,10 @@ fn membership_runtime_ownership_distribution_configuration_and_derivations_are_r
     assert_ne!(request(&first).identity().unwrap(),request(&next).identity().unwrap());
     let settings=cpg_extract::ruff_context::ContextSettings {custom_builtins:vec!["custom_name".into()],..Default::default()};
     let changed=CapturedInputs::new(vec![installed(&budget,b"RECORD",SourceRole::Release)],NativeContextConfig::committed(Profile::Catalog,&budget).unwrap().with_ruff(settings).unwrap());
-    assert_ne!(key,request(&changed).identity().unwrap());
+    // Acquisition emitted rows depend on acquisition settings, not Ruff interpretation.
+    assert_eq!(key,request(&changed).identity().unwrap());
+    let docs=|inputs:&CapturedInputs|cpg_extract::contracts::bind_stage(cpg_extract::document_parser::Documents.declaration(Profile::Catalog),inputs).unwrap().captured_binding.unwrap().identity().unwrap();
+    assert_ne!(docs(&base),docs(&changed));
 }
 
 #[test]

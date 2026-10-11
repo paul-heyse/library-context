@@ -1,0 +1,145 @@
+--- a/crates/lctx-native/src/control/cleanup.rs
++++ b/crates/lctx-native/src/control/cleanup.rs
+@@ -35,12 +35,28 @@
+             let Value::Object(current)=&observed else{unreachable!()};
+             if current.get("incarnation")!=scope.get("incarnation") {return Err(ModelError::Conflict("native cleanup original owner incarnation changed"));}observed
+         } else {Value::None};
+-        let mut bindings=Variables::new();bindings.insert("cleanup",cleanup.clone());bindings.insert("owner",owner);bindings.insert("expected_owner",expected);
+-        effect_for_owner(client,EffectOwner::Cleanup(cleanup),"fn::native_incidence($__owner); LET $origin_id=$__owner.attempt; LET $origin=SELECT * FROM ONLY $origin_id FOR UPDATE; IF $origin=NONE OR $origin.generation!=$__owner.generation OR $origin.epoch<=0 OR $origin.epoch!=$__owner.epoch OR $origin.state NOT IN ['closing','closed','abandoned','maintenance_fenced'] OR ($__owner.unadmitted AND $origin.admitted) { THROW 'native cleanup origin changed'; }; IF array::len($__owner.owners)=0 { UPDATE $cleanup SET state='done',predecessor=NONE RETURN NONE; } ELSE { IF $__owner.owners[0]!=$owner { THROW 'native cleanup owner raced'; }; fn::native_touch($owner); LET $physical_id=$expected_owner.guard; LET $physical=SELECT * FROM ONLY $physical_id FOR UPDATE; IF ($physical.incarnation ?? 0)!=$expected_owner.incarnation OR ($physical.phase ?? 'vacant')!=$expected_owner.phase { THROW 'native cleanup owner incarnation changed'; }; LET $holds=SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner LIMIT 128; FOR $hold_row IN $holds { fn::native_incidence($hold_row); DELETE $hold_row.id RETURN NONE; }; IF array::len($holds)=0 { IF $__owner.unadmitted AND record::table($owner)='native_product' { LET $product=SELECT * FROM ONLY $owner FOR UPDATE; IF $product!=NONE { LET $contribution_id=$product.contribution; LET $contribution=SELECT * FROM ONLY $contribution_id FOR UPDATE; IF $contribution.attempt!=$__owner.attempt { THROW 'native cleanup product origin changed'; }; fn::native_incidence($product); DELETE $owner RETURN NONE; }; }; UPDATE $cleanup SET owners=array::slice(owners,1),owner_incarnations=array::slice(owner_incarnations,1) RETURN NONE; }; };",bindings).await?;
++        let mut response=client.query("SELECT * FROM $origin").bind(("origin",row.get("attempt").cloned().ok_or(ModelError::Schema("native cleanup origin identity"))?)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
++        let origins:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let [origin]=origins.as_slice()else{return Err(ModelError::Conflict("native cleanup terminal origin missing"));};
++        validate_cleanup_origin(row,origin)?;
++        let nomination=match &owner{Value::RecordId(owner)=>retirement::prepare_cleanup_nomination(client,owner).await?,Value::None if owners.is_empty()=>retirement::empty_cleanup_nomination(),_=>return Err(ModelError::Schema("native cleanup original owner record"))};
++        let mut bindings=nomination;bindings.insert("cleanup",cleanup.clone());bindings.insert("owner",owner);bindings.insert("expected_owner",expected);bindings.insert("cleanup_observed",row.clone());bindings.insert("cleanup_origin",origin.clone());
++        let sql=cleanup_step_sql();
++        effect_for_owner(client,EffectOwner::Cleanup(cleanup),&sql,bindings).await?;
+         let mut response=client.query("SELECT VALUE state FROM $cleanup").bind(("cleanup",RecordId::new("native_cleanup",self.identity.hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+         let states:Vec<String>=response.take(0).map_err(ModelError::codec)?;
+         Ok(states==["done"])
+     }
++}
++fn validate_cleanup_origin(cleanup:&Object,origin:&Object)->Result<(),ModelError>{
++    let epoch=authorization::int_field(origin,"epoch")?;let original_era=authorization::int_field(origin,"era")?;
++    if cleanup.get("attempt")!=origin.get("id")||cleanup.get("generation")!=origin.get("generation")||epoch<=0||epoch!=authorization::int_field(cleanup,"epoch")?||original_era<=0||original_era>authorization::int_field(cleanup,"era")?
++        ||!matches!(origin.get("state"),Some(Value::String(state))if matches!(state.as_str(),"closing"|"closed"|"abandoned"|"maintenance_fenced"))
++        ||cleanup.get("unadmitted")==Some(&Value::Bool(true))&&origin.get("admitted")!=Some(&Value::Bool(false)){
++        return Err(ModelError::Conflict("native cleanup exact terminal origin changed"));
++    }Ok(())
++}
++fn cleanup_step_sql()->String{
++    format!("fn::native_incidence($__owner); IF $__owner!=$cleanup_observed {{ THROW 'native cleanup original page changed'; }}; LET $origin_id=$__owner.attempt; LET $origin=SELECT * FROM ONLY $origin_id FOR UPDATE; IF $origin=NONE OR $origin!=$cleanup_origin OR $origin.generation!=$__owner.generation OR $origin.epoch<=0 OR $origin.epoch!=$__owner.epoch OR $origin.era<=0 OR $origin.era>$__owner.era OR $origin.state NOT IN ['closing','closed','abandoned','maintenance_fenced'] OR ($__owner.unadmitted AND $origin.admitted) {{ THROW 'native cleanup origin changed'; }}; IF array::len($__owner.owners)=0 {{ UPDATE $cleanup SET state='done',predecessor=NONE RETURN NONE; }} ELSE {{ IF $__owner.owners[0]!=$owner OR $__owner.owner_incarnations[0].record!=$owner OR $__owner.owner_incarnations[0].incarnation!=$expected_owner.incarnation {{ THROW 'native cleanup owner raced'; }}; fn::native_touch($owner); LET $physical_id=$expected_owner.guard; LET $physical=SELECT * FROM ONLY $physical_id FOR UPDATE; IF ($physical.incarnation ?? 0)!=$expected_owner.incarnation OR ($physical.phase ?? 'vacant')!=$expected_owner.phase {{ THROW 'native cleanup owner incarnation changed'; }}; LET $holds=SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner ORDER BY object LIMIT {}; IF $holds!=$n09_holds {{ THROW 'native cleanup prepared hold page changed'; }}; {} FOR $hold_row IN $holds {{ fn::native_incidence($hold_row); DELETE $hold_row.id RETURN NONE; }}; IF array::len($holds)=0 {{ IF $__owner.unadmitted AND record::table($owner)='native_product' {{ LET $product=SELECT * FROM ONLY $owner FOR UPDATE; IF $product!=NONE {{ LET $contribution_id=$product.contribution; LET $contribution=SELECT * FROM ONLY $contribution_id FOR UPDATE; IF $contribution.attempt!=$__owner.attempt {{ THROW 'native cleanup product origin changed'; }}; fn::native_incidence($product); DELETE $owner RETURN NONE; }}; }}; UPDATE $cleanup SET owners=array::slice(owners,1),owner_incarnations=array::slice(owner_incarnations,1) RETURN NONE; }}; }};",crate::loader::NATIVE_WINDOW_ROWS,retirement::CLEANUP_NOMINATE_PAGE)
+ }
+ pub async fn resume_cleanup(client:&Surreal<Client>,identity:ContentHash)->Result<(),ModelError>{
+     let cleanup=CleanupHolds{identity};while !cleanup.step(client).await?{}Ok(())
+@@ -79,3 +95,15 @@
+         let mut expected=Object::new();expected.insert("record",owner.clone());expected.insert("guard",guard);expected.insert("incarnation",incarnation);expected.insert("phase",phase);Ok(Value::Object(expected))
+     }).collect()
+ }
++
++#[cfg(test)]
++mod cleanup_origin_controls {
++    use super::*;
++    #[test]
++    fn successor_cleanup_retains_original_terminal_owner_epoch_and_generation(){
++        let id=RecordId::new("native_attempt","original");let generation=ContentHash::of(b"same installation").hex();let mut origin=Object::new();origin.insert("id",id.clone());origin.insert("generation",generation.clone());origin.insert("epoch",17i64);origin.insert("era",3i64);origin.insert("state","abandoned");origin.insert("admitted",false);
++        let mut successor=Object::new();successor.insert("attempt",id);successor.insert("generation",generation);successor.insert("epoch",17i64);successor.insert("era",8i64);successor.insert("unadmitted",true);validate_cleanup_origin(&successor,&origin).unwrap();
++        for(field,value)in [("epoch",crate::upgrade::native(18i64)),("era",crate::upgrade::native(9i64)),("generation",crate::upgrade::native(ContentHash::of(b"different installation").hex())),("state",crate::upgrade::native("open")),("state",crate::upgrade::native("frozen")),("admitted",crate::upgrade::native(true))]{let mut changed=origin.clone();changed.insert(field,value);assert!(validate_cleanup_origin(&successor,&changed).is_err());}
++        successor.insert("unadmitted",false);origin.insert("admitted",true);validate_cleanup_origin(&successor,&origin).unwrap();
++    }
++}
+--- a/crates/lctx-native/src/control/retirement.rs
++++ b/crates/lctx-native/src/control/retirement.rs
+@@ -28,6 +28,62 @@
+     }
+     Ok(values)
+ }
++/// One actual outgoing hold page. Registration is composed into the cleanup owner's
++/// payload BEFORE those exact holds are removed; it performs no retirement advancement.
++/// Unlike old generic registration, a missing physical root is never incarnation one.
++pub(super) async fn prepare_cleanup_nomination(client:&Surreal<Client>,owner:&RecordId)->Result<Variables,ModelError>{
++    let mut response=client.query(cleanup_hold_page_sql()).bind(("owner",owner.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
++    let holds=one_cleanup_window(response.take::<Vec<Value>>(0).map_err(ModelError::codec)?)?;
++    let mut guards=std::collections::BTreeSet::new();
++    for hold in &holds {
++        let Some(Value::RecordId(object))=hold.get("object")else{return Err(ModelError::Schema("native cleanup nominated object"));};
++        guards.insert(guard_id(&Value::RecordId(object.clone()))?);
++    }
++    let physical=if guards.is_empty(){Vec::new()}else{
++        let mut response=client.query("SELECT * FROM $n09_guards").bind(("n09_guards",guards.into_iter().collect::<Vec<_>>())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
++        one_cleanup_window(response.take::<Vec<Value>>(0).map_err(ModelError::codec)?)?
++    };
++    let job=if holds.is_empty(){None}else{Some(RecordId::new("native_retirement",fresh_identity("cleanup-page-retirement")?.hex()))};
++    cleanup_nomination_bindings(owner,holds,physical,job)
++}
++fn cleanup_hold_page_sql()->String{format!("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner ORDER BY object LIMIT {}",crate::loader::NATIVE_WINDOW_ROWS)}
++fn one_cleanup_window(rows:Vec<Value>)->Result<Vec<Object>,ModelError>{
++    let mut windows=crate::loader::NativeWindows::new(rows);let rows=windows.next().transpose()?.unwrap_or_default();
++    if windows.next().is_some(){return Err(ModelError::Conflict("native cleanup nomination window"));}
++    rows.into_iter().map(|value|match value{Value::Object(row)=>Ok(row),_=>Err(ModelError::Schema("native cleanup nomination row"))}).collect()
++}
++pub(super) fn empty_cleanup_nomination()->Variables{
++    let mut bindings=Variables::new();bindings.insert("n09_holds",Vec::<Object>::new());bindings.insert("n09_roots",Vec::<Object>::new());bindings.insert("n09_job",Value::None);bindings.insert("n09_root_count",0i64);bindings.insert("n09_root_digest",Value::None);bindings
++}
++fn cleanup_nomination_bindings(owner:&RecordId,holds:Vec<Object>,physical:Vec<Object>,job:Option<RecordId>)->Result<Variables,ModelError>{
++    if holds.len()>crate::loader::NATIVE_WINDOW_ROWS||physical.len()>crate::loader::NATIVE_WINDOW_ROWS{return Err(ModelError::Conflict("native cleanup nomination width"));}
++    if holds.is_empty(){if !physical.is_empty()||job.is_some(){return Err(ModelError::Conflict("native cleanup empty nomination scope"));}return Ok(empty_cleanup_nomination());}
++    let job=job.ok_or(ModelError::Schema("native cleanup nomination job missing"))?;
++    if job.table.as_str()!="native_retirement"{return Err(ModelError::Schema("native cleanup nomination job family"));}
++    let mut actual=std::collections::BTreeMap::new();
++    for guard in physical {
++        let Some(Value::RecordId(id))=guard.get("id")else{return Err(ModelError::Schema("native cleanup nomination guard identity"));};
++        if id.table.as_str()!="native_guard"||actual.insert(id.clone(),guard.clone()).is_some(){return Err(ModelError::Conflict("native cleanup nomination duplicate/foreign guard"));}
++    }
++    let mut root_ids=std::collections::BTreeSet::new();let mut hold_ids=std::collections::BTreeSet::new();let mut roots=Vec::new();
++    for hold in &holds {
++        let(Some(Value::RecordId(id)),Some(Value::RecordId(object)))=(hold.get("id"),hold.get("object"))else{return Err(ModelError::Schema("native cleanup nomination hold identity"));};
++        if id.table.as_str()!="native_hold"||hold.get("owner")!=Some(&Value::RecordId(owner.clone()))||!hold_ids.insert(id.clone())||!root_ids.insert(object.clone()){return Err(ModelError::Conflict("native cleanup nomination actual hold scope"));}
++        let guard=guard_id(&Value::RecordId(object.clone()))?;let physical=actual.remove(&guard).ok_or(ModelError::Conflict("native cleanup nomination original incarnation missing"))?;
++        let incarnation=int_field(&physical,"incarnation")?;
++        if incarnation<=0||physical.get("phase")!=Some(&Value::String("active".into()))||physical.get("retired")!=Some(&Value::Bool(false))||int_field(&physical,"revision")?<0||int_field(&physical,"tombstone_revision")?<0{return Err(ModelError::Conflict("native cleanup nomination original incarnation not active"));}
++        let item=item_id(&job,object,incarnation)?;
++        let mut root=Object::new();root.insert("object",object.clone());root.insert("guard",guard);root.insert("physical",physical);root.insert("incarnation",incarnation);root.insert("item",item);roots.push(root);
++    }
++    if !actual.is_empty(){return Err(ModelError::Conflict("native cleanup nomination extra guard"));}
++    let root_ids=root_ids.into_iter().collect::<Vec<_>>();
++    let digest=ContentHash::of(&serde_json::to_vec(&("native-retirement/v4",&root_ids)).map_err(ModelError::codec)?);
++    let mut bindings=Variables::new();bindings.insert("n09_holds",holds);bindings.insert("n09_roots",roots);bindings.insert("n09_job",job);bindings.insert("n09_root_count",root_ids.len());bindings.insert("n09_root_digest",digest.hex());Ok(bindings)
++}
++/// The caller has already rechecked exact cleanup/origin/owner identity and full hold
++/// page. All roots/items are created in this ONE payload before any hold deletion.
++/// A lost acknowledgement replays the original native effect, not a partial setup job.
++pub(super) const CLEANUP_NOMINATE_PAGE:&str="IF array::len($holds)>0 { IF $n09_job=NONE OR $n09_root_count!=array::len($n09_roots) OR $n09_root_count!=array::len($holds) { THROW 'native cleanup nomination complete root count'; }; fn::native_touch($n09_job); LET $n09_existing_job=SELECT * FROM ONLY $n09_job FOR UPDATE; IF $n09_existing_job!=NONE { THROW 'native cleanup nomination job collision'; }; CREATE $n09_job SET generation=$__generation,era=$__era,epoch=$__epoch,root_digest=$n09_root_digest,lineage=$n09_job,state='open',root_count=$n09_root_count,roots_registered=$n09_root_count,examined=0,retired=0,revision=0 RETURN NONE; FOR $n09_root IN $n09_roots { fn::native_touch($n09_root.object); fn::native_touch($n09_root.item); LET $n09_guard_id=$n09_root.guard; LET $n09_physical=SELECT * FROM ONLY $n09_guard_id FOR UPDATE; IF $n09_physical=NONE OR $n09_physical!=$n09_root.physical OR $n09_physical.phase!='active' OR $n09_physical.incarnation!=$n09_root.incarnation { THROW 'native cleanup nominated incarnation changed'; }; LET $n09_item_id=$n09_root.item; IF (SELECT VALUE id FROM ONLY $n09_item_id)!=NONE { THROW 'native cleanup nomination item collision'; }; CREATE $n09_item_id SET job=$n09_job,object=$n09_root.object,incarnation=$n09_root.incarnation,state='pending' RETURN NONE; }; };";
+ async fn enqueue_roots(client:&Surreal<Client>,job:&RecordId,objects:&[RecordId],registered:i64)->Result<(),ModelError>{
+     let incarnations=incarnations(client,objects).await?;
+     let mut rows=Vec::new();
+@@ -308,3 +364,30 @@
+         client.invalidate().await.unwrap();
+     }
+ }
++
++#[cfg(test)]
++mod cleanup_nomination_controls {
++    use super::*;
++    fn hold(owner:&RecordId,object:&RecordId,name:&str)->Object{let mut row=Object::new();row.insert("id",RecordId::new("native_hold",name));row.insert("owner",owner.clone());row.insert("object",object.clone());row}
++    fn physical(object:&RecordId,incarnation:i64)->Object{let mut row=Object::new();row.insert("id",guard_id(&Value::RecordId(object.clone())).unwrap());row.insert("incarnation",incarnation);row.insert("phase","active");row.insert("retired",false);row.insert("revision",3i64);row.insert("tombstone_revision",2i64);row}
++    #[test]
++    fn nominated_roots_use_actual_complete_canonical_root_set_and_incarnations(){
++        let owner=RecordId::new("native_attempt","failed-no-product");let one=RecordId::new("original","one");let two=RecordId::new("compiler_contribution","incomplete");let job=RecordId::new("native_retirement","owned-job");
++        let holds=vec![hold(&owner,&two,"two"),hold(&owner,&one,"one")];let guards=vec![physical(&one,4),physical(&two,9)];
++        let bindings=cleanup_nomination_bindings(&owner,holds.clone(),guards.clone(),Some(job.clone())).unwrap();
++        assert_eq!(bindings.get("n09_root_count"),Some(&crate::upgrade::native(2i64)));assert_eq!(bindings.get("n09_holds"),Some(&crate::upgrade::native(holds)));
++        let mut canonical=vec![one.clone(),two.clone()];canonical.sort();let digest=ContentHash::of(&serde_json::to_vec(&("native-retirement/v4",canonical)).unwrap());assert_eq!(bindings.get("n09_root_digest"),Some(&crate::upgrade::native(digest.hex())));
++        let Some(Value::Array(roots))=bindings.get("n09_roots")else{panic!("actual root envelope")};
++        for root in roots{let Value::Object(root)=root else{panic!("actual root")};let Some(Value::RecordId(object))=root.get("object")else{panic!("actual object")};let incarnation=if object==&one{4}else{9};assert_eq!(root.get("incarnation"),Some(&crate::upgrade::native(incarnation)));assert_eq!(root.get("item"),Some(&Value::RecordId(item_id(&job,object,incarnation).unwrap())));assert_eq!(root.get("physical"),Some(&Value::Object(physical(object,incarnation))));}
++        let mut duplicate=vec![hold(&owner,&one,"one"),hold(&owner,&one,"other")];assert!(cleanup_nomination_bindings(&owner,duplicate.clone(),guards.clone(),Some(job.clone())).is_err());
++        duplicate[1]=hold(&RecordId::new("native_attempt","foreign"),&two,"two");assert!(cleanup_nomination_bindings(&owner,duplicate,guards,Some(job)).is_err());
++    }
++    #[test]
++    fn missing_or_nonactive_original_incarnation_is_never_defaulted(){
++        let owner=RecordId::new("native_attempt","owner");let object=RecordId::new("original","partial");let holds=vec![hold(&owner,&object,"held")];let job=Some(RecordId::new("native_retirement","job"));
++        assert!(cleanup_nomination_bindings(&owner,holds.clone(),vec![],job.clone()).is_err());
++        for(field,value)in [("incarnation",crate::upgrade::native(0i64)),("phase",crate::upgrade::native("retired")),("phase",crate::upgrade::native("retiring")),("retired",crate::upgrade::native(true))]{let mut guard=physical(&object,5);guard.insert(field,value);assert!(cleanup_nomination_bindings(&owner,holds.clone(),vec![guard],job.clone()).is_err());}
++        let empty=cleanup_nomination_bindings(&owner,vec![],vec![],None).unwrap();assert_eq!(empty.get("n09_job"),Some(&Value::None));assert_eq!(empty.get("n09_root_count"),Some(&crate::upgrade::native(0i64)));
++        assert!(cleanup_nomination_bindings(&owner,vec![],vec![],job).is_err());
++    }
++}

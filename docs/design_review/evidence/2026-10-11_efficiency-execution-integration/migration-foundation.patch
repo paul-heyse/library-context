@@ -1,0 +1,1303 @@
+--- a/crates/lctx-native/src/control/migration6.rs
++++ b/crates/lctx-native/src/control/migration6.rs
+@@ -18,9 +18,13 @@
+ /// The existing aggregate progress writer must compare observations and advance this
+ /// cursor with body in ONE transaction, under exact original source5/closed authority.
+ pub(crate) async fn prepare_guard_page(client:&Surreal<Client>,pass:GuardPass,after:Option<RecordId>)->Result<GuardPage,ModelError>{
++    prepare_guard_page_with_limit(client,pass,after,crate::loader::NATIVE_WINDOW_ROWS).await
++}
++async fn prepare_guard_page_with_limit(client:&Surreal<Client>,pass:GuardPass,after:Option<RecordId>,limit:usize)->Result<GuardPage,ModelError>{
++    if limit==0||limit>crate::loader::NATIVE_WINDOW_ROWS{return Err(ModelError::Conflict("N03 bounded guard proof width"));}
+     let cursor=after.clone().map(Value::RecordId).unwrap_or(Value::None);
+     let source=keyset_source("native_guard",&cursor)?;
+-    let mut response=client.query(format!("SELECT * FROM {source} LIMIT {}",crate::loader::NATIVE_WINDOW_ROWS)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
++    let mut response=client.query(format!("SELECT * FROM {source} LIMIT {limit}")).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+     let rows:Vec<Value>=response.take(0).map_err(ModelError::codec)?;
+     let mut windows=crate::loader::NativeWindows::new(rows);
+     let rows=windows.next().transpose()?.unwrap_or_default();
+@@ -294,3 +298,233 @@
+         surrealdb_syn::parse(&format!("BEGIN; {RETIRING_CLAIM_RECHECK} COMMIT;")).unwrap();
+     }
+ }
++
++/// Read-only source5 close receipts come from the authenticated retained-obligation
++/// inventory. No scan, guessed operation ID, missing-receipt inference or target-issued
++/// source close is permitted. The aggregate owns that manifest's immutable authentication.
++pub trait Source5FrozenReceipts:Send+Sync {
++    fn original_close_request(&self,attempt:&RecordId)->Result<NativeRequest,ModelError>;
++}
++pub struct ControlComponent<'a>{frozen_receipts:&'a dyn Source5FrozenReceipts}
++impl<'a> ControlComponent<'a>{pub fn new(frozen_receipts:&'a dyn Source5FrozenReceipts)->Self{Self{frozen_receipts}}}
++#[derive(Clone,Debug,serde::Serialize,serde::Deserialize)]
++#[serde(deny_unknown_fields)]
++struct ControlCursor{section:ControlSection,after:Option<RecordId>,job:Option<RecordId>,walk:Option<RecordId>}
++#[derive(Clone,Copy,Debug,PartialEq,Eq,serde::Serialize,serde::Deserialize)]
++#[serde(rename_all="snake_case")]
++enum ControlSection{Jobs,Guards,Attempts}
++impl Default for ControlCursor{fn default()->Self{Self{section:ControlSection::Jobs,after:None,job:None,walk:None}}}
++impl ControlCursor{
++    fn parse(cursor:&Option<String>)->Result<Self,ModelError>{
++        let value:Self=match cursor{None=>Self::default(),Some(value)=>serde_json::from_str(value).map_err(ModelError::codec)?};
++        let table=match value.section{ControlSection::Jobs=>"native_retirement",ControlSection::Guards=>"native_guard",ControlSection::Attempts=>"native_attempt"};
++        if value.after.as_ref().is_some_and(|id|id.table.as_str()!=table)||value.job.as_ref().is_some_and(|id|id.table.as_str()!="native_retirement")||value.walk.as_ref().is_some_and(|id|id.table.as_str()!="native_retirement")
++            ||(value.section!=ControlSection::Jobs&&(value.job.is_some()||value.walk.is_some()))||value.job.is_some()!=value.walk.is_some(){return Err(ModelError::Conflict("N03 exact migration cursor"));}Ok(value)
++    }
++    fn encoded(&self)->Result<String,ModelError>{serde_json::to_string(self).map_err(ModelError::codec)}
++}
++fn source_job(marker:&Object,row:&Object)->Result<(),ModelError>{
++    let (generation,era,admissions)=claim_source(marker)?;
++    if !matches!(row.get("id"),Some(Value::RecordId(id)) if id.table.as_str()=="native_retirement")||hash_field(row,"generation")?!=generation||int_field(row,"era")?<=0||int_field(row,"era")?>era
++        ||int_field(row,"epoch")?<=0||int_field(row,"epoch")?>admissions||int_field(row,"examined")?<0||int_field(row,"retired")?<0||int_field(row,"retired")?>int_field(row,"examined")?||int_field(row,"revision")?<0
++        ||int_field(row,"root_count")?<0||int_field(row,"roots_registered")?!=int_field(row,"root_count")?{return Err(ModelError::Conflict("N03 exact source5 retirement job horizon/counters"));}
++    hash_field(row,"root_digest")?;optional_claim_record(row,"lineage")?;optional_claim_record(row,"predecessor")?;
++    let successor=optional_claim_record(row,"successor")?;let recovery=optional_claim_record(row,"recovery_source")?;
++    match row.get("state"){
++        Some(Value::String(state)) if matches!(state.as_str(),"open"|"done")&&successor.is_none()&&recovery.is_none()=>{},
++        Some(Value::String(state)) if state=="recovering"&&successor.is_none()&&recovery.is_some()=>{},
++        Some(Value::String(state)) if state=="superseded"&&successor.is_some()=>{},
++        _=>return Err(ModelError::Conflict("source5 retirement job requires original installer completion")),
++    }Ok(())
++}
++/// Direct pointers are reciprocal and strictly era-ordered. Therefore no cycle can
++/// survive the all-job pass. Nominal `lineage` is intentionally not a rich row dependency.
++fn verify_job_links(marker:&Object,row:&Object,links:&std::collections::BTreeMap<RecordId,Object>)->Result<(),ModelError>{
++    source_job(marker,row)?;
++    let Some(Value::RecordId(id))=row.get("id")else{unreachable!()};
++    if let Some(predecessor)=optional_claim_record(row,"predecessor")?{
++        let before=links.get(&predecessor).ok_or(ModelError::Conflict("source5 retirement predecessor missing"))?;source_job(marker,before)?;
++        if before.get("successor")!=Some(&Value::RecordId(id.clone()))||before.get("state")!=Some(&Value::String("superseded".into()))||int_field(before,"era")?>=int_field(row,"era")?||before.get("root_digest")!=row.get("root_digest")||before.get("root_count")!=row.get("root_count")||before.get("roots_registered")!=row.get("roots_registered")||before.get("lineage")!=row.get("lineage"){
++            return Err(ModelError::Conflict("source5 retirement exact predecessor chain"));
++        }
++    }
++    if let Some(successor)=optional_claim_record(row,"successor")?{
++        let next=links.get(&successor).ok_or(ModelError::Conflict("source5 retirement successor missing"))?;source_job(marker,next)?;
++        if next.get("predecessor")!=Some(&Value::RecordId(id.clone()))||int_field(next,"era")?<=int_field(row,"era")?||next.get("root_digest")!=row.get("root_digest")||next.get("root_count")!=row.get("root_count")||next.get("roots_registered")!=row.get("roots_registered")||next.get("lineage")!=row.get("lineage"){
++            return Err(ModelError::Conflict("source5 retirement exact successor chain"));
++        }
++    }Ok(())
++}
++async fn exact_rows(client:&Surreal<Client>,ids:std::collections::BTreeSet<RecordId>)->Result<std::collections::BTreeMap<RecordId,Object>,ModelError>{
++    if ids.is_empty(){return Ok(std::collections::BTreeMap::new());}
++    let mut response=client.query("SELECT * FROM $m6_ids").bind(("m6_ids",ids.iter().cloned().collect::<Vec<_>>())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
++    claim_row_map(&ids,response.take(0).map_err(ModelError::codec)?)
++}
++fn observed(row:Object)->Result<crate::upgrade::Observation,ModelError>{let Some(Value::RecordId(id))=row.get("id")else{return Err(ModelError::Schema("N03 migration observed identity"));};Ok(crate::upgrade::Observation{id:id.clone(),row:Some(row)})}
++fn guarded_range(table:&str,after:&Option<RecordId>,rows:&[Object],limit:usize)->Result<(String,Variables),ModelError>{
++    if !matches!(table,"native_retirement"|"native_guard"|"native_attempt"){return Err(ModelError::Schema("N03 migration range table"));}
++    let mut bindings=Variables::new();bindings.insert("n03_range_after",after.clone().map(Value::RecordId).unwrap_or(Value::None));bindings.insert("n03_range_rows",rows.to_vec());
++    let sql=format!("LET $n03_range=SELECT * FROM {table} WHERE $n03_range_after=NONE OR id>$n03_range_after ORDER BY id LIMIT {limit}; IF $n03_range!=$n03_range_rows {{ THROW 'N03 source range changed'; }};");Ok((sql,bindings))
++}
++async fn next_source_row(client:&Surreal<Client>,table:&str,after:&Option<RecordId>)->Result<Option<Object>,ModelError>{
++    let mut bindings=Variables::new();bindings.insert("after",after.clone().map(Value::RecordId).unwrap_or(Value::None));
++    if !matches!(table,"native_retirement"|"native_attempt"){return Err(ModelError::Schema("N03 next row table"));}
++    let mut response=client.query(format!("SELECT * FROM {table} WHERE $after=NONE OR id>$after ORDER BY id LIMIT 1")).bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
++    let rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;match rows.as_slice(){[]=>Ok(None),[row]=>Ok(Some(row.clone())),_=>Err(ModelError::Conflict("N03 bounded source row cardinality"))}
++}
++impl crate::upgrade::MigrationComponent for ControlComponent<'_>{
++    fn contract(&self)->crate::upgrade::ComponentContract{
++        let base=ContentHash::of(COMPONENT.as_bytes());crate::upgrade::ComponentContract{component:crate::upgrade::Component::Control,preflight:ContentHash::of(b"N03-source5-all-job-links-retiring-claims-terminal-frozen-original-receipt/v1"),declarations:ContentHash::of(b"N03-optional-tombstone-declaration/v1"),transform:base,verifier:ContentHash::of(b"N03-independent-links-claims-tombstones-terminal-receipts/v1")}
++    }
++    fn prepare<'a>(&'a self,client:&'a Surreal<Client>,contract:&'a crate::upgrade::UpgradeExecutionContract,state:&'a crate::upgrade::State)->futures::future::BoxFuture<'a,Result<crate::upgrade::Page,ModelError>>{
++        Box::pin(async move{
++            use crate::upgrade::{Pass,Page};let source=crate::upgrade::current_source_marker(client,contract).await?;let marker=&source;
++            if state.pass==Pass::Declarations{
++                if state.cursor.is_some(){return Err(ModelError::Conflict("N03 declaration cursor"));}
++                // Temporary optional field; aggregate final declarations make it required
++                // only after every old and newly converted physical guard is verified.
++                return Ok(Page{body:"DEFINE FIELD tombstone_revision ON native_guard TYPE option<int>;".into(),bindings:Variables::new(),observations:vec![],cursor:None,finished:true});
++            }
++            let pass=match state.pass{Pass::Preflight=>GuardPass::Preflight,Pass::Transform=>GuardPass::Translate,Pass::Verify=>GuardPass::Verify,_=>return Err(ModelError::Conflict("N03 component terminal phase"))};
++            if state.pass==Pass::Preflight&&state.cursor.is_none(){
++                let catalog=crate::Loader::new(std::sync::Arc::new(client.clone())).installation_catalog().await?;
++                catalog.check(include_str!("../upgrade/source5-control.surql"))?;
++            }
++            let cursor=ControlCursor::parse(&state.cursor)?;
++            match cursor.section{
++                ControlSection::Jobs=>prepare_job_step(client,marker,cursor).await,
++                ControlSection::Guards=>{
++                    // Each retiring guard can add two exact evidence rows. Reserve fanout
++                    // within one existing 128-row native proof window, not a worker cap.
++                    let width=crate::loader::NATIVE_WINDOW_ROWS/4;
++                    let guard_page=prepare_guard_page_with_limit(client,pass,cursor.after.clone(),width).await?;
++                    let claims=prepare_retiring_claim_audit(client,marker,&guard_page.observations,pass).await?;
++                    let (range,mut bindings)=guarded_range("native_guard",&cursor.after,&guard_page.observations,width)?;
++                    crate::upgrade::merge_bindings(&mut bindings,claims.bindings)?;crate::upgrade::merge_bindings(&mut bindings,guard_page.bindings)?;
++                    let mut observations=guard_page.observations.into_iter().map(observed).collect::<Result<Vec<_>,_>>()?;
++                    for claim in claims.claims{observations.push(observed(claim.item)?);observations.push(observed(claim.job)?);}
++                    let next=if guard_page.finished{ControlCursor{section:ControlSection::Attempts,after:None,job:None,walk:None}}else{ControlCursor{after:guard_page.after,..cursor}};
++                    Ok(Page{body:format!("{range} {} {}",claims.body,guard_page.body),bindings,observations,cursor:Some(next.encoded()?),finished:false})
++                }
++                ControlSection::Attempts=>self.prepare_attempt_step(client,contract,cursor,pass).await,
++            }
++        })
++    }
++}
++async fn prepare_job_step(client:&Surreal<Client>,marker:&Object,cursor:ControlCursor)->Result<crate::upgrade::Page,ModelError>{
++    use crate::upgrade::Page;
++    let (row,range,mut bindings)=if let Some(job)=&cursor.job{
++        let rows=exact_rows(client,[job.clone()].into_iter().collect()).await?;(Some(rows[job].clone()),"RETURN true;".to_owned(),Variables::new())
++    }else{
++        let row=next_source_row(client,"native_retirement",&cursor.after).await?;let rows=row.iter().cloned().collect::<Vec<_>>();let(range,bindings)=guarded_range("native_retirement",&cursor.after,&rows,1)?;(row,range,bindings)
++    };
++    let Some(row)=row else{return Ok(Page{body:range,bindings,observations:vec![],cursor:Some(ControlCursor{section:ControlSection::Guards,after:None,job:None,walk:None}.encoded()?),finished:false});};
++    source_job(marker,&row)?;let Some(Value::RecordId(id))=row.get("id")else{unreachable!()};let id=id.clone();
++    let walk=cursor.walk.clone().or(optional_claim_record(&row,"recovery_source")?);
++    let mut ids=std::collections::BTreeSet::new();for field in ["predecessor","successor"]{if let Some(id)=optional_claim_record(&row,field)?{ids.insert(id);}}
++    if let Some(walk)=&walk{ids.insert(walk.clone());}
++    let mut links=exact_rows(client,ids).await?;verify_job_links(marker,&row,&links)?;
++    let mut next=ControlCursor{section:ControlSection::Jobs,after:Some(id.clone()),job:None,walk:None};
++    if let Some(walk)=walk{
++        let source=links.get(&walk).ok_or(ModelError::Conflict("source5 retirement recovery source missing"))?;source_job(marker,source)?;
++        let following=optional_claim_record(source,"successor")?.ok_or(ModelError::Conflict("source5 recovery source not ancestral"))?;
++        if source.get("state")!=Some(&Value::String("superseded".into()))||int_field(source,"era")?>=int_field(&row,"era")?||source.get("root_digest")!=row.get("root_digest")||source.get("lineage")!=row.get("lineage"){return Err(ModelError::Conflict("source5 recovery source lineage/era changed"));}
++        if following==id&&row.get("predecessor")!=Some(&Value::RecordId(walk.clone())){return Err(ModelError::Conflict("source5 recovery final ancestor not reciprocal"));}
++        if following!=id{
++            let successor=exact_rows(client,[following.clone()].into_iter().collect()).await?;let following_row=&successor[&following];source_job(marker,following_row)?;
++            if following_row.get("predecessor")!=Some(&Value::RecordId(walk))||int_field(following_row,"era")?<=int_field(source,"era")?||int_field(following_row,"era")?>=int_field(&row,"era")?{return Err(ModelError::Conflict("source5 recovery walk missing reciprocal ancestor"));}
++            links.extend(successor);next=ControlCursor{section:ControlSection::Jobs,after:cursor.after,job:Some(id),walk:Some(following)};
++        }
++    }
++    let mut observations=links.into_values().map(observed).collect::<Result<Vec<_>,_>>()?;observations.push(observed(row)?);
++    // Every original row remains unchanged; the complete link observations are compared
++    // atomically by progress::commit, including during resumed deep-chain traversal.
++    bindings.insert("n03_job_audited",true);
++    Ok(Page{body:range,bindings,observations,cursor:Some(next.encoded()?),finished:false})
++}
++// Exact finish_attempt_close payload at immutable source5 ebcf423c. Its sole original
++// binding was `state=frozen`; __expected_epoch was injected later by execute_owner.
++const SOURCE5_FROZEN_CLOSE:&str="IF array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$__attempt LIMIT 1)>0 { THROW 'native attempt cleanup incomplete'; }; IF $__owner.state='closing' { UPDATE $__attempt SET state=$state,revision+=1 RETURN NONE; };";
++fn verify_original_frozen_receipt(marker:&Object,attempt:&Object,request:NativeRequest,effect:&Object)->Result<(),ModelError>{
++    let(generation,era,_)=claim_source(marker)?;let mut bindings=Variables::new();bindings.insert("state","frozen");
++    let digest=ContentHash::of(&serde_json::to_vec(&(SOURCE5_FROZEN_CLOSE,&bindings)).map_err(ModelError::codec)?);
++    let Some(Value::RecordId(id))=attempt.get("id")else{return Err(ModelError::Schema("source5 terminal frozen attempt"));};
++    if id.table.as_str()!="native_attempt"||attempt.get("state")!=Some(&Value::String("frozen".into()))||hash_field(attempt,"generation")?!=generation||int_field(attempt,"era")?<=0||int_field(attempt,"era")?>era||int_field(attempt,"epoch")?<=0||int_field(attempt,"revision")?<=0
++        ||request.request!=digest||request.issuance.generation!=generation||request.issuance.era!=int_field(attempt,"era")?
++        ||effect.get("id")!=Some(&Value::RecordId(RecordId::new("native_effect",request.operation.hex())))||effect.get("attempt")!=Some(&Value::RecordId(id.clone()))||effect.get("owner")!=Some(&Value::RecordId(id.clone()))||effect.get("owner_kind")!=Some(&Value::String("terminal_attempt".into()))||effect.get("committed")!=Some(&Value::Bool(true))||effect.get("resolved")!=Some(&Value::Bool(true))||hash_field(effect,"generation")?!=generation||hash_field(effect,"request")?!=digest||int_field(effect,"era")?!=int_field(attempt,"era")?||int_field(effect,"epoch")?!=int_field(attempt,"epoch")?{
++        return Err(ModelError::Conflict("source5 frozen requires exact original committed close receipt"));
++    }Ok(())
++}
++impl ControlComponent<'_>{
++    async fn prepare_attempt_step(&self,client:&Surreal<Client>,contract:&crate::upgrade::UpgradeExecutionContract,cursor:ControlCursor,pass:GuardPass)->Result<crate::upgrade::Page,ModelError>{
++        use crate::upgrade::{Page,Observation};let row=next_source_row(client,"native_attempt",&cursor.after).await?;
++        let (mut body,mut bindings)=guarded_range("native_attempt",&cursor.after,&row.iter().cloned().collect::<Vec<_>>(),1)?;
++        let Some(row)=row else{return Ok(Page{body,bindings,observations:vec![],cursor:None,finished:true});};
++        let Some(Value::RecordId(id))=row.get("id")else{return Err(ModelError::Schema("source5 attempt native identity"));};let id=id.clone();
++        let state=row.get("state");if !matches!(state,Some(Value::String(state)) if matches!(state.as_str(),"closed"|"abandoned"|"maintenance_fenced"|"frozen")){return Err(ModelError::Conflict("source5 attempt requires original installer terminal completion"));}
++        let proof_id=RecordId::new("native_upgrade_frozen_v6",surrealdb::types::RecordIdKey::Array(vec![Value::String(contract.migration.hex()),Value::RecordId(id.clone())].into()));
++        let mut response=client.query("SELECT * FROM $proof").bind(("proof",proof_id.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
++        let proofs:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let proof=match proofs.as_slice(){[]=>None,[proof]=>Some(proof),_=>return Err(ModelError::Conflict("source5 frozen proof cardinality"))};
++        let mut observations=vec![observed(row.clone())?,Observation{id:proof_id.clone(),row:proof.cloned()}];
++        if state==Some(&Value::String("frozen".into())){
++            if pass==GuardPass::Verify{return Err(ModelError::Conflict("source5 terminal frozen not translated"));}
++            if proof.is_some(){return Err(ModelError::Conflict("source5 frozen proof without atomic translation"));}
++            let request=self.frozen_receipts.original_close_request(&id)?;
++            let effect_id=RecordId::new("native_effect",request.operation.hex());let effects=exact_rows(client,[effect_id.clone()].into_iter().collect()).await?;let effect=effects[&effect_id].clone();
++            verify_original_frozen_receipt(&contract.original.marker,&row,request,&effect)?;observations.push(observed(effect.clone())?);
++            bindings.insert("n03_frozen_attempt",id.clone());body.push_str("IF array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$n03_frozen_attempt LIMIT 1)>0 { THROW 'source5 frozen terminal original holds remain'; };");
++            if pass==GuardPass::Translate{
++                let mut proof=Object::new();proof.insert("id",proof_id);proof.insert("journal",RecordId::new("native_upgrade_v6",contract.migration.hex()));proof.insert("attempt",id.clone());proof.insert("original_attempt",row.clone());proof.insert("original_effect",effect);proof.insert("target_state","closed");
++                bindings.insert("n03_frozen_proof",proof);body.push_str("CREATE $n03_frozen_proof.id CONTENT $n03_frozen_proof RETURN NONE; UPDATE $n03_frozen_attempt SET state='closed',revision+=1 RETURN NONE;");
++            }
++        }else if let Some(proof)=proof{
++            let (Some(Value::Object(original)),Some(Value::Object(effect)))=(proof.get("original_attempt"),proof.get("original_effect"))else{return Err(ModelError::Schema("source5 frozen retained original bytes"));};
++            let request=self.frozen_receipts.original_close_request(&id)?;verify_original_frozen_receipt(&contract.original.marker,original,request,effect)?;
++            if proof.get("journal")!=Some(&Value::RecordId(RecordId::new("native_upgrade_v6",contract.migration.hex())))||proof.get("attempt")!=Some(&Value::RecordId(id.clone()))||proof.get("target_state")!=Some(&Value::String("closed".into()))||state!=Some(&Value::String("closed".into()))||int_field(&row,"revision")?!=int_field(original,"revision")?+1||original.iter().any(|(field,value)|!matches!(field.as_str(),"state"|"revision")&&row.get(field)!=Some(value)){
++                return Err(ModelError::Conflict("source5 terminal frozen translation changed original scope"));
++            }
++        }
++        Ok(Page{body,bindings,observations,cursor:Some(ControlCursor{after:Some(id),..cursor}.encoded()?),finished:false})
++    }
++}
++
++#[cfg(test)]
++mod component_controls{
++    use super::*;
++    fn source()->Object{
++        let mut source=Object::new();source.insert("schema",SOURCE5_SCHEMA);source.insert("schema_version",5i64);source.insert("generation",ContentHash::of(b"source5").hex());source.insert("admission_open",false);source.insert("era",9i64);source.insert("closed_through",8i64);source.insert("admission_revision",91i64);source
++    }
++    fn job(name:&str,era:i64,state:&str)->Object{
++        let mut row=Object::new();row.insert("id",RecordId::new("native_retirement",name));row.insert("generation",ContentHash::of(b"source5").hex());row.insert("era",era);row.insert("epoch",30i64+era);row.insert("state",state);row.insert("revision",0i64);row.insert("examined",4i64);row.insert("retired",3i64);row.insert("root_count",1i64);row.insert("roots_registered",1i64);row.insert("root_digest",ContentHash::of(b"original roots").hex());row.insert("lineage",RecordId::new("native_retirement","nominal-no-rich-row"));row
++    }
++    #[test]
++    fn reciprocal_original_job_links_preserve_nominal_lineage_and_refuse_missing_or_cycles(){
++        let source=source();let mut before=job("before",3,"superseded");let mut after=job("after",5,"recovering");
++        let b=RecordId::new("native_retirement","before");let a=RecordId::new("native_retirement","after");before.insert("successor",a.clone());after.insert("predecessor",b.clone());after.insert("recovery_source",b.clone());
++        let rows=[(b.clone(),before.clone()),(a.clone(),after.clone())].into_iter().collect();verify_job_links(&source,&before,&rows).unwrap();verify_job_links(&source,&after,&rows).unwrap();
++        assert!(verify_job_links(&source,&before,&std::collections::BTreeMap::new()).is_err());
++        let mut changed=after.clone();changed.insert("predecessor",a.clone());let mut rows=rows.clone();rows.insert(a.clone(),changed);assert!(verify_job_links(&source,&before,&rows).is_err());
++        let mut changed=after;changed.insert("era",2i64);rows.insert(a,changed);assert!(verify_job_links(&source,&before,&rows).is_err());
++        let mut changed=before;changed.insert("epoch",92i64);assert!(source_job(&source,&changed).is_err());
++    }
++    #[test]
++    fn terminal_source5_frozen_requires_original_close_digest_and_exact_owner(){
++        let marker=source();let generation=ContentHash::of(b"source5");let id=RecordId::new("native_attempt","original-attempt");
++        let mut attempt=Object::new();attempt.insert("id",id.clone());attempt.insert("generation",generation.hex());attempt.insert("era",9i64);attempt.insert("epoch",17i64);attempt.insert("revision",4i64);attempt.insert("state","frozen");
++        let mut payload=Variables::new();payload.insert("state","frozen");let digest=ContentHash::of(&serde_json::to_vec(&(SOURCE5_FROZEN_CLOSE,&payload)).unwrap());
++        let request=NativeRequest{issuance:IssuanceEra{generation,era:9},operation:ContentHash::of(b"original-close"),request:digest};
++        let mut effect=Object::new();effect.insert("id",RecordId::new("native_effect",request.operation.hex()));effect.insert("owner",id.clone());effect.insert("attempt",id);effect.insert("owner_kind","terminal_attempt");effect.insert("generation",generation.hex());effect.insert("era",9i64);effect.insert("epoch",17i64);effect.insert("request",digest.hex());effect.insert("committed",true);effect.insert("resolved",true);
++        verify_original_frozen_receipt(&marker,&attempt,request,&effect).unwrap();
++        let mut wrong=effect.clone();wrong.insert("owner",Value::None);assert!(verify_original_frozen_receipt(&marker,&attempt,request,&wrong).is_err());
++        wrong=effect.clone();wrong.insert("committed",false);assert!(verify_original_frozen_receipt(&marker,&attempt,request,&wrong).is_err());
++        wrong=effect;wrong.insert("request",ContentHash::of(b"a terminal-looking foreign operation").hex());assert!(verify_original_frozen_receipt(&marker,&attempt,request,&wrong).is_err());
++        let mut request=request;request.request=ContentHash::of(b"different SQL");assert!(verify_original_frozen_receipt(&marker,&attempt,request,&wrong).is_err());
++    }
++    #[test]
++    fn deep_chain_cursor_keeps_exact_anchor_without_unbounded_collection(){
++        let cursor=ControlCursor{section:ControlSection::Jobs,after:Some(RecordId::new("native_retirement","previous")),job:Some(RecordId::new("native_retirement","anchor")),walk:Some(RecordId::new("native_retirement","next-ancestor"))};
++        let restored=ControlCursor::parse(&Some(cursor.encoded().unwrap())).unwrap();assert_eq!(restored.job,cursor.job);assert_eq!(restored.walk,cursor.walk);
++        let mut invalid=cursor;invalid.walk=None;assert!(ControlCursor::parse(&Some(invalid.encoded().unwrap())).is_err());
++        let(sql,_)=guarded_range("native_retirement",&None,&[],1).unwrap();surrealdb_syn::parse(&format!("BEGIN; {sql} COMMIT;")).unwrap();
++    }
++}
+--- a/crates/lctx-native/src/upgrade/contract.rs
++++ b/crates/lctx-native/src/upgrade/contract.rs
+@@ -1,84 +1,89 @@
+-//! Immutable host/native identity. This overlay is deliberately outside the runtime schema hash.
++//! Format-six migration identity. The format-four history overlay is not this protocol.
+ use super::*;
+-use serde::{Deserialize, Serialize};
++use serde::{Deserialize,Serialize};
+ 
+-pub(super) const OVERLAY_SCHEMA: &str = include_str!("progress.surql");
+-pub(super) const PROTOCOL: &[u8] = b"native-upgrade-progress/v2:history-page-receipts-v5;source4-exact;locked-installation-and-revision;atomic-read-checkpoints;keyset-bounded;independent-verification;preserving-sealed-publication";
+-pub(super) const PREFLIGHT: &[u8] = b"history-page-receipts-v5-preflight/v1:source4-history-checkpoint-universe;original-issuance-horizon-counters-phase-cursor;last-page-absent;closed-exclusive-effects;no-data-backfill";
+-pub(super) const VERIFIER: &[u8] = b"history-page-receipts-v5-verifier/v1:independent-bounded-actual-checkpoint-shape;last-page-absent;final-required-definitions-and-index-readiness;preserve-issuance-horizons-and-outcomes";
+-pub fn overlay_schema_identity() -> ContentHash { ContentHash::of(OVERLAY_SCHEMA.as_bytes()) }
+-pub fn transition_protocol_identity() -> ContentHash { ContentHash::of(PROTOCOL) }
+-pub fn preflight_contract_identity() -> ContentHash { ContentHash::of(PREFLIGHT) }
+-pub fn verifier_identity() -> ContentHash { ContentHash::of(VERIFIER) }
++pub(super) const OVERLAY_SCHEMA:&str=include_str!("progress.surql");
++const PROTOCOL:&[u8]=b"adjacent-source5-target6/v1;required-component-registry;all-preflight-before-declarations;atomic-data-observation-progress;all-independent-verify-before-activation;exact-original-journal";
++const PREFLIGHT:&[u8]=b"source5-ebcf423c/exclusive-original-installer-closed-drained;retained-obligations-and-terminal-frozen-receipts;no-target-runtime-source-attachment";
++const VERIFIER:&[u8]=b"source5-target6/independent-every-required-component;exact-request-era-owner-and-lineage;atomic-stripes-cut-marker-progress";
++pub fn overlay_schema_identity()->ContentHash{ContentHash::of(OVERLAY_SCHEMA.as_bytes())}
++pub fn transition_protocol_identity()->ContentHash{ContentHash::of(PROTOCOL)}
++pub fn preflight_contract_identity()->ContentHash{ContentHash::of(PREFLIGHT)}
++pub fn verifier_identity()->ContentHash{ContentHash::of(VERIFIER)}
+ 
+-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++/// Fixed exhaustive component set, including empty-store proofs. No absent handler is a no-op.
++#[derive(Debug,Clone,Copy,PartialEq,Eq,PartialOrd,Ord,Serialize,Deserialize)]
++#[serde(rename_all="snake_case")]
++pub enum Component { Control, TypedModel, Originals, CompilerBindings, CompletedAdmission, Publications, RetainedObligations, ExecutableDefinitions }
++pub const REQUIRED_COMPONENTS:[Component;8]=[Component::Control,Component::TypedModel,Component::Originals,Component::CompilerBindings,Component::CompletedAdmission,Component::Publications,Component::RetainedObligations,Component::ExecutableDefinitions];
++#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct ComponentContract {pub component:Component,pub preflight:ContentHash,pub declarations:ContentHash,pub transform:ContentHash,pub verifier:ContentHash}
++
++/// Original host receipts are authenticated by the retained maintenance lease, not by
++/// deserializing these labels. Original installation bytes survive all source checkpoints.
++#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct OriginalSource {
++    pub commit:String,
++    pub marker:Object,
++    pub installer_executable_sha256:String,
++    pub installer_drain_receipt_sha256:String,
++    pub host_borrower_drain_receipt_sha256:String,
++    pub retained_obligation_inventory:ContentHash,
++}
++impl OriginalSource {
++    pub fn validate(&self,generation:ContentHash)->Result<(),ModelError>{
++        for digest in [&self.installer_executable_sha256,&self.installer_drain_receipt_sha256,&self.host_borrower_drain_receipt_sha256]{if !hex::decode(digest).is_ok_and(|value|value.len()==32){return Err(ModelError::Schema("source5 original SHA256 identity"));}}
++        if self.commit!=SOURCE_COMMIT{return Err(ModelError::Conflict("source5 original executable lineage"));}
++        check_source_marker(&self.marker,generation)
++    }
++    pub fn identity(&self)->Result<ContentHash,ModelError>{Ok(ContentHash::of(&serde_json::to_vec(self).map_err(ModelError::codec)?))}
++}
++#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
+ #[serde(deny_unknown_fields)]
+ pub struct UpgradeExecutionContract {
+-    pub format: u32,
+-    pub source_version: u32,
+-    pub kind: String,
+-    pub migration: ContentHash,
+-    pub execution: ContentHash,
+-    pub source: ContentHash,
+-    pub target: ContentHash,
+-    pub generation: ContentHash,
+-    pub overlay: ContentHash,
+-    pub protocol: ContentHash,
+-    pub preflight: ContentHash,
+-    pub verifier: ContentHash,
+-    pub namespace: String,
+-    pub database: String,
++    pub format:u32,pub source_version:u32,pub target_version:u32,pub kind:String,
++    pub migration:ContentHash,pub execution:ContentHash,pub source:ContentHash,pub target:ContentHash,
++    pub generation:ContentHash,pub overlay:ContentHash,pub protocol:ContentHash,pub preflight:ContentHash,pub verifier:ContentHash,
++    pub namespace:String,pub database:String,pub original:OriginalSource,pub components:Vec<ComponentContract>,
++    pub target_executable_sha256:String,pub activation:ContentHash,
+ }
+ impl UpgradeExecutionContract {
+-    pub fn current(migration: ContentHash, execution: ContentHash, source: ContentHash, config: &RuntimeConfig) -> Self {
+-        Self { format: 2, source_version: SOURCE_VERSION, kind: TRANSITION_KIND.into(), migration, execution, source, target: crate::installation::base_schema_identity(), generation: config.service_generation, overlay: overlay_schema_identity(), protocol: transition_protocol_identity(), preflight: preflight_contract_identity(), verifier: verifier_identity(), namespace: config.namespace.as_str().into(), database: config.database.as_str().into() }
++    pub fn current(migration:ContentHash,execution:ContentHash,original:OriginalSource,components:Vec<ComponentContract>,target_executable_sha256:String,activation:ContentHash,config:&RuntimeConfig)->Result<Self,ModelError>{
++        original.validate(config.service_generation)?;validate_components(&components)?;
++        if !hex::decode(&target_executable_sha256).is_ok_and(|value|value.len()==32){return Err(ModelError::Schema("migration6 target executable SHA256"));}
++        Ok(Self{format:3,source_version:5,target_version:6,kind:TRANSITION_KIND.into(),migration,execution,
++            source:ContentHash(hex::decode(SOURCE_SCHEMA).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("source5 schema width"))?),target:crate::installation::base_schema_identity(),generation:config.service_generation,
++            overlay:overlay_schema_identity(),protocol:transition_protocol_identity(),preflight:preflight_contract_identity(),verifier:verifier_identity(),
++            namespace:config.namespace.as_str().into(),database:config.database.as_str().into(),original,components,target_executable_sha256,activation})
+     }
+-    pub fn validate(&self, config: &RuntimeConfig) -> Result<(), ModelError> {
+-        // This executor implements only the historical4→5 history-receipt transition.
+-        // Never let a newer base_schema_identity turn it into an implicit4→6 converter.
+-        // Source5→6 has its own complete typed component contract and activation barrier.
+-        if crate::control::SCHEMA_VERSION!=5 {
+-            return Err(ModelError::Conflict("source4 transition requires its original format5 executable"));
+-        }
+-        if self != &Self::current(self.migration, self.execution, self.source, config) || self.source.hex() != SOURCE_SCHEMA {
+-            return Err(ModelError::Conflict("native upgrade execution contract"));
+-        }
+-        Ok(())
++    pub fn validate(&self,config:&RuntimeConfig)->Result<(),ModelError>{
++        if crate::control::SCHEMA_VERSION!=6 || self!=&Self::current(self.migration,self.execution,self.original.clone(),self.components.clone(),self.target_executable_sha256.clone(),self.activation,config)?{
++            return Err(ModelError::Conflict("exact source5 target6 aggregate execution"));
++        }Ok(())
+     }
+-    pub(super) fn compatible(&self, previous: &Self) -> bool {
+-        // A verifier correction preserves acknowledged translation but repeats verification.
+-        let mut previous = previous.clone(); previous.execution = self.execution; previous.verifier = self.verifier;
+-        self == &previous
++    pub(super) fn compatible(&self,previous:&Self)->bool{
++        let mut previous=previous.clone();previous.execution=self.execution;previous.verifier=self.verifier;previous.target_executable_sha256=self.target_executable_sha256.clone();
++        for (old,new) in previous.components.iter_mut().zip(&self.components){old.verifier=new.verifier;}
++        self==&previous
+     }
++    pub(super) fn verifier_changed(&self,previous:&Self)->bool{self.verifier!=previous.verifier || self.components.iter().zip(&previous.components).any(|(a,b)|a.verifier!=b.verifier)}
+ }
+-
++fn validate_components(components:&[ComponentContract])->Result<(),ModelError>{
++    if components.iter().map(|c|c.component).collect::<Vec<_>>()!=REQUIRED_COMPONENTS{return Err(ModelError::Conflict("all ordered migration6 components required"));}Ok(())
++}
+ #[cfg(test)]
+ mod tests{
+     use super::*;
+     #[test]
+-    fn progress_overlay_is_separate_from_exact_source4_and_target5(){
+-        assert_eq!(SOURCE_SCHEMA,"0870158e2d5568650845dd61f61884384c44315071f0b0dc402d02994a4798da");
+-        assert_ne!(crate::installation::base_schema_identity().hex(),SOURCE_SCHEMA);
+-        assert_eq!(crate::control::SCHEMA_VERSION,5);
+-        assert!(!crate::control::schema().contains("native_upgrade_progress_v1"));
++    fn absent_duplicate_reordered_components_cannot_establish_activation(){
++        let hash=ContentHash::of(b"component");let mut components=REQUIRED_COMPONENTS.into_iter().map(|component|ComponentContract{component,preflight:hash,declarations:hash,transform:hash,verifier:hash}).collect::<Vec<_>>();
++        validate_components(&components).unwrap();components.pop();assert!(validate_components(&components).is_err());
++        components.push(components[0].clone());assert!(validate_components(&components).is_err());
++        components[7].component=Component::ExecutableDefinitions;components.swap(0,1);assert!(validate_components(&components).is_err());
++        assert_eq!(SOURCE_SCHEMA,"eec4dc767fe4477fbfc3f5a584b54a6c8855345af02c3390ad5f77ac326e0383");
++        assert_eq!(SOURCE_VERSION,5);assert_ne!(TRANSITION_KIND,"history_page_receipts_v5");
+         surrealdb_syn::parse(OVERLAY_SCHEMA).unwrap();
+     }
+-    #[test]
+-    fn only_execution_and_verifier_can_change_without_losing_compatible_prefix(){
+-        let hash=ContentHash::of(b"identity");
+-        let contract=UpgradeExecutionContract{format:2,source_version:SOURCE_VERSION,kind:TRANSITION_KIND.into(),migration:hash,execution:hash,source:hash,target:hash,generation:hash,overlay:hash,protocol:hash,preflight:hash,verifier:hash,namespace:"project".into(),database:"validation".into()};
+-        let mut successor=contract.clone();successor.execution=ContentHash::of(b"successor");assert!(successor.compatible(&contract));
+-        successor.verifier=ContentHash::of(b"verifier");assert!(successor.compatible(&contract));
+-        successor.preflight=ContentHash::of(b"different-preflight");assert!(!successor.compatible(&contract));
+-        successor=contract.clone();successor.database="main".into();assert!(!successor.compatible(&contract));
+-        let mut value=serde_json::to_value(&contract).unwrap();value["unknown"]=serde_json::json!(true);assert!(serde_json::from_value::<UpgradeExecutionContract>(value).is_err());
+-    }
+-    #[test]
+-    fn current_contract_has_only_the_explicit_adjacent_source4_transition(){
+-        let hash=ContentHash::of(b"identity");
+-        let contract=UpgradeExecutionContract{format:2,source_version:SOURCE_VERSION,kind:TRANSITION_KIND.into(),migration:hash,execution:hash,source:hash,target:hash,generation:hash,overlay:hash,protocol:hash,preflight:hash,verifier:hash,namespace:"project".into(),database:"validation".into()};
+-        assert_eq!(contract.source_version,4);assert_eq!(contract.kind,"history_page_receipts_v5");
+-        let mut old=serde_json::to_value(contract).unwrap();old["format"]=serde_json::json!(1);old.as_object_mut().unwrap().remove("source_version");old.as_object_mut().unwrap().remove("kind");assert!(serde_json::from_value::<UpgradeExecutionContract>(old).is_err());
+-    }
+-
+ }
+--- a/crates/lctx-native/src/upgrade/progress.rs
++++ b/crates/lctx-native/src/upgrade/progress.rs
+@@ -1,172 +1,217 @@
+-//! One current bounded checkpoint, never a receipt per row or page.
++//! One source5→6 checkpoint slot. Data, readback proof and progress share one transaction.
+ use super::*;
+-use serde::{Deserialize, Serialize};
++use serde::{Deserialize,Serialize};
+ use surrealdb::types::RecordId;
+-
+-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+-#[serde(rename_all = "snake_case")]
+-pub(crate) enum Pass { Preflight, Declarations, Verify, Ready, Sealed }
+-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[derive(Debug,Clone,Copy,PartialEq,Eq,Serialize,Deserialize)]
++#[serde(rename_all="snake_case")]
++pub enum Pass{Preflight,Declarations,Transform,Verify,Ready,Sealed}
++#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
+ #[serde(deny_unknown_fields)]
+-pub(crate) struct State {pub pass:Pass,pub after:Option<RecordId>}
+-impl Default for State{fn default()->Self{Self{pass:Pass::Preflight,after:None}}}
++pub struct State{pub pass:Pass,pub component:usize,pub cursor:Option<String>}
++impl Default for State{fn default()->Self{Self{pass:Pass::Preflight,component:0,cursor:None}}}
+ impl State{
+     pub fn validate(&self)->Result<(),ModelError>{
+-        if self.after.as_ref().is_some_and(|id|id.table.as_str()!="native_history_checkpoint") || (self.after.is_some()&&!matches!(self.pass,Pass::Preflight|Pass::Verify)){return Err(ModelError::Conflict("native upgrade history cursor"));}Ok(())
+-    }
+-    pub fn next_pass(&mut self,pass:Pass){*self=Self{pass,..Self::default()};}
+-}
+-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+-pub struct UpgradeAdvance { pub revision: u64, pub phase: String, pub sealed: bool, pub published: bool }
+-#[derive(Debug, Clone)]
+-pub(crate) struct Progress { pub revision: i64, pub state: State, pub contract: UpgradeExecutionContract }
+-impl Progress {
+-    pub fn result(&self) -> UpgradeAdvance {
+-        UpgradeAdvance { revision: self.revision as u64, phase: format!("{:?}", self.state.pass).to_lowercase(), sealed: self.state.pass == Pass::Sealed, published: self.state.pass == Pass::Sealed }
+-    }
+-}
+-pub(crate) async fn read(client: &Surreal<Client>, contract: &UpgradeExecutionContract) -> Result<Option<Progress>, ModelError> {
+-    let mut response = client.query("SELECT * FROM $progress").bind(("progress", RecordId::new("native_upgrade_progress_v1", contract.migration.hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+-    let rows: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
+-    let row = match rows.as_slice() { [] => return Ok(None), [row] => row, _ => return Err(ModelError::Conflict("native upgrade progress cardinality")) };
+-    let Some(Value::String(encoded)) = row.get("contract") else { return Err(ModelError::Schema("native upgrade progress contract")); };
+-    let previous: UpgradeExecutionContract = serde_json::from_str(encoded).map_err(ModelError::codec)?;
+-    if !contract.compatible(&previous) || row.get("execution") != Some(&Value::String(previous.execution.hex())) { return Err(ModelError::Conflict("native upgrade progress incompatible identity")); }
+-    let Some(Value::String(encoded)) = row.get("state") else { return Err(ModelError::Schema("native upgrade progress state")); };
+-    let state: State = serde_json::from_str(encoded).map_err(ModelError::codec)?;
+-    state.validate()?;
+-    let Some(Value::Number(surrealdb::types::Number::Int(revision))) = row.get("revision") else { return Err(ModelError::Schema("native upgrade progress revision")); };
+-    if *revision < 0 || row.get("sealed") != Some(&Value::Bool(state.pass == Pass::Sealed)) { return Err(ModelError::Conflict("native upgrade progress shape")); }
+-    Ok(Some(Progress { revision: *revision, state, contract: previous }))
+-}
+-/// The caller's host capability proves predecessor drainage. Native checks retain the exact
+-/// original operation and reject incompatible prefix reuse; no historical receipt is invented.
+-pub(crate) async fn acquire(client: &Surreal<Client>, contract: &UpgradeExecutionContract) -> Result<Progress, ModelError> {
+-    let mut bindings = base_bindings(contract)?;
+-    bindings.insert("initial", serde_json::to_string(&State::default()).map_err(ModelError::codec)?);
+-    let created=execute(client, "BEGIN; LET $installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $installation.generation!=$generation OR $installation.schema!=$source OR $installation.schema_version!=$source_version OR $installation.admission_open { THROW 'native upgrade progress authority'; }; LET $old=SELECT * FROM ONLY $progress FOR UPDATE; IF $old=NONE { CREATE $progress SET contract=$contract,execution=$execution,state=$initial,revision=0,sealed=false RETURN NONE; }; COMMIT;", bindings).await;
+-    let (actual,created)=read_after(client,contract,created).await?;
+-    let mut progress=match actual{Some(progress)=>progress,None=>{created?;return Err(ModelError::Conflict("native upgrade progress absent"));}};
+-    if progress.contract != *contract {
+-        let mut next = progress.state.clone();
+-        if progress.contract.verifier != contract.verifier && matches!(next.pass, Pass::Verify | Pass::Ready) { next.next_pass(Pass::Verify); }
+-        let mut bindings=base_bindings(contract)?;
+-        bindings.insert("previous", serde_json::to_string(&progress.contract).map_err(ModelError::codec)?);
+-        bindings.insert("revision", progress.revision);
+-        bindings.insert("next", serde_json::to_string(&next).map_err(ModelError::codec)?);
+-        let transferred=execute(client,"BEGIN; LET $installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $installation.generation!=$generation OR $installation.schema!=$source OR $installation.schema_version!=$source_version OR $installation.admission_open { THROW 'native upgrade successor authority'; }; LET $old=SELECT * FROM ONLY $progress FOR UPDATE; IF $old.contract!=$previous OR $old.revision!=$revision OR $old.sealed { THROW 'native upgrade successor changed'; }; UPDATE $progress SET contract=$contract,execution=$execution,state=$next,revision+=1 RETURN NONE; COMMIT;",bindings).await;
+-        let (actual,transferred)=read_after(client,contract,transferred).await?;
+-        let actual=actual.ok_or(ModelError::Conflict("native upgrade successor absent"))?;
+-        if actual.contract!=*contract || actual.revision!=progress.revision+1 || actual.state!=next{transferred?;return Err(ModelError::Conflict("native upgrade successor receipt mismatch"));}
+-        progress=actual;
+-    }
+-    Ok(progress)
+-}
+-pub(crate) fn base_bindings(contract: &UpgradeExecutionContract) -> Result<Variables, ModelError> {
+-    let mut bindings=Variables::new();
+-    bindings.insert("progress", RecordId::new("native_upgrade_progress_v1",contract.migration.hex()));
+-    bindings.insert("journal",RecordId::new("native_upgrade",contract.migration.hex()));
+-    bindings.insert("contract",serde_json::to_string(contract).map_err(ModelError::codec)?);
+-    bindings.insert("execution",contract.execution.hex()); bindings.insert("generation",contract.generation.hex());
+-    bindings.insert("source",contract.source.hex()); bindings.insert("source_version",contract.source_version); bindings.insert("target",contract.target.hex());
+-    Ok(bindings)
+-}
+-async fn execute(client:&Surreal<Client>,sql:&str,bindings:Variables)->Result<(),ModelError>{
+-    crate::control::checked_transaction(client.query(sql.to_owned()).bind(bindings).await.map_err(crate::loader::write_failure)?)?;
+-    Ok(())
+-}
+-pub(crate) async fn commit(client:&Surreal<Client>,current:&Progress,next:State,body:&str,bindings:Variables, observations:Vec<Object>)->Result<Progress,ModelError>{
+-    commit_with_ack(client,current,next,body,bindings,observations,false).await
+-}
+-pub(crate) async fn commit_with_ack(client:&Surreal<Client>,current:&Progress,next:State,body:&str,mut bindings:Variables, observations:Vec<Object>,discard_ack:bool)->Result<Progress,ModelError>{
+-    next.validate()?;
+-    for (key,value) in base_bindings(&current.contract)? { bindings.insert(key,value); }
+-    bindings.insert("revision",current.revision); bindings.insert("expected_state",serde_json::to_string(&current.state).map_err(ModelError::codec)?); bindings.insert("next",serde_json::to_string(&next).map_err(ModelError::codec)?);
+-    let (observed,observed_ids)=canonical_observations(observations)?;
+-    bindings.insert("observed",observed);bindings.insert("observed_ids",observed_ids);
+-    let sql=page_query(body);
+-    let result=execute(client,&sql,bindings).await;
+-    if result.is_ok() && !discard_ack{return Ok(Progress{revision:current.revision+1,state:next,contract:current.contract.clone()});}
+-    let result=if discard_ack && result.is_ok(){Err(ModelError::Conflict("qualification deliberately discarded page acknowledgement"))}else{result};
+-    // A failed acknowledgement is never blindly replayed. Read the one authoritative slot.
+-    let (actual,result)=read_after(client,&current.contract,result).await?;
+-    let actual=actual.ok_or(ModelError::Conflict("native upgrade page receipt absent"))?;
+-    if actual.revision==current.revision+1 && actual.state==next && actual.contract==current.contract { return Ok(actual); }
+-    if let Err(error)=result { return Err(error); }
+-    Err(ModelError::Conflict("native upgrade page receipt mismatch"))
+-}
+-
+-/// Keep complete observed bodies and their native identities in exact correspondence.
+-/// A page remains one existing native window before duplicate normalization; conflicting
+-/// observations of one identity can never establish a valid input snapshot.
+-fn canonical_observations(observations:Vec<Object>)->Result<(Vec<Value>,Vec<RecordId>),ModelError>{
+-    let mut windows=crate::loader::NativeWindows::new(observations.into_iter().map(Value::Object).collect());
+-    let rows=windows.next().transpose()?.unwrap_or_default();
+-    if let Some(extra)=windows.next(){extra?;return Err(ModelError::Conflict("native upgrade observations exceed one bounded page"));}
++        if self.cursor.as_ref().is_some_and(|cursor|cursor.len()>4096) || self.component>=contract::REQUIRED_COMPONENTS.len()
++            || (matches!(self.pass,Pass::Ready|Pass::Sealed)&&(self.component!=0||self.cursor.is_some())){
++            return Err(ModelError::Conflict("migration6 bounded component cursor"));
++        }Ok(())
++    }
++    pub fn advance(&self,page:&Page)->Result<Self,ModelError>{
++        self.validate()?;
++        if matches!(self.pass,Pass::Ready|Pass::Sealed){return Err(ModelError::Conflict("migration6 no component after verification"));}
++        let mut next=self.clone();
++        if page.finished {
++            if page.cursor.is_some(){return Err(ModelError::Conflict("migration6 finished page retains cursor"));}
++            next.cursor=None;next.component+=1;
++            if next.component==contract::REQUIRED_COMPONENTS.len(){next.component=0;next.pass=match self.pass{Pass::Preflight=>Pass::Declarations,Pass::Declarations=>Pass::Transform,Pass::Transform=>Pass::Verify,Pass::Verify=>Pass::Ready,_=>unreachable!()};}
++        }else{
++            if page.cursor.is_none()||page.cursor==self.cursor{return Err(ModelError::Conflict("migration6 page makes no progress"));}next.cursor=page.cursor.clone();
++        }next.validate()?;Ok(next)
++    }
++}
++#[derive(Debug,Clone,PartialEq,Eq,Serialize,Deserialize)]
++pub struct UpgradeAdvance{pub revision:u64,pub phase:String,pub sealed:bool,pub published:bool}
++#[derive(Debug,Clone)]
++pub(crate) struct Progress{pub revision:i64,pub state:State,pub contract:UpgradeExecutionContract}
++impl Progress{
++    pub fn result(&self)->UpgradeAdvance{UpgradeAdvance{revision:self.revision as u64,phase:format!("{:?}:{}",self.state.pass,self.state.component).to_lowercase(),sealed:self.state.pass==Pass::Sealed,published:self.state.pass==Pass::Sealed}}
++}
++/// Both presence and absence are compared before a component body runs.
++pub struct Observation{pub id:RecordId,pub row:Option<Object>}
++/// Page planners must supply a checked transaction fragment, not a local-success flag.
++/// Range exhaustion is rechecked by that fragment under the original installation lock.
++pub struct Page{pub body:String,pub bindings:Variables,pub observations:Vec<Observation>,pub cursor:Option<String>,pub finished:bool}
++impl Page{
++    pub fn validate(&self,pass:Pass)->Result<(),ModelError>{
++        if self.body.trim().is_empty(){return Err(ModelError::Conflict("migration6 missing component proof/body"));}
++        if matches!(pass,Pass::Preflight|Pass::Verify){
++            // Read-only component planners are source-reviewed; a textual SQL blacklist is
++            // not a semantic security boundary. No default verifier implementation exists.
++        }
++        canonical_observations(&self.observations)?;
++        crate::control::preflight_control(&self.body,&self.bindings)
++    }
++}
++pub(crate) fn base_bindings(contract:&UpgradeExecutionContract)->Result<Variables,ModelError>{
++    let mut b=Variables::new();b.insert("m6_progress",RecordId::new("native_upgrade_progress_v2",contract.migration.hex()));
++    b.insert("m6_journal",RecordId::new("native_upgrade_v6",contract.migration.hex()));
++    b.insert("m6_contract",serde_json::to_string(contract).map_err(ModelError::codec)?);b.insert("m6_execution",contract.execution.hex());
++    b.insert("m6_original",contract.original.marker.clone());b.insert("m6_original_identity",contract.original.identity()?.hex());
++    Ok(b)
++}
++pub(crate) fn expected_source_marker(contract:&UpgradeExecutionContract,revision:i64)->Result<Object,ModelError>{
++    if revision<0{return Err(ModelError::Conflict("migration6 source checkpoint revision"));}
++    let fence=super::source_integer(&contract.original.marker,"control_revision")?.checked_add(revision).and_then(|value|value.checked_add(1)).filter(|value|*value<i64::MAX).ok_or(ModelError::Conflict("migration6 source fence exhausted"))?;
++    let mut marker=contract.original.marker.clone();marker.insert("control_revision",fence);Ok(marker)
++}
++pub(crate) const SOURCE_AUTHORITY:&str="LET $m6_installed=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $m6_installed!=$m6_expected_source { THROW 'migration6 original source/checkpoint fence changed'; };";
++const SOURCE_WRITE:&str="UPDATE native_installation:current SET control_revision+=1 RETURN NONE;";
++pub(crate) async fn execute(client:&Surreal<Client>,sql:&str,bindings:Variables)->Result<(),ModelError>{
++    crate::control::preflight_control(sql,&bindings)?;
++    crate::control::checked_transaction(client.query(sql.to_owned()).bind(bindings).await.map_err(crate::loader::write_failure)?)?;Ok(())
++}
++fn canonical_observations(observed:&[Observation])->Result<Vec<Value>,ModelError>{
+     let mut unique=std::collections::BTreeMap::new();
+-    for value in rows{
+-        let Value::Object(row)=value else{unreachable!("observation windows contain objects")};
+-        let Some(Value::RecordId(id))=row.get("id")else{return Err(ModelError::Schema("native upgrade observed identity"));};
+-        match unique.entry(id.clone()){
+-            std::collections::btree_map::Entry::Vacant(entry)=>{entry.insert(row);},
+-            std::collections::btree_map::Entry::Occupied(entry)=>{if entry.get()!=&row{return Err(ModelError::Conflict("native upgrade conflicting observations"));}},
+-        }
+-    }
+-    let ids=unique.keys().cloned().collect();
+-    let rows=unique.into_values().map(Value::Object).collect();
+-    Ok((rows,ids))
+-}
+-
+-pub(crate) fn page_query(body:&str)->String{
+-    format!("BEGIN; LET $installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $installation.generation!=$generation OR $installation.schema!=$source OR $installation.schema_version!=$source_version OR $installation.admission_open {{ THROW 'native upgrade page authority'; }}; LET $old=SELECT * FROM ONLY $progress FOR UPDATE; IF $old.contract!=$contract OR $old.execution!=$execution OR $old.revision!=$revision OR $old.state!=$expected_state OR $old.sealed {{ THROW 'native upgrade page revision'; }}; LET $journal_state=SELECT * FROM ONLY $journal FOR UPDATE; IF $journal_state.source!=$source OR $journal_state.target!=$target OR $journal_state.generation!=$generation OR $journal_state.phase NOT IN ['intent','declarations','verified'] {{ THROW 'native upgrade page original operation'; }}; LET $observed_expected=SELECT * FROM $observed ORDER BY id; LET $observed_actual=SELECT * FROM $observed_ids ORDER BY id; IF $observed_actual!=$observed_expected {{ THROW 'native upgrade page inputs changed'; }}; {body} UPDATE $progress SET state=$next,revision+=1 RETURN NONE; COMMIT;")
+-}
+-
+-/// Keep a failed write's primary outcome if acknowledgement observation also fails.
++    for observation in observed{
++        if observation.row.as_ref().is_some_and(|row|row.get("id")!=Some(&Value::RecordId(observation.id.clone()))){return Err(ModelError::Conflict("migration6 observation exact native identity"));}
++        let value=observation.row.clone().map(Value::Object).unwrap_or(Value::None);
++        if unique.insert(observation.id.clone(),value.clone()).is_some_and(|prior|prior!=value){return Err(ModelError::Conflict("migration6 conflicting full observations"));}
++    }
++    let rows=unique.into_iter().map(|(id,row)|{let mut envelope=Object::new();envelope.insert("record",id);envelope.insert("row",row);Value::Object(envelope)}).collect();
++    let mut windows=crate::loader::NativeWindows::new(rows);let rows=windows.next().transpose()?.unwrap_or_default();
++    if windows.next().is_some(){return Err(ModelError::Conflict("migration6 observations exceed bounded native page"));}Ok(rows)
++}
++pub(crate) fn activation_observations(observed:&[Observation])->Result<Vec<Value>,ModelError>{canonical_observations(observed)}
++pub(crate) const OBSERVATION_CHECK:&str="FOR $m6_observation IN $m6_observed { LET $m6_id=$m6_observation.record; LET $m6_actual=SELECT * FROM ONLY $m6_id FOR UPDATE; IF $m6_actual!=$m6_observation.row { THROW 'migration6 exact page input changed'; }; };";
++pub(crate) async fn read(client:&Surreal<Client>,contract:&UpgradeExecutionContract)->Result<Option<Progress>,ModelError>{
++    let mut response=client.query("SELECT * FROM $m6_progress").bind(base_bindings(contract)?).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
++    let rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let row=match rows.as_slice(){[]=>return Ok(None),[row]=>row,_=>return Err(ModelError::Conflict("migration6 progress cardinality"))};
++    let text=|field:&str|match row.get(field){Some(Value::String(text))=>Ok(text.as_str()),_=>Err(ModelError::Schema("migration6 progress text"))};
++    let previous:UpgradeExecutionContract=serde_json::from_str(text("contract")?).map_err(ModelError::codec)?;
++    if !contract.compatible(&previous)||text("execution")?!=previous.execution.hex(){return Err(ModelError::Conflict("migration6 incompatible acknowledged prefix"));}
++    let state:State=serde_json::from_str(text("state")?).map_err(ModelError::codec)?;state.validate()?;
++    let revision=super::source_integer(row,"revision")?;
++    if revision<0||revision==i64::MAX||row.get("sealed")!=Some(&Value::Bool(state.pass==Pass::Sealed)){return Err(ModelError::Conflict("migration6 progress shape"));}
++    Ok(Some(Progress{revision,state,contract:previous}))
++}
++/// Identity bootstrap itself is atomic with exact original source/actual drained checks.
++pub(crate) async fn acquire(client:&Surreal<Client>,contract:&UpgradeExecutionContract)->Result<Progress,ModelError>{
++    let before=read(client,contract).await?;
++    let mut b=base_bindings(contract)?;b.insert("m6_initial",serde_json::to_string(&State::default()).map_err(ModelError::codec)?);
++    b.insert("m6_revision",before.as_ref().map_or(-1,|p|p.revision));
++    b.insert("m6_expected_source",match &before{Some(p)=>expected_source_marker(contract,p.revision)?,None=>contract.original.marker.clone()});
++    let body=format!("BEGIN; {SOURCE_AUTHORITY} {} LET $m6_original_journal=SELECT * FROM ONLY $m6_journal FOR UPDATE; IF $m6_original_journal=NONE {{ CREATE $m6_journal SET contract=$m6_contract,original=$m6_original,original_identity=$m6_original_identity,phase='intent' RETURN NONE; }} ELSE IF $m6_original_journal.original!=$m6_original OR $m6_original_journal.original_identity!=$m6_original_identity {{ THROW 'migration6 original journal collision'; }}; LET $m6_old=SELECT * FROM ONLY $m6_progress FOR UPDATE; IF $m6_old=NONE {{ IF $m6_revision!=-1 {{ THROW 'migration6 bootstrap slot changed'; }}; {SOURCE_WRITE} CREATE $m6_progress SET contract=$m6_contract,execution=$m6_execution,state=$m6_initial,revision=0,sealed=false RETURN NONE; }} ELSE IF $m6_old.revision!=$m6_revision {{ THROW 'migration6 bootstrap revision changed'; }}; COMMIT;",super::SOURCE5_DRAINED);
++    let result=execute(client,&body,b).await;let (actual,result)=read_after(client,contract,result).await?;
++    let mut actual=match actual{Some(actual)=>actual,None=>{result?;return Err(ModelError::Conflict("migration6 progress missing"));}};
++    let proof=async {
++        let expected=before.as_ref().cloned().unwrap_or_else(||Progress{revision:0,state:State::default(),contract:contract.clone()});
++        if !same_progress(&actual,&expected){return Err(ModelError::Conflict("migration6 acquisition acknowledgement changed"));}
++        check_acquired_source(client,contract,&actual).await
++    }.await;
++    // An existing unchanged checkpoint cannot prove the failed acquisition check ran.
++    // Only an exact newly committed bootstrap can reconcile a lost write response.
++    settle_acknowledgement(result,proof,before.is_none())?;
++    if actual.contract!=*contract{
++        if actual.state.pass==Pass::Sealed{return Err(ModelError::Conflict("migration6 published execution immutable"));}
++        let mut next=actual.state.clone();if contract.verifier_changed(&actual.contract)&&matches!(next.pass,Pass::Verify|Pass::Ready){next=State{pass:Pass::Verify,component:0,cursor:None};}
++        let mut b=base_bindings(contract)?;b.insert("m6_previous",serde_json::to_string(&actual.contract).map_err(ModelError::codec)?);b.insert("m6_revision",actual.revision);b.insert("m6_next",serde_json::to_string(&next).map_err(ModelError::codec)?);b.insert("m6_expected_source",expected_source_marker(contract,actual.revision)?);
++        let sql=format!("BEGIN; {SOURCE_AUTHORITY} {} LET $m6_old=SELECT * FROM ONLY $m6_progress FOR UPDATE; IF $m6_old.contract!=$m6_previous OR $m6_old.revision!=$m6_revision OR $m6_old.sealed {{ THROW 'migration6 successor revision'; }}; {SOURCE_WRITE} UPDATE $m6_progress SET contract=$m6_contract,execution=$m6_execution,state=$m6_next,revision+=1 RETURN NONE; COMMIT;",super::SOURCE5_DRAINED);
++        let result=execute(client,&sql,b).await;let (observed,result)=read_after(client,contract,result).await?;let Some(observed)=observed else{result?;return Err(ModelError::Conflict("migration6 successor absent"));};
++        let expected=Progress{revision:actual.revision+1,state:next,contract:contract.clone()};
++        let proof=async {
++            if !same_progress(&observed,&expected){return Err(ModelError::Conflict("migration6 successor acknowledgement mismatch"));}
++            check_acquired_source(client,contract,&observed).await
++        }.await;
++        settle_acknowledgement(result,proof,true)?;actual=observed;
++    }Ok(actual)
++}
++fn same_progress(actual:&Progress,expected:&Progress)->bool{actual.revision==expected.revision&&actual.state==expected.state&&actual.contract==expected.contract}
++async fn check_acquired_source(client:&Surreal<Client>,contract:&UpgradeExecutionContract,progress:&Progress)->Result<(),ModelError>{
++    if super::marker(client).await?!=expected_source_marker(contract,progress.revision)?{return Err(ModelError::Conflict("migration6 acquisition source fence readback changed"));}
++    check_journal(client,contract,false).await
++}
++/// Only an independently proven NEW transition can reconcile a failed response. Failed
++/// unchanged checks preserve their primary error; failed readback retains both causes.
++fn settle_acknowledgement(write:Result<(),ModelError>,proof:Result<(),ModelError>,new_transition:bool)->Result<(),ModelError>{
++    match proof {
++        Ok(())=>if new_transition{Ok(())}else{write},
++        Err(observation)=>match write {
++            Ok(())=>Err(observation),
++            Err(primary)=>{let mut completion=lctx_model::domain::completion::Completion::default();completion.step("migration6 acquisition acknowledgement proof",Err(observation));lctx_model::domain::completion::complete(Err(primary),completion)}
++        },
++    }
++}
++pub(crate) async fn commit(client:&Surreal<Client>,current:&Progress,page:Page)->Result<Progress,ModelError>{
++    page.validate(current.state.pass)?;let next=current.state.advance(&page)?;
++    let mut b=page.bindings;for(key,value)in base_bindings(&current.contract)?{if b.get(&key).is_some(){return Err(ModelError::Conflict("migration6 reserved page binding"));}b.insert(key,value);}
++    b.insert("m6_revision",current.revision);b.insert("m6_state",serde_json::to_string(&current.state).map_err(ModelError::codec)?);b.insert("m6_next",serde_json::to_string(&next).map_err(ModelError::codec)?);b.insert("m6_observed",canonical_observations(&page.observations)?);b.insert("m6_expected_source",expected_source_marker(&current.contract,current.revision)?);
++    let sql=format!("BEGIN; {SOURCE_AUTHORITY} {} LET $m6_old=SELECT * FROM ONLY $m6_progress FOR UPDATE; IF $m6_old.contract!=$m6_contract OR $m6_old.execution!=$m6_execution OR $m6_old.revision!=$m6_revision OR $m6_old.state!=$m6_state OR $m6_old.sealed {{ THROW 'migration6 stale page'; }}; LET $m6_journal_before=SELECT * FROM ONLY $m6_journal FOR UPDATE; IF $m6_journal_before.original!=$m6_original OR $m6_journal_before.original_identity!=$m6_original_identity OR $m6_journal_before.phase!='intent' {{ THROW 'migration6 original journal changed'; }}; {OBSERVATION_CHECK} {} {SOURCE_WRITE} UPDATE $m6_progress SET state=$m6_next,revision+=1 RETURN NONE; COMMIT;",super::SOURCE5_DRAINED,page.body);
++    let result=execute(client,&sql,b).await;
++    if result.is_ok(){return Ok(Progress{revision:current.revision+1,state:next,contract:current.contract.clone()});}
++    let (actual,result)=read_after(client,&current.contract,result).await?;let Some(actual)=actual else{result?;return Err(ModelError::Conflict("migration6 page acknowledgement absent"));};
++    if actual.revision==current.revision+1&&actual.state==next&&actual.contract==current.contract{return Ok(actual);}result?;Err(ModelError::Conflict("migration6 page acknowledgement changed"))
++}
+ pub(crate) async fn read_after(client:&Surreal<Client>,contract:&UpgradeExecutionContract,write:Result<(),ModelError>)->Result<(Option<Progress>,Result<(),ModelError>),ModelError>{
+-    match read(client,contract).await{
+-        Ok(actual)=>Ok((actual,write)),
+-        Err(observation)=>match write{
+-            Ok(())=>Err(observation),
+-            Err(primary)=>{let mut completion=lctx_model::domain::completion::Completion::default();completion.step("native upgrade acknowledgement observation",Err(observation));lctx_model::domain::completion::complete(Err(primary),completion)}
+-        }
+-    }
+-}
+-
++    match read(client,contract).await{Ok(actual)=>Ok((actual,write)),Err(observation)=>match write{Ok(())=>Err(observation),Err(primary)=>{let mut completion=lctx_model::domain::completion::Completion::default();completion.step("migration6 acknowledgement observation",Err(observation));lctx_model::domain::completion::complete(Err(primary),completion)}}}
++}
+ #[cfg(test)]
+ mod tests{
+     use super::*;
+-    fn observed(key:&str,body:&str)->Object{
+-        let mut row=Object::new();row.insert("id",RecordId::new("native_history_checkpoint",key));row.insert("body",body);row
+-    }
+-    #[test]
+-    fn observations_preserve_native_ids_and_complete_bodies_with_duplicate_refusal(){
+-        let first=observed("first","source body");let second=observed("second","other body");
+-        let canonical=canonical_observations(vec![second.clone(),first.clone(),first.clone()]).unwrap();
+-        assert_eq!(canonical,canonical_observations(vec![first.clone(),second]).unwrap());
+-        assert_eq!(canonical.0.len(),2);
+-        for (row,id) in canonical.0.iter().zip(&canonical.1){let Value::Object(row)=row else{panic!("complete object expected")};assert_eq!(row.get("id"),Some(&Value::RecordId(id.clone())));assert!(row.contains_key("body"));}
+-        assert!(canonical_observations(vec![first,observed("first","changed body")]).is_err());
+-        let mut text_id=Object::new();text_id.insert("id","native_history_checkpoint:first");assert!(canonical_observations(vec![text_id]).is_err());
+-        assert_eq!(canonical_observations(vec![]).unwrap(),(vec![],vec![]));
+-    }
+-    #[test]
+-    fn observation_window_retains_existing_row_and_byte_bounds(){
+-        let rows=(0..=crate::loader::NATIVE_WINDOW_ROWS).map(|index|observed(&index.to_string(),"body")).collect();assert!(canonical_observations(rows).is_err());
+-        let body="x".repeat(lctx_model::domain::resources::TRANSFER_BYTES/2);
+-        assert!(canonical_observations(vec![observed("first",&body),observed("second",&body)]).is_err());
+-        // The existing window permits one large row within the separate max-row bound.
+-        assert!(canonical_observations(vec![observed("single",&body)]).is_ok());
+-    }
+-    #[test]
+-    fn bounded_history_cursor_roundtrips_and_resets_at_pass_boundary(){
+-        let mut state=State::default();state.after=Some(RecordId::new("native_history_checkpoint","consumed"));assert!(state.validate().is_ok());
+-        let restored:State=serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();assert_eq!(restored,state);
+-        state.next_pass(Pass::Verify);assert!(state.after.is_none());assert!(state.validate().is_ok());
+-        surrealdb_syn::parse(&page_query("UPDATE $progress SET state='qualification-rollback-sentinel' RETURN NONE; THROW 'deliberate upgrade qualification rollback';")).unwrap();
+-    }
+-    #[test]
+-    fn foreign_or_terminal_history_cursor_refuses(){
+-        let mut state=State::default();state.after=Some(RecordId::new("native_effect","foreign"));assert!(state.validate().is_err());
+-        state.after=Some(RecordId::new("native_history_checkpoint","cursor"));state.pass=Pass::Ready;assert!(state.validate().is_err());
+-    }
+-}
++    fn contract()->UpgradeExecutionContract{
++        let hash=ContentHash::of(b"identity");let mut marker=Object::new();marker.insert("control_revision",50i64);
++        let original=OriginalSource{commit:SOURCE_COMMIT.into(),marker,installer_executable_sha256:hash.hex(),installer_drain_receipt_sha256:hash.hex(),host_borrower_drain_receipt_sha256:hash.hex(),retained_obligation_inventory:hash};
++        UpgradeExecutionContract{format:3,source_version:5,target_version:6,kind:TRANSITION_KIND.into(),migration:hash,execution:hash,source:hash,target:hash,generation:hash,overlay:hash,protocol:hash,preflight:hash,verifier:hash,namespace:"owned".into(),database:"validation".into(),original,components:REQUIRED_COMPONENTS.into_iter().map(|component|ComponentContract{component,preflight:hash,declarations:hash,transform:hash,verifier:hash}).collect(),target_executable_sha256:hash.hex(),activation:hash}
++    }
++    #[test]
++    fn unchanged_existing_acquisition_cannot_reconcile_a_failed_check(){
++        let old=Progress{revision:8,state:State::default(),contract:contract()};
++        assert!(same_progress(&old,&old));
++        let error=settle_acknowledgement(Err(ModelError::Conflict("source/drain check failed")),Ok(()),false).unwrap_err();
++        assert!(matches!(error,ModelError::Conflict("source/drain check failed")));
++        assert!(settle_acknowledgement(Ok(()),Ok(()),false).is_ok());
++        let error=settle_acknowledgement(Err(ModelError::Conflict("source/drain check failed")),Err(ModelError::Conflict("original journal readback failed")),false).unwrap_err();
++        let text=error.to_string();assert!(text.contains("source/drain check failed"));assert!(text.contains("original journal readback failed"));
++    }
++    #[test]
++    fn only_exact_bootstrap_or_ownership_transfer_can_reconcile_lost_ack(){
++        let contract=contract();let bootstrap=Progress{revision:0,state:State::default(),contract:contract.clone()};
++        assert!(same_progress(&bootstrap,&Progress{revision:0,state:State::default(),contract:contract.clone()}));
++        assert!(settle_acknowledgement(Err(ModelError::Conflict("lost bootstrap response")),Ok(()),true).is_ok());
++        let transfer=Progress{revision:9,state:State{pass:Pass::Verify,component:0,cursor:None},contract};
++        assert!(!same_progress(&bootstrap,&transfer));
++        assert!(settle_acknowledgement(Err(ModelError::Conflict("lost transfer response")),Ok(()),true).is_ok());
++        for primary in [false,true]{
++            let write=if primary{Err(ModelError::Conflict("lost response"))}else{Ok(())};
++            let error=settle_acknowledgement(write,Err(ModelError::Conflict("source/journal proof failed")),true).unwrap_err();
++            assert!(error.to_string().contains("source/journal proof failed"));if primary{assert!(error.to_string().contains("lost response"));}
++        }
++    }
++    #[test]
++    fn source_fence_revision_tracks_progress_without_mutating_original(){
++        let original=contract();let unchanged=original.clone();
++        assert_eq!(source_integer(&expected_source_marker(&original,0).unwrap(),"control_revision").unwrap(),51);
++        assert_eq!(source_integer(&expected_source_marker(&original,99).unwrap(),"control_revision").unwrap(),150);
++        assert_eq!(original,unchanged);assert!(expected_source_marker(&original,-1).is_err());assert!(expected_source_marker(&original,i64::MAX).is_err());
++    }
++    #[test]
++    fn only_compatible_verifier_corrections_preserve_transformed_prefix(){
++        let original=contract();let mut correction=original.clone();correction.execution=ContentHash::of(b"successor execution");correction.target_executable_sha256=ContentHash::of(b"actual corrected verifier executable").hex();correction.components[3].verifier=ContentHash::of(b"corrected verifier");
++        assert!(correction.compatible(&original));assert!(correction.verifier_changed(&original));
++        correction.components[3].transform=ContentHash::of(b"changed conversion");assert!(!correction.compatible(&original));
++        correction=original.clone();correction.original.marker.insert("control_revision",51i64);assert!(!correction.compatible(&original));
++        correction=original.clone();correction.activation=ContentHash::of(b"changed cutover");assert!(!correction.compatible(&original));
++    }
++    #[test]
++    fn all_components_in_all_passes_precede_ready(){
++        let mut state=State::default();let page=||Page{body:"RETURN true;".into(),bindings:Variables::new(),observations:vec![],cursor:None,finished:true};
++        for pass in [Pass::Preflight,Pass::Declarations,Pass::Transform,Pass::Verify]{for component in 0..contract::REQUIRED_COMPONENTS.len(){assert_eq!(state.pass,pass);assert_eq!(state.component,component);state=state.advance(&page()).unwrap();}}
++        assert_eq!(state.pass,Pass::Ready);assert!(state.advance(&page()).is_err());
++    }
++    #[test]
++    fn exact_presence_absence_and_conflicting_observations(){
++        let id=RecordId::new("native_effect","original");let mut row=Object::new();row.insert("id",id.clone());row.insert("request","original");
++        assert!(canonical_observations(&[Observation{id:id.clone(),row:None}]).is_ok());
++        assert!(canonical_observations(&[Observation{id:id.clone(),row:Some(row.clone())},Observation{id,row:None}]).is_err());
++        let page=Page{body:String::new(),bindings:Variables::new(),observations:vec![],cursor:None,finished:true};assert!(page.validate(Pass::Verify).is_err());
++    }
++}
+--- a/crates/lctx-native/src/upgrade/progress.surql
++++ b/crates/lctx-native/src/upgrade/progress.surql
+@@ -1,6 +1,22 @@
+-DEFINE TABLE native_upgrade_progress_v1 SCHEMAFULL;
+-DEFINE FIELD contract ON native_upgrade_progress_v1 TYPE string;
+-DEFINE FIELD execution ON native_upgrade_progress_v1 TYPE string;
+-DEFINE FIELD state ON native_upgrade_progress_v1 TYPE string;
+-DEFINE FIELD revision ON native_upgrade_progress_v1 TYPE int;
+-DEFINE FIELD sealed ON native_upgrade_progress_v1 TYPE bool;
++// Separate format-six overlay. Historical native_upgrade/progress_v1 remain original data.
++DEFINE TABLE native_upgrade_v6 SCHEMAFULL;
++DEFINE FIELD contract ON native_upgrade_v6 TYPE string;
++DEFINE FIELD original ON native_upgrade_v6 FLEXIBLE TYPE object;
++DEFINE FIELD original_identity ON native_upgrade_v6 TYPE string;
++DEFINE FIELD phase ON native_upgrade_v6 TYPE string;
++DEFINE TABLE native_upgrade_progress_v2 SCHEMAFULL;
++DEFINE FIELD contract ON native_upgrade_progress_v2 TYPE string;
++DEFINE FIELD execution ON native_upgrade_progress_v2 TYPE string;
++DEFINE FIELD state ON native_upgrade_progress_v2 TYPE string;
++DEFINE FIELD revision ON native_upgrade_progress_v2 TYPE int;
++DEFINE FIELD sealed ON native_upgrade_progress_v2 TYPE bool;
++DEFINE TABLE native_upgrade_frozen_v6 SCHEMAFULL;
++DEFINE FIELD journal ON native_upgrade_frozen_v6 TYPE record<native_upgrade_v6>;
++DEFINE FIELD attempt ON native_upgrade_frozen_v6 TYPE record<native_attempt>;
++DEFINE FIELD original_attempt ON native_upgrade_frozen_v6 FLEXIBLE TYPE object;
++DEFINE FIELD original_effect ON native_upgrade_frozen_v6 FLEXIBLE TYPE object;
++DEFINE FIELD target_state ON native_upgrade_frozen_v6 TYPE string;
++DEFINE INDEX frozen_upgrade_attempt ON native_upgrade_frozen_v6 FIELDS journal,attempt UNIQUE;
++// This pointer is written only in the atomic format publication. It is retained data,
++// never permission to execute an old source effect under target coordination.
++DEFINE FIELD source5_upgrade ON native_installation TYPE option<record<native_upgrade_v6>>;
+--- /dev/null
++++ b/crates/lctx-native/src/upgrade/source5-control.surql
+@@ -0,0 +1,132 @@
++DEFINE TABLE native_installation SCHEMAFULL;
++DEFINE FIELD generation ON native_installation TYPE string;
++DEFINE FIELD schema ON native_installation TYPE string;
++DEFINE FIELD schema_version ON native_installation TYPE int;
++DEFINE FIELD admission_open ON native_installation TYPE bool;
++DEFINE FIELD backup_revision ON native_installation TYPE option<int>;
++DEFINE FIELD admission_revision ON native_installation TYPE option<int>;
++DEFINE FIELD control_revision ON native_installation TYPE int DEFAULT 0;
++DEFINE FIELD era ON native_installation TYPE int DEFAULT 0;
++DEFINE FIELD closed_through ON native_installation TYPE int DEFAULT 0;
++DEFINE FIELD history_inventory ON native_installation TYPE option<string>;
++DEFINE TABLE native_attempt SCHEMAFULL;
++DEFINE FIELD id ON native_attempt TYPE string;
++DEFINE FIELD generation ON native_attempt TYPE string;
++DEFINE FIELD era ON native_attempt TYPE int DEFAULT 0;
++DEFINE FIELD state ON native_attempt TYPE string;
++DEFINE FIELD revision ON native_attempt TYPE int;
++DEFINE FIELD admitted ON native_attempt TYPE bool;
++DEFINE FIELD admitted_view ON native_attempt TYPE option<string>;
++DEFINE FIELD epoch ON native_attempt TYPE int;
++DEFINE INDEX live_attempts ON native_attempt FIELDS state,id;
++DEFINE TABLE native_effect SCHEMAFULL;
++DEFINE FIELD id ON native_effect TYPE string;
++DEFINE FIELD attempt ON native_effect TYPE option<record<native_attempt>>;
++DEFINE FIELD owner ON native_effect TYPE option<record>;
++DEFINE FIELD owner_kind ON native_effect TYPE string DEFAULT 'legacy';
++DEFINE FIELD generation ON native_effect TYPE string DEFAULT '';
++DEFINE FIELD era ON native_effect TYPE int DEFAULT 0;
++DEFINE FIELD request ON native_effect TYPE string;
++DEFINE FIELD committed ON native_effect TYPE bool;
++DEFINE FIELD resolved ON native_effect TYPE bool;
++DEFINE FIELD revision ON native_effect TYPE int;
++DEFINE FIELD epoch ON native_effect TYPE int;
++DEFINE INDEX live_effects ON native_effect FIELDS resolved,id;
++DEFINE INDEX attempt_effects ON native_effect FIELDS attempt,id;
++DEFINE INDEX owner_effects ON native_effect FIELDS owner,resolved,id;
++DEFINE TABLE native_guard SCHEMAFULL;
++DEFINE FIELD revision ON native_guard TYPE int;
++DEFINE FIELD retired ON native_guard TYPE bool;
++DEFINE FIELD retired_through ON native_guard TYPE option<int>;
++DEFINE FIELD phase ON native_guard TYPE string DEFAULT 'active';
++DEFINE FIELD incarnation ON native_guard TYPE int DEFAULT 1;
++DEFINE FIELD retiring_item ON native_guard TYPE option<record<native_retirement_item>>;
++DEFINE TABLE native_hold SCHEMAFULL;
++DEFINE FIELD owner ON native_hold TYPE record;
++DEFINE FIELD object ON native_hold TYPE record;
++DEFINE INDEX object_holds ON native_hold FIELDS object,owner UNIQUE;
++DEFINE INDEX owner_holds ON native_hold FIELDS owner,object;
++DEFINE TABLE native_pin SCHEMAFULL;
++DEFINE FIELD id ON native_pin TYPE string;
++DEFINE FIELD views ON native_pin TYPE array<record<compiler_view>>;
++DEFINE FIELD released ON native_pin TYPE bool;
++DEFINE FIELD epoch ON native_pin TYPE int;
++DEFINE FIELD generation ON native_pin TYPE string DEFAULT '';
++DEFINE FIELD era ON native_pin TYPE int DEFAULT 0;
++DEFINE INDEX live_pins ON native_pin FIELDS released,id;
++DEFINE TABLE native_product SCHEMAFULL;
++DEFINE FIELD request ON native_product TYPE string;
++DEFINE FIELD contribution ON native_product TYPE record<compiler_contribution>;
++DEFINE INDEX request_product ON native_product FIELDS request;
++DEFINE INDEX contribution_products ON native_product FIELDS contribution;
++DEFINE TABLE native_retirement SCHEMAFULL;
++DEFINE FIELD id ON native_retirement TYPE string;
++DEFINE FIELD examined ON native_retirement TYPE int;
++DEFINE FIELD retired ON native_retirement TYPE int;
++DEFINE FIELD revision ON native_retirement TYPE int;
++DEFINE FIELD generation ON native_retirement TYPE string DEFAULT '';
++DEFINE FIELD era ON native_retirement TYPE int DEFAULT 0;
++DEFINE FIELD epoch ON native_retirement TYPE int DEFAULT 0;
++DEFINE FIELD root_digest ON native_retirement TYPE string DEFAULT '';
++DEFINE FIELD state ON native_retirement TYPE string DEFAULT 'legacy_protected';
++DEFINE FIELD successor ON native_retirement TYPE option<record<native_retirement>>;
++DEFINE FIELD lineage ON native_retirement TYPE option<record<native_retirement>>;
++DEFINE FIELD root_count ON native_retirement TYPE int DEFAULT 0;
++DEFINE FIELD roots_registered ON native_retirement TYPE int DEFAULT 0;
++DEFINE FIELD predecessor ON native_retirement TYPE option<record<native_retirement>>;
++DEFINE FIELD recovery_source ON native_retirement TYPE option<record<native_retirement>>;
++DEFINE INDEX live_retirements ON native_retirement FIELDS state,id;
++DEFINE INDEX lineage_retirements ON native_retirement FIELDS lineage,state,id;
++DEFINE TABLE native_retirement_item SCHEMAFULL;
++DEFINE FIELD id ON native_retirement_item TYPE string;
++DEFINE FIELD job ON native_retirement_item TYPE record<native_retirement>;
++DEFINE FIELD object ON native_retirement_item TYPE record;
++DEFINE FIELD state ON native_retirement_item TYPE string;
++DEFINE FIELD incarnation ON native_retirement_item TYPE int DEFAULT 0;
++DEFINE FIELD cutoff ON native_retirement_item TYPE option<int>;
++DEFINE FIELD successor ON native_retirement_item TYPE option<record<native_retirement_item>>;
++DEFINE INDEX retirement_queue_v4 ON native_retirement_item FIELDS job,state,id;
++DEFINE INDEX object_retirements ON native_retirement_item FIELDS object,state,id;
++DEFINE TABLE native_backup_hold SCHEMAFULL;
++DEFINE FIELD id ON native_backup_hold TYPE string;
++DEFINE FIELD active ON native_backup_hold TYPE bool;
++DEFINE FIELD generation ON native_backup_hold TYPE string DEFAULT '';
++DEFINE FIELD era ON native_backup_hold TYPE int DEFAULT 0;
++DEFINE FIELD epoch ON native_backup_hold TYPE int DEFAULT 0;
++DEFINE INDEX live_backups ON native_backup_hold FIELDS active,id;
++DEFINE TABLE native_outcome_ref SCHEMAFULL;
++DEFINE FIELD effect ON native_outcome_ref TYPE option<record<native_effect>>;
++DEFINE FIELD object ON native_outcome_ref TYPE option<record>;
++DEFINE FIELD owner ON native_outcome_ref TYPE string;
++DEFINE FIELD kind ON native_outcome_ref TYPE string;
++DEFINE INDEX effect_outcome_refs ON native_outcome_ref FIELDS effect,owner,kind;
++DEFINE INDEX object_outcome_refs ON native_outcome_ref FIELDS object,owner,kind;
++DEFINE TABLE native_cleanup SCHEMAFULL;
++DEFINE FIELD id ON native_cleanup TYPE string;
++DEFINE FIELD attempt ON native_cleanup TYPE record<native_attempt>;
++DEFINE FIELD generation ON native_cleanup TYPE string;
++DEFINE FIELD era ON native_cleanup TYPE int;
++DEFINE FIELD epoch ON native_cleanup TYPE int;
++DEFINE FIELD owners ON native_cleanup TYPE array<record>;
++DEFINE FIELD unadmitted ON native_cleanup TYPE bool;
++DEFINE FIELD state ON native_cleanup TYPE string;
++DEFINE FIELD successor ON native_cleanup TYPE option<record<native_cleanup>>;
++DEFINE INDEX live_cleanup ON native_cleanup FIELDS state,id;
++DEFINE INDEX attempt_cleanup ON native_cleanup FIELDS attempt,state,id;
++DEFINE TABLE native_history_checkpoint SCHEMAFULL;
++DEFINE FIELD generation ON native_history_checkpoint TYPE string;
++DEFINE FIELD era ON native_history_checkpoint TYPE int DEFAULT 0;
++DEFINE FIELD epoch ON native_history_checkpoint TYPE int DEFAULT 0;
++DEFINE FIELD closed_through ON native_history_checkpoint TYPE int;
++DEFINE FIELD revision ON native_history_checkpoint TYPE int;
++DEFINE FIELD removed_effects ON native_history_checkpoint TYPE int;
++DEFINE FIELD removed_records ON native_history_checkpoint TYPE int DEFAULT 0;
++DEFINE FIELD phase ON native_history_checkpoint TYPE string DEFAULT 'effect';
++DEFINE FIELD state ON native_history_checkpoint TYPE string;
++DEFINE FIELD after ON native_history_checkpoint TYPE option<record>;
++DEFINE FIELD last_page ON native_history_checkpoint TYPE option<object> FLEXIBLE;
++DEFINE TABLE native_upgrade SCHEMAFULL;
++DEFINE FIELD source ON native_upgrade TYPE string;
++DEFINE FIELD target ON native_upgrade TYPE string;
++DEFINE FIELD generation ON native_upgrade TYPE string;
++DEFINE FIELD phase ON native_upgrade TYPE string;
+--- a/crates/lctx-native/src/upgrade.rs
++++ b/crates/lctx-native/src/upgrade.rs
+@@ -1,193 +1,176 @@
+-//! Explicit, resumable migration under the host's drained, closed maintenance capability.
+-//! Ordinary runtime attachment never installs or consumes this progress overlay.
+-use crate::{AuthenticationScope, Loader, RuntimeConfig, reader};
+-use lctx_model::domain::{ContentHash, ModelError};
+-use surrealdb::{Surreal, engine::remote::grpc::Client, types::{Object, Value, Variables}};
++//! Actual adjacent source5→6 maintenance foundation. No target runtime consumes source5.
++//! Source4 history-page conversion remains historical data, never format6 qualification.
++use crate::{AuthenticationScope,RuntimeConfig,reader};
++use lctx_model::domain::{ContentHash,ModelError};
++use surrealdb::{Surreal,engine::remote::grpc::Client,types::{Object,RecordId,Value,Variables}};
++use std::sync::Arc;
+ mod contract;
+ pub(crate) mod source5_originals;
+ pub(crate) mod source5_rows;
+-pub use contract::{UpgradeExecutionContract, overlay_schema_identity, transition_protocol_identity, preflight_contract_identity, verifier_identity};
+ pub(crate) mod progress;
+-pub use progress::UpgradeAdvance;
+-use progress::{Pass, Progress};
++pub use contract::{UpgradeExecutionContract,OriginalSource,Component,ComponentContract,REQUIRED_COMPONENTS,
++    overlay_schema_identity,transition_protocol_identity,preflight_contract_identity,verifier_identity};
++pub use progress::{UpgradeAdvance,Pass,State,Page,Observation};
++pub use crate::control::migration6::{ControlComponent,Source5FrozenReceipts};
+ pub(crate) fn native(value:impl surrealdb::types::SurrealValue)->Value{value.into_value()}
++pub const SOURCE_SCHEMA:&str="eec4dc767fe4477fbfc3f5a584b54a6c8855345af02c3390ad5f77ac326e0383";
++pub const SOURCE_VERSION:u32=5;
++pub const SOURCE_COMMIT:&str="ebcf423cc16e6cacea6455500a0cdfc9795d08ac";
++pub const TRANSITION_KIND:&str="adjacent_source5_to_native6";
+ 
+-pub const SOURCE_SCHEMA: &str = "0870158e2d5568650845dd61f61884384c44315071f0b0dc402d02994a4798da";
+-pub const SOURCE_VERSION:u32=4;
+-pub const TRANSITION_KIND:&str="history_page_receipts_v5";
+-const JOURNAL_SCHEMA: &str = "DEFINE TABLE native_upgrade SCHEMAFULL; DEFINE FIELD source ON native_upgrade TYPE string; DEFINE FIELD target ON native_upgrade TYPE string; DEFINE FIELD generation ON native_upgrade TYPE string; DEFINE FIELD phase ON native_upgrade TYPE string;";
+-
+-fn check_source(row: &Object, config: &RuntimeConfig, expected: ContentHash) -> Result<(), ModelError> {
+-    if expected.hex() != SOURCE_SCHEMA || row.get("generation") != Some(&Value::String(config.service_generation.hex())) || row.get("admission_open") != Some(&Value::Bool(false)) || row.get("schema") != Some(&Value::String(expected.hex())) || row.get("schema_version") != Some(&native(i64::from(SOURCE_VERSION))) {
+-        return Err(ModelError::Conflict("exact source4 native upgrade/generation/closed admission"));
++/// Host adapter must retain the exclusive maintenance/borrower locks throughout this
++/// call, authenticate actual original CLI bytes/receipt and recheck actual owner drainage.
++/// A parsed contract, closed marker or process exit does not implement this capability.
++/// There is deliberately no permissive/default implementation in the native library.
++pub trait Source5MaintenanceLease:Send+Sync {
++    fn recheck_original_execution_and_drain(&self,contract:&UpgradeExecutionContract)->Result<(),ModelError>;
++}
++/// Every component implements all four phases; an empty source requires an actual
++/// bounded empty-range check. No fallback verifier or unregistered no-op exists.
++pub trait MigrationComponent:Send+Sync {
++    fn contract(&self)->ComponentContract;
++    fn prepare<'a>(&'a self,client:&'a Surreal<Client>,contract:&'a UpgradeExecutionContract,state:&'a State)
++        ->futures::future::BoxFuture<'a,Result<Page,ModelError>>;
++}
++pub struct ActivationPlan{pub body:String,pub bindings:Variables,pub observations:Vec<Observation>}
++/// Root's aggregate must authenticate all converted closures/admission/consumer mappings
++/// and supply exact FINAL target declarations. This is mandatory, not native's empty hook.
++pub trait AggregateActivation:Send+Sync {
++    fn identity(&self)->ContentHash;
++    fn prepare<'a>(&'a self,client:&'a Surreal<Client>,contract:&'a UpgradeExecutionContract)
++        ->futures::future::BoxFuture<'a,Result<ActivationPlan,ModelError>>;
++}
++pub struct MigrationRegistry<'a>{components:Vec<&'a dyn MigrationComponent>,activation:&'a dyn AggregateActivation}
++impl<'a> MigrationRegistry<'a>{
++    pub fn new(components:Vec<&'a dyn MigrationComponent>,activation:&'a dyn AggregateActivation)->Result<Self,ModelError>{
++        if components.iter().map(|c|c.contract().component).collect::<Vec<_>>()!=REQUIRED_COMPONENTS{return Err(ModelError::Conflict("migration6 exact required handler registry"));}
++        Ok(Self{components,activation})
+     }
+-    source_marker_fields(row)
++    fn validate(&self,contract:&UpgradeExecutionContract)->Result<(),ModelError>{
++        if self.activation.identity()!=contract.activation || self.components.iter().map(|c|c.contract()).collect::<Vec<_>>()!=contract.components{return Err(ModelError::Conflict("migration6 handler implementation differs from immutable contract"));}Ok(())
++    }
+ }
+-fn source_marker_fields(row:&Object)->Result<(),ModelError>{
+-    let integer=|name:&str|match row.get(name){Some(Value::Number(surrealdb::types::Number::Int(value)))=>Ok(*value),_=>Err(ModelError::Schema("source4 installation integer"))};
+-    let era=integer("era")?;let closed=integer("closed_through")?;let revision=integer("control_revision")?;
+-    if era<=0 || closed<0 || closed>=era || revision<0 || revision==i64::MAX{return Err(ModelError::Conflict("source4 installation era/watermarks"));}
+-    for field in ["admission_revision","backup_revision"]{
+-        if row.get(field).is_some_and(|value|*value!=Value::None && !matches!(value,Value::Number(surrealdb::types::Number::Int(value)) if *value>=0)){return Err(ModelError::Schema("source4 installation optional watermark"));}
++pub(super) fn source_integer(row:&Object,field:&str)->Result<i64,ModelError>{match row.get(field){Some(Value::Number(surrealdb::types::Number::Int(value)))=>Ok(*value),_=>Err(ModelError::Schema("source5 original integer"))}}
++pub(super) fn check_source_marker(row:&Object,generation:ContentHash)->Result<(),ModelError>{
++    let era=source_integer(row,"era")?;let closed=source_integer(row,"closed_through")?;let revision=source_integer(row,"control_revision")?;
++    if row.get("id")!=Some(&Value::RecordId(RecordId::new("native_installation","current")))
++        ||row.get("generation")!=Some(&native(generation.hex()))||row.get("schema")!=Some(&native(SOURCE_SCHEMA))
++        ||source_integer(row,"schema_version")?!=5||row.get("admission_open")!=Some(&native(false))
++        ||era<=0||closed<0||closed>=era||era==i64::MAX||revision<0||revision==i64::MAX{
++        return Err(ModelError::Conflict("exact original source5 generation/closed era"));
+     }
+-    if row.get("history_inventory").is_some_and(|value|*value!=Value::None && !matches!(value,Value::String(value) if !value.is_empty())){return Err(ModelError::Schema("source4 installation history consumer inventory"));}
++    // Actual source5 ordinals only; never used to allocate target ordinary owners.
++    for field in ["admission_revision","backup_revision"]{if row.get(field).is_some_and(|value|*value!=Value::None)&&source_integer(row,field)?<0{return Err(ModelError::Conflict("source5 original watermark"));}}
+     Ok(())
+ }
+-async fn marker(client: &Surreal<Client>) -> Result<Object, ModelError> {
++/// Source5 frozen was an OLD terminal label. It is audited against its actual original
++/// terminal receipt by Control before conversion; it is not the active format6 freeze.
++/// This cannot substitute for host/remote drainage, supplied by the maintenance lease.
++pub(crate) const SOURCE5_DRAINED:&str="IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','closing'] LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_retirement WITH INDEX live_retirements WHERE state='registering' LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_cleanup WITH INDEX live_cleanup WHERE state='open' AND array::len(owners)>0 LIMIT 1)>0 { THROW 'source5 original installer drainage prerequisite'; };";
++async fn marker(client:&Surreal<Client>)->Result<Object,ModelError>{
+     let mut response=client.query("SELECT * FROM native_installation:current").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+-    let rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
+-    let [row]=rows.as_slice() else { return Err(ModelError::Conflict("native upgrade installation marker")); };
+-    Ok(row.clone())
++    let rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let [row]=rows.as_slice()else{return Err(ModelError::Conflict("migration6 installation cardinality"));};Ok(row.clone())
+ }
+-/// The host maintenance owner supplies borrower-drain proof; native state alone cannot grant it.
+-pub async fn maintenance_client(config: &RuntimeConfig) -> Result<std::sync::Arc<Surreal<Client>>, ModelError> {
+-    if config.authentication != AuthenticationScope::Root { return Err(ModelError::Conflict("native lifecycle maintenance requires installer authority")); }
++/// Existing target maintenance route remains target-only. Source migration never calls it.
++pub async fn maintenance_client(config:&RuntimeConfig)->Result<Arc<Surreal<Client>>,ModelError>{
++    if config.authentication!=AuthenticationScope::Root{return Err(ModelError::Conflict("native maintenance installer authority"));}
+     let client=crate::installation::check_installation(config).await?;
+-    let checked=async {
+-        if marker(&client).await?.get("admission_open")!=Some(&Value::Bool(false)) { return Err(ModelError::Conflict("native lifecycle maintenance requires closed admission")); }
+-        crate::control::check_pending_effects(&client).await
+-    }.await;
+-    if let Err(error)=checked{
+-        let mut completion=lctx_model::domain::completion::Completion::default();
+-        completion.step("failed maintenance session invalidation",client.invalidate().await.map_err(ModelError::codec));
+-        return lctx_model::domain::completion::complete(Err(error),completion);
+-    }
+-    Ok(client)
++    let result=async{if marker(&client).await?.get("admission_open")!=Some(&native(false)){return Err(ModelError::Conflict("native maintenance closed admission"));}crate::control::check_pending_effects(&client).await}.await;
++    if let Err(error)=result{let mut completion=lctx_model::domain::completion::Completion::default();completion.step("failed maintenance session invalidation",client.invalidate().await.map_err(ModelError::codec));return lctx_model::domain::completion::complete(Err(error),completion);}Ok(client)
++}
++pub(crate) async fn current_source_marker(client:&Surreal<Client>,contract:&UpgradeExecutionContract)->Result<Object,ModelError>{
++    let progress=progress::read(client,contract).await?.ok_or(ModelError::Conflict("migration6 current source progress missing"))?;
++    let expected=progress::expected_source_marker(contract,progress.revision)?;let actual=marker(client).await?;
++    if actual!=expected{return Err(ModelError::Conflict("migration6 current source fence changed"));}Ok(actual)
+ }
+ async fn check_journal(client:&Surreal<Client>,contract:&UpgradeExecutionContract,published:bool)->Result<(),ModelError>{
+-    let mut response=client.query("SELECT * FROM $journal").bind(progress::base_bindings(contract)?).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+-    let rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let [journal]=rows.as_slice() else{return Err(ModelError::Conflict("native upgrade journal missing"));};
+-    if journal.get("source")!=Some(&native(contract.source.hex())) || journal.get("target")!=Some(&native(contract.target.hex())) || journal.get("generation")!=Some(&native(contract.generation.hex())) || !matches!(journal.get("phase"),Some(Value::String(phase)) if if published{phase=="published"}else{matches!(phase.as_str(),"intent"|"declarations"|"verified")}) {return Err(ModelError::Conflict("native upgrade journal identity/phase"));}
+-    Ok(())
++    let mut response=client.query("SELECT * FROM $m6_journal").bind(progress::base_bindings(contract)?).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
++    let rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let [row]=rows.as_slice()else{return Err(ModelError::Conflict("migration6 original journal missing"));};
++    let Some(Value::String(text))=row.get("contract")else{return Err(ModelError::Schema("migration6 original journal contract"));};let original:UpgradeExecutionContract=serde_json::from_str(text).map_err(ModelError::codec)?;
++    if !contract.compatible(&original)||row.get("original")!=Some(&Value::Object(contract.original.marker.clone()))||row.get("original_identity")!=Some(&native(contract.original.identity()?.hex()))||row.get("phase")!=Some(&native(if published{"published"}else{"intent"})){return Err(ModelError::Conflict("migration6 exact retained original journal"));}Ok(())
+ }
+-/// Run or advance an explicitly identified execution. `Some(0)` establishes only identity;
+-/// `Some(n)` stops after at most n durable checkpoints and before publication if ready.
+-/// The host must independently finish executable definitions and its durable scope receipt.
+-pub async fn upgrade_with_contract(config:&RuntimeConfig,contract:&UpgradeExecutionContract,native_definitions:&str,stop_after_pages:Option<u64>)->Result<UpgradeAdvance,ModelError>{
+-    contract.validate(config)?;
+-    if config.authentication!=AuthenticationScope::Root{return Err(ModelError::Conflict("native upgrade requires installer authority"));}
++/// There is no current CLI default registry. Root must wire every actual typed converter
++/// and the authenticated live host lease; an old format2 contract refuses before effects.
++pub async fn upgrade_with_contract(config:&RuntimeConfig,contract:&UpgradeExecutionContract,registry:&MigrationRegistry<'_>,host:&dyn Source5MaintenanceLease,stop_after_pages:Option<u64>)->Result<UpgradeAdvance,ModelError>{
++    contract.validate(config)?;registry.validate(contract)?;host.recheck_original_execution_and_drain(contract)?;
++    if config.authentication!=AuthenticationScope::Root{return Err(ModelError::Conflict("source5 upgrade original installer/root authority"));}
+     let client=reader::connect(&config.endpoint,&config.writer_credentials(),config.namespace.as_str(),config.database.as_str()).await?;
+-    let result=upgrade_in(&client,config,contract,native_definitions,stop_after_pages).await;
+-    let mut completion=lctx_model::domain::completion::Completion::default();
+-    completion.step("native upgrade session invalidation",client.invalidate().await.map_err(ModelError::codec));
+-    lctx_model::domain::completion::complete(result,completion)
++    let result=upgrade_in(&client,config,contract,registry,host,stop_after_pages).await;
++    let mut completion=lctx_model::domain::completion::Completion::default();completion.step("migration6 session invalidation",client.invalidate().await.map_err(ModelError::codec));lctx_model::domain::completion::complete(result,completion)
+ }
+-async fn upgrade_in(client:&std::sync::Arc<Surreal<Client>>,config:&RuntimeConfig,contract:&UpgradeExecutionContract,native_definitions:&str,stop_after_pages:Option<u64>)->Result<UpgradeAdvance,ModelError>{
++async fn upgrade_in(client:&Arc<Surreal<Client>>,config:&RuntimeConfig,contract:&UpgradeExecutionContract,registry:&MigrationRegistry<'_>,host:&dyn Source5MaintenanceLease,stop:Option<u64>)->Result<UpgradeAdvance,ModelError>{
++    let version=client.version().await.map_err(ModelError::codec)?.to_string();
++    if !version.starts_with("3.3.0"){return Err(ModelError::Conflict("source5 migration pinned server protocol"));}
+     let installed=marker(client).await?;
+-    let loader=Loader::new(client.clone());
+-    let mut catalog=loader.installation_catalog().await?;
+-    let published=installed.get("schema_version")==Some(&native(crate::control::SCHEMA_VERSION)) && installed.get("schema")==Some(&native(contract.target.hex()));
+-    if published {
+-        if installed.get("generation")!=Some(&native(contract.generation.hex())) || installed.get("admission_open")!=Some(&Value::Bool(false)){return Err(ModelError::Conflict("native upgrade published installation identity"));}
+-        check_journal(&client,contract,true).await?;
+-        crate::control::check_installation(&client,config.service_generation).await?;
+-        // Every format5 publication is owned by this protocol. Historical format4 scopes
+-        // are handled by their frozen installer; current publication cannot invent progress.
+-        let has_overlay=catalog.has_table("native_upgrade_progress_v1");
+-        if has_overlay{catalog.check(contract::OVERLAY_SCHEMA)?;}
+-        if !has_overlay{return Err(ModelError::Conflict("native format5 publication progress overlay missing"));}
+-        let revision=match progress::read(&client,contract).await?{Some(p) if p.state.pass==Pass::Sealed=>p.revision as u64,_=>return Err(ModelError::Conflict("native format5 publication sealed progress missing"))};
+-        return Ok(UpgradeAdvance{revision,phase:"published".into(),sealed:true,published:true});
++    if installed.get("schema_version")==Some(&native(6i64))&&installed.get("schema")==Some(&native(contract.target.hex())){
++        if installed.get("source5_upgrade")!=Some(&Value::RecordId(RecordId::new("native_upgrade_v6",contract.migration.hex())))||installed.get("admission_open")!=Some(&native(false)){return Err(ModelError::Conflict("migration6 published pointer/closed state"));}
++        check_journal(client,contract,true).await?;let current=progress::read(client,contract).await?.ok_or(ModelError::Conflict("migration6 published progress missing"))?;
++        if current.state.pass!=Pass::Sealed||current.contract!=*contract{return Err(ModelError::Conflict("migration6 publication without exact immutable verified execution"));}
++        crate::control::check_installation(client,config.service_generation).await?;return Ok(current.result());
+     }
+-    check_source(&installed,config,contract.source)?;
+-    crate::control::check_pending_effects(client).await?;
+-    catalog.apply(JOURNAL_SCHEMA,"native upgrade original operation").await?;
+-    catalog.apply(contract::OVERLAY_SCHEMA,"native upgrade progress overlay").await?;
+-    let bindings=progress::base_bindings(contract)?;
+-    client.query("BEGIN; LET $installed=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $installed.generation!=$generation OR $installed.schema!=$source OR $installed.schema_version!=$source_version OR $installed.admission_open { THROW 'native upgrade operation authority'; }; LET $old=SELECT * FROM ONLY $journal FOR UPDATE; IF $old=NONE { CREATE $journal SET source=$source,target=$target,generation=$generation,phase='intent' RETURN NONE; } ELSE { IF $old.source!=$source OR $old.target!=$target OR $old.generation!=$generation { THROW 'native upgrade operation collision'; }; }; COMMIT;")
+-        .bind(bindings).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;
+-    check_journal(&client,contract,false).await?;
+-    let mut current=progress::acquire(&client,contract).await?;
+-    let mut committed=0u64;
+-    loop {
+-        if stop_after_pages.is_some_and(|limit|committed>=limit){return Ok(current.result());}
+-        match current.state.pass {
+-            Pass::Declarations=>{
+-                catalog.apply(crate::control::schema(),"native control format upgrade").await?;
+-                catalog.install(native_definitions).await?;
+-                catalog.apply(&crate::installation::compiler_schema(),"compiler format upgrade").await?;
+-                catalog.apply(crate::installation::VIEW_SCHEMA,"completed view format upgrade").await?;
+-                let mut next=current.state.clone();next.next_pass(Pass::Verify);
+-                current=progress::commit(&client,&current,next,"UPDATE $journal SET phase='declarations' RETURN NONE;",Variables::new(),vec![]).await?;
+-            }
+-            Pass::Ready=>return if stop_after_pages.is_some(){Ok(current.result())}else{publish(&client,current).await},
+-            Pass::Sealed=>return Err(ModelError::Conflict("native upgrade sealed progress without publication")),
+-            _=>{
+-                let page=crate::control::migration::prepare_page(&client,contract,&current.state).await?;
+-                current=progress::commit(&client,&current,page.next,&page.body,page.bindings,page.observations).await?;
+-            }
+-        }
+-        committed+=1;
+-        tracing::info!(migration=%contract.migration.hex(),execution=%contract.execution.hex(),revision=current.revision,pass=?current.state.pass,"native upgrade checkpoint committed");
++    check_source_marker(&installed,contract.generation)?;
++    // A resumed scope differs from the initial marker only by the exactly checkpointed
++    // maintenance control fence; acquire verifies that relation atomically.
++    let mut catalog=crate::Loader::new(client.clone()).installation_catalog().await?;
++    let before=if catalog.has_table("native_upgrade_progress_v2"){progress::read(client,contract).await?}else{None};
++    let expected=match &before{Some(p)=>progress::expected_source_marker(contract,p.revision)?,None=>contract.original.marker.clone()};
++    if installed!=expected{return Err(ModelError::Conflict("migration6 exact original/checkpointed source observation"));}
++    // Original source5 declarations are authenticated by required source component
++    // Preflight, never by target check_installation or target schema factories.
++    host.recheck_original_execution_and_drain(contract)?;
++    catalog.apply(contract::OVERLAY_SCHEMA,"source5 target6 maintenance-only progress").await?;
++    let mut current=progress::acquire(client,contract).await?;let mut committed=0u64;
++    loop{
++        host.recheck_original_execution_and_drain(contract)?;
++        if stop.is_some_and(|limit|committed>=limit){return Ok(current.result());}
++        if current.state.pass==Pass::Ready{return if stop.is_some(){Ok(current.result())}else{publish(client,current,registry,host).await};}
++        if current.state.pass==Pass::Sealed{return Err(ModelError::Conflict("migration6 sealed slot without target marker"));}
++        let component=registry.components.get(current.state.component).ok_or(ModelError::Conflict("migration6 missing registered component"))?;
++        let page=component.prepare(client,contract,&current.state).await?;
++        host.recheck_original_execution_and_drain(contract)?;
++        current=progress::commit(client,&current,page).await?;committed+=1;
+     }
+ }
+-async fn publish(client:&Surreal<Client>,current:Progress)->Result<UpgradeAdvance,ModelError>{
+-    let contract=&current.contract;let mut bindings=progress::base_bindings(contract)?;
+-    let mut next=current.state.clone();next.next_pass(Pass::Sealed);
+-    bindings.insert("revision",current.revision);bindings.insert("expected_state",serde_json::to_string(&current.state).map_err(ModelError::codec)?);bindings.insert("next",serde_json::to_string(&next).map_err(ModelError::codec)?);bindings.insert("version",crate::control::SCHEMA_VERSION);
+-    let result=client.query("BEGIN; LET $installed=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $installed.generation!=$generation OR $installed.schema!=$source OR $installed.schema_version!=$source_version OR $installed.admission_open { THROW 'native upgrade publication authority'; }; LET $old=SELECT * FROM ONLY $progress FOR UPDATE; IF $old.contract!=$contract OR $old.execution!=$execution OR $old.revision!=$revision OR $old.state!=$expected_state OR $old.sealed { THROW 'native upgrade publication progress'; }; LET $original=SELECT * FROM ONLY $journal FOR UPDATE; IF $original.source!=$source OR $original.target!=$target OR $original.generation!=$generation OR $original.phase!='verified' { THROW 'native upgrade publication original journal'; }; UPDATE native_installation:current SET schema=$target,schema_version=$version,control_revision=control_revision+1 RETURN NONE; UPDATE $journal SET phase='published' RETURN NONE; UPDATE $progress SET state=$next,revision+=1,sealed=true RETURN NONE; COMMIT;").bind(bindings).await.map_err(crate::loader::write_failure).and_then(crate::control::checked_transaction).map(|_|());
+-    if result.is_ok(){return Ok(Progress{revision:current.revision+1,state:next,contract:contract.clone()}.result());}
+-    let (actual,result)=progress::read_after(client,contract,result).await?;
+-    let actual=actual.ok_or(ModelError::Conflict("native upgrade publication progress absent"))?;
+-    if actual.revision==current.revision+1 && actual.state==next && actual.contract==*contract {
+-        check_journal(client,contract,true).await?;
+-        crate::control::check_installation(client,contract.generation).await?;
+-        return Ok(actual.result());
+-    }
+-    result?;Err(ModelError::Conflict("native upgrade publication acknowledgement"))
++async fn publish(client:&Surreal<Client>,current:progress::Progress,registry:&MigrationRegistry<'_>,host:&dyn Source5MaintenanceLease)->Result<UpgradeAdvance,ModelError>{
++    if current.state!= (State{pass:Pass::Ready,component:0,cursor:None}){return Err(ModelError::Conflict("migration6 not completely verified"));}
++    let contract=&current.contract;host.recheck_original_execution_and_drain(contract)?;
++    let plan=registry.activation.prepare(client,contract).await?;
++    if plan.body.trim().is_empty(){return Err(ModelError::Conflict("migration6 final aggregate checks/declarations missing"));}
++    let (native_body,native_bindings)=crate::control::migration6::activation(&progress::expected_source_marker(contract,current.revision)?,contract.generation)?;
++    let mut b=plan.bindings;merge_bindings(&mut b,native_bindings)?;merge_bindings(&mut b,progress::base_bindings(contract)?)?;
++    b.insert("m6_revision",current.revision);b.insert("m6_state",serde_json::to_string(&current.state).map_err(ModelError::codec)?);
++    let next=State{pass:Pass::Sealed,component:0,cursor:None};b.insert("m6_next",serde_json::to_string(&next).map_err(ModelError::codec)?);b.insert("m6_target",contract.target.hex());b.insert("m6_expected_source",progress::expected_source_marker(contract,current.revision)?);
++    // Publish uses the same canonical complete observation envelopes as a normal page.
++    b.insert("m6_observed",progress::activation_observations(&plan.observations)?);
++    let sql=format!("BEGIN; {} {SOURCE5_DRAINED} LET $m6_old=SELECT * FROM ONLY $m6_progress FOR UPDATE; IF $m6_old.contract!=$m6_contract OR $m6_old.execution!=$m6_execution OR $m6_old.revision!=$m6_revision OR $m6_old.state!=$m6_state OR $m6_old.sealed {{ THROW 'migration6 activation revision'; }}; LET $m6_original_journal=SELECT * FROM ONLY $m6_journal FOR UPDATE; IF $m6_original_journal.original!=$m6_original OR $m6_original_journal.original_identity!=$m6_original_identity OR $m6_original_journal.phase!='intent' {{ THROW 'migration6 activation original journal'; }}; {} {}; {native_body} UPDATE native_installation:current SET schema=$m6_target,schema_version=6,control_revision=control_revision+1,source5_upgrade=$m6_journal RETURN NONE; UPDATE $m6_journal SET phase='published' RETURN NONE; UPDATE $m6_progress SET state=$m6_next,revision+=1,sealed=true RETURN NONE; COMMIT;",progress::SOURCE_AUTHORITY,progress::OBSERVATION_CHECK,plan.body);
++    host.recheck_original_execution_and_drain(contract)?;
++    let result=progress::execute(client,&sql,b).await;
++    if result.is_ok(){return Ok(progress::Progress{revision:current.revision+1,state:next,contract:contract.clone()}.result());}
++    let (actual,result)=progress::read_after(client,contract,result).await?;let Some(actual)=actual else{result?;return Err(ModelError::Conflict("migration6 activation receipt missing"));};
++    if actual.revision==current.revision+1&&actual.state==next&&actual.contract==*contract{check_journal(client,contract,true).await?;crate::control::check_installation(client,contract.generation).await?;return Ok(actual.result());}result?;Err(ModelError::Conflict("migration6 activation acknowledgement unresolved"))
+ }
+-
+-/// Maintenance-only production-executor controls. These intentionally exercise only the
+-/// progress slot; they do not claim network failure or qualification of every data transform.
+-#[derive(Debug,Clone,serde::Serialize)]
+-pub struct UpgradeQualification {pub rollback:bool,pub acknowledgement_reconciliation:bool,pub stale_revision_refusal:bool,pub revision:u64}
+-pub async fn qualify_upgrade_pages(config:&RuntimeConfig,contract:&UpgradeExecutionContract)->Result<UpgradeQualification,ModelError>{
+-    if config.database.as_str()!="validation" || config.authentication!=AuthenticationScope::Root{return Err(ModelError::Conflict("upgrade qualification requires root validation scope"));}
+-    let initial=upgrade_with_contract(config,contract,"",Some(0)).await?;
+-    if initial.published{return Err(ModelError::Conflict("upgrade qualification requires unpublished scope"));}
+-    let client=reader::connect(&config.endpoint,&config.writer_credentials(),config.namespace.as_str(),config.database.as_str()).await?;
+-    let result=qualify_pages_in(&client,contract).await;
+-    let mut completion=lctx_model::domain::completion::Completion::default();
+-    completion.step("native upgrade qualification session invalidation",client.invalidate().await.map_err(ModelError::codec));
+-    lctx_model::domain::completion::complete(result,completion)
++pub(crate) fn merge_bindings(left:&mut Variables,right:Variables)->Result<(),ModelError>{
++    for(key,value)in right{
++        match(left.get(&key).cloned(),value){
++            (Some(Value::Array(mut prior)),Value::Array(next))=>{prior.extend(next);left.insert(key,prior);},
++            (Some(prior),next)if prior==next=>{},
++            (None,next)=>left.insert(key,next),
++            _=>return Err(ModelError::Conflict("migration6 composed binding collision")),
++        }
++    }Ok(())
+ }
+-async fn qualify_pages_in(client:&Surreal<Client>,contract:&UpgradeExecutionContract)->Result<UpgradeQualification,ModelError>{
+-    let current=progress::read(client,contract).await?.ok_or(ModelError::Conflict("upgrade qualification progress missing"))?;
+-    if current.contract!=*contract{return Err(ModelError::Conflict("upgrade qualification active execution"));}
+-    let installation=marker(client).await?;
+-    let observed=vec![installation.clone()];
+-    // Exercise nonempty correspondence inside the production transaction, including
+-    // refusal before its body. Neither negative control mutates source/runtime rows.
+-    let mut changed=installation.clone();changed.insert("qualification_changed_body",true);
+-    let mut missing=installation;missing.insert("id",surrealdb::types::RecordId::new("native_installation","qualification_unavailable"));
+-    for observation in [changed,missing]{
+-        let refused=progress::commit(client,&current,current.state.clone(),"UPDATE $progress SET state='qualification-correspondence-sentinel' RETURN NONE;",Variables::new(),vec![observation]).await;
+-        match refused{Err(ref error) if error.to_string().contains("native upgrade page inputs changed")=>{},Err(error)=>return Err(error),Ok(_)=>return Err(ModelError::Conflict("upgrade qualification changed/missing observation accepted"))}
+-        let actual=progress::read(client,contract).await?.ok_or(ModelError::Conflict("upgrade qualification correspondence lost progress"))?;
+-        if actual.revision!=current.revision || actual.state!=current.state || actual.contract!=current.contract{return Err(ModelError::Conflict("upgrade qualification correspondence changed state"));}
+-    }
+-    let rolled_back=progress::commit(&client,&current,current.state.clone(),"UPDATE $progress SET state='qualification-rollback-sentinel' RETURN NONE; THROW 'deliberate upgrade qualification rollback';",Variables::new(),observed.clone()).await;
+-    match rolled_back {Err(ref error) if error.to_string().contains("deliberate upgrade qualification rollback")=>{},Err(error)=>return Err(error),Ok(_)=>return Err(ModelError::Conflict("upgrade qualification rollback unexpectedly committed"))}
+-    let actual=progress::read(&client,contract).await?.ok_or(ModelError::Conflict("upgrade qualification rollback lost progress"))?;
+-    if actual.revision!=current.revision || actual.state!=current.state || actual.contract!=current.contract{return Err(ModelError::Conflict("upgrade qualification rollback changed state"));}
+-    let committed=progress::commit_with_ack(&client,&current,current.state.clone(),"",Variables::new(),observed.clone(),true).await?;
+-    if committed.revision!=current.revision+1 || committed.state!=current.state{return Err(ModelError::Conflict("upgrade qualification discarded acknowledgement"));}
+-    let replay=progress::commit(&client,&current,current.state.clone(),"",Variables::new(),observed.clone()).await?;
+-    if replay.revision!=committed.revision{return Err(ModelError::Conflict("upgrade qualification stale replay advanced"));}
+-    let mut wrong=current.state.clone();wrong.next_pass(if current.state.pass==Pass::Ready{Pass::Preflight}else{Pass::Ready});
+-    match progress::commit(&client,&current,wrong,"",Variables::new(),observed).await {Err(ref error) if error.to_string().contains("native upgrade page revision")=>{},Err(error)=>return Err(error),Ok(_)=>return Err(ModelError::Conflict("upgrade qualification stale revision accepted"))}
+-    let actual=progress::read(&client,contract).await?.ok_or(ModelError::Conflict("upgrade qualification final progress missing"))?;
+-    if actual.revision!=committed.revision || actual.state!=committed.state || actual.contract!=committed.contract{return Err(ModelError::Conflict("upgrade qualification stale revision changed state"));}
+-    Ok(UpgradeQualification{rollback:true,acknowledgement_reconciliation:true,stale_revision_refusal:true,revision:actual.revision as u64})
++/// Outcome-only legacy NONE proof. Caller first validates original digest/operation,
++/// committed+resolved, generation/era/epoch and exact owner_kind='installation'. This
++/// never authorizes pending execution. A fixed target pointer replaces any journal scan.
++pub(crate) async fn retained_source5_installation_outcome(client:&Surreal<Client>,receipt:&Object)->Result<bool,ModelError>{
++    if receipt.get("owner").is_some_and(|owner|*owner!=Value::None)||receipt.get("attempt").is_some_and(|attempt|*attempt!=Value::None)||receipt.get("owner_kind")!=Some(&native("installation"))||receipt.get("committed")!=Some(&native(true))||receipt.get("resolved")!=Some(&native(true)){return Ok(false);}
++    let installed=marker(client).await?;let Some(Value::RecordId(id))=installed.get("source5_upgrade")else{return Ok(false);};
++    if id.table.as_str()!="native_upgrade_v6"||installed.get("schema_version")!=Some(&native(6i64)){return Ok(false);}
++    let mut response=client.query("SELECT * FROM $journal").bind(("journal",id.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;let rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let [journal]=rows.as_slice()else{return Err(ModelError::Conflict("retained source5 original journal missing"));};
++    let Some(Value::String(encoded))=journal.get("contract")else{return Err(ModelError::Schema("retained source5 original contract"));};let original:UpgradeExecutionContract=serde_json::from_str(encoded).map_err(ModelError::codec)?;
++    original.original.validate(original.generation)?;
++    if original.format!=3||original.source_version!=5||original.target_version!=6||original.kind!=TRANSITION_KIND||original.source.hex()!=SOURCE_SCHEMA||original.protocol!=transition_protocol_identity()
++        ||id!=&RecordId::new("native_upgrade_v6",original.migration.hex())||journal.get("original")!=Some(&Value::Object(original.original.marker.clone()))||journal.get("original_identity")!=Some(&native(original.original.identity()?.hex()))||journal.get("phase")!=Some(&native("published"))||installed.get("generation")!=Some(&native(original.generation.hex()))||installed.get("schema")!=Some(&native(original.target.hex()))||receipt.get("generation")!=Some(&native(original.generation.hex())){return Err(ModelError::Conflict("retained source5 journal exact transition scope"));}
++    let era=source_integer(receipt,"era")?;let epoch=source_integer(receipt,"epoch")?;
++    Ok(era>0&&era<=source_integer(&original.original.marker,"era")?&&era<=source_integer(&installed,"closed_through")?&&epoch>0&&epoch<=source_integer(&original.original.marker,"admission_revision")?)
+ }
+-
+-#[cfg(test)]
+-mod tests{
+-    use super::*;
+-    #[test]
+-    fn source4_era_watermarks_and_inventory_are_validated_without_rewriting(){
+-        let mut row=Object::new();row.insert("era",8i64);row.insert("closed_through",7i64);row.insert("control_revision",42i64);row.insert("admission_revision",100i64);row.insert("backup_revision",6i64);row.insert("history_inventory",ContentHash::of(b"qualified-consumers").hex());
+-        let original=row.clone();assert!(source_marker_fields(&row).is_ok());assert_eq!(row,original);
+-        row.insert("closed_through",8i64);assert!(source_marker_fields(&row).is_err());row.insert("closed_through",7i64);row.insert("control_revision",Value::None);assert!(source_marker_fields(&row).is_err());
+-    }
+-}

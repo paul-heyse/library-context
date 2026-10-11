@@ -53,6 +53,7 @@ impl NativeRequest {
         bindings.insert("__request", self.request.hex());
         bindings.insert("__generation", self.issuance.generation.hex());
         bindings.insert("__era", self.issuance.era);
+        coordination::bind_stripe(bindings,self.operation);
     }
     pub(super) fn error(self, source: ModelError) -> ModelError {
         ModelError::Cause(Box::new(NativeRequestError { request: self, source }))
@@ -85,9 +86,8 @@ pub(super) fn hash_field(row: &Object, field: &str) -> Result<ContentHash, Model
         _ => Err(ModelError::Schema("native control hash field")),
     }
 }
-// Every mutation conflicts with era closure, even if its payload writes disjoint records.
-pub(super) const ERA_GUARD: &str = "LET $__installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $__installation=NONE OR $__installation.generation!=$__generation OR $__installation.era!=$__era OR $__era<=($__installation.closed_through ?? 0) { THROW 'native issuance era fenced'; }; UPDATE native_installation:current SET control_revision=(control_revision ?? 0)+1 RETURN NONE;";
-
+// Each effect writes one fixed stripe; only explicit admission/cut owners write all64.
+use super::coordination::ERA_GUARD;
 pub async fn issue_attempt(client: &Surreal<Client>, generation: ContentHash) -> Result<ContentHash, ModelError> {
     let era = IssuanceEra::capture(client).await?;
     if era.generation != generation { return Err(ModelError::Conflict("native attempt generation")); }
@@ -99,7 +99,9 @@ pub async fn begin_attempt_in(client: &Surreal<Client>, attempt: ContentHash, er
     let mut bindings = Variables::new();
     bindings.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
     bindings.insert("__generation", era.generation.hex()); bindings.insert("__era", era.era);
-    let query = format!("BEGIN; {ERA_GUARD} LET $existing=SELECT * FROM ONLY $attempt FOR UPDATE; IF $existing!=NONE {{ IF $existing.generation!=$__generation OR $existing.era!=$__era OR $existing.epoch<=0 {{ THROW 'native attempt identity collision'; }}; }} ELSE {{ IF !$__installation.admission_open {{ THROW 'native installation admission closed'; }}; UPDATE native_installation:current SET admission_revision=(admission_revision ?? 0)+1 RETURN NONE; CREATE $attempt SET generation=$__generation,era=$__era,state='open',revision=0,admitted=false,epoch=($__installation.admission_revision ?? 0)+1 RETURN NONE; }}; COMMIT;");
+    coordination::bind_stripe(&mut bindings,attempt);
+    let query = format!("BEGIN; {ERA_GUARD} LET $existing=SELECT * FROM ONLY $attempt FOR UPDATE; IF $existing!=NONE {{ IF $existing.generation!=$__generation OR $existing.era!=$__era OR $existing.epoch<=0 {{ THROW 'native attempt identity collision'; }}; }} ELSE {{ IF !$__admission.admission_open {{ THROW 'native installation admission closed'; }}; fn::native_touch($attempt); CREATE $attempt SET generation=$__generation,era=$__era,state='open',revision=0,admitted=false,epoch=1 RETURN NONE; }}; COMMIT;");
+    coordination::preflight(&query,&bindings)?;
     super::run_transaction(client, &query, bindings).await.map_err(|source|ModelError::Cause(Box::new(NativeAttemptError{attempt,issuance:era,source})))
 }
 
@@ -131,7 +133,7 @@ impl EffectOwner {
     }
     fn predicate(&self) -> &'static str {
         match self { Self::OpenAttempt(_)=>"$__owner.state='open'", Self::FrozenAttempt(_)=>"$__owner.state='frozen'",
-            Self::Pin(_)=>"!$__owner.released", Self::TerminalAttempt(_)=>"$__owner.state IN ['closing','closed','abandoned','frozen','maintenance_fenced'] AND $__owner.epoch=$__expected_epoch",
+            Self::Pin(_)=>"!$__owner.released", Self::TerminalAttempt(_)=>"$__owner.state IN ['closing','closed','abandoned','maintenance_fenced'] AND $__owner.epoch=$__expected_epoch",
             Self::Retirement(_)|Self::Cleanup(_)=>"$__owner.state='open' AND $__owner.successor=NONE",
             Self::RetirementSetup(_)=>"$__owner.state IN ['registering','recovering','open'] AND $__owner.successor=NONE", Self::Installation=>"true" }
     }
@@ -139,7 +141,7 @@ impl EffectOwner {
 pub async fn effect(client: &Surreal<Client>, attempt: Option<ContentHash>, sql: &str, bindings: Variables) -> Result<(), ModelError> {
     effect_for_owner(client, attempt.map(EffectOwner::OpenAttempt).unwrap_or(EffectOwner::Installation), sql, bindings).await
 }
-pub async fn effect_frozen_attempt(client: &Surreal<Client>, attempt: ContentHash, sql: &str, bindings: Variables) -> Result<(), ModelError> {
+pub(crate) async fn effect_frozen_attempt(client: &Surreal<Client>, attempt: ContentHash, sql: &str, bindings: Variables) -> Result<(), ModelError> {
     effect_for_owner(client, EffectOwner::FrozenAttempt(attempt), sql, bindings).await
 }
 /// Only this constructor establishes correspondence between an internal payload and
@@ -152,7 +154,7 @@ struct PreparedNativePayload<'a> {
 fn intent_bindings(payload: &Variables) -> Result<Variables, ModelError> {
     let mut controls = Variables::new();
     for key in ["__effect", "__request", "__generation", "__era", "__outcome_ref",
-        "__reference_owner", "__reference_kind", "__attempt", "__owner_id", "__owner_kind"] {
+        "__reference_owner", "__reference_kind", "__attempt", "__owner_id", "__owner_kind", "__stripe"] {
         controls.insert(key, payload.get(key).ok_or(ModelError::Schema("native intent control"))?.clone());
     }
     if let Some(epoch) = payload.get("__expected_epoch") {
@@ -173,6 +175,8 @@ impl<'a> PreparedNativePayload<'a> {
     }
 }
 pub(super) async fn effect_for_owner(client: &Surreal<Client>, owner: EffectOwner, sql: &str, bindings: Variables) -> Result<(), ModelError> {
+    let mut bindings=bindings;
+    coordination::prepare_expectations(client,&mut bindings).await?;
     let payload = PreparedNativePayload::new(sql, bindings)?;
     let issuance=if let Some(id)=owner.record(){
         let mut response=client.query("SELECT generation,era FROM $owner").bind(("owner",id)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
@@ -191,8 +195,25 @@ pub async fn execute_request(client: &Surreal<Client>, request: NativeRequest, a
 }
 async fn execute_recorded(client: &Surreal<Client>, request: NativeRequest, owner: EffectOwner,
     payload: PreparedNativePayload<'_>, retain: bool) -> Result<(), ModelError> {
+    // A recorded public request can outlive a format/era cut. Observation of its exact
+    // retained committed receipt replays only the outcome, never old payload authority.
+    // Internal freshly issued effects keep their ordinary single intent/payload path.
+    let replay=if retain {Some(observe_request(client,request).await)} else {None};
+    // Historical guarded bindings are valid evidence of their exact original digest,
+    // but never authorize a new payload without captured incarnation expectations.
+    // Refuse before publishing an accepted-request receipt for an unissued payload.
+    if matches!(&replay,None|Some(Ok((EffectDisposition::Pending,_))))
+        && ["guards","hold_guards","__write_guards"].iter().any(|key|payload.bindings.get(*key).is_some())
+        && payload.bindings.get("__object_expectations").is_none() {
+        return Err(request.error(ModelError::Conflict("native retry expected identities missing")));
+    }
     super::receipts::accepted(request).map_err(|error| request.error(error))?;
-    let result = execute_owner(client, request, owner, payload, retain).await;
+    let result=match replay {
+        Some(Ok((EffectDisposition::Committed,Some(row))))=>validate_replay_owner(request,&owner,&row),
+        Some(Ok((EffectDisposition::FencedUncommitted|EffectDisposition::CompactedTerminal,_)))=>Err(request.error(ModelError::Conflict("native original request terminal; payload fenced"))),
+        Some(Err(error))=>Err(request.error(error)),
+        _=>execute_owner(client,request,owner,payload,retain).await,
+    };
     let disposition = if result.is_ok() { Some(EffectDisposition::Committed) }
         else if super::receipts::active() { request_disposition(client, request).await.ok() }
         else { None };
@@ -212,7 +233,8 @@ async fn execute_owner(client: &Surreal<Client>, request: NativeRequest, owner: 
     let reference_kind=if retain {"caller"} else {"recovery"};
     let reference=RecordId::new("native_outcome_ref",ContentHash::of(&serde_json::to_vec(&(request.operation,&reference_owner,reference_kind)).map_err(ModelError::codec)?).hex());
     bindings.insert("__outcome_ref",reference.clone());bindings.insert("__reference_owner",reference_owner);bindings.insert("__reference_kind",reference_kind);
-    let owner_id = owner.record();
+    let installation_owner=owner.record().is_none();
+    let owner_id = Some(owner.record().unwrap_or_else(||coordination::operation_owner(request)));
     let attempt = match &owner { EffectOwner::OpenAttempt(id)|EffectOwner::FrozenAttempt(id)=>Some(*id),
         EffectOwner::TerminalAttempt(owner)=>Some(owner.identity), _=>None };
     bindings.insert("__attempt", attempt.map(|id|Value::RecordId(RecordId::new("native_attempt",id.hex()))).unwrap_or(Value::None));
@@ -220,26 +242,28 @@ async fn execute_owner(client: &Surreal<Client>, request: NativeRequest, owner: 
     bindings.insert("__owner_kind", owner.kind());
     if let EffectOwner::TerminalAttempt(owner) = &owner { bindings.insert("__expected_epoch", owner.epoch); }
     let predicate = owner.predicate();
-    let authorization = if owner_id.is_some() {
-        format!("LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.generation!=$__generation OR $__owner.era!=$__era OR !({predicate}) {{ THROW 'native owner fenced'; }}; LET $__epoch=$__owner.epoch;")
+    let authorization = if !installation_owner {
+        format!("fn::native_touch($__owner_id); LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.generation!=$__generation OR $__owner.era!=$__era OR !({predicate}) {{ THROW 'native owner fenced'; }}; fn::native_incidence($__owner); LET $__epoch=$__owner.epoch;")
     } else {
-        "UPDATE native_installation:current SET admission_revision=(admission_revision ?? 0)+1 RETURN NONE; LET $__epoch=($__installation.admission_revision ?? 0)+1;".into()
+        "fn::native_touch($__owner_id); LET $__local=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__local=NONE { CREATE $__owner_id SET generation=$__generation,era=$__era,epoch=1,operation=$__reference_owner,state='open' RETURN NONE; } ELSE IF $__local.generation!=$__generation OR $__local.era!=$__era OR $__local.operation!=$__reference_owner OR $__local.epoch!=1 { THROW 'native installation operation owner collision'; }; LET $__epoch=1;".into()
     };
-    let intent = format!("BEGIN; {ERA_GUARD} LET $__prior=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__prior=NONE {{ {authorization} IF $__epoch=NONE OR $__epoch<=0 {{ THROW 'native authorization epoch missing'; }}; CREATE $__effect SET attempt=$__attempt,owner=$__owner_id,owner_kind=$__owner_kind,generation=$__generation,era=$__era,request=$__request,committed=false,resolved=false,revision=0,epoch=$__epoch RETURN NONE; CREATE $__outcome_ref SET effect=$__effect,owner=$__reference_owner,kind=$__reference_kind RETURN NONE; }} ELSE {{ IF $__prior.request!=$__request OR $__prior.era!=$__era OR $__prior.generation!=$__generation OR $__prior.owner!=$__owner_id OR $__prior.owner_kind!=$__owner_kind {{ THROW 'native operation identity collision'; }}; }}; COMMIT;");
+    let intent = format!("BEGIN; {ERA_GUARD} LET $__prior=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__prior=NONE {{ {authorization} IF $__epoch=NONE OR $__epoch<=0 {{ THROW 'native authorization epoch missing'; }}; fn::native_touch($__effect); fn::native_touch($__attempt); CREATE $__effect SET attempt=$__attempt,owner=$__owner_id,owner_kind=$__owner_kind,generation=$__generation,era=$__era,request=$__request,committed=false,resolved=false,revision=0,epoch=$__epoch RETURN NONE; CREATE $__outcome_ref SET effect=$__effect,owner=$__reference_owner,kind=$__reference_kind RETURN NONE; }} ELSE {{ IF $__prior.request!=$__request OR $__prior.era!=$__era OR $__prior.generation!=$__generation OR $__prior.owner!=$__owner_id OR $__prior.owner_kind!=$__owner_kind {{ THROW 'native operation identity collision'; }}; }}; COMMIT;");
     // Intent persists authorization and outcome identity, never the payload's row
     // bindings. The full payload remains owned for its one later execution.
     let intent_bindings = intent_bindings(&bindings)?;
+    let fence = if !installation_owner {
+        format!("fn::native_touch($__owner_id); LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.epoch!=$__epoch OR $__owner.era!=$__era OR $__owner.generation!=$__generation OR !({predicate}) {{ THROW 'native owner fenced'; }}; fn::native_incidence($__owner);")
+    } else { "fn::native_touch($__owner_id); LET $__local=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__local=NONE OR $__local.state!='open' OR $__local.epoch!=$__epoch OR $__local.generation!=$__generation OR $__local.era!=$__era { THROW 'native local operation owner fenced'; };".into() };
+    // A payload RETURN belongs to that payload, never the outer transaction.
+    // The closure catches RETURN while errors still abort payload and receipt together.
+    let query = format!("BEGIN; {ERA_GUARD} LET $__operation=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__operation=NONE OR $__operation.request!=$__request OR $__operation.era!=$__era OR $__operation.generation!=$__generation {{ THROW 'native operation fenced'; }}; IF $__operation.resolved {{ IF !$__operation.committed {{ THROW 'native operation fenced uncommitted'; }}; }} ELSE {{ IF $__operation.epoch<=0 {{ THROW 'native operation epoch missing'; }}; LET $__epoch=$__operation.epoch; fn::native_touch($__effect); fn::native_touch($__attempt); {fence} {} LET $__payload=|| {{ {sql}; }}; LET $__payload_result=$__payload(); UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; IF $__operation.owner_kind='installation' {{ UPDATE $__owner_id SET state='done' RETURN NONE; }}; }}; COMMIT;",coordination::EXPECTED_OBJECT_GUARD);
+    coordination::preflight(&query,&bindings)?;
+    coordination::preflight(&intent,&intent_bindings)?;
     if let Err(error) = super::run_transaction(client, &intent, intent_bindings).await {
         let mut completion = lctx_model::domain::completion::Completion::default();
         completion.step("native intent reconciliation", reconcile_request(client, request).await.map(|_| ()));
         return lctx_model::domain::completion::complete(Err(request.error(error)), completion);
     }
-    let fence = if owner_id.is_some() {
-        format!("LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.epoch!=$__epoch OR $__owner.era!=$__era OR $__owner.generation!=$__generation OR !({predicate}) {{ THROW 'native owner fenced'; }};")
-    } else { String::new() };
-    // A payload RETURN belongs to that payload, never the outer transaction.
-    // The closure catches RETURN while errors still abort payload and receipt together.
-    let query = format!("BEGIN; {ERA_GUARD} LET $__operation=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__operation=NONE OR $__operation.request!=$__request OR $__operation.era!=$__era OR $__operation.generation!=$__generation {{ THROW 'native operation fenced'; }}; IF $__operation.resolved {{ IF !$__operation.committed {{ THROW 'native operation fenced uncommitted'; }}; }} ELSE {{ IF $__operation.epoch<=0 {{ THROW 'native operation epoch missing'; }}; LET $__epoch=$__operation.epoch; {fence} LET $__payload=|| {{ {sql}; }}; LET $__payload_result=$__payload(); UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; }}; COMMIT;");
     let result=match super::run_transaction(client, &query, bindings).await {
         Ok(())=>Ok(()),
         Err(error)=>match reconcile_request(client,request).await {
@@ -254,36 +278,68 @@ async fn execute_owner(client: &Surreal<Client>, request: NativeRequest, owner: 
     };
     result?;
     if !retain {
-        let mut release=Variables::new();release.insert("reference",reference);release.insert("generation",request.issuance.generation.hex());
-        if let Err(error)=super::run_recovery_transaction(client,"BEGIN; LET $installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $installation.generation!=$generation { THROW 'native outcome release generation'; }; UPDATE native_installation:current SET control_revision=(control_revision ?? 0)+1 RETURN NONE; DELETE $reference RETURN NONE; COMMIT;",release).await {
+        let mut release=Variables::new();release.insert("reference",reference);release.insert("effect",RecordId::new("native_effect",request.operation.hex()));
+        let current=IssuanceEra::capture(client).await?;
+        release.insert("__generation",current.generation.hex());release.insert("__era",current.era);coordination::bind_stripe(&mut release,request.operation);
+        let release_sql=format!("BEGIN; {ERA_GUARD} fn::native_touch($effect); fn::native_touch($reference); DELETE $reference RETURN NONE; COMMIT;");
+        if let Err(error)=super::run_recovery_transaction(client,&release_sql,release).await {
             let mut completion=lctx_model::domain::completion::Completion::default();completion.committed("native effect committed",request.operation.hex());
             return lctx_model::domain::completion::complete(Err(request.error(error)),completion);
         }
     }
     Ok(())
 }
+// Observation retains the original row for owner validation without acquiring fresh
+// owner authority or performing a second racy receipt lookup after an era cut.
 pub async fn request_disposition(client: &Surreal<Client>, request: NativeRequest) -> Result<EffectDisposition, ModelError> {
+    observe_request(client,request).await.map(|(disposition,_)|disposition)
+}
+async fn observe_request(client: &Surreal<Client>, request: NativeRequest) -> Result<(EffectDisposition,Option<Object>), ModelError> {
     let mut bindings=Variables::new(); request.bind(&mut bindings);
     let mut response=client.query("SELECT * FROM $__effect; SELECT generation,closed_through FROM native_installation:current")
         .bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-    let rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
+    let mut rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
     let installations:Vec<Object>=response.take(1).map_err(ModelError::codec)?;
-    if let [row]=rows.as_slice() {
-        if hash_field(row,"request")?!=request.request || int_field(row,"era")?!=request.issuance.era
-            || hash_field(row,"generation")?!=request.issuance.generation { return Err(ModelError::Conflict("native receipt identity")); }
-        return Ok(if row.get("committed")==Some(&Value::Bool(true)) {EffectDisposition::Committed}
-            else if row.get("resolved")==Some(&Value::Bool(true)) {EffectDisposition::FencedUncommitted} else {EffectDisposition::Pending});
+    if rows.len()==1 {
+        let row=rows.pop().unwrap();
+        if row.get("id")!=Some(&Value::RecordId(RecordId::new("native_effect",request.operation.hex())))
+            || hash_field(&row,"request")?!=request.request || int_field(&row,"era")?!=request.issuance.era
+            || hash_field(&row,"generation")?!=request.issuance.generation { return Err(ModelError::Conflict("native receipt identity")); }
+        let disposition=if row.get("committed")==Some(&Value::Bool(true)) {EffectDisposition::Committed}
+            else if row.get("resolved")==Some(&Value::Bool(true)) {EffectDisposition::FencedUncommitted} else {EffectDisposition::Pending};
+        return Ok((disposition,Some(row)));
     }
     if !rows.is_empty() {return Err(ModelError::Schema("native receipt inventory"));}
     let [installation]=installations.as_slice() else {return Err(ModelError::Schema("native receipt installation"));};
     if hash_field(installation,"generation")?!=request.issuance.generation {return Err(ModelError::Conflict("native receipt generation"));}
-    Ok(if request.issuance.era<=int_field(installation,"closed_through")? {EffectDisposition::CompactedTerminal} else {EffectDisposition::Pending})
+    Ok((if request.issuance.era<=int_field(installation,"closed_through")? {EffectDisposition::CompactedTerminal} else {EffectDisposition::Pending},None))
+}
+fn validate_replay_owner(request:NativeRequest,owner:&EffectOwner,row:&Object)->Result<(),ModelError>{
+    let expected_owner=owner.record().unwrap_or_else(||coordination::operation_owner(request));
+    let expected_attempt=match owner {
+        EffectOwner::OpenAttempt(attempt)|EffectOwner::FrozenAttempt(attempt)=>Value::RecordId(RecordId::new("native_attempt",attempt.hex())),
+        EffectOwner::TerminalAttempt(attempt)=>Value::RecordId(RecordId::new("native_attempt",attempt.identity.hex())),
+        _=>Value::None,
+    };
+    if row.get("owner_kind")!=Some(&Value::String(owner.kind().into()))
+        || row.get("owner")!=Some(&Value::RecordId(expected_owner))
+        || row.get("attempt").cloned().unwrap_or(Value::None)!=expected_attempt
+        || row.get("committed")!=Some(&Value::Bool(true)) || row.get("resolved")!=Some(&Value::Bool(true))
+        || int_field(row,"epoch")?<=0 {
+        return Err(request.error(ModelError::Conflict("native committed replay original owner changed")));
+    }
+    Ok(())
 }
 pub async fn reconcile_request(client:&Surreal<Client>, request:NativeRequest)->Result<EffectDisposition,ModelError>{
+    let current=IssuanceEra::capture(client).await?;
+    if current.generation!=request.issuance.generation { return Err(request.error(ModelError::Conflict("native reconciliation generation"))); }
     let mut bindings=Variables::new();request.bind(&mut bindings);
-    // Reconciliation is an exact fence, permitted under current installation coordination
-    // after an era cut. It never executes the predecessor's payload under new authority.
-    super::run_recovery_transaction(client,"BEGIN; LET $installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; IF $installation.generation!=$__generation { THROW 'native reconciliation generation'; }; UPDATE native_installation:current SET control_revision=(control_revision ?? 0)+1 RETURN NONE; LET $state=SELECT * FROM ONLY $__effect FOR UPDATE; IF $state=NONE { IF $__era>($installation.closed_through ?? 0) { IF $__era!=$installation.era { THROW 'native reconciliation era'; }; CREATE $__effect SET attempt=NONE,owner=NONE,owner_kind='fence',generation=$__generation,era=$__era,request=$__request,committed=false,resolved=true,revision=1,epoch=0 RETURN NONE; }; } ELSE { IF $state.request!=$__request OR $state.era!=$__era OR $state.generation!=$__generation { THROW 'native reconciliation identity'; }; IF !$state.resolved { UPDATE $__effect SET resolved=true,revision+=1 RETURN NONE; }; }; COMMIT;",bindings).await.map_err(|error|request.error(error))?;
+    bindings.insert("original_era",request.issuance.era);bindings.insert("original_operation",request.operation.hex());bindings.insert("__era",current.era);
+    // Fresh maintenance stripe authority fences or observes ONLY the exact original
+    // request. No predecessor SQL or expected object identity is refreshed/executed.
+    let sql=format!("BEGIN; {ERA_GUARD} fn::native_touch($__effect); LET $state=SELECT * FROM ONLY $__effect FOR UPDATE; IF $state=NONE {{ IF $original_era>$__installation.closed_through {{ IF $original_era!=$__era {{ THROW 'native reconciliation era'; }}; CREATE $__effect SET attempt=NONE,owner=NONE,owner_kind='fence',generation=$__generation,era=$original_era,request=$__request,committed=false,resolved=true,revision=1,epoch=0 RETURN NONE; }}; }} ELSE {{ IF $state.request!=$__request OR $state.era!=$original_era OR $state.generation!=$__generation {{ THROW 'native reconciliation identity'; }}; fn::native_incidence($state); IF !$state.resolved {{ UPDATE $__effect SET resolved=true,revision+=1 RETURN NONE; IF $state.owner_kind='installation' AND $state.owner!=NONE {{ IF record::table($state.owner)!='native_operation_owner' {{ THROW 'native reconciliation local owner family'; }}; LET $local=SELECT * FROM ONLY $state.owner FOR UPDATE; IF $local=NONE OR $local.generation!=$__generation OR $local.era!=$original_era OR $local.epoch!=$state.epoch OR $local.operation!=$original_operation {{ THROW 'native reconciliation local owner identity'; }}; UPDATE $state.owner SET state='done' RETURN NONE; }}; }}; }}; COMMIT;");
+    coordination::preflight(&sql,&bindings)?;
+    super::run_recovery_transaction(client,&sql,bindings).await.map_err(|error|request.error(error))?;
     request_disposition(client,request).await
 }
 /// Legacy ID-only observation cannot invent missing authorization. Callers that may retry
@@ -295,7 +351,10 @@ pub async fn reconcile_effect(client:&Surreal<Client>,operation:ContentHash)->Re
     let [row]=rows.as_slice() else{return Err(ModelError::Conflict("native reconciliation requires original request"));};
     // Migrated legacy receipts retain exact outcomes and are never collected automatically.
     if int_field(row,"era")?==0 {
-        super::run_recovery_transaction(client,"BEGIN; LET $installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; UPDATE native_installation:current SET control_revision=(control_revision ?? 0)+1 RETURN NONE; LET $state=SELECT * FROM ONLY $effect FOR UPDATE; IF !$state.resolved { UPDATE $effect SET resolved=true,revision+=1 RETURN NONE; }; COMMIT;",bindings).await?;
+        let current=IssuanceEra::capture(client).await?;bindings.insert("__generation",current.generation.hex());bindings.insert("__era",current.era);coordination::bind_stripe(&mut bindings,operation);
+        let sql=format!("BEGIN; {ERA_GUARD} LET $state=SELECT * FROM ONLY $effect FOR UPDATE; IF $state=NONE OR $state!=$original {{ THROW 'native legacy reconciliation identity'; }}; fn::native_incidence($state); IF !$state.resolved {{ UPDATE $effect SET resolved=true,revision+=1 RETURN NONE; }}; COMMIT;");
+        bindings.insert("original",row.clone());coordination::preflight(&sql,&bindings)?;
+        super::run_recovery_transaction(client,&sql,bindings).await?;
         return Ok(row.get("committed")==Some(&Value::Bool(true)));
     }
     let request=NativeRequest{issuance:IssuanceEra{generation:hash_field(row,"generation")?,era:int_field(row,"era")?},operation,request:hash_field(row,"request")?};
@@ -327,7 +386,7 @@ mod payload_controls {
         let request = NativeRequest { issuance: IssuanceEra { generation: ContentHash::of(b"generation"), era: 3 },
             operation: ContentHash::of(b"operation"), request: ContentHash::of(b"payload") };
         request.bind(&mut payload);
-        for key in ["__outcome_ref", "__reference_owner", "__reference_kind", "__attempt", "__owner_id", "__owner_kind"] { payload.insert(key, "control"); }
+        for key in ["__outcome_ref", "__reference_owner", "__reference_kind", "__attempt", "__owner_id", "__owner_kind", "__stripe"] { payload.insert(key, "control"); }
         payload.insert("rows", vec!["payload".repeat(1 << 20)]);
         payload.insert("__expected_epoch", 7i64);
         let controls = intent_bindings(&payload).unwrap();

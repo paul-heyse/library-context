@@ -61,7 +61,7 @@ pub async fn publish(
     native_definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
     let native = export.native();
-    let publication = match Publication::new(Admission::Export(export), config).await {
+    let publication = match Publication::new(Admission::Export(export), config, native_definitions).await {
         Ok(publication) => publication,
         Err(error) => {
             let result = Err(error);
@@ -70,7 +70,7 @@ pub async fn publish(
         }
     };
     let result = async {
-        publication.install_definitions(native_definitions).await?;
+        if publication.is_unchanged(){return publication.seal(config,native_definitions).await;}
         let phase = lctx_native::phase::Phase::begin("publication_references");
         let references = async {
             let mut entities = Vec::new();
@@ -120,7 +120,7 @@ pub async fn seal_completed(
     native_definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
     let native = artifact.native();
-    let publication = match Publication::new(Admission::Completed(artifact), config).await {
+    let publication = match Publication::new(Admission::Completed(artifact), config, native_definitions).await {
         Ok(publication) => publication,
         Err(error) => {
             let result = Err(error);
@@ -129,7 +129,7 @@ pub async fn seal_completed(
         }
     };
     let result = async {
-        publication.install_definitions(native_definitions).await?;
+        if publication.is_unchanged(){return publication.seal(config,native_definitions).await;}
         let phase = lctx_native::phase::Phase::begin("publication_references");
         let references = async {
             let mut entities = Vec::new();

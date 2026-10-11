@@ -92,12 +92,16 @@ pub async fn install_shared(
     catalog
         .apply(VIEW_SCHEMA, "exact completed view mapping schema")
         .await?;
+    catalog.apply(&completion_schema(), "native frozen completion and derived staging schema").await?;
     let mut bindings = Variables::new();
     bindings.insert("generation", config.service_generation.hex());
     bindings.insert("schema", base_schema_identity().hex());
     if fresh {
         bindings.insert("version", crate::control::SCHEMA_VERSION);
-        client.query("CREATE native_installation:current SET generation=$generation,schema=$schema,schema_version=$version,admission_open=false,era=1,closed_through=0,control_revision=0 RETURN NONE").bind(bindings).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;
+        bindings.insert("stripes",crate::control::initial_admission_stripes(config.service_generation,1,0,false)?);
+        let sql="BEGIN; IF (SELECT VALUE id FROM ONLY native_installation:current)!=NONE OR array::len(SELECT VALUE id FROM native_admission_stripe LIMIT 1)>0 OR (SELECT VALUE id FROM ONLY native_backup_gate:current)!=NONE { THROW 'native fresh installation control collision'; }; CREATE native_installation:current SET generation=$generation,schema=$schema,schema_version=$version,admission_open=false,era=1,closed_through=0,control_revision=0 RETURN NONE; FOR $stripe IN $stripes { CREATE $stripe.id CONTENT $stripe RETURN NONE; }; CREATE native_backup_gate:current SET revision=0,active_count=0 RETURN NONE; COMMIT;";
+        crate::control::preflight_control(sql,&bindings)?;
+        crate::control::checked_transaction(client.query(sql).bind(bindings).await.map_err(crate::loader::write_failure)?)?;
     }
     Ok(())
 }
@@ -135,16 +139,23 @@ pub async fn check_installation(
     }
     Ok(client)
 }
+/// Installed together with format six; none of these witnesses is portable authority.
+pub fn completion_schema()->String {
+    [crate::control::frozen_schema_target(),crate::completed_state::schema_target(),crate::installed_view::schema_target(),
+     crate::control::staging::schema_target(),crate::schema::pending_original_schema_target(),
+     crate::binding_descriptor::schema_target()].join("\n")
+}
 pub fn base_schema_identity() -> ContentHash {
     static IDENTITY: std::sync::OnceLock<ContentHash> = std::sync::OnceLock::new();
     *IDENTITY.get_or_init(|| {
         ContentHash::of(
             format!(
-                "{}{}{}{}",
+                "{}{}{}{}{}",
                 crate::schema::canonical_schema(),
                 compiler_schema(),
                 crate::control::schema(),
-                VIEW_SCHEMA
+                VIEW_SCHEMA,
+                completion_schema()
             )
             .as_bytes(),
         )
@@ -166,9 +177,7 @@ async fn maintenance_admission(config: &RuntimeConfig, open: bool) -> Result<(),
     if open {
         crate::control::check_pending_effects(&client).await?;
     }
-    let mut bindings = Variables::new();
-    bindings.insert("open", open);
-    crate::control::effect(&client, None, "UPDATE native_installation:current SET admission_open=$open,admission_revision=(admission_revision ?? 0)+1 RETURN NONE", bindings).await?;
+    crate::control::set_admission(&client,open).await?;
     Ok(())
 }
 pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError> {
@@ -192,7 +201,7 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
     }
     loop {
         let mut response = client
-            .query("SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state='open' LIMIT 128")
+            .query("SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','frozen'] LIMIT 128")
             .await
             .map_err(ModelError::codec)?
             .check()
@@ -204,7 +213,7 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
         crate::control::effect(
             &client,
             None,
-            "UPDATE $attempts SET state='closing',revision+=1 RETURN NONE",
+            "FOR $attempt IN $attempts { fn::native_touch($attempt); LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE { THROW 'native maintenance attempt disappeared'; }; IF $owner.state IN ['open','frozen'] { UPDATE $attempt SET state='closing',revision+=1 RETURN NONE; }; }",
             {
                 let mut bindings = Variables::new();
                 bindings.insert("attempts", attempts);

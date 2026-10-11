@@ -2,6 +2,7 @@
 //! govern reads. Canonical graph payloads and query fields are immutable mechanical forms.
 pub use lctx_native::installation::*;
 pub use lctx_native::recovery::*;
+use lctx_native::completed_rows::{validate_state_row,validate_compiler_backing,require_backing_fields,backing_integer,decode_backing_id,contribution_projection,view_projection,binding_projection,check_projection,validate_backing_batch,admit_backing_row,membership_id,decode_nominal_key,OriginalBacking};
 mod ingress;
 pub use ingress::{NativeIngress, IngressSequence, WriteAcknowledgement, IngressFailure};
 use crate::{
@@ -164,15 +165,19 @@ pub struct NativeCompilerStore {
     attempt: ContentHash,
     generation: ContentHash,
     published_bindings: Mutex<Option<Vec<CompletedBinding>>>,
+    published_completion:Mutex<Option<lctx_native::completed_state::PublishedCompletedState>>,
     read_only: AtomicBool,
     read_cancellation: Arc<Mutex<Option<Arc<AtomicBool>>>>,
     signal_stop: crate::control::RetryCancellation,
     signals: Result<lctx_native::signal::SignalRegistration, Arc<ModelError>>,
     owns_session: bool,
+    original_ingress: lctx_native::originals::PendingOriginals,
     namespace: d::serving::Name,
     endpoint: Option<String>,
     specifications: Mutex<BTreeMap<ContentHash, RegisteredContribution>>,
     known_views: Mutex<BTreeMap<ContentHash, CompletedView>>,
+    view_mappings: Mutex<BTreeMap<ContentHash, (Vec<lctx_native::installed_view::ContributorRealization>, Arc<Box<dyn Reservation>>) >>,
+    installed_views: Mutex<BTreeMap<ContentHash, Arc<lctx_native::installed_view::HeldInstalledView>>>,
     known_contributors: Mutex<BTreeMap<ContentHash, ContentHash>>,
     failed: AtomicBool,
     sealed: AtomicBool,
@@ -1082,185 +1087,155 @@ impl NativeCompilerStore {
         sorted.finish().await
     }
     async fn registered_or_install_views(
-        self: &Arc<Self>,
-        views: &[&CompletedView],
-        budget: &ResourceBudget,
+        self: &Arc<Self>, views: &[&CompletedView], budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
-        // Membership preparation depends on verified contributor mappings, not early
-        // known-view registration. Remember a view only after checked EOF and ownership.
-        let window_budget = budget;
-        let mut descriptor_charge = window_budget.reserve("native-view-descriptor-window", 0)?;
-        let mut reference_charge = window_budget.reserve("native-view-retention-window", 0)?;
-        let mut start = 0;
-        while start < views.len() {
-            let mut end = start;
-            let mut rows = Vec::new();
-            let mut bytes = 0usize;
-            while end < views.len() {
-                let view = views[end];
-                view.validate()?;
-                let mut row = Object::new();
-                row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
-                row.insert(
-                    "descriptor",
-                    Bytes::from(serde_json::to_vec(view).map_err(ModelError::codec)?),
-                );
-                for (field, value) in view_projection(view)? {
-                    row.insert(field, value);
-                }
-                let row = Value::Object(row);
-                let weight = crate::loader::native_bytes(&row);
-                if !rows.is_empty()
-                    && (rows.len() == crate::loader::NATIVE_WINDOW_ROWS
-                        || bytes.saturating_add(weight) > d::resources::TRANSFER_BYTES)
-                {
-                    break;
-                }
-                bytes = bytes.saturating_add(weight);
-                descriptor_charge.try_resize(bytes.saturating_mul(4))?;
-                rows.push(row);
-                end += 1;
-            }
-            crate::control::ensure_rows(&self.client, Some(self.attempt), rows).await?;
-            descriptor_charge.try_resize(0)?;
-            let window = &views[start..end];
-            let mut references = Vec::new();
-            let mut reference_bytes = 0usize;
-            for view in window {
-                // Preparation and retained immutable borrowers share the operation pool.
-                let prepared = self.prepare_memberships(view, &budget).await?;
-                let mut ordered = AsyncOrderedCandidates::new_registered(
-                    prepared,
-                    &budget,
-                    self.blocking_owner()?,
-                    self.blocking_observer()?,
-                )
-                .await?;
-                let mut count = 0u64;
-                loop {
-                    let candidates = ordered
-                        .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
-                        .await?;
-                    if candidates.is_empty() {
-                        break;
-                    }
-                    let mut rows = Vec::with_capacity(candidates.len());
-                    let mut nodes = Vec::with_capacity(candidates.len());
-                    for candidate in candidates {
-                        let mut sink = KeySink::new("native-view-member/v1");
-                        view.identity.encode(&mut sink);
-                        candidate.relation.encode(&mut sink);
-                        sink.part(b"key", &candidate.key);
-                        let mut row = Object::new();
-                        row.insert(
-                            "id",
-                            RecordId::new("compiler_view_member", sink.finish().hex()),
-                        );
-                        row.insert("view", RecordId::new("compiler_view", view.identity.hex()));
-                        row.insert("relation", candidate.relation);
-                        row.insert("semantic_key", hex::encode(candidate.key));
-                        row.insert("node", candidate.node.clone());
-                        row.insert(
-                            "content",
-                            candidate
-                                .content
-                                .ok_or(ModelError::Schema("exact view content"))?
-                                .hex(),
-                        );
-                        nodes.push(candidate.node);
-                        if let Some(Value::RecordId(id)) = row.get("id") {
-                            nodes.push(id.clone());
-                        }
-                        rows.push(Value::Object(row));
-                        count += 1;
-                    }
-                    crate::control::ensure_rows(&self.client, Some(self.attempt), rows).await?;
-                    crate::control::hold(
-                        &self.client,
-                        Some(self.attempt),
-                        RecordId::new("compiler_view", view.identity.hex()),
-                        nodes,
-                    )
-                    .await?;
-                }
-                if count != view.rows {
-                    return Err(ModelError::Conflict("exact view cardinality"));
-                }
-                let owner = RecordId::new("compiler_view", view.identity.hex());
-                let contributors = self.view_owners(view)?;
-                let edges = contributors
-                    .into_iter()
-                    .map(|id| {
-                        (
-                            owner.clone(),
-                            RecordId::new("compiler_contribution", id.hex()),
-                        )
-                    })
-                    .chain(std::iter::once((
-                        RecordId::new("native_attempt", self.attempt.hex()),
-                        owner.clone(),
-                    )));
-                for (owner, object) in edges {
-                    let weight = crate::loader::native_bytes(&Value::RecordId(owner.clone()))
-                        .saturating_add(crate::loader::native_bytes(&Value::RecordId(
-                            object.clone(),
-                        )));
-                    if !references.is_empty()
-                        && (references.len() == crate::loader::NATIVE_WINDOW_ROWS
-                            || reference_bytes.saturating_add(weight)
-                                > d::resources::TRANSFER_BYTES)
-                    {
-                        crate::control::hold_many(
-                            &self.client,
-                            Some(self.attempt),
-                            std::mem::take(&mut references),
-                        )
-                        .await?;
-                        reference_bytes = 0;
-                        reference_charge.try_resize(0)?;
-                    }
-                    reference_bytes = reference_bytes.saturating_add(weight);
-                    reference_charge.try_resize(reference_bytes.saturating_mul(4))?;
-                    references.push((owner, object));
-                }
-            }
-            crate::control::hold_many(&self.client, Some(self.attempt), references).await?;
-            reference_charge.try_resize(0)?;
-            for view in window {
-                self.remember_view(view)?;
-            }
-            start = end;
-        }
+        for view in views {self.installed_view(view,budget).await?;}
         Ok(())
     }
+    /// Establishes exact physical view authority while unrelated producers remain open.
+    /// Candidate discovery never selects a global logical match. Only this store's
+    /// explicit production/held attachment/import inventory supplies an initial copy.
+    pub async fn installed_view(self:&Arc<Self>,view:&CompletedView,budget:&ResourceBudget)
+        ->Result<Arc<lctx_native::installed_view::HeldInstalledView>,ModelError>{
+        let lease=self.admit(false,"exact installed view acquisition",true)?;
+        let result=lease.within(self.installed_view_inner(view,budget)).await;
+        lease.finish_with(result)
+    }
+    async fn installed_view_inner(self:&Arc<Self>,view:&CompletedView,budget:&ResourceBudget)
+        ->Result<Arc<lctx_native::installed_view::HeldInstalledView>,ModelError>{
+        self.check_failed()?;view.validate()?;
+        let cached=self.installed_views.lock().map_err(|_|ModelError::Conflict("native installed view owner"))?.get(&view.identity).cloned();
+        if let Some(held)=cached {
+            if held.completion().view!=*view{return Err(ModelError::Conflict("installed view descriptor collision"));}
+            let reader=crate::NativeReader::private(self.client.clone()).with_budget(budget);
+            let reader=if let Some(flag)=self.read_cancellation()? {reader.with_read_cancellation(flag)}else{reader};
+            let result=held.members(&reader,&[],budget).await.map(|_|held);
+            let mut terminal=d::completion::Completion::default();terminal.step("cached installed view reader close",reader.close().await);
+            return d::completion::complete(result,terminal);
+        }
+        if self.read_only.load(Ordering::Acquire) {
+            let completed=self.published_completion.lock().map_err(|_|ModelError::Conflict("published exact completion owner"))?.clone().ok_or(ModelError::Conflict("published context lacks protected exact inventory"))?;
+            let held=Arc::new(lctx_native::installed_view::hold_published_view(&completed,view.identity,budget).await?);
+            if held.completion().view!=*view{return Err(ModelError::Conflict("published installed descriptor mismatch"));}
+            self.installed_views.lock().map_err(|_|ModelError::Conflict("published installed view owner"))?.insert(view.identity,held.clone());return Ok(held);
+        }
+        let lease=self.admit_mutation("install exact predecessor view",true)?;
+        let result=lease.within(self.install_view_inner(view,budget)).await;
+        lease.finish_with(result)
+    }
+    async fn install_view_inner(self:&Arc<Self>,view:&CompletedView,budget:&ResourceBudget)
+        ->Result<Arc<lctx_native::installed_view::HeldInstalledView>,ModelError>{
+        if self.read_only.load(Ordering::Acquire){return Err(ModelError::Conflict("published context requires protected completed inventory"));}
+        let (mappings,_mapping_charge)=self.selected_view_mappings(view,budget).await?;
+        // The logical declarations retain the selected root contributor incidence.
+        // These declarations grant no completion; the lower factory independently
+        // audits all output, alias, canonical backing and original bytes through EOF.
+        let _construction=budget.reserve("live view canonical declaration",view.relation.capacity().saturating_add(view.contributions.len().saturating_mul(256)).saturating_mul(16).saturating_add(65536))?;
+        let mut row=Object::new();row.insert("id",RecordId::new("compiler_view",view.identity.hex()));row.insert("descriptor",Bytes::from(serde_json::to_vec(view).map_err(ModelError::codec)?));
+        for (field,value) in view_projection(view)? {row.insert(field,value);}
+        crate::control::ensure_rows(&self.client,Some(self.attempt),vec![Value::Object(row)]).await?;
+        let owner=RecordId::new("compiler_view",view.identity.hex());
+        for mapping in mappings.iter().filter(|mapping|view.contributions.contains(&mapping.logical)) {
+            crate::control::hold(&self.client,Some(self.attempt),owner.clone(),vec![RecordId::new("compiler_contribution",mapping.physical.hex())]).await?;
+        }
+        let held=Arc::new(lctx_native::installed_view::install_live_view(self.client.clone(),self.attempt,view,&mappings,budget).await?);
+        self.remember_view_mapping(view,&mappings,budget)?;self.remember_view(view)?;
+        let mut installed=self.installed_views.lock().map_err(|_|ModelError::Conflict("native installed view owner"))?;
+        if let Some(previous)=installed.get(&view.identity) {
+            if previous.completion().view!=held.completion().view || previous.completion().mappings!=held.completion().mappings {
+                return Err(ModelError::Conflict("concurrent installed view selected different copies"));
+            }return Ok(previous.clone());
+        }
+        installed.insert(view.identity,held.clone());Ok(held)
+    }
+    fn remember_view_mapping(&self,view:&CompletedView,mappings:&[lctx_native::installed_view::ContributorRealization],budget:&ResourceBudget)->Result<(),ModelError>{
+        if mappings.windows(2).any(|pair|pair[0].logical>=pair[1].logical) || view.contributions.iter().any(|logical|mappings.binary_search_by_key(logical,|mapping|mapping.logical).is_err()) {
+            return Err(ModelError::Conflict("exact per-view mapping order/root inventory"));
+        }
+        let mut known=self.view_mappings.lock().map_err(|_|ModelError::Conflict("native per-view mapping owner"))?;
+        if let Some((previous,_))=known.get(&view.identity) {if previous!=mappings{return Err(ModelError::Conflict("exact per-view physical mapping changed"));}}
+        else {let charge=budget.reserve("retained exact per-view mappings",mappings.len().saturating_mul(std::mem::size_of::<lctx_native::installed_view::ContributorRealization>()).saturating_add(256))?;known.insert(view.identity,(mappings.to_vec(),Arc::new(charge)));}Ok(())
+    }
+    /// Read-only publication consumers retain the supplied protected capability for
+    /// their full operation. This copies its exact mappings, never a global search.
+    pub fn register_published_inventory(&self,completed:&lctx_native::completed_state::PublishedCompletedState,budget:&ResourceBudget)->Result<(),ModelError>{
+        if !self.read_only.load(Ordering::Acquire){return Err(ModelError::Conflict("published inventory requires read-only compiler owner"));}
+        if !std::ptr::eq(self.client.as_ref(),completed.retained_reader().client()){return Err(ModelError::Conflict("published inventory foreign native session"));}
+        let bindings=self.published_bindings.lock().map_err(|_|ModelError::Conflict("published bindings"))?;
+        let bindings=bindings.as_ref().ok_or(ModelError::Conflict("published binding inventory absent"))?;
+        if bindings.len()!=completed.inventory().bindings().len() || bindings.iter().any(|binding|!completed.inventory().bindings().contains(binding)){
+            return Err(ModelError::Conflict("published binding inventory differs from protected capability"));
+        }
+        let mut retained=self.published_completion.lock().map_err(|_|ModelError::Conflict("published exact completion owner"))?;
+        if retained.as_ref().is_some_and(|previous|previous.marker()!=completed.marker()) {return Err(ModelError::Conflict("published completion capability replacement"));}
+        for reference in completed.inventory().references() {
+            let installed=completed.inventory().installed(reference.logical_view)?;
+            self.remember_view_mapping(&installed.view,&installed.mappings,budget)?;self.remember_view(&installed.view)?;
+        }
+        *retained=Some(completed.clone());
+        Ok(())
+    }
+    async fn selected_view_mappings(self:&Arc<Self>,view:&CompletedView,budget:&ResourceBudget)
+        ->Result<(Vec<lctx_native::installed_view::ContributorRealization>,d::charged::StateCharge),ModelError>{
+        use lctx_native::installed_view::ContributorRealization;
+        let mut charge=d::charged::StateCharge::new(budget,"selected exact live dependency mappings");
+        charge.grow(view.contributions.len().saturating_mul(512).saturating_add(65536))?;
+        let reader=crate::NativeReader::private(self.client.clone()).with_budget(budget);
+        let reader=if let Some(flag)=self.read_cancellation()? {reader.with_read_cancellation(flag)}else{reader};
+        let result=async {
+            let mut pending=vec![view.clone()];let mut seen=std::collections::BTreeSet::new();let mut mappings=BTreeMap::new();
+            while let Some(selected)=pending.pop() {
+                if !seen.insert(selected.identity){continue;}
+                for logical in &selected.contributions {
+                    let explicit=self.view_mappings.lock().map_err(|_|ModelError::Conflict("native exact view mappings"))?.get(&selected.identity).and_then(|(rows,_)|rows.iter().find(|row|row.logical==*logical)).cloned();
+                    let physical=if let Some(mapping)=&explicit {mapping.physical}else{*self.known_contributors.lock().map_err(|_|ModelError::Conflict("native contributor candidates"))?.get(logical).ok_or(ModelError::Conflict("dependency has no explicitly selected physical contributor"))?};
+                    let expected=lctx_native::installed_view::inspect_contributor(&reader,physical,budget).await?.ok_or(ModelError::Conflict("selected dependency contributor missing"))?;
+                    if explicit.as_ref().is_some_and(|mapping|mapping.incarnation!=expected.incarnation()){return Err(ModelError::Conflict("selected dependency incarnation changed"));}
+                    validate_state_row("compiler_contribution",expected.row())?;
+                    charge.grow(crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(65536))?;
+                    let descriptor:CompletedContribution=decode_descriptor(expected.row())?;
+                    if descriptor.identity()?!=*logical || !descriptor.outputs.contains_key(&selected.relation){return Err(ModelError::Conflict("selected dependency logical output"));}
+                    let mapping=ContributorRealization{logical:*logical,physical,incarnation:expected.incarnation()};
+                    if let Some(previous)=mappings.insert(*logical,mapping.clone()) {if previous!=mapping{return Err(ModelError::Conflict("one view closure selects incompatible physical copies"));}}
+                    for source in &descriptor.spec.inputs {
+                        let known=self.known_views.lock().map_err(|_|ModelError::Conflict("native declared views"))?;
+                        let dependency=known.get(&source.view()).ok_or(ModelError::Conflict("dependency view requires exact prior attachment/import"))?;
+                        charge.grow(dependency.relation.capacity().saturating_add(dependency.contributions.len().saturating_mul(128)).saturating_add(1024))?;
+                        pending.push(dependency.clone());
+                    }
+                }
+            }Ok((mappings.into_values().collect(),charge))
+        }.await;
+        let mut terminal=d::completion::Completion::default();terminal.step("live mapping private reader close",reader.close().await);d::completion::complete(result,terminal)
+    }
 
-    /// Only admission of the complete current semantic boundary makes retained products eligible.
+    /// The former marker-only route cannot earn current native admission. Keep its
+    /// explicit refusal while callers migrate to executed premises; neither host lane
+    /// freeze nor successful legacy callbacks substitute for the opaque full ledger.
     pub async fn mark_attempt_admitted(self: &Arc<Self>) -> Result<(), ModelError> {
-        let mut revision = self
-            .client
-            .query("SELECT VALUE revision FROM $attempt")
-            .bind((
-                "attempt",
-                RecordId::new("native_attempt", self.attempt.hex()),
-            ))
-            .await
-            .map_err(ModelError::codec)?
-            .check()
-            .map_err(ModelError::codec)?;
-        let revision: Vec<i64> = revision.take(0).map_err(ModelError::codec)?;
-        let [revision] = revision.as_slice() else {
-            return Err(ModelError::Conflict("native admission attempt"));
-        };
-        let bindings = self.bindings().await?;
-        let inventory = binding_inventory_identity(&bindings)?;
-        let mut bindings = Variables::new();
-        bindings.insert(
-            "attempt",
-            RecordId::new("native_attempt", self.attempt.hex()),
-        );
-        bindings.insert("view", inventory.hex());
-        bindings.insert("revision", *revision);
-        crate::control::effect(&self.client,Some(self.attempt),"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner.state!='open' OR $owner.revision!=$revision { THROW 'native admission inventory raced'; }; IF $owner.admitted AND $owner.admitted_view!=$view { THROW 'native admission inventory changed'; }; UPDATE $attempt SET admitted=true,admitted_view=$view,revision+=1 RETURN NONE",bindings).await
+        Err(ModelError::Conflict(
+            "native admission requires exact physical completion and executed full premises",
+        ))
+    }
+
+    /// Semantic admission consumes an independently earned physical completion and the
+    /// model's executed full ledger. The native factory rechecks all exact selected
+    /// streams, epochs, current definitions and persisted physical witnesses.
+    pub async fn admit_completed_state(
+        self: &Arc<Self>,
+        physical: lctx_native::completed_state::NativeCompletedState,
+        premises: &d::checked_admission::CheckedAdmissionPremises,
+        budget: &ResourceBudget,
+    ) -> Result<lctx_native::completed_state::HeldFrozenCompletedState, ModelError> {
+        self.check_frozen_content()?;
+        if physical.completion().attempt != self.attempt
+            || physical.completion().generation != self.generation
+        {
+            return Err(ModelError::Conflict("native admitted completion receiving owner"));
+        }
+        lctx_native::completed_state::mark_completed_admitted(
+            self.client.clone(), physical, premises, budget,
+        ).await
     }
     pub async fn retain_product_identity(
         self: &Arc<Self>,
@@ -1457,15 +1432,19 @@ impl NativeCompilerStore {
             attempt,
             generation: config.service_generation,
             published_bindings: Mutex::new(None),
+            published_completion:Mutex::new(None),
             read_only: AtomicBool::new(false),
             read_cancellation,
             signal_stop,
             signals,
             owns_session: true,
+            original_ingress: Default::default(),
             namespace: config.namespace.clone(),
             endpoint: Some(config.endpoint.clone()),
             specifications: Mutex::default(),
             known_views: Mutex::default(),
+            view_mappings: Mutex::default(),
+            installed_views: Mutex::default(),
             known_contributors: Mutex::default(),
             failed: AtomicBool::new(false),
             sealed: AtomicBool::new(false),
@@ -1493,15 +1472,19 @@ impl NativeCompilerStore {
                 .expect("system clock"),
             generation: ContentHash::of(b"detached-unadmitted"),
             published_bindings: Mutex::new(None),
+            published_completion:Mutex::new(None),
             read_only: AtomicBool::new(false),
             read_cancellation,
             signal_stop,
             signals,
             owns_session: false,
+            original_ingress: Default::default(),
             namespace,
             endpoint: None,
             specifications: Mutex::default(),
             known_views: Mutex::default(),
+            view_mappings: Mutex::default(),
+            installed_views: Mutex::default(),
             known_contributors: Mutex::default(),
             failed: AtomicBool::new(false),
             sealed: AtomicBool::new(false),
@@ -1612,6 +1595,20 @@ impl NativeCompilerStore {
                     "pending native content at final freeze",
                 ));
             }
+            // All content mutation owners are now quiescent, and no contribution remains
+            // open. Attempt-global replay cannot impose order on unrelated live producers.
+            let already_frozen=self.admission.state.lock().map_err(|_|ModelError::Conflict("native operation admission"))?.content_ready;
+            let cancellation=self.read_cancellation()?;
+            let reader=crate::NativeReader::private(self.client.clone()).with_budget(budget);
+            let reader=if let Some(flag)=cancellation {reader.with_read_cancellation(flag)} else {reader};
+            let replay=if already_frozen {
+                lctx_native::originals::validate_pending(&reader,self.attempt,budget).await
+            } else {
+                lctx_native::originals::complete_pending(&reader,self.attempt,budget).await
+            };
+            let mut completion=d::completion::Completion::default();
+            completion.step("original freeze reader close",reader.close().await);
+            d::completion::complete(replay,completion)?;
             Ok(FinalizationInventory {
                 contributions: self.contributions_inner(budget).await?,
                 bindings: self.bindings().await?,
@@ -1748,10 +1745,12 @@ impl NativeCompilerStore {
         content: ContentHash,
         length: u64,
         input: &mut (impl std::io::Read + Send),
+        budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         let lease = self.admit_mutation("import_original_stream", true)?;
         lease.finish_with(
             Loader::for_attempt_views(self.client.clone(), self.attempt, vec![])
+                .with_budget(budget)
                 .original_stream(source, content, length, input)
                 .await,
         )
@@ -1896,6 +1895,7 @@ impl NativeCompilerStore {
             store: self.clone(),
             lease: Some(lease),
             setup: None,
+            installed: None,
         })
     }
     async fn discover_graph(
@@ -2176,6 +2176,7 @@ impl NativeCompilerStore {
             store: self.clone(),
             lease: Some(lease),
             setup: None,
+            installed: None,
         })
     }
     fn blocking_owner(&self) -> Result<BlockingLease, ModelError> {
@@ -2262,6 +2263,7 @@ impl NativeCompilerStore {
         self: &Arc<Self>,
         keys: SelectionKeys,
         view: &CompletedView,
+        installed: Arc<lctx_native::installed_view::HeldInstalledView>,
         relation: &Relation,
         fields: String,
         predicate: String,
@@ -2269,17 +2271,20 @@ impl NativeCompilerStore {
         preparation: Vec<String>,
         budget: &ResourceBudget,
     ) -> Result<CompilerRows, ModelError> {
+        let direct = matches!(&keys, SelectionKeys::Known(_));
         let transfer = budget.reserve(
             "compiler-selected-window",
-            view.contributions
-                .len()
-                .saturating_mul(64)
+            (if direct { 0 } else { view.contributions.len().saturating_mul(64) })
                 .saturating_add(crate::loader::NATIVE_WINDOW_ROWS * 2048),
         )?;
-        let owners = self.view_owners(view)?;
+        let owners = if direct { Vec::new() } else { self.view_owners(view)? };
         let lease = self.retained_scan()?;
         let selection = SelectedRows {
             keys,
+            installed,
+            direct_members: None,
+            direct_position: 0,
+            budget: budget.clone(),
             owners,
             relation: relation.name().into(),
             fields,
@@ -2303,6 +2308,7 @@ impl NativeCompilerStore {
             store: self.clone(),
             lease: Some(lease),
             setup: None,
+            installed: None,
         })
     }
     async fn wait_operations(&self, scans_only: bool) -> Result<(), ModelError> {
@@ -2403,6 +2409,22 @@ impl NativeCompilerStore {
                     Err(ModelError::SharedCause(failure.error.clone())),
                 );
             }
+        }
+        // Final readback is non-destructive and safe after admission. It borrows the
+        // existing session and retains the original ingress caller's budget capability.
+        if completion.local==d::completion::LocalState::Terminal {
+            let validate_completed=match self.admission.state.lock(){
+                Ok(state)=>state.content_ready,
+                Err(_)=>{completion.step("original ingress completion scope",Err(ModelError::Conflict("native operation admission")));false},
+            };
+            let originals=self.original_ingress.close_owned(self.client.clone(),self.attempt,self.read_cancellation(),validate_completed).await;
+            completion.step("original ingress final close",d::completion::complete(Ok(()),originals));
+        }
+        // Release protected publication clones only after all accepted compiler reads
+        // are terminal; mapped metadata alone never retains selection authority.
+        if completion.local==d::completion::LocalState::Terminal {
+            match self.installed_views.lock(){Ok(mut views)=>views.clear(),Err(_)=>completion.step("installed view capability release",Err(ModelError::Conflict("installed view owner")))};
+            match self.published_completion.lock(){Ok(mut cap)=>{cap.take();},Err(_)=>completion.step("published completion capability release",Err(ModelError::Conflict("published completion owner")))};
         }
         // A borrowed store owns its admitted execution, but not the caller's
         // session or reader pin. Its receipt ends after its own work settles;
@@ -2631,21 +2653,7 @@ impl NativeCompilerStore {
         };
         let original_headers = if relation.name() == d::source::SourceArtifact::NAME {
             d::source::SourceArtifact::decode(&batch)?
-                .into_iter()
-                .map(|row| {
-                    let mut header = Object::new();
-                    header.insert(
-                        "id",
-                        RecordId::new("original", d::graph::EntityId::of(row.id()).0.hex()),
-                    );
-                    header.insert("byte_len", row.byte_len);
-                    header.insert("content", row.content.hex());
-                    Value::Object(header)
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+        } else { Vec::new() };
         let graph = adapter.graph(&batch)?;
         let native_aliases = if matches!(
             *self
@@ -2674,6 +2682,15 @@ impl NativeCompilerStore {
         let mut members = BTreeMap::<String, Value>::new();
         for (i, (body, graph)) in bodies.into_iter().zip(graph).enumerate() {
             let key = hex::encode(ids.value(i));
+            let endpoints=match &graph {
+                Some(GraphRow::Entity(row))=>crate::loader::entity_endpoint_values(row)?,
+                Some(GraphRow::Assertion(row))=>crate::loader::assertion_endpoint_values(row)?,
+                None=>Vec::new(),
+            };
+            for endpoint in endpoints {
+                let id=value_object(&endpoint).and_then(|row|row.get("id")).ok_or(ModelError::Schema("canonical producer endpoint"))?.to_sql();
+                if let Some(previous)=nodes.insert(id,endpoint.clone()) && previous!=endpoint{return Err(ModelError::Conflict("canonical producer endpoint collision"));}
+            }
             let (node, content, canonical, kind, subtype) = match graph {
                 Some(GraphRow::Entity(row)) => (
                     crate::loader::entity_payload_id(&row)?,
@@ -2746,6 +2763,10 @@ impl NativeCompilerStore {
         )?;
         let mut aliases = Vec::new();
         for ((source, target), view) in native_aliases.into_iter().zip(alias_values) {
+            for endpoint in crate::loader::entity_endpoint_values(&target)? {
+                let id=value_object(&endpoint).and_then(|row|row.get("id")).ok_or(ModelError::Schema("canonical alias endpoint"))?.to_sql();
+                if let Some(previous)=nodes.insert(id,endpoint.clone()) && previous!=endpoint{return Err(ModelError::Conflict("canonical alias endpoint collision"));}
+            }
             let node = crate::loader::entity_payload_id(&target)?;
             let physical = crate::adapter::physical_row(
                 node.clone(),
@@ -2775,11 +2796,23 @@ impl NativeCompilerStore {
             aliases.push(Value::Object(alias));
         }
         // Every selected record, alias and original range is valid before any window effect.
-        self.persist_original_chunks(&original_chunks, budget).await?;
-        self.ensure_immutable_rows("original", original_headers, "original same-key payload", budget)
-            .await?;
-        self.ensure_physical_rows(nodes.into_values().collect(), budget)
-            .await?;
+        self.ensure_physical_rows(nodes.into_values().collect(), budget).await?;
+        if !original_headers.is_empty() || !original_chunks.is_empty() {
+            let budget=budget.ok_or(ModelError::Conflict("original ingress requires caller budget"))?;
+            let contribution=WRITING_CONTRIBUTION.try_with(|id|*id).ok();
+            let cancellation=self.read_cancellation()?;
+            let reader=crate::NativeReader::private(self.client.clone()).with_budget(budget);
+            let reader=if let Some(flag)=cancellation {reader.with_read_cancellation(flag)} else {reader};
+            // The adapter owns this reader scope, while the store owns the shared session.
+            // Preserve the original failure and any independent local reader finalization.
+            let result=async {
+                self.original_ingress.sources(&reader,self.attempt,contribution,&original_headers,budget).await?;
+                self.original_ingress.chunks(&reader,self.attempt,contribution,&original_chunks,budget).await
+            }.await;
+            let mut completion=d::completion::Completion::default();
+            completion.step("original ingress reader close",reader.close().await);
+            d::completion::complete(result,completion)?;
+        }
         self.ensure_immutable_rows("compiler_alias", aliases, "native alias same-key payload", budget)
             .await?;
         // Repeated identical writes within this contribution are idempotent, without hiding
@@ -2804,49 +2837,7 @@ impl NativeCompilerStore {
         Ok(())
     }
 
-    async fn persist_original_chunks(
-        self: &Arc<Self>,
-        chunks: &[d::artifact::ArtifactChunk],
-        budget: Option<&ResourceBudget>,
-    ) -> Result<(), ModelError> {
-        // Flatten all typed chunks into one physical stream. A native window crosses
-        // typed chunk boundaries and retains only one admitted lookahead piece.
-        let pieces = chunks.iter().flat_map(|row| row.body.0.chunks(65536)
-            .enumerate().map(move |(index, bytes)| (row, index, bytes)))
-            .map(|(row, index, bytes)| {
-                let charge = budget.map(|budget| budget.reserve("native original piece",
-                    bytes.len().saturating_mul(2).saturating_add(4096))).transpose()?;
-                let base = u64::try_from(row.ordinal).map_err(ModelError::codec)?
-                    .checked_mul(d::artifact::ARTIFACT_CHUNK_BYTES as u64)
-                    .ok_or(ModelError::Schema("original chunk start"))?;
-                let start = base.checked_add((index * 65536) as u64)
-                    .ok_or(ModelError::Schema("original piece start"))?;
-                let source = RecordId::new("original", d::graph::EntityId::of(row.artifact).0.hex());
-                let mut chunk = Object::new();
-                chunk.insert(
-                    "id",
-                    RecordId::new(
-                        "original_chunk",
-                        format!("{}_{}", d::graph::EntityId::of(row.artifact).0.hex(), start),
-                    ),
-                );
-                chunk.insert("source", source.clone());
-                chunk.insert("start", start);
-                chunk.insert("bytes", Bytes::from(bytes.to_vec()));
-                chunk.insert("content", ContentHash::of(bytes).hex());
-                Ok((Value::Object(chunk), charge))
-            });
-        let contribution = WRITING_CONTRIBUTION.try_with(|id| *id).ok();
-        let owner = contribution.map(|id| RecordId::new("compiler_contribution", id.hex()))
-            .unwrap_or_else(|| RecordId::new("native_attempt", self.attempt.hex()));
-        for window in crate::control::ImmutableWindows::from_charged_iter(pieces,
-            Some(self.attempt), contribution, Some(owner)).with_budget(budget) {
-            crate::control::install_window(&self.client, Some(self.attempt), window?, budget).await?;
-        }
-        Ok(())
-    }
-    /// A compact keyset page is fully delivered before its consumer starts a write.
-    /// The exact completed owner is held throughout the enclosing transfer.
+
     async fn membership_page(&self, owner: RecordId, after: Option<RecordId>, budget: &ResourceBudget)
         -> Result<(Vec<Value>, Box<dyn lctx_model::domain::resources::Reservation>), ModelError> {
         let mut charge = budget.reserve("native membership keyset page", crate::loader::NATIVE_WINDOW_ROWS * 4096)?;
@@ -2942,6 +2933,56 @@ impl NativeCompilerStore {
         .await;
         phase.finish_result(&result);
         result
+    }
+    /// Only this contribution's exact original-bearing memberships can earn completion.
+    /// Other open producers may still legitimately own staging without source headers.
+    async fn complete_contribution_originals(&self,id:ContentHash,budget:&ResourceBudget)->Result<(),ModelError>{
+        let cancellation=self.read_cancellation()?;
+        let reader=crate::NativeReader::private(self.client.clone()).with_budget(budget);
+        let reader=if let Some(flag)=cancellation {reader.with_read_cancellation(flag)} else {reader};
+        let result=async {
+            let owner=RecordId::new("compiler_contribution",id.hex());
+            let _page=budget.reserve("original contribution membership page",32*4096)?;
+            for relation in [d::source::SourceArtifact::NAME,d::artifact::ArtifactChunk::NAME]{
+                let mut vars=Variables::new();vars.insert("owner",owner.clone());vars.insert("relation",relation);vars.insert("after",Value::None);
+                let mut after=None::<String>;
+                loop{
+                    let memberships:Vec<Value>=reader.query_native("SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation AND ($after=NONE OR semantic_key>$after) ORDER BY semantic_key LIMIT 32",vars.clone()).await?;
+                    if memberships.is_empty(){break;}
+                    let mut sources=Vec::with_capacity(memberships.len());
+                    for membership in memberships{
+                        validate_state_row("compiler_membership",&membership)?;
+                        let member=value_object(&membership).ok_or(ModelError::Schema("original completion membership"))?;
+                        let Some(Value::String(key))=member.get("semantic_key") else{return Err(ModelError::Schema("original completion membership key"));};
+                        if member.get("contribution")!=Some(&Value::RecordId(owner.clone())) || member.get("relation")!=Some(&Value::String(relation.into())) || after.as_ref().is_some_and(|previous|key<=previous){return Err(ModelError::Conflict("original completion exact membership owner/order"));}
+                        let Some(Value::RecordId(node))=member.get("node") else{return Err(ModelError::Schema("original completion payload pointer"));};
+                        let mut payload_vars=Variables::new();payload_vars.insert("node",node.clone());
+                        let payloads:Vec<Value>=reader.query_native("SELECT * FROM $node",payload_vars).await?;
+                        let [payload]=payloads.as_slice() else{return Err(ModelError::Conflict("original completion payload missing"));};
+                        let object=value_object(payload).ok_or(ModelError::Schema("original completion payload"))?;
+                        if object.get("id")!=Some(&Value::RecordId(node.clone())) || object.get("content")!=member.get("content"){return Err(ModelError::Conflict("original completion membership payload"));}
+                        let Some(Value::Bytes(canonical))=object.get("canonical") else{return Err(ModelError::Schema("original completion canonical payload"));};
+                        let _decode=budget.reserve("original contribution payload decode",canonical.len().saturating_mul(8).saturating_add(4096))?;
+                        let source=if relation==d::source::SourceArtifact::NAME{
+                            let entity:d::graph::Entity=serde_json::from_slice(canonical).map_err(ModelError::codec)?;entity.validate()?;
+                            if crate::loader::entity_payload_id(&entity)?!=*node || object.get("content")!=Some(&Value::String(entity.content().hex())){return Err(ModelError::Conflict("original completion source payload"));}
+                            let d::graph::Entity::Source(source)=entity else{return Err(ModelError::Schema("original completion source kind"));};
+                            if hex::encode(source.id().bytes())!=*key{return Err(ModelError::Conflict("original completion source semantic key"));}
+                            lctx_native::originals::Layout::source(&source)?.id
+                        }else{
+                            let backing=validate_state_row("compiler_record",payload)?.ok_or(ModelError::Schema("original completion chunk backing"))?;
+                            if object.get("semantic_key")!=Some(&Value::String(key.clone())){return Err(ModelError::Conflict("original completion chunk semantic key"));}
+                            RecordId::new("original",d::graph::EntityId::of(backing.artifact).0.hex())
+                        };
+                        sources.push(source);after=Some(key.clone());
+                    }
+                    lctx_native::originals::complete_selected(&reader,Some(self.attempt),&sources,budget).await?;
+                    vars.insert("after",after.clone().map(Value::String).unwrap_or(Value::None));
+                }
+            }Ok(())
+        }.await;
+        let mut completion=d::completion::Completion::default();completion.step("original contribution reader close",reader.close().await);
+        d::completion::complete(result,completion)
     }
     async fn complete_contribution_inner(
         self: &Arc<Self>,
@@ -3080,6 +3121,7 @@ impl NativeCompilerStore {
                 .new_membership_keys(&relation, &pending, owners)
                 .await?;
         }
+        self.complete_contribution_originals(id,budget).await?;
         let descriptor = CompletedContribution {
             spec,
             outcome: outcome.code(),
@@ -3105,7 +3147,7 @@ impl NativeCompilerStore {
         );
         b.insert("logical", logical.hex());
         b.insert("outcome", outcome.code());
-        crate::control::effect(&self.client,Some(self.attempt),"LET $owner=SELECT * FROM ONLY $id FOR UPDATE; IF $owner.completed OR $owner.attempt != $__attempt { THROW 'native contribution completion fenced'; }; UPDATE $id SET descriptor=$descriptor,logical=$logical,outcome=$outcome,completed=true RETURN NONE",b).await?;
+        crate::control::effect(&self.client,Some(self.attempt),"fn::native_touch($id); LET $owner=SELECT * FROM ONLY $id FOR UPDATE; IF $owner.completed OR $owner.attempt != $__attempt { THROW 'native contribution completion fenced'; }; UPDATE $id SET descriptor=$descriptor,logical=$logical,outcome=$outcome,completed=true RETURN NONE",b).await?;
         self.specifications
             .lock()
             .map_err(|_| ModelError::Conflict("native contribution owner"))?
@@ -3364,7 +3406,7 @@ impl NativeCompilerStore {
         let mut pending_bytes = 0;
         while let Some(row) = backing.next().await? {
             if let Some(original) = validate_state_row("compiler_record", &row)? {
-                self.verify_original_backing(&original).await?;
+                self.verify_original_backing(&original,&selection.budget).await?;
             }
             admit_backing_row(&mut pending, &mut pending_bytes, row, &selection.budget)?;
         }
@@ -3486,23 +3528,21 @@ impl NativeCompilerStore {
         }
         Ok(())
     }
-    async fn verify_original_backing(&self, original: &OriginalBacking) -> Result<(), ModelError> {
-        let source = d::graph::EntityId::of(original.artifact);
-        let mut bindings = Variables::new();
-        bindings.insert("id", RecordId::new("original", source.0.hex()));
-        let mut response = self
-            .read_client()?
-            .query("SELECT VALUE byte_len FROM $id")
-            .bind(bindings)
-            .await
-            .map_err(ModelError::codec)?
-            .check()
-            .map_err(ModelError::codec)?;
-        let lengths: Vec<i64> = response.take(0).map_err(ModelError::codec)?;
-        let [length] = lengths.as_slice() else {
-            return Err(ModelError::Conflict("compiler original header"));
+    async fn verify_original_backing(&self, original: &OriginalBacking, budget:&ResourceBudget) -> Result<(), ModelError> {
+        let source=d::graph::EntityId::of(original.artifact);
+        let cancellation=self.read_cancellation()?;
+        let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
+        let reader = if let Some(flag) = cancellation {
+            reader.with_read_cancellation(flag)
+        } else {
+            reader
         };
-        let remaining = u64::try_from(*length)
+        let result=async {
+        let layout=lctx_native::originals::layout(&reader,&RecordId::new("original",source.0.hex())).await?.ok_or(ModelError::Conflict("compiler original layout"))?;
+        lctx_native::originals::validate_layout(&reader,&layout).await?;
+        if !lctx_native::originals::header(&reader,&layout.blob).await? {return Err(ModelError::Conflict("compiler original incomplete blob"));}
+        let length=i64::try_from(layout.blob.byte_len).map_err(ModelError::codec)?;
+        let remaining = u64::try_from(length)
             .map_err(ModelError::codec)?
             .checked_sub(original.start)
             .ok_or(ModelError::Conflict("compiler original coverage"))?;
@@ -3511,12 +3551,6 @@ impl NativeCompilerStore {
         }
         // Reuse the independently checked physical-range reader; retain only one bounded
         // page, and hash it without reconstructing or storing a second raw chunk body.
-        let reader = crate::NativeReader::private(self.client.clone());
-        let reader = if let Some(flag) = self.read_cancellation()? {
-            reader.with_read_cancellation(flag)
-        } else {
-            reader
-        };
         let mut hash = ContentHasher::default();
         let mut offset = 0usize;
         while offset < original.len {
@@ -3531,6 +3565,10 @@ impl NativeCompilerStore {
             return Err(ModelError::Conflict("compiler original digest"));
         }
         Ok(())
+        }.await;
+        let mut completion=d::completion::Completion::default();
+        completion.step("original backing reader close",reader.close().await);
+        d::completion::complete(result,completion)
     }
     async fn registered_view(self: &Arc<Self>, view: &CompletedView) -> Result<(), ModelError> {
         view.validate()?;
@@ -3568,73 +3606,10 @@ impl NativeCompilerStore {
             .await?;
         self.remember_view(view)
     }
-    async fn validate_view_contributions(
-        self: &Arc<Self>,
-        views: &[CompletedView],
-    ) -> Result<(), ModelError> {
-        let logical = views
-            .iter()
-            .flat_map(|view| view.contributions.iter().copied())
-            .collect::<std::collections::BTreeSet<_>>();
-        if logical.is_empty() {
-            return Ok(());
-        }
-        let mut completed = BTreeMap::new();
-        for requested in &logical {
-            let mut bindings = Variables::new();
-            bindings.insert("logical", requested.hex());
-            // Validate every physical copy through one equality-indexed logical root.
-            let mut rows = self.track_rows(NativeRows::new(self.read_client()?.query("SELECT * FROM compiler_contribution WITH INDEX logical_contribution WHERE completed=true AND logical=$logical").bind(bindings).stream_items().map_err(ModelError::codec)?, 1)?)?;
-            while let Some(row) = rows.next().await? {
-                validate_state_row("compiler_contribution", &row)?;
-                let descriptor = decode_descriptor::<CompletedContribution>(&row)?;
-                let logical = descriptor.identity()?;
-                let physical = value_object(&row)
-                    .and_then(|row| row.get("id"))
-                    .and_then(|id| {
-                        if let Value::RecordId(id) = id {
-                            if let RecordIdKey::String(key) = &id.key {
-                                hex::decode(key)
-                                    .ok()
-                                    .and_then(|bytes| bytes.try_into().ok())
-                                    .map(ContentHash)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .ok_or(ModelError::Schema("completed contributor identity"))?;
-                if let Some(old) = completed.get(&logical) {
-                    if old != &descriptor {
-                        return Err(ModelError::Conflict(
-                            "completed contributor identity collision",
-                        ));
-                    }
-                } else {
-                    completed.insert(logical, descriptor);
-                }
-                self.known_contributors
-                    .lock()
-                    .map_err(|_| ModelError::Conflict("native contributor owner"))?
-                    .entry(logical)
-                    .or_insert(physical);
-            }
-        }
-        if completed.len() != logical.len() || logical.iter().any(|id| !completed.contains_key(id))
-        {
-            return Err(ModelError::Conflict(
-                "completed view contribution membership",
-            ));
-        }
-        for view in views {
-            for id in &view.contributions {
-                if !completed[id].outputs.contains_key(&view.relation) {
-                    return Err(ModelError::Conflict("completed view output ownership"));
-                }
-            }
-        }
+    async fn validate_view_contributions(self:&Arc<Self>,views:&[CompletedView])->Result<(),ModelError>{
+        // Loading a logical declaration is not attachment authority. Every requested
+        // contributor must already have a selected local or exact per-view mapping.
+        for view in views {self.view_owners(view)?;}
         Ok(())
     }
 
@@ -3650,28 +3625,17 @@ impl NativeCompilerStore {
         known.insert(logical, physical);
         Ok(())
     }
-    fn view_owners(&self, view: &CompletedView) -> Result<Vec<ContentHash>, ModelError> {
-        let known = self
-            .known_contributors
-            .lock()
-            .map_err(|_| ModelError::Conflict("native contributor owner"))?;
-        let mut owners = view
-            .contributions
-            .iter()
-            .map(|logical| {
-                known
-                    .get(logical)
-                    .copied()
-                    .ok_or(ModelError::Conflict("missing verified contributor"))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        owners.sort_unstable();
-        if owners.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(ModelError::Conflict(
-                "duplicate physical completed contributor",
-            ));
+    fn view_owners(&self,view:&CompletedView)->Result<Vec<ContentHash>,ModelError>{
+        let selected=self.view_mappings.lock().map_err(|_|ModelError::Conflict("native exact view mapping owner"))?;
+        let local=self.known_contributors.lock().map_err(|_|ModelError::Conflict("native contributor owner"))?;
+        let mut owners=Vec::with_capacity(view.contributions.len());
+        for logical in &view.contributions {
+            let physical=if let Some((mappings,_))=selected.get(&view.identity) {
+                mappings.binary_search_by_key(logical,|mapping|mapping.logical).ok().map(|index|mappings[index].physical)
+            }else {local.get(logical).copied()}.ok_or(ModelError::Conflict("missing explicit selected contributor"))?;
+            owners.push(physical);
         }
-        Ok(owners)
+        owners.sort_unstable();if owners.windows(2).any(|pair|pair[0]==pair[1]){return Err(ModelError::Conflict("duplicate physical selected contributor"));}Ok(owners)
     }
 
     fn remember_view(&self, view: &CompletedView) -> Result<(), ModelError> {
@@ -4320,13 +4284,7 @@ impl NativeCompilerStore {
         if view.relation != relation.name() || keys.windows(2).any(|w| w[0] >= w[1]) {
             return Err(ModelError::Conflict("selected content-token binding"));
         }
-        let _owners = budget.reserve(
-            "native-selected-membership-owners",
-            view.contributions
-                .len()
-                .saturating_mul(size_of::<ContentHash>()),
-        )?;
-        let owners = self.view_owners(view)?;
+        let installed = self.installed_view(view, budget).await?;
         let _charge = budget.reserve(
             "native-selected-content-tokens",
             keys.len().saturating_mul(256).saturating_add(4096),
@@ -4382,31 +4340,22 @@ impl NativeCompilerStore {
                 }
             }
         } else {
-            let _window = budget.reserve(
-                "native-selected-membership-window",
-                owners
-                    .len()
-                    .saturating_mul(64)
-                    .saturating_add(crate::loader::NATIVE_WINDOW_ROWS * 2048),
-            )?;
+            // Exact point IDs are in the held physical realization, never a global
+            // membership index or one scalar query per possible producer.
             for window in keys.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
-                let mut lookup = MembershipLookup::new(
-                    self.clone(),
-                    relation.name().into(),
-                    window.to_vec(),
-                    owners.clone(),
-                );
-                for candidate in lookup.collect().await?.into_values() {
-                    result.push((
-                        candidate.key,
-                        candidate
-                            .content
-                            .ok_or(ModelError::Schema("verified membership content"))?,
-                    ));
-                }
+                let members = installed.members(&self.installed_member_reader(budget)?, window, budget).await?;
+                result.extend(members.rows().iter().map(|member| (member.key, member.content)));
             }
         }
         Ok(result)
+    }
+    fn installed_member_reader(&self, budget: &ResourceBudget) -> Result<crate::NativeReader<()>, ModelError> {
+        self.check_read_admission()?;
+        let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
+        Ok(match self.read_cancellation()? {
+            Some(flag) => reader.with_read_cancellation(flag),
+            None => reader,
+        })
     }
     async fn prepare_memberships(
         self: &Arc<Self>,
@@ -4501,7 +4450,6 @@ impl NativeCompilerStore {
         predicate: Option<NativePredicate>,
         budget: &ResourceBudget,
     ) -> Result<CompilerRows, ModelError> {
-        let owners = self.view_owners(view)?;
         if view.relation != relation.name() {
             return Err(ModelError::Conflict("native view relation"));
         }
@@ -4625,7 +4573,7 @@ impl NativeCompilerStore {
             if field == "id" {
                 projections.push("semantic_key AS id".to_string());
             } else if relation.name() == d::artifact::ArtifactChunk::NAME && field == "body" {
-                projections.push("(SELECT start,bytes,content FROM original_chunk WHERE source=$parent.body.original AND start >= $parent.body.start AND start < $parent.body.start+$parent.body.len ORDER BY start) AS __original_chunks, body.start AS __original_start, body.len AS __original_len, body.digest AS __original_digest".to_string());
+                projections.push("(SELECT * FROM original_chunk WITH INDEX position WHERE blob=$parent.body.original.blob AND start >= $parent.body.start AND start < $parent.body.start+$parent.body.len ORDER BY start) AS __original_chunks, (SELECT * FROM ONLY $parent.body.original) AS __original_layout, (SELECT * FROM ONLY $parent.body.original.blob) AS __original_blob, (SELECT * FROM ONLY $parent.body.original.artifact) AS __original_artifact, body.original AS __original_source_id, body.start AS __original_start, body.len AS __original_len, body.digest AS __original_digest".to_string());
             } else if relation.fields().iter().any(|f| f.name() == field) {
                 projections.push(format!("body.`{field}` AS `{field}`"));
             } else {
@@ -4635,6 +4583,7 @@ impl NativeCompilerStore {
         if projections.is_empty() {
             projections.push("semantic_key AS __row".into());
         }
+        let installed = self.installed_view(view, budget).await?;
         // Exact empty demand still passes the owner, view and shape checks above. There is
         // no physical stream to hold or drain, and no fabricated transport receipt. Internal
         // SQL predicates keep their ordinary execution/error semantics.
@@ -4648,6 +4597,7 @@ impl NativeCompilerStore {
                 store: self.clone(),
                 lease: None,
                 setup: None,
+                installed: None,
             });
         }
         if let Some(mut keys) = explicit_keys {
@@ -4656,6 +4606,7 @@ impl NativeCompilerStore {
             return self.track_selection(
                 SelectionKeys::Known(keys.into_iter()),
                 view,
+                installed,
                 relation,
                 projections.join(","),
                 predicate,
@@ -4665,6 +4616,7 @@ impl NativeCompilerStore {
             );
         }
         let keys = if let Some((field, values)) = atomic_field {
+            let owners = self.view_owners(view)?;
             let mut sorted = AsyncCandidateSort::new_registered(
                 budget,
                 self.blocking_owner()?,
@@ -4713,6 +4665,7 @@ impl NativeCompilerStore {
         self.track_selection(
             keys,
             view,
+            installed,
             relation,
             projections.join(","),
             predicate,
@@ -4779,6 +4732,7 @@ pub struct CompilerRows {
     store: Arc<NativeCompilerStore>,
     lease: Option<OperationLease>,
     setup: Option<ReadSetupCharge>,
+    installed: Option<Arc<lctx_native::installed_view::HeldInstalledView>>,
 }
 impl CompilerRows {
     fn with_setup(mut self, setup: Option<ReadSetupCharge>) -> Self {
@@ -4855,6 +4809,7 @@ impl CompilerRows {
         if !matches!(&result, Ok(Some(_))) {
             self.rows.take();
             self.setup.take();
+            self.installed.take();
             if let Some(lease) = self.lease.take() {
                 return lease.finish_with(result);
             }
@@ -4865,6 +4820,7 @@ impl CompilerRows {
 impl Drop for CompilerRows {
     fn drop(&mut self) {
         let mut retained = self.setup.take();
+        let installed = self.installed.take();
         if self.selection.take().is_some() | self.graph.take().is_some() {
             drop(retained.take());
             if let Some(lease) = self.lease.take() {
@@ -4893,6 +4849,7 @@ impl Drop for CompilerRows {
                     }
                     drop(rows);
                     drop(retained);
+                    drop(installed);
                     if let Some(lease) = lease {
                         lease.finish();
                     }
@@ -4903,19 +4860,8 @@ impl Drop for CompilerRows {
         }
     }
 }
-fn membership_id(contribution: ContentHash, relation: &str, key: &[u8]) -> RecordId {
-    let mut sink = KeySink::new("compiler-membership/v1");
-    contribution.encode(&mut sink);
-    relation.to_string().encode(&mut sink);
-    sink.part(b"key", key);
-    RecordId::new("compiler_membership", sink.finish().hex())
-}
-fn decode_nominal_key(key: &str) -> Result<[u8; 16], ModelError> {
-    hex::decode(key)
-        .map_err(ModelError::codec)?
-        .try_into()
-        .map_err(|_| ModelError::Schema("native nominal key width"))
-}
+
+
 /// One bounded nominal-key window. Unary equality-prefix branches examine actual
 /// memberships; only a single verified owner uses deterministic point IDs.
 struct MembershipLookup {
@@ -5073,6 +5019,10 @@ enum SelectionKeys {
 }
 struct SelectedRows {
     keys: SelectionKeys,
+    installed: Arc<lctx_native::installed_view::HeldInstalledView>,
+    direct_members: Option<lctx_native::installed_view::SelectedMembers>,
+    direct_position: usize,
+    budget: ResourceBudget,
     owners: Vec<ContentHash>,
     relation: String,
     fields: String,
@@ -5086,6 +5036,14 @@ struct SelectedRows {
     pointers: BTreeMap<String, RecordId>,
     setup: Option<ReadSetupCharge>,
     _transfer: Box<dyn Reservation>,
+}
+fn compact_key_field(fields: &str, predicate: &str, preparation: &[String]) -> Option<&'static str> {
+    if predicate != "true" || !preparation.is_empty() { return None; }
+    match fields {
+        "semantic_key AS id" => Some("id"),
+        "semantic_key AS __row" => Some("__row"),
+        _ => None,
+    }
 }
 impl SelectedRows {
     fn start_payload(&mut self, nodes: Vec<RecordId>) -> Result<(), ModelError> {
@@ -5101,9 +5059,7 @@ impl SelectedRows {
             "{prelude}SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key",
             self.fields, self.predicate
         );
-        self.payload = Some(
-            self.store
-                .track_rows(
+        let mut payload = self.store.track_rows(
                     prepared_rows(
                         &self.store.client,
                         sql,
@@ -5112,14 +5068,25 @@ impl SelectedRows {
                         self.store.read_cancellation()?.as_ref(),
                     )?
                     .with_row_bytes(64 << 20),
-                )?
-                .with_setup(self.setup.clone()),
-        );
+                )?.with_setup(self.setup.clone());
+        payload.installed = Some(self.installed.clone());
+        self.payload = Some(payload);
         Ok(())
     }
     async fn next(&mut self) -> Result<Option<Value>, ModelError> {
         loop {
             let window_rows = crate::loader::NATIVE_WINDOW_ROWS;
+            if let Some(members) = &self.direct_members {
+                if let Some(member) = members.rows().get(self.direct_position) {
+                    self.direct_position += 1;
+                    let mut row = Object::new();
+                    row.insert(compact_key_field(&self.fields, &self.predicate, &self.preparation)
+                        .ok_or(ModelError::Conflict("compact member projection"))?, hex::encode(member.key));
+                    return Ok(Some(Value::Object(row)));
+                }
+                self.direct_members.take();
+                self.direct_position = 0;
+            }
             if let Some(rows) = &mut self.payload {
                 if let Some(row) = rows.next_native().await? {
                     return Ok(Some(row));
@@ -5173,6 +5140,17 @@ impl SelectedRows {
                 &mut self.pending_keys,
                 Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS),
             );
+            if matches!(&self.keys, SelectionKeys::Known(_)) {
+                let reader = self.store.installed_member_reader(&self.budget)?;
+                let members = self.installed.members(&reader, &keys, &self.budget).await?;
+                if compact_key_field(&self.fields, &self.predicate, &self.preparation).is_some() {
+                    self.direct_members = Some(members);
+                    continue;
+                }
+                let nodes = members.rows().iter().map(|member| member.node.clone()).collect();
+                if !members.rows().is_empty() { self.start_payload(nodes)?; }
+                continue;
+            }
             if matches!(&self.keys, SelectionKeys::Verified(_)) {
                 let nodes = std::mem::take(&mut self.pointers)
                     .into_values()
@@ -5319,393 +5297,19 @@ struct StateRow {
     table: String,
     row: Value,
 }
-fn validate_state_row(table: &str, row: &Value) -> Result<Option<OriginalBacking>, ModelError> {
-    let object = value_object(row).ok_or(ModelError::Schema("completed state object"))?;
-    let Some(Value::RecordId(id)) = object.get("id") else {
-        return Err(ModelError::Schema("completed state key"));
-    };
-    if id.table.as_str() != table {
-        return Err(ModelError::Schema("completed state table/key"));
-    }
-    use d::recovery_closure::RecoveryFamily::*;
-    let RecoveryTableKind::Content(family) = classify_recovery_table(table)
-        .ok_or(ModelError::Schema("completed state unknown family"))?
-        .kind
-    else {
-        return Err(ModelError::Schema("completed state publication root"));
-    };
-    match family {
-        TypedBacking => return validate_compiler_backing(object, id),
-        Contributions => {
-            if object.get("completed") != Some(&Value::Bool(true)) {
-                return Err(ModelError::Conflict(
-                    "pending contribution cannot be sealed",
-                ));
-            }
-            let Some(Value::Bytes(bytes)) = object.get("descriptor") else {
-                return Err(ModelError::Schema("completed contribution descriptor"));
-            };
-            let descriptor: CompletedContribution =
-                serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-            if object.get("logical") != Some(&Value::String(descriptor.identity()?.hex()))
-                || object
-                    .get("attempt")
-                    .and_then(|value| {
-                        if let Value::RecordId(attempt) = value {
-                            if let RecordIdKey::String(key) = &attempt.key {
-                                hex::decode(key)
-                                    .ok()
-                                    .and_then(|bytes| bytes.try_into().ok())
-                                    .map(ContentHash)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    })
-                    .is_none_or(|attempt| {
-                        id.key
-                            != RecordIdKey::String(
-                                attempt_contribution(
-                                    attempt,
-                                    descriptor.spec.identity().expect("validated specification"),
-                                )
-                                .hex(),
-                            )
-                    })
-            {
-                return Err(ModelError::Conflict("completed contribution identity"));
-            }
-            let Some(Value::Bytes(spec)) = object.get("spec") else {
-                return Err(ModelError::Schema("completed contribution specification"));
-            };
-            if serde_json::from_slice::<ContributionSpec>(spec).map_err(ModelError::codec)?
-                != descriptor.spec
-            {
-                return Err(ModelError::Conflict("completed contribution specification"));
-            }
-            check_projection(object, contribution_projection(&descriptor.spec))?;
-            if object.get("outcome") != Some(&Value::from_t(descriptor.outcome)) {
-                return Err(ModelError::Conflict(
-                    "completed contribution outcome projection",
-                ));
-            }
-        }
-        Memberships => {
-            let Some(Value::RecordId(contribution)) = object.get("contribution") else {
-                return Err(ModelError::Schema("membership contribution"));
-            };
-            let surrealdb::types::RecordIdKey::String(physical) = &contribution.key else {
-                return Err(ModelError::Schema("membership physical owner"));
-            };
-            let physical = ContentHash(
-                hex::decode(physical)
-                    .map_err(ModelError::codec)?
-                    .try_into()
-                    .map_err(|_| ModelError::Schema("membership owner width"))?,
-            );
-            let Some(Value::String(relation)) = object.get("relation") else {
-                return Err(ModelError::Schema("membership relation"));
-            };
-            let Some(Value::String(key)) = object.get("semantic_key") else {
-                return Err(ModelError::Schema("membership nominal key"));
-            };
-            if contribution.table.as_str() != "compiler_contribution"
-                || *id != membership_id(physical, relation, &decode_nominal_key(key)?)
-            {
-                return Err(ModelError::Conflict(
-                    "compiler membership physical identity",
-                ));
-            }
-        }
-        Views => {
-            let Some(Value::Bytes(bytes)) = object.get("descriptor") else {
-                return Err(ModelError::Schema("completed view descriptor"));
-            };
-            let descriptor: CompletedView =
-                serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-            descriptor.validate()?;
-            if id.key != surrealdb::types::RecordIdKey::String(descriptor.identity.hex()) {
-                return Err(ModelError::Conflict("completed view key"));
-            }
-            check_projection(object, view_projection(&descriptor)?)?;
-        }
-        Bindings => {
-            let Some(Value::Bytes(bytes)) = object.get("descriptor") else {
-                return Err(ModelError::Schema("completed binding descriptor"));
-            };
-            let descriptor: CompletedBinding =
-                serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-            descriptor.validate()?;
-            let attempt = object
-                .get("attempt")
-                .and_then(|value| {
-                    if let Value::RecordId(attempt) = value {
-                        if let RecordIdKey::String(key) = &attempt.key {
-                            hex::decode(key)
-                                .ok()
-                                .and_then(|bytes| bytes.try_into().ok())
-                                .map(ContentHash)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                })
-                .ok_or(ModelError::Schema("native binding attempt"))?;
-            if id.key
-                != surrealdb::types::RecordIdKey::String(
-                    attempt_binding(attempt, descriptor.key()).hex(),
-                )
-            {
-                return Err(ModelError::Conflict("completed binding key"));
-            }
-            check_projection(object, binding_projection(&descriptor))?;
-        }
-        Aliases => {}
-        GraphPayloads | GraphRoles | ExternalEndpoints | OriginalHeaders | OriginalChunks
-        | SearchOccurrences | SearchDocuments | SearchVectors => {
-            return Err(ModelError::Schema(
-                "non-completed recovery family in completed state",
-            ));
-        }
-    }
-    Ok(None)
-}
 
-struct OriginalBacking {
-    artifact: Id<d::source::SourceArtifact>,
-    start: u64,
-    len: usize,
-    digest: ContentHash,
-}
+
+
 /// Check closed per-row framing. Bounded ordinary type slices independently validate model keys.
-fn validate_compiler_backing(
-    row: &Object,
-    id: &RecordId,
-) -> Result<Option<OriginalBacking>, ModelError> {
-    let Some(Value::Object(body)) = row.get("body") else {
-        return Err(ModelError::Schema("compiler backing body"));
-    };
-    let Some(Value::String(name)) = body.get("__type") else {
-        return Err(ModelError::Schema("compiler backing type"));
-    };
-    let (key, original) = if name == d::artifact::ArtifactChunk::NAME {
-        require_backing_fields(
-            body,
-            &[
-                "__type", "artifact", "ordinal", "original", "start", "len", "digest",
-            ],
-        )?;
-        let artifact: Id<d::source::SourceArtifact> = decode_backing_id(body, "artifact")?;
-        let ordinal = backing_integer(body, "ordinal")?;
-        let start = u64::try_from(backing_integer(body, "start")?).map_err(ModelError::codec)?;
-        let len = usize::try_from(backing_integer(body, "len")?).map_err(ModelError::codec)?;
-        let Some(Value::String(digest)) = body.get("digest") else {
-            return Err(ModelError::Schema("compiler original digest"));
-        };
-        let digest_bytes: [u8; 32] = hex::decode(digest)
-            .map_err(ModelError::codec)?
-            .try_into()
-            .map_err(|_| ModelError::Schema("compiler original digest width"))?;
-        let digest_hash = ContentHash(digest_bytes);
-        if u64::try_from(ordinal)
-            .ok()
-            .and_then(|ordinal| ordinal.checked_mul(d::artifact::ARTIFACT_CHUNK_BYTES as u64))
-            != Some(start)
-            || len == 0
-            || len > d::artifact::ARTIFACT_CHUNK_BYTES
-            || start
-                .checked_add(len as u64)
-                .is_none_or(|end| end > i64::MAX as u64)
-            || digest_hash.hex() != *digest
-            || body.get("original")
-                != Some(&Value::RecordId(RecordId::new(
-                    "original",
-                    d::graph::EntityId::of(artifact).0.hex(),
-                )))
-        {
-            return Err(ModelError::Conflict("compiler original metadata"));
-        }
-        let key = Id::<d::artifact::ArtifactChunk>::of(&d::artifact::ArtifactChunkKey {
-            artifact,
-            ordinal,
-        });
-        (
-            *key.bytes(),
-            Some(OriginalBacking {
-                artifact,
-                start,
-                len,
-                digest: digest_hash,
-            }),
-        )
-    } else {
-        let adapter = crate::adapter::select(name)?;
-        if adapter.table != crate::schema::ScopeTable::CompilerRecord {
-            return Err(ModelError::Schema("undeclared compiler backing type"));
-        }
-        let relation = &adapter.relation;
-        let fields = std::iter::once("__type")
-            .chain(relation.fields().iter().map(|field| field.name()))
-            .collect::<Vec<_>>();
-        require_backing_fields(body, &fields)?;
-        let Some(Value::String(key)) = row.get("semantic_key") else {
-            return Err(ModelError::Schema("compiler backing semantic key"));
-        };
-        let key: [u8; 16] = hex::decode(key)
-            .map_err(ModelError::codec)?
-            .try_into()
-            .map_err(|_| ModelError::Schema("compiler backing semantic key width"))?;
-        // This checks physical framing only. The bounded type slice below independently
-        // recomputes ordinary-record nominal keys through the model callback.
-        (key, None)
-    };
-    if row.get("semantic_type") != Some(&Value::String(name.clone()))
-        || row.get("semantic_key") != Some(&Value::String(hex::encode(key)))
-        || *id
-            != crate::loader::payload_id(
-                "compiler_record",
-                name,
-                &key,
-                ContentHash::of(
-                    serde_json::to_vec(&Value::Object(body.clone()))
-                        .map_err(ModelError::codec)?
-                        .as_slice(),
-                ),
-            )?
-    {
-        return Err(ModelError::Conflict("compiler backing typed identity"));
-    }
-    let Some(Value::Bytes(canonical)) = row.get("canonical") else {
-        return Err(ModelError::Schema("compiler backing canonical bytes"));
-    };
-    let canonical_body: Value = serde_json::from_slice(canonical).map_err(ModelError::codec)?;
-    if canonical_body != Value::Object(body.clone())
-        || canonical.as_ref()
-            != serde_json::to_vec(&Value::Object(body.clone()))
-                .map_err(ModelError::codec)?
-                .as_slice()
-    {
-        return Err(ModelError::Conflict("compiler backing canonical body"));
-    }
-    if row.get("content") != Some(&Value::String(ContentHash::of(canonical).hex())) {
-        return Err(ModelError::Conflict("compiler backing content"));
-    }
-    let adapter = crate::adapter::select(name)?;
-    if adapter.table != crate::schema::ScopeTable::CompilerRecord {
-        return Err(ModelError::Schema("undeclared compiler backing type"));
-    }
-    let expected = crate::adapter::physical_row(
-        id.clone(),
-        ContentHash::of(canonical),
-        canonical.to_vec(),
-        None,
-        crate::codec::RecordView {
-            semantic_type: name.clone(),
-            semantic_key: hex::encode(key),
-            scopes: adapter.scopes(&canonical_body)?,
-            body: canonical_body,
-        },
-    )?;
-    if serde_json::to_vec(&Value::Object(row.clone())).map_err(ModelError::codec)?
-        != serde_json::to_vec(&expected).map_err(ModelError::codec)?
-    {
-        return Err(ModelError::Conflict("compiler backing complete envelope"));
-    }
-    Ok(original)
-}
-fn require_backing_fields(body: &Object, fields: &[&str]) -> Result<(), ModelError> {
-    if body.len() != fields.len() || fields.iter().any(|field| !body.contains_key(*field)) {
-        return Err(ModelError::Schema("compiler backing closed body"));
-    }
-    Ok(())
-}
-fn backing_integer(body: &Object, field: &str) -> Result<i64, ModelError> {
-    match body.get(field) {
-        Some(Value::Number(surrealdb::types::Number::Int(value))) => Ok(*value),
-        _ => Err(ModelError::Schema("compiler backing declared integer")),
-    }
-}
-fn decode_backing_id<T: Record>(body: &Object, field: &str) -> Result<Id<T>, ModelError> {
-    let Some(Value::Array(values)) = body.get(field) else {
-        return Err(ModelError::Schema("compiler backing nominal bytes"));
-    };
-    if values.len()!=16 || values.iter().any(|value|!matches!(value,Value::Number(surrealdb::types::Number::Int(value)) if u8::try_from(*value).is_ok())) {return Err(ModelError::Schema("compiler backing nominal bytes"));}
-    Ok(
-        SerdeWrapper::<Id<T>>::from_value(Value::Array(values.clone()))
-            .map_err(ModelError::codec)?
-            .0,
-    )
-}
 
-fn contribution_projection(spec: &ContributionSpec) -> Object {
-    let mut fields = Object::new();
-    fields.insert("producer", spec.producer.clone());
-    fields.insert("profile", spec.profile.name().to_string());
-    fields.insert("model", spec.model.hex());
-    fields.insert("implementation", spec.implementation.hex());
-    fields.insert(
-        "configuration",
-        spec.configuration
-            .map(|hash| Value::String(hash.hex()))
-            .unwrap_or(Value::Null),
-    );
-    let views = spec
-        .inputs
-        .iter()
-        .map(|source| source.view())
-        .collect::<std::collections::BTreeSet<_>>();
-    fields.insert(
-        "inputs",
-        views
-            .iter()
-            .map(|view| RecordId::new("compiler_view", view.hex()))
-            .collect::<Vec<_>>(),
-    );
-    fields.insert("outputs", spec.outputs.iter().cloned().collect::<Vec<_>>());
-    fields
-}
-fn view_projection(view: &CompletedView) -> Result<Object, ModelError> {
-    let mut fields = Object::new();
-    fields.insert("relation", view.relation.clone());
-    fields.insert(
-        "contributions",
-        view.contributions
-            .iter()
-            .map(ContentHash::hex)
-            .collect::<Vec<_>>(),
-    );
-    fields.insert("rows", i64::try_from(view.rows).map_err(ModelError::codec)?);
-    Ok(fields)
-}
-fn binding_projection(binding: &CompletedBinding) -> Object {
-    let mut fields = Object::new();
-    fields.insert("relation", binding.view.relation.clone());
-    fields.insert(
-        "boundary",
-        binding
-            .boundary
-            .clone()
-            .map(Value::String)
-            .unwrap_or(Value::Null),
-    );
-    fields.insert(
-        "view",
-        RecordId::new("compiler_view", binding.view.identity.hex()),
-    );
-    fields
-}
-fn check_projection(actual: &Object, expected: Object) -> Result<(), ModelError> {
-    for (field, value) in expected {
-        if actual.get(&field) != Some(&value) {
-            return Err(ModelError::Conflict("completed metadata projection"));
-        }
-    }
-    Ok(())
-}
+
+
+
+
+
+
+
+
 
 fn hydrate_original_row(value: Value) -> Result<Value, ModelError> {
     let Value::Object(mut row) = value else {
@@ -5732,28 +5336,20 @@ fn hydrate_original_row(value: Value) -> Result<Value, ModelError> {
     if len > d::artifact::ARTIFACT_CHUNK_BYTES {
         return Err(ModelError::Schema("original typed chunk byte bound"));
     }
+    let layout=lctx_native::originals::decode_layout(row.remove("__original_layout").ok_or(ModelError::Schema("original projected layout"))?)?;
+    let (blob,completed)=lctx_native::originals::decode_blob(row.remove("__original_blob").ok_or(ModelError::Schema("original projected blob"))?)?;
+    if blob!=layout.blob || !completed || row.remove("__original_source_id")!=Some(Value::RecordId(layout.id.clone())) {return Err(ModelError::Conflict("original projected layout authority"));}
+    let artifact=row.remove("__original_artifact").ok_or(ModelError::Schema("original projected artifact"))?;
+    let artifact=value_object(&artifact).ok_or(ModelError::Schema("original projected artifact object"))?;
+    let Some(Value::Bytes(canonical))=artifact.get("canonical") else{return Err(ModelError::Schema("original projected artifact canonical"));};
+    let entity:d::graph::Entity=serde_json::from_slice(canonical).map_err(ModelError::codec)?;entity.validate()?;
+    let d::graph::Entity::Source(source)=entity else{return Err(ModelError::Schema("original projected artifact kind"));};layout.validate_source(&source)?;
     let mut bytes = Vec::with_capacity(len);
     let mut position = start;
     for chunk in chunks {
-        let Some(chunk) = value_object(&chunk) else {
-            return Err(ModelError::Schema("original physical chunk"));
-        };
-        let Some(Value::Number(surrealdb::types::Number::Int(at))) = chunk.get("start") else {
-            return Err(ModelError::Schema("original physical chunk position"));
-        };
-        let Some(Value::Bytes(body)) = chunk.get("bytes") else {
-            return Err(ModelError::Schema("original physical chunk bytes"));
-        };
-        if u64::try_from(*at).map_err(ModelError::codec)? != position
-            || body.is_empty()
-            || body.len() > 65536
-            || body.len() > len.saturating_sub(bytes.len())
-            || chunk.get("content") != Some(&Value::String(ContentHash::of(body).hex()))
-        {
-            return Err(ModelError::Conflict("original physical chunk integrity"));
-        }
-        bytes.extend_from_slice(body);
-        position += body.len() as u64;
+        let piece=lctx_native::originals::decode_piece(chunk,&blob)?;
+        if piece.start!=position || piece.bytes.len()>len.saturating_sub(bytes.len()) {return Err(ModelError::Conflict("original physical chunk continuity"));}
+        bytes.extend_from_slice(&piece.bytes);position+=piece.bytes.len() as u64;
     }
     if bytes.len() != len || ContentHash::of(&bytes).hex() != digest {
         return Err(ModelError::Conflict("original typed chunk integrity"));
@@ -5764,111 +5360,8 @@ fn hydrate_original_row(value: Value) -> Result<Value, ModelError> {
 
 /// One bounded cold-state window, grouped through existing model callbacks. Hot writes and
 /// completed-view reads carry their validated typed ownership and never take this audit route.
-fn validate_backing_batch(rows: &[Value], budget: &ResourceBudget) -> Result<(), ModelError> {
-    let mut groups = BTreeMap::<&str, Vec<&Object>>::new();
-    for row in rows {
-        let object = value_object(row).ok_or(ModelError::Schema("compiler backing row"))?;
-        let Some(Value::String(name)) = object.get("semantic_type") else {
-            return Err(ModelError::Schema("compiler backing semantic type"));
-        };
-        if name != d::artifact::ArtifactChunk::NAME {
-            groups.entry(name).or_default().push(object);
-        }
-    }
-    for (name, mut rows) in groups {
-        let adapter = crate::adapter::select(name)?;
-        if adapter.table != crate::schema::ScopeTable::CompilerRecord {
-            return Err(ModelError::Schema("undeclared compiler backing type"));
-        }
-        let relation = &adapter.relation;
-        rows.sort_by_key(|row| match row.get("semantic_key") {
-            Some(Value::String(key)) => key.as_str(),
-            _ => "",
-        });
-        let mut builder = crate::projected_arrow::ProjectedBuilder::new(
-            relation.clone(),
-            relation.schema().clone(),
-            &budget,
-        )?;
-        for row in &rows {
-            let Some(Value::Object(body)) = row.get("body") else {
-                return Err(ModelError::Schema("compiler backing body"));
-            };
-            let mut fields = body.clone();
-            fields.insert(
-                "id",
-                row.get("semantic_key")
-                    .ok_or(ModelError::Schema("compiler backing semantic key"))?
-                    .clone(),
-            );
-            builder.push(Value::Object(fields))?;
-        }
-        let batch = relation
-            .canonical(&builder.finish()?)
-            .map_err(|_| ModelError::Conflict("compiler backing typed identity"))?;
-        let ids = batch
-            .column(0)
-            .as_any()
-            .downcast_ref::<FixedSizeBinaryArray>()
-            .ok_or(ModelError::Schema("compiler backing nominal column"))?;
-        let bodies = crate::codec::batch_bodies(relation, &batch)?;
-        if batch.num_rows() != rows.len() {
-            return Err(ModelError::Conflict("compiler backing type slice"));
-        }
-        for (index, (row, body)) in rows.iter().zip(bodies).enumerate() {
-            let key = hex::encode(ids.value(index));
-            if row.get("semantic_key") != Some(&Value::String(key.clone())) {
-                return Err(ModelError::Conflict("compiler backing typed identity"));
-            }
-            let canonical = serde_json::to_vec(&body).map_err(ModelError::codec)?;
-            let expected = crate::adapter::physical_row(
-                crate::loader::payload_id(
-                    "compiler_record",
-                    name,
-                    ids.value(index),
-                    ContentHash::of(&canonical),
-                )?,
-                ContentHash::of(&canonical),
-                canonical,
-                None,
-                crate::codec::RecordView {
-                    semantic_type: name.into(),
-                    semantic_key: key,
-                    scopes: adapter.scopes(&body)?,
-                    body,
-                },
-            )?;
-            if serde_json::to_vec(&Value::Object((*row).clone())).map_err(ModelError::codec)?
-                != serde_json::to_vec(&expected).map_err(ModelError::codec)?
-            {
-                return Err(ModelError::Conflict("compiler backing declared body"));
-            }
-        }
-    }
-    Ok(())
-}
-fn admit_backing_row(
-    pending: &mut Vec<Value>,
-    bytes: &mut usize,
-    row: Value,
-    budget: &ResourceBudget,
-) -> Result<(), ModelError> {
-    let weight = crate::loader::native_bytes(&row);
-    if weight > d::resources::MAX_ROW_BYTES {
-        return Err(ModelError::Schema("compiler backing row bound"));
-    }
-    if !pending.is_empty()
-        && (pending.len() >= d::resources::TRANSFER_ROWS
-            || bytes.saturating_add(weight) > d::resources::TRANSFER_BYTES)
-    {
-        validate_backing_batch(pending, budget)?;
-        pending.clear();
-        *bytes = 0;
-    }
-    *bytes = bytes.saturating_add(weight);
-    pending.push(row);
-    Ok(())
-}
+
+
 
 #[cfg(test)]
 mod completion_tests {
@@ -5889,7 +5382,7 @@ mod completion_tests {
         let spec = ContributionSpec {
             captured_binding: None,
             producer: "registering-owner".into(),
-            profile: d::stages::Profile::Catalog,
+            profile: lctx_model::domain::completed::OutputProfile::Specific(d::stages::Profile::Catalog),
             model: ContentHash::of(b"registering-model"),
             implementation: ContentHash::of(b"registering-code"),
             configuration: None,
@@ -5961,6 +5454,7 @@ mod completion_tests {
             store,
             lease: None,
             setup: None,
+            installed: None,
         }
     }
     #[tokio::test]
@@ -6278,6 +5772,7 @@ mod completion_tests {
                             store: rows_owner,
                             lease: None,
                             setup: None,
+                            installed: None,
                         })
                     }),
                 )
@@ -6608,7 +6103,7 @@ mod completion_tests {
             spec: ContributionSpec {
                 captured_binding: None,
                 producer: "audit-read-owner".into(),
-                profile: d::stages::Profile::Catalog,
+                profile: lctx_model::domain::completed::OutputProfile::Specific(d::stages::Profile::Catalog),
                 model: ContentHash::of(b"audit-model"),
                 implementation: ContentHash::of(b"audit-code"),
                 configuration: None,
@@ -6993,7 +6488,7 @@ mod compiler_scope_tests {
             let model = d::model()?.digest();
             let spec = ContributionSpec {
                 captured_binding: None, producer: format!("base-{}", nonce.hex()),
-                profile: d::stages::Profile::Catalog, model, implementation: nonce,
+                profile: d::completed::OutputProfile::Specific(d::stages::Profile::Catalog), model, implementation: nonce,
                 configuration: None, inputs: vec![],
                 outputs: std::collections::BTreeSet::from([relation.name().to_string()]),
             };
@@ -7012,7 +6507,7 @@ mod compiler_scope_tests {
                 Relation::of::<d::analytics::CommunityRun>()];
             let spec = ContributionSpec {
                 captured_binding: None, producer: format!("empty-{}", nonce.hex()),
-                profile: d::stages::Profile::Catalog, model, implementation: nonce,
+                profile: d::completed::OutputProfile::Specific(d::stages::Profile::Catalog), model, implementation: nonce,
                 configuration: None,
                 inputs: vec![d::analysis::sources::SourceSnapshot::of_completed_view(
                     &relation, model, &base_view,
@@ -7183,7 +6678,7 @@ mod compiler_scope_tests {
             };
             let relation = Relation::of::<d::analytics::QualityStep>();
             let spec = ContributionSpec {
-                captured_binding: None, producer: nonce.hex(), profile: d::stages::Profile::Catalog,
+                captured_binding: None, producer: nonce.hex(), profile: lctx_model::domain::completed::OutputProfile::Specific(d::stages::Profile::Catalog),
                 model: d::model()?.digest(), implementation: nonce, configuration: None,
                 inputs: vec![], outputs: std::collections::BTreeSet::from([relation.name().to_string()]),
             };
@@ -7400,5 +6895,18 @@ mod compiler_scope_tests {
         row.remove("scope_run");
         row.insert("scope_keys", vec!["imported wrong key"]);
         assert!(validate_compiler_backing(&row, &id).is_err());
+    }
+}
+
+#[cfg(test)]
+mod c04_projection_tests {
+    use super::compact_key_field;
+    #[test]
+    fn compact_projection_never_bypasses_a_value_predicate_or_required_payload() {
+        assert_eq!(compact_key_field("semantic_key AS id", "true", &[]), Some("id"));
+        assert_eq!(compact_key_field("semantic_key AS __row", "true", &[]), Some("__row"));
+        assert_eq!(compact_key_field("semantic_key AS id", "body.`version` = $v0", &[]), None);
+        assert_eq!(compact_key_field("semantic_key AS id,body.`version` AS `version`", "true", &[]), None);
+        assert_eq!(compact_key_field("semantic_key AS id", "true", &["LET $scope = 1".into()]), None);
     }
 }

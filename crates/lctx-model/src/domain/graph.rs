@@ -2213,6 +2213,10 @@ fn assertion_reference_target(
             Target::Assertion(AssertionId::from_key(reference.target, &reference.key)),
             None,
         )),
+        <super::uniform_outcome::UniformNotRequested as Record>::NAME => Ok((
+            Target::Assertion(AssertionId::from_key(reference.target, &reference.key)),
+            None,
+        )),
         <super::attribution::RunFamily as Record>::NAME => Ok((
             Target::Assertion(AssertionId::from_key(reference.target, &reference.key)),
             None,
@@ -10781,7 +10785,17 @@ macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
     NativeOverloadSupport:$crate::domain::types::NativeOverloadSupport,
     NativeOverloadCandidateSupport:$crate::domain::types::NativeOverloadCandidateSupport,
     ModuleResolutionObservationSupport:$crate::domain::symbols::ModuleResolutionSupport,
+    UniformNotRequested:$crate::domain::uniform_outcome::UniformNotRequested,
 }};}
+impl From<super::uniform_outcome::UniformNotRequested> for ProvenanceValue {
+    fn from(row:super::uniform_outcome::UniformNotRequested)->Self {Self::UniformNotRequested(row)}
+}
+impl GraphAssertionRecord for super::uniform_outcome::UniformNotRequested {
+    const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;
+    fn graph_payload(row:Self)->Assertion {
+        Assertion{source:Some(SemanticKey::of(row.id())),kind:Self::GRAPH_KIND,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}
+    }
+}
 impl From<super::input::InputAcquisition> for ProvenanceValue {
     fn from(row: super::input::InputAcquisition) -> Self {
         Self::Acquisition(row)

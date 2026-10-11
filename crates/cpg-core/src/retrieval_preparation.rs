@@ -302,15 +302,17 @@ impl RenderWindow<'_> {
         partition: usize,
         budget: &resources::ResourceBudget,
         cancellation: &crate::workspace::Cancellation,
+        runtime: &Workspace,
+        output: &ProducerOutput,
     ) -> Result<(Data, Output), ModelError> {
         let data = self.data(partition, budget, cancellation)?;
         let key = self.keys[partition];
         if self.brief {
             self.preparation
-                .finish_brief(crate::retrieval::nominal(&key)?, data, budget)
+                .finish_brief(crate::retrieval::nominal(&key)?, data, budget, runtime, output).await
         } else {
             self.preparation
-                .finish_root(access, crate::retrieval::nominal(&key)?, data, budget)
+                .finish_root(access, crate::retrieval::nominal(&key)?, data, budget, runtime, output)
                 .await
         }
     }
@@ -864,6 +866,8 @@ impl Preparation {
         id: Id<c1::EvidenceRoot>,
         mut data: Data,
         budget: &resources::ResourceBudget,
+        runtime: &Workspace,
+        output: &ProducerOutput,
     ) -> Result<(Data, Output), ModelError> {
         let root = build::need(&data.evidence.roots, id)?;
         let mut parents = self
@@ -897,22 +901,35 @@ impl Preparation {
         let ranges = retrieval::source::root_ranges(&data, id, budget)?;
         self.chunks(access, &ranges, &mut data, budget).await?;
         drop(ranges);
-        let rows = build::root(&data, id, budget)?;
+        let mut domain=KeySink::new("retrieval-root-payload-domain/v1");id.encode(&mut domain);let domain=domain.finish();
+        let request=crate::retrieval_products::request(&data,output,domain,runtime)?;
+        let hit=match &request {Some((request,_))=>crate::retrieval_products::lookup(request,&data,runtime).await?,None=>None};
+        drop(request);
+        let reused=hit.is_some();
+        let rows=match hit {Some(rows)=>rows,None=>build::root(&data,id,budget)?};
         rows.verify_completion(&data, budget)?;
+        if !reused {if let Some((request,_hold))=crate::retrieval_products::request(&data,output,domain,runtime)? {crate::retrieval_products::retain(&request,&rows,runtime).await?;}}
         Ok((data, rows))
     }
-    fn finish_brief(
+    async fn finish_brief(
         &self,
         id: Id<synthesis::briefs::Brief>,
         data: Data,
         budget: &resources::ResourceBudget,
+        runtime: &Workspace,
+        output: &ProducerOutput,
     ) -> Result<(Data, Output), ModelError> {
         if data.synthesis.briefs.len() != 1 || data.synthesis.briefs.get(id).is_none() {
             return Err(build::invalid("E0 brief grain membership differs"));
         }
-        let mut rows = Output::new(budget);
-        build::extend_synthesis(&data, &mut rows, budget)?;
+        let mut domain=KeySink::new("retrieval-brief-payload-domain/v1");id.encode(&mut domain);let domain=domain.finish();
+        let request=crate::retrieval_products::request(&data,output,domain,runtime)?;
+        let hit=match &request {Some((request,_))=>crate::retrieval_products::lookup(request,&data,runtime).await?,None=>None};
+        drop(request);
+        let reused=hit.is_some();
+        let rows=match hit {Some(rows)=>rows,None=>{let mut rows=Output::new(budget);build::extend_synthesis(&data,&mut rows,budget)?;rows}};
         rows.verify_completion(&data, budget)?;
+        if !reused {if let Some((request,_hold))=crate::retrieval_products::request(&data,output,domain,runtime)? {crate::retrieval_products::retain(&request,&rows,runtime).await?;}}
         Ok((data, rows))
     }
 }

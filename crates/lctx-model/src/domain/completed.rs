@@ -13,13 +13,40 @@ pub struct TypedRowKey {
     pub key: [u8; 16],
 }
 
+/// Profile meaning of the completed output. Attempt/publication profile is separate authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "profile", rename_all = "snake_case", deny_unknown_fields)]
+pub enum OutputProfile {
+    Neutral,
+    Specific(Profile),
+}
+impl OutputProfile {
+    /// Search metadata only; the complete serialized Spec remains authoritative.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Neutral => "neutral",
+            Self::Specific(Profile::Catalog) => "specific:catalog",
+            Self::Specific(Profile::Behavioral) => "specific:behavioral",
+        }
+    }
+    fn encode(self, sink: &mut KeySink) {
+        match self {
+            Self::Neutral => sink.part(b"output-profile", b"neutral"),
+            Self::Specific(profile) => {
+                sink.part(b"output-profile", b"specific");
+                profile.name().to_string().encode(sink);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContributionSpec {
     #[serde(deserialize_with = "super::producer_contract::required_optional")]
     pub captured_binding: Option<super::producer_contract::CapturedProducerBinding>,
     pub producer: String,
-    pub profile: Profile,
+    pub profile: OutputProfile,
     pub model: ContentHash,
     pub implementation: ContentHash,
     pub configuration: Option<ContentHash>,
@@ -27,18 +54,35 @@ pub struct ContributionSpec {
     pub outputs: BTreeSet<String>,
 }
 impl ContributionSpec {
+    /// Check output profile against the attempt without treating a neutral tag as authority.
+    pub fn validate_profile(&self,attempt:Profile)->Result<(),ModelError> {
+        match self.profile {
+            OutputProfile::Specific(profile) if profile==attempt=>Ok(()),
+            OutputProfile::Specific(_)=>Err(ModelError::Conflict("contribution attempt profile")),
+            OutputProfile::Neutral=>self.validate_neutral_profile(),
+        }
+    }
+    fn validate_neutral_profile(&self)->Result<(),ModelError> {
+        use super::producer_contract::{facts,OutputProfilePolicy};
+        let contract=facts::facts().into_iter().find(|contract|contract.name==self.producer)
+            .ok_or(ModelError::Conflict("unknown neutral producer contract"))?;
+        let binding=self.captured_binding.as_ref().ok_or(ModelError::Conflict("neutral contribution needs captured contract"))?;
+        if contract.output_profile!=OutputProfilePolicy::Neutral || binding.contract!=contract.identity() || binding.semantic_revision!=contract.semantic_revision || self.outputs!=contract.outputs.iter().chain(&contract.contributes).map(|relation|relation.name().to_owned()).collect() {
+            return Err(ModelError::Conflict("neutral output contract or inventory"));
+        }
+        contract.validate_context_dependency(binding,self.profile)
+    }
     pub fn identity(&self) -> Result<ContentHash, ModelError> {
+        if self.profile==OutputProfile::Neutral {self.validate_neutral_profile()?;}
         if self.producer.is_empty() {
             return Err(ModelError::Invalid("empty contribution producer".into()));
         }
-        let mut input_ids = self
+        let input_ids = self
             .inputs
             .iter()
             .map(SourceSnapshot::identity)
             .collect::<Vec<_>>();
-        input_ids.sort();
-        input_ids.dedup();
-        let mut sink = KeySink::new("compiler-contribution-spec/v2");
+        let mut sink = KeySink::new("compiler-contribution-spec/v3");
         self.captured_binding
             .as_ref()
             .map(|binding| binding.identity())
@@ -52,10 +96,13 @@ impl ContributionSpec {
             return Err(ModelError::Conflict("captured producer settings"));
         }
         self.producer.encode(&mut sink);
-        self.profile.name().to_string().encode(&mut sink);
+        self.profile.encode(&mut sink);
         self.model.encode(&mut sink);
         self.implementation.encode(&mut sink);
         self.configuration.encode(&mut sink);
+        // Input roles are their declaration positions. Reordering or repeating a selected
+        // immutable view is a different dependency binding, even when the set is unchanged.
+        sink.part(b"input-roles", &(input_ids.len() as u64).to_le_bytes());
         input_ids.encode(&mut sink);
         for output in &self.outputs {
             output.encode(&mut sink);
@@ -192,12 +239,10 @@ pub fn binding_inventory_identity(
     {
         return Err(ModelError::Conflict("duplicate publication binding"));
     }
-    let mut sink = KeySink::new("native-publication-view/v1");
+    let mut sink = KeySink::new("native-publication-view/v2");
     for binding in ordered {
         binding.validate()?;
-        binding.key().encode(&mut sink);
-        binding.view.identity.encode(&mut sink);
-        binding.configuration.encode(&mut sink);
+        binding.descriptor_identity()?.encode(&mut sink);
     }
     Ok(sink.finish())
 }
@@ -265,6 +310,7 @@ impl CompletedBinding {
     pub fn validate(&self) -> Result<(), ModelError> {
         self.view.validate()?;
         if self.source.relation() != self.view.relation
+            || self.source.producer().is_empty()
             || self.source.view() != self.view.identity
             || self.source.rows() < 0
             || self.source.rows() as u64 != self.view.rows
@@ -282,6 +328,21 @@ impl CompletedBinding {
         self.source.relation().to_string().encode(&mut sink);
         self.boundary.encode(&mut sink);
         sink.finish()
+    }
+    /// The mutable attempt slot is separate from the complete retained meaning.
+    /// Exact source attribution, boundary role, configuration and the entire validated
+    /// completed view participate. A view hash alone cannot replace this descriptor.
+    pub fn descriptor_identity(&self) -> Result<ContentHash, ModelError> {
+        self.validate()?;
+        let mut sink = KeySink::new("compiler-binding-descriptor/v2");
+        self.boundary.encode(&mut sink);
+        self.source.identity().encode(&mut sink);
+        self.view.relation.encode(&mut sink);
+        self.view.identity.encode(&mut sink);
+        self.view.rows.encode(&mut sink);
+        for contribution in &self.view.contributions { contribution.encode(&mut sink); }
+        self.configuration.encode(&mut sink);
+        Ok(sink.finish())
     }
 }
 

@@ -202,7 +202,7 @@ async fn body(
                 range.start + offset,
                 (end - offset) as usize,
             )
-            .await?
+            .await?.into_vec(_charge.as_ref())?
     };
     let continuation = if end < length {
         Optional(Some(

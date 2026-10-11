@@ -2007,3 +2007,54 @@ mod tests {
         assert!(build(&d, &b).is_err());
     }
 }
+
+impl Data {
+    /// Renderer premises are relation-local values. Current invocation/frame receipts are
+    /// checked independently by the caller and `verify_completion`; no cached receipt is used.
+    /// Nominal source IDs carried by rendered payloads remain part of every typed token.
+    pub fn value_dependencies(&self, domain: ContentHash, budget: &ResourceBudget)
+        -> Result<Vec<crate::domain::compilation_product::DependencyToken>, ModelError> {
+        use crate::domain::compilation_product::{RelationValue, RelationValueOutcome};
+        let mut values = self.source.core.value_dependencies(domain, budget)?;
+        for value in &mut values { value.role = format!("source-core:{}", value.role); }
+        macro_rules! catalog {($($field:ident:$ty:ty,)*)=>{$(
+            values.push(RelationValue::of_rows::<$ty>(domain,RelationValueOutcome::Complete,self.source.catalog.$field.iter())?.dependency(concat!("source-catalog:",stringify!($field)),None)?);
+        )*};}
+        crate::catalog_outputs!(catalog);
+        macro_rules! evidence {($($field:ident:$ty:ty,)*)=>{$(
+            values.push(RelationValue::of_rows::<$ty>(domain,RelationValueOutcome::Complete,self.evidence.$field.iter())?.dependency(concat!("evidence:",stringify!($field)),None)?);
+        )*};}
+        crate::catalog_evidence_outputs!(evidence);
+        macro_rules! source {($($field:ident:$ty:ty,)*)=>{$(
+            if !["runs","core_invocations","core_links","characterization_surfaces","characterization_providers","characterization_scopes"].contains(&stringify!($field)) {
+                values.push(RelationValue::of_rows::<$ty>(domain,RelationValueOutcome::Complete,self.source.facts.$field.iter())?.dependency(concat!("source:",stringify!($field)),None)?);
+            }
+        )*};}
+        crate::catalog_evidence_inputs!(source);
+        macro_rules! facts {($($field:ident:$ty:ty,)*)=>{$(
+            if !["evidence_invocations","evidence_sources","evidence_inputs","evidence_links"].contains(&stringify!($field)) {
+                values.push(RelationValue::of_rows::<$ty>(domain,RelationValueOutcome::Complete,self.facts.$field.iter())?.dependency(concat!("facts:",stringify!($field)),None)?);
+            }
+        )*};}
+        crate::retrieval_inputs!(facts);
+        macro_rules! synthesis {($($field:ident:$ty:ty,)*)=>{$(
+            if !["member_frames","evidence_outcomes","analysis_definitions","parameters","synthesis_invocations","synthesis_outcomes","synthesis_frames"].contains(&stringify!($field)) {
+                values.push(RelationValue::of_rows::<$ty>(domain,RelationValueOutcome::Complete,self.synthesis.$field.iter())?.dependency(concat!("synthesis:",stringify!($field)),None)?);
+            }
+        )*};}
+        crate::retrieval_synthesis_inputs!(synthesis);
+        // Diagnostic columns are deliberately projected by the physical reader. Bind the
+        // actual retained properties and only the run setting the text renderer consumes.
+        let mut properties=KeySink::new("retrieval-render-properties/v1");
+        properties.part(b"tokenizer",&[u8::from(self.tokenizer.is_some())]);
+        if let Some(tokenizer)=&self.tokenizer {tokenizer.identity().encode(&mut properties);}
+        for (id,(channel,settings)) in self.ruff_headers.iter() {id.encode(&mut properties);properties.part(b"ruff-channel",&(*channel as i16).to_le_bytes());settings.encode(&mut properties);}
+        for (id,channel) in self.pyrefly_headers.iter() {id.encode(&mut properties);properties.part(b"pyrefly-channel",&(*channel as i16).to_le_bytes());}
+        for support in self.source.facts.pyrefly_diagnostic_supports.iter() {
+            support.id().encode(&mut properties);need(&self.source.facts.runs,support.run)?.configuration.encode(&mut properties);
+        }
+        values.push(RelationValue {relation:"retrieval_render_properties".into(),contract:ContentHash::of(b"retrieval-tokenizer/diagnostic-properties/v1"),domain,outcome:RelationValueOutcome::Complete,
+            rows:(self.ruff_headers.len()+self.pyrefly_headers.len()+self.source.facts.pyrefly_diagnostic_supports.len()) as u64,content:properties.finish()}.dependency("render-properties",None)?);
+        Ok(values)
+    }
+}

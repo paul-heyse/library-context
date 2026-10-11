@@ -459,7 +459,7 @@ pub async fn read_originals(
             .iter()
             .zip(reader.original_bytes_batch(batch_ranges).await?)
         {
-            if let Ok(value) = String::from_utf8(bytes)
+            if let Ok(value) = String::from_utf8(bytes.into_vec(_charge.as_ref())?)
                 && let Ok(value) = Text::new(value)
             {
                 text.insert(*key, value);

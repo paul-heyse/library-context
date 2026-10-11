@@ -8,7 +8,8 @@ use lctx_model::domain::{
     resources::ResourceBudget,
     stages::{Profile, ProviderOutcome},
 };
-use lctx_native::{RuntimeConfig, compiler::NativeCompilerStore, control};
+use lctx_native::{RuntimeConfig, control};
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::collections::{BTreeMap, BTreeSet};
 use surrealdb::types::{Object, RecordId, Value, Variables};
 fn config() -> RuntimeConfig {
@@ -16,6 +17,30 @@ fn config() -> RuntimeConfig {
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
     ))
     .unwrap()
+}
+
+// Build one deliberately explicit test request from the actual persisted guard. This
+// uses the production request/digest boundary, rather than a hand-written legacy epoch.
+async fn captured_guard_request(
+    client: &surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>,
+    object: &RecordId,
+    sql: &str,
+    mut bindings: Variables,
+) -> (control::NativeRequest, Variables) {
+    let guard=RecordId::new("native_guard",ContentHash::of(&serde_json::to_vec(&Value::RecordId(object.clone())).unwrap()).hex());
+    let mut response=client.query("SELECT * FROM $guard").bind(("guard",guard.clone())).await.unwrap().check().unwrap();
+    let rows:Vec<Object>=response.take(0).unwrap();
+    let mut expected=Object::new();expected.insert("record",object.clone());expected.insert("guard",guard.clone());
+    if let Some(row)=rows.first(){
+        expected.insert("incarnation",row.get("incarnation").unwrap().clone());
+        expected.insert("phase",row.get("phase").unwrap().clone());
+        expected.insert("tombstone_revision",if row.get("phase")==Some(&Value::String("retired".into())) {row.get("tombstone_revision").unwrap().clone()}else{Value::None});
+    }else{expected.insert("incarnation",0i64);expected.insert("phase","vacant");expected.insert("tombstone_revision",0i64);}
+    let mut mapping=Object::new();mapping.insert("record",object.clone());mapping.insert("guard",guard.clone());
+    bindings.insert("__write_guards",vec![guard]);bindings.insert("__guard_records",vec![Value::Object(mapping)]);
+    bindings.insert("__object_expectations",vec![Value::Object(expected)]);
+    let digest=ContentHash::of(&serde_json::to_vec(&(sql,&bindings)).unwrap());
+    (control::NativeRequest::issue(client,digest).await.unwrap(),bindings)
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -27,7 +52,7 @@ async fn phased_retirement_charges_actual_edges_and_fences_both_hold_ends_until_
     let other=RecordId::new("native_guard",format!("phased_other_{}",nonce.hex()));
     let children=(0..17).map(|n|RecordId::new("native_guard",format!("phased_child_{}_{n}",nonce.hex()))).collect::<Vec<_>>();
     let values=std::iter::once(parent.clone()).chain(std::iter::once(other.clone())).chain(children.iter().cloned()).map(|id|{
-        let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);Value::Object(row)
+        let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);Value::Object(row)
     }).collect::<Vec<_>>();
     control::ensure_rows(&client,None,values.clone()).await.unwrap();
     control::hold(&client,None,parent.clone(),children.clone()).await.unwrap();
@@ -68,7 +93,7 @@ async fn retirement_high_degree_parent_spans_the_actual_128_edge_window(){
     let parent=RecordId::new("native_guard",format!("window_parent_{}",nonce.hex()));
     let children=(0..129).map(|index|RecordId::new("native_guard",format!("window_child_{}_{index:03}",nonce.hex()))).collect::<Vec<_>>();
     let values=std::iter::once(parent.clone()).chain(children.iter().cloned()).map(|id|{
-        let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);Value::Object(row)
+        let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);Value::Object(row)
     }).collect();
     control::ensure_rows(&client,None,values).await.unwrap();
     control::hold(&client,None,parent.clone(),children.clone()).await.unwrap();
@@ -155,7 +180,7 @@ async fn indexed_live_control_probes_select_declared_routes() {
     for (index,sql) in [
         ("live_effects","SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false LIMIT 1"),
         ("live_attempts","SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state='open' LIMIT 1"),
-        ("live_attempts","SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','closing'] LIMIT 1"),
+        ("live_attempts","SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','frozen','closing'] LIMIT 1"),
         ("live_pins","SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1"),
         ("live_backups","SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1"),
         ("live_cleanup","SELECT VALUE id FROM native_cleanup WITH INDEX live_cleanup WHERE state='open' LIMIT 1"),
@@ -271,7 +296,7 @@ async fn delayed_preintent_and_original_attempt_retry_stay_fenced_after_era_cut(
     let attempt_era=control::IssuanceEra::capture(&client).await?;
     let attempt=control::fresh_identity("delayed-first-attempt")?;
     let registration_root=RecordId::new("native_guard",control::fresh_identity("partial-registration-root")?.hex());
-    let mut row=Object::new();row.insert("id",registration_root.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);
+    let mut row=Object::new();row.insert("id",registration_root.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);
     control::ensure_rows(&client,None,vec![Value::Object(row)]).await?;
     let registration=control::fresh_identity("partial-registration-invocation")?;
         lctx_compiler_store::compiler::close_admission(&cfg).await?;
@@ -321,7 +346,7 @@ async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_throug
     let mut targets=Vec::new();
     for attempt in [one,two] {
         let target=RecordId::new("native_guard",control::fresh_identity("closing-target")?.hex());
-        let mut row=Object::new();row.insert("id",target.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);
+        let mut row=Object::new();row.insert("id",target.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);
         control::ensure_rows(&client,Some(attempt),vec![Value::Object(row)]).await?;
         control::hold(&client,Some(attempt),RecordId::new("native_attempt",attempt.hex()),vec![target.clone()]).await?;
         targets.push(target);
@@ -369,7 +394,7 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
         // Fresh attempts need real admission even under the exclusive host lease.
         // Setup errors still flow through original-admission restoration below.
         lctx_compiler_store::compiler::open_admission(&cfg).await?;
-    let values=[parent.clone(),child.clone(),cleanup_target.clone()].into_iter().map(|id|{let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);Value::Object(row)}).collect();
+    let values=[parent.clone(),child.clone(),cleanup_target.clone()].into_iter().map(|id|{let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);Value::Object(row)}).collect();
     control::ensure_rows(&client,None,values).await?;
     control::hold(&client,None,parent.clone(),vec![child.clone()]).await?;
     let retirement=control::retire_reachable(&client,vec![parent.clone()],1).await?;
@@ -378,9 +403,15 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
     let cleanup_era=control::IssuanceEra::capture(&client).await?;
     let cleanup=control::fresh_identity("interrupted-terminal-cleanup")?;
     let mut vars=Variables::new();vars.insert("attempt",RecordId::new("native_attempt",attempt.hex()));vars.insert("cleanup",RecordId::new("native_cleanup",cleanup.hex()));
-    // The actual origin and outgoing relation exist. Persist the same finite obligation
-    // that production creates, then simulate a crash before its first ownership page.
-    control::effect(&client,Some(attempt),"UPDATE $attempt SET state='closed',revision+=1 RETURN NONE; CREATE $cleanup SET attempt=$attempt,generation=$__generation,era=$__era,epoch=$__epoch,owners=[$attempt],unadmitted=true,state='open' RETURN NONE",vars).await?;
+    let attempt_id=RecordId::new("native_attempt",attempt.hex());
+    let guard=RecordId::new("native_guard",ContentHash::of(&serde_json::to_vec(&Value::RecordId(attempt_id.clone())).map_err(ModelError::codec)?).hex());
+    let mut observation=client.query("SELECT incarnation,phase FROM $guard").bind(("guard",guard.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    let physical:Vec<Object>=observation.take(0).map_err(ModelError::codec)?;
+    let [physical]=physical.as_slice()else{return Err(ModelError::Conflict("cleanup control exact owner guard"));};
+    let mut expected=physical.clone();expected.insert("record",attempt_id);expected.insert("guard",guard);
+    vars.insert("owner_incarnations",vec![Value::Object(expected)]);
+    // Persist the production scope, then simulate interruption before its first page.
+    control::effect(&client,Some(attempt),"fn::native_touch($cleanup); fn::native_touch($attempt); UPDATE $attempt SET state='closed',revision+=1 RETURN NONE; CREATE $cleanup SET attempt=$attempt,generation=$__generation,era=$__era,epoch=$__epoch,owners=[$attempt],owner_incarnations=$owner_incarnations,lineage=$cleanup,unadmitted=true,state='open' RETURN NONE",vars).await?;
     let mut response=client.query("SELECT epoch FROM $attempt; SELECT id,incarnation,cutoff FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job AND state='retiring'").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("job",RecordId::new("native_retirement",retirement.identity.hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
     let epochs:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let claimed:Vec<Object>=response.take(1).map_err(ModelError::codec)?;
         lctx_compiler_store::compiler::close_admission(&cfg).await?;lctx_compiler_store::compiler::drain_installation(&cfg).await?;
@@ -421,8 +452,8 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
 }
 
 #[tokio::test(flavor="multi_thread")]
-#[ignore="requires an explicitly owned closed validation installation still at format4 before its format5 transition"]
-async fn source4_history_refusal_creates_no_intent_reference_checkpoint_or_admission_revision(){
+#[ignore="requires an explicitly owned closed validation installation still at format5 before its format6 transition"]
+async fn source5_history_refusal_creates_no_intent_reference_checkpoint_or_admission_revision(){
     let cfg=maintenance_config();
     // This control observes an actual predecessor installation. It never edits the marker,
     // applies declarations, opens admission or creates a synthetic source-format receipt.
@@ -431,18 +462,18 @@ async fn source4_history_refusal_creates_no_intent_reference_checkpoint_or_admis
         let snapshot="SELECT schema,schema_version,generation,era,closed_through,admission_open,history_inventory,control_revision,admission_revision FROM native_installation:current; SELECT count() FROM native_effect GROUP ALL; SELECT count() FROM native_outcome_ref GROUP ALL; SELECT count() FROM native_history_checkpoint GROUP ALL;";
         let mut response=client.query(snapshot).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         let before=(0..4).map(|index|response.take::<Value>(index).map_err(ModelError::codec)).collect::<Result<Vec<_>,_>>()?;
-        let Value::Array(markers)=&before[0] else{return Err(ModelError::Schema("source4 control marker array"));};
-        let [Value::Object(marker)]=markers.as_slice() else{return Err(ModelError::Schema("source4 control exact marker"));};
-        if marker.get("schema_version")!=Some(&Value::Number(surrealdb::types::Number::Int(4))) || marker.get("admission_open")!=Some(&Value::Bool(false)) || marker.get("generation")!=Some(&Value::String(cfg.service_generation.hex())) {return Err(ModelError::Conflict("source4 control requires existing exact closed predecessor installation"));}
-        let refusal=control::compact_history(&client,1).await.err().ok_or(ModelError::Conflict("source4 history unexpectedly admitted"))?;
+        let Value::Array(markers)=&before[0] else{return Err(ModelError::Schema("source5 control marker array"));};
+        let [Value::Object(marker)]=markers.as_slice() else{return Err(ModelError::Schema("source5 control exact marker"));};
+        if marker.get("schema_version")!=Some(&Value::Number(surrealdb::types::Number::Int(5))) || marker.get("admission_open")!=Some(&Value::Bool(false)) || marker.get("generation")!=Some(&Value::String(cfg.service_generation.hex())) {return Err(ModelError::Conflict("source5 control requires existing exact closed predecessor installation"));}
+        let refusal=control::compact_history(&client,1).await.err().ok_or(ModelError::Conflict("source5 history unexpectedly admitted"))?;
         let mut response=client.query(snapshot).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         let after=(0..4).map(|index|response.take::<Value>(index).map_err(ModelError::codec)).collect::<Result<Vec<_>,_>>()?;
         Ok::<_,ModelError>((before,after,refusal.to_string()))
     }.await;
-    let mut completion=lctx_model::domain::completion::Completion::default();completion.step("source4 refusal session invalidation",client.invalidate().await.map_err(ModelError::codec));
+    let mut completion=lctx_model::domain::completion::Completion::default();completion.step("source5 refusal session invalidation",client.invalidate().await.map_err(ModelError::codec));
     let (before,after,refusal)=lctx_model::domain::completion::complete(result,completion).unwrap();
     assert!(refusal.contains("native history receipt schema requires explicit upgrade"),"{refusal}");
-    assert_eq!(before,after,"source4 refusal must precede durable intent, outcome reference, checkpoint and admission/control revision changes");
+    assert_eq!(before,after,"source5 refusal must precede durable intent, outcome reference, checkpoint and admission/control revision changes");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -532,7 +563,7 @@ async fn qualified_history_preserves_live_retirement_lineage_between_successors(
     let result=async {
     let original=control::IssuanceEra::capture(&client).await?;let nonce=control::fresh_identity("lineage-history")?;
     let parent=RecordId::new("native_guard",format!("lineage_parent_{}",nonce.hex()));let child=RecordId::new("native_guard",format!("lineage_child_{}",nonce.hex()));
-    let rows=[parent.clone(),child.clone()].into_iter().map(|id|{let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);Value::Object(row)}).collect();
+    let rows=[parent.clone(),child.clone()].into_iter().map(|id|{let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);Value::Object(row)}).collect();
     control::ensure_rows(&client,None,rows).await?;control::hold(&client,None,parent.clone(),vec![child.clone()]).await?;
     let retired=control::retire_reachable(&client,vec![parent.clone()],1).await?;let origin=RecordId::new("native_retirement",retired.identity.hex());
         lctx_compiler_store::compiler::close_admission(&cfg).await?;lctx_compiler_store::compiler::drain_installation(&cfg).await?;control::cut_era(&client).await?;
@@ -566,7 +597,7 @@ async fn qualified_history_bounds_large_requests_and_preserves_interleaved_high_
     let nonce=control::fresh_identity("history-large-page")?;let prefix=format!("!history_large_{}",nonce.hex());
     let owner=RecordId::new("native_attempt",format!("{prefix}_owner"));
     let objects=(0..257).map(|index|RecordId::new("native_guard",format!("{prefix}_{index:03}"))).collect::<Vec<_>>();
-    let guards=objects.iter().map(|id|{let mut row=Object::new();row.insert("id",id.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);Value::Object(row)}).collect();
+    let guards=objects.iter().map(|id|{let mut row=Object::new();row.insert("id",id.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);Value::Object(row)}).collect();
     control::ensure_rows(&client,None,guards).await?;
     let candidates=(0..130).map(|index|RecordId::new("native_cleanup",format!("{prefix}_{index:03}"))).collect::<Vec<_>>();
     let original=control::IssuanceEra::capture(&client).await?;
@@ -623,7 +654,7 @@ fn specification(producer: String) -> ContributionSpec {
     ContributionSpec {
         captured_binding: None,
         producer,
-        profile: Profile::Catalog,
+        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
         model: lctx_model::domain::model().unwrap().digest(),
         implementation: ContentHash::of(b"native-control/v1"),
         configuration: None,
@@ -741,7 +772,7 @@ async fn indexed_abandonment_removes_only_unadmitted_products_and_owned_holds() 
         let first:Vec<RecordId> = response.take(0).map_err(ModelError::codec)?;
         partial.insert("first",first);
         // Simulate restart after a confirmed fence and one confirmed partial release.
-        control::effect(&client,None,"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; UPDATE $attempt SET state='frozen',revision+=1 RETURN NONE; UPDATE $admitted_attempt SET state='maintenance_fenced',revision+=1 RETURN NONE; LET $owned=SELECT VALUE id FROM $first WHERE owner=$attempt; DELETE $owned RETURN NONE",partial).await?;
+        control::effect(&client,None,"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; UPDATE $attempt SET state='closing',revision+=1 RETURN NONE; UPDATE $admitted_attempt SET state='maintenance_fenced',revision+=1 RETURN NONE; LET $owned=SELECT VALUE id FROM $first WHERE owner=$attempt; DELETE $owned RETURN NONE",partial).await?;
         let post_fence_refused = control::effect(&client,Some(private.attempt()),"RETURN NONE",Variables::new()).await.is_err();
         let mut plans=Vec::new();
         for (sql,index,variable,value) in [
@@ -864,7 +895,7 @@ async fn indexed_abandonment_removes_only_unadmitted_products_and_owned_holds() 
     );
     assert_eq!(
         states.into_iter().collect::<BTreeSet<_>>(),
-        BTreeSet::from(["frozen".to_string(), "maintenance_fenced".to_string()])
+        BTreeSet::from(["abandoned".to_string(), "maintenance_fenced".to_string()])
     );
     assert!(attempt_holds.is_empty());
     assert_eq!(targets.len(), 1025);
@@ -1191,7 +1222,7 @@ async fn guarded_reachability_retains_shared_children() {
             row.insert("revision", 0i64);
             row.insert("retired", false);
     row.insert("phase", "active");
-    row.insert("incarnation", 1i64);
+    row.insert("incarnation", 1i64);row.insert("tombstone_revision",0i64);
             Value::Object(row)
         })
         .collect();
@@ -1226,7 +1257,7 @@ async fn guarded_reachability_retains_shared_children() {
             row.insert("revision", 0i64);
             row.insert("retired", false);
     row.insert("phase", "active");
-    row.insert("incarnation", 1i64);
+    row.insert("incarnation", 1i64);row.insert("tombstone_revision",0i64);
             Value::Object(row)
         }],
     )
@@ -1267,9 +1298,14 @@ async fn known_statement_abort_is_reconciled_and_attempt_fence_rejects_late_effe
         let pending: Vec<RecordId> = response.take(0).unwrap();
         assert!(pending.is_empty());
     }
-    control::close_attempt(&client, store.attempt(), "frozen")
-        .await
-        .unwrap();
+    assert!(control::close_attempt(&client, store.attempt(), "frozen").await.is_err(),
+        "durable frozen is active authority, never a terminal close argument");
+    let mut frozen = Variables::new();
+    frozen.insert("attempt", RecordId::new("native_attempt",store.attempt().hex()));
+    control::effect(&client,Some(store.attempt()),"UPDATE $attempt SET state='frozen',revision+=1 RETURN NONE",frozen).await.unwrap();
+    control::close_attempt(&client, store.attempt(), "abandoned").await.unwrap();
+    let mut response=client.query("SELECT VALUE state FROM $attempt").bind(("attempt",RecordId::new("native_attempt",store.attempt().hex()))).await.unwrap().check().unwrap();
+    let states:Vec<String>=response.take(0).unwrap();assert_eq!(states,["abandoned"]);
     assert!(
         control::effect(
             &client,
@@ -1447,7 +1483,7 @@ async fn reconciliation_fence_excludes_late_remote_commit_and_retirement_resumes
     row.insert("revision", 0i64);
     row.insert("retired", false);
     row.insert("phase", "active");
-    row.insert("incarnation", 1i64);
+    row.insert("incarnation", 1i64);row.insert("tombstone_revision",0i64);
     control::ensure_rows(&client, None, vec![Value::Object(row)])
         .await
         .unwrap();
@@ -1472,27 +1508,16 @@ async fn reconciliation_fence_excludes_late_remote_commit_and_retirement_resumes
     // Controlled application acknowledgment discard after a real guarded native COMMIT.
     // This exercises reconnect/reconciliation, without claiming network failure injection.
     let committed = control::fresh_identity("committed-effect-ack-discard").unwrap();
-    let receipt = RecordId::new("native_effect", committed.hex());
     let payload = RecordId::new("native_guard", format!("committed{}", committed.hex()));
-    let guard = RecordId::new(
-        "native_guard",
-        ContentHash::of(&serde_json::to_vec(&Value::RecordId(payload.clone())).unwrap()).hex(),
-    );
     let mut expected = Object::new();
-    expected.insert("id", payload.clone());
-    expected.insert("revision", 17i64);
-    expected.insert("retired", false);
-    expected.insert("phase", "active");
-    expected.insert("incarnation", 1i64);
-    let mut bindings = Variables::new();
-    bindings.insert("effect", receipt.clone());
-    bindings.insert("object", payload.clone());
-    bindings.insert("guard", guard);
-    bindings.insert("row", expected.clone());
-    bindings.insert("request", committed.hex());
-    client.query("BEGIN; LET $installation=SELECT * FROM ONLY native_installation:current FOR UPDATE; UPDATE native_installation:current SET admission_revision=(admission_revision ?? 0)+1 RETURN NONE; CREATE $effect SET attempt=NONE,request=$request,committed=false,resolved=false,revision=0,epoch=($installation.admission_revision ?? 0)+1 RETURN NONE; COMMIT;").bind(bindings.clone()).await.unwrap().check().unwrap();
-    let discarded = client.query("BEGIN; LET $operation=SELECT * FROM ONLY $effect FOR UPDATE; IF $operation=NONE OR $operation.resolved OR $operation.epoch<=0 { THROW 'control committed effect fenced'; }; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $operation.epoch<=($before.retired_through ?? 0) { THROW 'control original effect epoch retired'; }; UPSERT $guard SET revision=(revision ?? 0)+1,retired=false RETURN NONE; CREATE $object CONTENT $row RETURN NONE; UPDATE $effect SET committed=true,resolved=true,revision+=1 RETURN NONE; COMMIT;").bind(bindings).await;
-    drop(discarded); // The application learns success only from the fresh-session receipt.
+    expected.insert("id", payload.clone());expected.insert("revision",17i64);expected.insert("retired",false);
+    expected.insert("phase","active");expected.insert("incarnation",1i64);expected.insert("tombstone_revision",0i64);
+    let sql="fn::native_touch($object); CREATE $object CONTENT $row RETURN NONE";
+    let mut bindings=Variables::new();bindings.insert("object",payload.clone());bindings.insert("row",expected.clone());
+    let (request,bindings)=captured_guard_request(&client,&payload,sql,bindings).await;
+    let receipt=RecordId::new("native_effect",request.operation.hex());
+    let discarded=control::execute_request(&client,request,None,sql,bindings).await;
+    drop(discarded); // Only fresh-session reconciliation below establishes the observed result.
     client.invalidate().await.unwrap();
     drop(client);
     let client = lctx_compiler_store::compiler::check_installation(&cfg)
@@ -1500,7 +1525,7 @@ async fn reconciliation_fence_excludes_late_remote_commit_and_retirement_resumes
         .unwrap();
     let reader = lctx_native::NativeReader::private(client.clone());
     let result = async {
-        let first = control::reconcile_effect(&client, committed).await?;
+        let first = control::reconcile_request(&client, request).await?==control::EffectDisposition::Committed;
         let mut bindings = Variables::new();
         bindings.insert("object", payload.clone());
         bindings.insert("effect", receipt.clone());
@@ -1510,7 +1535,7 @@ async fn reconciliation_fence_excludes_late_remote_commit_and_retirement_resumes
         let before: Vec<Object> = reader
             .query_native("SELECT * FROM $effect", bindings.clone())
             .await?;
-        let second = control::reconcile_effect(&client, committed).await?;
+        let second = control::reconcile_request(&client, request).await?==control::EffectDisposition::Committed;
         let after: Vec<Object> = reader
             .query_native("SELECT * FROM $effect", bindings)
             .await?;
@@ -1518,6 +1543,7 @@ async fn reconciliation_fence_excludes_late_remote_commit_and_retirement_resumes
     }
     .await;
     let mut completion = lctx_model::domain::completion::Completion::default();
+    completion.step("committed acknowledgment control caller receipt release",control::release_outcome(&client,request,&request.operation.hex(),"caller").await);
     completion.step(
         "committed acknowledgment control payload retirement",
         control::retire(&client, payload).await,
@@ -1716,98 +1742,66 @@ async fn retirement_uses_exact_guards_without_blocking_on_unrelated_live_effects
     assert!(rows.is_empty());
 }
 
+#[tokio::test(flavor="multi_thread")]
+async fn completed_contribution_refuses_new_membership_and_outgoing_holds_but_accepts_exact_replay(){
+    let cfg=config();let store=NativeCompilerStore::begin(&cfg,Frontier::Facts).await.unwrap();
+    let nonce=control::fresh_identity("completed-incidence-control").unwrap();
+    let (contribution,_)=contribute(&store,specification(format!("incidence{}",nonce.hex())),&row(nonce.0[..16].try_into().unwrap(),1.0),&BTreeMap::new()).await;
+    let client=lctx_compiler_store::compiler::check_installation(&cfg).await.unwrap();
+    let owner=RecordId::new("compiler_contribution",contribution.hex());
+    let result=async{
+        let mut response=client.query("SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner LIMIT 1; SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner LIMIT 1").bind(("owner",owner.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let memberships:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let holds:Vec<Object>=response.take(1).map_err(ModelError::codec)?;
+        let [membership]=memberships.as_slice()else{return Err(ModelError::Schema("completed incidence control membership"));};
+        let [hold]=holds.as_slice()else{return Err(ModelError::Schema("completed incidence control hold"));};
+        control::ensure_rows(&client,Some(store.attempt()),vec![Value::Object(membership.clone())]).await?;
+        let Some(Value::RecordId(target))=hold.get("object")else{return Err(ModelError::Schema("completed incidence control hold target"));};
+        control::hold(&client,Some(store.attempt()),owner.clone(),vec![target.clone()]).await?;
+        let mut changed=membership.clone();changed.insert("id",RecordId::new("compiler_membership",format!("new{}",nonce.hex())));changed.insert("semantic_key",format!("new{}",nonce.hex()));
+        let membership_error=control::ensure_rows(&client,Some(store.attempt()),vec![Value::Object(changed)]).await.unwrap_err();
+        // The attempt exists and is not already an outgoing target of this contribution.
+        let hold_error=control::hold(&client,Some(store.attempt()),owner.clone(),vec![RecordId::new("native_attempt",store.attempt().hex())]).await.unwrap_err();
+        Ok::<_,ModelError>((membership_error.to_string(),hold_error.to_string()))
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();completion.step("completed incidence owner abandonment",store.abandon().await);completion.step("completed incidence session invalidation",client.invalidate().await.map_err(ModelError::codec));
+    let (membership,hold)=lctx_model::domain::completion::complete(result,completion).unwrap();
+    assert!(membership.contains("native completed contribution refuses changed incidence"),"{membership}");
+    assert!(hold.contains("native completed contribution refuses changed incidence"),"{hold}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
-async fn fresh_attempt_reactivates_content_but_original_attempt_effect_and_pin_epochs_stay_fenced()
-{
-    let cfg = config();
-    let old = NativeCompilerStore::begin(&cfg, Frontier::Facts)
-        .await
-        .unwrap();
-    let client = lctx_compiler_store::compiler::check_installation(&cfg)
-        .await
-        .unwrap();
-    let nonce = control::fresh_identity("reactivation-control").unwrap();
-    let object = RecordId::new("native_guard", format!("reactivate{}", nonce.hex()));
-    let guard = RecordId::new(
-        "native_guard",
-        ContentHash::of(&serde_json::to_vec(&Value::RecordId(object.clone())).unwrap()).hex(),
-    );
-    let mut row = Object::new();
-    row.insert("id", object.clone());
-    row.insert("revision", 0i64);
-    row.insert("retired", false);
-    row.insert("phase", "active");
-    row.insert("incarnation", 1i64);
-    let value = Value::Object(row);
-    control::ensure_rows(&client, Some(old.attempt()), vec![value.clone()])
-        .await
-        .unwrap();
-    let old_pin = control::ReaderPin::acquire(client.clone(), &[])
-        .await
-        .unwrap();
-    let mut response = client
-        .query("SELECT VALUE epoch FROM $attempt")
-        .bind((
-            "attempt",
-            RecordId::new("native_attempt", old.attempt().hex()),
-        ))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let epochs: Vec<i64> = response.take(0).unwrap();
-    let epoch = epochs[0];
-    let delayed = RecordId::new("native_effect", nonce.hex());
-    client.query("CREATE $effect SET attempt=NONE,request='delayed-unowned-control',committed=false,resolved=false,revision=0,epoch=$epoch RETURN NONE").bind(("effect",delayed.clone())).bind(("epoch",epoch)).await.unwrap().check().unwrap();
-    let first = control::retire_reachable(&client, vec![object.clone()], 4)
-        .await
-        .unwrap();
-    assert_eq!(first.retired, 1);
-    let fresh = NativeCompilerStore::begin(&cfg, Frontier::Facts)
-        .await
-        .unwrap();
-    control::ensure_rows(&client, Some(fresh.attempt()), vec![value.clone()])
-        .await
-        .unwrap();
-    assert!(
-        control::ensure_rows(&client, Some(old.attempt()), vec![value])
-            .await
-            .is_err(),
-        "an earlier attempt never borrows the reactivating attempt epoch"
-    );
-    assert!(
-        old_pin.protect(object.clone()).await.is_err(),
-        "pin protection retains the original pin epoch"
-    );
-    let delayed_result=client.query("BEGIN; LET $effect_state=SELECT * FROM ONLY $effect FOR UPDATE; LET $original_epoch=$effect_state.epoch; LET $guard_state=SELECT * FROM ONLY $guard FOR UPDATE; IF $original_epoch<=($guard_state.retired_through ?? 0) { THROW 'delayed original epoch fenced'; }; UPDATE $effect SET committed=true,resolved=true RETURN NONE; COMMIT;").bind(("effect",delayed)).bind(("guard",guard.clone())).await.unwrap().check();
-    assert!(
-        delayed_result.is_err(),
-        "reactivation does not erase the retired-through watermark for a delayed unowned intent"
-    );
-    control::reconcile_effect(&client, nonce).await.unwrap();
-    let mut response = client
-        .query("SELECT retired,retired_through FROM $guard")
-        .bind(("guard", guard))
-        .await
-        .unwrap()
-        .check()
-        .unwrap();
-    let guards: Vec<Object> = response.take(0).unwrap();
-    assert_eq!(guards[0].get("retired"), Some(&Value::Bool(false)));
-    assert!(
-        matches!(guards[0].get("retired_through"),Some(Value::Number(surrealdb::types::Number::Int(mark))) if *mark>=epoch)
-    );
-    old_pin.release().await.unwrap();
-    let second = control::retire_reachable(&client, vec![object], 4)
-        .await
-        .unwrap();
-    assert_ne!(second.identity, first.identity);
-    assert_eq!(
-        second.retired, 1,
-        "fresh retirement invocation visits the new incarnation without reviving the old job"
-    );
-    old.abandon().await.unwrap();
-    fresh.abandon().await.unwrap();
+async fn captured_incarnation_fences_original_request_while_new_plan_and_terminal_owners_are_distinct() {
+    let cfg=config();
+    let old=NativeCompilerStore::begin(&cfg,Frontier::Facts).await.unwrap();
+    let client=lctx_compiler_store::compiler::check_installation(&cfg).await.unwrap();
+    let nonce=control::fresh_identity("reactivation-control").unwrap();
+    let object=RecordId::new("native_guard",format!("reactivate{}",nonce.hex()));
+    let mut row=Object::new();row.insert("id",object.clone());row.insert("revision",0i64);row.insert("retired",false);
+    row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);
+    let value=Value::Object(row);
+    control::ensure_rows(&client,Some(old.attempt()),vec![value.clone()]).await.unwrap();
+    let sql="IF (SELECT VALUE id FROM ONLY $object)=NONE { THROW 'captured object unavailable'; }; RETURN NONE";
+    let mut vars=Variables::new();vars.insert("object",object.clone());
+    let (original,bindings)=captured_guard_request(&client,&object,sql,vars).await;
+    let first=control::retire_reachable(&client,vec![object.clone()],4).await.unwrap();assert_eq!(first.retired,1);
+    let fresh=NativeCompilerStore::begin(&cfg,Frontier::Facts).await.unwrap();
+    control::ensure_rows(&client,Some(fresh.attempt()),vec![value.clone()]).await.unwrap();
+    for _ in 0..2 {
+        assert!(control::execute_request(&client,original,Some(old.attempt()),sql,bindings.clone()).await.is_err(),"the original request never refreshes its captured incarnation");
+        assert_eq!(control::request_disposition(&client,original).await.unwrap(),control::EffectDisposition::FencedUncommitted);
+    }
+    // The format6 contract replaces cross-owner retired_through ordering. A separate
+    // plan can explicitly observe the new active incarnation while its owner is open.
+    control::ensure_rows(&client,Some(old.attempt()),vec![value.clone()]).await.unwrap();
+    let old_pin=control::ReaderPin::acquire(client.clone(),&[]).await.unwrap();
+    old_pin.protect(object.clone()).await.unwrap();old_pin.release().await.unwrap();
+    assert!(old_pin.protect(object.clone()).await.is_err(),"released pin authority stays terminal");
+    control::release_outcome(&client,original,&original.operation.hex(),"caller").await.unwrap();
+    let attempt=old.attempt();old.abandon().await.unwrap();
+    assert!(control::ensure_rows(&client,Some(attempt),vec![value]).await.is_err(),"terminal attempt authority stays fenced");
+    let second=control::retire_reachable(&client,vec![object],4).await.unwrap();
+    assert_ne!(second.identity,first.identity);assert_eq!(second.retired,1);
+    fresh.abandon().await.unwrap();client.invalidate().await.unwrap();
 }
 #[tokio::test(flavor = "multi_thread")]
 async fn retained_product_keeps_exact_prerequisite_closure_after_origin_owner_retirement() {
@@ -1868,7 +1862,7 @@ async fn retained_product_keeps_exact_prerequisite_closure_after_origin_owner_re
     owner_row.insert("revision", 0i64);
     owner_row.insert("retired", false);
     owner_row.insert("phase", "active");
-    owner_row.insert("incarnation", 1i64);
+    owner_row.insert("incarnation", 1i64);owner_row.insert("tombstone_revision",0i64);
     control::ensure_rows(
         &client,
         Some(origin.attempt()),
@@ -1946,29 +1940,31 @@ async fn backup_hold_excludes_retirement_under_exclusive_maintenance() {
     let object=RecordId::new("native_guard",control::fresh_identity("backup-exclusion-control").unwrap().hex());
     let mut backup=None;
     let mut created=false;
+    let mut registered=None;
     let result=async {
         // Only this fixture can acquire under the exclusive host lease. The
         // actual backup guard requires admission; exclusion runs after closing it.
         lctx_compiler_store::compiler::open_admission(&cfg).await?;
-        let mut row=Object::new();row.insert("id",object.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);
+        let mut row=Object::new();row.insert("id",object.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);
         created=true;
         control::ensure_rows(&client,None,vec![Value::Object(row)]).await?;
+        registered=Some(control::retire_reachable(&client,vec![object.clone()],1).await?.identity);
         backup=Some(control::acquire_backup_hold(&client).await?);
         lctx_compiler_store::compiler::close_admission(&cfg).await?;
         let eligibility=control::retirement_eligibility(&client,object.clone()).await?;
-        let retirement=control::retire(&client,object.clone()).await;
+        let retirement=control::resume_retirement(&client,registered.expect("registered exact synthetic root"),4).await;
         Ok::<_,ModelError>((eligibility,retirement))
     }.await;
     let mut completion=lctx_model::domain::completion::Completion::default();
     completion.step("backup control close after acquisition",lctx_compiler_store::compiler::close_admission(&cfg).await);
     if let Some(backup)=backup {completion.step("backup control hold release",control::release_backup_hold(&client,backup).await);}
-    if created {completion.step("backup control synthetic object retirement",control::retire(&client,object).await);}
+    if let Some(job)=registered {completion.step("backup control synthetic object retirement",control::resume_retirement(&client,job,4).await.map(|_|()));} else if created {completion.step("backup control cleanup admission",lctx_compiler_store::compiler::open_admission(&cfg).await);completion.step("backup control synthetic object retirement",control::retire(&client,object).await);}
     completion.step("backup control admission restoration",if admission_was_open {lctx_compiler_store::compiler::open_admission(&cfg).await} else {lctx_compiler_store::compiler::close_admission(&cfg).await});
     completion.step("backup control session invalidation",client.invalidate().await.map_err(ModelError::codec));
     let (eligibility,retirement)=lctx_model::domain::completion::complete(result,completion).unwrap();
     assert!(!eligibility.eligible);
     assert!(eligibility.reasons.contains(&"active native backup hold".to_string()));
-    assert!(retirement.is_err());
+    assert!(retirement.unwrap_err().to_string().contains("native retirement backup hold"),"the dedicated backup gate must cause refusal");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1985,7 +1981,7 @@ async fn maintenance_reconciliation_requires_drain_proof_and_fences_only_named_c
     let mut backup=None;
     let result=async {
         lctx_compiler_store::compiler::open_admission(&cfg).await?;
-        let mut row=Object::new();row.insert("id",object.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);
+        let mut row=Object::new();row.insert("id",object.clone());row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);
         created=true;
         control::ensure_rows(&client,None,vec![Value::Object(row)]).await?;
         first=Some(control::ReaderPin::acquire(client.clone(),&[]).await?);
@@ -2034,4 +2030,186 @@ async fn maintenance_reconciliation_requires_drain_proof_and_fences_only_named_c
     assert_eq!(released, Some(true));
     assert_eq!(active, Some(false));
     assert_eq!(unrelated_released, Some(false));
+}
+
+#[tokio::test(flavor="multi_thread")]
+#[ignore = "all-stripe validity/drain transition requires explicit owned-service maintenance"]
+async fn frozen_attempt_blocks_validity_and_cut_until_installer_fences_and_drains_it() {
+    let cfg=maintenance_config();
+    let client=lctx_compiler_store::compiler::check_installation(&cfg).await.unwrap();
+    let (admission_was_open,_)=maintenance_snapshot(&client,None).await;
+    let budget=ResourceBudget::fixed(256<<20).unwrap();
+    let mut attempt=None;
+    let result=async {
+        lctx_native::installation::open_admission(&cfg).await?;
+        let issuance=control::IssuanceEra::capture(&client).await?;
+        let identity=control::issue_attempt(&client,issuance.generation).await?;attempt=Some(identity);
+        let owner=RecordId::new("native_attempt",identity.hex());
+        let mut variables=Variables::new();variables.insert("attempt",owner.clone());
+        control::effect(&client,Some(identity),"UPDATE $attempt SET state='frozen',revision+=1 RETURN NONE",variables).await?;
+        let mut response=client.query("SELECT VALUE validity_epoch FROM native_installation:current").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let epochs:Vec<i64>=response.take(0).map_err(ModelError::codec)?;
+        let [epoch]=epochs.as_slice()else{return Err(ModelError::Schema("validity control epoch"));};
+        lctx_native::installation::close_admission(&cfg).await?;
+        let validity_refused=control::advance_validity_epoch_native(&client,*epoch,&budget).await.is_err();
+        let cut_refused=control::cut_era(&client).await.is_err();
+        lctx_native::installation::drain_installation(&cfg).await?;
+        let mut response=client.query("SELECT VALUE state FROM $attempt; SELECT VALUE validity_epoch FROM native_installation:current").bind(("attempt",owner)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let states:Vec<String>=response.take(0).map_err(ModelError::codec)?;
+        let unchanged:Vec<i64>=response.take(1).map_err(ModelError::codec)?;
+        control::advance_validity_epoch_native(&client,*epoch,&budget).await?;
+        Ok::<_,ModelError>((validity_refused,cut_refused,states,unchanged,epochs))
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();
+    if let Some(attempt)=attempt {completion.step("frozen maintenance exact attempt close",cleanup_owned_attempt(&client,attempt).await);}
+    completion.step("frozen maintenance admission restoration",if admission_was_open {lctx_native::installation::open_admission(&cfg).await}else{lctx_native::installation::close_admission(&cfg).await});
+    completion.step("frozen maintenance session invalidation",client.invalidate().await.map_err(ModelError::codec));
+    let (validity_refused,cut_refused,states,unchanged,epochs)=lctx_model::domain::completion::complete(result,completion).unwrap();
+    assert!(validity_refused && cut_refused,"an active frozen owner blocks both all-stripe transitions");
+    assert_eq!(states,["abandoned"]);assert_eq!(unchanged,epochs,"refused validity transition must not advance trust");
+}
+
+#[tokio::test(flavor="multi_thread")]
+async fn committed_public_replay_retains_original_owner_without_requiring_live_owner() {
+    let client=lctx_compiler_store::compiler::check_installation(&config()).await.unwrap();
+    let issuance=control::IssuanceEra::capture(&client).await.unwrap();
+    let original=control::issue_attempt(&client,issuance.generation).await.unwrap();
+    let other=control::issue_attempt(&client,issuance.generation).await.unwrap();
+    let object=RecordId::new("native_guard",control::fresh_identity("replay-owner-payload").unwrap().hex());
+    let sql="UPDATE $object SET revision+=1 RETURN NONE";
+    let mut requests=Vec::new();
+    let result=async {
+        let mut row=Object::new();row.insert("id",object.clone());row.insert("phase","active");row.insert("retired",false);row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);row.insert("revision",0i64);
+        control::ensure_rows(&client,Some(original),vec![Value::Object(row)]).await?;
+        let mut input=Variables::new();input.insert("object",object.clone());
+        let (request,bindings)=captured_guard_request(&client,&object,sql,input.clone()).await;
+        requests.push(request);
+        control::execute_request(&client,request,Some(original),sql,bindings.clone()).await?;
+        let mut response=client.query("SELECT * FROM $effect").bind(("effect",RecordId::new("native_effect",request.operation.hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let before:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
+        let other_refused=control::execute_request(&client,request,Some(other),sql,bindings.clone()).await.is_err();
+        let installation_refused=control::execute_request(&client,request,None,sql,bindings.clone()).await.is_err();
+        control::close_attempt(&client,original,"abandoned").await?;
+        // Terminal owner state is irrelevant to replay of this original committed receipt.
+        control::execute_request(&client,request,Some(original),sql,bindings).await?;
+        let mut response=client.query("SELECT * FROM $effect; SELECT VALUE revision FROM $object").bind(("effect",RecordId::new("native_effect",request.operation.hex()))).bind(("object",object.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let after:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
+        let revisions:Vec<i64>=response.take(1).map_err(ModelError::codec)?;
+        let (installation,bindings)=captured_guard_request(&client,&object,sql,input).await;
+        requests.push(installation);
+        control::execute_request(&client,installation,None,sql,bindings.clone()).await?;
+        let attempt_refused=control::execute_request(&client,installation,Some(other),sql,bindings.clone()).await.is_err();
+        control::execute_request(&client,installation,None,sql,bindings).await?;
+        let mut response=client.query("SELECT VALUE revision FROM $object").bind(("object",object.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let final_revisions:Vec<i64>=response.take(0).map_err(ModelError::codec)?;
+        Ok::<_,ModelError>((other_refused,installation_refused,attempt_refused,before,after,revisions,final_revisions))
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();
+    for request in requests {completion.step("replay owner exact caller reference release",control::release_outcome(&client,request,&request.operation.hex(),"caller").await);}
+    completion.step("replay exact original attempt close",cleanup_owned_attempt(&client,original).await);
+    completion.step("replay exact alternate attempt close",cleanup_owned_attempt(&client,other).await);
+    completion.step("replay exact payload retirement",control::retire(&client,object).await);
+    completion.step("replay owner session invalidation",client.invalidate().await.map_err(ModelError::codec));
+    let (other_refused,installation_refused,attempt_refused,before,after,revisions,final_revisions)=lctx_model::domain::completion::complete(result,completion).unwrap();
+    assert!(other_refused && installation_refused && attempt_refused,"committed outcome does not transfer original owner authority");
+    assert_eq!(before,after,"healthy outcome replay leaves original receipt bytes unchanged");
+    assert_eq!(revisions,[1]);assert_eq!(final_revisions,[2],"each original operation mutates once regardless of replay");
+}
+
+#[tokio::test(flavor="multi_thread")]
+async fn retained_committed_guarded_bytes_replay_without_granting_legacy_execution() {
+    let client=lctx_compiler_store::compiler::check_installation(&config()).await.unwrap();
+    let issuance=control::IssuanceEra::capture(&client).await.unwrap();
+    let attempt=control::issue_attempt(&client,issuance.generation).await.unwrap();
+    let owner=RecordId::new("native_attempt",attempt.hex());
+    let object=RecordId::new("native_guard",control::fresh_identity("retained-guarded-replay").unwrap().hex());
+    let guard=RecordId::new("native_guard",ContentHash::of(&serde_json::to_vec(&Value::RecordId(object.clone())).unwrap()).hex());
+    let sql="UPDATE $object SET revision+=1 RETURN NONE";
+    let mut bindings=Variables::new();bindings.insert("object",object.clone());bindings.insert("guards",vec![guard]);
+    assert!(bindings.get("__object_expectations").is_none());
+    let digest=ContentHash::of(&serde_json::to_vec(&(sql,&bindings)).unwrap());
+    let committed=control::NativeRequest::issue(&client,digest).await.unwrap();
+    let pending=control::NativeRequest::issue(&client,digest).await.unwrap();
+    let unissued=control::NativeRequest::issue(&client,digest).await.unwrap();
+    let mut seeded=Vec::new();
+    let result=async {
+        let mut row=Object::new();row.insert("id",object.clone());row.insert("phase","active");row.insert("retired",false);row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);row.insert("revision",0i64);
+        control::ensure_rows(&client,Some(attempt),vec![Value::Object(row)]).await?;
+        // Synthetic retained receipt shapes exercise the outcome-only boundary. No
+        // format5 runtime, old scalar SQL, or source5 installation-NONE proof is claimed.
+        for (request,is_committed) in [(committed,true),(pending,false)] {
+            let mut receipt=Object::new();receipt.insert("id",RecordId::new("native_effect",request.operation.hex()));
+            receipt.insert("attempt",owner.clone());receipt.insert("owner",owner.clone());receipt.insert("owner_kind","attempt");
+            receipt.insert("generation",issuance.generation.hex());receipt.insert("era",issuance.era);receipt.insert("epoch",1i64);
+            receipt.insert("request",request.request.hex());receipt.insert("committed",is_committed);receipt.insert("resolved",is_committed);receipt.insert("revision",if is_committed {1i64}else{0i64});
+            let reference=RecordId::new("native_outcome_ref",ContentHash::of(&serde_json::to_vec(&(request.operation,request.operation.hex(),"caller")).unwrap()).hex());
+            let mut seed=Variables::new();seed.insert("receipt",receipt);seed.insert("reference",reference);seed.insert("caller",request.operation.hex());seed.insert("object",object.clone());seed.insert("committed",is_committed);
+            seeded.push(request); // Retain exact cleanup identity before the first possible seed effect.
+            control::effect(&client,Some(attempt),"fn::native_incidence_insert($receipt); CREATE $receipt.id CONTENT $receipt RETURN NONE; fn::native_touch($reference); CREATE $reference SET effect=$receipt.id,owner=$caller,kind='caller' RETURN NONE; IF $committed { fn::native_touch($object); UPDATE $object SET revision=1 RETURN NONE; };",seed).await?;
+        }
+        let mut response=client.query("SELECT * FROM $effects").bind(("effects",vec![RecordId::new("native_effect",committed.operation.hex()),RecordId::new("native_effect",pending.operation.hex())])).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let before:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
+        control::execute_request(&client,committed,Some(attempt),sql,bindings.clone()).await?;
+        let wrong_owner_refused=control::execute_request(&client,committed,None,sql,bindings.clone()).await.is_err();
+        let pending_refused=control::execute_request(&client,pending,Some(attempt),sql,bindings.clone()).await.is_err();
+        let unissued_refused=control::execute_request(&client,unissued,Some(attempt),sql,bindings.clone()).await.is_err();
+        let changed_digest_refused=control::execute_request(&client,committed,Some(attempt),"RETURN NONE",bindings.clone()).await.is_err();
+        let mut response=client.query("SELECT * FROM $effects; SELECT VALUE revision FROM $object; SELECT VALUE id FROM $unissued; SELECT VALUE id FROM native_outcome_ref WITH INDEX effect_outcome_refs WHERE effect=$unissued").bind(("effects",vec![RecordId::new("native_effect",committed.operation.hex()),RecordId::new("native_effect",pending.operation.hex())])).bind(("object",object.clone())).bind(("unissued",RecordId::new("native_effect",unissued.operation.hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let after:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
+        let revisions:Vec<i64>=response.take(1).map_err(ModelError::codec)?;
+        let intents:Vec<RecordId>=response.take(2).map_err(ModelError::codec)?;
+        let references:Vec<RecordId>=response.take(3).map_err(ModelError::codec)?;
+        Ok::<_,ModelError>((wrong_owner_refused,pending_refused,unissued_refused,changed_digest_refused,before,after,revisions,intents,references))
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();
+    for request in seeded {
+        completion.step("guarded replay exact synthetic original reconciliation",control::reconcile_request(&client,request).await.map(|_|()));
+        completion.step("guarded replay exact caller reference release",control::release_outcome(&client,request,&request.operation.hex(),"caller").await);
+    }
+    completion.step("guarded replay exact attempt close",cleanup_owned_attempt(&client,attempt).await);
+    completion.step("guarded replay exact payload retirement",control::retire(&client,object).await);
+    completion.step("guarded replay session invalidation",client.invalidate().await.map_err(ModelError::codec));
+    let (wrong_owner_refused,pending_refused,unissued_refused,changed_digest_refused,before,after,revisions,intents,references)=lctx_model::domain::completion::complete(result,completion).unwrap();
+    assert!(wrong_owner_refused && pending_refused && unissued_refused && changed_digest_refused);
+    assert_eq!(before,after,"outcome replay and refused legacy execution preserve exact persisted receipts");
+    assert_eq!(revisions,[1],"no old guarded payload executes");assert!(intents.is_empty() && references.is_empty(),"unissued refusal creates no original intent or retention reference");
+}
+
+#[tokio::test(flavor="multi_thread")]
+async fn duplicate_same_incarnation_retirement_supersedes_without_second_retired_outcome() {
+    let client=lctx_compiler_store::compiler::check_installation(&config()).await.unwrap();
+    let object=RecordId::new("native_guard",control::fresh_identity("duplicate-retirement-nominee").unwrap().hex());
+    let guard=RecordId::new("native_guard",ContentHash::of(&serde_json::to_vec(&Value::RecordId(object.clone())).unwrap()).hex());
+    let mut jobs=Vec::new();
+    let result=async {
+        let mut row=Object::new();row.insert("id",object.clone());row.insert("phase","active");row.insert("retired",false);row.insert("incarnation",1i64);row.insert("revision",0i64);row.insert("tombstone_revision",0i64);
+        control::ensure_rows(&client,None,vec![Value::Object(row)]).await?;
+        let first=control::retire_reachable(&client,vec![object.clone()],1).await?;jobs.push(first.identity);
+        // Both invocations register the same actual incarnation. The first owns its
+        // claim, while the second has an independently retained queued nomination.
+        let second=control::retire_reachable(&client,vec![object.clone()],1).await?;jobs.push(second.identity);
+        let completed=control::resume_retirement(&client,first.identity,1).await?;
+        let mut response=client.query("SELECT * FROM $guard; SELECT examined,retired FROM $job").bind(("guard",guard.clone())).bind(("job",RecordId::new("native_retirement",second.identity.hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let before:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
+        let counts_before:Vec<Object>=response.take(1).map_err(ModelError::codec)?;
+        let duplicate=control::resume_retirement(&client,second.identity,1).await?;
+        let mut response=client.query("SELECT * FROM $guard; SELECT examined,retired FROM $job; SELECT state,incarnation FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job; SELECT VALUE id FROM $object").bind(("guard",guard)).bind(("job",RecordId::new("native_retirement",second.identity.hex()))).bind(("object",object.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let after:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
+        let counts_after:Vec<Object>=response.take(1).map_err(ModelError::codec)?;
+        let items:Vec<Object>=response.take(2).map_err(ModelError::codec)?;
+        let payload:Vec<RecordId>=response.take(3).map_err(ModelError::codec)?;
+        Ok::<_,ModelError>((first,second,completed,duplicate,before,after,counts_before,counts_after,items,payload))
+    }.await;
+    let mut completion=lctx_model::domain::completion::Completion::default();
+    for job in jobs {completion.step("duplicate nominee exact job completion",control::resume_retirement(&client,job,4).await.map(|_|()));}
+    completion.step("duplicate nominee exact object cleanup",control::retire(&client,object).await);
+    completion.step("duplicate nominee session invalidation",client.invalidate().await.map_err(ModelError::codec));
+    let (first,second,completed,duplicate,before,after,counts_before,counts_after,items,payload)=lctx_model::domain::completion::complete(result,completion).unwrap();
+    assert_eq!(first.retired,0);assert_eq!(second.retired,0);assert_eq!(second.retained.len(),1);
+    assert_eq!(completed.retired,1);assert_eq!(duplicate.retired,0);assert!(duplicate.remaining.is_empty() && duplicate.retained.is_empty());
+    assert_eq!(before,after,"duplicate nomination cannot reopen phase, mutate tombstone or change physical guard revision");
+    assert_eq!(counts_before,counts_after,"duplicate nomination adds no examined/retired outcome");
+    assert!(payload.is_empty());let [item]=items.as_slice()else{panic!("one exact nominee")};
+    assert_eq!(item.get("state"),Some(&Value::String("superseded".into())));
+    assert_eq!(item.get("incarnation"),Some(&Value::Number(surrealdb::types::Number::Int(1))));
 }

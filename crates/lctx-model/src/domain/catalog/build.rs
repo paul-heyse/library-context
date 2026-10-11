@@ -866,11 +866,6 @@ pub fn stage(
             .iter()
             .map(|r| stages::RelationUse::of_relation(r).completed_input()),
     );
-    inputs.extend(
-        crate::domain::analysis::preparation::configuration_relations()
-            .iter()
-            .map(|r| stages::RelationUse::of_relation(r).completed_input()),
-    );
     inputs.extend(CatalogData::stage_inputs());
     inputs.extend(metadata_inputs());
     let outputs = stage_outputs();
@@ -1247,5 +1242,36 @@ mod scoped_binding_controls {
         let mut unbound = inputs.clone();
         unbound[0] = ValidationInput::of::<assertion::AssertionQualification>(&["id"]);
         assert!(scoped_field_bindings(&model, &unbound, &inputs, |_, _| false).is_err());
+    }
+}
+
+impl CatalogData {
+    /// C0's value contract names every selected typed input, including explicit empty rows.
+    /// Its sole attribution-only projection is native coverage: signature completeness reads
+    /// scope/context/family/status, and never the reporting provider, run or diagnostics.
+    pub fn value_dependencies(&self,domain:ContentHash,budget:&ResourceBudget)
+        ->Result<Vec<crate::domain::compilation_product::DependencyToken>,ModelError>{
+        use crate::domain::compilation_product::{RelationValue,RelationValueOutcome};
+        let mut values=Vec::new();
+        macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(
+            if <$ty>::NAME!=attribution::ProviderCoverage::NAME {
+                values.push(RelationValue::of_rows::<$ty>(domain,RelationValueOutcome::Complete,self.$field.iter())?
+                    .dependency(stringify!($field),None)?);
+            }
+        )*};}
+        crate::catalog_inputs!(rows);
+        let _sort=budget.reserve("catalog-native-coverage-value",self.native_coverage.len().saturating_mul(128))?;
+        let mut coverage=self.native_coverage.iter().map(|row|(row.scope,row.context,row.family,row.status)).collect::<Vec<_>>();
+        coverage.sort_by_key(|(scope,context,family,status)|(*scope,*context,*family as i16,*status as i16));
+        let mut content=KeySink::new("catalog-signature-completeness-projection/v1");
+        for (scope,context,family,status) in &coverage {
+            scope.encode(&mut content);context.encode(&mut content);
+            content.part(b"family",&(*family as i16).to_le_bytes());content.part(b"status",&(*status as i16).to_le_bytes());
+        }
+        values.push(RelationValue{relation:attribution::ProviderCoverage::NAME.into(),
+            contract:ContentHash::of(b"catalog-signature-completeness:scope/context/family/status/v1"),domain,
+            outcome:RelationValueOutcome::Complete,rows:coverage.len() as u64,content:content.finish()}
+            .dependency("native_coverage",None)?);
+        Ok(values)
     }
 }

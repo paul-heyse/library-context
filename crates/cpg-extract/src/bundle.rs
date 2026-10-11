@@ -253,6 +253,15 @@ impl<S: ProviderSink + 'static> StageContext<S> {
             context.sink.write(batch)
         })
     }
+    /// Emit a complete header phase through bounded batches before another relation starts.
+    /// This uses the provider's existing model, limits and allocation authority.
+    pub fn emit_rows<R: Record>(&mut self, rows: impl Iterator<Item=R>) -> Result<(),ModelError> {
+        let mut writer=BatchWriter::<R>::new(&self.budget,self.limits)?;
+        let model=self.model.clone();
+        for row in rows {if let Some(batch)=writer.push(&model,row)? {self.emit_batch(batch)?;}}
+        if let Some(batch)=writer.finish(&model)? {self.emit_batch(batch)?;}
+        Ok(())
+    }
     /// Hand one row of shared vocabulary to the relation's writer, a later stage.
     pub fn contribute<R: Record>(&mut self, row: R) -> Result<(), ModelError> {
         self.guard(|context| {
@@ -435,7 +444,7 @@ pub async fn run_provider<S: ProviderSink>(
 /// The compiler shares one opening guard across its ordered facts provider schedule.
 #[allow(clippy::too_many_arguments, reason = "Explicit provider effects and captured run ownership")]
 pub async fn run_provider_guarded<S: ProviderSink>(
-    mut provider: Box<dyn ProviderStage<S>>,
+    provider: Box<dyn ProviderStage<S>>,
     profile: Profile,
     sink: Arc<S>,
     model: Arc<ValidatedModel>,
@@ -443,11 +452,24 @@ pub async fn run_provider_guarded<S: ProviderSink>(
     budget: ResourceBudget,
     limits: TransferLimits,
 ) -> Result<ProviderOutcome, ModelError> {
+    let stage=crate::contracts::bind_stage(provider.declaration(profile),&captured_run.captured)?;
+    run_provider_bound_guarded(provider,stage,profile,sink,model,captured_run,budget,limits).await
+}
+
+/// Execute the same immutable declaration that owns the completed contribution.
+#[allow(clippy::too_many_arguments,reason="Explicit bound provider effects and capture ownership")]
+pub async fn run_provider_bound_guarded<S:ProviderSink>(
+    mut provider:Box<dyn ProviderStage<S>>,stage:Stage,profile:Profile,sink:Arc<S>,
+    model:Arc<ValidatedModel>,captured_run:CapturedTreeRunGuard,budget:ResourceBudget,limits:TransferLimits,
+)->Result<ProviderOutcome,ModelError>{
     captured_run.check()?;
+    let declared=provider.declaration(profile);
+    if declared.digest()!=stage.digest() || declared.profiles!=stage.profiles {
+        return Err(ModelError::Conflict("scheduled bound provider declaration differs from executable"));
+    }
     let captured = captured_run.captured.clone();
     captured.config().check_profile(profile)?;
     captured.config().check_budget(&budget)?;
-    let stage = provider.declaration(profile);
     if !stage.profiles.contains(&profile) {
         return Err(ModelError::Invalid(
             "provider is not requested by profile".into(),

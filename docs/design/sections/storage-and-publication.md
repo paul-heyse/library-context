@@ -99,6 +99,21 @@ Definitions are installed under immutable epoch names. Ordinary publication
 cannot install DDL, mutate unrelated content or replace another publication's functions. Selection
 remains explicit. Later cleanup failure preserves an acknowledged committed publication.
 
+**Accepted target / implementation in progress, 2026-10-11.** Publication preparation owns one
+discoverable attempt-held staging root over independently completed content before child effects.
+Only derived physical families remain writable through that narrow capability after canonical
+freeze. An explicit derivation identity binds responsible native/publication code, model/physical
+codecs, executable definitions and search policies; every derived address, uniqueness scope,
+eligibility query and named reader uses it. Marker publication atomically retains a complete
+winning staging root. Equal publishers converge on its exact physical inventory; terminal cleanup
+nominates losing/abandoned roots before last-owner release, including admitted attempts. The existing
+paged retirement owner preserves shared children and interrupted progress. An unchanged-publication
+hit earns an exact guarded hold before returning and performs no derived construction. Identity
+foundations are implemented; complete consumers, migration and native acceptance remain open in
+the efficiency coordinator.
+
+> Decision: ADR-0156
+
 **Accepted target, 2026-10-10 (ADR-0145); implementation/qualification open.** Logical
 backup resolves the requested publication's model-declared recoverable closure through bounded
 indexed windows or exact batches within one explicit transaction-bound snapshot and reader pin.
@@ -143,6 +158,18 @@ guard. Current global coordination remains until the complete migration and race
 finite engine conflict evidence does not establish protocol acceptance.
 
 > Decision: ADR-0155
+
+**Accepted target / source integration in progress, 2026-10-11.** Mutable relation/boundary
+attempt slots and immutable complete binding descriptors have different identities. The latter binds
+the entire executable source, boundary, configuration and completed-view meaning. Publication binding
+inventory version two uses that complete identity. Frozen completion retains canonical
+descriptor→view ownership before publication/backup/reader consumers can reuse it. Selected backup
+reads the exact descriptor under its published completion and coherent transaction, then lowers the
+existing data-only portable binding row; independent destination admission remains required. Redundant
+attempt incidence cannot be released until these authoritative holders and all other history consumers
+are established. Rust/native acceptance and actual compaction remain open in the efficiency coordinator.
+
+> Decision: ADR-0157
 
 Compiler/audit selection follows one model closure declaration with native/dump adapters, while
 actual stored rows and cold admission remain independent checks. An audit owns its read owner,

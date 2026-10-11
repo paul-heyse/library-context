@@ -392,7 +392,7 @@ fn configured(
         b"analyzer",
         &serde_json::to_vec(&config).map_err(ModelError::codec)?,
     );
-    identity.part(b"context", &native.digest().0);
+    identity.part(b"semantic-context", &native.semantic_digest().0);
     let analysis = AnalysisContext {
         python_version: python,
         python_platform: platform,

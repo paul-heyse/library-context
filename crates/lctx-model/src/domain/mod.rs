@@ -45,6 +45,8 @@ pub mod local_semantics;
 pub mod local_symbolic;
 pub mod local_theory;
 pub(crate) mod model;
+pub mod validation_factory;
+pub mod checked_admission;
 pub mod models;
 pub mod normalized;
 pub mod obligation;
@@ -70,6 +72,7 @@ pub mod syntax;
 pub mod synthesis;
 pub mod transfer;
 pub mod types;
+pub mod uniform_outcome;
 pub mod validation;
 pub mod value;
 

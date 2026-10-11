@@ -96,7 +96,6 @@ name: "static_facts",
                 normalized::binding_normalization::stage(profile),
                 projection::normalization::stage(profile),
                 normalized::coverage::stage(profile),
-                config.declaration(),
                 analysis::preparation::native_stage(profile, &model, &fixture_publication_order())
                     .unwrap(),
                 local_semantics::stage(profile, &pairs[0].1, &model, &fixture_publication_order())
@@ -168,6 +167,7 @@ name: "static_facts",
                 )
                 .unwrap(),
             ];
+        stages.extend(config.declarations());
             let mut groups = vec![
                 PublicationGroup::new(PublicationBoundary::Facts, vec!["static_facts"]),
                 PublicationGroup::new(PublicationBoundary::Local, vec!["analyze_local"]),

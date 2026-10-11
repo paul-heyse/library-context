@@ -16,11 +16,11 @@ pub struct LibraryAdmissionError;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LibraryCoveragePacket {
-    /// Representative canonical receipt, not an exhaustive list of the group's scopes.
-    pub coverage: Id<attribution::ProviderCoverage>,
+    /// Representative scoped receipt or actual compact authority for the exact domain.
+    pub coverage: uniform_outcome::CoverageAuthority,
     pub input: Id<input::InputRevision>,
-    /// Scope of the representative receipt; counts never certify unobserved scopes.
-    pub scope: Id<source::CoverageScope>,
+    /// Representative scope; null only for an independently validated empty compact domain.
+    pub scope: Nullable<Id<source::CoverageScope>>,
     pub observations: u64,
     pub context: Id<attribution::AnalysisContext>,
     pub provider: Nullable<Id<attribution::Provider>>,
@@ -61,6 +61,9 @@ macro_rules! serving_library_inputs {
          distributions:$crate::domain::input::InputDistribution,
          corpora:$crate::domain::input::CorpusLibrary,
          coverage:$crate::domain::attribution::ProviderCoverage,
+         uniform:$crate::domain::uniform_outcome::UniformNotRequested,
+         contexts:$crate::domain::attribution::AnalysisContext,
+         uses:$crate::domain::input::ArtifactUse,
          runs:$crate::domain::attribution::ProviderRun,
          scopes:$crate::domain::source::CoverageScope,
          modules:$crate::domain::source::Module,
@@ -69,9 +72,10 @@ macro_rules! serving_library_inputs {
     };
 }
 macro_rules! data {($($field:ident:$ty:ty,)*)=>{
-    pub struct LibraryAdmissionData {$(pub $field:Rows<$ty>,)*}
+    pub struct LibraryAdmissionData {$(pub $field:Rows<$ty>,)* uniform_owners:uniform_outcome::UniformOwners}
     impl LibraryAdmissionData {
-        pub fn new(b:&ResourceBudget)->Self {Self{$($field:Rows::new(b),)*}}
+        pub fn new(b:&ResourceBudget)->Self {Self{$($field:Rows::new(b),)* uniform_owners:uniform_outcome::UniformOwners::new(b)}}
+        pub fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform_owners.include(owner)}
         pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}
         pub fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
             $(if relation==<$ty>::NAME {return self.$field.decode(batch);})*
@@ -248,6 +252,26 @@ impl PreparedLibraryDomains {
     pub fn prepare(data: &LibraryAdmissionData, b: &ResourceBudget) -> Result<Self, ModelError> {
         let mut charge = charged::StateCharge::new(b, "prepared-library-domain-index");
         charge.grow(size_of::<Self>())?;
+        // Reconstruct each exact uniform domain once for this preparation. Scope membership
+        // and request policy are checked independently; a deserialized descriptor alone refuses.
+        let _uniform_inputs = b.reserve("library-uniform-domain-inputs",if data.uniform.is_empty(){0}else{
+            data.artifacts.iter().fold(0usize,|bytes,row|bytes.saturating_add(size_of::<source::SourceArtifact>()+row.heap_bytes()))
+                .saturating_add(data.uses.len().saturating_mul(size_of::<input::ArtifactUse>()))
+        })?;
+        let artifacts=if data.uniform.is_empty(){vec![]}else{data.artifacts.iter().cloned().collect::<Vec<_>>()};
+        let uses=if data.uniform.is_empty(){vec![]}else{data.uses.iter().cloned().collect::<Vec<_>>()};
+        charge.grow(data.uniform.len().saturating_mul(size_of::<(&uniform_outcome::UniformNotRequested,uniform_outcome::ValidatedUniformDomain)>()))?;
+        let mut uniform_domains=Vec::with_capacity(data.uniform.len());
+        for descriptor in data.uniform.iter(){
+            let owner=data.uniform_owners.require(descriptor)?;
+            let input=data.inputs.get(descriptor.input).ok_or(ModelError::Conflict("uniform library input absent"))?;
+            let context=data.contexts.get(descriptor.context).ok_or(ModelError::Conflict("uniform library context absent"))?;
+            let domain=uniform_outcome::ExpectedUniform::native_inputs(owner,input,context,&artifacts,&uses,owner.profile(),b)?;
+            for (scope,_) in domain.members(){
+                if data.scopes.get(*scope).is_none(){return Err(ModelError::Conflict("uniform library canonical scope absent"));}
+            }
+            uniform_domains.push((descriptor,domain));
+        }
         let mut domains: Vec<LibraryDomainPacket> = Vec::new();
         for capture in data
             .distributions
@@ -311,9 +335,9 @@ impl PreparedLibraryDomains {
                             group.observations.checked_add(1).ok_or_else(|| {
                                 ModelError::Invalid("library coverage count overflow".into())
                             })?;
-                        if row.id() < group.coverage {
-                            group.coverage = row.id();
-                            group.scope = row.scope;
+                        if (uniform_outcome::CoverageAuthority::Scoped{coverage:row.id()}) < group.coverage {
+                            group.coverage = uniform_outcome::CoverageAuthority::Scoped{coverage:row.id()};
+                            group.scope = Nullable(Some(row.scope));
                         }
                     } else {
                         // Account the capacity step before allocating a new finite status group.
@@ -325,9 +349,9 @@ impl PreparedLibraryDomains {
                             coverage.reserve_exact(additional);
                         }
                         coverage.push(LibraryCoveragePacket {
-                            coverage: row.id(),
+                            coverage: uniform_outcome::CoverageAuthority::Scoped{coverage:row.id()},
                             input,
-                            scope: row.scope,
+                            scope: Nullable(Some(row.scope)),
                             observations: 1,
                             context: row.context,
                             provider: Nullable(row.provider),
@@ -338,6 +362,18 @@ impl PreparedLibraryDomains {
                         });
                     }
                 }
+            }
+            for (descriptor,domain) in &uniform_domains {
+                if descriptor.input!=capture.input && !corpora.contains(&descriptor.input){continue;}
+                let family=descriptor.family.ok_or(ModelError::Conflict("uniform library native family absent"))?;
+                // Ordinary scoped rows and a total uniform outcome cannot both claim a family.
+                if coverage.iter().any(|row|row.input==descriptor.input && row.context==descriptor.context && row.family==family){return Err(ModelError::Conflict("mixed uniform/scoped library family authority"));}
+                let scope=domain.members().next().map(|(scope,definition)|{
+                    if !matches!(domain.scoped(*scope,*definition),uniform_outcome::ScopedUniformOutcome::NotRequested(_)){return Err(ModelError::Conflict("uniform library scoped operation"));}Ok(*scope)
+                }).transpose()?;
+                if scope.is_none() && !domain.is_explicit_empty(){return Err(ModelError::Conflict("uniform library missing scope domain"));}
+                if coverage.len()==coverage.capacity(){let additional=coverage.capacity().max(4);charge.grow(additional.saturating_mul(size_of::<LibraryCoveragePacket>()))?;coverage.reserve_exact(additional);}
+                coverage.push(LibraryCoveragePacket{coverage:domain.authority(),input:descriptor.input,scope:Nullable(scope),observations:u64::try_from(descriptor.members).map_err(ModelError::codec)?,context:descriptor.context,provider:Nullable(None),run:Nullable(None),family,status:attribution::CoverageStatus::NotRequested,reason:Nullable(None)});
             }
             coverage.sort_unstable_by_key(|c| {
                 (

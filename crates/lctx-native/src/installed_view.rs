@@ -1,5 +1,8 @@
 //! Installation-local completed view data and held read authority.
 //! Deserializing completion data never establishes a native hold or cold admission.
+pub(crate) mod audit;
+mod live;
+pub use live::{install_live_view, hold_published_view, InstalledMember, SelectedMembers};
 use lctx_model::domain::{self as d, ContentHash, Key, KeySink, ModelError};
 use serde::{Deserialize, Serialize};
 use surrealdb::types::{RecordId, Value};
@@ -15,6 +18,9 @@ pub struct ContributorRealization {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InstalledViewCompletion {
+    pub generation: ContentHash,
+    pub validity_epoch: i64,
+    pub realization_incarnation: i64,
     pub version: u32,
     pub view: d::completed::CompletedView,
     pub realization: ContentHash,
@@ -31,6 +37,7 @@ impl InstalledViewCompletion {
     pub fn validate(&self) -> Result<(), ModelError> {
         self.view.validate()?;
         if self.version != 1 || self.member_codec != MEMBER_CODEC || self.frozen_revision < 0
+            || self.validity_epoch <= 0 || self.realization_incarnation <= 0
             || self.membership_rows != self.view.rows
             || self.mappings.windows(2).any(|pair| pair[0].logical >= pair[1].logical)
             || self.mappings.iter().any(|mapping| mapping.incarnation <= 0)
@@ -41,6 +48,26 @@ impl InstalledViewCompletion {
         }
         self.closure.identity()?;
         Ok(())
+    }
+    pub fn identity(&self)->Result<ContentHash,ModelError>{
+        self.validate()?;let mut sink=KeySink::new("native-installed-view-completion/v1");
+        sink.part(b"canonical",&serde_json::to_vec(self).map_err(ModelError::codec)?);Ok(sink.finish())
+    }
+    pub fn record(&self)->Result<RecordId,ModelError>{Ok(RecordId::new("compiler_view_completion",self.identity()?.hex()))}
+    pub fn value(&self)->Result<Value,ModelError>{
+        let mut row=surrealdb::types::Object::new();row.insert("id",self.record()?);
+        row.insert("descriptor",surrealdb::types::Bytes::from(serde_json::to_vec(self).map_err(ModelError::codec)?));row.insert("completed",true);Ok(Value::Object(row))
+    }
+    pub fn from_row(row:&Value)->Result<Self,ModelError>{
+        let Value::Object(object)=row else{return Err(ModelError::Schema("installed completion row"));};
+        let Some(Value::Bytes(bytes))=object.get("descriptor") else{return Err(ModelError::Schema("installed completion descriptor"));};
+        let result:Self=serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+        if result.value()?!=*row{return Err(ModelError::Conflict("installed completion exact envelope"));}Ok(result)
+    }
+    /// Stable realization declaration excludes installation-local completion validity.
+    pub fn realization_value(&self)->Result<Value,ModelError>{
+        self.validate()?;
+        realization_declaration(&self.view,&self.mappings,true)
     }
 }
 pub fn realization_id(view: &d::completed::CompletedView, mappings: &[ContributorRealization]) -> Result<ContentHash, ModelError> {
@@ -64,39 +91,31 @@ pub fn member_id(realization: ContentHash, relation: &str, key: &[u8; 16]) -> Re
     RecordId::new("compiler_view_member", sink.finish().hex())
 }
 
-/// The only construction route must hold the exact completion row/incarnation
-/// through the owning native attempt. There is deliberately no public constructor.
+/// Native factories retain exact completion/realization authority through a live
+/// attempt or a protected publication pin. There is no public data-only constructor.
 pub struct HeldInstalledView {
+    client: std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
     completion: InstalledViewCompletion,
-    held: crate::control::HeldRecord,
+    owner: InstalledViewOwner,
+    _charge: d::charged::StateCharge,
+}
+enum InstalledViewOwner {
+    Live{held:crate::control::HeldRecord,epoch:i64},
+    Published{expected:crate::control::ExpectedRecord,completed:crate::completed_state::PublishedCompletedState,owner:RecordId},
 }
 impl HeldInstalledView {
     pub fn completion(&self) -> &InstalledViewCompletion { &self.completion }
-    pub fn owner(&self) -> &RecordId { self.held.owner() }
-    pub fn incarnation(&self) -> i64 { self.held.incarnation() }
+    pub fn owner(&self) -> &RecordId { match &self.owner {InstalledViewOwner::Live{held,..}=>held.owner(),InstalledViewOwner::Published{owner,..}=>owner} }
+    pub fn incarnation(&self) -> i64 { self.completion.realization_incarnation }
+    pub fn completion_incarnation(&self) -> i64 { match &self.owner {InstalledViewOwner::Live{held,..}=>held.incarnation(),InstalledViewOwner::Published{expected,..}=>expected.incarnation()} }
+    fn expected_record(&self)->&RecordId{match &self.owner{InstalledViewOwner::Live{held,..}=>held.record(),InstalledViewOwner::Published{expected,..}=>expected.record()}}
+    fn expected_bytes(&self)->&Value{match &self.owner{InstalledViewOwner::Live{held,..}=>held.row(),InstalledViewOwner::Published{expected,..}=>expected.row()}}
     pub fn address(&self, relation: &str, key: &[u8; 16]) -> Result<RecordId, ModelError> {
         if relation != self.completion.view.relation { return Err(ModelError::Conflict("held view selected relation")); }
         Ok(member_id(self.completion.realization, relation, key))
     }
 }
 
-pub async fn hold_completion(
-    client: &surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>,
-    attempt: ContentHash,
-    owner: RecordId,
-    expected: crate::control::ExpectedRecord,
-) -> Result<HeldInstalledView, ModelError> {
-    let Value::Object(row) = expected.row() else { return Err(ModelError::Schema("installed completion object")); };
-    let Some(Value::Bytes(bytes)) = row.get("descriptor") else { return Err(ModelError::Schema("installed completion descriptor")); };
-    let completion: InstalledViewCompletion = serde_json::from_slice(bytes.as_ref()).map_err(ModelError::codec)?;
-    completion.validate()?;
-    if expected.record() != &RecordId::new("compiler_view_realization", completion.realization.hex())
-        || row.get("completed") != Some(&Value::Bool(true)) {
-        return Err(ModelError::Conflict("installed completion exact physical namespace"));
-    }
-    let held = crate::control::hold_expected(client, attempt, owner, expected).await?;
-    Ok(HeldInstalledView { completion, held })
-}
 
 #[cfg(test)]
 mod tests {
@@ -124,7 +143,7 @@ mod tests {
         let view = view();
         let mappings = vec![ContributorRealization { logical: *view.contributions.first().unwrap(), physical: ContentHash::of(b"copy"), incarnation: 1 }];
         let mut completion = InstalledViewCompletion {
-            version: 1, realization: realization_id(&view, &mappings).unwrap(), view,
+            version: 1, generation:ContentHash::of(b"generation"),validity_epoch:1,realization_incarnation:1, realization: realization_id(&view, &mappings).unwrap(), view,
             member_codec: MEMBER_CODEC, mappings,
             closure: d::completed_identity::CompletedFamilyRoots::new(COMPLETED_FAMILIES.map(|family| d::completed_identity::CompletedFamilyHasher::new(family).unwrap().finish())).unwrap(),
             membership_rows: 0, membership_content: ContentHash::of(b"empty exact member stream"), frozen_revision: 0,
@@ -135,4 +154,36 @@ mod tests {
         completion.mappings.clear();
         assert!(completion.validate().is_err());
     }
+    #[test]
+    fn validity_completion_is_epoch_qualified_and_does_not_rename_stable_realization(){
+        use d::recovery_closure::COMPLETED_FAMILIES;
+        let view=view();let mappings=vec![ContributorRealization{logical:*view.contributions.first().unwrap(),physical:ContentHash::of(b"copy"),incarnation:1}];
+        let original=InstalledViewCompletion{generation:ContentHash::of(b"generation"),validity_epoch:1,realization_incarnation:4,version:1,realization:realization_id(&view,&mappings).unwrap(),view,member_codec:MEMBER_CODEC,mappings,closure:d::completed_identity::CompletedFamilyRoots::new(COMPLETED_FAMILIES.map(|family|d::completed_identity::CompletedFamilyHasher::new(family).unwrap().finish())).unwrap(),membership_rows:0,membership_content:ContentHash::of(b"empty"),frozen_revision:2};
+        let mut rechecked=original.clone();rechecked.validity_epoch+=1;
+        assert_ne!(original.record().unwrap(),rechecked.record().unwrap(),"new epoch earns distinct immutable completion");
+        assert_eq!(original.realization_value().unwrap(),rechecked.realization_value().unwrap(),"epoch recheck does not overwrite stable namespace");
+        rechecked.realization_incarnation+=1;assert_ne!(original.identity().unwrap(),rechecked.identity().unwrap(),"actual realization recreation invalidates completion");
+        let row=original.value().unwrap();assert_eq!(InstalledViewCompletion::from_row(&row).unwrap(),original);
+        let Value::Object(mut wrong)=row else{unreachable!()};wrong.insert("id",RecordId::new("compiler_view_realization",original.realization.hex()));assert!(InstalledViewCompletion::from_row(&Value::Object(wrong)).is_err());
+    }
+
+}
+
+pub(crate) fn realization_declaration(view:&d::completed::CompletedView,mappings:&[ContributorRealization],sealed:bool)->Result<Value,ModelError>{
+    #[derive(Serialize)]struct Declaration<'a>{version:u32,view:&'a d::completed::CompletedView,member_codec:u32,mappings:&'a [ContributorRealization]}
+    let realization=realization_id(view,mappings)?;let descriptor=Declaration{version:1,view,member_codec:MEMBER_CODEC,mappings};
+    let mut row=surrealdb::types::Object::new();row.insert("id",RecordId::new("compiler_view_realization",realization.hex()));row.insert("sealed",sealed);
+    row.insert("descriptor",surrealdb::types::Bytes::from(serde_json::to_vec(&descriptor).map_err(ModelError::codec)?));Ok(Value::Object(row))
+}
+/// Target format only, installed by the format coordinator. No legacy member namespace
+/// is consulted after cutover; the stable realization and epoch-qualified witness differ.
+pub fn schema_target()->&'static str {
+    "DEFINE TABLE compiler_view_realization SCHEMAFULL; DEFINE FIELD descriptor ON compiler_view_realization TYPE bytes; DEFINE FIELD sealed ON compiler_view_realization TYPE bool; DEFINE TABLE compiler_view_completion SCHEMAFULL; DEFINE FIELD descriptor ON compiler_view_completion TYPE bytes; DEFINE FIELD completed ON compiler_view_completion TYPE bool; DEFINE TABLE compiler_view_member SCHEMAFULL; DEFINE FIELD realization ON compiler_view_member TYPE record<compiler_view_realization>; DEFINE FIELD relation ON compiler_view_member TYPE string; DEFINE FIELD semantic_key ON compiler_view_member TYPE string; DEFINE FIELD node ON compiler_view_member TYPE record<entity | assertion | compiler_record>; DEFINE FIELD content ON compiler_view_member TYPE string; DEFINE INDEX realization_key ON compiler_view_member FIELDS realization,relation,semantic_key UNIQUE; DEFINE INDEX realization_nodes ON compiler_view_member FIELDS realization,node;"
+}
+
+/// Discovery only. This reads one explicitly selected physical contributor under the
+/// caller's tracked/cancellable reader; only install_live_view can mint a held view.
+pub async fn inspect_contributor(reader:&crate::NativeReader<()>,physical:ContentHash,budget:&d::resources::ResourceBudget)
+    ->Result<Option<crate::control::ExpectedRecord>,ModelError>{
+    crate::control::inspect_expected_read(reader,RecordId::new("compiler_contribution",physical.hex()),budget).await
 }

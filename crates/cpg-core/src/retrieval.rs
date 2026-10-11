@@ -309,13 +309,13 @@ pub async fn produce(
                         .await?;
                     let mut pending = PendingUses::new(b);
                     for partition in 0..keys.len() {
-                        let rendered = window.render(&access, partition, b, &runtime.cancellation()).await;
+                        let rendered = window.render(&access, partition, b, &runtime.cancellation(), runtime, &output).await;
                         let (render, mandatory) = match rendered {
                             Err(ModelError::Resource { .. }) if !pending.is_empty() && service.is_some() => {
                                 let service = service.as_mut().expect("selected service");
                                 service.flush_ready().await.map_err(ModelError::codec)?;
                                 publish_ready(&mut pending, &output, service, &mut disposition).await?;
-                                window.render(&access, partition, b, &runtime.cancellation()).await?
+                                window.render(&access, partition, b, &runtime.cancellation(), runtime, &output).await?
                             }
                             result => result?,
                         };

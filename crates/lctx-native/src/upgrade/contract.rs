@@ -34,6 +34,12 @@ impl UpgradeExecutionContract {
         Self { format: 2, source_version: SOURCE_VERSION, kind: TRANSITION_KIND.into(), migration, execution, source, target: crate::installation::base_schema_identity(), generation: config.service_generation, overlay: overlay_schema_identity(), protocol: transition_protocol_identity(), preflight: preflight_contract_identity(), verifier: verifier_identity(), namespace: config.namespace.as_str().into(), database: config.database.as_str().into() }
     }
     pub fn validate(&self, config: &RuntimeConfig) -> Result<(), ModelError> {
+        // This executor implements only the historical4→5 history-receipt transition.
+        // Never let a newer base_schema_identity turn it into an implicit4→6 converter.
+        // Source5→6 has its own complete typed component contract and activation barrier.
+        if crate::control::SCHEMA_VERSION!=5 {
+            return Err(ModelError::Conflict("source4 transition requires its original format5 executable"));
+        }
         if self != &Self::current(self.migration, self.execution, self.source, config) || self.source.hex() != SOURCE_SCHEMA {
             return Err(ModelError::Conflict("native upgrade execution contract"));
         }

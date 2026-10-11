@@ -117,6 +117,30 @@ impl ModelContextRequirements {
             _charge: charge,
         })
     }
+    /// Exact ordered requirement inventory, independent of analyzer observations.
+    pub fn identity(&self) -> ContentHash {
+        use crate::domain::Key;
+        let mut sink = KeySink::new("captured-model-context-requirements/v1");
+        self.catalog.encode(&mut sink);
+        self.catalog_digest.encode(&mut sink);
+        sink.part(b"count", &(self.entries.len() as u64).to_le_bytes());
+        for entry in self.entries.iter() {
+            match entry.owner {
+                RequiredBy::Model(id) => { sink.part(b"owner", b"model");id.encode(&mut sink); }
+                RequiredBy::Protocol(id) => { sink.part(b"owner", b"protocol");id.encode(&mut sink); }
+                RequiredBy::RuntimeException(exception) => { sink.part(b"owner", b"runtime-exception");exception.encode(&mut sink); }
+            }
+            match &entry.pin {
+                RequirementPin::Python(version) => {sink.part(b"pin", b"python");version.encode(&mut sink);}
+                RequirementPin::Distribution {name,version} => {sink.part(b"pin", b"distribution");name.encode(&mut sink);version.encode(&mut sink);}
+                RequirementPin::Release => sink.part(b"pin", b"release"),
+                RequirementPin::CapturedEnvironment => sink.part(b"pin", b"captured-environment"),
+            }
+            entry.module.encode(&mut sink);entry.qualified_name.encode(&mut sink);
+            sink.part(b"mro", &[u8::from(entry.require_mro)]);
+        }
+        sink.finish()
+    }
     pub fn entries(&self) -> impl Iterator<Item = &RequiredDefinition> {
         self.entries.iter()
     }

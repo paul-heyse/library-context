@@ -8,7 +8,6 @@ use lctx_model::domain::{
     graph::{Assertion, Entity, Manifest},
     serving::{DatabaseIdentity, SnapshotHandle},
 };
-use lctx_native::surrealdb::types::{Bytes, Object, RecordId, Value};
 use lctx_native::{
     Loader, NativeReader, RuntimeConfig,  phase::Phase,
 };
@@ -45,11 +44,14 @@ pub(crate) struct Publication<'a> {
     admission: Admission<'a>,
     loader: Loader,
     bindings: Vec<CompletedBinding>,
+    unchanged: Option<SnapshotHandle>,
+    definition_epoch: ContentHash,
 }
 impl<'a> Publication<'a> {
     pub(crate) async fn new(
         admission: Admission<'a>,
         config: &RuntimeConfig,
+        definitions:&str,
     ) -> Result<Self, ModelError> {
         admission.native().check_publication_target(config)?;
         let bindings = canonical_bindings(admission.native().bindings().await?)?;
@@ -63,45 +65,41 @@ impl<'a> Publication<'a> {
             admission.native().database().as_str(),
         )
         .await;
-        let client = lease.finish_with(connected)?;
-        let attempt = admission.native().attempt();
-        let budget = admission.budget().clone();
-        Ok(Self {
-            admission,
-            loader: Loader::for_attempt_views(
-                client,
-                attempt,
-                bindings
-                    .iter()
-                    .filter(|binding| binding.boundary.is_none())
-                    .map(|binding| binding.view.identity)
-                    .collect(),
-            ).with_budget(&budget),
-            bindings,
-        })
+        let client = match connected {Ok(client)=>client,Err(error)=>return lease.finish_with(Err(error))};
+        let result=async {
+            lctx_native::materialization::validate_native_definitions(definitions)?;
+            let attempt=admission.native().attempt();let budget=admission.budget();
+            let loader=Loader::for_attempt_views(client.clone(),attempt,bindings.iter()
+                .filter(|binding|binding.boundary.is_none()).map(|binding|binding.view.identity).collect()).with_budget(budget);
+            let realization=crate::definitions::verify_epoch(&loader,definitions).await?;
+            let loader=loader.with_derivation(realization);
+            let handle=publication_handle(admission.manifest(),&bindings,admission.native().database(),config,realization,crate::definitions::epoch_identity(definitions))?;
+            let unchanged=if matches!(&admission,Admission::Completed(_)) {
+                lctx_native::control::staging::find_existing_publication(&loader,&handle,admission.manifest(),&bindings,budget).await?.map(|marker|marker.handle)
+            }else{None};
+            let loader=if unchanged.is_some(){loader}else{
+                let completed=lctx_native::completed_state::hold_admitted_completed_state_for_attempt(client.clone(),attempt,budget).await?;
+                let staging=lctx_native::control::staging::DerivedStaging::begin(&client,completed,realization,budget).await?;
+                loader.with_staging(Arc::new(staging))?.prepare_completed_reader().await?
+            };
+            Ok(Self{admission,loader,bindings,unchanged,definition_epoch:crate::definitions::epoch_identity(definitions)})
+        }.await;
+        if result.is_err(){
+            let mut completion=Completion::default();
+            completion.step("failed publication setup session invalidation",client.invalidate().await.map_err(ModelError::codec));
+            return lease.finish_with(complete(result,completion));
+        }
+        lease.finish_with(result)
     }
+    pub(crate) fn is_unchanged(&self)->bool{self.unchanged.is_some()}
     pub(crate) fn loader(&self) -> &Loader { &self.loader }
     fn store(&self) -> &Arc<NativeCompilerStore> {
         self.admission.native()
     }
-    pub(crate) async fn invalidate(&self) -> Result<(), ModelError> {
-        self.loader
-            .client()
-            .invalidate()
-            .await
-            .map_err(|error| ModelError::Cause(Box::new(error)))
-    }
-
-    /// Verify the selected immutable executable epoch; ordinary publication performs no DDL.
-    pub(crate) async fn install_definitions(&self, definitions: &str) -> Result<(), ModelError> {
-        lctx_native::materialization::validate_native_definitions(definitions)?;
-        let lease = self
-            .store()
-            .begin_derived_operation("publication definitions")?;
-        let result = crate::definitions::verify_epoch(&self.loader, definitions)
-            .await
-            .map(|_| ());
-        lease.finish_with(result)
+    pub(crate) async fn invalidate(&self)->Result<(),ModelError>{
+        let result=self.loader.close_reader().await;
+        let mut completion=Completion::default();completion.step("publication session invalidation",self.loader.client().invalidate().await.map_err(ModelError::codec));
+        complete(result,completion)
     }
 
     pub(crate) async fn entity_references(&self, entities: &[Entity]) -> Result<(), ModelError> {
@@ -139,6 +137,7 @@ impl<'a> Publication<'a> {
         definitions: &str,
     ) -> Result<SnapshotHandle, ModelError> {
         lctx_native::materialization::validate_native_definitions(definitions)?;
+        if crate::definitions::epoch_identity(definitions)!=self.definition_epoch{return Err(ModelError::Conflict("publication executable epoch changed"));}
         let manifest = self.admission.manifest();
         manifest.validate()?;
         self.store().check_publication_target(config)?;
@@ -147,30 +146,19 @@ impl<'a> Publication<'a> {
         let lease = self.store().begin_finalization().await?;
         let phase = Phase::begin("publication_seal");
         let result = async {
-            if self.store().completed_state_after_closure(&lease, self.admission.budget()).await? != manifest.completed_state
-            {
-                return Err(ModelError::Conflict("sealed completed state"));
-            }
-            let loader = &self.loader;
-            let reconciliation_phase = Phase::begin("publication_final_reconciliation");
-            let reconciled = async {
-                loader.reconcile(manifest).await?;
-                lctx_native::derived_search::reconcile_search(loader).await
-            }
-            .await;
-            reconciliation_phase.finish_result(&reconciled);
-            reconciled?;
-            seal_staging(
-                loader,
-                self.store().database(),
-                manifest,
-                &self.bindings,
-                self.store().attempt(),
-                config,
-                definitions,
-                &lease,
-            )
-            .await
+            let expected=publication_handle(manifest,&self.bindings,self.store().database(),config,self.loader.derivation()?,self.definition_epoch)?;
+            // Encode before the acknowledgement so a later local error cannot lose it.
+            let committed_identity=serde_json::to_string(&expected).map_err(ModelError::codec)?;
+            let handle=if let Some(handle)=&self.unchanged {
+                if handle!=&expected{return Err(ModelError::Conflict("unchanged publication complete identity"));}
+                let checked=lctx_native::control::staging::find_existing_publication(&self.loader,handle,manifest,&self.bindings,self.admission.budget()).await?
+                    .ok_or(ModelError::Conflict("unchanged publication disappeared"))?;
+                checked.handle
+            }else{
+                let staging=self.loader.staging().ok_or(ModelError::Conflict("publication staging owner missing"))?;
+                staging.publish(&self.loader,&expected,manifest,&self.bindings,self.admission.budget()).await?.handle
+            };
+            finalize_marker(&self.loader,&handle,self.store().attempt(),config,&lease,committed_identity).await
         }
         .await;
         let result = lease.finish_with(result);
@@ -179,120 +167,21 @@ impl<'a> Publication<'a> {
     }
 }
 
-/// Marker authority stays inside this admitted workflow and its retained finalization lease.
-async fn seal_staging(
-    loader: &Loader,
-    database: &lctx_model::domain::serving::Name,
-    manifest: &Manifest,
-    views: &[CompletedBinding],
-    attempt: ContentHash,
-    config: &RuntimeConfig,
-    native_definitions: &str,
-    lease: &lctx_compiler_store::compiler::OperationLease,
-) -> Result<SnapshotHandle, ModelError> {
-    let client = loader.client();
-    let realization_phase = Phase::begin("publication_realization");
-    let realization = crate::definitions::verify_epoch(loader, native_definitions).await;
-    realization_phase.finish_result(&realization);
-    let realization = realization?;
-    let definition_epoch = crate::definitions::epoch_identity(native_definitions);
-    let view = view_identity(views)?;
-    let handle = SnapshotHandle {
-        publication: publication_identity(
-            manifest.content(),
-            realization,
-            view,
-            config.service_generation,
-            definition_epoch,
-        ),
-        view,
-        service_generation: config.service_generation,
-        definition_epoch,
-        semantic: manifest.content(),
-        realization,
-        database: DatabaseIdentity {
-            namespace: config.namespace.clone(),
-            database: database.clone(),
-        },
-    };
-    let mut marker = Object::new();
-    marker.insert("id", RecordId::new("publication", handle.publication.hex()));
-    marker.insert(
-        "handle",
-        hex::encode(serde_json::to_vec(&handle).map_err(ModelError::codec)?),
-    );
-    marker.insert(
-        "manifest",
-        Bytes::from(serde_json::to_vec(manifest).map_err(ModelError::codec)?),
-    );
-    marker.insert(
-        "views",
-        Bytes::from(serde_json::to_vec(views).map_err(ModelError::codec)?),
-    );
-    marker.insert("definition_epoch", definition_epoch.hex());
-    // Prepare the committed identity before the effect, so later local encoding cannot lose it.
-    let committed_identity = serde_json::to_string(&handle).map_err(ModelError::codec)?;
-    let marker_phase = Phase::begin("publication_marker");
-    // Establish guarded reachability before the manifest can become visible. If the
-    // acknowledgement is unknown, the durable native operation retains reconciliation work.
-    lctx_native::control::hold(
-        client,
-        Some(attempt),
-        RecordId::new("publication", handle.publication.hex()),
-        views
-            .iter()
-            .map(|binding| RecordId::new("compiler_view", binding.view.identity.hex()))
-            .collect(),
-    )
-    .await?;
-    // Transfer every retained attempt root before closing its mutable owner. Bounded
-    // windows include originals, roles and derived search records, alongside exact views.
-    let mut variables = lctx_native::surrealdb::types::Variables::new();
-    variables.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
-    let retained_reader = loader.reader();
-    let mut roots=retained_reader.query_stream("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt ORDER BY id",variables,1)?;
-    let transfer = async {
-        let mut window = Vec::new();
-        while let Some(root) = roots.next().await? {
-            let Value::RecordId(root) = root else {
-                return Err(ModelError::Schema("publication retained root"));
-            };
-            window.push(root);
-            if window.len() == 128 {
-                lctx_native::control::hold(
-                    client,
-                    Some(attempt),
-                    RecordId::new("publication", handle.publication.hex()),
-                    std::mem::take(&mut window),
-                )
-                .await?;
-            }
-        }
-        lctx_native::control::hold(
-            client,
-            Some(attempt),
-            RecordId::new("publication", handle.publication.hex()),
-            window,
-        )
-        .await
-    }
-    .await;
-    let mut root_finality = Completion::default();
-    root_finality.step(
-        "publication retained-root stream drainage",
-        roots.drain_transport().await,
-    );
-    complete(transfer, root_finality)?;
-    let marking =
-        lctx_native::control::ensure_rows(client, Some(attempt), vec![Value::Object(marker)])
-            .await;
-    marker_phase.finish_result(&marking);
-    marking?;
+fn publication_handle(manifest:&Manifest,views:&[CompletedBinding],database:&lctx_model::domain::serving::Name,
+    config:&RuntimeConfig,realization:ContentHash,definition_epoch:ContentHash)->Result<SnapshotHandle,ModelError>{
+    let view=view_identity(views)?;
+    Ok(SnapshotHandle{publication:publication_identity(manifest.content(),realization,view,config.service_generation,definition_epoch),
+        view,service_generation:config.service_generation,definition_epoch,semantic:manifest.content(),realization,
+        database:DatabaseIdentity{namespace:config.namespace.clone(),database:database.clone()}})
+}
+/// Marker acknowledgement precedes every fallible finalizer and is retained in both owners.
+async fn finalize_marker(loader:&Loader,handle:&SnapshotHandle,attempt:ContentHash,config:&RuntimeConfig,
+    lease:&lctx_compiler_store::compiler::OperationLease,committed_identity:String)->Result<SnapshotHandle,ModelError>{
+    let client=loader.client();
     lease.record_committed(committed_identity.clone());
-    // The marker is committed. Every subsequent failure, including attempt closure,
-    // must retain that effect exactly.
     let mut completion = Completion::default();
     completion.committed("published unselected manifest", committed_identity);
+    completion.step("publication completed reader close",loader.close_reader().await);
     if let Err(error) = lctx_native::control::close_attempt(client, attempt, "closed").await {
         return complete(Err(error), completion);
     }
@@ -322,7 +211,7 @@ async fn seal_staging(
                     .await
                     .map_err(ModelError::codec),
             );
-            complete(closed.map(|_| handle), finality)
+            complete(closed.map(|_| handle.clone()), finality)
         }
         Err(error) => Err(error),
     };

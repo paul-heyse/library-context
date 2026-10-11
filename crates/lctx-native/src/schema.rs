@@ -178,9 +178,10 @@ pub fn canonical_schema() -> String {
         sql.push_str(&scope_schema(table));
     }
     for (table, input) in [("participant", "assertion"), ("reference", "entity")] {
-        sql.push_str(&format!("DEFINE TABLE {table} TYPE RELATION IN {input} OUT entity_anchor | assertion_anchor | external ENFORCED SCHEMAFULL; DEFINE FIELD field ON {table} TYPE string; DEFINE FIELD role ON {table} TYPE int; DEFINE FIELD position ON {table} TYPE int | null; DEFINE INDEX incoming ON {table} FIELDS out,field,in; DEFINE INDEX outgoing ON {table} FIELDS in,field,out,position;"));
+        sql.push_str(&format!("DEFINE TABLE {table} TYPE RELATION IN {input} OUT entity_anchor | assertion_anchor | external ENFORCED SCHEMAFULL; DEFINE FIELD derivation ON {table} TYPE string; DEFINE FIELD field ON {table} TYPE string; DEFINE FIELD role ON {table} TYPE int; DEFINE FIELD position ON {table} TYPE int | null; DEFINE INDEX incoming ON {table} FIELDS derivation,out,field,in; DEFINE INDEX outgoing ON {table} FIELDS derivation,in,field,out,position;"));
     }
-    sql.push_str("DEFINE TABLE external TYPE NORMAL SCHEMAFULL; DEFINE FIELD canonical ON external TYPE bytes; DEFINE TABLE original TYPE NORMAL SCHEMAFULL; DEFINE FIELD content ON original TYPE string; DEFINE FIELD byte_len ON original TYPE int; DEFINE TABLE original_chunk TYPE NORMAL SCHEMAFULL; DEFINE FIELD source ON original_chunk TYPE record<original>; DEFINE FIELD start ON original_chunk TYPE int; DEFINE FIELD bytes ON original_chunk TYPE bytes; DEFINE FIELD content ON original_chunk TYPE string; DEFINE INDEX position ON original_chunk FIELDS source,start UNIQUE; DEFINE TABLE publication TYPE NORMAL SCHEMAFULL; DEFINE FIELD handle ON publication TYPE string; DEFINE FIELD manifest ON publication TYPE bytes; DEFINE FIELD views ON publication TYPE bytes; DEFINE FIELD definition_epoch ON publication TYPE string;");
+    sql.push_str("DEFINE TABLE external TYPE NORMAL SCHEMAFULL; DEFINE FIELD canonical ON external TYPE bytes; DEFINE TABLE publication TYPE NORMAL SCHEMAFULL; DEFINE FIELD handle ON publication TYPE string; DEFINE FIELD manifest ON publication TYPE bytes; DEFINE FIELD views ON publication TYPE bytes; DEFINE FIELD definition_epoch ON publication TYPE string; DEFINE FIELD staging_root ON publication TYPE record<native_publication_staging>; DEFINE FIELD completion ON publication TYPE record<native_completed_state>; DEFINE FIELD admission ON publication TYPE record<native_completed_admission>; DEFINE FIELD derivation ON publication TYPE string; DEFINE FIELD validity_epoch ON publication TYPE int; DEFINE FIELD staging_incarnation ON publication TYPE int; DEFINE FIELD completion_incarnation ON publication TYPE int; DEFINE FIELD admission_incarnation ON publication TYPE int;");
+    sql.push_str(original_blob_schema_target());
     sql
 }
 pub fn realization_identity(native_definitions: &str) -> ContentHash {
@@ -311,4 +312,15 @@ mod tests {
             .join("\n");
         insta::assert_snapshot!("fixed_native_envelopes", statements);
     }
+}
+
+/// Format-six original owner. The adjacent converter replaces source-owned pieces
+/// with exact shared blob pieces; authentic format-five authority remains external.
+pub fn original_blob_schema_target() -> &'static str {
+    "DEFINE TABLE original TYPE NORMAL SCHEMAFULL; DEFINE FIELD artifact ON original TYPE record<entity>; DEFINE FIELD blob ON original TYPE record<original_blob>; DEFINE FIELD content ON original TYPE string; DEFINE FIELD byte_len ON original TYPE int; DEFINE INDEX blob_layout ON original FIELDS blob,id; DEFINE TABLE original_blob TYPE NORMAL SCHEMAFULL; DEFINE FIELD content ON original_blob TYPE string; DEFINE FIELD byte_len ON original_blob TYPE int; DEFINE FIELD format ON original_blob TYPE string; DEFINE FIELD completed ON original_blob TYPE bool; DEFINE TABLE original_chunk TYPE NORMAL SCHEMAFULL; DEFINE FIELD blob ON original_chunk TYPE record<original_blob>; DEFINE FIELD start ON original_chunk TYPE int; DEFINE FIELD bytes ON original_chunk TYPE bytes; DEFINE FIELD content ON original_chunk TYPE string; DEFINE INDEX position ON original_chunk FIELDS blob,start UNIQUE;"
+}
+
+/// Temporary native ingress work; included only in the target format-six installation.
+pub fn pending_original_schema_target() -> &'static str {
+    "DEFINE TABLE native_pending_original TYPE NORMAL SCHEMAFULL; DEFINE FIELD attempt ON native_pending_original TYPE record<native_attempt>; DEFINE FIELD logical_source ON native_pending_original TYPE record<original>; DEFINE INDEX pending_attempt ON native_pending_original FIELDS attempt,id; DEFINE TABLE native_pending_original_ordinal TYPE NORMAL SCHEMAFULL; DEFINE FIELD root ON native_pending_original_ordinal TYPE record<native_pending_original>; DEFINE FIELD ordinal ON native_pending_original_ordinal TYPE int; DEFINE FIELD byte_len ON native_pending_original_ordinal TYPE int; DEFINE FIELD content ON native_pending_original_ordinal TYPE string; DEFINE INDEX pending_ordinals ON native_pending_original_ordinal FIELDS root,id; DEFINE TABLE native_pending_original_piece TYPE NORMAL SCHEMAFULL; DEFINE FIELD ordinal ON native_pending_original_piece TYPE record<native_pending_original_ordinal>; DEFINE FIELD start ON native_pending_original_piece TYPE int; DEFINE FIELD bytes ON native_pending_original_piece TYPE bytes; DEFINE FIELD content ON native_pending_original_piece TYPE string; DEFINE INDEX pending_pieces ON native_pending_original_piece FIELDS ordinal,start UNIQUE; DEFINE INDEX pending_original_retirement ON native_retirement_item FIELDS object,incarnation;"
 }

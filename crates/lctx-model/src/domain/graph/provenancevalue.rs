@@ -327,10 +327,12 @@ pub enum ProvenanceValue {
     SelectionReferenceBindingCharacterization(
         crate::domain::normalized::links::ReferenceBindingCharacterization,
     ),
+    UniformNotRequested(crate::domain::uniform_outcome::UniformNotRequested),
 }
 impl Key for ProvenanceValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
+            Self::UniformNotRequested(row)=>{sink.part(b"variant",&173u16.to_le_bytes());row.content_digest().encode(sink);}
             Self::RetainedGuardSubstitution(row) => {
                 sink.part(b"variant", &143u16.to_le_bytes());
                 row.content_digest().encode(sink);
@@ -1462,6 +1464,7 @@ impl ProvenanceValue {
             Self::DistributionVerification(row) => row.validate(),
             Self::Environment(row) => row.validate(),
             Self::Coverage(row) => row.validate(),
+            Self::UniformNotRequested(row) => row.validate(),
             Self::RunFamily(row) => row.validate(),
             Self::LocalAnalysisInput(row) => row.validate(),
             Self::LocalAnalysisOutcome(row) => row.validate(),
@@ -1688,6 +1691,7 @@ impl ProvenanceValue {
             Self::DistributionVerification(row) => row.references(),
             Self::Environment(row) => row.references(),
             Self::Coverage(row) => row.references(),
+            Self::UniformNotRequested(row) => row.references(),
             Self::RunFamily(row) => row.references(),
             Self::LocalAnalysisInput(row) => row.references(),
             Self::LocalAnalysisOutcome(row) => row.references(),
@@ -1914,6 +1918,7 @@ impl ProvenanceValue {
             Self::DistributionVerification(row) => SemanticKey::of(row.id()),
             Self::Environment(row) => SemanticKey::of(row.id()),
             Self::Coverage(row) => SemanticKey::of(row.id()),
+            Self::UniformNotRequested(row) => SemanticKey::of(row.id()),
             Self::RunFamily(row) => SemanticKey::of(row.id()),
             Self::LocalAnalysisInput(row) => SemanticKey::of(row.id()),
             Self::LocalAnalysisOutcome(row) => SemanticKey::of(row.id()),

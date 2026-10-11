@@ -47,6 +47,7 @@ pub fn scope_identity<Context>(reader: &NativeReader<Context>) -> Result<Content
     ids.sort();
     ids.dedup();
     let mut key = KeySink::new("native-lexical-scope/v1;distinct-query-terms;view-family-bm25");
+    key.part(b"derivation",&reader.derivation()?.0);
     key.part(b"analyzer", &analyzer_identity().0);
     for id in ids {
         key.part(b"view", id.as_bytes());
@@ -101,7 +102,7 @@ pub fn definitions() -> String {
             ],
         ),
     ] {
-        sql.push_str(&format!("DEFINE TABLE {table} SCHEMAFULL;\n"));
+        sql.push_str(&format!("DEFINE TABLE {table} SCHEMAFULL;\nDEFINE FIELD derivation ON {table} TYPE string;\n"));
         for (name, kind) in fields {
             sql.push_str(&format!("DEFINE FIELD {name} ON {table} TYPE {kind};\n"));
         }
@@ -170,6 +171,7 @@ fn documents<Context>(reader: &NativeReader<Context>, mut nominees: crate::reade
 async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
     let reader = loader.reader();
     let scope = scope_identity(&reader)?;
+    let namespace=reader.derivation()?;
     let budget = loader.read_budget()?;
     let mut expected = (0..4)
         .map(|_| SortedRows::with_budget(&budget))
@@ -188,10 +190,10 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
    let doc=object(doc)?;let id=RecordId::from_value(doc.get("id").cloned().ok_or(ModelError::Schema("lexical document id"))?).map_err(ModelError::codec)?;
    let text=string(&doc,"text")?;let tokens=Vec::<String>::from_value(doc.get("tokens").cloned().ok_or(ModelError::Schema("lexical analyzed tokens"))?).map_err(ModelError::codec)?;
    let mut frequencies=BTreeMap::<String,u64>::new();for token in &tokens {let n=frequencies.entry(token.clone()).or_default();*n=increment(*n,1)?;}
-   let mut key=KeySink::new("native-lexical-document/v1");key.part(b"analyzer",&analyzer_identity().0);key.part(b"text",text.as_bytes());let token_id=RecordId::new("lexical_document",key.finish().hex());
-   let mut token_row=row(token_id.clone());token_row.insert("length",tokens.len());token_row.insert("terms",value(frequencies.iter().map(|(term,tf)|serde_json::json!({"term":term,"tf":tf,"dl":tokens.len()})).collect::<Vec<_>>())?);expected[0].push(Value::Object(token_row))?;
+   let mut key=KeySink::new("native-lexical-document/v1");key.part(b"analyzer",&analyzer_identity().0);key.part(b"text",text.as_bytes());let token_id=crate::derivation::address(namespace,"lexical_document",&key.finish().0);
+   let mut token_row=row(token_id.clone());token_row.insert("derivation",namespace.hex());token_row.insert("length",tokens.len());token_row.insert("terms",value(frequencies.iter().map(|(term,tf)|serde_json::json!({"term":term,"tf":tf,"dl":tokens.len()})).collect::<Vec<_>>())?);expected[0].push(Value::Object(token_row))?;
    let mut member_key=KeySink::new("native-lexical-member/v1");member_key.part(b"scope",&scope.0);member_key.part(b"family",&family.to_le_bytes());member_key.part(b"document",&serde_json::to_vec(&id).map_err(ModelError::codec)?);
-   let mut member=row(RecordId::new("lexical_member",member_key.finish().hex()));member.insert("scope",scope.hex());member.insert("family",family);member.insert("source",id.clone());member.insert("in",token_id);member.insert("out",corpus_id(scope,family));expected[1].push(Value::Object(member))?;
+   let mut member=row(crate::derivation::address(namespace,"lexical_member",&member_key.finish().0));member.insert("derivation",namespace.hex());member.insert("scope",scope.hex());member.insert("family",family);member.insert("source",id.clone());member.insert("in",token_id);member.insert("out",corpus_id(scope,family));expected[1].push(Value::Object(member))?;
    for term in frequencies.keys(){let mut occurrence=row(RecordId::new("lexical_sort",format!("{}:{}",hex::encode(term.as_bytes()),hex::encode(serde_json::to_vec(&id).map_err(ModelError::codec)?))));occurrence.insert("term",term.clone());terms.push(Value::Object(occurrence))?;}
    count=increment(count,1)?;total=increment(total,tokens.len() as u64)?;drop(charge);
   }
@@ -209,16 +211,17 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
         while let Some(term) = ordered.next_row()? {
             let term = string(&object(term)?, "term")?;
             if current.as_ref().is_some_and(|old| old != &term) {
-                emit_term(&mut expected[2], scope, family, current.take().unwrap(), df)?;
+                emit_term(&mut expected[2], namespace, scope, family, current.take().unwrap(), df)?;
                 df = 0;
             }
             current = Some(term);
             df = increment(df, 1)?;
         }
         if let Some(term) = current {
-            emit_term(&mut expected[2], scope, family, term, df)?;
+            emit_term(&mut expected[2], namespace, scope, family, term, df)?;
         }
         let mut corpus = row(corpus_id(scope, family));
+        corpus.insert("derivation",namespace.hex());
         corpus.insert("scope", scope.hex());
         corpus.insert("family", family);
         corpus.insert("documents", value(count)?);
@@ -236,6 +239,7 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
 }
 fn emit_term(
     rows: &mut SortedRows,
+    namespace:ContentHash,
     scope: ContentHash,
     family: i16,
     term: String,
@@ -245,7 +249,8 @@ fn emit_term(
     key.part(b"scope", &scope.0);
     key.part(b"family", &family.to_le_bytes());
     key.part(b"term", term.as_bytes());
-    let mut row = row(RecordId::new("lexical_term", key.finish().hex()));
+    let mut row = row(crate::derivation::address(namespace,"lexical_term",&key.finish().0));
+    row.insert("derivation",namespace.hex());
     row.insert("scope", scope.hex());
     row.insert("family", family);
     row.insert("term", term);
@@ -332,8 +337,18 @@ pub async fn materialize(loader: &Loader) -> Result<(), ModelError> {
 }
 /// Independent native analysis and actual-content comparison, with no writes or marker shortcuts.
 pub async fn reconcile(loader: &Loader) -> Result<(), ModelError> {
-    let mut expected = prepare(loader).await?;
-    check(loader, &mut expected).await
+    reconcile_owned(loader,None).await
+}
+pub(crate) async fn reconcile_owned(loader:&Loader,inventory:Option<&mut SortedRows>)->Result<(),ModelError>{
+    let mut expected=prepare(loader).await?;
+    check(loader,&mut expected).await?;
+    if let Some(inventory)=inventory{
+        for rows in &mut expected.rows{
+            rows.rewind()?;
+            while let Some(row)=rows.next_row()?{crate::control::staging::remember_expected_child(inventory,&row)?;}
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

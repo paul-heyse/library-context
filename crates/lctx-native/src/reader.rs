@@ -34,6 +34,7 @@ pub enum RecordSelection {
 pub struct NativeReader<Context = SnapshotHandle> {
     client: Arc<Surreal<Client>>,
     handle: Context,
+    derivation: Option<lctx_model::domain::ContentHash>,
     scope: Option<Arc<ReaderScope>>,
     cancellation: Option<Arc<std::sync::atomic::AtomicBool>>,
     budget: Option<lctx_model::domain::resources::ResourceBudget>,
@@ -72,13 +73,20 @@ impl Drop for ReadFinalizationGuard {
         }
     }
 }
+struct ExactViewSelection {
+    references: Vec<crate::completed_state::InstalledViewRef>,
+    _charge: Box<dyn lctx_model::domain::resources::Reservation>,
+}
 struct ReaderScope {
+    publication:Option<SnapshotHandle>,
+    exact: Option<Arc<ExactViewSelection>>,
     originals: Option<Vec<lctx_model::domain::graph::Original>>,
     views: Vec<lctx_model::domain::ContentHash>,
     _pin: Option<Arc<crate::control::ReaderPin>>,
     selection: std::sync::Mutex<
         Option<(
             lctx_model::domain::resources::ResourceBudget,
+            Option<lctx_model::domain::ContentHash>,
             futures::future::Shared<
                 futures::future::BoxFuture<
                     'static,
@@ -106,6 +114,7 @@ impl<Context> NativeReader<Context> {
         NativeReader {
             client: self.client.clone(),
             handle: (),
+            derivation: self.derivation,
             scope: self.scope.clone(),
             cancellation: self.cancellation.clone(),
             budget: self.budget.clone(),
@@ -155,6 +164,14 @@ impl<Context> NativeReader<Context> {
     }
     pub fn read_cancellation(&self) -> Option<Arc<std::sync::atomic::AtomicBool>> {
         self.cancellation.clone()
+    }
+    pub(crate) fn ensure_scope_live(&self)->Result<(),ModelError>{
+        self.check_read_admission()?;
+        if let Some(pin)=self.scope.as_ref().and_then(|scope|scope._pin.as_ref()){pin.ensure_live()?;}
+        Ok(())
+    }
+    pub(crate) fn attach_scope(&self,mut rows:NativeRows)->Result<NativeRows,ModelError>{
+        self.ensure_scope_live()?;rows.scope=self.scope.clone();Ok(rows)
     }
     pub fn check_read_admission(&self) -> Result<(), ModelError> {
         crate::prepared::check_read_cancellation(self.cancellation.as_ref())
@@ -206,8 +223,12 @@ impl<Context> NativeReader<Context> {
         }
         Ok(())
     }
+    pub fn with_derivation(mut self, namespace:lctx_model::domain::ContentHash)->Self{self.derivation=Some(namespace);self}
+    pub fn derivation_namespace(&self)->Option<lctx_model::domain::ContentHash>{self.derivation}
+    pub fn derivation(&self)->Result<lctx_model::domain::ContentHash,ModelError>{self.derivation.ok_or(ModelError::Conflict("derived read requires exact realization"))}
     pub fn view_bindings(&self) -> Variables {
         let mut bindings = Variables::new();
+        bindings.insert("lctx_derivation",self.derivation.map(|value|Value::String(value.hex())).unwrap_or(Value::None));
         if let Some(scope) = &self.scope {
             bindings.insert(
                 "lctx_views",
@@ -233,6 +254,8 @@ impl<Context> NativeReader<Context> {
         Result<Option<crate::selection::SelectedPayloads>, ModelError>,
     > {
         let scope = self.scope.clone();
+        let return_owner=self.transport_reader();
+        let derivation=self.derivation;
         let client = self.client.clone();
         let cancellation = self.cancellation.clone();
         let budget = self.budget.clone();
@@ -248,9 +271,9 @@ impl<Context> NativeReader<Context> {
                     .selection
                     .lock()
                     .map_err(|_| ModelError::Conflict("reader selection owner"))?;
-                if let Some((owner, pending)) = selection.as_ref() {
-                    if !owner.shares_pool(&budget) {
-                        return Err(ModelError::Conflict("foreign native selection budget"));
+                if let Some((owner, namespace, pending)) = selection.as_ref() {
+                    if !owner.shares_pool(&budget) || *namespace != derivation {
+                        return Err(ModelError::Conflict("foreign native selection budget or derivation"));
                     }
                     pending.clone()
                 } else {
@@ -262,13 +285,22 @@ impl<Context> NativeReader<Context> {
                             scope: retained_scope,
                             confirmed: false,
                         };
-                        let result = crate::selection::SelectedPayloads::for_cancellable_views(
-                            client,
-                            &lease.scope.views,
-                            preparation_cancellation,
-                            &retained_budget,
-                        )
-                        .await;
+                        let result = if let Some(exact)=&lease.scope.exact {
+                            crate::selection::SelectedPayloads::for_realizations(client,&exact.references,
+                                preparation_cancellation,&retained_budget).await
+                        } else if let Some(handle)=lease.scope.publication.clone() {
+                            let published=NativeReader{client:client.clone(),handle,derivation,cancellation:preparation_cancellation.clone(),budget:Some(retained_budget.clone()),request_budget:Some(retained_budget.clone()),scope:Some(lease.scope.clone())};
+                            let prepared=async {
+                                let completed=crate::completed_state::published_completed_state(&published,&retained_budget).await?;
+                                crate::selection::SelectedPayloads::for_published_session(client,&completed,&lease.scope.views,preparation_cancellation,&retained_budget).await
+                            }.await;
+                            // Neither the temporary capability nor this reader clone is
+                            // retained by the mechanical cached result.
+                            drop(published);prepared
+                        } else {
+                            crate::selection::SelectedPayloads::for_cancellable_views(client,&lease.scope.views,
+                                preparation_cancellation,&retained_budget).await
+                        }.map(|selected|if let Some(namespace)=derivation{selected.with_derivation(namespace)}else{selected});
                         lease.confirmed = result
                             .as_ref()
                             .err()
@@ -283,13 +315,13 @@ impl<Context> NativeReader<Context> {
                     }
                     .boxed()
                     .shared();
-                    *selection = Some((budget, pending.clone()));
+                    *selection = Some((budget, derivation, pending.clone()));
                     pending
                 }
             };
             pending
                 .await
-                .map(|selected| Some(selected.with_read_cancellation(cancellation)))
+                .map(|selected| Some(selected.with_reader_owner(return_owner).with_read_cancellation(cancellation)))
                 .map_err(ModelError::SharedCause)
         }
         .boxed()
@@ -366,15 +398,18 @@ impl<Context> NativeReader<Context> {
         let scope = self.scope.as_ref().ok_or(ModelError::Conflict(
             "candidate read requires exact selected scope",
         ))?;
-        let mut rows = crate::selection::SelectedPayloads::sparse_candidate_rows(
-            self.client.clone(),
-            scope.views.clone(),
-            self.cancellation.clone(),
-            candidates,
-            table,
-            order,
-            &budget,
-        )?;
+        let mut rows = if scope.exact.is_some() {
+            let preparation=self.selection_preparation();let table=table.to_owned();let order=order.to_owned();
+            NativeRows::owned(move|sender|async move {
+                let selected=preparation.await?.ok_or(ModelError::Conflict("candidate exact selection missing"))?;
+                let mut rows=selected.candidate_rows(candidates,&table,&order,&budget)?;
+                let result=async {while let Some(row)=rows.next().await? {if sender.send(row).await.is_err(){rows.cancel_delivery();break;}}Ok(())}.await;
+                let mut terminal=lctx_model::domain::completion::Completion::default();terminal.step("exact candidate payload drainage",rows.drain_transport().await);
+                lctx_model::domain::completion::complete(result,terminal)
+            })?
+        } else {
+            crate::selection::SelectedPayloads::sparse_candidate_rows(self.client.clone(),scope.views.clone(),self.cancellation.clone(),candidates,table,order,&budget)?
+        };
         rows.scope = Some(scope.clone());
         rows.client = Some(self.client.clone());
         Ok(rows)
@@ -399,6 +434,7 @@ impl<Context> NativeReader<Context> {
         )?;
         let requested = requested.to_vec();
         let budget = budget.clone();
+        let selection=self.selection_preparation();
         let client = self.client.clone();
         let cancelled = self.cancellation.clone();
         // Caller cancellation detaches delivery, not the admitted physical operation.
@@ -409,14 +445,15 @@ impl<Context> NativeReader<Context> {
                 scope,
                 confirmed: false,
             };
-            let result = crate::selection::SelectedPayloads::view_membership(
-                client,
-                &lease.scope.views,
-                cancelled,
-                &requested,
-                &budget,
-            )
-            .await;
+            let result=if lease.scope.exact.is_some() {
+                match selection.await {
+                    Ok(Some(selected))=>selected.membership_answers(&requested,&budget).await,
+                    Ok(None)=>Err(ModelError::Conflict("exact membership selection missing")),
+                    Err(error)=>Err(error),
+                }
+            } else {
+                crate::selection::SelectedPayloads::view_membership(client,&lease.scope.views,cancelled,&requested,&budget).await
+            };
             lease.confirmed = result
                 .as_ref()
                 .err()
@@ -470,7 +507,7 @@ impl<Context> NativeReader<Context> {
                 .lock()
                 .map_err(|_| ModelError::Conflict("reader selection owner"))?
                 .take();
-            if let Some((_, pending)) = pending {
+            if let Some((_, _, pending)) = pending {
                 pending.await.map_err(ModelError::SharedCause)?;
             }
         }
@@ -507,14 +544,18 @@ impl<Context> NativeReader<Context> {
         if limit == 0 || scope.views.is_empty() {
             return Ok(self.retain_rows(NativeRows::owned(|_| async { Ok(()) })?));
         }
-        let mut input = crate::selection::SelectedPayloads::sparse_relation_rows(
-            self.client.clone(),
-            scope.views.clone(),
-            self.cancellation.clone(),
-            relation,
-            table,
-            &budget,
-        )?;
+        let mut input=if scope.exact.is_some() {
+            let preparation=self.selection_preparation();let relation=relation.to_owned();let table=table.to_owned();let budget=budget.clone();
+            NativeRows::owned(move|sender|async move {
+                let selected=preparation.await?.ok_or(ModelError::Conflict("exact relation selection missing"))?;
+                let mut rows=selected.relation_candidates(&relation,&table,&budget)?;
+                let result=async {while let Some(row)=rows.next().await? {if sender.send(row).await.is_err(){rows.cancel_delivery();break;}}Ok(())}.await;
+                let mut terminal=lctx_model::domain::completion::Completion::default();terminal.step("exact relation nomination drainage",rows.drain_transport().await);
+                lctx_model::domain::completion::complete(result,terminal)
+            })?
+        } else {
+            crate::selection::SelectedPayloads::sparse_relation_rows(self.client.clone(),scope.views.clone(),self.cancellation.clone(),relation,table,&budget)?
+        };
         let mut rows = NativeRows::owned(move |sender| async move {
             let result = async {
                 let mut emitted = 0usize;
@@ -720,6 +761,8 @@ impl<Context> NativeReader<Context> {
                 }
             }
             RecordSelection::Connected { targets, fields } => {
+                let derivation=self.derivation()?;
+                bindings.insert("lctx_derivation",derivation.hex());
                 connected = true;
                 if targets.is_empty() {
                     return Ok(vec![]);
@@ -729,7 +772,7 @@ impl<Context> NativeReader<Context> {
                     targets.into_iter().map(target_id).collect::<Vec<_>>(),
                 );
                 bindings.insert("fields", fields);
-                "array::len((SELECT VALUE id FROM participant WITH INDEX outgoing WHERE in=$parent.id AND out IN $targets AND (array::len($fields)=0 OR field IN $fields) LIMIT 1))>0 OR array::len((SELECT VALUE id FROM reference WITH INDEX outgoing WHERE in=$parent.id AND out IN $targets AND (array::len($fields)=0 OR field IN $fields) LIMIT 1))>0".into()
+                "array::len((SELECT VALUE id FROM participant WITH INDEX outgoing WHERE derivation=$lctx_derivation AND in=$parent.id AND out IN $targets AND (array::len($fields)=0 OR field IN $fields) LIMIT 1))>0 OR array::len((SELECT VALUE id FROM reference WITH INDEX outgoing WHERE derivation=$lctx_derivation AND in=$parent.id AND out IN $targets AND (array::len($fields)=0 OR field IN $fields) LIMIT 1))>0".into()
             }
         };
         let table = crate::schema::ScopeTable::for_relation(R::NAME)?.name();
@@ -737,7 +780,7 @@ impl<Context> NativeReader<Context> {
             self.record_stream_prepared::<R>(&predicate, bindings, preparation, "semantic_key")?
         } else {
             let statements = if connected {
-                ["participant", "reference"].map(|role| format!("SELECT in AS id FROM {role} WITH INDEX incoming WHERE out IN $targets AND (array::len($fields)=0 OR field IN $fields) AND in.semantic_type=$type")).to_vec()
+                ["participant", "reference"].map(|role| format!("SELECT in AS id FROM {role} WITH INDEX incoming WHERE derivation=$lctx_derivation AND out IN $targets AND (array::len($fields)=0 OR field IN $fields) AND in.semantic_type=$type")).to_vec()
             } else {
                 vec![format!(
                     "SELECT id FROM {table}{index} WHERE semantic_type=$type AND ({predicate})"
@@ -873,6 +916,83 @@ pub fn candidate_records_sql() -> &'static str {
     "SELECT id,semantic_type,semantic_key,canonical FROM $nodes ORDER BY semantic_key"
 }
 
+/// Charged persisted marker proof retained while native completion/admission is checked.
+/// Neither a handle nor a namespace setter can manufacture the protected pin.
+pub(crate) struct ProtectedPublicationMarker {
+    row: surrealdb::types::Object,
+    _charge: Box<dyn lctx_model::domain::resources::Reservation>,
+}
+impl ProtectedPublicationMarker {
+    pub(crate) fn row(&self)->&surrealdb::types::Object{&self.row}
+}
+impl NativeReader<SnapshotHandle> {
+    pub(crate) async fn protected_publication_marker(&self,budget:&lctx_model::domain::resources::ResourceBudget)
+        ->Result<ProtectedPublicationMarker,ModelError>{
+        let pin=self.scope.as_ref().and_then(|scope|scope._pin.as_ref())
+            .ok_or(ModelError::Conflict("published completion requires retained reader pin"))?;
+        pin.ensure_live()?;
+        self.check_read_admission()?;
+        if self.derivation_namespace()!=Some(self.handle.realization){return Err(ModelError::Conflict("published reader derivation changed"));}
+        let mut charge=budget.reserve("protected publication marker",lctx_model::domain::resources::MAX_ROW_BYTES)?;
+        let reader=self.transport_reader().with_budget(budget);
+        let publication=RecordId::new("publication",self.handle.publication.hex());
+        let mut variables=Variables::new();variables.insert("publication",publication.clone());
+        let rows:Vec<surrealdb::types::Object>=reader.query_native("SELECT * FROM $publication",variables.clone()).await?;
+        let [row]=rows.as_slice()else{return Err(ModelError::Conflict("protected publication marker cardinality"));};
+        if row.get("handle")!=Some(&Value::String(hex::encode(serde_json::to_vec(&self.handle).map_err(ModelError::codec)?)))
+            || row.get("definition_epoch")!=Some(&Value::String(self.handle.definition_epoch.hex()))
+            || row.get("derivation")!=Some(&Value::String(self.handle.realization.hex())) {
+            return Err(ModelError::Conflict("protected publication marker scope"));
+        }
+        let record=|field:&str,table:&str|->Result<RecordId,ModelError>{match row.get(field){
+            Some(Value::RecordId(id)) if id.table.as_str()==table=>Ok(id.clone()),
+            _=>Err(ModelError::Schema("protected publication physical pointer")),
+        }};
+        let integer=|field:&str|->Result<i64,ModelError>{match row.get(field){
+            Some(Value::Number(surrealdb::types::Number::Int(value))) if *value>0=>Ok(*value),
+            _=>Err(ModelError::Schema("protected publication physical incarnation/epoch")),
+        }};
+        let root_id=record("staging_root","native_publication_staging")?;
+        let completion_id=record("completion","native_completed_state")?;
+        let admission_id=record("admission","native_completed_admission")?;
+        let validity=integer("validity_epoch")?;
+        let root=crate::control::inspect_expected_read(&reader,root_id.clone(),budget).await?
+            .ok_or(ModelError::Conflict("protected publication staging root missing"))?;
+        let Value::Object(root_row)=root.row()else{return Err(ModelError::Schema("protected publication staging root"));};
+        if root.incarnation()!=integer("staging_incarnation")?
+            || root_row.get("state")!=Some(&Value::String("published".into()))
+            || root_row.get("completion")!=Some(&Value::RecordId(completion_id.clone()))
+            || root_row.get("admission")!=Some(&Value::RecordId(admission_id.clone()))
+            || root_row.get("derivation")!=Some(&Value::String(self.handle.realization.hex()))
+            || root_row.get("generation")!=Some(&Value::String(self.handle.service_generation.hex()))
+            || root_row.get("validity_epoch")!=Some(&Value::from(validity)) {
+            return Err(ModelError::Conflict("protected publication root changed"));
+        }
+        if !matches!(root_row.get("derived_children"),Some(Value::Number(surrealdb::types::Number::Int(count))) if *count>=2)
+            || !matches!(root_row.get("derived_inventory"),Some(Value::String(digest)) if hex::decode(digest).is_ok_and(|bytes|bytes.len()==32)) {
+            return Err(ModelError::Conflict("publication derived closure witness missing"));
+        }
+        for (id,field) in [(completion_id.clone(),"completion_incarnation"),(admission_id.clone(),"admission_incarnation")] {
+            let expected=crate::control::inspect_expected_read(&reader,id,budget).await?
+                .ok_or(ModelError::Conflict("protected publication witness missing"))?;
+            if expected.incarnation()!=integer(field)?{return Err(ModelError::Conflict("protected publication witness incarnation changed"));}
+        }
+        variables.insert("root",root_id);variables.insert("completion",completion_id);variables.insert("admission",admission_id);
+        variables.insert("pin",RecordId::new("native_pin",pin.identity.hex()));
+        variables.insert("generation",self.handle.service_generation.hex());variables.insert("validity_epoch",validity);
+        let valid:bool=reader.query_native("RETURN (SELECT VALUE released FROM ONLY $pin)=false AND (SELECT VALUE generation FROM ONLY $pin)=$generation AND array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$pin AND object=$publication LIMIT 2)=1 AND (SELECT VALUE generation FROM ONLY native_installation:current)=$generation AND (SELECT VALUE validity_epoch FROM ONLY native_installation:current)=$validity_epoch AND array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$publication AND object=$root LIMIT 2)=1 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$root AND object=$completion LIMIT 2)=1 AND array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$root AND object=$admission LIMIT 2)=1",variables.clone()).await?;
+        if !valid{return Err(ModelError::Conflict("protected publication reachability or validity changed"));}
+        let repeated:Vec<surrealdb::types::Object>=reader.query_native("SELECT * FROM $publication",variables).await?;
+        if repeated!=rows{return Err(ModelError::Conflict("protected publication marker changed during proof"));}
+        self.check_read_admission()?;
+        // Keep the original pin borrowed for the whole proof. The resulting checked
+        // completion capability additionally retains a transport-reader scope clone.
+        pin.ensure_live()?;
+        charge.try_resize(crate::loader::native_bytes(&Value::Object(row.clone())).saturating_mul(32).saturating_add(65536))?;
+        Ok(ProtectedPublicationMarker{row:rows.into_iter().next().unwrap(),_charge:charge})
+    }
+}
+
 impl NativeReader<SnapshotHandle> {
     pub async fn open(
         client: Arc<Surreal<Client>>,
@@ -885,8 +1005,8 @@ impl NativeReader<SnapshotHandle> {
             RecordId::new("publication", handle.publication.hex()),
         );
         let mut response = client
-            .query("SELECT handle,views,manifest,definition_epoch FROM $publication")
-            .bind(bindings)
+            .query("SELECT * FROM $publication")
+            .bind(bindings.clone())
             .await
             .map_err(sdk_error)?
             .check()
@@ -942,13 +1062,28 @@ impl NativeReader<SnapshotHandle> {
             completion.step("failed reader setup pin release", pin.release().await);
             return lctx_model::domain::completion::complete(Err(error), completion);
         }
+        let protected=async {
+            let mut response=client.query("SELECT * FROM $publication").bind(bindings).await.map_err(sdk_error)?.check().map_err(sdk_error)?;
+            let current:Vec<surrealdb::types::Object>=response.take(0).map_err(sdk_error)?;
+            if current!=rows{return Err(ModelError::Conflict("publication changed before reader protection"));}
+            Ok(())
+        }.await;
+        if let Err(error)=protected {
+            if !error.permits_storage_cleanup(){pin.retain_unknown();}
+            let mut completion=lctx_model::domain::completion::Completion::default();
+            completion.step("changed publication reader pin release",pin.release().await);
+            return lctx_model::domain::completion::complete(Err(error),completion);
+        }
+        let publication_scope=handle.clone();
         Ok(Self {
             client,
+            derivation: Some(handle.realization),
             handle,
             cancellation: None,
             budget: None,
             request_budget: None,
             scope: Some(Arc::new(ReaderScope {
+                publication:Some(publication_scope),                exact: None,
                 originals: Some(manifest.originals),
                 views,
                 _pin: Some(pin),
@@ -984,6 +1119,67 @@ impl NativeReader<SnapshotHandle> {
     }
 }
 impl NativeReader<()> {
+    /// Earn an exact physical view scope under a temporary pin. Every requested logical
+    /// view is resolved through this completed state's inventory, never global discovery.
+    pub async fn for_completed_views(
+        client:Arc<Surreal<Client>>,completed:&crate::completed_state::HeldFrozenCompletedState,
+        views:&[lctx_model::domain::ContentHash],budget:&lctx_model::domain::resources::ResourceBudget,
+    )->Result<Self,ModelError>{
+        if views.windows(2).any(|pair|pair[0]>=pair[1]) {
+            return Err(ModelError::Conflict("completed reader requested view order/duplicate"));
+        }
+        let data=completed.completion();let identity=data.identity()?;
+        let pin=crate::control::ReaderPin::acquire(client.clone(),views).await?;
+        let reader=Self::private(client.clone()).with_budget(budget);
+        let result=async {
+            pin.protect(data.record()?).await?;pin.protect(completed.admission_record().clone()).await?;
+            let actual=crate::control::inspect_expected_read(&reader,data.record()?,budget).await?
+                .ok_or(ModelError::Conflict("completed reader protected completion missing"))?;
+            if actual.incarnation()!=completed.incarnation() || actual.row()!=&data.value(true)? {
+                return Err(ModelError::Conflict("completed reader completion ABA/bytes"));
+            }
+            let admission=crate::control::inspect_expected_read(&reader,completed.admission_record().clone(),budget).await?
+                .ok_or(ModelError::Conflict("completed reader protected admission missing"))?;
+            if admission.incarnation()!=completed.admission_incarnation() {
+                return Err(ModelError::Conflict("completed reader admission ABA"));
+            }
+            let mut charge=budget.reserve("completed reader exact view references",views.len()
+                .saturating_mul(std::mem::size_of::<crate::completed_state::InstalledViewRef>()
+                    +std::mem::size_of::<lctx_model::domain::ContentHash>()).saturating_add(1024))?;
+            let mut references=Vec::with_capacity(views.len());
+            for view in views {
+                let _page=budget.reserve("completed reader inventory row",lctx_model::domain::resources::MAX_ROW_BYTES)?;
+                let mut variables=Variables::new();variables.insert("completion",data.record()?);variables.insert("view",view.hex());
+                let rows:Vec<Value>=reader.query_native("SELECT * FROM native_completed_view WITH INDEX completion_view WHERE completion=$completion AND logical_view=$view LIMIT 2",variables).await?;
+                let [row]=rows.as_slice() else{return Err(ModelError::Conflict("completed reader exact inventory membership"));};
+                let reference=crate::completed_state::InstalledViewRef::from_row(row,identity)?;
+                if reference.logical_view!=*view{return Err(ModelError::Conflict("completed reader foreign view"));}
+                crate::completed_state::require_hold(&reader,&data.record()?,&reference.record(identity)).await?;
+                crate::completed_state::verify_installed_ref(&reader,data,&reference,budget).await?;
+                references.push(reference);
+            }
+            let mut variables=Variables::new();variables.insert("generation",data.generation.hex());variables.insert("validity_epoch",data.validity_epoch);
+            let current:Vec<Value>=reader.query_native("SELECT VALUE id FROM native_installation:current WHERE generation=$generation AND validity_epoch=$validity_epoch",variables).await?;
+            if current.len()!=1{return Err(ModelError::Conflict("completed reader validity epoch changed"));}
+            charge.try_resize(references.capacity().saturating_mul(std::mem::size_of::<crate::completed_state::InstalledViewRef>())
+                .saturating_add(views.len().saturating_mul(std::mem::size_of::<lctx_model::domain::ContentHash>())).saturating_add(1024))?;
+            Ok(Arc::new(ExactViewSelection{references,_charge:charge}))
+        }.await;
+        let mut completion=lctx_model::domain::completion::Completion::default();
+        completion.step("completed reader setup private reader close",reader.close().await);
+        let result=lctx_model::domain::completion::complete(result,completion);
+        let exact=match result {
+            Ok(exact)=>exact,
+            Err(error)=>{
+                if !error.permits_storage_cleanup(){pin.retain_unknown();}
+                let mut completion=lctx_model::domain::completion::Completion::default();
+                completion.step("completed reader failed setup pin release",pin.release().await);
+                return lctx_model::domain::completion::complete(Err(error),completion);
+            }
+        };
+        Ok(Self{client,handle:(),derivation:None,cancellation:None,budget:Some(budget.clone()),request_budget:Some(budget.clone()),
+            scope:Some(Arc::new(ReaderScope{publication:None,originals:None,views:views.to_vec(),exact:Some(exact),_pin:Some(pin),selection:std::sync::Mutex::new(None)}))})
+    }
     pub fn for_views(
         client: Arc<Surreal<Client>>,
         views: Vec<lctx_model::domain::ContentHash>,
@@ -991,10 +1187,12 @@ impl NativeReader<()> {
         Self {
             client,
             handle: (),
+            derivation: None,
             cancellation: None,
             budget: None,
             request_budget: None,
             scope: Some(Arc::new(ReaderScope {
+                publication:None,                exact: None,
                 originals: None,
                 views,
                 _pin: None,
@@ -1009,6 +1207,7 @@ impl NativeReader<()> {
         Self {
             client,
             handle: (),
+            derivation: None,
             cancellation: None,
             budget: None,
             request_budget: None,
@@ -1326,23 +1525,29 @@ impl NativeRows {
 
 impl Drop for NativeRows {
     fn drop(&mut self) {
-        let Some(scope) = self.scope.take() else {
+        let scope = self.scope.take();
+        // Private factory readers and owned preparation drivers have no publication
+        // scope, but still own accepted transport and a terminal report. Scope absence
+        // must not turn receiver cancellation into abandonment of that report.
+        if scope.is_none() && self.client.is_none() && self.transaction.is_none()
+            && self.owned_result.is_none() {
             return;
-        };
-        if self.exhausted && self.ended == self.statements && self.owned_result.is_none() {
-            if self
+        }
+        if self.exhausted && self.owned_result.is_none() {
+            if self.ended != self.statements || self
                 .failure
                 .as_ref()
                 .is_some_and(|error| !error.permits_storage_cleanup())
+                || self.drain_errors.iter().any(|error|!error.permits_storage_cleanup())
             {
-                if let Some(pin) = &scope._pin {
+                if let Some(pin) = scope.as_ref().and_then(|scope|scope._pin.as_ref()) {
                     pin.retain_unknown();
                 }
             }
             return;
         }
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-            if let Some(pin) = &scope._pin {
+            if let Some(pin) = scope.as_ref().and_then(|scope|scope._pin.as_ref()) {
                 pin.retain_unknown();
             }
             return;
@@ -1352,7 +1557,7 @@ impl Drop for NativeRows {
             stream: std::mem::replace(&mut self.stream, futures::stream::empty().boxed()),
             client: self.client.take(),
             transaction: self.transaction.take(),
-            scope: Some(scope),
+            scope,
             statements: self.statements,
             ended: self.ended,
             exhausted: self.exhausted,
@@ -1833,6 +2038,27 @@ mod streaming_tests {
             ))
         ));
         assert!(records.next().await.is_err());
+    }
+    #[tokio::test]
+    async fn private_stream_drop_keeps_client_through_outer_terminal_drain() {
+        let client:Arc<Surreal<Client>>=Arc::new(Surreal::init());
+        let weak=Arc::downgrade(&client);
+        let observed=Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let complete=Arc::new(tokio::sync::Notify::new());
+        let receipt=complete.clone();let retained=observed.clone();
+        let stream=futures::stream::unfold(0,move |step| {
+            let weak=weak.clone();let receipt=receipt.clone();let retained=retained.clone();
+            async move {
+                if step==0 {Some((Ok(end(Ok(()))),1))} else {
+                    retained.store(weak.upgrade().is_some(),std::sync::atomic::Ordering::Release);
+                    receipt.notify_one();None
+                }
+            }
+        });
+        let rows=NativeRows::new(stream,1).unwrap().with_client(client);
+        drop(rows);
+        tokio::time::timeout(std::time::Duration::from_secs(5),complete.notified()).await.unwrap();
+        assert!(observed.load(std::sync::atomic::Ordering::Acquire),"private scope absence cannot release the native session before outer EOF");
     }
     #[tokio::test]
     async fn stream_rows_are_provisional_until_statement_and_outer_completion() {

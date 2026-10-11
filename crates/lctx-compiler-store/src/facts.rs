@@ -57,7 +57,7 @@ pub fn recorded_coverage(
     let contracts = lctx_model::domain::producer_contract::facts::facts();
     let refuse = |message: &str| ModelError::Invalid(format!("recorded facts coverage: {message}"));
     let input_ids = inputs.iter().map(Record::id).collect::<BTreeSet<_>>();
-    let mut bindings = BTreeMap::new();
+    let mut bindings: BTreeMap<&str, &lctx_model::domain::producer_contract::CapturedProducerBinding> = BTreeMap::new();
     let mut source_bindings = None;
     let mut reporting = BTreeMap::new();
     let mut suppliers = BTreeMap::new();
@@ -85,6 +85,8 @@ pub fn recorded_coverage(
             .as_ref()
             .ok_or_else(|| refuse("facts producer has no captured semantic binding"))?;
         contract.validate_binding(binding, owner.spec.configuration, recorded)?;
+        contract.validate_context_dependency(binding,owner.spec.profile)?;
+        owner.spec.validate_profile(profile)?;
         let inventory = contract
             .outputs
             .iter()
@@ -92,7 +94,6 @@ pub fn recorded_coverage(
             .map(|relation| relation.name().to_owned())
             .collect::<BTreeSet<_>>();
         if owner.spec.model != model.digest()
-            || owner.spec.profile != profile
             || owner.spec.outputs != inventory
         {
             return Err(refuse(
@@ -103,15 +104,14 @@ pub fn recorded_coverage(
             .inputs
             .iter()
             .map(|input| input.name())
-            .collect::<BTreeSet<_>>();
+            .collect::<Vec<_>>();
         let actual_inputs = owner
             .spec
             .inputs
             .iter()
             .map(|input| input.relation())
-            .collect::<BTreeSet<_>>();
+            .collect::<Vec<_>>();
         if actual_inputs != declared_inputs
-            || actual_inputs.len() != owner.spec.inputs.len()
             || owner.spec.inputs.iter().any(|input| {
                 input.model() != model.digest()
                     || bound_sources
@@ -133,23 +133,26 @@ pub fn recorded_coverage(
             return Err(refuse("producer changes its captured source universe"));
         }
         for source in &binding.sources {
+            if source.context.is_none(){continue;}
             let mut matched = contexts
                 .iter()
-                .filter(|context| context.id() == source.context);
+                .filter(|context| Some(context.id()) == source.context);
             let context = matched
                 .next()
                 .ok_or_else(|| refuse("captured source context is absent"))?;
-            if matched.next().is_some() || context.config_digest != source.configuration {
+            if matched.next().is_some() || Some(context.config_digest) != source.configuration {
                 return Err(refuse("captured source context configuration differs"));
             }
         }
-        if source_bindings
-            .as_ref()
-            .is_some_and(|sources| *sources != &binding.sources)
-        {
-            return Err(refuse("producer captured source/context bindings disagree"));
+        // Every producer binds the same ordered acquisition inventory. Acquisition's value
+        // descriptor has no analyzer context; current attribution belongs to exact Assembly.
+        if let Some(prior)=bindings.values().next() {
+            let prior:&lctx_model::domain::producer_contract::CapturedProducerBinding=prior;
+            if prior.sources.len()!=binding.sources.len() || prior.sources.iter().zip(&binding.sources).any(|(left,right)|left.input!=right.input || left.acquisition!=right.acquisition){return Err(refuse("producer captured acquisition order or metadata disagree"));}
         }
-        source_bindings = Some(&binding.sources);
+        if contract.name==lctx_model::domain::producer_contract::facts::ASSEMBLE {
+            source_bindings=Some(&binding.sources);
+        }
         bindings.insert(contract.name, binding);
         for role in &contract.suppliers {
             let provider = binding.suppliers[role.name];
@@ -173,6 +176,12 @@ pub fn recorded_coverage(
                     return Err(refuse("ambiguous family reporting owner"));
                 }
             }
+        }
+    }
+    let current_sources=source_bindings.ok_or_else(||refuse("missing current Assembly semantic context binding"))?;
+    for binding in bindings.values(){
+        if !matches!(binding.context_dependency,lctx_model::domain::producer_contract::CapturedContextDependency::AcquisitionOnly) && binding.sources!=*current_sources {
+            return Err(refuse("producer captured semantic contexts disagree with current Assembly"));
         }
     }
     // The selected binding inventories, never coverage rows or current builds, define suppliers.
@@ -207,13 +216,12 @@ pub fn recorded_coverage(
         let (_, role, binding) = suppliers
             .get(&run.provider)
             .ok_or_else(|| refuse("invocation has no declared captured supplier"))?;
-        let source = binding
-            .sources
+        let source = if matches!(role.configuration,ConfigurationBinding::CurrentAssemblyContext){current_sources}else{&binding.sources}
             .iter()
             .find(|source| source.input == run.input)
             .ok_or_else(|| refuse("invocation source is outside capture"))?;
         let configuration = match role.configuration {
-            ConfigurationBinding::CapturedAnalysisContext => source.configuration,
+            ConfigurationBinding::CapturedAnalysisContext|ConfigurationBinding::CurrentAssemblyContext => source.configuration.ok_or_else(||refuse("supplier has no exact context configuration"))?,
             ConfigurationBinding::ProducerSettings => binding.producer_settings,
             ConfigurationBinding::Fixed(value) => value,
         };
@@ -222,7 +230,7 @@ pub fn recorded_coverage(
             .filter(|member| member.run == run.id())
             .map(|member| member.family)
             .collect::<BTreeSet<_>>();
-        if run.context != source.context
+        if Some(run.context) != source.context
             || run.configuration != configuration
             || requested != role.families.iter().copied().collect()
             || !invocation_keys.insert((run.provider, run.input))
@@ -270,7 +278,7 @@ pub fn recorded_coverage(
             input,
             scope: key.scope,
             provider: key.provider,
-            context: source.context,
+            context: source.context.ok_or_else(||refuse("coverage has no current semantic context"))?,
             family: key.family,
             run,
         });

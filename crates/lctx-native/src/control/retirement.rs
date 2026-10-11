@@ -28,6 +28,62 @@ fn decode_incarnations(guards:std::collections::BTreeSet<RecordId>,rows:Vec<Obje
     }
     Ok(values)
 }
+/// One actual outgoing hold page. Registration is composed into the cleanup owner's
+/// payload BEFORE those exact holds are removed; it performs no retirement advancement.
+/// Unlike old generic registration, a missing physical root is never incarnation one.
+pub(super) async fn prepare_cleanup_nomination(client:&Surreal<Client>,owner:&RecordId)->Result<Variables,ModelError>{
+    let mut response=client.query(cleanup_hold_page_sql()).bind(("owner",owner.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    let holds=one_cleanup_window(response.take::<Vec<Value>>(0).map_err(ModelError::codec)?)?;
+    let mut guards=std::collections::BTreeSet::new();
+    for hold in &holds {
+        let Some(Value::RecordId(object))=hold.get("object")else{return Err(ModelError::Schema("native cleanup nominated object"));};
+        guards.insert(guard_id(&Value::RecordId(object.clone()))?);
+    }
+    let physical=if guards.is_empty(){Vec::new()}else{
+        let mut response=client.query("SELECT * FROM $n09_guards").bind(("n09_guards",guards.into_iter().collect::<Vec<_>>())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        one_cleanup_window(response.take::<Vec<Value>>(0).map_err(ModelError::codec)?)?
+    };
+    let job=if holds.is_empty(){None}else{Some(RecordId::new("native_retirement",fresh_identity("cleanup-page-retirement")?.hex()))};
+    cleanup_nomination_bindings(owner,holds,physical,job)
+}
+fn cleanup_hold_page_sql()->String{format!("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner ORDER BY object LIMIT {}",crate::loader::NATIVE_WINDOW_ROWS)}
+fn one_cleanup_window(rows:Vec<Value>)->Result<Vec<Object>,ModelError>{
+    let mut windows=crate::loader::NativeWindows::new(rows);let rows=windows.next().transpose()?.unwrap_or_default();
+    if windows.next().is_some(){return Err(ModelError::Conflict("native cleanup nomination window"));}
+    rows.into_iter().map(|value|match value{Value::Object(row)=>Ok(row),_=>Err(ModelError::Schema("native cleanup nomination row"))}).collect()
+}
+pub(super) fn empty_cleanup_nomination()->Variables{
+    let mut bindings=Variables::new();bindings.insert("n09_holds",Vec::<Object>::new());bindings.insert("n09_roots",Vec::<Object>::new());bindings.insert("n09_job",Value::None);bindings.insert("n09_root_count",0i64);bindings.insert("n09_root_digest",Value::None);bindings
+}
+fn cleanup_nomination_bindings(owner:&RecordId,holds:Vec<Object>,physical:Vec<Object>,job:Option<RecordId>)->Result<Variables,ModelError>{
+    if holds.len()>crate::loader::NATIVE_WINDOW_ROWS||physical.len()>crate::loader::NATIVE_WINDOW_ROWS{return Err(ModelError::Conflict("native cleanup nomination width"));}
+    if holds.is_empty(){if !physical.is_empty()||job.is_some(){return Err(ModelError::Conflict("native cleanup empty nomination scope"));}return Ok(empty_cleanup_nomination());}
+    let job=job.ok_or(ModelError::Schema("native cleanup nomination job missing"))?;
+    if job.table.as_str()!="native_retirement"{return Err(ModelError::Schema("native cleanup nomination job family"));}
+    let mut actual=std::collections::BTreeMap::new();
+    for guard in physical {
+        let Some(Value::RecordId(id))=guard.get("id")else{return Err(ModelError::Schema("native cleanup nomination guard identity"));};
+        if id.table.as_str()!="native_guard"||actual.insert(id.clone(),guard.clone()).is_some(){return Err(ModelError::Conflict("native cleanup nomination duplicate/foreign guard"));}
+    }
+    let mut root_ids=std::collections::BTreeSet::new();let mut hold_ids=std::collections::BTreeSet::new();let mut roots=Vec::new();
+    for hold in &holds {
+        let(Some(Value::RecordId(id)),Some(Value::RecordId(object)))=(hold.get("id"),hold.get("object"))else{return Err(ModelError::Schema("native cleanup nomination hold identity"));};
+        if id.table.as_str()!="native_hold"||hold.get("owner")!=Some(&Value::RecordId(owner.clone()))||!hold_ids.insert(id.clone())||!root_ids.insert(object.clone()){return Err(ModelError::Conflict("native cleanup nomination actual hold scope"));}
+        let guard=guard_id(&Value::RecordId(object.clone()))?;let physical=actual.remove(&guard).ok_or(ModelError::Conflict("native cleanup nomination original incarnation missing"))?;
+        let incarnation=int_field(&physical,"incarnation")?;
+        if incarnation<=0||physical.get("phase")!=Some(&Value::String("active".into()))||physical.get("retired")!=Some(&Value::Bool(false))||int_field(&physical,"revision")?<0||int_field(&physical,"tombstone_revision")?<0{return Err(ModelError::Conflict("native cleanup nomination original incarnation not active"));}
+        let item=item_id(&job,object,incarnation)?;
+        let mut root=Object::new();root.insert("object",object.clone());root.insert("guard",guard);root.insert("physical",physical);root.insert("incarnation",incarnation);root.insert("item",item);roots.push(root);
+    }
+    if !actual.is_empty(){return Err(ModelError::Conflict("native cleanup nomination extra guard"));}
+    let root_ids=root_ids.into_iter().collect::<Vec<_>>();
+    let digest=ContentHash::of(&serde_json::to_vec(&("native-retirement/v4",&root_ids)).map_err(ModelError::codec)?);
+    let mut bindings=Variables::new();bindings.insert("n09_holds",holds);bindings.insert("n09_roots",roots);bindings.insert("n09_job",job);bindings.insert("n09_root_count",root_ids.len());bindings.insert("n09_root_digest",digest.hex());Ok(bindings)
+}
+/// The caller has already rechecked exact cleanup/origin/owner identity and full hold
+/// page. All roots/items are created in this ONE payload before any hold deletion.
+/// A lost acknowledgement replays the original native effect, not a partial setup job.
+pub(super) const CLEANUP_NOMINATE_PAGE:&str="IF array::len($holds)>0 { IF $n09_job=NONE OR $n09_root_count!=array::len($n09_roots) OR $n09_root_count!=array::len($holds) { THROW 'native cleanup nomination complete root count'; }; fn::native_touch($n09_job); LET $n09_existing_job=SELECT * FROM ONLY $n09_job FOR UPDATE; IF $n09_existing_job!=NONE { THROW 'native cleanup nomination job collision'; }; CREATE $n09_job SET generation=$__generation,era=$__era,epoch=$__epoch,root_digest=$n09_root_digest,lineage=$n09_job,state='open',root_count=$n09_root_count,roots_registered=$n09_root_count,examined=0,retired=0,revision=0 RETURN NONE; FOR $n09_root IN $n09_roots { fn::native_touch($n09_root.object); fn::native_touch($n09_root.item); LET $n09_guard_id=$n09_root.guard; LET $n09_physical=SELECT * FROM ONLY $n09_guard_id FOR UPDATE; IF $n09_physical=NONE OR $n09_physical!=$n09_root.physical OR $n09_physical.phase!='active' OR $n09_physical.incarnation!=$n09_root.incarnation { THROW 'native cleanup nominated incarnation changed'; }; LET $n09_item_id=$n09_root.item; IF (SELECT VALUE id FROM ONLY $n09_item_id)!=NONE { THROW 'native cleanup nomination item collision'; }; CREATE $n09_item_id SET job=$n09_job,object=$n09_root.object,incarnation=$n09_root.incarnation,state='pending' RETURN NONE; }; };";
 async fn enqueue_roots(client:&Surreal<Client>,job:&RecordId,objects:&[RecordId],registered:i64)->Result<(),ModelError>{
     let incarnations=incarnations(client,objects).await?;
     let mut rows=Vec::new();
@@ -41,7 +97,7 @@ async fn enqueue_roots(client:&Surreal<Client>,job:&RecordId,objects:&[RecordId]
     for rows in crate::loader::NativeWindows::new(rows) {
         let rows=rows?;let count=i64::try_from(rows.len()).map_err(ModelError::codec)?;
         let mut bindings=Variables::new();bindings.insert("job",job.clone());bindings.insert("rows",rows);bindings.insert("registered",registered);
-        effect_for_owner(client,EffectOwner::RetirementSetup(job.clone()),"IF $__owner.state!='registering' OR $__owner.roots_registered!=$registered { THROW 'native retirement registration raced'; }; FOR $row IN $rows { LET $guard_id=$row.guard; LET $before=SELECT * FROM ONLY $guard_id FOR UPDATE; IF ($before.incarnation ?? 1)!=$row.incarnation { THROW 'native retirement root incarnation changed'; }; IF $before=NONE { CREATE $guard_id SET revision=0,retired=false,retired_through=0,phase='active',incarnation=1 RETURN NONE; }; LET $item_id=$row.id; LET $item=SELECT * FROM ONLY $item_id FOR UPDATE; IF $item=NONE { CREATE $item_id SET job=$job,object=$row.object,incarnation=$row.incarnation,state='pending' RETURN NONE; }; }; UPDATE $job SET roots_registered+=array::len($rows),revision+=1 RETURN NONE;",bindings).await?;
+        effect_for_owner(client,EffectOwner::RetirementSetup(job.clone()),"IF $__owner.state!='registering' OR $__owner.roots_registered!=$registered { THROW 'native retirement registration raced'; }; FOR $row IN $rows { LET $guard_id=$row.guard; LET $before=SELECT * FROM ONLY $guard_id FOR UPDATE; IF ($before.incarnation ?? 1)!=$row.incarnation { THROW 'native retirement root incarnation changed'; }; IF $before=NONE { CREATE $guard_id SET revision=0,retired=false,tombstone_revision=0,phase='active',incarnation=1 RETURN NONE; }; fn::native_touch($job); fn::native_touch($row.object); fn::native_touch($row.id); LET $item_id=$row.id; LET $item=SELECT * FROM ONLY $item_id FOR UPDATE; IF $item=NONE { CREATE $item_id SET job=$job,object=$row.object,incarnation=$row.incarnation,state='pending' RETURN NONE; }; }; UPDATE $job SET roots_registered+=array::len($rows),revision+=1 RETURN NONE;",bindings).await?;
         registered+=count;
     }
     Ok(())
@@ -50,16 +106,27 @@ async fn enqueue_roots(client:&Surreal<Client>,job:&RecordId,objects:&[RecordId]
 /// `limit` on destructive advancement: one claim/finalize unit or two writes per outgoing
 /// edge (durable child nomination plus exact hold deletion). Root registration is operation
 /// setup, not permission to remove more edges than this pass admits.
-pub async fn retire_reachable(client:&Surreal<Client>,mut roots:Vec<RecordId>,limit:usize)->Result<RetirementProgress,ModelError>{
+pub async fn retire_reachable(client:&Surreal<Client>,roots:Vec<RecordId>,limit:usize)->Result<RetirementProgress,ModelError>{
+    retire_roots_for_owner(client,EffectOwner::Installation,roots,limit,true,true).await
+}
+/// Terminal cleanup registers its still-held exact roots during closed admission.
+/// Destructive advancement remains with the retirement owner after hold drainage;
+/// registration must also succeed while an independent cold-backup gate is held.
+/// The original terminal attempt state/epoch/era remains the authority; a cut refuses
+/// this owner, requiring an explicit successor over already-persisted remaining scope.
+pub(super) async fn retire_terminal_roots(client:&Surreal<Client>,owner:TerminalAttempt,roots:Vec<RecordId>,limit:usize)->Result<RetirementProgress,ModelError>{
+    retire_roots_for_owner(client,EffectOwner::TerminalAttempt(owner),roots,limit,false,false).await
+}
+async fn retire_roots_for_owner(client:&Surreal<Client>,owner:EffectOwner,mut roots:Vec<RecordId>,limit:usize,require_admission:bool,advance:bool)->Result<RetirementProgress,ModelError>{
     if limit==0{return Err(ModelError::Invalid("bounded retirement effect limit".into()));}
     roots.sort();roots.dedup();
     let issuance=IssuanceEra::capture(client).await?;
     let identity=fresh_identity("retirement-invocation")?;
     let job=RecordId::new("native_retirement",identity.hex());
     let digest=ContentHash::of(&serde_json::to_vec(&("native-retirement/v4",&roots)).map_err(ModelError::codec)?);
-    let mut bindings=Variables::new();bindings.insert("job",job.clone());bindings.insert("root_digest",digest.hex());bindings.insert("issuance",issuance.era);bindings.insert("root_count",roots.len());
-    effect(client,None,"IF $__era!=$issuance { THROW 'native retirement issuance changed'; }; CREATE $job SET generation=$__generation,era=$__era,epoch=$__epoch,root_digest=$root_digest,lineage=$job,state='registering',root_count=$root_count,roots_registered=0,examined=0,retired=0,revision=0 RETURN NONE",bindings).await.map_err(|error|authorization::lifecycle_error("retirement invocation",identity,issuance,error))?;
-    let result=async {register_retirement_roots(client,identity,roots).await?;resume_retirement(client,identity,limit).await}.await;
+    let mut bindings=Variables::new();bindings.insert("job",job.clone());bindings.insert("root_digest",digest.hex());bindings.insert("issuance",issuance.era);bindings.insert("root_count",roots.len());bindings.insert("require_admission",require_admission);
+    effect_for_owner(client,owner,"IF $__era!=$issuance OR ($require_admission AND !$__admission.admission_open) { THROW 'native retirement issuance changed'; }; fn::native_touch($job); CREATE $job SET generation=$__generation,era=$__era,epoch=$__epoch,root_digest=$root_digest,lineage=$job,state='registering',root_count=$root_count,roots_registered=0,examined=0,retired=0,revision=0 RETURN NONE",bindings).await.map_err(|error|authorization::lifecycle_error("retirement invocation",identity,issuance,error))?;
+    let result=async {register_retirement_roots(client,identity,roots).await?;if advance {resume_retirement(client,identity,limit).await}else{progress(client,identity).await}}.await;
     if result.is_err(){let mut completion=lctx_model::domain::completion::Completion::default();completion.committed("native retirement invocation",identity.hex());return lctx_model::domain::completion::complete(result,completion);}result
 }
 
@@ -84,7 +151,7 @@ async fn claim(client:&Surreal<Client>,job:&RecordId,item:&Object)->Result<(),Mo
     let Some(Value::RecordId(object))=item.get("object") else{return Err(ModelError::Schema("retirement object"));};
     let mut bindings=Variables::new();bindings.insert("job",job.clone());bindings.insert("item",item.get("id").cloned().ok_or(ModelError::Schema("retirement item"))?);
     bindings.insert("object",object.clone());bindings.insert("guard",guard_id(&Value::RecordId(object.clone()))?);
-    effect_for_owner(client,EffectOwner::Retirement(job.clone()),"IF array::len(SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1)>0 { THROW 'native retirement backup hold'; }; LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $queued.job!=$job OR $queued.object!=$object OR $queued.successor!=NONE OR $queued.state NOT IN ['pending','retained'] { THROW 'native retirement item not claimable'; }; IF $before.incarnation!=$queued.incarnation { UPDATE $item SET state='superseded' RETURN NONE; } ELSE { IF $before.phase='retiring' OR array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0 { UPDATE $item SET state='retained' RETURN NONE; UPDATE $job SET examined+=1,revision+=1 RETURN NONE; } ELSE { UPDATE $guard SET phase='retiring',retiring_item=$item,revision+=1 RETURN NONE; UPDATE $item SET state='retiring',cutoff=$__installation.admission_revision RETURN NONE; UPDATE $job SET revision+=1 RETURN NONE; }; };",bindings).await
+    effect_for_owner(client,EffectOwner::Retirement(job.clone()),"fn::native_backup_clear(); fn::native_touch($item); fn::native_touch($object); LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $queued.job!=$job OR $queued.object!=$object OR $queued.successor!=NONE OR $queued.state NOT IN ['pending','retained'] { THROW 'native retirement item not claimable'; }; IF $before.incarnation!=$queued.incarnation OR $before.phase='retired' { UPDATE $item SET state='superseded' RETURN NONE; } ELSE { IF $before.phase='retiring' OR array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0 { UPDATE $item SET state='retained' RETURN NONE; UPDATE $job SET examined+=1,revision+=1 RETURN NONE; } ELSE { UPDATE $guard SET phase='retiring',retiring_item=$item,revision+=1 RETURN NONE; UPDATE $item SET state='retiring',cutoff=$before.tombstone_revision RETURN NONE; UPDATE $job SET revision+=1 RETURN NONE; }; };",bindings).await
 }
 
 async fn outgoing_page(client:&Surreal<Client>,object:&RecordId,limit:usize)->Result<Vec<Object>,ModelError>{
@@ -115,7 +182,7 @@ async fn nominate_page(client:&Surreal<Client>,job:&RecordId,item:&Object,holds:
     Ok((bindings,count))
 }
 async fn commit_page(client:&Surreal<Client>,job:&RecordId,bindings:Variables)->Result<(),ModelError>{
-    effect_for_owner(client,EffectOwner::Retirement(job.clone()),"IF array::len(SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1)>0 { THROW 'native retirement backup hold'; }; LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $queued.job!=$job OR $queued.state!='retiring' OR $queued.successor!=NONE OR $before.phase!='retiring' OR $before.retiring_item!=$item OR $before.incarnation!=$queued.incarnation { THROW 'native retirement page incarnation fenced'; }; FOR $row IN $rows { LET $hold_id=$row.id; LET $hold=SELECT * FROM ONLY $hold_id FOR UPDATE; IF $hold=NONE OR $hold.owner!=$object OR $hold.object!=$row.object { THROW 'native retirement page ownership changed'; }; LET $child_guard=$row.guard; LET $child=SELECT * FROM ONLY $child_guard FOR UPDATE; IF ($child.incarnation ?? 1)!=$row.incarnation { THROW 'native retirement child incarnation changed'; }; IF $child=NONE { CREATE $child_guard SET revision=0,retired=false,retired_through=0,phase='active',incarnation=1 RETURN NONE; }; LET $child_item=$row.item; LET $existing=SELECT * FROM ONLY $child_item FOR UPDATE; IF $existing=NONE { CREATE $child_item SET job=$job,object=$row.object,incarnation=$row.incarnation,state='pending' RETURN NONE; }; DELETE $hold_id RETURN NONE; }; UPDATE $job SET revision+=1 RETURN NONE;",bindings).await
+    effect_for_owner(client,EffectOwner::Retirement(job.clone()),"fn::native_backup_clear(); fn::native_touch($item); fn::native_touch($object); LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $queued.job!=$job OR $queued.state!='retiring' OR $queued.successor!=NONE OR $before.phase!='retiring' OR $before.retiring_item!=$item OR $before.incarnation!=$queued.incarnation { THROW 'native retirement page incarnation fenced'; }; FOR $row IN $rows { LET $hold_id=$row.id; LET $hold=SELECT * FROM ONLY $hold_id FOR UPDATE; IF $hold=NONE OR $hold.owner!=$object OR $hold.object!=$row.object { THROW 'native retirement page ownership changed'; }; fn::native_incidence($hold); fn::native_touch($job); fn::native_touch($row.item); LET $child_guard=$row.guard; LET $child=SELECT * FROM ONLY $child_guard FOR UPDATE; IF ($child.incarnation ?? 1)!=$row.incarnation { THROW 'native retirement child incarnation changed'; }; IF $child=NONE { CREATE $child_guard SET revision=0,retired=false,tombstone_revision=0,phase='active',incarnation=1 RETURN NONE; }; LET $child_item=$row.item; LET $existing=SELECT * FROM ONLY $child_item FOR UPDATE; IF $existing=NONE { CREATE $child_item SET job=$job,object=$row.object,incarnation=$row.incarnation,state='pending' RETURN NONE; }; DELETE $hold_id RETURN NONE; }; UPDATE $job SET revision+=1 RETURN NONE;",bindings).await
 }
 async fn page(client:&Surreal<Client>,job:&RecordId,item:&Object,holds:Vec<Object>)->Result<usize,ModelError>{
     let (bindings,count)=nominate_page(client,job,item,holds).await?;
@@ -126,7 +193,7 @@ async fn finalize(client:&Surreal<Client>,job:&RecordId,item:&Object)->Result<()
     let Some(Value::RecordId(object))=item.get("object") else{return Err(ModelError::Schema("retirement object"));};
     let mut bindings=Variables::new();bindings.insert("job",job.clone());bindings.insert("item",item.get("id").cloned().ok_or(ModelError::Schema("retirement item"))?);
     bindings.insert("object",object.clone());bindings.insert("guard",guard_id(&Value::RecordId(object.clone()))?);
-    effect_for_owner(client,EffectOwner::Retirement(job.clone()),"IF array::len(SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1)>0 { THROW 'native retirement backup hold'; }; LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $queued.job!=$job OR $queued.state!='retiring' OR $queued.successor!=NONE OR $before.phase!='retiring' OR $before.retiring_item!=$item OR $before.incarnation!=$queued.incarnation OR $queued.cutoff=NONE { THROW 'native retirement finalize incarnation fenced'; }; IF array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$object LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0 { THROW 'native retirement final holds remain'; }; DELETE $object RETURN NONE; UPDATE $guard SET phase='retired',retired=true,retiring_item=NONE,retired_through=math::max([retired_through ?? 0,$queued.cutoff]),revision+=1 RETURN NONE; UPDATE $item SET state='done' RETURN NONE; UPDATE $job SET examined+=1,retired+=1,revision+=1 RETURN NONE;",bindings).await
+    effect_for_owner(client,EffectOwner::Retirement(job.clone()),"fn::native_backup_clear(); fn::native_touch($item); fn::native_touch($object); LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $queued.job!=$job OR $queued.state!='retiring' OR $queued.successor!=NONE OR $before.phase!='retiring' OR $before.retiring_item!=$item OR $before.incarnation!=$queued.incarnation OR $queued.cutoff=NONE { THROW 'native retirement finalize incarnation fenced'; }; IF array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$object LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0 { THROW 'native retirement final holds remain'; }; LET $object_row=SELECT * FROM ONLY $object FOR UPDATE; IF $object_row!=NONE { fn::native_incidence($object_row); }; DELETE $object RETURN NONE; UPDATE $guard SET phase='retired',retired=true,retiring_item=NONE,tombstone_revision+=1,revision+=1 RETURN NONE; UPDATE $item SET state='done' RETURN NONE; UPDATE $job SET examined+=1,retired+=1,revision+=1 RETURN NONE;",bindings).await
 }
 async fn progress(client:&Surreal<Client>,identity:ContentHash)->Result<RetirementProgress,ModelError>{
     let job=RecordId::new("native_retirement",identity.hex());
@@ -207,7 +274,8 @@ pub async fn recover_retirement(client:&Surreal<Client>,identity:ContentHash)->R
     } else {fresh_identity("retirement-maintenance-successor")?};
     let successor=RecordId::new("native_retirement",next.hex());
     let mut bindings=Variables::new();bindings.insert("old",old.clone());bindings.insert("next",successor.clone());bindings.insert("era",issuance.era);
-    if existing.is_none() { effect(client,None,"IF $__era!=$era OR $__installation.admission_open { THROW 'retirement recovery requires original current-era drained maintenance'; }; LET $before=SELECT * FROM ONLY $old FOR UPDATE; IF $before=NONE OR $before.state NOT IN ['open','recovering'] OR $before.generation!=$__generation OR $before.epoch<=0 OR $before.successor!=NONE OR $before.era>($__installation.closed_through ?? 0) { THROW 'retirement predecessor not fenced'; }; IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 { THROW 'retirement recovery has unresolved effects'; }; CREATE $next SET generation=$__generation,era=$era,epoch=$__epoch,root_digest=$before.root_digest,lineage=$before.lineage,state='recovering',predecessor=$old,recovery_source=$old,root_count=$before.root_count,roots_registered=$before.roots_registered,examined=$before.examined,retired=$before.retired,revision=0 RETURN NONE; UPDATE $old SET successor=$next,state='superseded' RETURN NONE",bindings).await?; }
+    coordination::bind_all_stripes(&mut bindings);
+    if existing.is_none() { let recovery=format!("{} {}",coordination::ALL_STRIPES_GUARD,"IF $__era!=$era OR $__installation.admission_open { THROW 'retirement recovery requires original current-era drained maintenance'; }; LET $before=SELECT * FROM ONLY $old FOR UPDATE; IF $before=NONE OR $before.state NOT IN ['open','recovering'] OR $before.generation!=$__generation OR $before.epoch<=0 OR $before.successor!=NONE OR $before.era>($__installation.closed_through ?? 0) { THROW 'retirement predecessor not fenced'; }; IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 { THROW 'retirement recovery has unresolved effects'; }; fn::native_incidence($before); fn::native_touch($next); CREATE $next SET generation=$__generation,era=$era,epoch=$__epoch,root_digest=$before.root_digest,lineage=$before.lineage,state='recovering',predecessor=$old,recovery_source=$old,root_count=$before.root_count,roots_registered=$before.roots_registered,examined=$before.examined,retired=$before.retired,revision=0 RETURN NONE; UPDATE $old SET successor=$next,state='superseded' RETURN NONE");effect(client,None,&recovery,bindings).await?; }
     finish_recovery(client,&successor).await.map_err(|error|authorization::lifecycle_error("retirement successor",next,issuance,error))?;
     Ok(next)
 }
@@ -222,7 +290,7 @@ async fn finish_recovery(client:&Surreal<Client>,successor:&RecordId)->Result<()
         let mut response=client.query("SELECT VALUE id FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$source AND state IN ['pending','retained','retiring'] LIMIT 128").bind(("source",source.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         let items:Vec<RecordId>=response.take(0).map_err(ModelError::codec)?;
         let mut bindings=Variables::new();bindings.insert("source",source.clone());bindings.insert("next",successor.clone());bindings.insert("items",items);
-        effect_for_owner(client,EffectOwner::RetirementSetup(successor.clone()),"IF $__owner.state!='recovering' OR $__owner.recovery_source!=$source { THROW 'native retirement recovery source raced'; }; LET $origin=SELECT * FROM ONLY $source FOR UPDATE; IF $origin=NONE OR $origin.state!='superseded' { THROW 'native retirement recovery source not fenced'; }; FOR $id IN $items { LET $item=SELECT * FROM ONLY $id FOR UPDATE; IF $item.job=$source AND $item.state IN ['pending','retained','retiring'] { UPDATE $id SET job=$next RETURN NONE; }; }; IF array::len(SELECT VALUE id FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$source AND state IN ['pending','retained','retiring'] LIMIT 1)=0 { IF $origin.predecessor=NONE { UPDATE $next SET state='open',recovery_source=NONE,revision+=1 RETURN NONE; } ELSE { UPDATE $next SET recovery_source=$origin.predecessor,revision+=1 RETURN NONE; }; };",bindings).await?;
+        effect_for_owner(client,EffectOwner::RetirementSetup(successor.clone()),"IF $__owner.state!='recovering' OR $__owner.recovery_source!=$source { THROW 'native retirement recovery source raced'; }; fn::native_touch($source); LET $origin=SELECT * FROM ONLY $source FOR UPDATE; fn::native_incidence($origin); IF $origin=NONE OR $origin.state!='superseded' { THROW 'native retirement recovery source not fenced'; }; FOR $id IN $items { LET $item=SELECT * FROM ONLY $id FOR UPDATE; IF $item.job=$source AND $item.state IN ['pending','retained','retiring'] { fn::native_incidence($item); fn::native_touch($next); UPDATE $id SET job=$next RETURN NONE; }; }; IF array::len(SELECT VALUE id FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$source AND state IN ['pending','retained','retiring'] LIMIT 1)=0 { IF $origin.predecessor=NONE { UPDATE $next SET state='open',recovery_source=NONE,predecessor=NONE,revision+=1 RETURN NONE; } ELSE { UPDATE $next SET recovery_source=$origin.predecessor,revision+=1 RETURN NONE; }; };",bindings).await?;
     }
 }
 
@@ -262,7 +330,7 @@ mod incarnation_controls {
         let parent=RecordId::new("native_guard",format!("batch_parent_{}",nonce.hex()));
         let children=(0..2).map(|index|RecordId::new("native_guard",format!("batch_child_{}_{index}",nonce.hex()))).collect::<Vec<_>>();
         let values=std::iter::once(parent.clone()).chain(children.iter().cloned()).map(|id|{
-            let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);Value::Object(row)
+            let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);Value::Object(row)
         }).collect();
         ensure_rows(&client,None,values).await.unwrap();
         hold(&client,None,parent.clone(),children.clone()).await.unwrap();
@@ -294,5 +362,32 @@ mod incarnation_controls {
         while !progress.remaining.is_empty(){progress=resume_retirement(&client,first.identity,16).await.unwrap();}
         assert_eq!(progress.retired,3);assert!(progress.retained.is_empty());
         client.invalidate().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod cleanup_nomination_controls {
+    use super::*;
+    fn hold(owner:&RecordId,object:&RecordId,name:&str)->Object{let mut row=Object::new();row.insert("id",RecordId::new("native_hold",name));row.insert("owner",owner.clone());row.insert("object",object.clone());row}
+    fn physical(object:&RecordId,incarnation:i64)->Object{let mut row=Object::new();row.insert("id",guard_id(&Value::RecordId(object.clone())).unwrap());row.insert("incarnation",incarnation);row.insert("phase","active");row.insert("retired",false);row.insert("revision",3i64);row.insert("tombstone_revision",2i64);row}
+    #[test]
+    fn nominated_roots_use_actual_complete_canonical_root_set_and_incarnations(){
+        let owner=RecordId::new("native_attempt","failed-no-product");let one=RecordId::new("original","one");let two=RecordId::new("compiler_contribution","incomplete");let job=RecordId::new("native_retirement","owned-job");
+        let holds=vec![hold(&owner,&two,"two"),hold(&owner,&one,"one")];let guards=vec![physical(&one,4),physical(&two,9)];
+        let bindings=cleanup_nomination_bindings(&owner,holds.clone(),guards.clone(),Some(job.clone())).unwrap();
+        assert_eq!(bindings.get("n09_root_count"),Some(&crate::upgrade::native(2i64)));assert_eq!(bindings.get("n09_holds"),Some(&crate::upgrade::native(holds)));
+        let mut canonical=vec![one.clone(),two.clone()];canonical.sort();let digest=ContentHash::of(&serde_json::to_vec(&("native-retirement/v4",canonical)).unwrap());assert_eq!(bindings.get("n09_root_digest"),Some(&crate::upgrade::native(digest.hex())));
+        let Some(Value::Array(roots))=bindings.get("n09_roots")else{panic!("actual root envelope")};
+        for root in roots{let Value::Object(root)=root else{panic!("actual root")};let Some(Value::RecordId(object))=root.get("object")else{panic!("actual object")};let incarnation=if object==&one{4}else{9};assert_eq!(root.get("incarnation"),Some(&crate::upgrade::native(incarnation)));assert_eq!(root.get("item"),Some(&Value::RecordId(item_id(&job,object,incarnation).unwrap())));assert_eq!(root.get("physical"),Some(&Value::Object(physical(object,incarnation))));}
+        let mut duplicate=vec![hold(&owner,&one,"one"),hold(&owner,&one,"other")];assert!(cleanup_nomination_bindings(&owner,duplicate.clone(),guards.clone(),Some(job.clone())).is_err());
+        duplicate[1]=hold(&RecordId::new("native_attempt","foreign"),&two,"two");assert!(cleanup_nomination_bindings(&owner,duplicate,guards,Some(job)).is_err());
+    }
+    #[test]
+    fn missing_or_nonactive_original_incarnation_is_never_defaulted(){
+        let owner=RecordId::new("native_attempt","owner");let object=RecordId::new("original","partial");let holds=vec![hold(&owner,&object,"held")];let job=Some(RecordId::new("native_retirement","job"));
+        assert!(cleanup_nomination_bindings(&owner,holds.clone(),vec![],job.clone()).is_err());
+        for(field,value)in [("incarnation",crate::upgrade::native(0i64)),("phase",crate::upgrade::native("retired")),("phase",crate::upgrade::native("retiring")),("retired",crate::upgrade::native(true))]{let mut guard=physical(&object,5);guard.insert(field,value);assert!(cleanup_nomination_bindings(&owner,holds.clone(),vec![guard],job.clone()).is_err());}
+        let empty=cleanup_nomination_bindings(&owner,vec![],vec![],None).unwrap();assert_eq!(empty.get("n09_job"),Some(&Value::None));assert_eq!(empty.get("n09_root_count"),Some(&crate::upgrade::native(0i64)));
+        assert!(cleanup_nomination_bindings(&owner,vec![],vec![],job).is_err());
     }
 }

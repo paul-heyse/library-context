@@ -105,51 +105,59 @@ impl Configuration {
         }
         Ok(rows)
     }
-    pub fn declaration(&self) -> Stage {
-        let mut key = KeySink::new("analysis-configuration");
-        for row in self.catalogs.catalogs.iter() {
-            row.id().encode(&mut key);
-        }
-        for row in self.definitions.iter() {
-            row.id().encode(&mut key);
-        }
-        for row in self.projections.iter() {
-            row.id().encode(&mut key);
-        }
-        for row in self.analytics.iter() {
-            row.id().encode(&mut key);
-        }
-        for row in self.retrieval.iter() {
-            row.id().encode(&mut key);
+    pub fn declarations(&self) -> Vec<Stage> {
+        ConfigurationGroup::ALL.into_iter().map(|group| self.declaration(group)).collect()
+    }
+    pub fn declaration(&self, group: ConfigurationGroup) -> Stage {
+        let mut key = KeySink::new("analysis-configuration-group/v1");
+        key.part(b"group", group.name().as_bytes());
+        macro_rules! rows {($rows:expr) => {for row in $rows.iter() {row.id().encode(&mut key);row.content_digest().encode(&mut key);}};}
+        match group {
+            ConfigurationGroup::Authored => {
+                rows!(self.catalogs.catalogs); rows!(self.catalogs.targets);
+                rows!(self.catalogs.models); rows!(self.catalogs.protocols);
+            }
+            ConfigurationGroup::Methods => {rows!(self.parameters); rows!(self.definitions);}
+            ConfigurationGroup::Projections => rows!(self.projections),
+            ConfigurationGroup::Analytics => rows!(self.analytics),
+            ConfigurationGroup::Retrieval => rows!(self.retrieval),
         }
         Stage {
             captured_binding: None,
-name: "analysis_configuration",
-            inputs: vec![],
-            outputs: configuration_relations()
-                .iter()
-                .map(RelationUse::of_relation)
-                .collect(),
-            contributes: vec![],
-            coverage: vec![],
-            profiles: Profile::ALL.to_vec(),
+            name: group.name(), inputs: vec![],
+            outputs: group.relations().iter().map(RelationUse::of_relation).collect(),
+            contributes: vec![], coverage: vec![], profiles: Profile::ALL.to_vec(),
             effect: Effect::Pure,
             code: ContentHash::of(include_bytes!("preparation.rs")),
             configuration: key.finish(),
         }
     }
 }
-pub fn configuration_relations() -> Vec<Relation> {
-    let mut rows = models::records::relations();
-    rows.extend([
-        Relation::of::<MethodParameters>(),
-        Relation::of::<AnalysisDefinition>(),
-        Relation::of::<ProjectionDefinition>(),
-        Relation::of::<super::settings::AnalyticsConfiguration>(),
-        Relation::of::<crate::domain::retrieval::RetrievalDefinition>(),
-    ]);
-    rows
+/// Each group has one writer and an independently completed dependency. Method rows retain
+/// a single writer; consumers select the definition and parameters of their actual method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigurationGroup { Authored, Methods, Projections, Analytics, Retrieval }
+impl ConfigurationGroup {
+    pub const ALL: [Self;5] = [Self::Authored, Self::Methods, Self::Projections, Self::Analytics, Self::Retrieval];
+    pub fn name(self) -> &'static str {match self {
+        Self::Authored => "analysis_authored_configuration",
+        Self::Methods => "analysis_method_configuration",
+        Self::Projections => "analysis_projection_configuration",
+        Self::Analytics => "analysis_analytics_configuration",
+        Self::Retrieval => "analysis_retrieval_configuration",
+    }}
+    pub fn relations(self) -> Vec<Relation> {match self {
+        Self::Authored => models::records::relations(),
+        Self::Methods => vec![Relation::of::<MethodParameters>(), Relation::of::<AnalysisDefinition>()],
+        Self::Projections => vec![Relation::of::<ProjectionDefinition>()],
+        Self::Analytics => vec![Relation::of::<super::settings::AnalyticsConfiguration>()],
+        Self::Retrieval => vec![Relation::of::<crate::domain::retrieval::RetrievalDefinition>()],
+    }}
 }
+pub fn configuration_relations() -> Vec<Relation> {
+    ConfigurationGroup::ALL.into_iter().flat_map(ConfigurationGroup::relations).collect()
+}
+
 /// Native attribution validation and its nominal reference closure are facts-owned. Bind every
 /// vocabulary read to the facts prefix even when later consumers add further vocabulary.
 pub fn native_stage(

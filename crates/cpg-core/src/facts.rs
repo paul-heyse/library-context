@@ -26,17 +26,8 @@ pub async fn compile_facts(
         .into_iter()
         .filter(|p| p.declaration(profile).profiles.contains(&profile))
         .collect();
-    let sources = cpg_extract::contracts::captured_sources(captured)?;
-    let declarations = offered
-        .iter()
-        .map(|provider| {
-            let mut stage = provider.declaration(profile);
-            if let Some(binding) = &mut stage.captured_binding {
-                binding.sources = sources.clone();
-            }
-            stage
-        })
-        .collect();
+    let sources=cpg_extract::contracts::captured_sources(captured)?;
+    let declarations = offered.iter().map(|provider|cpg_extract::contracts::bind_stage_with_sources(provider.declaration(profile),captured,&sources)).collect::<Result<Vec<_>,ModelError>>()?;
     let schedule = Schedule::build(workspace.model(), declarations, &[], profile)?;
     for declaration in schedule.stages() {
         let position = offered
@@ -56,8 +47,9 @@ pub async fn compile_facts(
         let span = tracing::info_span!(target: "lctx_phase", "facts_provider", producer = declaration.name);
         async {
             let execution = lctx_native::phase::Phase::begin("provider_execution");
-            let result = bundle::run_provider_guarded(
+            let result = bundle::run_provider_bound_guarded(
                 provider,
+                declaration.clone(),
                 profile,
                 output.clone(),
                 workspace.model().clone(),
@@ -249,8 +241,8 @@ mod recorded_coverage_controls {
             let binding = stage.captured_binding.as_mut().unwrap();
             binding.sources = vec![CapturedSourceBinding {
                 input: input.id(),
-                context: context.id(),
-                configuration: context.config_digest,
+                context: Some(context.id()),
+                configuration: Some(context.config_digest),
                 acquisition: lctx_model::domain::producer_contract::acquisition::CapturedAcquisition::tree(input.clone(), "captured fixture".into()).into(),
             }];
             for provider in binding.suppliers.values_mut() {
@@ -298,7 +290,7 @@ mod recorded_coverage_controls {
                 spec: ContributionSpec {
                     captured_binding: stage.captured_binding.clone(),
                     producer: stage.name.into(),
-                    profile,
+                    profile:lctx_model::domain::completed::OutputProfile::Specific(profile),
                     model: model.digest(),
                     implementation: ContentHash::of(
                         format!("captured {} implementation", stage.name).as_bytes(),

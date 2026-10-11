@@ -653,11 +653,6 @@ pub fn stage(
             .iter()
             .map(|r| RelationUse::of_relation(r).completed_input()),
     );
-    inputs.extend(
-        analysis::preparation::configuration_relations()
-            .iter()
-            .map(|r| RelationUse::of_relation(r).completed_input()),
-    );
     macro_rules! add {($($ty:ty),*)=>{$(inputs.push(RelationUse::completed::<$ty>());)*};}
     add!(
         analysis::AnalysisDefinition,

@@ -41,7 +41,7 @@ async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs
         let spec = ContributionSpec {
             captured_binding: None,
             producer: producer.into(),
-            profile: Profile::Catalog,
+            profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
             model: ContentHash::of(b"existing-owner-model"),
             implementation: ContentHash::of(b"existing-owner-implementation"),
             configuration: None,
@@ -252,7 +252,7 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
         let spec = ContributionSpec {
             captured_binding: None,
             producer: producer.into(),
-            profile: Profile::Catalog,
+            profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
             model: ContentHash::of(b"forward-closure-model"),
             implementation: ContentHash::of(b"forward-closure-implementation"),
             configuration: None,
@@ -463,7 +463,7 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
     let spec = ContributionSpec {
         captured_binding: None,
         producer: "native-closure".into(),
-        profile: Profile::Catalog,
+        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
         model: ContentHash::of(b"closure-model"),
         implementation: ContentHash::of(b"closure-implementation"),
         configuration: None,

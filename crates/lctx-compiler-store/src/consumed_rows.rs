@@ -2044,7 +2044,7 @@ mod nominal_closure_controls {
         let budget=ResourceBudget::fixed(64<<20).unwrap();
         let model=Arc::new(lctx_model::domain::model().unwrap());
         let relations=vec![Relation::of::<Package>(),Relation::of::<Release>()];
-        let contribution=native.begin_contribution(ContributionSpec{captured_binding:None,producer:"domain-fixture".into(),profile:Profile::Catalog,model:model.digest(),implementation:ContentHash::of(b"domain-fixture/v1"),configuration:None,inputs:vec![],outputs:relations.iter().map(|r|r.name().to_owned()).collect()}).await.unwrap();
+        let contribution=native.begin_contribution(ContributionSpec{captured_binding:None,producer:"domain-fixture".into(),profile:lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),model:model.digest(),implementation:ContentHash::of(b"domain-fixture/v1"),configuration:None,inputs:vec![],outputs:relations.iter().map(|r|r.name().to_owned()).collect()}).await.unwrap();
         native.write_batch(&contribution,&relations[0],&Package::encode(packages).unwrap(), &budget).await.unwrap();
         native.write_batch(&contribution,&relations[1],&Release::encode(releases).unwrap(), &budget).await.unwrap();
         let views=native.complete_contribution(contribution,stages::ProviderOutcome::Complete,&relations,&BTreeMap::new(),&budget).await.unwrap();

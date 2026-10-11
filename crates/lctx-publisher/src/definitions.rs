@@ -147,7 +147,8 @@ pub(crate) fn verify_inventory(blueprint: &str, version: &str, actual: &BTreeSet
     verify_expected(blueprint, version, actual, &base, &functions)
 }
 fn verify_expected(blueprint: &str, version: &str, actual: &BTreeSet<String>, base: &[String], functions: &[String]) -> Result<ContentHash, ModelError> {
-    let mut key = KeySink::new("native-view-realization/v1");
+    let mut key = KeySink::new("native-view-realization/v2");
+    lctx_native::derivation::DerivationIdentity::current(implementation_identity()?,epoch_identity(blueprint))?.identity()?.encode(&mut key);
     if !version.starts_with("3.3.") {
         return Err(ModelError::Conflict("reviewed native engine family"));
     }
@@ -163,3 +164,7 @@ fn verify_expected(blueprint: &str, version: &str, actual: &BTreeSet<String>, ba
     Ok(key.finish())
 }
 pub(crate) use verify_epoch as verify_realization;
+
+fn implementation_identity()->Result<ContentHash,ModelError>{
+ Ok(ContentHash(hex::decode(env!("LCTX_PUBLICATION_SOURCE_DIGEST")).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("publication implementation digest width"))?))
+}

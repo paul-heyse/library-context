@@ -70,13 +70,14 @@ async fn resolve<C>(reader:&NativeReader<C>,roots:&[RecordId],budget:&ResourceBu
     payloads(reader,&ids.into_iter().collect::<Vec<_>>(),budget).await
 }
 async fn related<'a,C>(reader:&NativeReader<C>,roots:impl Iterator<Item=&'a Object> + Send,edge:ServingEdge,field:Option<&str>,target_relation:Option<&str>,budget:&ResourceBudget)->Result<ScopeRows,ModelError>{
+    let derivation=reader.derivation()?;
     let mut ids=BTreeSet::new();let mut charge=StateCharge::new(budget,"serving-related-identities");
     let mut roots=roots;
     loop {
-        let mut vars=Variables::new();let mut statements=Vec::new();if let Some(field)=field {vars.insert("field",field.to_owned());}
+        let mut vars=Variables::new();vars.insert("lctx_derivation",derivation.hex());let mut statements=Vec::new();if let Some(field)=field {vars.insert("field",field.to_owned());}
         let predicate=if field.is_some(){" AND field=$field"}else{""};
         for index in 0..WINDOW {let Some(root)=roots.next()else{break;};let name=format!("anchor{index}");vars.insert(name.clone(),record(root,"anchor")?);
-            statements.push(format!("SELECT in AS id,field FROM {} WITH INDEX incoming WHERE out=${name}{predicate}",edge_table(edge)));
+            statements.push(format!("SELECT in AS id,field FROM {} WITH INDEX incoming WHERE derivation=$lctx_derivation AND out=${name}{predicate}",edge_table(edge)));
         }
         if statements.is_empty(){break;}
         for row in candidate_query(reader,PreparedQuery::new(vars,vec![],statements)?,budget).await? {let id=record(&row,"id")?;if !ids.contains(&id){charge.grow(768)?;ids.insert(id);}}
@@ -87,10 +88,11 @@ async fn related<'a,C>(reader:&NativeReader<C>,roots:impl Iterator<Item=&'a Obje
     Ok(rows)
 }
 async fn outgoing_targets<C>(reader:&NativeReader<C>,roots:&ScopeRows,field:&str,budget:&ResourceBudget)->Result<ScopeRows,ModelError>{
+    let derivation=reader.derivation()?;
     let mut result=ScopeRows::new();
     for roots in roots.chunks(WINDOW) {
-        let mut vars=Variables::new();vars.insert("field",field.to_owned());let mut statements=Vec::new();
-        for (index,root) in roots.iter().enumerate(){let name=format!("node{index}");vars.insert(name.clone(),record(root,"id")?);statements.push(format!("SELECT out AS id FROM participant WITH INDEX outgoing WHERE in=${name} AND field=$field"));}
+        let mut vars=Variables::new();vars.insert("lctx_derivation",derivation.hex());vars.insert("field",field.to_owned());let mut statements=Vec::new();
+        for (index,root) in roots.iter().enumerate(){let name=format!("node{index}");vars.insert(name.clone(),record(root,"id")?);statements.push(format!("SELECT out AS id FROM participant WITH INDEX outgoing WHERE derivation=$lctx_derivation AND in=${name} AND field=$field"));}
         result.append(values(reader,PreparedQuery::new(vars,vec![],statements)?,budget).await?);
     }
     Ok(result)
@@ -109,20 +111,21 @@ impl PreparedServingScope {
         Ok(Arc::new(Self{program,_charge:budget.reserve("native-serving-scope-preparation",32768+bytes.saturating_mul(8))?}))
     }
     pub async fn frontier<C>(&self,reader:&NativeReader<C>,requested:Vec<RecordId>,budget:&ResourceBudget)->Result<Vec<RecordId>,ModelError>{
+        let derivation=reader.derivation()?;
         let roots=resolve(reader,&requested,budget).await?;
         if requested.iter().any(|wanted|!roots.iter().any(|row|record(row,"id").is_ok_and(|id|&id==wanted)||record(row,"anchor").is_ok_and(|id|&id==wanted))) {return Err(ModelError::Conflict("scope root outside exact view"));}
         let mut next=BTreeSet::new();let mut charge=StateCharge::new(budget,"serving-scope-next-frontier");
         for edge in self.program.outgoing_edges() {
             for roots in roots.chunks(WINDOW) {
-                let mut vars=Variables::new();let mut statements=Vec::new();
-                for (index,root) in roots.iter().enumerate(){let name=format!("node{index}");vars.insert(name.clone(),record(root,"id")?);statements.push(format!("SELECT out AS id FROM {} WITH INDEX outgoing WHERE in=${name}",edge_table(*edge)));}
+                let mut vars=Variables::new();vars.insert("lctx_derivation",derivation.hex());let mut statements=Vec::new();
+                for (index,root) in roots.iter().enumerate(){let name=format!("node{index}");vars.insert(name.clone(),record(root,"id")?);statements.push(format!("SELECT out AS id FROM {} WITH INDEX outgoing WHERE derivation=$lctx_derivation AND in=${name}",edge_table(*edge)));}
                 let mut edges=reader.stream_prepared(PreparedQuery::new(vars,vec![],statements)?)?;
                 let outcome=async {loop{let mut targets=Vec::new();while targets.len()<WINDOW {let Some(value)=edges.next().await? else{break;};targets.push(record(&Object::from_value(value).map_err(ModelError::codec)?,"id")?);}if targets.is_empty(){break;}
                     for row in resolve(reader,&targets,budget).await? {if self.program.inputs().iter().any(|input|relation(&row).is_ok_and(|actual|input.name()==actual)){let id=record(&row,"id")?;if !next.contains(&id){charge.grow(384)?;next.insert(id);}}}
                 }Ok(())}.await;
                 let mut terminal=Completion::default();terminal.step("serving outgoing traversal drainage",edges.drain_transport().await);complete(outcome,terminal)?;
-                let mut vars=Variables::new();let mut statements=Vec::new();
-                for (index,root) in roots.iter().enumerate(){let name=format!("anchor{index}");vars.insert(name.clone(),record(root,"anchor")?);statements.push(format!("SELECT in AS id,field FROM {} WITH INDEX incoming WHERE out=${name}",edge_table(*edge)));}
+                let mut vars=Variables::new();vars.insert("lctx_derivation",derivation.hex());let mut statements=Vec::new();
+                for (index,root) in roots.iter().enumerate(){let name=format!("anchor{index}");vars.insert(name.clone(),record(root,"anchor")?);statements.push(format!("SELECT in AS id,field FROM {} WITH INDEX incoming WHERE derivation=$lctx_derivation AND out=${name}",edge_table(*edge)));}
                 let incoming=candidate_query(reader,PreparedQuery::new(vars,vec![],statements)?,budget).await?;
                 for window in incoming.chunks(WINDOW) {let ids=window.iter().map(|row|record(row,"id")).collect::<Result<Vec<_>,_>>()?;
                     for row in payloads(reader,&ids,budget).await? {let id=record(&row,"id")?;let kind=relation(&row)?;let matches=window.iter().any(|edge_row|record(edge_row,"id").is_ok_and(|actual|actual==id)&&matches!(edge_row.get("field"),Some(Value::String(field)) if self.program.incoming(*edge,kind,field)));

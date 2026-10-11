@@ -41,6 +41,7 @@ pub enum ServingEdge {
 pub enum IncomingOwner {
     ProviderRun,
     ProviderCoverage,
+    UniformNotRequested,
     RunFamily,
     GuardSubstitution,
     TypeBinderAssessment,
@@ -53,6 +54,7 @@ impl IncomingOwner {
         match self {
             Self::ProviderRun => attribution::ProviderRun::NAME,
             Self::ProviderCoverage => attribution::ProviderCoverage::NAME,
+            Self::UniformNotRequested => uniform_outcome::UniformNotRequested::NAME,
             Self::RunFamily => attribution::RunFamily::NAME,
             Self::GuardSubstitution => conditions::stability::GuardSubstitution::NAME,
             Self::TypeBinderAssessment => normalized::links::TypeBinderAssessment::NAME,
@@ -69,6 +71,7 @@ pub struct IncomingRule {
     pub fields: &'static [&'static str],
 }
 pub const INCOMING_RULES: &[IncomingRule] = &[
+    IncomingRule { edge:ServingEdge::Participant,owner:IncomingOwner::UniformNotRequested,fields:&["input"] },
     IncomingRule {
         edge: ServingEdge::Reference,
         owner: IncomingOwner::ProviderRun,

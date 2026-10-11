@@ -22,6 +22,9 @@ impl ProductCandidate {
 }
 
 impl Workspace {
+    pub(crate) fn product_reuse_enabled(&self) -> bool {
+        self.admitted_product_reuse.load(Ordering::Acquire)
+    }
     /// Select an independent recomputation control before producing any completed output.
     /// It retains current admission and may still retain its completed content for later use.
     pub fn set_admitted_product_reuse(&self, enabled: bool) -> Result<(), ModelError> {

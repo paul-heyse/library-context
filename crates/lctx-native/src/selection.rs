@@ -103,8 +103,14 @@ pub fn node_bytes(node: &RecordId) -> usize {
         .saturating_add(node.table.as_str().len())
         .saturating_add(key)
 }
+struct RealizationSelection {
+    references: Vec<crate::completed_state::InstalledViewRef>,
+    _charge: StateCharge,
+}
 #[derive(Clone)]
 pub struct SelectedPayloads {
+    exact: Option<Arc<RealizationSelection>>,
+    derivation: Option<ContentHash>,
     source: SelectionSource,
     nodes: PreparedRows,
     membership: PreparedPointRows,
@@ -113,6 +119,8 @@ pub struct SelectedPayloads {
 }
 #[derive(Clone)]
 enum SelectionSource {
+    Owned(Box<SelectionSource>,crate::NativeReader<()>),
+    Published(Box<SelectionSource>,crate::completed_state::PublishedCompletedState),
     #[cfg(test)]
     Fixture(
         Arc<dyn Fn(crate::prepared::PreparedQuery) -> Result<NativeRows, ModelError> + Send + Sync>,
@@ -128,6 +136,8 @@ enum CandidateNominations {
 impl SelectionSource {
     fn stream(&self, query: crate::prepared::PreparedQuery) -> Result<NativeRows, ModelError> {
         match self {
+            Self::Owned(source,reader)=>{reader.ensure_scope_live()?;reader.attach_scope(source.stream(query)?)},
+            Self::Published(source,completed)=>{completed.retained_reader().ensure_scope_live()?;completed.retained_reader().attach_scope(source.stream(query)?)},
             #[cfg(test)]
             Self::Fixture(stream) => stream(query),
             Self::Cancellable(source, cancelled) => {
@@ -243,6 +253,132 @@ async fn consume(
     complete(result, terminal)
 }
 impl SelectedPayloads {
+    /// Earn session preparation from the protected publication's exact inventory. The
+    /// cache receives mechanical data only; its caller attaches the reader owner after
+    /// the shared future resolves, avoiding a scope→cache→scope ownership cycle.
+    pub(crate) async fn for_published_session(client:Arc<Surreal<Client>>,completed:&crate::completed_state::PublishedCompletedState,
+        requested:&[ContentHash],cancelled:Option<Arc<std::sync::atomic::AtomicBool>>,budget:&ResourceBudget)->Result<Self,ModelError>{
+        let references=selected_references(completed.inventory(),requested,budget)?;
+        let source=SelectionSource::Session(client);let source=if let Some(flag)=cancelled{SelectionSource::Cancellable(Box::new(source),flag)}else{source};
+        Self::prepare_realizations(source,&references.0,budget).await
+    }
+    pub(crate) fn with_reader_owner(mut self,reader:crate::NativeReader<()>)->Self {
+        self.source=SelectionSource::Owned(Box::new(self.source),reader);self
+    }
+    /// A snapshot independently compares the protected marker and every selected
+    /// completion/mapping/hold/incarnation. The external capability keeps its publication
+    /// pin alive through cancellation, selected payload delivery and actual EOF.
+    pub async fn for_published_transaction(transaction:Arc<surrealdb::method::Transaction<Client>>,
+        completed:&crate::completed_state::PublishedCompletedState,requested:&[ContentHash],
+        cancelled:Arc<std::sync::atomic::AtomicBool>,budget:&ResourceBudget)->Result<Self,ModelError>{
+        completed.retained_reader().ensure_scope_live()?;
+        let source=SelectionSource::Cancellable(Box::new(SelectionSource::Transaction(transaction)),cancelled);
+        let references=selected_references(completed.inventory(),requested,budget)?;
+        check_publication_snapshot(&source,completed,budget).await?;
+        let mut result=Self::prepare_realizations(source,&references.0,budget).await?;
+        result.source=SelectionSource::Published(Box::new(result.source),completed.clone());
+        Ok(result)
+    }
+
+    /// Mechanical preparation over exact stable namespaces. These data-only references
+    /// do not grant admission; callers retain the completed-state/pin authority.
+    pub async fn for_realizations(client:Arc<Surreal<Client>>,references:&[crate::completed_state::InstalledViewRef],
+        cancelled:Option<Arc<std::sync::atomic::AtomicBool>>,budget:&ResourceBudget)->Result<Self,ModelError>{
+        let source=SelectionSource::Session(client);
+        let source=if let Some(flag)=cancelled {SelectionSource::Cancellable(Box::new(source),flag)}else{source};
+        Self::prepare_realizations(source,references,budget).await
+    }
+    async fn prepare_realizations(source:SelectionSource,references:&[crate::completed_state::InstalledViewRef],
+        budget:&ResourceBudget)->Result<Self,ModelError>{
+        let mut nodes=SortedRows::with_budget(budget)?;let mut owners=SortedRows::with_budget(budget)?;
+        for reference in references {
+            reference.validate()?;
+            let mut vars=Variables::new();vars.insert("realization",RecordId::new("compiler_view_realization",reference.realization.hex()));
+            consume(&source,"SELECT node FROM compiler_view_member WITH INDEX realization_nodes WHERE realization=$realization".into(),vars,|row|{
+                let Some(Value::RecordId(node))=row.as_object().and_then(|row|row.get("node")) else{return Err(ModelError::Schema("realized member pointer"));};
+                nodes.push(pointer(node.clone()))
+            }).await?;
+            let mut vars=Variables::new();vars.insert("completion",RecordId::new("compiler_view_completion",reference.installation_completion.hex()));
+            let mut found=false;
+            consume(&source,"SELECT * FROM $completion".into(),vars,|row|{
+                if found{return Err(ModelError::Conflict("realized completion cardinality"));}found=true;
+                let _decode=budget.reserve("realized selected map decode",crate::loader::native_bytes(&row).saturating_mul(32).saturating_add(65536))?;
+                let completed=crate::installed_view::InstalledViewCompletion::from_row(&row)?;
+                if completed.record()?!=RecordId::new("compiler_view_completion",reference.installation_completion.hex()) || completed.view.identity!=reference.logical_view || completed.realization!=reference.realization
+                    || completed.realization_incarnation!=reference.incarnation {
+                    return Err(ModelError::Conflict("realized selection foreign mapping"));
+                }
+                for mapping in completed.mappings {owners.push(pointer(RecordId::new("compiler_contribution",mapping.physical.hex())))?;}
+                Ok(())
+            }).await?;
+            if !found{return Err(ModelError::Conflict("realized selection completion missing"));}
+        }
+        let mut alias_ids=SortedRows::with_budget(budget)?;let mut owners=owners.finish()?;
+        while let Some(owner)=owners.next_row()? {
+            let mut vars=Variables::new();vars.insert("owner",id(&owner)?);
+            consume(&source,"SELECT object AS id FROM native_hold WITH INDEX owner_holds WHERE owner=$owner".into(),vars,|row|{
+                let alias=id(&row)?;if alias.table.as_str()=="compiler_alias"{alias_ids.push(pointer(alias))?;}Ok(())
+            }).await?;
+        }
+        let mut aliases=SortedRows::with_budget(budget)?;let mut alias_ids=alias_ids.finish()?;
+        loop {
+            let mut charge=StateCharge::new(budget,"realized alias read window");let mut ids=Vec::new();
+            while ids.len()<WINDOW {let Some(row)=alias_ids.next_row()? else{break;};let id=id(&row)?;charge.grow(node_bytes(&id).saturating_mul(3))?;ids.push(id);}
+            if ids.is_empty(){break;}
+            let expected=ids.clone();let mut vars=Variables::new();vars.insert("ids",ids);
+            let mut seen=BTreeSet::new();
+            consume(&source,"SELECT * FROM $ids".into(),vars,|row|{
+                let id=id(&row)?;if !expected.contains(&id) || !seen.insert(id){return Err(ModelError::Conflict("realized alias returned foreign/duplicate row"));}
+                aliases.push(row)
+            }).await?;
+            if seen.len()!=expected.len(){return Err(ModelError::Conflict("realized owned alias missing"));}
+        }
+        let (nodes,aliases)=Self::expand_owned_aliases(nodes.finish()?.into_prepared(),aliases.finish()?.into_prepared(),budget)?;
+        let membership=nodes.point_index(budget)?;
+        let mut charge=StateCharge::new(budget,"selected exact realization references");
+        charge.grow(references.len().saturating_mul(std::mem::size_of::<crate::completed_state::InstalledViewRef>()))?;
+        let exact=Arc::new(RealizationSelection{references:references.to_vec(),_charge:charge});
+        Ok(Self{exact:Some(exact),derivation:None,source,nodes,membership,aliases,budget:budget.clone()})
+    }
+    fn expand_owned_aliases(mut nodes:PreparedRows,owned:PreparedRows,budget:&ResourceBudget)->Result<(PreparedRows,PreparedRows),ModelError>{
+        let mut aliases=SortedRows::with_budget(budget)?;
+        loop {
+            let index=nodes.point_index(budget)?;let mut membership=index.cursor(budget)?;
+            let mut next=SortedRows::with_budget(budget)?;let mut previous=nodes.cursor_with_budget(budget)?;
+            while let Some(row)=previous.next_row()? {next.push(row)?;}
+            let mut candidates=owned.cursor_with_budget(budget)?;let mut changed=false;
+            while let Some(row)=candidates.next_row()? {
+                let object=row.as_object().ok_or(ModelError::Schema("realized alias object"))?;
+                let Some(Value::RecordId(source))=object.get("source") else{return Err(ModelError::Schema("realized alias source"));};
+                let Some(Value::RecordId(target))=object.get("target") else{return Err(ModelError::Schema("realized alias target"));};
+                if source.table.as_str()!="entity" || target.table.as_str()!="entity"{return Err(ModelError::Conflict("realized alias entity family"));}
+                if membership.contains(source)? {
+                    if !membership.contains(target)? {next.push(pointer(target.clone()))?;changed=true;}
+                    aliases.push(row)?;
+                }
+            }
+            if !changed{return Ok((nodes,aliases.finish()?.into_prepared()));}
+            nodes=next.finish()?.into_prepared();
+        }
+    }
+    pub fn with_derivation(mut self, derivation: ContentHash) -> Self {
+        self.derivation = Some(derivation);
+        self
+    }
+    fn bind_role_scope(&self, vars: &mut Variables) -> Result<ContentHash, ModelError> {
+        let derivation = self.derivation.ok_or(ModelError::Conflict(
+            "derived traversal requires exact derivation",
+        ))?;
+        vars.insert("lctx_derivation", derivation.hex());
+        Ok(derivation)
+    }
+    fn check_role_scope(row: &Value, derivation: ContentHash) -> Result<(), ModelError> {
+        let object = row.as_object().ok_or(ModelError::Schema("derived traversal object"))?;
+        if object.get("derivation") != Some(&Value::String(derivation.hex())) {
+            return Err(ModelError::Conflict("derived traversal returned foreign namespace"));
+        }
+        Ok(())
+    }
     pub fn with_read_cancellation(
         mut self,
         flag: Option<Arc<std::sync::atomic::AtomicBool>>,
@@ -388,6 +524,8 @@ impl SelectedPayloads {
         let (nodes, aliases) = Self::expand_nodes(&source, all, &budget, true).await?;
         let membership = nodes.point_index(&budget)?;
         Ok(Self {
+            exact: None,
+            derivation: None,
             source,
             nodes,
             membership,
@@ -657,6 +795,7 @@ impl SelectedPayloads {
         views: &[ContentHash],
         direct: &BTreeMap<RecordId, BTreeMap<ContentHash, (String, String, String)>>,
         budget: &ResourceBudget,
+        exact: Option<&Self>,
     ) -> Result<(), ModelError> {
         let mut charge = StateCharge::new(budget, "selected-nominal-membership");
         let mut expected: BTreeMap<&str, BTreeMap<&str, (&RecordId, &str)>> = BTreeMap::new();
@@ -698,11 +837,11 @@ impl SelectedPayloads {
                         break;
                     }
                     let mut vars = Variables::new();
-                    vars.insert("view", RecordId::new("compiler_view", view.hex()));
+                    let (field,index)=Self::membership_scope(*view,exact,&mut vars)?;
                     vars.insert("relation", (*relation).to_owned());
                     vars.insert("keys", nominated.clone());
                     let mut seen = BTreeSet::new();
-                    consume(source, "SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX view_key WHERE view=$view AND relation=$relation AND semantic_key IN $keys".into(), vars, |row| {
+                    consume(source, format!("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX {index}_key WHERE {field}=${field} AND relation=$relation AND semantic_key IN $keys"), vars, |row| {
                         let _scratch = budget.reserve("selected-nominal-membership-row", crate::loader::native_bytes(&row).saturating_mul(4))?;
                         let node = id(&row)?;
                         let Value::Object(object) = row else { return Err(ModelError::Schema("nominal membership witness object")); };
@@ -731,11 +870,30 @@ impl SelectedPayloads {
         }
         Ok(())
     }
-    async fn sparse_membership(
+    async fn sparse_membership(source:&SelectionSource, views:&[ContentHash], requested:&[RecordId], budget:&ResourceBudget)->Result<MembershipAnswers,ModelError>{
+        Self::sparse_membership_in(source,views,requested,budget,None).await
+    }
+    pub async fn membership_answers(&self,requested:&[RecordId],budget:&ResourceBudget)->Result<MembershipAnswers,ModelError>{
+        let exact=self.exact.as_ref().ok_or(ModelError::Conflict("exact realization membership required"))?;
+        let mut charge=StateCharge::new(budget,"membership requested exact views");
+        charge.grow(exact.references.len().saturating_mul(std::mem::size_of::<ContentHash>()))?;
+        let views=exact.references.iter().map(|reference|reference.logical_view).collect::<Vec<_>>();
+        Self::sparse_membership_in(&self.source,&views,requested,budget,Some(self)).await
+    }
+    fn membership_scope(view:ContentHash,exact:Option<&Self>,vars:&mut Variables)->Result<(&'static str,&'static str),ModelError>{
+        if let Some(exact)=exact {
+            let reference=exact.exact.as_ref().and_then(|scope|scope.references.iter().find(|reference|reference.logical_view==view))
+                .ok_or(ModelError::Conflict("missing exact view realization"))?;
+            vars.insert("realization",RecordId::new("compiler_view_realization",reference.realization.hex()));
+            Ok(("realization","realization"))
+        } else {vars.insert("view",RecordId::new("compiler_view",view.hex()));Ok(("view","view"))}
+    }
+    async fn sparse_membership_in(
         source: &SelectionSource,
         views: &[ContentHash],
         requested: &[RecordId],
         budget: &ResourceBudget,
+        exact: Option<&Self>,
     ) -> Result<MembershipAnswers, ModelError> {
         let mut graph_charge = StateCharge::new(budget, "selected-membership-ancestry");
         let mut graph: BTreeMap<RecordId, BTreeSet<RecordId>> = BTreeMap::new();
@@ -765,9 +923,9 @@ impl SelectedPayloads {
             }
             for view in views {
                 let mut vars = Variables::new();
-                vars.insert("view", RecordId::new("compiler_view", view.hex()));
+                let (field,index)=Self::membership_scope(*view,exact,&mut vars)?;
                 vars.insert("nodes", nodes.clone());
-                consume(source, "SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX view_nodes WHERE view=$view AND node IN $nodes".into(), vars, |row| {
+                consume(source, format!("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX {index}_nodes WHERE {field}=${field} AND node IN $nodes"), vars, |row| {
                     let _scratch = budget.reserve("selected-membership-row", crate::loader::native_bytes(&row).saturating_mul(4))?;
                     let node = id(&row)?;
                     if !nodes.contains(&node) { return Err(ModelError::Conflict("sparse membership returned foreign pointer")); }
@@ -790,7 +948,7 @@ impl SelectedPayloads {
             }
             let mut vars = Variables::new();
             vars.insert("sources", nodes.clone());
-            consume(source, "SELECT source,target,id FROM compiler_alias WITH INDEX alias_target WHERE target IN $sources".into(), vars, |row| {
+            let mut accept=|row:Value| -> Result<(),ModelError> {
                 let _scratch = budget.reserve("selected-membership-alias-row", crate::loader::native_bytes(&row).saturating_mul(4))?;
                 let Value::Object(object) = row else { return Err(ModelError::Schema("sparse alias object")); };
                 let ancestor = RecordId::from_value(object.get("source").cloned().ok_or(ModelError::Schema("sparse alias source"))?).map_err(ModelError::codec)?;
@@ -803,9 +961,17 @@ impl SelectedPayloads {
                 let parents = graph.get_mut(&target).ok_or(ModelError::Conflict("sparse alias frontier"))?;
                 if !parents.contains(&ancestor) { graph_charge.grow(node_bytes(&ancestor).saturating_add(32))?; parents.insert(ancestor); }
                 Ok(())
-            }).await?;
+            };
+            if let Some(exact)=exact {
+                let mut aliases=exact.aliases.cursor_with_budget(budget)?;
+                while let Some(row)=aliases.next_row()? {
+                    if row.as_object().and_then(|row|row.get("target")).is_some_and(|target|matches!(target,Value::RecordId(target) if nodes.contains(target))){accept(row)?;}
+                }
+            } else {
+                consume(source,"SELECT source,target,id FROM compiler_alias WITH INDEX alias_target WHERE target IN $sources".into(),vars,accept).await?;
+            }
         }
-        Self::validate_nominal_membership(source, views, &direct, budget).await?;
+        Self::validate_nominal_membership(source, views, &direct, budget, exact).await?;
         let mut charge = StateCharge::new(budget, "selected-membership-answers");
         let mut answers = Vec::new();
         for node in &requested_nodes {
@@ -933,6 +1099,7 @@ impl SelectedPayloads {
         views: Vec<ContentHash>,
         relation: String,
         budget: ResourceBudget,
+        exact: Option<Self>,
     ) -> Result<NativeRows, ModelError> {
         NativeRows::owned(move |sender| async move {
             let mut nominated = SortedRows::with_budget(&budget)?;
@@ -950,9 +1117,9 @@ impl SelectedPayloads {
                         return Ok(());
                     }
                     let mut vars = Variables::new();
-                    vars.insert("view", RecordId::new("compiler_view", view.hex()));
+                    let (field,index)=Self::membership_scope(*view,exact.as_ref(),&mut vars)?;
                     vars.insert("relation", selected_relation.to_owned());
-                    consume(&source, "SELECT node AS id FROM compiler_view_member WITH INDEX view_key WHERE view=$view AND relation=$relation".into(), vars, |row| {
+                    consume(&source, format!("SELECT node AS id FROM compiler_view_member WITH INDEX {index}_key WHERE {field}=${field} AND relation=$relation"), vars, |row| {
                         let node = id(&row)?;
                         if selected_relation == relation { nominated.push(pointer(node)) }
                         else if node.table.as_str() != "entity" { Err(ModelError::Conflict("canonical endpoint source family")) }
@@ -963,9 +1130,10 @@ impl SelectedPayloads {
             if !source_relations.is_empty() && !sender.is_closed() {
                 // Reuse the cycle-safe disk-backed forward traversal on just these
                 // selected source relations. No complete view is prepared here.
-                let (expanded, _) =
-                    Self::expand_nodes(&source, seeds.finish()?.into_prepared(), &budget, false)
-                        .await?;
+                let seeds=seeds.finish()?.into_prepared();
+                let (expanded,_) = if let Some(exact)=&exact {
+                    Self::expand_owned_aliases(seeds,exact.aliases.clone(),&budget)?
+                } else { Self::expand_nodes(&source,seeds,&budget,false).await? };
                 let mut cursor = expanded.cursor_with_budget(&budget)?;
                 loop {
                     if sender.is_closed() {
@@ -1017,6 +1185,20 @@ impl SelectedPayloads {
     }
     /// Compact indexed nominations are intersected with the exact selected identity set
     /// before any canonical/body payload is fetched. Sorting owns request scratch only.
+    pub fn relation_candidates(&self,relation:&str,table:&str,budget:&ResourceBudget)->Result<NativeRows,ModelError>{
+        let exact=self.exact.as_ref().ok_or(ModelError::Conflict("exact realization relation required"))?;
+        let mut charge=StateCharge::new(budget,"relation exact view identifiers");
+        charge.grow(exact.references.len().saturating_mul(std::mem::size_of::<ContentHash>()))?;
+        let views=exact.references.iter().map(|reference|reference.logical_view).collect();
+        // The future owns this vector and its admission until all nominations drain.
+        let selected=self.clone();let relation=relation.to_owned();let table=table.to_owned();let budget=budget.clone();
+        NativeRows::owned(move|sender|async move {
+            let _charge=charge;
+            let mut rows=Self::candidate_rows_from(selected.source.clone(),Some(selected),views,CandidateNominations::Relation(relation),&table,"semantic_key",&budget)?;
+            let result=async {while let Some(row)=rows.next().await? {if sender.send(row).await.is_err(){rows.cancel_delivery();break;}}Ok(())}.await;
+            let mut completion=Completion::default();completion.step("exact relation candidates drainage",rows.drain_transport().await);complete(result,completion)
+        })
+    }
     pub fn candidate_rows(
         &self,
         candidates: crate::prepared::PreparedQuery,
@@ -1088,6 +1270,7 @@ impl SelectedPayloads {
                     views.clone(),
                     relation,
                     budget.clone(),
+                    selected.clone(),
                 )?,
             }
             .with_row_bytes(MAX_ROW_BYTES);
@@ -1126,7 +1309,10 @@ impl SelectedPayloads {
                     }
                     let nodes = match &selected {
                         Some(selected) => {
-                            selected.filter_members_with_budget(&nominated, &budget)?
+                            if selected.exact.is_some() {
+                                selected.membership_answers(&nominated,&budget).await?.answers.into_iter()
+                                    .filter(|answer|answer.selected).map(|answer|answer.requested).collect()
+                            } else {selected.filter_members_with_budget(&nominated, &budget)?}
                         }
                         None => Self::sparse_membership(&source, &views, &nominated, &budget)
                             .await?
@@ -1229,6 +1415,7 @@ impl SelectedPayloads {
     fn recovery_derived(&self, roles: bool) -> Result<NativeRows, ModelError> {
         let selected = self.clone();
         NativeRows::owned(move |sender| async move {
+            if roles { selected.bind_role_scope(&mut Variables::new())?; }
             let mut actual = SortedRows::with_budget(&selected.budget)?;
             let mut endpoints = SortedRows::with_budget(&selected.budget)?;
             for table in crate::recovery::recovery_tables(if roles {
@@ -1259,6 +1446,8 @@ impl SelectedPayloads {
                         break;
                     }
                     let mut vars = Variables::new();
+                    let derivation = if roles { Some(selected.bind_role_scope(&mut vars)?) } else { None };
+                    let namespace = if roles { " AND derivation = $lctx_derivation" } else { "" };
                     vars.insert("nodes", nodes);
                     let (index, field) = if roles {
                         ("outgoing", "in")
@@ -1277,9 +1466,10 @@ impl SelectedPayloads {
                     };
                     consume(
                         &selected.source,
-                        format!("SELECT * FROM {table} WITH INDEX {index} WHERE {field} IN $nodes"),
+                        format!("SELECT * FROM {table} WITH INDEX {index} WHERE {field} IN $nodes{namespace}"),
                         vars,
                         |row| {
+                            if let Some(derivation) = derivation { Self::check_role_scope(&row, derivation)?; }
                             let Value::Object(object) = &row else {
                                 return Err(ModelError::Schema("recovery derived object"));
                             };
@@ -1401,6 +1591,12 @@ impl SelectedPayloads {
         let selected = self.clone();
         let table = table.to_owned();
         NativeRows::owned(move |sender| async move {
+            if table=="compiler_alias" && selected.exact.is_some() {
+                let mut aliases=selected.aliases.cursor_with_budget(&selected.budget)?;
+                while let Some(row)=aliases.next_row()? {if sender.send(row).await.is_err(){break;}}
+                return Ok(());
+            }
+            if table != "compiler_alias" { selected.bind_role_scope(&mut Variables::new())?; }
             let mut sorted = SortedRows::with_budget(&selected.budget)?;
             let mut cursor = selected.pointers()?;
             loop {
@@ -1418,6 +1614,8 @@ impl SelectedPayloads {
                     break;
                 }
                 let mut vars = Variables::new();
+                let derivation = if table == "compiler_alias" { None } else { Some(selected.bind_role_scope(&mut vars)?) };
+                let namespace = if derivation.is_some() { " AND derivation = $lctx_derivation" } else { "" };
                 vars.insert("nodes", batch);
                 let (index, field) = if table == "compiler_alias" {
                     ("alias_source", "source")
@@ -1426,9 +1624,12 @@ impl SelectedPayloads {
                 };
                 consume(
                     &selected.source,
-                    format!("SELECT * FROM {table} WITH INDEX {index} WHERE {field} IN $nodes"),
+                    format!("SELECT * FROM {table} WITH INDEX {index} WHERE {field} IN $nodes{namespace}"),
                     vars,
-                    |row| sorted.push(row),
+                    |row| {
+                        if let Some(derivation) = derivation { Self::check_role_scope(&row, derivation)?; }
+                        sorted.push(row)
+                    },
                 )
                 .await?;
             }
@@ -1446,6 +1647,132 @@ impl SelectedPayloads {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn exact_owned_alias_preparation_keeps_selected_branch_multiplicity_and_ignores_unreachable_other_outputs(){
+        let budget=ResourceBudget::fixed(16<<20).unwrap();let mut seeds=SortedRows::with_budget(&budget).unwrap();
+        seeds.push(pointer(RecordId::new("entity","selected"))).unwrap();
+        let mut aliases=SortedRows::with_budget(&budget).unwrap();
+        for (ordinal,(source,target)) in [("selected","a"),("selected","b"),("a","c"),("c","a"),("unselected-sibling","foreign")].into_iter().enumerate(){
+            let mut row=Object::new();row.insert("id",RecordId::new("compiler_alias",ordinal as i64));row.insert("source",RecordId::new("entity",source));row.insert("target",RecordId::new("entity",target));aliases.push(Value::Object(row)).unwrap();
+        }
+        let (nodes,aliases)=SelectedPayloads::expand_owned_aliases(seeds.finish().unwrap().into_prepared(),aliases.finish().unwrap().into_prepared(),&budget).unwrap();
+        let mut cursor=nodes.cursor_with_budget(&budget).unwrap();let mut actual=BTreeSet::new();while let Some(row)=cursor.next_row().unwrap(){actual.insert(id(&row).unwrap());}
+        assert_eq!(actual,["selected","a","b","c"].map(|key|RecordId::new("entity",key)).into(),"every reachable branch remains visible for nominal ambiguity checks");
+        let mut cursor=aliases.cursor_with_budget(&budget).unwrap();let mut count=0;while cursor.next_row().unwrap().is_some(){count+=1;}
+        assert_eq!(count,4,"reachable cycle terminates and aliases from unselected sibling outputs remain outside demand");
+    }
+
+    fn role_selection(source: SelectionSource, nodes: &[RecordId], budget: ResourceBudget) -> SelectedPayloads {
+        let mut rows = SortedRows::with_budget(&budget).unwrap();
+        for node in nodes { rows.push(pointer(node.clone())).unwrap(); }
+        let nodes = rows.finish().unwrap().into_prepared();
+        let membership = nodes.point_index(&budget).unwrap();
+        SelectedPayloads {
+            exact: None,
+            derivation: None, source, nodes, membership,
+            aliases: SortedRows::with_budget(&budget).unwrap().finish().unwrap().into_prepared(),
+            budget,
+        }
+    }
+    #[tokio::test]
+    async fn exact_membership_uses_realization_and_owned_aliases_and_refuses_unseen_nominal_variant() {
+        fn reference(logical:&str,physical:&str)->crate::completed_state::InstalledViewRef{
+            crate::completed_state::InstalledViewRef{logical_view:ContentHash::of(logical.as_bytes()),realization:ContentHash::of(physical.as_bytes()),incarnation:1,installation_completion:ContentHash::of(b"completion")}
+        }
+        let one=reference("logical one","selected physical one");let two=reference("logical two","selected physical two");
+        let direct=RecordId::new("entity","source");let target=RecordId::new("entity","owned target");let variant=RecordId::new("entity","unseen variant");
+        let nominal_queries=Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        for conflict in [false,true] {
+            let budget=ResourceBudget::fixed(4<<20).unwrap();let source_node=direct.clone();let variant=variant.clone();let realization_one=one.realization;
+            let observed=nominal_queries.clone();
+            let source=SelectionSource::Fixture(Arc::new(move|query|{
+                let (sql,vars)=query.into_request();
+                assert!(!sql.contains("compiler_alias"),"exact reverse aliases must use retained owned inventory: {sql}");
+                assert!(!vars.contains_key("view"),"logical view cannot select an arbitrary physical copy");
+                let selected=vars.get("realization")==Some(&Value::RecordId(RecordId::new("compiler_view_realization",realization_one.hex())));
+                let mut rows=Vec::new();
+                if sql.contains("realization_nodes") {
+                    let requested:Vec<RecordId>=Vec::from_value(vars.get("nodes").cloned().unwrap()).unwrap();
+                    if selected && requested.contains(&source_node){rows.push(source_node.clone());}
+                } else if sql.contains("realization_key") {
+                    observed.fetch_add(1,std::sync::atomic::Ordering::SeqCst);
+                    if selected {rows.push(source_node.clone());}else if conflict{rows.push(variant.clone());}
+                } else {panic!("unexpected exact membership query: {sql}");}
+                let rows=rows.into_iter().map(|node|{let mut row=Object::new();row.insert("id",node);row.insert("relation","places");row.insert("semantic_key","same nominal key");row.insert("content","same canonical content");Value::Object(row)}).collect::<Vec<_>>();
+                NativeRows::owned(move|sender|async move{for row in rows{if sender.send(row).await.is_err(){break;}}Ok(())})
+            }));
+            let mut selected=role_selection(source,&[direct.clone(),target.clone()],budget.clone());
+            let mut refs=vec![one.clone(),two.clone()];refs.sort_by_key(|reference|reference.logical_view);
+            let mut charge=StateCharge::new(&budget,"test exact references");charge.grow(refs.len()*std::mem::size_of::<crate::completed_state::InstalledViewRef>()).unwrap();
+            selected.exact=Some(Arc::new(RealizationSelection{references:refs,_charge:charge}));
+            let mut aliases=SortedRows::with_budget(&budget).unwrap();let mut alias=Object::new();alias.insert("id",RecordId::new("compiler_alias","owned edge"));alias.insert("source",direct.clone());alias.insert("target",target.clone());aliases.push(Value::Object(alias)).unwrap();selected.aliases=aliases.finish().unwrap().into_prepared();
+            let result=selected.membership_answers(&[target.clone()],&budget).await;
+            if conflict {assert!(result.is_err(),"off-nomination selected nominal variant must refuse the answer");}
+            else {let answer=result.unwrap();assert!(answer.contains(&target));assert_eq!(answer.answers[0].witnesses.len(),1);assert_eq!(answer.answers[0].witnesses[0].ancestry,vec![target.clone(),direct.clone()]);}
+        }
+        assert!(nominal_queries.load(std::sync::atomic::Ordering::SeqCst)>=4,"every selected physical namespace must be checked for witnessed nominal keys");
+    }
+
+    #[tokio::test]
+    async fn derived_outgoing_scopes_before_enumeration_and_keeps_unexpected_selected_roles() {
+        let derivation = ContentHash::of(b"selected implementation");
+        let node = RecordId::new("entity", "selected");
+        let selected_node = node.clone();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = calls.clone();
+        let source = SelectionSource::Fixture(Arc::new(move |query| {
+            let (sql, vars) = query.into_request();
+            assert!(sql.contains("AND derivation = $lctx_derivation"), "namespace must constrain actual nomination: {sql}");
+            assert_eq!(vars.get("lctx_derivation"), Some(&Value::String(derivation.hex())));
+            assert_eq!(Vec::<RecordId>::from_value(vars.get("nodes").unwrap().clone()).unwrap(), vec![selected_node.clone()]);
+            observed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let table = if sql.contains("FROM participant ") { "participant" } else { "reference" };
+            let rows = ["expected", "unexpected-selected-role"].map(|field| {
+                let mut row = Object::new();
+                row.insert("id", RecordId::new(table, field));
+                row.insert("in", selected_node.clone());
+                row.insert("out", RecordId::new("external", field));
+                row.insert("field", field);
+                row.insert("derivation", derivation.hex());
+                Value::Object(row)
+            });
+            NativeRows::owned(move |sender| async move {
+                for row in rows { if sender.send(row).await.is_err() { break; } }
+                Ok(())
+            })
+        }));
+        let selected = role_selection(source, &[node], ResourceBudget::fixed(8 << 20).unwrap()).with_derivation(derivation);
+        for table in ["participant", "reference"] {
+            let mut rows = selected.outgoing(table).unwrap();
+            let mut fields = BTreeSet::new();
+            while let Some(row) = rows.next_native().await.unwrap() {
+                fields.insert(String::from_value(row.as_object().unwrap().get("field").unwrap().clone()).unwrap());
+            }
+            rows.drain_transport().await.unwrap();
+            assert_eq!(fields, BTreeSet::from(["expected".to_owned(), "unexpected-selected-role".to_owned()]), "actual unexpected roles remain independent integrity claims");
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 2);
+    }
+    #[tokio::test]
+    async fn unqualified_derived_demand_refuses_even_empty_selection_before_native_access() {
+        let source = SelectionSource::Fixture(Arc::new(|_| panic!("unqualified derived demand must refuse before native access")));
+        let selected = role_selection(source, &[], ResourceBudget::fixed(8 << 20).unwrap());
+        for mut rows in [selected.outgoing("reference").unwrap(), selected.recovery_roles().unwrap()] {
+            let error = rows.next_native().await.unwrap_err();
+            assert!(error.to_string().contains("exact derivation"), "{error}");
+            let _ = rows.drain_transport().await;
+        }
+        let mut canonical = selected.outgoing("compiler_alias").unwrap();
+        assert!(canonical.next_native().await.unwrap().is_none());
+        canonical.drain_transport().await.unwrap();
+    }
+    #[test]
+    fn role_namespace_readback_refuses_foreign_rows() {
+        let mut row = Object::new();
+        row.insert("derivation", ContentHash::of(b"foreign").hex());
+        assert!(SelectedPayloads::check_role_scope(&Value::Object(row), ContentHash::of(b"selected")).is_err());
+    }
+
     #[tokio::test]
     async fn root_windows_preserve_indexed_exact_union_across_chunk_boundaries() {
         for owners in [false, true] {
@@ -1722,6 +2049,8 @@ mod tests {
         let nodes = nodes.finish().unwrap().into_prepared();
         let membership = nodes.point_index(&budget).unwrap();
         let selected = SelectedPayloads {
+            exact: None,
+            derivation: None,
             membership,
             source: SelectionSource::Session(Arc::new(Surreal::init())),
             nodes,
@@ -1912,6 +2241,8 @@ mod tests {
         let payload_reads = Arc::new(AtomicUsize::new(0));
         let observed = payload_reads.clone();
         let selected = SelectedPayloads {
+            exact: None,
+            derivation: None,
             nodes,
             membership,
             aliases: SortedRows::with_budget(&retained)
@@ -2150,6 +2481,8 @@ mod tests {
             })
         }));
         let selected = SelectedPayloads {
+            exact: None,
+            derivation: None,
             source,
             nodes,
             membership,
@@ -2266,4 +2599,90 @@ mod tests {
             assert_eq!(budget.reserved(), 0);
         }
     }
+}
+
+fn selected_references(inventory:&crate::completed_state::InstalledViewInventory,requested:&[ContentHash],budget:&ResourceBudget)
+    ->Result<(Vec<crate::completed_state::InstalledViewRef>,StateCharge),ModelError>{
+    if requested.windows(2).any(|pair|pair[0]>=pair[1]){return Err(ModelError::Conflict("published exact requested view order/duplicate"));}
+    let mut charge=StateCharge::new(budget,"published exact selected view references");charge.grow(requested.len().saturating_mul(std::mem::size_of::<crate::completed_state::InstalledViewRef>()))?;
+    let mut references=Vec::with_capacity(requested.len());for view in requested{references.push(inventory.view(*view)?.clone());}Ok((references,charge))
+}
+async fn snapshot_row(source:&SelectionSource,id:RecordId,expected:&Value)->Result<(),ModelError>{
+    let mut vars=Variables::new();vars.insert("record",id);let mut found=false;
+    consume(source,"SELECT * FROM $record".into(),vars,|row|{if found || &row!=expected{return Err(ModelError::Conflict("published transaction exact witness bytes"));}found=true;Ok(())}).await?;
+    if !found{return Err(ModelError::Conflict("published transaction witness missing"));}Ok(())
+}
+async fn snapshot_incarnation(source:&SelectionSource,id:&RecordId,incarnation:i64)->Result<(),ModelError>{
+    let mut vars=Variables::new();vars.insert("guard",crate::control::guard_id(&Value::RecordId(id.clone()))?);let mut found=false;
+    consume(source,"SELECT phase,incarnation FROM $guard".into(),vars,|row|{
+        if found || row.as_object().and_then(|row|row.get("phase"))!=Some(&Value::String("active".into()))
+            || row.as_object().and_then(|row|row.get("incarnation"))!=Some(&Value::from(incarnation)) {
+            return Err(ModelError::Conflict("published transaction exact witness incarnation"));
+        }found=true;Ok(())
+    }).await?;
+    if !found{return Err(ModelError::Conflict("published transaction witness guard missing"));}Ok(())
+}
+async fn snapshot_hold(source:&SelectionSource,owner:&RecordId,object:&RecordId)->Result<(),ModelError>{
+    let mut vars=Variables::new();vars.insert("owner",owner.clone());vars.insert("object",object.clone());let mut count=0;
+    consume(source,"SELECT id FROM native_hold WITH INDEX owner_holds WHERE owner=$owner AND object=$object LIMIT 2".into(),vars,|_|{count+=1;Ok(())}).await?;
+    if count!=1{return Err(ModelError::Conflict("published transaction exact hold missing/duplicate"));}Ok(())
+}
+async fn check_publication_snapshot(source:&SelectionSource,completed:&crate::completed_state::PublishedCompletedState,budget:&ResourceBudget)->Result<(),ModelError>{
+    let marker=completed.marker();let data=completed.completion();let identity=data.identity()?;
+    let Some(Value::RecordId(publication))=marker.get("id") else{return Err(ModelError::Schema("published transaction marker id"));};
+    snapshot_row(source,publication.clone(),&Value::Object(marker.clone())).await?;
+    snapshot_row(source,data.record()?,&data.value(true)?).await?;snapshot_incarnation(source,&data.record()?,completed.incarnation()).await?;
+    let admission=completed.admission();snapshot_row(source,admission.record()?,&admission.value()?).await?;
+    snapshot_incarnation(source,&admission.record()?,completed.admission_incarnation()).await?;
+    snapshot_hold(source,&admission.record()?,&data.record()?).await?;
+    let Some(Value::RecordId(root))=marker.get("staging_root") else{return Err(ModelError::Schema("published transaction root"));};
+    let Some(Value::Number(surrealdb::types::Number::Int(root_inc)))=marker.get("staging_incarnation") else{return Err(ModelError::Schema("published transaction root incarnation"));};
+    snapshot_incarnation(source,root,*root_inc).await?;
+    snapshot_hold(source,publication,root).await?;snapshot_hold(source,root,&data.record()?).await?;snapshot_hold(source,root,&admission.record()?).await?;
+    let mut vars=Variables::new();vars.insert("generation",data.generation.hex());vars.insert("epoch",data.validity_epoch);let mut found=false;
+    consume(source,"SELECT id FROM native_installation:current WHERE generation=$generation AND validity_epoch=$epoch".into(),vars,|_|{if found{return Err(ModelError::Conflict("snapshot installation duplicate"));}found=true;Ok(())}).await?;
+    if !found{return Err(ModelError::Conflict("published transaction current validity epoch"));}
+    let mut hasher=crate::completed_state::RealizationHasher::default();let mut seen=0usize;
+    let mut vars=Variables::new();vars.insert("completion",data.record()?);
+    consume(source,"SELECT * FROM native_completed_view WITH INDEX completion_view WHERE completion=$completion ORDER BY logical_view,id".into(),vars,|row|{
+        let reference=crate::completed_state::InstalledViewRef::from_row(&row,identity)?;hasher.row(&reference)?;
+        if completed.inventory().references().get(seen)!=Some(&reference){return Err(ModelError::Conflict("published transaction exact complete inventory"));}seen+=1;Ok(())
+    }).await?;
+    if seen!=completed.inventory().references().len() || hasher.finish()!=data.realization_inventory{return Err(ModelError::Conflict("published transaction inventory actual EOF"));}
+    for reference in completed.inventory().references(){
+        let installed=completed.inventory().installed(reference.logical_view)?;
+        snapshot_hold(source,&data.record()?,&reference.record(identity)).await?;
+        snapshot_row(source,installed.record()?,&installed.value()?).await?;
+        let realization=RecordId::new("compiler_view_realization",reference.realization.hex());
+        snapshot_row(source,realization.clone(),&installed.realization_value()?).await?;snapshot_incarnation(source,&realization,reference.incarnation).await?;
+        snapshot_hold(source,&data.record()?,&installed.record()?).await?;snapshot_hold(source,&installed.record()?,&realization).await?;
+        for mapping in &installed.mappings {
+            let owner=RecordId::new("compiler_contribution",mapping.physical.hex());snapshot_incarnation(source,&owner,mapping.incarnation).await?;
+            let mut vars=Variables::new();vars.insert("owner",owner.clone());let mut found=false;
+            consume(source,"SELECT * FROM $owner".into(),vars,|row|{
+                if found{return Err(ModelError::Conflict("snapshot contributor duplicate"));}found=true;
+                let _scratch=budget.reserve("snapshot selected contributor decode",crate::loader::native_bytes(&row).saturating_mul(32).saturating_add(65536))?;
+                crate::completed_rows::validate_state_row("compiler_contribution",&row)?;
+                if row.as_object().and_then(|row|row.get("logical"))!=Some(&Value::String(mapping.logical.hex())){return Err(ModelError::Conflict("snapshot selected contributor logical identity"));}Ok(())
+            }).await?;
+            if !found{return Err(ModelError::Conflict("snapshot contributor missing"));}snapshot_hold(source,&realization,&owner).await?;
+        }
+    }
+    let mut bindings=Vec::new();let mut vars=Variables::new();vars.insert("completion",data.record()?);
+    let mut charge=StateCharge::new(budget,"snapshot exact canonical binding inventory");
+    consume(source,"SELECT object AS id FROM native_hold WITH INDEX owner_holds WHERE owner=$completion AND record::table(object)='compiler_binding_descriptor' ORDER BY object".into(),vars,|row|{
+        let address=id(&row)?;charge.grow(node_bytes(&address).saturating_mul(2).saturating_add(128))?;bindings.push(address);Ok(())
+    }).await?;
+    if bindings.len()!=completed.inventory().bindings().len(){return Err(ModelError::Conflict("snapshot complete binding hold EOF"));}
+    for binding in completed.inventory().bindings(){
+        let id=crate::binding_descriptor::record(binding)?;
+        if !bindings.contains(&id){return Err(ModelError::Conflict("snapshot missing canonical binding hold"));}
+        snapshot_row(source,id.clone(),&crate::binding_descriptor::value(binding)?).await?;
+        snapshot_incarnation(source,&id,completed.inventory().binding_incarnation(binding.descriptor_identity()?)?).await?;
+        snapshot_hold(source,&id,&RecordId::new("compiler_view",binding.view.identity.hex())).await?;
+    }
+    // The marker comparison is repeated under the same snapshot; external capability
+    // liveness is checked again before any prepared selection escapes this constructor.
+    snapshot_row(source,publication.clone(),&Value::Object(marker.clone())).await?;
+    completed.retained_reader().ensure_scope_live()
 }

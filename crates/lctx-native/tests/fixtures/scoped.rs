@@ -7,7 +7,8 @@ use lctx_model::domain::{
     resources::ResourceBudget,
     stages::{Profile, ProviderOutcome},
 };
-use lctx_native::{NativeReader, RuntimeConfig, compiler::NativeCompilerStore};
+use lctx_native::{NativeReader, RuntimeConfig};
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -88,7 +89,7 @@ pub async fn reader_at_frontier(
         .begin_contribution(ContributionSpec {
             captured_binding: None,
             producer: "scoped-native-kernel-fixture".into(),
-            profile: Profile::Catalog,
+            profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
             model: model.digest(),
             implementation: ContentHash::of(b"scoped-native-kernel-fixture/v1"),
             configuration: None,

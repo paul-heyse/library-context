@@ -57,6 +57,9 @@ pub struct CoverageObservation {
     availability: EvidenceAvailability,
 }
 impl CoverageObservation {
+    pub fn uniform(evidence:&uniform_outcome::UniformScopedEvidence)->Self {
+        Self{source:CoverageSource::UniformNative{descriptor:evidence.descriptor(),scope:evidence.scope()},scope:evidence.scope(),context:evidence.context(),availability:EvidenceAvailability::NotRequested}
+    }
     pub fn native(row: &ProviderCoverage) -> Result<Self, ModelError> {
         row.validate()?;
         let availability = match row.status {
@@ -240,7 +243,7 @@ impl CoverageExpectation {
     }
 }
 pub(crate) fn coverage_invariants()->Vec<Invariant> {
-    vec![Invariant { purpose: crate::domain::InvariantPurpose::Admission, revision: 1, name:owner_table!("analysis_coverage_membership"),inputs: coverage_inputs(),create:std::sync::Arc::new(|budget|Box::new(CoverageCheck { charge:charged::StateCharge::new(budget,"analysis_coverage_membership"),invocations:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),members:Default::default(),sources:Default::default(),native:Default::default(),normalized:Default::default(),predecessors:Default::default() })) }]
+    vec![Invariant { purpose: crate::domain::InvariantPurpose::Admission, revision: 1, name:owner_table!("analysis_coverage_membership"),inputs: coverage_inputs(),create:std::sync::Arc::new(|budget|Box::new(CoverageCheck { uniform_owners:uniform_outcome::UniformOwners::new(budget),uniform:Default::default(),charge:charged::StateCharge::new(budget,"analysis_coverage_membership"),invocations:Default::default(),outcomes:Default::default(),requirements:Default::default(),required:Default::default(),coverage:Default::default(),members:Default::default(),sources:Default::default(),native:Default::default(),normalized:Default::default(),predecessors:Default::default() })) }]
 }
 fn coverage_inputs()->Vec<ValidationInput> {let mut inputs=vec![
         ValidationInput::of::<AnalysisInvocation>(&["id"]),
@@ -251,9 +254,12 @@ fn coverage_inputs()->Vec<ValidationInput> {let mut inputs=vec![
         ValidationInput::of::<AnalysisCoveragePremise>(&["id"]),
         ValidationInput::of::<CoverageSource>(&["id"]),
         ValidationInput::of::<ProviderCoverage>(&["id"]),
+        ValidationInput::of::<uniform_outcome::UniformNotRequested>(&["id"]),
     ]; normalized_coverage_inputs(&mut inputs); predecessor_coverage_inputs(&mut inputs); inputs
 }
 struct CoverageCheck {
+    uniform_owners:uniform_outcome::UniformOwners,
+    uniform:charged::ChargedMap<Id<uniform_outcome::UniformNotRequested>,uniform_outcome::UniformNotRequested>,
     predecessors:charged::ChargedMap<derivation::RowRef,(Id<source::CoverageScope>,Id<attribution::AnalysisContext>,normalized::coverage::EvidenceAvailability)>,
     charge:charged::StateCharge,
     invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,
@@ -267,6 +273,7 @@ struct CoverageCheck {
     normalized:charged::ChargedMap<Id<NormalizationCoverage>,NormalizationCoverage>,
 }
 impl InvariantCheck for CoverageCheck {
+    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform_owners.include(owner)}
     fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
         macro_rules! insert { ($r:ty,$field:ident,$key:expr) => { if relation==<$r>::NAME { for row in <$r>::decode(batch)? { let key=$key(&row); if self.$field.insert(&mut self.charge,key,row)?.is_some() { return Err(ModelError::Conflict(<$r>::NAME)); } } return Ok(()); } }; }
         insert!(AnalysisInvocation,invocations,|r:&AnalysisInvocation|r.id());
@@ -275,6 +282,7 @@ impl InvariantCheck for CoverageCheck {
         insert!(AnalysisCoverage,coverage,|r:&AnalysisCoverage|r.id());
         insert!(CoverageSource,sources,|r:&CoverageSource|r.id());
         insert!(ProviderCoverage,native,|r:&ProviderCoverage|r.id());
+        insert!(uniform_outcome::UniformNotRequested,uniform,|r:&uniform_outcome::UniformNotRequested|r.id());
         if normalization_enabled() {insert!(NormalizationCoverage,normalized,|r:&NormalizationCoverage|r.id());}
         if relation==CoverageRequiredSource::NAME { for row in CoverageRequiredSource::decode(batch)? { if !self.required.update(&mut self.charge,row.requirement,|m|m.insert(row.source))? { return Err(invalid("duplicate required coverage source")); } } return Ok(()); }
         if relation==AnalysisCoveragePremise::NAME { for row in AnalysisCoveragePremise::decode(batch)? { if !self.members.update(&mut self.charge,row.coverage,|m|m.insert(row.source))? { return Err(invalid("duplicate stored coverage premise")); } } return Ok(()); }
@@ -299,6 +307,12 @@ impl InvariantCheck for CoverageCheck {
                 let source=self.sources.get(id).ok_or_else(||invalid("required coverage source absent"))?;
                 observations.push(match source {
                     CoverageSource::Native { coverage }=>CoverageObservation::native(self.native.get(coverage).ok_or_else(||invalid("native coverage absent"))?)?,
+                    CoverageSource::UniformNative{descriptor,scope}=>{
+                        let row=self.uniform.get(descriptor).ok_or_else(||invalid("uniform coverage descriptor absent"))?;
+                        let owner=self.uniform_owners.require(row)?;
+                        let evidence=owner.scoped_evidence(*scope,row.definitions).ok_or_else(||invalid("uniform coverage premise outside admitted domain"))?;
+                        CoverageObservation::uniform(&evidence)
+                    },
                     CoverageSource::Analysis { coverage }=>CoverageObservation::analysis(self.coverage.get(coverage).ok_or_else(||invalid("lower analysis coverage absent"))?)?,
                     #[allow(unreachable_patterns,reason="Owners without final normalization coverage or predecessors have no other source variants")]
                     other=>{if let Some(id)=normalized_reference(other) {CoverageObservation::normalized(self.normalized.get(&id).ok_or_else(||invalid("normalization coverage absent"))?)?} else {let (scope,context,availability)=*self.predecessors.get(&other.reference()).ok_or_else(||invalid("predecessor coverage absent"))?;CoverageObservation {source:other.clone(),scope,context,availability}}},
@@ -323,13 +337,13 @@ pub struct AdmittedCoverage {scopes:Vec<AdmittedScope>,_reservation:Box<dyn reso
 pub struct AdmittedScope {expectation:CoverageExpectation,observations:Vec<CoverageObservation>}
 impl AdmittedScope {pub fn expectation(&self)->&CoverageExpectation {&self.expectation}pub fn observations(&self)->&[CoverageObservation] {&self.observations}}
 impl AdmittedCoverage {pub fn scopes(&self)->&[AdmittedScope] {&self.scopes}}
-fn admitted_scope(invocation:Id<AnalysisInvocation>,capability:AnalysisCapability,scope:&crate::domain::analysis::expected::ExpectedScope)->Result<AdmittedScope,ModelError> {let mut observations=Vec::with_capacity(scope.native.len()+scope.normalized.len());for row in &scope.native {observations.push(CoverageObservation::native(row)?);}for row in &scope.normalized {observations.push(CoverageObservation::normalized(row)?);}let expectation=CoverageExpectation {invocation,capability,scope:scope.scope,context:scope.context,requested:scope.requested,no_scope:scope.no_scope,sources:observations.iter().map(|r|r.source.id()).collect()};Ok(AdmittedScope {expectation,observations})}
+fn admitted_scope(invocation:Id<AnalysisInvocation>,capability:AnalysisCapability,scope:&crate::domain::analysis::expected::ExpectedScope)->Result<AdmittedScope,ModelError> {let mut observations=Vec::with_capacity(scope.native.len()+scope.uniform.len()+scope.normalized.len());for row in &scope.native {observations.push(CoverageObservation::native(row)?);}for row in &scope.uniform {observations.push(CoverageObservation::uniform(row));}for row in &scope.normalized {observations.push(CoverageObservation::normalized(row)?);}let expectation=CoverageExpectation {invocation,capability,scope:scope.scope,context:scope.context,requested:scope.requested,no_scope:scope.no_scope,sources:observations.iter().map(|r|r.source.id()).collect()};Ok(AdmittedScope {expectation,observations})}
 /// Producer-side operation over captured declared inputs. The publication callback independently
 /// repeats this operation against actual physical input rows and the effect owner's profile.
 pub fn admit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,capability:AnalysisCapability,admission:&crate::domain::analysis::expected::CoverageAdmission<'_>,budget:&resources::ResourceBudget)->Result<AdmittedCoverage,ModelError> {
     if invocation.definition!=definition.id() {return Err(invalid("coverage changes the invocation definition"));}
     let domain=admission.domain(invocation.input,invocation.context,definition.method,capability,invocation.sources)?;
-    let bytes=domain.scopes.iter().try_fold(0usize,|n,r|n.checked_add(size_of::<AdmittedScope>())?.checked_add((r.native.len()+r.normalized.len()).checked_mul(size_of::<CoverageObservation>()+size_of::<Id<CoverageSource>>())?)).ok_or_else(||invalid("admitted coverage allocation overflow"))?;
+    let bytes=domain.scopes.iter().try_fold(0usize,|n,r|n.checked_add(size_of::<AdmittedScope>())?.checked_add((r.native.len()+r.uniform.len()+r.normalized.len()).checked_mul(size_of::<CoverageObservation>()+size_of::<Id<CoverageSource>>())?)).ok_or_else(||invalid("admitted coverage allocation overflow"))?;
     let reservation=budget.reserve("admitted_analysis_coverage",bytes)?;
     let scopes=domain.scopes.iter().map(|scope|admitted_scope(invocation.id(),capability,scope)).collect::<Result<Vec<_>,_>>()?;Ok(AdmittedCoverage {scopes,_reservation:reservation})
 }
@@ -358,6 +372,7 @@ pub(crate) fn publication_checks()->Vec<PublicationInvariant> {
 }
 struct FrontierCheck {charge:charged::StateCharge,frontier:crate::domain::analysis::expected::FrontierIndex,invocations:charged::ChargedMap<Id<AnalysisInvocation>,AnalysisInvocation>,definitions:charged::ChargedMap<Id<AnalysisDefinition>,AnalysisDefinition>,outcomes:charged::ChargedMap<Id<AnalysisInvocation>,super::AnalysisOutcome>,requirements:charged::ChargedMap<Id<CoverageRequirement>,CoverageRequirement>,required:charged::ChargedMap<Id<CoverageRequirement>,std::collections::BTreeSet<Id<CoverageSource>>>,coverage:charged::ChargedMap<Id<AnalysisCoverage>,AnalysisCoverage>,premises:charged::ChargedMap<Id<AnalysisCoverage>,std::collections::BTreeSet<Id<CoverageSource>>>,sources:charged::ChargedMap<Id<CoverageSource>,CoverageSource>}
 impl PublicationCheck for FrontierCheck {
+    fn admit_uniform_owner(&mut self,owner:&crate::domain::uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.frontier.admit_uniform_owner(owner)}
     fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
         macro_rules! insert {($r:ty,$field:ident,$key:expr)=>{if relation==<$r>::NAME {for row in <$r>::decode(batch)? {if self.$field.insert(&mut self.charge,$key(&row),row)?.is_some() {return Err(ModelError::Conflict(<$r>::NAME));}}return Ok(());}};}
         insert!(AnalysisInvocation,invocations,|r:&AnalysisInvocation|r.id());insert!(AnalysisDefinition,definitions,|r:&AnalysisDefinition|r.id());insert!(super::AnalysisOutcome,outcomes,|r:&super::AnalysisOutcome|r.invocation);insert!(CoverageRequirement,requirements,|r:&CoverageRequirement|r.id());insert!(AnalysisCoverage,coverage,|r:&AnalysisCoverage|r.id());insert!(CoverageSource,sources,|r:&CoverageSource|r.id());

@@ -7,7 +7,8 @@ use lctx_model::domain::{
         value::encode_vector,
     },
 };
-use lctx_native::{NativeEmbeddingCache, RuntimeConfig, compiler::check_installation};
+use lctx_native::{NativeEmbeddingCache, RuntimeConfig};
+use lctx_compiler_store::compiler::check_installation;
 use std::{collections::BTreeSet, sync::Arc};
 use surrealdb::{Surreal, engine::remote::grpc::Client, types::Variables};
 

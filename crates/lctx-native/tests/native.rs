@@ -81,7 +81,7 @@ async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisi
             .begin_contribution(completed::ContributionSpec {
                 captured_binding: None,
                 producer: format!("{producer}-{}", nonce.hex()),
-                profile: stages::Profile::Catalog,
+                profile: lctx_model::domain::completed::OutputProfile::Specific(stages::Profile::Catalog),
                 model: model().unwrap().digest(),
                 implementation: ContentHash::of(b"exact-relation-control"),
                 configuration: None,

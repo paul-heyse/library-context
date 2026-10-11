@@ -13,7 +13,48 @@ pub fn captured_sources(captured:&CapturedInputs)->Result<Vec<CapturedSourceBind
     for input in captured.inputs() {
         let library=match input.acquisition(){crate::acquisition::Acquisition::Corpus{library,..}=>Some(captured.inputs().get(*library).ok_or(ModelError::Schema("captured corpus library"))?),_=>None};
         let context=crate::pyrefly_stage::analysis_context(input,library,captured.config())?;
-        sources.push(CapturedSourceBinding{input:input.captured().revision().id(),context:context.id(),configuration:context.config_digest,acquisition:input.descriptor(library)?.into()});
+        sources.push(CapturedSourceBinding{input:input.captured().revision().id(),context:Some(context.id()),configuration:Some(context.config_digest),acquisition:input.descriptor(library)?.into()});
     }
     Ok(sources)
+}
+
+/// Bind the actual immutable declaration before scheduling and retain it through execution.
+/// Acquisition rows carry no analyzer context; Assembly supplies current attribution separately.
+pub fn bind_stage(stage:lctx_model::domain::stages::Stage,captured:&CapturedInputs)->Result<lctx_model::domain::stages::Stage,ModelError> {
+    let sources=if stage.name==lctx_model::domain::producer_contract::facts::ACQUIRE {
+        captured.inputs().iter().map(|input|{
+            let library=match input.acquisition(){crate::acquisition::Acquisition::Corpus{library,..}=>Some(captured.inputs().get(*library).ok_or(ModelError::Schema("captured corpus library"))?),_=>None};
+            Ok(CapturedSourceBinding{input:input.captured().revision().id(),context:None,configuration:None,acquisition:input.descriptor(library)?.into()})
+        }).collect::<Result<Vec<_>,ModelError>>()?
+    }else{captured_sources(captured)?};
+    bind_stage_with_sources(stage,captured,&sources)
+}
+/// An ordinary schedule shares the prepared acquisition descriptors across every declaration.
+pub fn bind_stage_with_sources(mut stage:lctx_model::domain::stages::Stage,captured:&CapturedInputs,sources:&[CapturedSourceBinding])->Result<lctx_model::domain::stages::Stage,ModelError> {
+    use lctx_model::domain::producer_contract::{CapturedContextDependency,ContextDependencyPolicy};
+    let Some(binding)=stage.captured_binding.as_mut() else{return Ok(stage)};
+    let contract=lctx_model::domain::producer_contract::facts::facts().into_iter().find(|contract|contract.name==stage.name).ok_or(ModelError::Conflict("unknown captured facts declaration"))?;
+    if binding.contract!=contract.identity() || binding.semantic_revision!=contract.semantic_revision{return Err(ModelError::Conflict("captured executable declaration differs from semantic inventory"));}
+    match contract.context_dependency {
+        ContextDependencyPolicy::AcquisitionOnly=>{
+            binding.context_dependency=CapturedContextDependency::AcquisitionOnly;
+            binding.sources=sources.iter().cloned().map(|mut source|{source.context=None;source.configuration=None;source}).collect();
+        }
+        ContextDependencyPolicy::SemanticContext=>{
+            binding.context_dependency=CapturedContextDependency::SemanticContext;
+            binding.sources=sources.to_vec();
+        }
+        ContextDependencyPolicy::ModelSelection=>{
+            let mut requirements=Vec::with_capacity(captured.inputs().len());
+            for input in captured.inputs(){
+                let library=match input.acquisition(){crate::acquisition::Acquisition::Corpus{library,..}=>Some(captured.inputs().get(*library).ok_or(ModelError::Schema("captured corpus library"))?),_=>None};
+                let context=crate::pyrefly_stage::analysis_context(input,library,captured.config())?;
+                requirements.push(captured.config().requirements(&context.python_version,captured.config().budget())?.map(|requirements|requirements.identity()));
+            }
+            binding.context_dependency=CapturedContextDependency::ModelSelection{catalog:(captured.config().profile()==lctx_model::domain::stages::Profile::Behavioral).then(||captured.config().catalog().digest()),requirements};
+            binding.sources=sources.to_vec();
+        }
+    }
+    binding.validate()?;
+    Ok(stage)
 }

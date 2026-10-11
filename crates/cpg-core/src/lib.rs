@@ -78,3 +78,7 @@ mod analytical_scopes;
 #[cfg(test)]
 #[path = "../tests/fixtures/native.rs"]
 mod test_native;
+
+mod catalog_products;
+
+mod retrieval_products;

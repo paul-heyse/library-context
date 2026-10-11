@@ -1251,3 +1251,29 @@ mod tests {
     }
 
 }
+
+/// Private native audit tuples use the caller's allocation authority rather than a
+/// transport-row limit: an Arrow ordering tuple can exceed its compact persisted row.
+/// They never become native rows or portable content.
+pub(crate) struct ValidationOrderRow {pub order:Vec<u8>,pub nominal:[u8;16],pub content:lctx_model::domain::ContentHash}
+struct ValidationOrder;
+impl Adapter for ValidationOrder {
+    type Key=Vec<u8>;type Output=ValidationOrderRow;
+    const CONFLICT:&'static str="conflicting validation input ordering tuple";
+    fn key(row:&Self::Output)->Result<Self::Key,ModelError>{Ok(row.order.clone())}
+    fn encode(row:&Self::Output)->Result<Vec<u8>,ModelError>{let mut bytes=Vec::with_capacity(row.order.len()+48);bytes.extend_from_slice(&row.order);bytes.extend_from_slice(&row.nominal);bytes.extend_from_slice(&row.content.0);Ok(bytes)}
+    fn decode(bytes:&[u8])->Result<Self::Output,ModelError>{
+        let split=bytes.len().checked_sub(48).ok_or(ModelError::Schema("validation input tuple framing"))?;
+        Ok(ValidationOrderRow{order:bytes[..split].to_vec(),nominal:bytes[split..split+16].try_into().map_err(ModelError::codec)?,content:lctx_model::domain::ContentHash(bytes[split+16..].try_into().map_err(ModelError::codec)?)})
+    }
+    fn key_bytes(key:&Self::Key)->usize{key.capacity()}
+    fn work_bytes(row:&Self::Output,frame:usize)->usize{size_of::<Self::Output>().saturating_add(row.order.capacity().saturating_mul(3)).saturating_add(frame.saturating_mul(2)).saturating_add(256)}
+}
+pub(crate) struct SortedValidationOrder(Sorter<ValidationOrder>,ResourceBudget);
+pub(crate) struct OrderedValidationOrder(Ordered<ValidationOrder>);
+impl SortedValidationOrder {
+    pub(crate) fn new(budget:&ResourceBudget)->Result<Self,ModelError>{let mut sorted=Sorter::new(RUN_BYTES,Some(budget.clone()))?;sorted.row_bytes=budget.limit();Ok(Self(sorted,budget.clone()))}
+    pub(crate) fn push(&mut self,row:ValidationOrderRow)->Result<(),ModelError>{let _scratch=self.1.reserve("validation tuple ordering construction",row.order.capacity().saturating_mul(6).saturating_add(1024))?;self.0.push(row)}
+    pub(crate) fn finish(self)->Result<OrderedValidationOrder,ModelError>{self.0.finish().map(OrderedValidationOrder)}
+}
+impl OrderedValidationOrder {pub(crate) fn next(&mut self)->Result<Option<ValidationOrderRow>,ModelError>{self.0.next()}}

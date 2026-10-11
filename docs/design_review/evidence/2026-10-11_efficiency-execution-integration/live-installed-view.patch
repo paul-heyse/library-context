@@ -1,0 +1,853 @@
+diff --git a/crates/lctx-compiler-store/src/compiler.rs b/crates/lctx-compiler-store/src/compiler.rs
+--- a/crates/lctx-compiler-store/src/compiler.rs
++++ b/crates/lctx-compiler-store/src/compiler.rs
+@@ -165,6 +165,7 @@
+     attempt: ContentHash,
+     generation: ContentHash,
+     published_bindings: Mutex<Option<Vec<CompletedBinding>>>,
++    published_completion:Mutex<Option<lctx_native::completed_state::PublishedCompletedState>>,
+     read_only: AtomicBool,
+     read_cancellation: Arc<Mutex<Option<Arc<AtomicBool>>>>,
+     signal_stop: crate::control::RetryCancellation,
+@@ -175,6 +176,8 @@
+     endpoint: Option<String>,
+     specifications: Mutex<BTreeMap<ContentHash, RegisteredContribution>>,
+     known_views: Mutex<BTreeMap<ContentHash, CompletedView>>,
++    view_mappings: Mutex<BTreeMap<ContentHash, (Vec<lctx_native::installed_view::ContributorRealization>, Arc<Box<dyn Reservation>>) >>,
++    installed_views: Mutex<BTreeMap<ContentHash, Arc<lctx_native::installed_view::HeldInstalledView>>>,
+     known_contributors: Mutex<BTreeMap<ContentHash, ContentHash>>,
+     failed: AtomicBool,
+     sealed: AtomicBool,
+@@ -1084,156 +1087,112 @@
+         sorted.finish().await
+     }
+     async fn registered_or_install_views(
+-        self: &Arc<Self>,
+-        views: &[&CompletedView],
+-        budget: &ResourceBudget,
++        self: &Arc<Self>, views: &[&CompletedView], budget: &ResourceBudget,
+     ) -> Result<(), ModelError> {
+-        // Membership preparation depends on verified contributor mappings, not early
+-        // known-view registration. Remember a view only after checked EOF and ownership.
+-        let window_budget = budget;
+-        let mut descriptor_charge = window_budget.reserve("native-view-descriptor-window", 0)?;
+-        let mut reference_charge = window_budget.reserve("native-view-retention-window", 0)?;
+-        let mut start = 0;
+-        while start < views.len() {
+-            let mut end = start;
+-            let mut rows = Vec::new();
+-            let mut bytes = 0usize;
+-            while end < views.len() {
+-                let view = views[end];
+-                view.validate()?;
+-                let mut row = Object::new();
+-                row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
+-                row.insert(
+-                    "descriptor",
+-                    Bytes::from(serde_json::to_vec(view).map_err(ModelError::codec)?),
+-                );
+-                for (field, value) in view_projection(view)? {
+-                    row.insert(field, value);
++        for view in views {self.installed_view(view,budget).await?;}
++        Ok(())
++    }
++    /// Establishes exact physical view authority while unrelated producers remain open.
++    /// Candidate discovery never selects a global logical match. Only this store's
++    /// explicit production/held attachment/import inventory supplies an initial copy.
++    pub async fn installed_view(self:&Arc<Self>,view:&CompletedView,budget:&ResourceBudget)
++        ->Result<Arc<lctx_native::installed_view::HeldInstalledView>,ModelError>{
++        self.check_failed()?;view.validate()?;
++        let cached=self.installed_views.lock().map_err(|_|ModelError::Conflict("native installed view owner"))?.get(&view.identity).cloned();
++        if let Some(held)=cached {
++            if held.completion().view!=*view{return Err(ModelError::Conflict("installed view descriptor collision"));}
++            let reader=crate::NativeReader::private(self.client.clone()).with_budget(budget);
++            let reader=if let Some(flag)=self.read_cancellation()? {reader.with_read_cancellation(flag)}else{reader};
++            let result=held.members(&reader,&[],budget).await.map(|_|held);
++            let mut terminal=d::completion::Completion::default();terminal.step("cached installed view reader close",reader.close().await);
++            return d::completion::complete(result,terminal);
++        }
++        if self.read_only.load(Ordering::Acquire) {
++            let completed=self.published_completion.lock().map_err(|_|ModelError::Conflict("published exact completion owner"))?.clone().ok_or(ModelError::Conflict("published context lacks protected exact inventory"))?;
++            let held=Arc::new(lctx_native::installed_view::hold_published_view(&completed,view.identity,budget).await?);
++            if held.completion().view!=*view{return Err(ModelError::Conflict("published installed descriptor mismatch"));}
++            self.installed_views.lock().map_err(|_|ModelError::Conflict("published installed view owner"))?.insert(view.identity,held.clone());return Ok(held);
++        }
++        let lease=self.admit_mutation("install exact predecessor view",true)?;
++        let result=lease.within(self.install_view_inner(view,budget)).await;
++        lease.finish_with(result)
++    }
++    async fn install_view_inner(self:&Arc<Self>,view:&CompletedView,budget:&ResourceBudget)
++        ->Result<Arc<lctx_native::installed_view::HeldInstalledView>,ModelError>{
++        if self.read_only.load(Ordering::Acquire){return Err(ModelError::Conflict("published context requires protected completed inventory"));}
++        let (mappings,_mapping_charge)=self.selected_view_mappings(view,budget).await?;
++        // The logical declarations retain the selected root contributor incidence.
++        // These declarations grant no completion; the lower factory independently
++        // audits all output, alias, canonical backing and original bytes through EOF.
++        let _construction=budget.reserve("live view canonical declaration",view.relation.capacity().saturating_add(view.contributions.len().saturating_mul(256)).saturating_mul(16).saturating_add(65536))?;
++        let mut row=Object::new();row.insert("id",RecordId::new("compiler_view",view.identity.hex()));row.insert("descriptor",Bytes::from(serde_json::to_vec(view).map_err(ModelError::codec)?));
++        for (field,value) in view_projection(view)? {row.insert(field,value);}
++        crate::control::ensure_rows(&self.client,Some(self.attempt),vec![Value::Object(row)]).await?;
++        let owner=RecordId::new("compiler_view",view.identity.hex());
++        for mapping in mappings.iter().filter(|mapping|view.contributions.contains(&mapping.logical)) {
++            crate::control::hold(&self.client,Some(self.attempt),owner.clone(),vec![RecordId::new("compiler_contribution",mapping.physical.hex())]).await?;
++        }
++        let held=Arc::new(lctx_native::installed_view::install_live_view(self.client.clone(),self.attempt,view,&mappings,budget).await?);
++        self.remember_view_mapping(view,&mappings,budget)?;self.remember_view(view)?;
++        let mut installed=self.installed_views.lock().map_err(|_|ModelError::Conflict("native installed view owner"))?;
++        if let Some(previous)=installed.get(&view.identity) {
++            if previous.completion().view!=held.completion().view || previous.completion().mappings!=held.completion().mappings {
++                return Err(ModelError::Conflict("concurrent installed view selected different copies"));
++            }return Ok(previous.clone());
++        }
++        installed.insert(view.identity,held.clone());Ok(held)
++    }
++    fn remember_view_mapping(&self,view:&CompletedView,mappings:&[lctx_native::installed_view::ContributorRealization],budget:&ResourceBudget)->Result<(),ModelError>{
++        if mappings.windows(2).any(|pair|pair[0].logical>=pair[1].logical) || view.contributions.iter().any(|logical|mappings.binary_search_by_key(logical,|mapping|mapping.logical).is_err()) {
++            return Err(ModelError::Conflict("exact per-view mapping order/root inventory"));
++        }
++        let mut known=self.view_mappings.lock().map_err(|_|ModelError::Conflict("native per-view mapping owner"))?;
++        if let Some((previous,_))=known.get(&view.identity) {if previous!=mappings{return Err(ModelError::Conflict("exact per-view physical mapping changed"));}}
++        else {let charge=budget.reserve("retained exact per-view mappings",mappings.len().saturating_mul(std::mem::size_of::<lctx_native::installed_view::ContributorRealization>()).saturating_add(256))?;known.insert(view.identity,(mappings.to_vec(),Arc::new(charge)));}Ok(())
++    }
++    /// Read-only publication consumers retain the supplied protected capability for
++    /// their full operation. This copies its exact mappings, never a global search.
++    pub fn register_published_inventory(&self,completed:&lctx_native::completed_state::PublishedCompletedState,budget:&ResourceBudget)->Result<(),ModelError>{
++        if !self.read_only.load(Ordering::Acquire){return Err(ModelError::Conflict("published inventory requires read-only compiler owner"));}
++        for reference in completed.inventory().references() {
++            let installed=completed.inventory().installed(reference.logical_view)?;
++            self.remember_view_mapping(&installed.view,&installed.mappings,budget)?;self.remember_view(&installed.view)?;
++        }
++        *self.published_completion.lock().map_err(|_|ModelError::Conflict("published exact completion owner"))?=Some(completed.clone());
++        Ok(())
++    }
++    async fn selected_view_mappings(self:&Arc<Self>,view:&CompletedView,budget:&ResourceBudget)
++        ->Result<(Vec<lctx_native::installed_view::ContributorRealization>,d::charged::StateCharge),ModelError>{
++        use lctx_native::installed_view::ContributorRealization;
++        let mut charge=d::charged::StateCharge::new(budget,"selected exact live dependency mappings");
++        charge.grow(view.contributions.len().saturating_mul(512).saturating_add(65536))?;
++        let reader=crate::NativeReader::private(self.client.clone()).with_budget(budget);
++        let reader=if let Some(flag)=self.read_cancellation()? {reader.with_read_cancellation(flag)}else{reader};
++        let result=async {
++            let mut pending=vec![view.clone()];let mut seen=std::collections::BTreeSet::new();let mut mappings=BTreeMap::new();
++            while let Some(selected)=pending.pop() {
++                if !seen.insert(selected.identity){continue;}
++                for logical in &selected.contributions {
++                    let explicit=self.view_mappings.lock().map_err(|_|ModelError::Conflict("native exact view mappings"))?.get(&selected.identity).and_then(|(rows,_)|rows.iter().find(|row|row.logical==*logical)).cloned();
++                    let physical=if let Some(mapping)=&explicit {mapping.physical}else{*self.known_contributors.lock().map_err(|_|ModelError::Conflict("native contributor candidates"))?.get(logical).ok_or(ModelError::Conflict("dependency has no explicitly selected physical contributor"))?};
++                    let expected=lctx_native::installed_view::inspect_contributor(&reader,physical,budget).await?.ok_or(ModelError::Conflict("selected dependency contributor missing"))?;
++                    if explicit.as_ref().is_some_and(|mapping|mapping.incarnation!=expected.incarnation()){return Err(ModelError::Conflict("selected dependency incarnation changed"));}
++                    validate_state_row("compiler_contribution",expected.row())?;
++                    charge.grow(crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(65536))?;
++                    let descriptor:CompletedContribution=decode_descriptor(expected.row())?;
++                    if descriptor.identity()?!=*logical || !descriptor.outputs.contains_key(&selected.relation){return Err(ModelError::Conflict("selected dependency logical output"));}
++                    let mapping=ContributorRealization{logical:*logical,physical,incarnation:expected.incarnation()};
++                    if let Some(previous)=mappings.insert(*logical,mapping.clone()) {if previous!=mapping{return Err(ModelError::Conflict("one view closure selects incompatible physical copies"));}}
++                    for source in &descriptor.spec.inputs {
++                        let known=self.known_views.lock().map_err(|_|ModelError::Conflict("native declared views"))?;
++                        let dependency=known.get(&source.view()).ok_or(ModelError::Conflict("dependency view requires exact prior attachment/import"))?;
++                        charge.grow(dependency.relation.capacity().saturating_add(dependency.contributions.len().saturating_mul(128)).saturating_add(1024))?;
++                        pending.push(dependency.clone());
++                    }
+                 }
+-                let row = Value::Object(row);
+-                let weight = crate::loader::native_bytes(&row);
+-                if !rows.is_empty()
+-                    && (rows.len() == crate::loader::NATIVE_WINDOW_ROWS
+-                        || bytes.saturating_add(weight) > d::resources::TRANSFER_BYTES)
+-                {
+-                    break;
+-                }
+-                bytes = bytes.saturating_add(weight);
+-                descriptor_charge.try_resize(bytes.saturating_mul(4))?;
+-                rows.push(row);
+-                end += 1;
+-            }
+-            crate::control::ensure_rows(&self.client, Some(self.attempt), rows).await?;
+-            descriptor_charge.try_resize(0)?;
+-            let window = &views[start..end];
+-            let mut references = Vec::new();
+-            let mut reference_bytes = 0usize;
+-            for view in window {
+-                // Preparation and retained immutable borrowers share the operation pool.
+-                let prepared = self.prepare_memberships(view, &budget).await?;
+-                let mut ordered = AsyncOrderedCandidates::new_registered(
+-                    prepared,
+-                    &budget,
+-                    self.blocking_owner()?,
+-                    self.blocking_observer()?,
+-                )
+-                .await?;
+-                let mut count = 0u64;
+-                loop {
+-                    let candidates = ordered
+-                        .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
+-                        .await?;
+-                    if candidates.is_empty() {
+-                        break;
+-                    }
+-                    let mut rows = Vec::with_capacity(candidates.len());
+-                    let mut nodes = Vec::with_capacity(candidates.len());
+-                    for candidate in candidates {
+-                        let mut sink = KeySink::new("native-view-member/v1");
+-                        view.identity.encode(&mut sink);
+-                        candidate.relation.encode(&mut sink);
+-                        sink.part(b"key", &candidate.key);
+-                        let mut row = Object::new();
+-                        row.insert(
+-                            "id",
+-                            RecordId::new("compiler_view_member", sink.finish().hex()),
+-                        );
+-                        row.insert("view", RecordId::new("compiler_view", view.identity.hex()));
+-                        row.insert("relation", candidate.relation);
+-                        row.insert("semantic_key", hex::encode(candidate.key));
+-                        row.insert("node", candidate.node.clone());
+-                        row.insert(
+-                            "content",
+-                            candidate
+-                                .content
+-                                .ok_or(ModelError::Schema("exact view content"))?
+-                                .hex(),
+-                        );
+-                        nodes.push(candidate.node);
+-                        if let Some(Value::RecordId(id)) = row.get("id") {
+-                            nodes.push(id.clone());
+-                        }
+-                        rows.push(Value::Object(row));
+-                        count += 1;
+-                    }
+-                    crate::control::ensure_rows(&self.client, Some(self.attempt), rows).await?;
+-                    crate::control::hold(
+-                        &self.client,
+-                        Some(self.attempt),
+-                        RecordId::new("compiler_view", view.identity.hex()),
+-                        nodes,
+-                    )
+-                    .await?;
+-                }
+-                if count != view.rows {
+-                    return Err(ModelError::Conflict("exact view cardinality"));
+-                }
+-                let owner = RecordId::new("compiler_view", view.identity.hex());
+-                let contributors = self.view_owners(view)?;
+-                let edges = contributors
+-                    .into_iter()
+-                    .map(|id| {
+-                        (
+-                            owner.clone(),
+-                            RecordId::new("compiler_contribution", id.hex()),
+-                        )
+-                    })
+-                    .chain(std::iter::once((
+-                        RecordId::new("native_attempt", self.attempt.hex()),
+-                        owner.clone(),
+-                    )));
+-                for (owner, object) in edges {
+-                    let weight = crate::loader::native_bytes(&Value::RecordId(owner.clone()))
+-                        .saturating_add(crate::loader::native_bytes(&Value::RecordId(
+-                            object.clone(),
+-                        )));
+-                    if !references.is_empty()
+-                        && (references.len() == crate::loader::NATIVE_WINDOW_ROWS
+-                            || reference_bytes.saturating_add(weight)
+-                                > d::resources::TRANSFER_BYTES)
+-                    {
+-                        crate::control::hold_many(
+-                            &self.client,
+-                            Some(self.attempt),
+-                            std::mem::take(&mut references),
+-                        )
+-                        .await?;
+-                        reference_bytes = 0;
+-                        reference_charge.try_resize(0)?;
+-                    }
+-                    reference_bytes = reference_bytes.saturating_add(weight);
+-                    reference_charge.try_resize(reference_bytes.saturating_mul(4))?;
+-                    references.push((owner, object));
+-                }
+-            }
+-            crate::control::hold_many(&self.client, Some(self.attempt), references).await?;
+-            reference_charge.try_resize(0)?;
+-            for view in window {
+-                self.remember_view(view)?;
+-            }
+-            start = end;
+-        }
+-        Ok(())
++            }Ok((mappings.into_values().collect(),charge))
++        }.await;
++        let mut terminal=d::completion::Completion::default();terminal.step("live mapping private reader close",reader.close().await);d::completion::complete(result,terminal)
+     }
+ 
+     /// The former marker-only route cannot earn current native admission. Keep its
+@@ -1459,6 +1418,7 @@
+             attempt,
+             generation: config.service_generation,
+             published_bindings: Mutex::new(None),
++            published_completion:Mutex::new(None),
+             read_only: AtomicBool::new(false),
+             read_cancellation,
+             signal_stop,
+@@ -1469,6 +1429,8 @@
+             endpoint: Some(config.endpoint.clone()),
+             specifications: Mutex::default(),
+             known_views: Mutex::default(),
++            view_mappings: Mutex::default(),
++            installed_views: Mutex::default(),
+             known_contributors: Mutex::default(),
+             failed: AtomicBool::new(false),
+             sealed: AtomicBool::new(false),
+@@ -1496,6 +1458,7 @@
+                 .expect("system clock"),
+             generation: ContentHash::of(b"detached-unadmitted"),
+             published_bindings: Mutex::new(None),
++            published_completion:Mutex::new(None),
+             read_only: AtomicBool::new(false),
+             read_cancellation,
+             signal_stop,
+@@ -1506,6 +1469,8 @@
+             endpoint: None,
+             specifications: Mutex::default(),
+             known_views: Mutex::default(),
++            view_mappings: Mutex::default(),
++            installed_views: Mutex::default(),
+             known_contributors: Mutex::default(),
+             failed: AtomicBool::new(false),
+             sealed: AtomicBool::new(false),
+@@ -2433,6 +2398,12 @@
+             };
+             let originals=self.original_ingress.close_owned(self.client.clone(),self.attempt,self.read_cancellation(),validate_completed).await;
+             completion.step("original ingress final close",d::completion::complete(Ok(()),originals));
++        }
++        // Release protected publication clones only after all accepted compiler reads
++        // are terminal; mapped metadata alone never retains selection authority.
++        if completion.local==d::completion::LocalState::Terminal {
++            match self.installed_views.lock(){Ok(mut views)=>views.clear(),Err(_)=>completion.step("installed view capability release",Err(ModelError::Conflict("installed view owner")))};
++            match self.published_completion.lock(){Ok(mut cap)=>{cap.take();},Err(_)=>completion.step("published completion capability release",Err(ModelError::Conflict("published completion owner")))};
+         }
+         // A borrowed store owns its admitted execution, but not the caller's
+         // session or reader pin. Its receipt ends after its own work settles;
+@@ -3614,73 +3585,10 @@
+             .await?;
+         self.remember_view(view)
+     }
+-    async fn validate_view_contributions(
+-        self: &Arc<Self>,
+-        views: &[CompletedView],
+-    ) -> Result<(), ModelError> {
+-        let logical = views
+-            .iter()
+-            .flat_map(|view| view.contributions.iter().copied())
+-            .collect::<std::collections::BTreeSet<_>>();
+-        if logical.is_empty() {
+-            return Ok(());
+-        }
+-        let mut completed = BTreeMap::new();
+-        for requested in &logical {
+-            let mut bindings = Variables::new();
+-            bindings.insert("logical", requested.hex());
+-            // Validate every physical copy through one equality-indexed logical root.
+-            let mut rows = self.track_rows(NativeRows::new(self.read_client()?.query("SELECT * FROM compiler_contribution WITH INDEX logical_contribution WHERE completed=true AND logical=$logical").bind(bindings).stream_items().map_err(ModelError::codec)?, 1)?)?;
+-            while let Some(row) = rows.next().await? {
+-                validate_state_row("compiler_contribution", &row)?;
+-                let descriptor = decode_descriptor::<CompletedContribution>(&row)?;
+-                let logical = descriptor.identity()?;
+-                let physical = value_object(&row)
+-                    .and_then(|row| row.get("id"))
+-                    .and_then(|id| {
+-                        if let Value::RecordId(id) = id {
+-                            if let RecordIdKey::String(key) = &id.key {
+-                                hex::decode(key)
+-                                    .ok()
+-                                    .and_then(|bytes| bytes.try_into().ok())
+-                                    .map(ContentHash)
+-                            } else {
+-                                None
+-                            }
+-                        } else {
+-                            None
+-                        }
+-                    })
+-                    .ok_or(ModelError::Schema("completed contributor identity"))?;
+-                if let Some(old) = completed.get(&logical) {
+-                    if old != &descriptor {
+-                        return Err(ModelError::Conflict(
+-                            "completed contributor identity collision",
+-                        ));
+-                    }
+-                } else {
+-                    completed.insert(logical, descriptor);
+-                }
+-                self.known_contributors
+-                    .lock()
+-                    .map_err(|_| ModelError::Conflict("native contributor owner"))?
+-                    .entry(logical)
+-                    .or_insert(physical);
+-            }
+-        }
+-        if completed.len() != logical.len() || logical.iter().any(|id| !completed.contains_key(id))
+-        {
+-            return Err(ModelError::Conflict(
+-                "completed view contribution membership",
+-            ));
+-        }
+-        for view in views {
+-            for id in &view.contributions {
+-                if !completed[id].outputs.contains_key(&view.relation) {
+-                    return Err(ModelError::Conflict("completed view output ownership"));
+-                }
+-            }
+-        }
++    async fn validate_view_contributions(self:&Arc<Self>,views:&[CompletedView])->Result<(),ModelError>{
++        // Loading a logical declaration is not attachment authority. Every requested
++        // contributor must already have a selected local or exact per-view mapping.
++        for view in views {self.view_owners(view)?;}
+         Ok(())
+     }
+ 
+@@ -3696,28 +3604,17 @@
+         known.insert(logical, physical);
+         Ok(())
+     }
+-    fn view_owners(&self, view: &CompletedView) -> Result<Vec<ContentHash>, ModelError> {
+-        let known = self
+-            .known_contributors
+-            .lock()
+-            .map_err(|_| ModelError::Conflict("native contributor owner"))?;
+-        let mut owners = view
+-            .contributions
+-            .iter()
+-            .map(|logical| {
+-                known
+-                    .get(logical)
+-                    .copied()
+-                    .ok_or(ModelError::Conflict("missing verified contributor"))
+-            })
+-            .collect::<Result<Vec<_>, _>>()?;
+-        owners.sort_unstable();
+-        if owners.windows(2).any(|pair| pair[0] == pair[1]) {
+-            return Err(ModelError::Conflict(
+-                "duplicate physical completed contributor",
+-            ));
+-        }
+-        Ok(owners)
++    fn view_owners(&self,view:&CompletedView)->Result<Vec<ContentHash>,ModelError>{
++        let selected=self.view_mappings.lock().map_err(|_|ModelError::Conflict("native exact view mapping owner"))?;
++        let local=self.known_contributors.lock().map_err(|_|ModelError::Conflict("native contributor owner"))?;
++        let mut owners=Vec::with_capacity(view.contributions.len());
++        for logical in &view.contributions {
++            let physical=if let Some((mappings,_))=selected.get(&view.identity) {
++                mappings.binary_search_by_key(logical,|mapping|mapping.logical).ok().map(|index|mappings[index].physical)
++            }else {local.get(logical).copied()}.ok_or(ModelError::Conflict("missing explicit selected contributor"))?;
++            owners.push(physical);
++        }
++        owners.sort_unstable();if owners.windows(2).any(|pair|pair[0]==pair[1]){return Err(ModelError::Conflict("duplicate physical selected contributor"));}Ok(owners)
+     }
+ 
+     fn remember_view(&self, view: &CompletedView) -> Result<(), ModelError> {
+diff --git a/crates/lctx-native/src/completed_state/earning.rs b/crates/lctx-native/src/completed_state/earning.rs
+--- a/crates/lctx-native/src/completed_state/earning.rs
++++ b/crates/lctx-native/src/completed_state/earning.rs
+@@ -7,7 +7,7 @@
+ use surrealdb::{Surreal,engine::remote::grpc::Client,types::Variables};
+ 
+ pub struct ViewSelection {pub view:d::completed::CompletedView,pub mappings:Vec<ContributorRealization>}
+-async fn revision(reader:&crate::NativeReader<()>,record:&RecordId)->Result<i64,ModelError>{
++pub(crate) async fn revision(reader:&crate::NativeReader<()>,record:&RecordId)->Result<i64,ModelError>{
+     let mut variables=Variables::new();variables.insert("record",record.clone());
+     let value:Option<i64>=reader.query_native("RETURN (SELECT VALUE revision FROM ONLY type::record('native_predicate',[$record]))",variables).await?;
+     Ok(value.unwrap_or(0))
+@@ -21,7 +21,7 @@
+     for field in ["relation","semantic_key","node","content"] {result.insert(field,object.get(field).cloned().ok_or(ModelError::Schema("completed root member field"))?);}
+     Ok(Value::Object(result))
+ }
+-async fn root_members(reader:&crate::NativeReader<()>,selection:&ViewSelection,realization:ContentHash,budget:&ResourceBudget)->Result<PreparedRows,ModelError>{
++pub(crate) async fn root_members(reader:&crate::NativeReader<()>,selection:&ViewSelection,realization:ContentHash,budget:&ResourceBudget)->Result<PreparedRows,ModelError>{
+     let mut result=SortedRows::with_budget(budget)?;
+     for logical in &selection.view.contributions {
+         let mapping=&selection.mappings[selection.mappings.binary_search_by_key(logical,|mapping|mapping.logical).map_err(|_|ModelError::Conflict("root contribution missing exact mapping"))?];
+@@ -35,7 +35,7 @@
+     }
+     Ok(result.finish()?.into_prepared())
+ }
+-async fn verify_members(reader:&crate::NativeReader<()>,realization:ContentHash,expected:&PreparedRows,rows:u64,budget:&ResourceBudget)->Result<ContentHash,ModelError>{
++pub(crate) async fn verify_members(reader:&crate::NativeReader<()>,realization:ContentHash,expected:&PreparedRows,rows:u64,budget:&ResourceBudget)->Result<ContentHash,ModelError>{
+     let root=RecordId::new("compiler_view_realization",realization.hex());let mut actual=SortedRows::with_budget(budget)?;
+     let mut variables=Variables::new();variables.insert("realization",root.clone());
+     let mut stream=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],vec!["SELECT * FROM compiler_view_member WITH INDEX realization_nodes WHERE realization=$realization".into()])?)?;
+@@ -102,7 +102,7 @@
+                 if existing.row()!=&declaration && existing.row()!=&installed_view::realization_declaration(&selection.view,&selection.mappings,true)?{return Err(ModelError::Conflict("realization declaration changed"));}
+                 existing.row().clone()
+             }else{declaration};
+-            crate::control::completed::install_witness(&client,fence,Some(declaration),vec![(RecordId::new("native_attempt",fence.attempt().hex()),root.clone())],budget).await?;
++            crate::control::completed::install_witness(&client,fence,Some(declaration),vec![(RecordId::new("native_attempt",fence.attempt().hex()),root.clone()),(root.clone(),RecordId::new("compiler_view",selection.view.identity.hex()))],budget).await?;
+             for mapping in &selection.mappings {
+                 // Contribution predicate writes serialize this audit with every output/
+                 // alias incidence accepted before contribution completion.
+diff --git a/crates/lctx-native/src/completed_state.rs b/crates/lctx-native/src/completed_state.rs
+--- a/crates/lctx-native/src/completed_state.rs
++++ b/crates/lctx-native/src/completed_state.rs
+@@ -1,6 +1,6 @@
+ //! Installation-local physical completion. Serialized data never grants freeze,
+ //! semantic admission or protected read authority; native factories earn those separately.
+-mod earning;
++pub(crate) mod earning;
+ pub use earning::{ViewSelection,complete_frozen_content};
+ use lctx_model::domain::{self as d, ContentHash, Key, KeySink, ModelError};
+ use serde::{Deserialize, Serialize};
+diff --git a/crates/lctx-native/src/control/held.rs b/crates/lctx-native/src/control/held.rs
+--- a/crates/lctx-native/src/control/held.rs
++++ b/crates/lctx-native/src/control/held.rs
+@@ -185,3 +185,15 @@
+     let sql=format!("{} LET $guard=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $completion FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$completion_incarnation OR $actual!=$completion_bytes OR $__owner.completed_identity!=$completion_identity {{ THROW 'physical completed hold changed'; }}; {holds}",frozen::FENCE_GUARD);
+     effect_for_owner(client,EffectOwner::FrozenAttempt(completion.attempt),&sql,variables).await?;Ok(HeldRecord{expected,owner})
+ }
++
++/// Final acquisition compares the same live attempt epoch and exact completed view bytes.
++pub(crate) async fn hold_live_view_expected(client:&Surreal<Client>,owner:&super::live_view::LiveViewOwner,
++    expected:ExpectedRecord,budget:&ResourceBudget)->Result<HeldRecord,ModelError>{
++    if expected.record().table.as_str()!="compiler_view_completion" {return Err(ModelError::Conflict("live held witness family"));}
++    let _charge=budget.reserve("live exact installed view hold",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(131072))?;
++    let holder=RecordId::new("native_attempt",owner.attempt().hex());
++    let (_,holds,mut variables)=hold_plan(Some(owner.attempt()),vec![(holder.clone(),expected.record.clone())])?.ok_or(ModelError::Schema("live held view plan"))?;
++    super::live_view::bind(owner,&mut variables);variables.insert("expected_record",expected.record.clone());variables.insert("expected_guard",guard_id(&Value::RecordId(expected.record.clone()))?);variables.insert("expected_incarnation",expected.incarnation);variables.insert("expected_bytes",expected.row.clone());
++    let sql=format!("{} LET $guard=SELECT * FROM ONLY $expected_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $expected_record FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$expected_incarnation OR $actual!=$expected_bytes {{ THROW 'live held completion changed'; }}; {holds}",super::live_view::GUARD);
++    effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt()),&sql,variables).await?;Ok(HeldRecord{expected,owner:holder})
++}
+diff --git a/crates/lctx-native/src/control/live_view.rs b/crates/lctx-native/src/control/live_view.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/lctx-native/src/control/live_view.rs
+@@ -0,0 +1,59 @@
++//! Fixed per-view witness effects while unrelated attempt producers remain open.
++//! This authority cannot create aggregate completion, admission or canonical content.
++use super::*;
++use lctx_model::domain::resources::ResourceBudget;
++
++pub(crate) struct LiveViewOwner {
++    pub(super) attempt:ContentHash,
++    generation:ContentHash,
++    epoch:i64,
++    validity_epoch:i64,
++}
++impl LiveViewOwner {
++    pub(crate) fn epoch(&self)->i64{self.epoch}
++    pub(crate) fn attempt(&self)->ContentHash{self.attempt}
++    pub(crate) fn generation(&self)->ContentHash{self.generation}
++    pub(crate) fn validity_epoch(&self)->i64{self.validity_epoch}
++}
++pub(super) const GUARD:&str="IF $__owner.state!='open' OR $__owner.admitted OR $__owner.generation!=$live_generation OR $__owner.epoch!=$live_epoch OR $__installation.generation!=$live_generation OR $__installation.validity_epoch!=$live_validity_epoch { THROW 'live installed view owner changed'; };";
++pub(super) fn bind(owner:&LiveViewOwner,bindings:&mut Variables){
++    bindings.insert("live_generation",owner.generation.hex());bindings.insert("live_epoch",owner.epoch);bindings.insert("live_validity_epoch",owner.validity_epoch);
++}
++pub(crate) async fn capture(reader:&crate::NativeReader<()>,attempt:ContentHash,budget:&ResourceBudget)->Result<LiveViewOwner,ModelError>{
++    let _charge=budget.reserve("live installed view owner inspection",131072)?;
++    let mut bindings=Variables::new();bindings.insert("attempt",RecordId::new("native_attempt",attempt.hex()));
++    let owners:Vec<Object>=reader.query_native("SELECT * FROM $attempt",bindings).await?;
++    let installations:Vec<Object>=reader.query_native("SELECT generation,validity_epoch FROM native_installation:current",Variables::new()).await?;
++    let [owner]=owners.as_slice() else{return Err(ModelError::Conflict("live view attempt cardinality"));};
++    let [installation]=installations.as_slice() else{return Err(ModelError::Conflict("live view installation cardinality"));};
++    let result=LiveViewOwner{attempt,generation:authorization::hash_field(installation,"generation")?,epoch:authorization::int_field(owner,"epoch")?,validity_epoch:authorization::int_field(installation,"validity_epoch")?};
++    if owner.get("state")!=Some(&Value::String("open".into())) || owner.get("admitted")!=Some(&Value::Bool(false))
++        || result.epoch<=0 || result.validity_epoch<=0 || authorization::hash_field(owner,"generation")?!=result.generation {
++        return Err(ModelError::Conflict("live view requires actual open current attempt"));
++    }Ok(result)
++}
++pub(crate) async fn install(client:&Surreal<Client>,owner:&LiveViewOwner,row:Option<Value>,edges:Vec<(RecordId,RecordId)>,budget:&ResourceBudget)->Result<(),ModelError>{
++    if let Some(row)=&row {
++        let Some(Value::RecordId(id))=row.as_object().and_then(|row|row.get("id")) else{return Err(ModelError::Schema("live view witness id"));};
++        if !matches!(id.table.as_str(),"compiler_view_realization"|"compiler_view_member"|"compiler_view_completion") {return Err(ModelError::Conflict("live view witness family"));}
++    }
++    let bytes=row.as_ref().map_or(0,crate::loader::native_bytes).saturating_add(edges.len().saturating_mul(1024));
++    let _charge=budget.reserve("live view witness construction",bytes.saturating_mul(32).saturating_add(131072))?;
++    let mut sql=String::from(GUARD);let mut variables=Variables::new();bind(owner,&mut variables);
++    if let Some(row)=row {let (plan,bindings)=immutable_row_plan(None,None,vec![row])?.ok_or(ModelError::Schema("live view witness plan"))?;sql.push_str(&plan);merge_plan_bindings(&mut variables,bindings)?;}
++    if let Some((_,plan,bindings))=hold_plan(Some(owner.attempt),edges)?{sql.push_str(&plan);merge_plan_bindings(&mut variables,bindings)?;}
++    effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt),&sql,variables).await
++}
++pub(crate) async fn hold_contributor(client:&Surreal<Client>,owner:&LiveViewOwner,root:&RecordId,expected:&ExpectedRecord,budget:&ResourceBudget)->Result<(),ModelError>{
++    let _charge=budget.reserve("live view exact contributor hold",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(131072))?;
++    let (_,holds,mut variables)=hold_plan(Some(owner.attempt),vec![(root.clone(),expected.record().clone())])?.ok_or(ModelError::Schema("live contributor hold plan"))?;
++    bind(owner,&mut variables);variables.insert("contributor",expected.record().clone());variables.insert("contributor_guard",guard_id(&Value::RecordId(expected.record().clone()))?);variables.insert("contributor_incarnation",expected.incarnation());variables.insert("contributor_bytes",expected.row().clone());
++    let sql=format!("{GUARD} fn::native_touch($contributor); LET $guard=SELECT * FROM ONLY $contributor_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $contributor FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$contributor_incarnation OR $actual!=$contributor_bytes OR !$actual.completed {{ THROW 'live selected contributor changed'; }}; {holds}");
++    effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt),&sql,variables).await
++}
++pub(crate) async fn seal(client:&Surreal<Client>,owner:&LiveViewOwner,expected:&ExpectedRecord,revision:i64,budget:&ResourceBudget)->Result<(),ModelError>{
++    let _charge=budget.reserve("live view exact member seal",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(131072))?;
++    let mut variables=Variables::new();bind(owner,&mut variables);variables.insert("realization",expected.record().clone());variables.insert("realization_guard",guard_id(&Value::RecordId(expected.record().clone()))?);variables.insert("realization_incarnation",expected.incarnation());variables.insert("realization_bytes",expected.row().clone());variables.insert("realization_revision",revision);
++    let sql=format!("{GUARD} fn::native_touch($realization); LET $predicate=SELECT VALUE revision FROM ONLY type::record('native_predicate',[$realization]); LET $guard=SELECT * FROM ONLY $realization_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $realization FOR UPDATE; IF $predicate!=$realization_revision+1 OR $guard.phase!='active' OR $guard.incarnation!=$realization_incarnation OR $actual!=$realization_bytes {{ THROW 'live member EOF audit raced'; }}; IF type::is::bool($actual.sealed)=false {{ THROW 'live realization seal state'; }}; IF !$actual.sealed {{ UPDATE $realization SET sealed=true RETURN NONE; }}");
++    effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt),&sql,variables).await
++}
+diff --git a/crates/lctx-native/src/control.rs b/crates/lctx-native/src/control.rs
+--- a/crates/lctx-native/src/control.rs
++++ b/crates/lctx-native/src/control.rs
+@@ -174,6 +174,8 @@
+ pub use frozen::schema_target as frozen_schema_target;
+ pub(crate) use authorization::effect_frozen_attempt;
+ mod held;
++pub(crate) mod live_view;
++pub(crate) use held::hold_live_view_expected;
+ pub use held::{ExpectedRecord, HeldRecord, inspect_expected, hold_expected};
+ pub(crate) use held::{inspect_expected_read,hold_frozen_completed_expected,hold_frozen_admission_expected,install_completed_admission,hold_frozen_physical_expected};
+ pub(crate) mod completed;
+diff --git a/crates/lctx-native/src/installed_view/live.rs b/crates/lctx-native/src/installed_view/live.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/lctx-native/src/installed_view/live.rs
+@@ -0,0 +1,204 @@
++//! Per-view completion before aggregate attempt freeze. Every backing and owned alias
++//! is checked to EOF; unrelated producers may continue under the same open attempt.
++use super::*;
++use crate::{control::live_view,completed_state::earning::{revision,root_members,verify_members,ViewSelection}};
++use d::{charged::StateCharge,completion::{Completion,complete},resources::ResourceBudget};
++use std::sync::Arc;
++use surrealdb::{Surreal,engine::remote::grpc::Client,types::{Object,Variables}};
++
++pub async fn install_live_view(client:Arc<Surreal<Client>>,attempt:ContentHash,view:&d::completed::CompletedView,
++    mappings:&[ContributorRealization],budget:&ResourceBudget)->Result<HeldInstalledView,ModelError>{
++    let reader=crate::NativeReader::private(client.clone()).with_budget(budget);
++    let result=async {
++        let owner=live_view::capture(&reader,attempt,budget).await?;
++        let mut charge=StateCharge::new(budget,"live installed view retained descriptor");
++        charge.grow(view.relation.capacity().saturating_add(view.contributions.len().saturating_mul(256)).saturating_mul(16).saturating_add(mappings.len().saturating_mul(256)).saturating_add(65536))?;
++        let selection=ViewSelection{view:view.clone(),mappings:mappings.to_vec()};
++        let closure=super::audit::inspect_closure(&reader,view,mappings,budget).await?;
++        super::audit::audit_memberships(&reader,&closure,budget).await?;
++        let aliases=super::audit::audit_aliases(&reader,&closure,budget).await?;
++        let roots=super::audit::logical_roots(&reader,&closure,&[],&aliases,budget).await?;
++        let realization=realization_id(view,mappings)?;let root=RecordId::new("compiler_view_realization",realization.hex());
++        let members=root_members(&reader,&selection,realization,budget).await?;
++        let declaration=super::realization_declaration(view,mappings,false)?;
++        let existing=crate::control::inspect_expected_read(&reader,root.clone(),budget).await?;
++        let declaration=if let Some(existing)=&existing {
++            if existing.row()!=&declaration && existing.row()!=&super::realization_declaration(view,mappings,true)? {return Err(ModelError::Conflict("live realization declaration collision"));}
++            existing.row().clone()
++        } else {declaration};
++        live_view::install(&client,&owner,Some(declaration),vec![(RecordId::new("native_attempt",attempt.hex()),root.clone()),(root.clone(),RecordId::new("compiler_view",view.identity.hex()))],budget).await?;
++        for mapping in mappings {live_view::hold_contributor(&client,&owner,&root,&closure.contributors[&mapping.logical],budget).await?;}
++        let mut cursor=members.cursor_with_budget(budget)?;
++        while let Some(member)=cursor.next_row()? {
++            let Some(Value::RecordId(id))=member.as_object().and_then(|row|row.get("id")) else{return Err(ModelError::Schema("live member id"));};
++            let Some(Value::RecordId(node))=member.as_object().and_then(|row|row.get("node")) else{return Err(ModelError::Schema("live member node"));};
++            live_view::install(&client,&owner,Some(member.clone()),vec![(root.clone(),id.clone()),(id.clone(),node.clone())],budget).await?;
++        }
++        let expected=crate::control::inspect_expected_read(&reader,root.clone(),budget).await?.ok_or(ModelError::Conflict("live realization disappeared"))?;
++        let before=revision(&reader,&root).await?;
++        let membership_content=verify_members(&reader,realization,&members,view.rows,budget).await?;
++        live_view::seal(&client,&owner,&expected,before,budget).await?;
++        let completion=InstalledViewCompletion{generation:owner.generation(),validity_epoch:owner.validity_epoch(),realization_incarnation:expected.incarnation(),version:1,view:view.clone(),realization,member_codec:MEMBER_CODEC,mappings:mappings.to_vec(),closure:roots,membership_rows:view.rows,membership_content,frozen_revision:before.checked_add(1).ok_or(ModelError::Schema("live seal revision overflow"))?};
++        let value=completion.value()?;charge.grow(crate::loader::native_bytes(&value).saturating_mul(32).saturating_add(65536))?;
++        live_view::install(&client,&owner,Some(value),vec![(RecordId::new("native_attempt",attempt.hex()),completion.record()?),(completion.record()?,root)],budget).await?;
++        let expected=crate::control::inspect_expected_read(&reader,completion.record()?,budget).await?.ok_or(ModelError::Conflict("live completed view disappeared"))?;
++        if InstalledViewCompletion::from_row(expected.row())?!=completion{return Err(ModelError::Conflict("live completion exact readback"));}
++        let held=crate::control::hold_live_view_expected(&client,&owner,expected,budget).await?;
++        Ok(HeldInstalledView{completion,owner:InstalledViewOwner::Live{held,epoch:owner.epoch()},_charge:charge})
++    }.await;
++    let mut terminal=Completion::default();terminal.step("live view private reader close",reader.close().await);complete(result,terminal)
++}
++
++#[derive(Debug,Clone,PartialEq,Eq)]
++pub struct InstalledMember {pub key:[u8;16],pub node:RecordId,pub content:ContentHash}
++/// Compact exact membership metadata. No canonical payload is decoded for key-only demand.
++pub struct SelectedMembers {rows:Vec<InstalledMember>,_charge:StateCharge}
++impl SelectedMembers {pub fn rows(&self)->&[InstalledMember]{&self.rows}}
++impl HeldInstalledView {
++    async fn ensure_current(&self,reader:&crate::NativeReader<()>,budget:&ResourceBudget)->Result<(),ModelError>{
++        let expected=crate::control::inspect_expected_read(reader,self.expected_record().clone(),budget).await?.ok_or(ModelError::Conflict("held live completion missing"))?;
++        if expected.incarnation()!=self.completion_incarnation() || expected.row()!=self.expected_bytes(){return Err(ModelError::Conflict("held live completion incarnation/bytes"));}
++        let root=RecordId::new("compiler_view_realization",self.completion.realization.hex());
++        let expected=crate::control::inspect_expected_read(reader,root.clone(),budget).await?.ok_or(ModelError::Conflict("held live realization missing"))?;
++        if expected.incarnation()!=self.completion.realization_incarnation || expected.row()!=&self.completion.realization_value()? {return Err(ModelError::Conflict("held live realization incarnation/bytes"));}
++        crate::completed_state::require_hold(reader,self.owner(),self.expected_record()).await?;
++        crate::completed_state::require_hold(reader,self.expected_record(),&root).await?;
++        crate::completed_state::require_hold(reader,&root,&RecordId::new("compiler_view",self.completion.view.identity.hex())).await?;
++        let _charge=budget.reserve("held installed current owner validity",131072)?;
++        match &self.owner {
++            InstalledViewOwner::Published{completed,..}=>{
++                let proof=completed.retained_reader().protected_publication_marker(budget).await?;
++                if proof.row()!=completed.marker(){return Err(ModelError::Conflict("held published marker changed"));}
++            }
++            InstalledViewOwner::Live{epoch,..}=>{
++                let mut variables=Variables::new();variables.insert("owner",self.owner().clone());
++                let owners:Vec<Object>=reader.query_native("SELECT generation,epoch,state FROM $owner",variables).await?;
++                let [owner]=owners.as_slice() else{return Err(ModelError::Conflict("held live owner missing"));};
++                if owner.get("generation")!=Some(&Value::String(self.completion.generation.hex()))
++                    || owner.get("epoch")!=Some(&Value::from(*epoch))
++                    || !matches!(owner.get("state"),Some(Value::String(state)) if state=="open" || state=="frozen") {
++                    return Err(ModelError::Conflict("held live current generation/epoch"));
++                }
++            }
++        }
++        let installations:Vec<Object>=reader.query_native("SELECT generation,validity_epoch FROM native_installation:current",Variables::new()).await?;
++        let [installation]=installations.as_slice() else{return Err(ModelError::Conflict("held installed installation missing"));};
++        if installation.get("generation")!=Some(&Value::String(self.completion.generation.hex()))
++            || installation.get("validity_epoch")!=Some(&Value::from(self.completion.validity_epoch)) {return Err(ModelError::Conflict("held installed current validity"));}
++        Ok(())
++    }
++    /// Sorted distinct nominal demand is resolved through exact v2 addresses. Missing
++    /// rows mean absence only after the held complete namespace is checked, even empty.
++    pub async fn members(self:&Arc<Self>,reader:&crate::NativeReader<()>,keys:&[[u8;16]],budget:&ResourceBudget)->Result<SelectedMembers,ModelError>{
++        if keys.len()>crate::loader::NATIVE_WINDOW_ROWS || keys.windows(2).any(|pair|pair[0]>=pair[1]) {return Err(ModelError::Conflict("installed member demand order/duplicate/bound"));}
++        let setup=budget.reserve("owned compact member demand",keys.len().saturating_mul(64).saturating_add(4096))?;
++        let owner=self.clone();let reader=reader.clone();let driver_budget=budget.clone();let keys=keys.to_vec();
++        // The native driver owns the cap, reader, requested keys and reservations until
++        // every accepted response is terminal, even when its caller drops delivery.
++        let mut stream=crate::reader::NativeRows::owned(move |sender|async move {
++            let _setup=setup;let selected=owner.members_inner(&reader,&keys,&driver_budget).await?;
++            for member in selected.rows() {
++                let mut value=Object::new();value.insert("semantic_key",hex::encode(member.key));value.insert("node",member.node.clone());value.insert("content",member.content.hex());
++                if sender.send(Value::Object(value)).await.is_err(){break;}
++            }Ok(())
++        })?;
++        let result=async {
++            let mut charge=StateCharge::new(budget,"delivered compact installed members");let mut rows=Vec::new();
++            while let Some(value)=stream.next_native().await? {
++                let object=value.as_object().ok_or(ModelError::Schema("owned compact member delivery"))?;
++                let Some(Value::String(key))=object.get("semantic_key") else{return Err(ModelError::Schema("owned compact member key"));};
++                let Some(Value::RecordId(node))=object.get("node") else{return Err(ModelError::Schema("owned compact member node"));};
++                let Some(Value::String(content))=object.get("content") else{return Err(ModelError::Schema("owned compact member content"));};
++                charge.grow(crate::selection::node_bytes(node).saturating_mul(2).saturating_add(std::mem::size_of::<InstalledMember>()).saturating_add(128))?;
++                rows.push(InstalledMember{key:crate::completed_rows::decode_nominal_key(key)?,node:node.clone(),content:ContentHash(hex::decode(content).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("owned compact content width"))?)});
++            }Ok(SelectedMembers{rows,_charge:charge})
++        }.await;
++        let mut terminal=Completion::default();terminal.step("compact installed member driver drain",stream.drain_transport().await);complete(result,terminal)
++    }
++    async fn members_inner(&self,reader:&crate::NativeReader<()>,keys:&[[u8;16]],budget:&ResourceBudget)->Result<SelectedMembers,ModelError>{
++        if keys.len()>crate::loader::NATIVE_WINDOW_ROWS || keys.windows(2).any(|pair|pair[0]>=pair[1]){return Err(ModelError::Conflict("installed member demand order/duplicate"));}
++        self.ensure_current(reader,budget).await?;
++        let _window=budget.reserve("installed direct member read window",keys.len().saturating_mul(4096).saturating_add(d::resources::MAX_ROW_BYTES))?;
++        let mut variables=Variables::new();variables.insert("ids",keys.iter().map(|key|self.address(&self.completion.view.relation,key)).collect::<Result<Vec<_>,_>>()?);
++        let rows=if keys.is_empty(){Vec::new()}else{reader.query_native("SELECT * FROM $ids ORDER BY semantic_key",variables).await?};
++        let result=decode_window(&self.completion,keys,rows,budget)?;
++        let root=RecordId::new("compiler_view_realization",self.completion.realization.hex());
++        for member in result.rows() {
++            let id=self.address(&self.completion.view.relation,&member.key)?;
++            crate::completed_state::require_hold(reader,&root,&id).await?;crate::completed_state::require_hold(reader,&id,&member.node).await?;
++        }
++        self.ensure_current(reader,budget).await?;Ok(result)
++    }
++}
++fn decode_member(completion:&InstalledViewCompletion,row:&Value)->Result<InstalledMember,ModelError>{
++    let object=row.as_object().ok_or(ModelError::Schema("installed direct member object"))?;
++    let Some(Value::String(key))=object.get("semantic_key") else{return Err(ModelError::Schema("installed direct member key"));};
++    let key=crate::completed_rows::decode_nominal_key(key)?;
++    let Some(Value::RecordId(node))=object.get("node") else{return Err(ModelError::Schema("installed direct member node"));};
++    let Some(Value::String(content))=object.get("content") else{return Err(ModelError::Schema("installed direct member content"));};
++    let content=ContentHash(hex::decode(content).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("installed direct member content width"))?);
++    let result=InstalledMember{key,node:node.clone(),content};
++    let mut expected=Object::new();expected.insert("id",member_id(completion.realization,&completion.view.relation,&key));expected.insert("realization",RecordId::new("compiler_view_realization",completion.realization.hex()));expected.insert("relation",completion.view.relation.clone());expected.insert("semantic_key",hex::encode(key));expected.insert("node",node.clone());expected.insert("content",content.hex());
++    if row!=&Value::Object(expected) || !matches!(node.table.as_str(),"entity"|"assertion"|"compiler_record"){return Err(ModelError::Conflict("installed direct member exact envelope"));}
++    Ok(result)
++}
++
++/// Acquires one exact installed view from a protected publication. The origin attempt
++/// may already be closed or compacted; marker/pin reachability owns this capability.
++pub async fn hold_published_view(completed:&crate::completed_state::PublishedCompletedState,view:ContentHash,budget:&ResourceBudget)->Result<HeldInstalledView,ModelError>{
++    let installed=completed.inventory().installed(view)?;
++    let mut charge=StateCharge::new(budget,"published held installed descriptor");
++    charge.grow(installed.view.relation.capacity().saturating_add(installed.view.contributions.len().saturating_mul(256)).saturating_add(installed.mappings.len().saturating_mul(256)).saturating_add(8192))?;
++    let proof=completed.retained_reader().protected_publication_marker(budget).await?;
++    if proof.row()!=completed.marker(){return Err(ModelError::Conflict("published installed marker changed"));}
++    let reader=completed.retained_reader().transport_reader().with_budget(budget);
++    let expected=crate::control::inspect_expected_read(&reader,installed.record()?,budget).await?.ok_or(ModelError::Conflict("published installed completion missing"))?;
++    if expected.row()!=&installed.value()? {return Err(ModelError::Conflict("published installed completion bytes"));}
++    let owner=completed.completion().record()?;
++    crate::completed_state::require_hold(&reader,&owner,expected.record()).await?;
++    let result=HeldInstalledView{completion:installed.clone(),owner:InstalledViewOwner::Published{expected,completed:completed.clone(),owner},_charge:charge};
++    result.ensure_current(&reader,budget).await?;Ok(result)
++}
++
++fn decode_window(completion:&InstalledViewCompletion,keys:&[[u8;16]],rows:Vec<Value>,budget:&ResourceBudget)->Result<SelectedMembers,ModelError>{
++    let mut charge=StateCharge::new(budget,"held installed compact members");let mut result=Vec::new();let mut previous=None;
++    if rows.len()>keys.len(){return Err(ModelError::Conflict("installed direct member result bound"));}
++    for row in rows {
++        let _decode=budget.reserve("installed direct member decode",crate::loader::native_bytes(&row).saturating_mul(16).saturating_add(4096))?;
++        let member=decode_member(completion,&row)?;
++        if keys.binary_search(&member.key).is_err() || previous.is_some_and(|key|key>=member.key){return Err(ModelError::Conflict("installed direct member foreign/duplicate/order"));}
++        charge.grow(crate::selection::node_bytes(&member.node).saturating_mul(2).saturating_add(std::mem::size_of::<InstalledMember>()).saturating_add(128))?;
++        previous=Some(member.key);result.push(member);
++    }Ok(SelectedMembers{rows:result,_charge:charge})
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    fn completion()->InstalledViewCompletion {
++        let view=d::completed::CompletedView::new("packages".into(),[ContentHash::of(b"owner")].into(),2).unwrap();
++        let mappings=vec![ContributorRealization{logical:*view.contributions.first().unwrap(),physical:ContentHash::of(b"physical"),incarnation:1}];
++        InstalledViewCompletion{generation:ContentHash::of(b"generation"),validity_epoch:1,realization_incarnation:1,version:1,realization:realization_id(&view,&mappings).unwrap(),view,member_codec:MEMBER_CODEC,mappings,closure:d::completed_identity::CompletedFamilyRoots::new(d::recovery_closure::COMPLETED_FAMILIES.map(|family|d::completed_identity::CompletedFamilyHasher::new(family).unwrap().finish())).unwrap(),membership_rows:2,membership_content:ContentHash::of(b"membership"),frozen_revision:1}
++    }
++    fn member(completion:&InstalledViewCompletion,key:[u8;16])->Value {
++        let mut row=Object::new();row.insert("id",member_id(completion.realization,&completion.view.relation,&key));row.insert("realization",RecordId::new("compiler_view_realization",completion.realization.hex()));row.insert("relation",completion.view.relation.clone());row.insert("semantic_key",hex::encode(key));row.insert("node",RecordId::new("entity",ContentHash::of(&key).hex()));row.insert("content",ContentHash::of(&key).hex());Value::Object(row)
++    }
++    #[test]
++    fn compact_member_delivery_keeps_charge_and_nominal_order_without_payloads(){
++        let completion=completion();let budget=ResourceBudget::fixed(1<<20).unwrap();let keys=[[1;16],[2;16],[3;16]];
++        let result=decode_window(&completion,&keys,vec![member(&completion,keys[0]),member(&completion,keys[2])],&budget).unwrap();
++        assert_eq!(result.rows().iter().map(|row|row.key).collect::<Vec<_>>(),vec![keys[0],keys[2]],"exact absent key is omitted without renumbering nominal keys");
++        assert!(budget.reserved()>0,"compact delivered allocations must retain their owner");drop(result);assert_eq!(budget.reserved(),0,"last consumer releases only its retained output allocation");
++    }
++    #[test]
++    fn compact_member_decode_refuses_corrupt_suffix_duplicate_foreign_or_rebound_namespace(){
++        let completion=completion();let budget=ResourceBudget::fixed(1<<20).unwrap();let keys=[[1;16],[2;16]];
++        let mut suffix=member(&completion,keys[1]);if let Value::Object(row)=&mut suffix {row.insert("content","malformed");}
++        assert!(decode_window(&completion,&keys,vec![member(&completion,keys[0]),suffix],&budget).is_err(),"valid prefix must not hide malformed later member");
++        assert!(decode_window(&completion,&keys,vec![member(&completion,keys[0]),member(&completion,keys[0])],&budget).is_err(),"duplicate transport cannot substitute for another nominal key");
++        assert!(decode_window(&completion,&keys,vec![member(&completion,[3;16])],&budget).is_err(),"foreign nominal key cannot enter selected demand");
++        let mut rebound=member(&completion,keys[0]);if let Value::Object(row)=&mut rebound {row.insert("id",member_id(ContentHash::of(b"other realization"),&completion.view.relation,&keys[0]));}
++        assert!(decode_window(&completion,&keys,vec![rebound],&budget).is_err(),"same-count namespace substitution must refuse");
++        assert_eq!(budget.reserved(),0,"all failed decode allocation owners release after refusal");
++    }
++}
+diff --git a/crates/lctx-native/src/installed_view.rs b/crates/lctx-native/src/installed_view.rs
+--- a/crates/lctx-native/src/installed_view.rs
++++ b/crates/lctx-native/src/installed_view.rs
+@@ -1,6 +1,8 @@
+ //! Installation-local completed view data and held read authority.
+ //! Deserializing completion data never establishes a native hold or cold admission.
+ pub(crate) mod audit;
++mod live;
++pub use live::{install_live_view, hold_published_view, InstalledMember, SelectedMembers};
+ use lctx_model::domain::{self as d, ContentHash, Key, KeySink, ModelError};
+ use serde::{Deserialize, Serialize};
+ use surrealdb::types::{RecordId, Value};
+@@ -89,17 +91,24 @@
+     RecordId::new("compiler_view_member", sink.finish().hex())
+ }
+ 
+-/// The only construction route must hold the exact completion row/incarnation
+-/// through the owning native attempt. There is deliberately no public constructor.
++/// Native factories retain exact completion/realization authority through a live
++/// attempt or a protected publication pin. There is no public data-only constructor.
+ pub struct HeldInstalledView {
+     completion: InstalledViewCompletion,
+-    held: crate::control::HeldRecord,
++    owner: InstalledViewOwner,
++    _charge: d::charged::StateCharge,
++}
++enum InstalledViewOwner {
++    Live{held:crate::control::HeldRecord,epoch:i64},
++    Published{expected:crate::control::ExpectedRecord,completed:crate::completed_state::PublishedCompletedState,owner:RecordId},
+ }
+ impl HeldInstalledView {
+     pub fn completion(&self) -> &InstalledViewCompletion { &self.completion }
+-    pub fn owner(&self) -> &RecordId { self.held.owner() }
++    pub fn owner(&self) -> &RecordId { match &self.owner {InstalledViewOwner::Live{held,..}=>held.owner(),InstalledViewOwner::Published{owner,..}=>owner} }
+     pub fn incarnation(&self) -> i64 { self.completion.realization_incarnation }
+-    pub fn completion_incarnation(&self) -> i64 { self.held.incarnation() }
++    pub fn completion_incarnation(&self) -> i64 { match &self.owner {InstalledViewOwner::Live{held,..}=>held.incarnation(),InstalledViewOwner::Published{expected,..}=>expected.incarnation()} }
++    fn expected_record(&self)->&RecordId{match &self.owner{InstalledViewOwner::Live{held,..}=>held.record(),InstalledViewOwner::Published{expected,..}=>expected.record()}}
++    fn expected_bytes(&self)->&Value{match &self.owner{InstalledViewOwner::Live{held,..}=>held.row(),InstalledViewOwner::Published{expected,..}=>expected.row()}}
+     pub fn address(&self, relation: &str, key: &[u8; 16]) -> Result<RecordId, ModelError> {
+         if relation != self.completion.view.relation { return Err(ModelError::Conflict("held view selected relation")); }
+         Ok(member_id(self.completion.realization, relation, key))
+@@ -170,3 +179,10 @@
+ pub fn schema_target()->&'static str {
+     "DEFINE TABLE compiler_view_realization SCHEMAFULL; DEFINE FIELD descriptor ON compiler_view_realization TYPE bytes; DEFINE FIELD sealed ON compiler_view_realization TYPE bool; DEFINE TABLE compiler_view_completion SCHEMAFULL; DEFINE FIELD descriptor ON compiler_view_completion TYPE bytes; DEFINE FIELD completed ON compiler_view_completion TYPE bool; DEFINE TABLE compiler_view_member SCHEMAFULL; DEFINE FIELD realization ON compiler_view_member TYPE record<compiler_view_realization>; DEFINE FIELD relation ON compiler_view_member TYPE string; DEFINE FIELD semantic_key ON compiler_view_member TYPE string; DEFINE FIELD node ON compiler_view_member TYPE record<entity | assertion | compiler_record>; DEFINE FIELD content ON compiler_view_member TYPE string; DEFINE INDEX realization_key ON compiler_view_member FIELDS realization,relation,semantic_key UNIQUE; DEFINE INDEX realization_nodes ON compiler_view_member FIELDS realization,node;"
+ }
++
++/// Discovery only. This reads one explicitly selected physical contributor under the
++/// caller's tracked/cancellable reader; only install_live_view can mint a held view.
++pub async fn inspect_contributor(reader:&crate::NativeReader<()>,physical:ContentHash,budget:&d::resources::ResourceBudget)
++    ->Result<Option<crate::control::ExpectedRecord>,ModelError>{
++    crate::control::inspect_expected_read(reader,RecordId::new("compiler_contribution",physical.hex()),budget).await
++}

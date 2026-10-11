@@ -735,6 +735,9 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for Acquire {
         context.declare::<DerivedArtifact>()?;
         context.declare::<ArtifactUse>()?;
         let captured = context.captured();
+        // Physical sink acknowledgements for every source header precede chunk emission.
+        // Other typed ingress remains order-independent through the private spool fallback.
+        context.emit_rows(captured.inputs().iter().flat_map(|input|input.captured().artifacts().iter().cloned()))?;
         for input in captured.inputs() {
             let frozen = input.captured();
             let library=match input.acquisition() {
@@ -747,7 +750,7 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for Acquire {
             context.emit(InputAcquisition {input:descriptor.revision.id(),origin:descriptor.origin.id()})?;
             if let Some((library,_))=descriptor.library {context.emit(CorpusLibrary {corpus:descriptor.revision.id(),library})?;}
             macro_rules! emit {($($field:ident),*)=>{$(for row in descriptor.$field {context.emit(row)?;})*};}
-            emit!(artifacts,packages,releases,distributions,verifications,fingerprints,ownership,unowned,derivations,uses);
+            emit!(packages,releases,distributions,verifications,fingerprints,ownership,unowned,derivations,uses);
             for index in 0..frozen.artifacts().len() {
                 frozen.emit_chunks(index,|chunk|context.emit(chunk.clone())).map_err(capture_error)?;
             }

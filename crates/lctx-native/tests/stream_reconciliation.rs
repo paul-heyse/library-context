@@ -246,7 +246,7 @@ async fn candidate_plan_controls(
         .begin_contribution(completed::ContributionSpec {
             captured_binding: None,
             producer: "candidate-plan-quality".into(),
-            profile: stages::Profile::Catalog,
+            profile: lctx_model::domain::completed::OutputProfile::Specific(stages::Profile::Catalog),
             model: ContentHash::of(b"candidate-plan-model"),
             implementation: ContentHash::of(b"candidate-plan-code"),
             configuration: None,
@@ -767,7 +767,7 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
     let mut chunk_bindings = Variables::new();
     chunk_bindings.insert(
         "id",
-        RecordId::new("original_chunk", format!("{}_0", original.source.0.hex())),
+        lctx_native::originals::chunk_id(&lctx_native::originals::Blob::new(original.content,original.byte_len).unwrap().id(),0).unwrap(),
     );
     let saved_chunk = physical_row(&native, chunk_bindings.clone()).await;
     chunk_bindings.insert("saved", saved_chunk);
@@ -1048,7 +1048,7 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
             .unwrap();
         loader.reconcile(&manifest).await.unwrap();
     }
-    let chunk_id = RecordId::new("original_chunk", format!("{}_0", original.source.0.hex()));
+    let chunk_id = lctx_native::originals::chunk_id(&lctx_native::originals::Blob::new(original.content,original.byte_len).unwrap().id(),0).unwrap();
     let wrong_id = RecordId::new("original_chunk", format!("corrupted_{}", scope.hex()));
     let mut chunk_bindings = Variables::new();
     chunk_bindings.insert("id", chunk_id);
@@ -1200,7 +1200,7 @@ async fn imported_extra_original_envelope_is_rejected_under_explicit_maintenance
     let mut chunk_bindings = Variables::new();
     chunk_bindings.insert(
         "id",
-        RecordId::new("original_chunk", format!("{}_0", original.source.0.hex())),
+        lctx_native::originals::chunk_id(&lctx_native::originals::Blob::new(original.content,original.byte_len).unwrap().id(),0).unwrap(),
     );
     let mut response = client
         .query("SELECT * FROM $id")

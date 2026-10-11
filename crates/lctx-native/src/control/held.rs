@@ -68,6 +68,39 @@ pub async fn hold_expected(client: &Surreal<Client>, attempt: ContentHash, owner
     Ok(HeldRecord { expected, owner })
 }
 
+/// Private-reader inspection keeps every read under the caller's cancellation/session owner.
+pub(crate) async fn inspect_expected_read(reader:&crate::NativeReader<()>,record:RecordId,budget:&ResourceBudget)->Result<Option<ExpectedRecord>,ModelError>{
+    use surrealdb::types::SurrealValue;
+    let mut charge=budget.reserve("native owned expected inspection",MAX_ROW_BYTES)?;
+    let mut bindings=Variables::new();bindings.insert("record",record.clone());bindings.insert("guard",guard_id(&Value::RecordId(record.clone()))?);
+    let result:Object=reader.query_native("RETURN {rows:(SELECT * FROM $record),guards:(SELECT phase,incarnation FROM $guard)}",bindings).await?;
+    let rows=Vec::<Value>::from_value(result.get("rows").cloned().ok_or(ModelError::Schema("native expected rows"))?).map_err(ModelError::codec)?;
+    let guards=Vec::<Object>::from_value(result.get("guards").cloned().ok_or(ModelError::Schema("native expected guards"))?).map_err(ModelError::codec)?;
+    if rows.is_empty(){return Ok(None);}
+    let [row]=rows.as_slice() else{return Err(ModelError::Conflict("native expected row cardinality"));};
+    let [guard]=guards.as_slice() else{return Err(ModelError::Conflict("native expected guard cardinality"));};
+    let incarnation=authorization::int_field(guard,"incarnation")?;
+    if incarnation<=0 || guard.get("phase")!=Some(&Value::String("active".into())){return Err(ModelError::Conflict("native expected object not active"));}
+    let bytes=crate::loader::native_bytes(row).saturating_mul(32).saturating_add(65536);
+    if bytes>MAX_ROW_BYTES{return Err(ModelError::Schema("native expected representation bound"));}charge.try_resize(bytes)?;
+    Ok(Some(ExpectedRecord{record,incarnation,row:rows.into_iter().next().unwrap(),_charge:charge}))
+}
+/// Fixed attempt→completion acquisition. Neither a different owner nor arbitrary SQL is accepted.
+pub(crate) async fn hold_frozen_completed_expected(client:&Surreal<Client>,completion:&crate::completed_state::FrozenCompletion,
+    expected:ExpectedRecord,budget:&ResourceBudget)->Result<HeldRecord,ModelError>{
+    if expected.record()!=&completion.record()? || expected.row()!=&completion.value(true)?{return Err(ModelError::Conflict("frozen completion hold exact expected bytes"));}
+    let _charge=budget.reserve("frozen completion held transaction",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(65536))?;
+    let owner=RecordId::new("native_attempt",completion.attempt.hex());
+    let (_,hold_sql,mut bindings)=hold_plan(Some(completion.attempt),vec![(owner.clone(),expected.record.clone())])?.ok_or(ModelError::Schema("frozen completion hold plan"))?;
+    let fence=completion.fence();frozen::bind_fence(&fence,&mut bindings);
+    bindings.insert("expected_record",expected.record.clone());bindings.insert("expected_guard",guard_id(&Value::RecordId(expected.record.clone()))?);
+    bindings.insert("expected_incarnation",expected.incarnation);bindings.insert("expected_bytes",expected.row.clone());
+    bindings.insert("completed_identity",completion.identity()?.hex());bindings.insert("completed_logical",completion.completed_state.hex());
+    let sql=format!("{} IF !$__owner.admitted OR $__owner.completed_identity!=$completed_identity OR $__owner.completed_state!=$completed_logical {{ THROW 'native frozen completion admission changed'; }}; LET $guard=SELECT * FROM ONLY $expected_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $expected_record FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$expected_incarnation OR $actual!=$expected_bytes {{ THROW 'native frozen completion bytes/incarnation changed'; }}; {hold_sql}",frozen::FENCE_GUARD);
+    effect_for_owner(client,EffectOwner::FrozenAttempt(completion.attempt),&sql,bindings).await?;
+    Ok(HeldRecord{expected,owner})
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,4 +139,61 @@ mod tests {
         drop(held); assert_eq!(budget.reserved(), 0);
         client.invalidate().await.unwrap(); store.abandon().await.unwrap();
     }
+}
+
+/// Re-hold the exact persisted admission for this currently admitted frozen attempt.
+/// Admission bytes and incarnation are captured independently before this fixed effect.
+pub(crate) async fn hold_frozen_admission_expected(client:&Surreal<Client>,completion:&crate::completed_state::FrozenCompletion,
+    admission:&crate::completed_state::CompletedAdmission,expected:ExpectedRecord,budget:&ResourceBudget)->Result<HeldRecord,ModelError>{
+    if expected.record()!=&admission.record()? || expected.row()!=&admission.value()? {return Err(ModelError::Conflict("semantic admission hold exact expected envelope"));}
+    let _charge=budget.reserve("semantic admission hold construction",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(65536))?;
+    let owner=RecordId::new("native_attempt",completion.attempt.hex());
+    let (_,hold_sql,mut variables)=hold_plan(Some(completion.attempt),vec![(owner.clone(),expected.record.clone())])?.ok_or(ModelError::Schema("semantic admission hold plan"))?;
+    frozen::bind_fence(&completion.fence(),&mut variables);
+    variables.insert("admission",admission.record()?);variables.insert("admission_guard",guard_id(&Value::RecordId(admission.record()?))?);
+    variables.insert("admission_incarnation",expected.incarnation);variables.insert("admission_bytes",expected.row.clone());
+    variables.insert("completion_identity",completion.identity()?.hex());variables.insert("completion_guard",guard_id(&Value::RecordId(completion.record()?))?);
+    variables.insert("completion_incarnation",admission.completion_incarnation);
+    let sql=format!("{} IF !$__owner.admitted OR $__owner.completed_identity!=$completion_identity OR $__owner.completed_admission!=$admission {{ THROW 'frozen semantic admission owner changed'; }}; LET $semantic_guard=SELECT * FROM ONLY $admission_guard FOR UPDATE; LET $semantic=SELECT * FROM ONLY $admission FOR UPDATE; LET $physical_guard=SELECT * FROM ONLY $completion_guard FOR UPDATE; IF $semantic_guard.phase!='active' OR $semantic_guard.incarnation!=$admission_incarnation OR $semantic!=$admission_bytes OR $physical_guard.phase!='active' OR $physical_guard.incarnation!=$completion_incarnation {{ THROW 'semantic admission bytes/incarnation changed'; }}; {hold_sql}",frozen::FENCE_GUARD);
+    effect_for_owner(client,EffectOwner::FrozenAttempt(completion.attempt),&sql,variables).await?;
+    Ok(HeldRecord{expected,owner})
+}
+/// Private fixed transition. The public caller has an opaque executed model aggregate
+/// and independently verified native full typed inputs before this effect is constructed.
+pub(crate) async fn install_completed_admission(client:&Surreal<Client>,physical:&crate::completed_state::NativeCompletedState,
+    admission:&crate::completed_state::CompletedAdmission,budget:&ResourceBudget)->Result<(),ModelError>{
+    let data=physical.completion();
+    let _charge=budget.reserve("semantic admission durable transaction",crate::loader::native_bytes(&admission.value()?).saturating_mul(32).saturating_add(262144))?;
+    let (row_sql,mut variables)=immutable_row_plan(None,None,vec![admission.value()?])?.ok_or(ModelError::Schema("semantic admission immutable plan"))?;
+    let (_,hold_sql,holds)=hold_plan(Some(data.attempt),vec![(RecordId::new("native_attempt",data.attempt.hex()),admission.record()?),(admission.record()?,data.record()?)])?.ok_or(ModelError::Schema("semantic admission durable holds"))?;
+    merge_plan_bindings(&mut variables,holds)?;frozen::bind_fence(&data.fence(),&mut variables);
+    variables.insert("completion",data.record()?);variables.insert("completion_guard",guard_id(&Value::RecordId(data.record()?))?);variables.insert("completion_incarnation",physical.incarnation());variables.insert("completion_bytes",data.value(true)?);
+    variables.insert("completion_identity",data.identity()?.hex());variables.insert("completion_logical",data.completed_state.hex());variables.insert("admission",admission.record()?);
+    let sql=format!("{} LET $guard=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $completion FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$completion_incarnation OR $actual!=$completion_bytes OR ($__owner.admitted AND $__owner.completed_admission!=$admission) {{ THROW 'semantic admission physical completion changed'; }}; {row_sql}; {hold_sql}; UPDATE $__attempt SET admitted=true,completed_identity=$completion_identity,completed_state=$completion_logical,completed_admission=$admission RETURN NONE",frozen::FENCE_GUARD);
+    effect_for_owner(client,EffectOwner::FrozenAttempt(data.attempt),&sql,variables).await
+}
+
+pub(crate) async fn hold_frozen_physical_expected(client:&Surreal<Client>,completion:&crate::completed_state::FrozenCompletion,
+    expected:ExpectedRecord,budget:&ResourceBudget)->Result<HeldRecord,ModelError>{
+    if expected.row()!=&completion.value(true)? || expected.record()!=&completion.record()?{return Err(ModelError::Conflict("physical completed hold exact envelope"));}
+    let _charge=budget.reserve("physical completion hold",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(131072))?;
+    let owner=RecordId::new("native_attempt",completion.attempt.hex());
+    let (_,holds,mut variables)=hold_plan(Some(completion.attempt),vec![(owner.clone(),completion.record()?)])?.ok_or(ModelError::Schema("physical completed hold plan"))?;
+    frozen::bind_fence(&completion.fence(),&mut variables);
+    variables.insert("completion",completion.record()?);variables.insert("completion_guard",guard_id(&Value::RecordId(completion.record()?))?);variables.insert("completion_bytes",expected.row.clone());variables.insert("completion_incarnation",expected.incarnation);
+    variables.insert("completion_identity",completion.identity()?.hex());
+    let sql=format!("{} LET $guard=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $completion FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$completion_incarnation OR $actual!=$completion_bytes OR $__owner.completed_identity!=$completion_identity {{ THROW 'physical completed hold changed'; }}; {holds}",frozen::FENCE_GUARD);
+    effect_for_owner(client,EffectOwner::FrozenAttempt(completion.attempt),&sql,variables).await?;Ok(HeldRecord{expected,owner})
+}
+
+/// Final acquisition compares the same live attempt epoch and exact completed view bytes.
+pub(crate) async fn hold_live_view_expected(client:&Surreal<Client>,owner:&super::live_view::LiveViewOwner,
+    expected:ExpectedRecord,budget:&ResourceBudget)->Result<HeldRecord,ModelError>{
+    if expected.record().table.as_str()!="compiler_view_completion" {return Err(ModelError::Conflict("live held witness family"));}
+    let _charge=budget.reserve("live exact installed view hold",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(131072))?;
+    let holder=RecordId::new("native_attempt",owner.attempt().hex());
+    let (_,holds,mut variables)=hold_plan(Some(owner.attempt()),vec![(holder.clone(),expected.record.clone())])?.ok_or(ModelError::Schema("live held view plan"))?;
+    super::live_view::bind(owner,&mut variables);variables.insert("expected_record",expected.record.clone());variables.insert("expected_guard",guard_id(&Value::RecordId(expected.record.clone()))?);variables.insert("expected_incarnation",expected.incarnation);variables.insert("expected_bytes",expected.row.clone());
+    let sql=format!("{} LET $guard=SELECT * FROM ONLY $expected_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $expected_record FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$expected_incarnation OR $actual!=$expected_bytes {{ THROW 'live held completion changed'; }}; {holds}",super::live_view::GUARD);
+    effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt()),&sql,variables).await?;Ok(HeldRecord{expected,owner:holder})
 }

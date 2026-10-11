@@ -22,6 +22,7 @@ macro_rules! expected_domain_inputs {
          computations:$crate::domain::normalized::coverage::NormalizationComputation,
          normalized:$crate::domain::normalized::coverage::NormalizationCoverage,
          native:$crate::domain::attribution::ProviderCoverage,
+         uniform:$crate::domain::uniform_outcome::UniformNotRequested,
          text:$crate::domain::embedding::text::TextDefinition,
          analytics:$crate::domain::analysis::settings::AnalyticsConfiguration,
         }
@@ -362,6 +363,7 @@ pub fn inputs(method: AnalysisMethod) -> Vec<ValidationInput> {
     ];
     if contract.needs_native() {
         inputs.push(ValidationInput::of::<ProviderCoverage>(&["id"]));
+        inputs.push(ValidationInput::of::<uniform_outcome::UniformNotRequested>(&["id"]));
     }
     if method == AnalysisMethod::AnalyticEmbedding {
         inputs.push(ValidationInput::of::<embedding::text::TextDefinition>(&[
@@ -396,7 +398,14 @@ struct PreparedRoots {
         charged::ChargedMap<(Id<InputRevision>, admission::ArtifactClass), Vec<Id<SourceArtifact>>>,
     _charge: charged::StateCharge,
 }
+struct PreparedUniforms {
+    domains:charged::ChargedMap<Id<uniform_outcome::UniformNotRequested>,uniform_outcome::ValidatedUniformDomain>,
+    _charge:charged::StateCharge,
+}
 pub(crate) struct FrontierIndex {
+    uniform_owners: uniform_outcome::UniformOwners,
+    uniform:charged::ChargedMap<Id<uniform_outcome::UniformNotRequested>,uniform_outcome::UniformNotRequested>,
+    prepared_uniforms:std::sync::OnceLock<PreparedUniforms>,
     charge: charged::StateCharge,
     profile: Profile,
     inputs: charged::ChargedMap<Id<InputRevision>, InputRevision>,
@@ -415,10 +424,13 @@ pub(crate) struct FrontierIndex {
 }
 impl FrontierIndex {
     pub(crate) fn set_profile(&mut self, profile: Profile) {
+        self.prepared_uniforms.take();
         self.profile = profile;
     }
     pub(crate) fn new(profile: Profile, budget: &resources::ResourceBudget) -> Self {
         Self {
+            uniform_owners: uniform_outcome::UniformOwners::new(budget),
+            uniform:Default::default(),prepared_uniforms:Default::default(),
             charge: charged::StateCharge::new(budget, "analysis_expected_frontier"),
             profile,
             inputs: Default::default(),
@@ -433,6 +445,7 @@ impl FrontierIndex {
             text: Default::default(),
         }
     }
+    pub(crate) fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.prepared_uniforms.take();self.uniform_owners.include(owner)}
     fn visit_artifact_properties(
         &mut self,
         batch: &arrow_array::RecordBatch,
@@ -511,6 +524,7 @@ impl FrontierIndex {
         if relation == SourceArtifact::NAME {
             check()?;
             self.roots.take();
+            self.prepared_uniforms.take();
             for row in SourceArtifact::decode(batch)? {
                 if self
                     .artifacts
@@ -528,7 +542,9 @@ impl FrontierIndex {
                     check()?;
                     if relation == ArtifactUse::NAME {
                         self.roots.take();
+                        self.prepared_uniforms.take();
                     }
+                    if relation == uniform_outcome::UniformNotRequested::NAME {self.prepared_uniforms.take();}
                     for row in <$r>::decode(batch)? {
                         if self
                             .$field
@@ -584,6 +600,27 @@ impl FrontierIndex {
         let _ = self.roots.set(roots);
         Ok(self.roots.get().expect("prepared expected membership"))
     }
+    fn prepared_uniforms(&self)->Result<&PreparedUniforms,ModelError>{
+        if let Some(prepared)=self.prepared_uniforms.get(){return Ok(prepared);}
+        let budget=self.charge.budget().ok_or_else(||invalid("uniform frontier budget absent"))?;
+        let roots=self.prepared_roots()?;
+        let mut prepared=PreparedUniforms{domains:Default::default(),_charge:charged::StateCharge::new(budget,"analysis-uniform-domains")};
+        for descriptor in self.uniform.values(){
+            if !self.inputs.contains_key(&descriptor.input){return Err(invalid("uniform frontier input absent"));}
+            let owner=self.uniform_owners.require(descriptor)?;
+            if owner.profile()!=self.profile{return Err(invalid("uniform frontier selected profile differs"));}
+            let requirement=admission::FACTS_REQUIREMENTS.iter().find(|requirement|Some(requirement.family)==descriptor.family).ok_or_else(||invalid("uniform frontier family absent"))?;
+            let mut scratch=charged::StateCharge::new(budget,"analysis-uniform-scope-preparation");let mut scopes=Vec::new();
+            for grain in requirement.grains {match grain {
+                admission::Grain::Input=>{scratch.grow(size_of::<CoverageScope>())?;scopes.push(CoverageScope::Input{input:descriptor.input});}
+                admission::Grain::Artifact(class)=>for artifact in roots.by_grain.get(&(descriptor.input,*class)).into_iter().flatten(){scratch.grow(size_of::<CoverageScope>())?;scopes.push(CoverageScope::Artifact{artifact:*artifact});}
+            }}
+            for scope in &scopes{if self.scopes.get(&scope.id())!=Some(scope){return Err(invalid("uniform frontier captured scope absent"));}}
+            let domain=uniform_outcome::ExpectedUniform::native_scopes(owner,descriptor.input,descriptor.context,scopes,self.profile,budget)?;
+            prepared.domains.insert(&mut prepared._charge,descriptor.id(),domain)?;
+        }
+        let _=self.prepared_uniforms.set(prepared);Ok(self.prepared_uniforms.get().expect("prepared uniform domains"))
+    }
     pub(crate) fn domain(
         &self,
         input: Id<InputRevision>,
@@ -598,6 +635,7 @@ impl FrontierIndex {
             .budget()
             .ok_or_else(|| invalid("expected frontier budget absent"))?;
         let roots = self.prepared_roots()?;
+        let _uniform=self.prepared_uniforms()?;
         let scope_count = contract
             .scopes
             .iter()
@@ -615,6 +653,9 @@ impl FrontierIndex {
             .values()
             .try_fold(0usize, |n, r| {
                 n.checked_add(size_of::<ProviderCoverage>() + r.heap_bytes() + 32)
+            })
+            .and_then(|n| {
+                n.checked_add(self.uniform.len().checked_mul(scope_count)?.checked_mul(size_of::<uniform_outcome::UniformScopedEvidence>())?)
             })
             .and_then(|n| {
                 n.checked_add(
@@ -705,6 +746,7 @@ impl FrontierIndex {
                     requested,
                     no_scope: requested,
                     native: vec![],
+                    uniform:vec![],
                     normalized: vec![],
                 }],
                 _reservation: reservation,
@@ -721,6 +763,7 @@ impl FrontierIndex {
         for (scope, (_, ordinal)) in selected.iter() {
             let scope_contract = &contract.scopes[*ordinal];
             let mut native = Vec::new();
+            let mut uniform = Vec::new();
             let mut normalized = Vec::new();
             for family in scope_contract.native {
                 let rows = self
@@ -729,7 +772,14 @@ impl FrontierIndex {
                     .filter(|r| r.scope == *scope && r.context == context && r.family == *family)
                     .collect::<Vec<_>>();
                 if rows.is_empty() {
-                    return Err(invalid("expected native family scope absent"));
+                    let mut found=false;
+                    for descriptor in self.uniform.values().filter(|row|row.input==input && row.context==context && row.family==Some(*family)){
+                        let domain=self.prepared_uniforms()?.domains.get(&descriptor.id()).ok_or_else(||invalid("uniform expected family has no validated domain"))?;
+                        if let Some(evidence)=domain.evidence(*scope,descriptor.definitions){uniform.push(evidence);found=true;}
+                    }
+                    if !found{return Err(invalid("expected native family scope absent"));}
+                } else if self.uniform.values().any(|row|row.input==input && row.context==context && row.family==Some(*family)){
+                    return Err(invalid("mixed scoped/uniform expected native family"));
                 }
                 for row in rows {
                     row.validate()?;
@@ -773,6 +823,7 @@ impl FrontierIndex {
                 requested,
                 no_scope: false,
                 native,
+                uniform,
                 normalized,
             });
         }
@@ -792,6 +843,7 @@ pub(crate) struct ExpectedScope {
     pub requested: bool,
     pub no_scope: bool,
     pub native: Vec<ProviderCoverage>,
+    pub uniform:Vec<uniform_outcome::UniformScopedEvidence>,
     pub normalized: Vec<NormalizationCoverage>,
 }
 /// Conditional expected-domain routing never treats an unrelated relation as evidence.
@@ -807,6 +859,7 @@ pub struct CoverageAdmission<'a> {
     index: FrontierIndex,
 }
 impl<'a> CoverageAdmission<'a> {
+    pub fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.index.admit_uniform_owner(owner)}
     pub fn new(
         sources: &'a super::sources::CapturedSources,
         budget: &resources::ResourceBudget,

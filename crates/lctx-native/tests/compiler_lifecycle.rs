@@ -6,7 +6,8 @@ use lctx_model::domain::{
     input::Package,
     stages::{Profile, ProviderOutcome},
 };
-use lctx_native::{RuntimeConfig, compiler::NativeCompilerStore};
+use lctx_native::RuntimeConfig;
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::collections::{BTreeMap, BTreeSet};
 
 async fn fixture_client(
@@ -39,7 +40,7 @@ async fn closing_admission_waits_for_cold_registration_and_held_native_rows() {
     let specification = ContributionSpec {
         captured_binding: None,
         producer: "lifecycle".into(),
-        profile: Profile::Catalog,
+        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
         model: ContentHash::of(b"lifecycle-model"),
         implementation: ContentHash::of(b"lifecycle-code"),
         configuration: None,
@@ -135,7 +136,7 @@ async fn final_content_freeze_preserves_reads_and_reuses_complete_canonical_runs
     let spec = ContributionSpec {
         captured_binding: None,
         producer: "frozen".into(),
-        profile: Profile::Catalog,
+        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
         model: ContentHash::of(b"model"),
         implementation: ContentHash::of(b"code"),
         configuration: None,
@@ -231,7 +232,7 @@ async fn final_content_freeze_rejects_actual_pending_attempt_owner() {
         .begin_contribution(ContributionSpec {
             captured_binding: None,
             producer: "pending".into(),
-            profile: Profile::Catalog,
+            profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
             model: ContentHash::of(b"model"),
             implementation: ContentHash::of(b"code"),
             configuration: None,
@@ -345,7 +346,7 @@ async fn native_producing_completion_waits_own_rows_without_waiting_unrelated_re
     let mut specification = ContributionSpec {
         captured_binding: None,
         producer: "scoped-source".into(),
-        profile: Profile::Catalog,
+        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
         model: ContentHash::of(b"scoped-model"),
         implementation: ContentHash::of(b"scoped-code"),
         configuration: None,

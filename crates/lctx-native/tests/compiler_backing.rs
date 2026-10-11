@@ -9,7 +9,8 @@ use lctx_model::domain::{
     },
     stages::{Profile, ProviderOutcome},
 };
-use lctx_native::{RuntimeConfig, compiler::NativeCompilerStore};
+use lctx_native::RuntimeConfig;
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::collections::{BTreeMap, BTreeSet};
 
 async fn fixture_client(
@@ -147,7 +148,7 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
     let spec = ContributionSpec {
         captured_binding: None,
         producer: "projection-backing".into(),
-        profile: Profile::Catalog,
+        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
         model: ContentHash::of(b"projection-backing-model"),
         implementation: ContentHash::of(b"projection-backing-code"),
         configuration: None,
@@ -402,7 +403,7 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     let spec = ContributionSpec {
         captured_binding: None,
         producer: "quality-zero".into(),
-        profile: Profile::Catalog,
+        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
         model: ContentHash::of(b"quality-zero-model"),
         implementation: ContentHash::of(b"quality-zero-code"),
         configuration: None,
@@ -588,7 +589,7 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
     let spec = ContributionSpec {
         captured_binding: None,
         producer: "range-window".into(),
-        profile: Profile::Catalog,
+        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
         model: ContentHash::of(b"range-window-model"),
         implementation: ContentHash::of(b"range-window-code"),
         configuration: None,
@@ -610,7 +611,7 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
     let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
     for (table, predicate) in [
         ("original", "id=$source"),
-        ("original_chunk", "source=$source"),
+        ("original_chunk", "blob=$source.blob"),
         ("compiler_record", "record::table(id)='compiler_record'"),
         ("compiler_membership", "contribution=$owner"),
     ] {

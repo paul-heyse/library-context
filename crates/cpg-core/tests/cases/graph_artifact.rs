@@ -945,7 +945,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     let id = candidate.native().begin_contribution(ContributionSpec {
         captured_binding: None,
         producer: "unsupported-facts-semantic-import".into(),
-        profile: Profile::Catalog,
+        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
         model: candidate.model().digest(),
         implementation: ContentHash::of(b"detached-support-control/v1"),
         configuration: None,
@@ -1003,7 +1003,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
     for original in &verified.manifest().originals {
         let mut file = File::open(output.join(format!("original-{}.bin", original.source.0.hex()))).unwrap();
         importer.native().import_original_stream(original.source.0, original.content,
-            original.byte_len, &mut file).await.unwrap();
+            original.byte_len, &mut file, &native_operation_budget).await.unwrap();
     }
     // This performs the full independent cold backing/membership/descriptor audit first.
     // No baseline manifest is relabelled as authority for the neutral owner's new lineage.

@@ -7,7 +7,7 @@ use crate::domain::{
     source::*,
     stages::*,
 };
-use crate::{Domain, DomainCode};
+use crate::{Domain, DomainCode,DomainSum};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
@@ -174,13 +174,19 @@ pub struct NormalizationEvidenceSet {
     #[model(key)]
     pub family: FactFamily,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Domain)]
+#[derive(Debug, Clone, PartialEq, Eq, DomainSum)]
 #[model(name = "normalization_evidence_members")]
-pub struct NormalizationEvidenceMember {
-    #[model(key)]
-    pub premise: Id<NormalizationEvidenceSet>,
-    #[model(key)]
-    pub coverage: Id<ProviderCoverage>,
+pub enum NormalizationEvidenceMember {
+    #[model(code=0)] Scoped{premise:Id<NormalizationEvidenceSet>,coverage:Id<ProviderCoverage>},
+    #[model(code=1)] Uniform{premise:Id<NormalizationEvidenceSet>,descriptor:Id<uniform_outcome::UniformNotRequested>,scope:Id<CoverageScope>},
+}
+impl NormalizationEvidenceMember {
+    fn of_evidence(premise:Id<NormalizationEvidenceSet>,row:&CoverageEvidence)->Self{
+        match row.coverage {
+            uniform_outcome::CoverageAuthority::Scoped{coverage}=>Self::Scoped{premise,coverage},
+            uniform_outcome::CoverageAuthority::Uniform{descriptor}=>Self::Uniform{premise,descriptor,scope:row.scope},
+        }
+    }
 }
 pub fn relations() -> Vec<Relation> {
     vec![
@@ -477,10 +483,7 @@ impl<'a> CoveragePreparation<'a> {
                 context: row.context,
                 family: row.family,
             };
-            let member = NormalizationEvidenceMember {
-                premise: set.id(),
-                coverage: row.coverage,
-            };
+            let member = NormalizationEvidenceMember::of_evidence(set.id(),row);
             Ok((set, member))
         })
     }
@@ -565,10 +568,7 @@ pub fn assemble(
             context: row.context,
             family: row.family,
         })?;
-        out.members.insert(NormalizationEvidenceMember {
-            premise,
-            coverage: row.coverage,
-        })?;
+        out.members.insert(NormalizationEvidenceMember::of_evidence(premise,row))?;
     }
     for capability in Capability::ALL {
         let stage = capability.producer(profile);

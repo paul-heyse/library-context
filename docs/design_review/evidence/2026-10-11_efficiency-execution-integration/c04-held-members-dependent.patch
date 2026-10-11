@@ -1,0 +1,315 @@
+--- a/crates/lctx-compiler-store/src/compiler.rs
++++ b/crates/lctx-compiler-store/src/compiler.rs
+@@ -1916,6 +1916,7 @@
+             store: self.clone(),
+             lease: Some(lease),
+             setup: None,
++            installed: None,
+         })
+     }
+     async fn discover_graph(
+@@ -2196,6 +2197,7 @@
+             store: self.clone(),
+             lease: Some(lease),
+             setup: None,
++            installed: None,
+         })
+     }
+     fn blocking_owner(&self) -> Result<BlockingLease, ModelError> {
+@@ -2282,6 +2284,7 @@
+         self: &Arc<Self>,
+         keys: SelectionKeys,
+         view: &CompletedView,
++        installed: Arc<lctx_native::installed_view::HeldInstalledView>,
+         relation: &Relation,
+         fields: String,
+         predicate: String,
+@@ -2289,17 +2292,20 @@
+         preparation: Vec<String>,
+         budget: &ResourceBudget,
+     ) -> Result<CompilerRows, ModelError> {
++        let direct = matches!(&keys, SelectionKeys::Known(_));
+         let transfer = budget.reserve(
+             "compiler-selected-window",
+-            view.contributions
+-                .len()
+-                .saturating_mul(64)
++            (if direct { 0 } else { view.contributions.len().saturating_mul(64) })
+                 .saturating_add(crate::loader::NATIVE_WINDOW_ROWS * 2048),
+         )?;
+-        let owners = self.view_owners(view)?;
++        let owners = if direct { Vec::new() } else { self.view_owners(view)? };
+         let lease = self.retained_scan()?;
+         let selection = SelectedRows {
+             keys,
++            installed,
++            direct_members: None,
++            direct_position: 0,
++            budget: budget.clone(),
+             owners,
+             relation: relation.name().into(),
+             fields,
+@@ -2323,6 +2329,7 @@
+             store: self.clone(),
+             lease: Some(lease),
+             setup: None,
++            installed: None,
+         })
+     }
+     async fn wait_operations(&self, scans_only: bool) -> Result<(), ModelError> {
+@@ -4366,13 +4373,7 @@
+         if view.relation != relation.name() || keys.windows(2).any(|w| w[0] >= w[1]) {
+             return Err(ModelError::Conflict("selected content-token binding"));
+         }
+-        let _owners = budget.reserve(
+-            "native-selected-membership-owners",
+-            view.contributions
+-                .len()
+-                .saturating_mul(size_of::<ContentHash>()),
+-        )?;
+-        let owners = self.view_owners(view)?;
++        let installed = self.installed_view(view, budget).await?;
+         let _charge = budget.reserve(
+             "native-selected-content-tokens",
+             keys.len().saturating_mul(256).saturating_add(4096),
+@@ -4428,31 +4429,22 @@
+                 }
+             }
+         } else {
+-            let _window = budget.reserve(
+-                "native-selected-membership-window",
+-                owners
+-                    .len()
+-                    .saturating_mul(64)
+-                    .saturating_add(crate::loader::NATIVE_WINDOW_ROWS * 2048),
+-            )?;
++            // Exact point IDs are in the held physical realization, never a global
++            // membership index or one scalar query per possible producer.
+             for window in keys.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
+-                let mut lookup = MembershipLookup::new(
+-                    self.clone(),
+-                    relation.name().into(),
+-                    window.to_vec(),
+-                    owners.clone(),
+-                );
+-                for candidate in lookup.collect().await?.into_values() {
+-                    result.push((
+-                        candidate.key,
+-                        candidate
+-                            .content
+-                            .ok_or(ModelError::Schema("verified membership content"))?,
+-                    ));
+-                }
++                let members = installed.members(&self.installed_member_reader(budget)?, window, budget).await?;
++                result.extend(members.rows().iter().map(|member| (member.key, member.content)));
+             }
+         }
+         Ok(result)
++    }
++    fn installed_member_reader(&self, budget: &ResourceBudget) -> Result<crate::NativeReader<()>, ModelError> {
++        self.check_read_admission()?;
++        let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
++        Ok(match self.read_cancellation()? {
++            Some(flag) => reader.with_read_cancellation(flag),
++            None => reader,
++        })
+     }
+     async fn prepare_memberships(
+         self: &Arc<Self>,
+@@ -4547,7 +4539,6 @@
+         predicate: Option<NativePredicate>,
+         budget: &ResourceBudget,
+     ) -> Result<CompilerRows, ModelError> {
+-        let owners = self.view_owners(view)?;
+         if view.relation != relation.name() {
+             return Err(ModelError::Conflict("native view relation"));
+         }
+@@ -4681,6 +4672,7 @@
+         if projections.is_empty() {
+             projections.push("semantic_key AS __row".into());
+         }
++        let installed = self.installed_view(view, budget).await?;
+         // Exact empty demand still passes the owner, view and shape checks above. There is
+         // no physical stream to hold or drain, and no fabricated transport receipt. Internal
+         // SQL predicates keep their ordinary execution/error semantics.
+@@ -4694,6 +4686,7 @@
+                 store: self.clone(),
+                 lease: None,
+                 setup: None,
++                installed: None,
+             });
+         }
+         if let Some(mut keys) = explicit_keys {
+@@ -4702,6 +4695,7 @@
+             return self.track_selection(
+                 SelectionKeys::Known(keys.into_iter()),
+                 view,
++                installed,
+                 relation,
+                 projections.join(","),
+                 predicate,
+@@ -4711,6 +4705,7 @@
+             );
+         }
+         let keys = if let Some((field, values)) = atomic_field {
++            let owners = self.view_owners(view)?;
+             let mut sorted = AsyncCandidateSort::new_registered(
+                 budget,
+                 self.blocking_owner()?,
+@@ -4759,6 +4754,7 @@
+         self.track_selection(
+             keys,
+             view,
++            installed,
+             relation,
+             projections.join(","),
+             predicate,
+@@ -4825,6 +4821,7 @@
+     store: Arc<NativeCompilerStore>,
+     lease: Option<OperationLease>,
+     setup: Option<ReadSetupCharge>,
++    installed: Option<Arc<lctx_native::installed_view::HeldInstalledView>>,
+ }
+ impl CompilerRows {
+     fn with_setup(mut self, setup: Option<ReadSetupCharge>) -> Self {
+@@ -4901,6 +4898,7 @@
+         if !matches!(&result, Ok(Some(_))) {
+             self.rows.take();
+             self.setup.take();
++            self.installed.take();
+             if let Some(lease) = self.lease.take() {
+                 return lease.finish_with(result);
+             }
+@@ -4911,6 +4909,7 @@
+ impl Drop for CompilerRows {
+     fn drop(&mut self) {
+         let mut retained = self.setup.take();
++        let installed = self.installed.take();
+         if self.selection.take().is_some() | self.graph.take().is_some() {
+             drop(retained.take());
+             if let Some(lease) = self.lease.take() {
+@@ -4939,6 +4938,7 @@
+                     }
+                     drop(rows);
+                     drop(retained);
++                    drop(installed);
+                     if let Some(lease) = lease {
+                         lease.finish();
+                     }
+@@ -5108,6 +5108,10 @@
+ }
+ struct SelectedRows {
+     keys: SelectionKeys,
++    installed: Arc<lctx_native::installed_view::HeldInstalledView>,
++    direct_members: Option<lctx_native::installed_view::SelectedMembers>,
++    direct_position: usize,
++    budget: ResourceBudget,
+     owners: Vec<ContentHash>,
+     relation: String,
+     fields: String,
+@@ -5121,6 +5125,14 @@
+     pointers: BTreeMap<String, RecordId>,
+     setup: Option<ReadSetupCharge>,
+     _transfer: Box<dyn Reservation>,
++}
++fn compact_key_field(fields: &str, predicate: &str, preparation: &[String]) -> Option<&'static str> {
++    if predicate != "true" || !preparation.is_empty() { return None; }
++    match fields {
++        "semantic_key AS id" => Some("id"),
++        "semantic_key AS __row" => Some("__row"),
++        _ => None,
++    }
+ }
+ impl SelectedRows {
+     fn start_payload(&mut self, nodes: Vec<RecordId>) -> Result<(), ModelError> {
+@@ -5136,9 +5148,7 @@
+             "{prelude}SELECT {} FROM $__compiler_nodes WHERE semantic_type=$relation AND ({}) ORDER BY semantic_key",
+             self.fields, self.predicate
+         );
+-        self.payload = Some(
+-            self.store
+-                .track_rows(
++        let mut payload = self.store.track_rows(
+                     prepared_rows(
+                         &self.store.client,
+                         sql,
+@@ -5147,14 +5157,25 @@
+                         self.store.read_cancellation()?.as_ref(),
+                     )?
+                     .with_row_bytes(64 << 20),
+-                )?
+-                .with_setup(self.setup.clone()),
+-        );
++                )?.with_setup(self.setup.clone());
++        payload.installed = Some(self.installed.clone());
++        self.payload = Some(payload);
+         Ok(())
+     }
+     async fn next(&mut self) -> Result<Option<Value>, ModelError> {
+         loop {
+             let window_rows = crate::loader::NATIVE_WINDOW_ROWS;
++            if let Some(members) = &self.direct_members {
++                if let Some(member) = members.rows().get(self.direct_position) {
++                    self.direct_position += 1;
++                    let mut row = Object::new();
++                    row.insert(compact_key_field(&self.fields, &self.predicate, &self.preparation)
++                        .ok_or(ModelError::Conflict("compact member projection"))?, hex::encode(member.key));
++                    return Ok(Some(Value::Object(row)));
++                }
++                self.direct_members.take();
++                self.direct_position = 0;
++            }
+             if let Some(rows) = &mut self.payload {
+                 if let Some(row) = rows.next_native().await? {
+                     return Ok(Some(row));
+@@ -5208,6 +5229,17 @@
+                 &mut self.pending_keys,
+                 Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS),
+             );
++            if matches!(&self.keys, SelectionKeys::Known(_)) {
++                let reader = self.store.installed_member_reader(&self.budget)?;
++                let members = self.installed.members(&reader, &keys, &self.budget).await?;
++                if compact_key_field(&self.fields, &self.predicate, &self.preparation).is_some() {
++                    self.direct_members = Some(members);
++                    continue;
++                }
++                let nodes = members.rows().iter().map(|member| member.node.clone()).collect();
++                if !members.rows().is_empty() { self.start_payload(nodes)?; }
++                continue;
++            }
+             if matches!(&self.keys, SelectionKeys::Verified(_)) {
+                 let nodes = std::mem::take(&mut self.pointers)
+                     .into_values()
+@@ -5511,6 +5543,7 @@
+             store,
+             lease: None,
+             setup: None,
++            installed: None,
+         }
+     }
+     #[tokio::test]
+@@ -5828,6 +5861,7 @@
+                             store: rows_owner,
+                             lease: None,
+                             setup: None,
++                            installed: None,
+                         })
+                     }),
+                 )
+@@ -6952,3 +6986,16 @@
+         assert!(validate_compiler_backing(&row, &id).is_err());
+     }
+ }
++
++#[cfg(test)]
++mod c04_projection_tests {
++    use super::compact_key_field;
++    #[test]
++    fn compact_projection_never_bypasses_a_value_predicate_or_required_payload() {
++        assert_eq!(compact_key_field("semantic_key AS id", "true", &[]), Some("id"));
++        assert_eq!(compact_key_field("semantic_key AS __row", "true", &[]), Some("__row"));
++        assert_eq!(compact_key_field("semantic_key AS id", "body.`version` = $v0", &[]), None);
++        assert_eq!(compact_key_field("semantic_key AS id,body.`version` AS `version`", "true", &[]), None);
++        assert_eq!(compact_key_field("semantic_key AS id", "true", &["LET $scope = 1".into()]), None);
++    }
++}

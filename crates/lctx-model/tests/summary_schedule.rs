@@ -44,10 +44,10 @@ name: "fixture_facts_declaration",
             normalized::binding_normalization::stage(profile),
             projection::normalization::stage(profile),
             normalized::coverage::stage(profile),
-            configuration.declaration(),
             analysis::preparation::native_stage(profile, &model, &alignment_publication_order())
                 .unwrap(),
         ];
+        stages.extend(configuration.declarations());
         stages.extend([
             local_semantics::stage(profile, &pairs[0].1, &model, &alignment_publication_order())
                 .unwrap(),

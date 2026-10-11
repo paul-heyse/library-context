@@ -3,8 +3,6 @@ DEFINE FIELD generation ON native_installation TYPE string;
 DEFINE FIELD schema ON native_installation TYPE string;
 DEFINE FIELD schema_version ON native_installation TYPE int;
 DEFINE FIELD admission_open ON native_installation TYPE bool;
-DEFINE FIELD backup_revision ON native_installation TYPE option<int>;
-DEFINE FIELD admission_revision ON native_installation TYPE option<int>;
 DEFINE FIELD control_revision ON native_installation TYPE int DEFAULT 0;
 DEFINE FIELD era ON native_installation TYPE int DEFAULT 0;
 DEFINE FIELD closed_through ON native_installation TYPE int DEFAULT 0;
@@ -37,7 +35,6 @@ DEFINE INDEX owner_effects ON native_effect FIELDS owner,resolved,id;
 DEFINE TABLE native_guard SCHEMAFULL;
 DEFINE FIELD revision ON native_guard TYPE int;
 DEFINE FIELD retired ON native_guard TYPE bool;
-DEFINE FIELD retired_through ON native_guard TYPE option<int>;
 DEFINE FIELD phase ON native_guard TYPE string DEFAULT 'active';
 DEFINE FIELD incarnation ON native_guard TYPE int DEFAULT 1;
 DEFINE FIELD retiring_item ON native_guard TYPE option<record<native_retirement_item>>;
@@ -130,3 +127,84 @@ DEFINE FIELD source ON native_upgrade TYPE string;
 DEFINE FIELD target ON native_upgrade TYPE string;
 DEFINE FIELD generation ON native_upgrade TYPE string;
 DEFINE FIELD phase ON native_upgrade TYPE string;
+
+DEFINE TABLE native_admission_stripe SCHEMAFULL;
+DEFINE FIELD format ON native_admission_stripe TYPE int;
+DEFINE FIELD generation ON native_admission_stripe TYPE string;
+DEFINE FIELD era ON native_admission_stripe TYPE int;
+DEFINE FIELD closed_through ON native_admission_stripe TYPE int;
+DEFINE FIELD admission_open ON native_admission_stripe TYPE bool;
+DEFINE FIELD revision ON native_admission_stripe TYPE int;
+DEFINE TABLE native_backup_gate SCHEMAFULL;
+DEFINE FIELD revision ON native_backup_gate TYPE int;
+DEFINE FIELD active_count ON native_backup_gate TYPE int;
+DEFINE TABLE native_operation_owner SCHEMAFULL;
+DEFINE FIELD generation ON native_operation_owner TYPE string;
+DEFINE FIELD era ON native_operation_owner TYPE int;
+DEFINE FIELD epoch ON native_operation_owner TYPE int;
+DEFINE FIELD operation ON native_operation_owner TYPE string;
+DEFINE FIELD state ON native_operation_owner TYPE string;
+DEFINE TABLE native_predicate SCHEMAFULL;
+DEFINE FIELD revision ON native_predicate TYPE int;
+DEFINE FIELD tombstone_revision ON native_guard TYPE int DEFAULT 0;
+DEFINE FIELD predecessor ON native_cleanup TYPE option<record<native_cleanup>>;
+DEFINE FIELD lineage ON native_cleanup TYPE option<record<native_cleanup>>;
+DEFINE INDEX retirement_predecessor ON native_retirement FIELDS predecessor;
+DEFINE INDEX retirement_successor ON native_retirement FIELDS successor;
+DEFINE INDEX retirement_recovery_source ON native_retirement FIELDS recovery_source;
+DEFINE INDEX cleanup_predecessor ON native_cleanup FIELDS predecessor;
+DEFINE INDEX cleanup_successor ON native_cleanup FIELDS successor;
+// Exact native IDs are array keys: no string encoding or content-hash correspondence.
+DEFINE FUNCTION fn::native_touch($record: option<record>) {
+    IF $record != NONE { LET $guard=type::record('native_predicate',[$record]); IF (SELECT VALUE revision FROM ONLY $guard)>=9223372036854775807 { THROW 'native predicate revision exhausted'; }; UPSERT $guard SET revision=(revision ?? 0)+1 RETURN NONE; };
+    RETURN NONE;
+};
+// Every incidence writer/remover and collector calls this on the same exact target.
+DEFINE FUNCTION fn::native_incidence($row: object) {
+    fn::native_touch($row.id);
+    IF record::table($row.id) IN ['compiler_contribution','compiler_binding','native_effect','native_cleanup','native_pending_original','native_publication_staging'] { fn::native_touch($row.attempt); };
+    IF record::table($row.id) IN ['native_effect','native_hold'] { fn::native_touch($row.owner); };
+    IF record::table($row.id) IN ['native_hold','native_outcome_ref'] { fn::native_touch($row.object); };
+    IF record::table($row.id)='native_outcome_ref' { fn::native_touch($row.effect); };
+    IF record::table($row.id)='compiler_membership' { fn::native_touch($row.contribution); };
+    IF record::table($row.id)='compiler_view_member' { fn::native_touch($row.realization); };
+    IF record::table($row.id)='native_retirement_item' { fn::native_touch($row.job); };
+    IF record::table($row.id) IN ['native_retirement','native_cleanup'] { fn::native_touch($row.lineage); fn::native_touch($row.predecessor); fn::native_touch($row.successor); fn::native_touch($row.recovery_source); };
+    RETURN NONE;
+};
+
+DEFINE FUNCTION fn::native_backup_clear() {
+    LET $gate=SELECT * FROM ONLY native_backup_gate:current FOR UPDATE;
+    IF $gate=NONE OR $gate.active_count!=0 OR $gate.revision>=9223372036854775807 { THROW 'native retirement backup hold'; };
+    UPDATE native_backup_gate:current SET revision+=1 RETURN NONE;
+    RETURN NONE;
+};
+
+DEFINE FIELD owner_incarnations ON native_cleanup TYPE array<object> FLEXIBLE DEFAULT [];
+
+DEFINE FUNCTION fn::native_incidence_insert($row: object) {
+    fn::native_incidence($row);
+    IF record::table($row.id) IN ['compiler_contribution','compiler_binding','native_cleanup','native_pending_original','native_publication_staging'] { IF $row.attempt=NONE OR (SELECT VALUE id FROM ONLY $row.attempt)=NONE { THROW 'native incidence attempt missing'; }; };
+    IF record::table($row.id)='compiler_membership' { fn::native_contribution_incidence($row.contribution,$row); };
+    IF record::table($row.id)='compiler_view_member' { fn::native_realization_incidence($row.realization,$row); };
+    IF record::table($row.id)='native_retirement_item' { IF (SELECT VALUE id FROM ONLY $row.job)=NONE { THROW 'native incidence parent missing'; }; };
+    RETURN NONE;
+};
+
+DEFINE FUNCTION fn::native_contribution_incidence($contribution: record<compiler_contribution>, $row: object) {
+    fn::native_touch($contribution);
+    LET $parent=SELECT * FROM ONLY $contribution FOR UPDATE;
+    IF $parent=NONE OR type::is::bool($parent.completed)=false { THROW 'native contribution incidence parent missing'; };
+    IF $parent.completed AND (SELECT * FROM ONLY $row.id)!=$row { THROW 'native completed contribution refuses changed incidence'; };
+    RETURN NONE;
+};
+
+// Stable member-v2 namespace. Every member/outgoing-hold writer touches the exact
+// realization predicate used by the EOF seal CAS. Completed namespace replay is exact.
+DEFINE FUNCTION fn::native_realization_incidence($realization: record<compiler_view_realization>, $row: object) {
+    fn::native_touch($realization);
+    LET $parent=SELECT * FROM ONLY $realization FOR UPDATE;
+    IF $parent=NONE OR type::is::bool($parent.sealed)=false { THROW 'native realization incidence parent missing'; };
+    IF $parent.sealed AND (SELECT * FROM ONLY $row.id)!=$row { THROW 'native sealed realization refuses missing or changed incidence'; };
+    RETURN NONE;
+};

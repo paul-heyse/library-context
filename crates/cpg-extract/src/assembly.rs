@@ -88,6 +88,7 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for Assemble {
             ProviderSurface,
             CoverageScope,
             ProviderCoverage,
+            lctx_model::domain::uniform_outcome::UniformNotRequested,
             SubjectBoundary,
             AttachmentOutcome,
             AttachmentCandidate,

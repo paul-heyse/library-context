@@ -1,7 +1,7 @@
 //! Fixed read-only lowering for one external native snapshot. No request-controlled SQL,
 //! operational authority, service-wide content scan or per-page transaction is admitted.
 use crate::{backup_import, definitions, inspection};
-use lctx_model::domain::{ContentHash, ModelError, completed::{CompletedBinding, CompletedContribution, CompletedView}, recovery_closure::{RecoveryTraversal, RecoveryFamily, RECOVERY_FAMILIES}, resources::{ResourceBudget, Reservation}, serving::SnapshotHandle};
+use lctx_model::domain::{graph::Entity, ContentHash, ModelError, completed::{CompletedBinding, CompletedContribution, CompletedView}, recovery_closure::{RecoveryTraversal, RecoveryFamily, RECOVERY_FAMILIES}, resources::{ResourceBudget, Reservation}, serving::SnapshotHandle};
 use lctx_native::{prepared::PreparedQuery, reader::NativeRows, selection::SelectedPayloads, surrealdb::{method::Transaction, engine::remote::grpc::Client, types::{Object, RecordId, SurrealValue, Value, Variables}}};
 use std::{collections::{BTreeMap, BTreeSet}, io::Write, path::Path, sync::Arc};
 
@@ -69,7 +69,8 @@ async fn write_stream(writer: &mut impl Write, charge: &mut dyn Reservation, mut
 /// Write one coherent provisional data dump. The caller drains/cancels this same transaction
 /// before any file publication and retains the exact pin through cancellation acknowledgement.
 pub(crate) async fn export(
-    transaction: &Arc<Transaction<Client>>, version: &str, handle: &SnapshotHandle,
+    transaction: &Arc<Transaction<Client>>, completed:&lctx_native::completed_state::PublishedCompletedState,
+    version: &str, handle: &SnapshotHandle,
     native_definitions: &str, output: &Path, budget: &ResourceBudget, cancel: &crate::owned_read::Cancellation,
 ) -> Result<(), ModelError> {
     cancel.check()?;
@@ -97,7 +98,10 @@ pub(crate) async fn export(
     let mut encoded = budget.reserve("selected-backup-encoded-row", 0)?;
     backup_import::write_row(&mut writer, publication, encoded.as_mut())?;
     let mut traversal = RecoveryTraversal::new(bindings.clone())?;
-    let mut chosen = BTreeMap::<ContentHash, Value>::new();
+    // A logical contributor may have several equivalent physical copies selected by
+    // different installed views. Retain those exact selected copies rather than replace
+    // the view-local choice with one process-global first logical match.
+    let mut chosen = BTreeMap::<RecordId, Value>::new();
     let mut physical = BTreeSet::new();
     let mut view_rows = BTreeMap::new();
     let mut descriptor_charge = budget.reserve("selected-backup-descriptor-closure", 0)?;
@@ -107,32 +111,35 @@ pub(crate) async fn export(
         view_rows.insert(actual.identity, row);
         let mut contributors = Vec::new(); let mut inputs = BTreeMap::new();
         for logical in &actual.contributions {
-            if !chosen.contains_key(logical) {
-                let mut vars = Variables::new(); vars.insert("logical", logical.hex());
-                let mut selected: Option<Value> = None; let mut known: Option<CompletedContribution> = None;
-                read(transaction, "SELECT * FROM compiler_contribution WITH INDEX logical_contribution WHERE logical=$logical AND completed=true ORDER BY id".into(), vars, |row| {
-                    let descriptor: CompletedContribution = descriptor(&row)?;
-                    if descriptor.identity()? != *logical || known.as_ref().is_some_and(|old| old != &descriptor) { return Err(ModelError::Conflict("snapshot logical contributor collision")); }
-                    known = Some(descriptor);
-                    if selected.is_none() { selected = Some(row); } Ok(())
-                }).await?;
-                let row = selected.ok_or(ModelError::Conflict("snapshot dependency contributor absent"))?;
+            let mappings=completed.inventory().contributors(actual.identity)?;
+            let mut matches=mappings.iter().filter(|mapping|mapping.logical==*logical);
+            let mapping=matches.next().ok_or(ModelError::Conflict("snapshot exact contributor mapping absent"))?;
+            if matches.next().is_some(){return Err(ModelError::Conflict("snapshot exact contributor mapping duplicate"));}
+            let owner=RecordId::new("compiler_contribution",mapping.physical.hex());
+            if !chosen.contains_key(&owner) {
+                let row=one(transaction,"SELECT * FROM $owner".into(),exact("owner",owner.clone())).await?;
+                let descriptor:CompletedContribution=descriptor(&row)?;
+                if id(&row)?!=owner || object(&row)?.get("completed")!=Some(&Value::Bool(true))
+                    || object(&row)?.get("logical")!=Some(&Value::String(logical.hex())) || descriptor.identity()?!=*logical {
+                    return Err(ModelError::Conflict("snapshot exact selected contributor correspondence"));
+                }
                 descriptor_charge.try_resize(descriptor_charge.size().saturating_add(serde_json::to_vec(&row).map_err(ModelError::codec)?.len().saturating_mul(4)))?;
-                physical.insert(id(&row)?); chosen.insert(*logical, row);
+                physical.insert(owner.clone()); chosen.insert(owner.clone(), row);
             }
-            let descriptor: CompletedContribution = descriptor(&chosen[logical])?;
+            let descriptor: CompletedContribution = descriptor(&chosen[&owner])?;
             for input in &descriptor.spec.inputs { if !inputs.contains_key(&input.view()) { inputs.insert(input.view(), view(transaction, input.view()).await?.1); } }
             contributors.push(descriptor);
         }
         traversal.include_view(&requested, actual, contributors, |id| inputs.get(&id).cloned().ok_or(ModelError::Conflict("snapshot dependency view absent")))?;
     }
     let closure = traversal.finish()?;
-    let owners = physical.iter().map(|owner| {
-        let lctx_native::surrealdb::types::RecordIdKey::String(key) = &owner.key else { return Err(ModelError::Schema("snapshot contributor key")); };
-        Ok(ContentHash(hex::decode(key).map_err(ModelError::codec)?.try_into().map_err(|_| ModelError::Schema("snapshot contributor hash"))?))
-    }).collect::<Result<Vec<_>, _>>()?;
-    let selected = SelectedPayloads::for_cancellable_transaction(transaction.transaction.clone(), &owners, true, cancel.flag(), budget).await?;
+    let all_views=view_rows.keys().copied().collect::<Vec<_>>();
+    // The native factory repeats the marker, inventory, exact incarnations, membership
+    // and hold checks in this same external snapshot before any selected rows are emitted.
+    let selected=SelectedPayloads::for_published_transaction(transaction.transaction.clone(),completed,
+        &all_views,cancel.flag(),budget).await?.with_derivation(handle.realization);
     let mut originals = manifest.originals.iter().map(|original| RecordId::new("original", original.source.0.hex())).collect::<BTreeSet<_>>();
+    let mut blobs = BTreeMap::new();
     let mut role_claims = None;
     let mut search_claims = None;
     // This match is the actual family dispatcher, not a coverage assertion over table names.
@@ -168,7 +175,8 @@ pub(crate) async fn export(
             RecoveryFamily::SearchOccurrences | RecoveryFamily::SearchDocuments | RecoveryFamily::SearchVectors => {
                 if search_claims.is_none() {
                     let roots = bindings.iter().filter(|binding| binding.boundary.is_none()).map(|binding| binding.view.identity).collect::<Vec<_>>();
-                    let serving = SelectedPayloads::for_cancellable_transaction(transaction.transaction.clone(), &roots, false, cancel.flag(), budget).await?;
+                    let serving=SelectedPayloads::for_published_transaction(transaction.transaction.clone(),completed,
+                        &roots,cancel.flag(),budget).await?.with_derivation(handle.realization);
                     search_claims = Some(capture_claims(serving.recovery_search()?, budget, cancel).await?);
                 }
                 write_claim_family(search_claims.as_ref().unwrap(), family, &mut writer, encoded.as_mut(), cancel)?;
@@ -180,22 +188,44 @@ pub(crate) async fn export(
             RecoveryFamily::Bindings => {
                 let mut written = BTreeSet::new();
                 for binding in closure.bindings() {
-                    let mut candidate = None;
-                    read(transaction, "SELECT * FROM compiler_binding WITH INDEX binding_view WHERE view=$view ORDER BY id".into(), exact("view", RecordId::new("compiler_view", binding.view.identity.hex())), |row| {
-                        if descriptor::<CompletedBinding>(&row)? == *binding && candidate.is_none() { candidate = Some(row); } Ok(())
-                    }).await?;
-                    let row = candidate.ok_or(ModelError::Conflict("snapshot required binding absent"))?;
+                    // The published completion retains this exact full descriptor,
+                    // independent of every source attempt's replaceable slot incidence.
+                    let stored=one(transaction,"SELECT * FROM $binding".into(),
+                        exact("binding",lctx_native::binding_descriptor::record(binding)?)).await?;
+                    if lctx_native::binding_descriptor::decode(&stored)?!=*binding{
+                        return Err(ModelError::Conflict("snapshot canonical binding changed"));
+                    }
+                    // Portable binding rows are data, not installation witnesses. The
+                    // destination independently rebinds and earns physical completion.
+                    let row=lctx_native::binding_descriptor::portable_row(binding)?;
                     if written.insert(id(&row)?) { backup_import::write_row(&mut writer, row, encoded.as_mut())?; }
                 }
             },
-            RecoveryFamily::OriginalHeaders => for source in &originals {
-                let header = one(transaction, "SELECT * FROM $source".into(), exact("source", source.clone())).await?;
-                backup_import::write_row(&mut writer, header, encoded.as_mut())?;
+            RecoveryFamily::OriginalHeaders => {
+                for source in &originals {
+                    cancel.check()?;
+                    let header=one(transaction,"SELECT * FROM $source".into(),exact("source",source.clone())).await?;
+                    let layout=lctx_native::originals::decode_layout(header.clone())?;
+                    let artifact=one(transaction,"SELECT * FROM $source".into(),exact("source",layout.artifact.clone())).await?;
+                    let entity:Entity=serde_json::from_slice(match object(&artifact)?.get("canonical") {Some(Value::Bytes(bytes))=>bytes, _=>return Err(ModelError::Schema("snapshot original canonical payload"))}).map_err(ModelError::codec)?;
+                    entity.validate()?;
+                    let Entity::Source(source_row)=entity else{return Err(ModelError::Schema("snapshot original source kind"));};
+                    layout.validate_source(&source_row)?;
+                    if !blobs.contains_key(&layout.blob.id()) {
+                        descriptor_charge.try_resize(descriptor_charge.size().saturating_add(1024))?;
+                        let blob_header=one(transaction,"SELECT * FROM $source".into(),exact("source",layout.blob.id())).await?;
+                        let (blob,completed)=lctx_native::originals::decode_blob(blob_header.clone())?;
+                        if blob!=layout.blob || !completed{return Err(ModelError::Conflict("snapshot original blob incomplete"));}
+                        backup_import::write_row(&mut writer,blob_header,encoded.as_mut())?;
+                        blobs.insert(blob.id(),blob);
+                    }
+                    backup_import::write_row(&mut writer,header,encoded.as_mut())?;
+                }
             },
-            RecoveryFamily::OriginalChunks => for source in &originals {
+            RecoveryFamily::OriginalChunks => for blob in blobs.keys() {
                 cancel.check()?;
-                let rows = PreparedQuery::new(exact("source", source.clone()), vec![], vec!["SELECT * FROM original_chunk WITH INDEX position WHERE source=$source ORDER BY start".into()])?.stream_transaction(transaction.transaction)?;
-                write_stream(&mut writer, encoded.as_mut(), rows, cancel).await?;
+                let rows = PreparedQuery::new(exact("blob",blob.clone()),vec![],vec!["SELECT * FROM original_chunk WITH INDEX position WHERE blob=$blob ORDER BY start".into()])?.stream_transaction(transaction.transaction)?;
+                write_stream(&mut writer,encoded.as_mut(),rows,cancel).await?;
             },
         }
     }
