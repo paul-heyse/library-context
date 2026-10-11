@@ -90,11 +90,12 @@ Test-review process skills and flexible report guidance are Implemented2026-10-1
 Their validation, agent lint, scoped Ruff/Pyrefly, ADR lint and docs check passed397 pages/zero link errors.
 An independent read-only exercise found no concrete guidance issue. Those checks did not qualify product behavior.
 
-**Independent efficiency audit, 2026-10-11: Revise.**
-[Audit](docs/design_review/reviews/design_review_efficiency-alignment-audit_2026-10-11.md) compares all 50
-original findings and 18 rule impacts, adding six findings. Static baseline 2b05c6c plus captured overlay;
-product/service execution **not_run**. Evidence folder owns publication checks. Next: operator reconciliation
-during plan creation; original review and concurrent SA9 qualification remain separate.
+**Reconciled efficiency track: Proposed, 2026-10-11.**
+[New coordinator](docs/plans/efficiency-alignment-plan_2026-10-11.md) and five companions capture all 50
+original findings, 20 audit findings and 18 operator-confirmed rule dispositions. Static plan authoring
+only; product execution and repo-level checks **not_run** by instruction. Next: authorize implementation
+of the new track's functional scope. Existing plans were not reviewed or superseded; their later resumption
+follows this track's implementation. Paused SA qualification and its preserved state remain separate.
 
 **Preservation and boundaries:** all four auxiliary revisions are committed on `archive/*-2026-10-11`
 branches; [coordinator §9.2](docs/plans/persisted-graph-execution-plan_2026-10-07.md#92-operator-stop-and-worktree-preservation2026-10-11)
