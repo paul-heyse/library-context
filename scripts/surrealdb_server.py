@@ -40,7 +40,7 @@ def identity(value: dict) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def recipe(*, cpu_count: int | None = None) -> dict:
+def recipe(*, cpu_count: int | None = None, grpc_drain: bool = True) -> dict:
     pin = read_json(PIN_ROOT / "provenance.json")
     if (pin.get("schema") != 1 or pin.get("upstream_commit") != COMMIT
             or pin.get("upstream_lock_sha256") != LOCK_SHA256
@@ -64,7 +64,7 @@ def recipe(*, cpu_count: int | None = None) -> dict:
             or dependency.get("patch_file") != "diskann-batch-borrow.patch"
             or digest(PIN_ROOT / dependency["patch_file"]) != dependency.get("patch_sha256")):
         raise Blocked("server dependency patch identity differs")
-    return {
+    selected = {
         "schema": 1,
         "pin": pin,
         "dependency_patches": [dependency],
@@ -75,18 +75,64 @@ def recipe(*, cpu_count: int | None = None) -> dict:
                       "--jobs-frontend=0", "--jobs-backend=0", "-C", "link-arg=-fuse-ld=mold"],
                   "default_features": True, "features": ["cjk"], "locked": True},
     }
+    if grpc_drain:
+        patch = read_json(PIN_ROOT / "grpc-drain-provenance.json")
+        expected_files = {"Cargo.lock", "surrealdb/server/Cargo.toml", "surrealdb/server/src/rpc/grpc.rs",
+                          "surrealdb/server/src/rpc/mod.rs", "surrealdb/server/src/rpc/query_drain.rs",
+                          "surrealdb/server/src/ntw/signals.rs", "surrealdb/server/src/ntw/mod.rs"}
+        if (patch.get("schema") != 1 or patch.get("name") != "grpc-execution-drain"
+            or patch.get("upstream_commit") != COMMIT
+            or patch.get("patch_file") != "grpc-execution-drain.patch"
+            or patch.get("build_metadata") != "lctx.timeout-stack.grpc-drain.1"
+            or patch.get("cli_version") != "3.3.0+lctx.timeout-stack.grpc-drain.1 for linux on x86_64"
+            or patch.get("http_version") != "surrealdb-3.3.0+lctx.timeout-stack.grpc-drain.1"
+            or patch.get("upstream_lock_sha256") != LOCK_SHA256
+            or not re.fullmatch("[a-f0-9]{64}", patch.get("patched_lock_sha256", ""))
+            or patch.get("lock_dependency_edges") != [
+                {"package": "tokio-util", "version": "0.7.18", "added": ["futures-util"]}]
+            or digest(PIN_ROOT / patch["patch_file"]) != patch.get("patch_sha256")
+            or {row.get("path") for row in patch.get("files", [])} != expected_files
+            or len(patch["files"]) != len(expected_files)
+            or any(not re.fullmatch("[a-f0-9]{64}", row.get("patched_sha256", ""))
+                   or (not isinstance(row.get("original_sha256"), str)
+                       or not re.fullmatch("[a-f0-9]{64}", row["original_sha256"])
+                       if row["path"] != "surrealdb/server/src/rpc/query_drain.rs"
+                       else row.get("original_sha256") is not None)
+                   for row in patch["files"])):
+            raise Blocked("server execution-drain patch identity differs")
+        lock = next(row for row in patch["files"] if row["path"] == "Cargo.lock")
+        if (lock["original_sha256"] != LOCK_SHA256
+                or lock["patched_sha256"] != patch["patched_lock_sha256"]):
+            raise Blocked("server execution-drain lock identity differs")
+        selected["source_patches"] = [patch]
+        selected["pin"] = {**pin, **{key: patch[key] for key in
+                                     ("build_metadata", "cli_version", "http_version")}}
+    return selected
+
+
+def source_lock_sha256(selected: dict) -> str:
+    """The successor records its reviewed feature edge separately from upstream."""
+    return (selected["source_patches"][0]["patched_lock_sha256"]
+            if selected.get("source_patches") else LOCK_SHA256)
 
 
 def original_recipe(selected: dict) -> dict:
     """The first recipe owns unchanged source and mutable native Cargo caches."""
-    return {key: value for key, value in selected.items() if key != "dependency_patches"}
+    original = {key: value for key, value in selected.items()
+                if key not in ("dependency_patches", "source_patches")}
+    if selected.get("source_patches"):
+        original["pin"] = {**selected["pin"], "build_metadata": "lctx.timeout-stack.1",
+                           "cli_version": "3.3.0+lctx.timeout-stack.1 for linux on x86_64",
+                           "http_version": "surrealdb-3.3.0+lctx.timeout-stack.1"}
+    return original
 
 
 def cache_paths(directory: Path, selected_recipe: dict) -> dict[str, Path]:
     root = tools_root(directory) / "server-build" / identity(selected_recipe)
     cache = tools_root(directory) / "server-build" / identity(original_recipe(selected_recipe))
     return {"root": root, "cache": cache, "cache_record": cache / "record.json",
-            "source": cache / "source", "target": cache / "target",
+            "source": (root if selected_recipe.get("source_patches") else cache) / "source",
+            "target": cache / "target",
             "intermediates": cache / "intermediates", "record": root / "record.json",
             "dependency": root / "overrides/diskann-0.56.0",
             "archive": root / "archives/diskann-0.56.0.crate"}
@@ -95,9 +141,9 @@ def cache_paths(directory: Path, selected_recipe: dict) -> dict[str, Path]:
 def build_provenance(directory: Path, selected: dict, rustc_version: str, cargo_version: str,
                      *, cache_record_sha256: str) -> dict:
     paths = cache_paths(directory, selected)
-    return {"recipe": selected, "recipe_identity": identity(selected),
+    result = {"recipe": selected, "recipe_identity": identity(selected),
             "service_directory": str(directory), "source_path": str(paths["source"]),
-            "build_path": str(paths["root"]), "lock_sha256": LOCK_SHA256,
+            "build_path": str(paths["root"]), "lock_sha256": source_lock_sha256(selected),
             "patch_sha256": selected["pin"]["patch_sha256"],
             "rustc_version": rustc_version, "cargo_version": cargo_version,
             "cache_lineage": {"path": str(paths["cache"]), "record": str(paths["cache_record"]),
@@ -106,12 +152,19 @@ def build_provenance(directory: Path, selected: dict, rustc_version: str, cargo_
             "dependency_overrides": [{"pin": selected["dependency_patches"][0],
                                       "path": str(paths["dependency"]),
                                       "archive_path": str(paths["archive"])}]}
+    if selected.get("source_patches"):
+        result["source_patches"] = selected["source_patches"]
+        result["upstream_lock_sha256"] = LOCK_SHA256
+    return result
 
 
 def validate_provenance(value: dict, *, directory: Path | None = None) -> None:
     try:
         selected = value["recipe"]
-        if selected != recipe(cpu_count=selected["build"]["codegen_units"]):
+        # The exact predecessor remains consumed by installed immutable services and
+        # campaigns until explicit owner handoff. This is not a permissive legacy reader.
+        if selected != recipe(cpu_count=selected["build"]["codegen_units"],
+                              grpc_drain="source_patches" in selected):
             raise Blocked("server provenance recipe differs from reviewed pins")
         if value["recipe_identity"] != identity(selected):
             raise Blocked("server recipe identity differs")
@@ -122,11 +175,13 @@ def validate_provenance(value: dict, *, directory: Path | None = None) -> None:
         if (not service.is_absolute() or (directory is not None and service != Path(directory))
                 or value["source_path"] != str(paths["source"])
                 or value["build_path"] != str(paths["root"])
-                or value["lock_sha256"] != LOCK_SHA256
+                or value["lock_sha256"] != expected["lock_sha256"]
+                or value.get("upstream_lock_sha256") != expected.get("upstream_lock_sha256")
                 or value["patch_sha256"] != selected["pin"]["patch_sha256"]
                 or not re.fullmatch("[a-f0-9]{64}", value["cache_lineage"]["record_sha256"])
                 or value["cache_lineage"] != expected["cache_lineage"]
                 or value["dependency_overrides"] != expected["dependency_overrides"]
+                or value.get("source_patches") != expected.get("source_patches")
                 or not value["rustc_version"].startswith("rustc ")
                 or "commit-date: 2026-09-" not in value["rustc_version"]
                 or not value["cargo_version"].startswith("cargo ")):
@@ -251,15 +306,43 @@ def verify_source(paths: dict[str, Path], selected: dict, *, run=execute) -> Non
     if run(["git", "rev-parse", "HEAD"], cwd=source, env=env, capture=True) != COMMIT:
         raise Blocked("server source HEAD differs from pinned commit")
     pin = selected["pin"]
-    for name, expected in (("Cargo.lock", LOCK_SHA256),
+    for name, expected in (("Cargo.lock", source_lock_sha256(selected)),
                            ("Cargo.toml", pin["upstream_manifest_sha256"]),
                            (pin["patched_file"], pin["patched_file_sha256"])):
         if digest(source / name) != expected:
             raise Blocked("server source or lock differs: " + name)
+    changed = {pin["patched_file"]}
+    added = set()
+    for patch in selected.get("source_patches", []):
+        for row in patch["files"]:
+            if digest(source / row["path"]) != row["patched_sha256"]:
+                raise Blocked("server source differs from execution-drain patch: " + row["path"])
+            (changed if row["original_sha256"] is not None else added).add(row["path"])
     status = run(["git", "status", "--porcelain", "--untracked-files=all", "--ignored"], cwd=source, env=env,
                  capture=True)
-    if status.strip() != "M " + pin["patched_file"]:
+    observed = {line.strip() for line in status.splitlines() if line.strip()}
+    if observed != {"M " + path for path in changed} | {"?? " + path for path in added}:
         raise Blocked("server source has changes beyond the reviewed patch")
+
+
+def prepare_source_patches(paths: dict[str, Path], selected: dict, *, run=execute) -> None:
+    """Apply only on this successor's private source; never mutate its borrowed cache."""
+    source = paths["source"]
+    for patch in selected.get("source_patches", []):
+        states = []
+        for row in patch["files"]:
+            path = source / row["path"]
+            actual = digest(path) if path.is_file() and not path.is_symlink() else None
+            states.append("patched" if actual == row["patched_sha256"] else
+                          "original" if actual == row["original_sha256"] and not path.is_symlink()
+                          else "conflict")
+        if all(state == "patched" for state in states):
+            continue
+        if not all(state == "original" for state in states):
+            raise Blocked("successor source conflicts with exact execution-drain patch")
+        path = str(PIN_ROOT / patch["patch_file"])
+        run(["git", "apply", "--check", path], cwd=source, env=git_environment())
+        run(["git", "apply", path], cwd=source, env=git_environment())
 
 
 def dependency_archives() -> list[Path]:
@@ -402,8 +485,8 @@ def verify_metadata(paths: dict[str, Path], selected: dict, *, env: dict, run=ex
     if (len(packages) != 1 or packages[0]["version"] != "0.56.0"
             or Path(packages[0]["manifest_path"]) != paths["dependency"] / "Cargo.toml"):
         raise Blocked("Cargo did not select the exact owned dependency override")
-    if digest(paths["source"] / "Cargo.lock") != LOCK_SHA256:
-        raise Blocked("Cargo metadata changed the pinned upstream lock")
+    if digest(paths["source"] / "Cargo.lock") != source_lock_sha256(selected):
+        raise Blocked("Cargo metadata changed the selected reviewed lock")
 
 
 def build(directory: Path, *, run=execute, metadata_only: bool = False) -> dict:
@@ -455,6 +538,7 @@ def build(directory: Path, *, run=execute, metadata_only: bool = False) -> dict:
             patch = str(PIN_ROOT / selected["pin"]["patch_file"])
             run(["git", "apply", "--check", patch], cwd=source, env=env)
             run(["git", "apply", patch], cwd=source, env=env)
+        prepare_source_patches(paths, selected, run=run)
         verify_source(paths, selected, run=run)
         storage.publish(source, "native-cache", {"kind": "external", "path": str(source)},
                         "server-pinned-source:" + COMMIT, requires="raw-replay")

@@ -132,6 +132,18 @@ Same-era resume retains authority; post-cut maintenance successors reconcile pre
 only durable remaining scope, preserving original cutoffs and completed pages. Indexed live-state
 observation precedes drained-maintenance history collection. Referenced attempts, unresolved work,
 necessary outcomes, guards and watermarks remain protected; age or a resolved flag is insufficient.
+**Accepted target, Proposed implementation2026-10-11:** ordinary effects use64 versioned write
+stripes and exact owner/object/history-target/lineage guards. Admission and era transitions write
+all stripes atomically; a dedicated gate retains global cold-backup coordination. Installation
+operation owners use UUID identity/local epochs, while actual ordinal consumers retain monotone
+allocation. Exact incarnation/phase and predecessor tombstone revision replace cross-owner scalar
+authorization together in a closed, actually drained native-format transition. All hold, outcome,
+contribution/binding/cleanup and successor incidence partners write the collector's exact predicate
+guard. Current global coordination remains until the complete migration and race controls pass;
+finite engine conflict evidence does not establish protocol acceptance.
+
+> Decision: ADR-0155
+
 Compiler/audit selection follows one model closure declaration with native/dump adapters, while
 actual stored rows and cold admission remain independent checks. An audit owns its read owner,
 pin and session until admitted tails drain, including failed preparation and cancellation.
@@ -157,7 +169,8 @@ assets; recovery metadata is not authority to restore live clients or execute im
 **Accepted target / implementation in progress, 2026-10-11.** Retained native attachment holds
 expected physical record bytes and incarnation after receiver preflight. A view-scoped installation
 completion binds its selected dependency closure and exact membership realization before direct
-member absence becomes authoritative. Complete logical state freezes all six families independently
+member absence becomes authoritative. View-local dependency roots are explicit completed views, with no fabricated source/configuration
+binding; actual admitted binding inventories enter the separate attempt freeze. Complete logical state freezes all six families independently
 of installation-local completion; durable admission reuse requires the protected physical epoch.
 Cold recovery and detached import earn fresh authority. Existing conservative checks remain until
 all consumers and actual migration controls qualify the replacement.
@@ -165,17 +178,19 @@ all consumers and actual migration controls qualify the replacement.
 > Decision: ADR-0152
 
 **Accepted campaign recovery target / implementation in progress, 2026-10-11.** An explicit
-named-attachment recovery retains original Unknown receipts and composes checked server execution
+joint named-attachment recovery retains original Unknown/not_observed receipts and composes checked server execution
 join with independent installation-wide persisted native-owner reconciliation. For the exact reviewed
 already-serving binary, deliberate same-invocation SIGTERM and clean exited/0 can establish join
 through its pinned successful-return control flow, with a complete checked journal rejecting logged
 cleanup failures. This source-correlated premise does not claim a missing informational marker or
 resolve unknown per-request outcomes. Exclusive admission, exact dead-owner/borrower locks and
-durable separate host evidence precede local attachment release. Synthetic PD02 recovery additionally
+durable separate host evidence precede local attachment release. Every peer is explicitly named;
+historical uninstrumented releases retain unqualified transport finality and receive no retrospective
+completion claim. A primary started-owner attachment remains required. Synthetic PD02 recovery additionally
 retains exact request/session/effect manifests and positive join logging. Shared and operator service
 state remain outside campaign recovery.
 
-> Decision: ADR-0153
+> Decision: ADR-0154
 
 
 Compiler readers bind explicit immutable native completed views, including exact contribution

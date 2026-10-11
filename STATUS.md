@@ -90,15 +90,15 @@ Test-review process skills and flexible report guidance are Implemented2026-10-1
 Their validation, agent lint, scoped Ruff/Pyrefly, ADR lint and docs check passed397 pages/zero link errors.
 An independent read-only exercise found no concrete guidance issue. Those checks did not qualify product behavior.
 
-**Reconciled efficiency track: design investigation completed, 2026-10-11; product Planned.**
-[New coordinator](docs/plans/efficiency-alignment-plan_2026-10-11.md) and five companions retain all 50
-original findings, 20 audit findings and 18 confirmed rule dispositions. Their open mechanisms now have
-selected contracts and migrations; [decision evidence](docs/design_review/evidence/2026-10-11_efficiency-design-decisions/README.md)
-records bounded native/provider, finite, codec, Cargo/Hakari/profile and tar controls. Actual dedicated
-gRPC disconnect reproduced an unfinalized-transaction defect; S09/D10 requires a server execution owner.
-Product acceptance, real-library/performance campaigns and repo quality checks are **not_run**.
-Next: implement ready packages under product authority. Existing plans were not reviewed or superseded;
-shared service/paused SA state are unchanged. The owned probe checkout remains protected evidence.
+**Reconciled efficiency track: implementation in progress, 2026-10-11.**
+[Efficiency coordinator §4](docs/plans/efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint)
+owns actual receipts and remaining scope; all findings/rule dispositions retain their single owner.
+Dedicated campaign installation/source5 producer and a populated cold backup/restore roundtrip passed;
+the full migration matrix remains open. Genuine baseline shared/empty originals and warm cache passed (`c2d415`), followed by the protected populated schema5 cold checkpoint (`921fbf`). Protected fixture/evidence/rerun observations, bounded sorting,
+lower contracts/captured requests and analysis preparation have focused passes. Native fused effects, charged construction, original effect receipts, bounded ingress and real SIGINT controls passed; actual collision rollback and stale-incarnation/changed-byte hold refusal passed on the campaign. ADR-0151's
+physical native/compiler-store/core/publisher split compiles; serving Send lifetime is repaired and its library/tests compile; Python delivery-ledger/CLI test compilation passes; three pure delivery-ledger and two inherited-span controls passed; actual Python/native delivery remains pending. Analysis integration failed: four pure passes, all15 native bodies timed out amid transaction conflicts; exact command cleanup is confirmed but32 started native owners retain unknown completion on campaign attachment76b7677b-5fe7-4b20-a70e-dc6d03760833. Further campaign work waits for authenticated joint recovery with the historical released/uninstrumented source-producer attachment; the first recovery refused before effects. The explicit joint recovery then cleanly joined the exact old daemon but exited75 during successor startup readiness before its final recovery receipt. The canonical CLI/helper owner identity correction then passed302 affected controls, and exact joint resume `20261011T193227.869Z-871bab` passed with confirmed process cleanup and an authenticated recovery receipt. Both named attachments are released and dedicated campaign maintenance reopened; original request outcomes and the legacy command's transport finality remain unknown. The exact patched server build passed and is retained immutably; its
+actual library lifecycle controls passed56 and the campaign server handoff passed with schema5 preserved. Actual wire finality remains pending. Nine later lower cache/completion controls passed (`053d9f0e`); four new core window controls remain not_run after LLVM ENOSPC. Shared caches/evidence were preserved. Integrated acceptance, real-library/performance and repo quality
+campaigns remain **not_run**. Old plans and shared paused SA/service state remain unchanged.
 
 **Preservation and boundaries:** all four auxiliary revisions are committed on `archive/*-2026-10-11`
 branches; [coordinator §9.2](docs/plans/persisted-graph-execution-plan_2026-10-07.md#92-operator-stop-and-worktree-preservation2026-10-11)

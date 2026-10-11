@@ -1,0 +1,1035 @@
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -8782,6 +8782,7 @@
+  "futures-core",
+  "futures-io",
+  "futures-sink",
++ "futures-util",
+  "pin-project-lite",
+  "tokio",
+ ]
+--- a/surrealdb/server/Cargo.toml
++++ b/surrealdb/server/Cargo.toml
+@@ -180,7 +180,7 @@
+ thiserror.workspace = true
+ tokio = { workspace = true, features = ["macros", "signal", "tracing","process"] }
+ tokio-stream.workspace = true
+-tokio-util = { workspace = true, features = ["io"] }
++tokio-util = { workspace = true, features = ["io", "rt"] }
+ tracing.workspace = true
+ uuid = { workspace = true, features = ["serde", "js", "v4", "v7"] }
+ web-time.workspace = true
+--- a/surrealdb/server/src/ntw/mod.rs
++++ b/surrealdb/server/src/ntw/mod.rs
+@@ -716,6 +716,7 @@
+ 	// Get a new server handler
+ 	let handle = Handle::new();
+ 
++	let shutdown_canceller = surreal.canceller().clone();
+ 	// Setup the graceful shutdown handler
+ 	let shutdown_handler = graceful_shutdown(
+ 		Arc::clone(surreal.rpc_state()),
+@@ -762,10 +763,12 @@
+ 		{
+ 			error!(target: LOG, "Binding to ports below 1024 requires privileged access or special permissions.");
+ 		}
++		shutdown_canceller.cancel();
++		shutdown_handler.await??;
+ 		return Err(e.into());
+ 	}
+-	// Wait for the shutdown to finish
+-	let _ = shutdown_handler.await;
++	// Wait for checked execution and session finality before reporting a clean stop.
++	shutdown_handler.await??;
+ 	// Log the server shutdown to the CLI
+ 	info!(target: LOG, "Web server stopped. Bye!");
+ 
+--- a/surrealdb/server/src/ntw/signals.rs
++++ b/surrealdb/server/src/ntw/signals.rs
+@@ -9,85 +9,56 @@
+ use crate::rpc::{self, RpcState};
+ use crate::telemetry;
+ 
+-/// Start a graceful shutdown:
+-/// * Signal the Axum Handle when a shutdown signal is received.
+-/// * Stop all WebSocket connections.
+-/// * Flush all telemetry data.
+-///
+-/// A second signal will force an immediate shutdown.
++/// Fence admission before transport drain; forced signals close transport but
++/// still join the same execution/session finalizer owner before runtime exit.
+ pub fn graceful_shutdown(
+ 	state: Arc<RpcState>,
+ 	canceller: CancellationToken,
+ 	http_handle: Handle<SocketAddr>,
+-) -> JoinHandle<()> {
+-	// Spawn a new background asynchronous task
++) -> JoinHandle<Result<()>> {
+ 	tokio::spawn(async move {
+-		// Listen to the primary OS task signal
+-		match listen().await {
+-			Ok(signal) => {
+-				warn!(target: super::LOG, "{signal} received. Waiting for a graceful shutdown. A second signal will force an immediate shutdown.");
+-			}
+-			_ => {
+-				error!(target: super::LOG, "Failed to listen to shutdown signal. Terminating immediately.");
+-				canceller.cancel();
+-			}
++		tokio::select! {
++			result = listen() => match result {
++				Ok(signal) => warn!(target: super::LOG, "{signal} received. Waiting for graceful shutdown; another signal closes transport immediately but still waits for query finality."),
++				Err(error) => error!(target: super::LOG, "Failed to listen to shutdown signal: {error}. Closing transport."),
++			},
++			_ = canceller.cancelled() => (),
+ 		}
+-		// Spawn a task to gracefully shutdown
+-		let shutdown = {
+-			// Clone the state
++		rpc::close_grpc_queries(&state);
++		let mut shutdown = {
+ 			let http_handle = http_handle.clone();
+-			let canceller = canceller.clone();
+ 			let state = Arc::clone(&state);
+-			// Spawn a background task
+ 			tokio::spawn(async move {
+-				// Stop accepting new HTTP connections
+ 				http_handle.graceful_shutdown(None);
+-				// Wait for all connections to close
+ 				while http_handle.connection_count() > 0 {
+ 					tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+ 				}
+-				// Stop accepting new WebSocket connections
+-				rpc::graceful_shutdown(state).await;
+-				// Cancel the cancellation token
+-				canceller.cancel();
+-				// Flush all telemetry data
+-				telemetry::shutdown();
++				rpc::graceful_shutdown(state).await
+ 			})
+ 		};
+-		// Wait for the primary or secondary signals to complete
+-		tokio::select! {
+-			// Check signals in order
++		// Borrow the handle in select: a competing signal cannot detach the
++		// graceful owner while it is joining or sweeping transaction state.
++		let joined = tokio::select! {
+ 			biased;
+-			// Start a normal graceful shutdown
+-			_ = shutdown => (),
+-			// Check if this has shutdown
++			result = &mut shutdown => result,
+ 			_ = canceller.cancelled() => {
+-				// Close all HTTP connections immediately
+ 				http_handle.shutdown();
+-				// Close all WebSocket connections immediately
+ 				rpc::shutdown(&state);
+-				// Cancel the cancellation token
+-				canceller.cancel();
+-				// Flush all telemetry data
+-				telemetry::shutdown();
+-			}
+-			// Listen for a secondary signal
+-			res = listen() => {
+-				// If we receive a secondary signal, force a shutdown
+-				if let Ok(signal) = res {
+-					warn!(target: super::LOG, "{signal} received during graceful shutdown. Terminating immediately.");
+-				} else {
+-					error!(target: super::LOG, "Failed to listen to shutdown signal. Terminating immediately.");
+-				}
+-				// Close all HTTP connections immediately
++				shutdown.await
++			},
++			result = listen() => {
++				warn!(target: super::LOG, "Secondary shutdown request {result:?}; closing transport and retaining query finality ownership.");
+ 				http_handle.shutdown();
+-				// Close all WebSocket connections immediately
+ 				rpc::shutdown(&state);
+-				// Cancel the cancellation token
+-				canceller.cancel();
+-				// Flush all telemetry data
+-				telemetry::shutdown();
++				shutdown.await
+ 			},
++		};
++		canceller.cancel();
++		telemetry::shutdown();
++		match joined {
++			Ok(Ok(())) => Ok(()),
++			Ok(Err(count)) => Err(anyhow::anyhow!("gRPC shutdown unresolved: {count} execution finalizers")),
++			Err(error) => Err(anyhow::anyhow!("RPC shutdown owner lost: {error}")),
+ 		}
+ 	})
+ }
+--- a/surrealdb/server/src/rpc/grpc.rs
++++ b/surrealdb/server/src/rpc/grpc.rs
+@@ -83,6 +83,7 @@
+ 	HTTP_MAX_IMPORT_BODY_SIZE, MAX_TRANSACTIONS_PER_SESSION, PKG_NAME, PKG_VERSION,
+ };
+ use crate::rpc::RpcState;
++use crate::rpc::query_drain::{Delivery, QueryDrains, QueryPermit};
+ 
+ /// The size of the chunks a streaming export is broken into.
+ ///
+@@ -290,6 +291,7 @@
+ /// One instance per server, shared by every gRPC request. See the module docs
+ /// for how a request's session is resolved and gated.
+ pub struct Grpc {
++	pub(super) query_drains: Arc<QueryDrains>,
+ 	kvs: Arc<Datastore>,
+ 	/// Sessions attached by `AttachSession`, plus the ephemeral ones minted
+ 	/// for requests that name no session.
+@@ -338,6 +340,7 @@
+ 			kvs,
+ 			sessions: HashMap::new(),
+ 			ephemeral_sessions: HashMap::new(),
++			query_drains: QueryDrains::new(),
+ 			transactions: DashMap::new(),
+ 			transaction_counts: DashMap::new(),
+ 			live_queries: DashMap::new(),
+@@ -1685,8 +1688,24 @@
+ 
+ 		let (items_tx, items_rx) = bounded(QUERY_STREAM_BUFFER);
+ 		// The handle this request cancels with. The frames own it, so it trips
+-		// when the client stops reading -- see `ReleaseOnDrop`.
++		// when the client stops reading -- see `QueryFraming::drop`.
+ 		let cancel = CancelHandle::new();
++		let query_id = Uuid::new_v4();
++		let permit = {
++			let cancel = cancel.clone();
++			let items = items_rx.clone();
++			self.rpc().query_drains.accept(query_id, Arc::new(move || {
++				cancel.trip();
++				items.close();
++			}))
++		};
++		let permit = match permit {
++			Ok(permit) => permit,
++			Err(()) => {
++				self.release(&session).await;
++				return Err(Status::unavailable("gRPC query admission is closed"));
++			}
++		};
+ 		// A client's own deadline, which `GrpcService::execute` applies for
+ 		// buffered queries and this path would otherwise drop on the floor.
+ 		let requested_timeout = context
+@@ -1715,7 +1734,7 @@
+ 		// transport error and no frames at all.
+ 		let begin = rpc::QueryResponse {
+ 			frame: Some(rpc::query_response::Frame::Begin(rpc::QueryBegin {
+-				query_id: Some(proto::Uuid::from_uuid(Uuid::new_v4())),
++				query_id: Some(proto::Uuid::from_uuid(query_id)),
+ 				statement_count: job.statement_count as u32,
+ 			})),
+ 		};
+@@ -1733,7 +1752,7 @@
+ 		if let Some(deadline) = shortest(requested_timeout, self.rpc().kvs().query_timeout()) {
+ 			let cancel = cancel.clone();
+ 			let items = items_rx.clone();
+-			tokio::spawn(async move {
++			permit.watchdog(async move {
+ 				tokio::time::sleep(deadline).await;
+ 				cancel.trip();
+ 				items.close();
+@@ -1748,6 +1767,7 @@
+ 			items_rx,
+ 			batch_records,
+ 			cancel,
++			permit,
+ 		);
+ 		let frames = futures::stream::unfold(Some(state), |state| async move {
+ 			let mut state = state?;
+@@ -2205,86 +2225,85 @@
+ /// [`batch_records`] rows.
+ const QUERY_FIRST_BATCH_RECORDS: usize = 16;
+ 
+-/// Releases a streaming query's resources when the stream carrying its results
+-/// is dropped.
+-///
+-/// A dropped stream means the client stopped reading, and that is the only
+-/// signal for it: the framing state is simply never polled again, so nothing
+-/// after the last `next()` runs. Everything the request owns therefore has to
+-/// be released from here rather than at the end of the stream.
+-///
+-/// Tripping the cancel handle is what stops the query. Waiting for the next
+-/// send to fail would not be enough: a query inside a phase that emits nothing
+-/// for a while -- a sort, an aggregate -- would run to completion first.
+-/// Cancelling this way rather than dropping the execution future is deliberate:
+-/// the future owns an open transaction, and dropping it would leave that
+-/// transaction neither committed nor cancelled.
+-struct ReleaseOnDrop {
+-	cancel: CancelHandle,
++/// Session/live-query authority moved together with the sole execution future.
++/// This has no Drop-spawn: QueryFraming transfers it to a registered finalizer.
++struct QueryRelease {
+ 	state: Arc<RpcState>,
+-	/// The session the request ran on, and so the session the live queries
+-	/// below were committed under.
+ 	session_id: Uuid,
+-	/// Whether that session is this request's own and goes with it. A
+-	/// client-named session outlives the request and is left alone.
+ 	ephemeral: bool,
+-	/// The live queries the execution has committed that nothing has claimed.
+-	/// Deleted on the way out -- see [`discard_unregistered_live_queries`].
+ 	unregistered: Vec<Uuid>,
+ }
+ 
+-impl ReleaseOnDrop {
+-	fn new(cancel: CancelHandle, state: Arc<RpcState>, session: &ResolvedSession) -> Self {
+-		Self {
+-			cancel,
+-			state,
+-			session_id: session.id,
+-			ephemeral: session.client.is_none(),
+-			unregistered: Vec::new(),
+-		}
+-	}
+-
+-	/// Take responsibility for a live query the execution has committed, until
+-	/// something registers it.
+-	fn track_live_query(&mut self, id: Uuid) {
+-		self.unregistered.push(id);
+-	}
+-
+-	/// Give up the live queries collected so far, for the path that settles
+-	/// them itself.
+-	fn take_live_queries(&mut self) -> Vec<Uuid> {
+-		std::mem::take(&mut self.unregistered)
+-	}
+-
+-	/// Give up ownership of the ephemeral session, for the path that has
+-	/// already released it.
+-	fn released(&mut self) {
+-		self.ephemeral = false;
+-	}
+-}
+-
+-impl Drop for ReleaseOnDrop {
+-	fn drop(&mut self) {
+-		self.cancel.trip();
+-		let unregistered = std::mem::take(&mut self.unregistered);
+-		let ephemeral = self.ephemeral.then_some(self.session_id);
+-		if unregistered.is_empty() && ephemeral.is_none() {
+-			return;
+-		}
+-		// Both steps await, which a `Drop` cannot, so they go to a task.
+-		// Nothing else holds a handle on this session -- the request that made
+-		// it is over -- so there is no ordering to preserve against anything
+-		// outside that task. Inside it the live queries go first: the session
+-		// carries the namespace and database the orphan metric is attributed
+-		// to, and removing it would take those labels away.
+-		let state = Arc::clone(&self.state);
+-		let session_id = self.session_id;
+-		tokio::spawn(async move {
+-			discard_unregistered_live_queries(&state, session_id, unregistered).await;
+-			if let Some(id) = ephemeral {
+-				state.grpc.remove_ephemeral_session(&id).await;
++struct QueryReady { release: QueryRelease, permit: QueryPermit }
++
++impl QueryReady {
++	async fn healthy(mut self) -> Result<(), TypesError> {
++		self.release.release_session().await;
++		self.permit.complete();
++		Ok(())
++	}
++	async fn abandon(mut self) {
++		let request_id = self.permit.id();
++		if self.release.discard().await {
++			self.release.release_session().await;
++			self.permit.complete();
++			info!(%request_id, "gRPC delivery-loss cleanup finalized; client acknowledgement remains unknown");
++		} else {
++			// Dropping the armed permit records unresolved finality. Do not claim
++			// finalization or release the session after incomplete LIVE cleanup.
++			error!(%request_id, "gRPC delivery-loss cleanup unresolved; client acknowledgement remains unknown");
++		}
++	}
++}
++
++impl QueryRelease {
++	fn new(state: Arc<RpcState>, session: &ResolvedSession) -> Self {
++		Self { state, session_id: session.id, ephemeral: session.client.is_none(), unregistered: Vec::new() }
++	}
++	fn track_live_query(&mut self, id: Uuid) { self.unregistered.push(id); }
++
++	async fn release_session(&mut self) {
++		if self.ephemeral {
++			self.state.grpc.remove_ephemeral_session(&self.session_id).await;
++			self.ephemeral = false;
++		}
++	}
++
++	async fn discard(&mut self) -> bool {
++		self.unregistered.sort_unstable();
++		self.unregistered.dedup();
++		for id in &self.unregistered { self.state.grpc.forget_live_query(id); }
++		if !discard_unregistered_live_queries(&self.state, self.session_id, self.unregistered.clone()).await {
++			return false;
++		}
++		self.unregistered.clear();
++		true
++	}
++
++	async fn settle(mut self, outcome: Option<Result<Vec<QueryResult>, TypesError>>,
++		principal: AuthPrincipalSnapshot, delivery: Arc<Delivery<QueryReady>>,
++		permit: QueryPermit) -> Result<(), TypesError> {
++		let terminal = match outcome {
++			Some(Ok(results)) => {
++				self.unregistered.extend(results.iter().filter(|r| r.query_type == QueryType::Live)
++					.filter_map(|r| match &r.result { Ok(Value::Uuid(id)) => Some(id.into_inner()), _ => None }));
++				if !delivery.abandoned() {
++					register_live_queries(&self.state, self.session_id, &principal, &results).await;
++				}
++				Ok(())
+ 			}
+-		});
++			Some(Err(error)) => Err(error), None => Ok(()),
++		};
++		if terminal.is_err() && !self.discard().await {
++			delivery.failed();
++			return Err(TypesError::internal("gRPC live-query cleanup unresolved".to_string()));
++		}
++		// Ready retains the session, LIVE IDs and accepted permit together. A
++		// terminal frame queued by this task does not establish healthy EOF.
++		// Only EOF or Drop may choose the tracked session-release owner.
++		let ready = QueryReady { release: self, permit };
++		if let Err(ready) = delivery.publish(ready) { ready.abandon().await; }
++		terminal
+ 	}
+ }
+ 
+@@ -2293,8 +2312,6 @@
+ /// Holds one statement's rows back only until they fill a batch, so the wire
+ /// sees them long before the statement -- or the query -- has finished.
+ struct QueryFraming {
+-	state: Arc<RpcState>,
+-	session: ResolvedSession,
+ 	/// The principal the execution runs as, and the one its `LIVE SELECT`s
+ 	/// belong to. The session may be acting as someone else by the time they are
+ 	/// registered.
+@@ -2309,7 +2326,11 @@
+ 	done: bool,
+ 	/// Cancels the query and releases the request's session when this struct is
+ 	/// dropped, i.e. when the client stops reading.
+-	release: ReleaseOnDrop,
++	release: Option<QueryRelease>,
++	permit: Option<QueryPermit>,
++	cancel: CancelHandle,
++	delivery: Arc<Delivery<QueryReady>>,
++	finalizing: Option<tokio::task::JoinHandle<Result<(), TypesError>>>,
+ }
+ 
+ /// Turns a streaming execution's items into query response frames.
+@@ -2393,18 +2414,22 @@
+ 		items: Receiver<QueryStreamItem>,
+ 		batch_records: usize,
+ 		cancel: CancelHandle,
++		mut permit: QueryPermit,
+ 	) -> Self {
+-		let release = ReleaseOnDrop::new(cancel, Arc::clone(&state), &session);
++		permit.arm();
++		let release = QueryRelease::new(Arc::clone(&state), &session);
+ 		Self {
+-			state,
+-			session,
+ 			principal,
+ 			run: Some(job.run),
+ 			items,
+ 			frames: QueryFrames::new(batch_records),
+ 			started: Instant::now(),
+ 			done: false,
+-			release,
++			release: Some(release),
++			permit: Some(permit),
++			cancel,
++			delivery: Delivery::new(),
++			finalizing: None,
+ 		}
+ 	}
+ 
+@@ -2415,17 +2440,14 @@
+ 				return Some(frame);
+ 			}
+ 			if self.done {
+-				// The session outlives the request that made it only when the
+-				// client named one; an ephemeral session is this stream's, and
+-				// nothing else will remove it. Doing it here rather than
+-				// leaving it to the drop guard keeps it awaited, so a caller
+-				// that reads the stream to its end sees the session gone.
+-				if self.session.client.is_none() {
+-					let state = Arc::clone(&self.state);
+-					let id = self.session.id;
+-					self.release.released();
+-					state.grpc.remove_ephemeral_session(&id).await;
++				// Choose the healthy owner synchronously, then retain its tracked
++				// finalizer across await. Dropping next() cannot drop session cleanup.
++				if let Some(ready) = self.delivery.healthy_eof() {
++					let QueryReady { release, permit } = ready;
++					self.finalizing = Some(permit.handoff(move |permit| QueryReady { release, permit }.healthy()));
+ 				}
++				if let Some(finalizer) = self.finalizing.as_mut() { let _ = finalizer.await; }
++				self.finalizing = None;
+ 				return None;
+ 			}
+ 			// Drive the execution and the drain together: the channel is
+@@ -2438,7 +2460,8 @@
+ 					// The execution dropped its sender, so the only thing left
+ 					// is its own outcome.
+ 					Err(_) => {
+-						let outcome = self.run.take().expect("still running").await;
++						let outcome = self.run.as_mut().expect("still running").await;
++						self.run = None;
+ 						self.finish(outcome).await;
+ 					}
+ 				},
+@@ -2463,32 +2486,50 @@
+ 	/// stream that never gets that far has to delete them itself.
+ 	fn absorb(&mut self, item: QueryStreamItem) {
+ 		if let Some(id) = self.frames.absorb(item) {
+-			self.release.track_live_query(id);
+-		}
+-	}
+-
+-	/// Queue the frame that ends the stream.
++			if let Some(release) = &mut self.release { release.track_live_query(id); }
++		}
++	}
++
++	/// Register finalization before awaiting it, including normal EOF cleanup.
+ 	async fn finish(&mut self, outcome: Result<Vec<QueryResult>, TypesError>) {
++		let release = self.release.take().expect("one finalization owner");
++		let permit = self.permit.take().expect("accepted query permit");
++		let principal = self.principal.clone();
++		let delivery = Arc::clone(&self.delivery);
++		self.finalizing = Some(permit.handoff(move |permit| release.settle(Some(outcome), principal, delivery, permit)));
++		match self.finalizing.as_mut().expect("registered finalizer").await {
++			Ok(Ok(())) => self.frames.end(self.started.elapsed()),
++			Ok(Err(error)) => self.frames.error(&error),
++			Err(_) => {
++				self.delivery.failed();
++				self.frames.error(&TypesError::internal("gRPC query finality unresolved".to_string()));
++			},
++		}
++		self.finalizing = None;
+ 		self.done = true;
+-		// Whichever way the execution ended, its live queries are settled here,
+-		// so nothing is left for the drop guard to delete: a registration made
+-		// below must not then be undone behind the client's back.
+-		let unregistered = self.release.take_live_queries();
+-		match outcome {
+-			Ok(results) => {
+-				let state = Arc::clone(&self.state);
+-				let session_id = self.session.id;
+-				register_live_queries(&state, session_id, &self.principal, &results).await;
+-				self.frames.end(self.started.elapsed());
+-			}
+-			// A failure that belongs to no single statement ends the stream
+-			// instead of completing it. It carries no results, so there is
+-			// nothing to register from and every live query the execution
+-			// committed is left unowned.
+-			Err(error) => {
+-				discard_unregistered_live_queries(&self.state, self.session.id, unregistered).await;
+-				self.frames.error(&error);
+-			}
++	}
++}
++
++impl Drop for QueryFraming {
++	fn drop(&mut self) {
++		// Cancel first, close delivery second, then transfer the ONLY run owner.
++		self.cancel.trip();
++		self.items.close();
++		let ready = self.delivery.abandon();
++		while let Ok(item) = self.items.try_recv() { self.absorb(item); }
++		if let Some(release) = self.release.take() {
++			let run = self.run.take();
++			let permit = self.permit.take().expect("accepted query permit");
++			let principal = self.principal.clone();
++			let delivery = Arc::clone(&self.delivery);
++			// Registers synchronously; losing delivery never aborts this task.
++			drop(permit.handoff(move |permit| async move {
++				let outcome = match run { Some(run) => Some(run.await), None => None };
++				let _ = release.settle(outcome, principal, delivery, permit).await;
++			}));
++		} else if let Some(ready) = ready {
++			let QueryReady { release, permit } = ready;
++			drop(permit.handoff(move |permit| QueryReady { release, permit }.abandon()));
+ 		}
+ 	}
+ }
+@@ -2854,13 +2895,13 @@
+ /// would otherwise leave the row behind for the lifetime of the datastore, with
+ /// the broker producing notifications for it that this transport does not own
+ /// and no cleanup path can find.
+-async fn discard_unregistered_live_queries(state: &RpcState, session_id: Uuid, ids: Vec<Uuid>) {
++async fn discard_unregistered_live_queries(state: &RpcState, session_id: Uuid, ids: Vec<Uuid>) -> bool {
+ 	if ids.is_empty() {
+-		return;
++		return true;
+ 	}
+ 	let orphaned = ids.len();
+ 	let Err(err) = state.grpc.kvs().delete_queries(ids).await else {
+-		return;
++		return true;
+ 	};
+ 	error!("Error cleaning up the live queries of an unfinished gRPC streaming query: {err}");
+ 	// The rows survived, so notifications for them will be produced and
+@@ -2878,6 +2919,7 @@
+ 			observer.record_live_query_orphaned(namespace.as_deref(), database.as_deref());
+ 		}
+ 	}
++	false
+ }
+ 
+ /// Frames an export as a byte stream: chunks, then a trailer stating the
+@@ -3445,6 +3487,138 @@
+ 
+ #[cfg(test)]
+ mod tests {
++	#[tokio::test]
++	async fn delivery_drop_before_first_poll_transfers_run_and_retains_session_until_finalization() {
++		let service = service().await;
++		let session = service.resolve(None, true).await.unwrap();
++		let id = session.id;
++		let (items_tx, items_rx) = bounded(1);
++		let cancel = CancelHandle::new();
++		let run_cancel = cancel.clone();
++		let (started_tx, started_rx) = tokio::sync::oneshot::channel();
++		let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
++		let job = QueryStreamJob {
++			statement_count: 1,
++			run: Box::pin(async move {
++				assert!(run_cancel.is_cancelled(), "cancel precedes the drain's first poll");
++				let item = surrealdb_rpc::items_for_result(0, QueryResult {
++					time: Duration::ZERO, result: Ok(Value::None), query_type: QueryType::Other,
++				}).into_iter().next().unwrap();
++				assert!(items_tx.send(item).await.is_err(), "delivery closes before execution drains");
++				started_tx.send(()).unwrap();
++				finish_rx.await.unwrap();
++				Ok(Vec::new())
++			}),
++		};
++		let control_cancel = cancel.clone();
++		let control_items = items_rx.clone();
++		let permit = service.rpc().query_drains.accept(Uuid::new_v4(), Arc::new(move || {
++			control_cancel.trip(); control_items.close();
++		})).unwrap();
++		let framing = QueryFraming::new(Arc::clone(&service.state), session,
++			AuthPrincipalSnapshot::capture(&Session::default()), job, items_rx, 1, cancel, permit);
++		drop(framing);
++		started_rx.await.unwrap();
++		assert!(service.rpc().sessions.contains_key(&id), "session belongs to the running drain");
++		service.rpc().query_drains.close();
++		assert!(futures::FutureExt::now_or_never(service.rpc().query_drains.wait()).is_none());
++		finish_tx.send(()).unwrap();
++		assert_eq!(service.rpc().query_drains.wait().await, Ok(()));
++		assert!(!service.rpc().sessions.contains_key(&id));
++		assert!(!service.rpc().ephemeral_sessions.contains_key(&id));
++	}
++
++	#[tokio::test]
++	async fn delivery_drop_reconciles_live_query_returned_only_by_eventual_execution() {
++		let service = service().await;
++		let session_id = realtime_session(&service).await;
++		define_watched_table(&service).await;
++		let id = commit_live_query(&service).await;
++		let (items_tx, items_rx) = bounded(1);
++		let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
++		let job = QueryStreamJob {
++			statement_count: 1,
++			run: Box::pin(async move {
++				let _items = items_tx;
++				finish_rx.await.unwrap();
++				Ok(vec![QueryResult { time: Duration::ZERO,
++					result: Ok(Value::Uuid(surrealdb_types::Uuid::from(id))), query_type: QueryType::Live }])
++			}),
++		};
++		let permit = service.rpc().query_drains.accept(Uuid::new_v4(), Arc::new(|| {})).unwrap();
++		let framing = QueryFraming::new(Arc::clone(&service.state),
++			ResolvedSession { id: session_id, client: Some(session_id) },
++			AuthPrincipalSnapshot::capture(&Session::default()), job, items_rx, 1, CancelHandle::new(), permit);
++		drop(framing);
++		service.rpc().query_drains.close();
++		finish_tx.send(()).unwrap();
++		assert_eq!(service.rpc().query_drains.wait().await, Ok(()));
++		assert_eq!(live_query_rows(&service).await, 0, "late LIVE result is reconciled after run finality");
++		assert!(service.rpc().live_queries.is_empty());
++		assert!(service.rpc().sessions.contains_key(&session_id), "named session authority remains its client's");
++	}
++
++	#[tokio::test]
++	async fn completed_finalizer_keeps_registered_live_cleanup_until_healthy_eof() {
++		for healthy in [false, true] {
++			let service = service().await;
++			let session_id = realtime_session(&service).await;
++			define_watched_table(&service).await;
++			let id = commit_live_query(&service).await;
++			let lock = service.rpc().get_session(&session_id).await.unwrap();
++			let principal = AuthPrincipalSnapshot::capture(&*lock.read().await);
++			let (items_tx, items_rx) = bounded(1);
++			let job = QueryStreamJob { statement_count: 1, run: Box::pin(async move {
++				drop(items_tx);
++				Ok(vec![QueryResult { time: Duration::ZERO,
++					result: Ok(Value::Uuid(surrealdb_types::Uuid::from(id))), query_type: QueryType::Live }])
++			}) };
++			let permit = service.rpc().query_drains.accept(Uuid::new_v4(), Arc::new(|| {})).unwrap();
++			let mut framing = QueryFraming::new(Arc::clone(&service.state),
++				ResolvedSession { id: session_id, client: Some(session_id) }, principal,
++				job, items_rx, 1, CancelHandle::new(), permit);
++			let outcome = framing.run.take().unwrap().await;
++			framing.finish(outcome).await;
++			assert!(service.rpc().live_queries.contains_key(&id), "normal registration completed");
++			service.rpc().query_drains.close();
++			assert!(futures::FutureExt::now_or_never(service.rpc().query_drains.wait()).is_none(),
++				"terminal delivery still owns the cleanup permit");
++			if healthy { while framing.next().await.is_some() {} }
++			drop(framing);
++			assert_eq!(service.rpc().query_drains.wait().await, Ok(()));
++			assert_eq!(live_query_rows(&service).await, usize::from(healthy));
++			assert_eq!(service.rpc().live_queries.contains_key(&id), healthy);
++		}
++	}
++
++	#[tokio::test]
++	async fn ephemeral_session_survives_ready_until_tracked_eof_or_abandoned_cleanup() {
++		for healthy in [false, true] {
++			let service = service().await;
++			let session = service.resolve(None, true).await.unwrap();
++			let session_id = session.id;
++			let (send, receive) = bounded(1);
++			let job = QueryStreamJob { statement_count: 0, run: Box::pin(async move {
++				drop(send); Ok(Vec::new())
++			}) };
++			let permit = service.rpc().query_drains.accept(Uuid::new_v4(), Arc::new(|| {})).unwrap();
++			let mut framing = QueryFraming::new(Arc::clone(&service.state), session,
++				AuthPrincipalSnapshot::capture(&Session::default()), job, receive, 1,
++				CancelHandle::new(), permit);
++			let outcome = framing.run.take().unwrap().await;
++			framing.finish(outcome).await;
++			assert!(service.rpc().sessions.contains_key(&session_id), "Ready still owns its session");
++			assert!(service.rpc().ephemeral_sessions.contains_key(&session_id));
++			service.rpc().query_drains.close();
++			assert!(futures::FutureExt::now_or_never(service.rpc().query_drains.wait()).is_none());
++			if healthy { while framing.next().await.is_some() {} }
++			drop(framing);
++			assert_eq!(service.rpc().query_drains.wait().await, Ok(()));
++			assert!(!service.rpc().sessions.contains_key(&session_id));
++			assert!(!service.rpc().ephemeral_sessions.contains_key(&session_id));
++		}
++	}
++
+ 	use surrealdb_rpc::capabilities::Capabilities;
+ 	use surrealdb_types::{AuthError, NotAllowedError, Object, SerializationError};
+ 
+@@ -4198,6 +4372,7 @@
+ 			buffered,
+ 			QUERY_BATCH_RECORDS,
+ 			CancelHandle::new(),
++			service.rpc().query_drains.accept(Uuid::new_v4(), Arc::new(|| {})).unwrap(),
+ 		);
+ 
+ 		// The failure ends the stream, and the deletion is awaited before that
+--- a/surrealdb/server/src/rpc/mod.rs
++++ b/surrealdb/server/src/rpc/mod.rs
+@@ -1,6 +1,7 @@
+ pub mod format;
+ pub mod grpc;
+ pub mod http;
++mod query_drain;
+ pub mod response;
+ pub mod streaming;
+ pub mod websocket;
+@@ -221,7 +222,9 @@
+ ///
+ /// Signals each connected WebSocket to shut down and then waits until all
+ /// connections have been drained from the [`RpcState`].
+-pub async fn graceful_shutdown(state: Arc<RpcState>) {
++pub async fn graceful_shutdown(state: Arc<RpcState>) -> Result<(), usize> {
++	// Execution/session finalizers settle before sweeping transactions or LIVE rows.
++	let drain = drain_grpc_queries(&state).await;
+ 	// End gRPC subscriptions with a reason, so a subscriber learns the server
+ 	// is going away and that re-subscribing later is reasonable, rather than
+ 	// seeing its stream close without explanation.
+@@ -239,6 +242,7 @@
+ 	while !state.web_sockets.read().await.is_empty() {
+ 		tokio::time::sleep(Duration::from_millis(250)).await;
+ 	}
++	drain
+ }
+ 
+ /// Forces a fast shutdown of all WebSocket connections.
+@@ -251,3 +255,14 @@
+ 		writer.drain();
+ 	}
+ }
++
++/// Fence and cancel accepted streams before transport shutdown begins.
++pub(crate) fn close_grpc_queries(state: &RpcState) {
++	state.grpc.query_drains.close();
++}
++
++/// Preserve unresolved finality as an error through the shutdown owner.
++pub(crate) async fn drain_grpc_queries(state: &RpcState) -> Result<(), usize> {
++	close_grpc_queries(state);
++	state.grpc.query_drains.wait().await
++}
+--- /dev/null
++++ b/surrealdb/server/src/rpc/query_drain.rs
+@@ -0,0 +1,258 @@
++//! Request ownership across gRPC delivery loss and server shutdown.
++//! Accepted permits fence shutdown until execution, cleanup and terminal delivery
++//! ownership have been resolved. A transport drop cannot abort those futures.
++use std::collections::HashMap;
++use std::sync::atomic::{AtomicUsize, Ordering};
++use std::sync::{Arc, Mutex};
++
++use tokio::task::JoinHandle;
++use tokio_util::task::TaskTracker;
++use tokio_util::task::task_tracker::TaskTrackerToken;
++use tokio_util::sync::CancellationToken;
++use uuid::Uuid;
++
++type Cancel = Arc<dyn Fn() + Send + Sync>;
++
++struct Admission {
++	accepting: bool,
++	requests: HashMap<Uuid, Cancel>,
++}
++
++pub(super) struct QueryDrains {
++	admission: Mutex<Admission>,
++	tracker: TaskTracker,
++	unresolved: AtomicUsize,
++}
++
++impl QueryDrains {
++	pub(super) fn new() -> Arc<Self> {
++		Arc::new(Self {
++			admission: Mutex::new(Admission { accepting: true, requests: HashMap::new() }),
++			tracker: TaskTracker::new(),
++			unresolved: AtomicUsize::new(0),
++		})
++	}
++
++	pub(super) fn accept(self: &Arc<Self>, id: Uuid, cancel: Cancel) -> Result<QueryPermit, ()> {
++		let mut admission = self.admission.lock().expect("query admission poisoned");
++		if !admission.accepting || admission.requests.contains_key(&id) {
++			return Err(());
++		}
++		// Acquire under the admission fence, before any execution can be accepted.
++		let token = self.tracker.token();
++		admission.requests.insert(id, cancel);
++		Ok(QueryPermit { owner: Arc::clone(self), id, _token: token,
++			finished: CancellationToken::new(), armed: false })
++	}
++
++	pub(super) fn close(&self) {
++		let mut admission = self.admission.lock().expect("query admission poisoned");
++		admission.accepting = false;
++		for cancel in admission.requests.values() { cancel(); }
++		// close permits later tasks, but accepted permits prevent a transient empty
++		// tracker while their sole execution/cleanup owner is being transferred.
++		self.tracker.close();
++	}
++
++	pub(super) fn record_unresolved(&self) {
++		self.unresolved.fetch_add(1, Ordering::Release);
++	}
++
++	pub(super) async fn wait(&self) -> Result<(), usize> {
++		self.tracker.wait().await;
++		match self.unresolved.load(Ordering::Acquire) {
++			0 => Ok(()), count => Err(count),
++		}
++	}
++}
++
++pub(super) struct QueryPermit {
++	owner: Arc<QueryDrains>,
++	id: Uuid,
++	_token: TaskTrackerToken,
++	finished: CancellationToken,
++	armed: bool,
++}
++
++impl QueryPermit {
++	pub(super) fn id(&self) -> Uuid { self.id }
++	pub(super) fn arm(&mut self) { self.armed = true; }
++	pub(super) fn complete(mut self) { self.armed = false; }
++
++	pub(super) fn watchdog<F>(&self, future: F)
++	where F: Future<Output = ()> + Send + 'static {
++		let finished = self.finished.clone();
++		drop(self.owner.tracker.spawn(async move {
++			tokio::select! { _ = finished.cancelled() => (), _ = future => () }
++		}));
++	}
++
++	/// The future owns the permit and must explicitly complete it or transfer it
++	/// to Delivery. Panic/runtime loss cannot silently become successful finality.
++	pub(super) fn handoff<F, B>(mut self, build: B) -> JoinHandle<F::Output>
++	where B: FnOnce(Self) -> F + Send + 'static,
++		F: Future + Send + 'static, F::Output: Send + 'static,
++	{
++		self.arm();
++		let tracker = self.owner.tracker.clone();
++		tracker.spawn(async move { build(self).await })
++	}
++
++	#[cfg(test)]
++	fn spawn<F>(self, future: F) -> JoinHandle<F::Output>
++	where F: Future + Send + 'static, F::Output: Send + 'static {
++		self.handoff(move |permit| async move {
++			let output = future.await;
++			permit.complete();
++			output
++		})
++	}
++}
++
++impl Drop for QueryPermit {
++	fn drop(&mut self) {
++		if self.armed { self.owner.record_unresolved(); }
++		self.finished.cancel();
++		self.owner.admission.lock().expect("query admission poisoned").requests.remove(&self.id);
++	}
++}
++
++/// Linear handoff between an asynchronous finalizer and synchronous stream EOF
++/// or Drop. Ready retains all cleanup authority, including already registered
++/// LIVE IDs. Only observing healthy EOF releases that authority to the session.
++pub(super) struct Delivery<T> {
++	phase: Mutex<DeliveryPhase<T>>,
++}
++
++enum DeliveryPhase<T> { Running, Ready(T), Abandoned, Released, Failed }
++
++impl<T> Delivery<T> {
++	pub(super) fn new() -> Arc<Self> {
++		Arc::new(Self { phase: Mutex::new(DeliveryPhase::Running) })
++	}
++	pub(super) fn abandoned(&self) -> bool {
++		matches!(*self.phase.lock().expect("query delivery poisoned"), DeliveryPhase::Abandoned)
++	}
++	pub(super) fn publish(&self, value: T) -> Result<(), T> {
++		let mut phase = self.phase.lock().expect("query delivery poisoned");
++		match &*phase {
++			DeliveryPhase::Abandoned => Err(value),
++			DeliveryPhase::Running => { *phase = DeliveryPhase::Ready(value); Ok(()) }
++			_ => panic!("query finality published twice"),
++		}
++	}
++	pub(super) fn abandon(&self) -> Option<T> {
++		let mut phase = self.phase.lock().expect("query delivery poisoned");
++		match std::mem::replace(&mut *phase, DeliveryPhase::Abandoned) {
++			DeliveryPhase::Ready(value) => Some(value),
++			DeliveryPhase::Released => { *phase = DeliveryPhase::Released; None }
++			_ => None,
++		}
++	}
++	pub(super) fn failed(&self) {
++		let mut phase = self.phase.lock().expect("query delivery poisoned");
++		if matches!(*phase, DeliveryPhase::Running) { *phase = DeliveryPhase::Failed; }
++	}
++	pub(super) fn healthy_eof(&self) -> Option<T> {
++		let mut phase = self.phase.lock().expect("query delivery poisoned");
++		match std::mem::replace(&mut *phase, DeliveryPhase::Released) {
++			DeliveryPhase::Ready(value) => Some(value),
++			DeliveryPhase::Abandoned => { *phase = DeliveryPhase::Abandoned; None }
++			DeliveryPhase::Released | DeliveryPhase::Failed => None,
++			DeliveryPhase::Running => panic!("query EOF precedes finality"),
++		}
++	}
++}
++
++#[cfg(test)]
++mod tests {
++	use super::*;
++	use futures::FutureExt;
++	use tokio::sync::oneshot;
++
++	#[tokio::test]
++	async fn accepted_permit_fences_shutdown_until_transferred_finalizer_settles() {
++		let owner = QueryDrains::new();
++		let cancelled = Arc::new(AtomicUsize::new(0));
++		let observed = Arc::clone(&cancelled);
++		let permit = owner.accept(Uuid::new_v4(), Arc::new(move || { observed.fetch_add(1, Ordering::Relaxed); })).unwrap();
++		owner.close();
++		assert_eq!(cancelled.load(Ordering::Relaxed), 1);
++		assert!(owner.accept(Uuid::new_v4(), Arc::new(|| {})).is_err());
++		assert!(owner.wait().now_or_never().is_none());
++		let (send, receive) = oneshot::channel();
++		drop(permit.spawn(async move { receive.await.unwrap(); }));
++		assert!(owner.wait().now_or_never().is_none());
++		send.send(()).unwrap();
++		assert_eq!(owner.wait().await, Ok(()));
++		assert!(owner.admission.lock().unwrap().requests.is_empty());
++	}
++
++	#[tokio::test]
++	async fn panicking_finalizer_is_unresolved_not_successful_drain() {
++		let owner = QueryDrains::new();
++		let permit = owner.accept(Uuid::new_v4(), Arc::new(|| {})).unwrap();
++		assert!(permit.spawn(async { panic!("finalization lost"); }).await.is_err());
++		owner.close();
++		assert_eq!(owner.wait().await, Err(1));
++	}
++
++	#[tokio::test]
++	async fn drop_during_normal_finalization_returns_cleanup_ownership_exactly_once() {
++		let owner = QueryDrains::new();
++		let permit = owner.accept(Uuid::new_v4(), Arc::new(|| {})).unwrap();
++		let delivery = Delivery::new();
++		let finalizer_delivery = Arc::clone(&delivery);
++		let (entered, barrier) = oneshot::channel();
++		let (release, resume) = oneshot::channel();
++		let cleaned = Arc::new(AtomicUsize::new(0));
++		let observed = Arc::clone(&cleaned);
++		let finalizer = permit.handoff(move |permit| async move {
++			// Deterministic barrier models an await during normal LIVE registration.
++			assert!(!finalizer_delivery.abandoned());
++			entered.send(()).unwrap();
++			resume.await.unwrap();
++			let returned = finalizer_delivery.publish(permit).err().expect("Drop won the handoff");
++			observed.fetch_add(1, Ordering::Relaxed);
++			returned.complete();
++		});
++		barrier.await.unwrap();
++		assert!(delivery.abandon().is_none(), "finalizer still owns cleanup");
++		owner.close();
++		assert!(owner.wait().now_or_never().is_none());
++		release.send(()).unwrap();
++		finalizer.await.unwrap();
++		assert_eq!(owner.wait().await, Ok(()));
++		assert_eq!(cleaned.load(Ordering::Relaxed), 1);
++		assert!(delivery.abandon().is_none());
++	}
++
++	#[tokio::test]
++	async fn completed_finalizer_retains_ready_cleanup_until_drop_or_healthy_eof() {
++		for healthy in [false, true] {
++			let owner = QueryDrains::new();
++			let permit = owner.accept(Uuid::new_v4(), Arc::new(|| {})).unwrap();
++			let delivery = Delivery::new();
++			let finalizer_delivery = Arc::clone(&delivery);
++			permit.handoff(move |permit| async move {
++				assert!(finalizer_delivery.publish(permit).is_ok());
++			}).await.unwrap();
++			owner.close();
++			assert!(owner.wait().now_or_never().is_none(), "ready authority still fences shutdown");
++			if healthy {
++				delivery.healthy_eof().unwrap().complete();
++				assert!(delivery.abandon().is_none());
++			} else {
++				let ready = delivery.abandon().expect("Drop takes completed cleanup authority");
++				let (send, receive) = oneshot::channel();
++				drop(ready.handoff(move |permit| async move {
++					receive.await.unwrap();
++					permit.complete();
++				}));
++				assert!(owner.wait().now_or_never().is_none());
++				send.send(()).unwrap();
++			}
++			assert_eq!(owner.wait().await, Ok(()));
++		}
++	}
++}

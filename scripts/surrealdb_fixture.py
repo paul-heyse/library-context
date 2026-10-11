@@ -16,6 +16,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -66,6 +67,8 @@ ATTACHMENT_VARIABLES = (
     "LCTX_SURREAL_GENERATION",
     "LCTX_FIXTURE_ID",
     "LCTX_FIXTURE_ATTACHMENT",
+    "LCTX_NATIVE_DRAIN_DIRECTORY",
+    "LCTX_PD02_RECOVERY_DIRECTORY",
 )
 
 
@@ -200,6 +203,65 @@ def _cleanup_pending(record: Mapping[str, Any] | None) -> bool:
             return False
         return cleanup.get("status") != "confirmed"
     return _command_observation(record)["status"] == "unknown"
+
+
+def native_completion(directory: Path, record: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Observe actual Rust owner receipts, separately from child/process cleanup."""
+    binding = (record or {}).get("native_drain")
+    if binding is None:
+        return {"status": "not_observed", "owners": []}
+    root = directory / "native-drain"
+    if (not isinstance(binding, dict) or binding.get("directory") != str(root)
+            or not re.fullmatch("[a-f0-9]{64}", binding.get("generation", ""))
+            or not root.is_dir() or root.is_symlink()
+            or binding.get("attachment") != (record or {}).get("id")):
+        return {"status": "unknown", "reason": "native owner binding differs", "owners": []}
+    owners = []
+    status = "confirmed"
+    try:
+        for path in sorted(root.iterdir()):
+            # An interrupted atomic publication or malformed producer is unknown.
+            row = read_json(path) if path.is_file() and not path.is_symlink() else None
+            if (not isinstance(row, dict) or row.get("schema") != 1
+                    or row.get("kind") != "native-process-owner"
+                    or row.get("attachment") != binding["attachment"]
+                    or row.get("generation") != binding.get("generation")
+                    or not isinstance(row.get("owner"), str) or not row["owner"]
+                    or not re.fullmatch(r"[1-9][0-9]*-[0-9]+-[0-9]+\.json", path.name)
+                    or row.get("process") != {"pid": int(path.name.split("-")[0]),
+                                              "start_ticks": int(path.name.split("-")[1])}
+                    or type(row.get("registration")) is not int
+                    or row["registration"] != int(path.stem.split("-")[2])):
+                return {"status": "unknown", "reason": "native owner receipt differs", "owners": owners}
+            owners.append({"path": str(path), **row})
+            completion = row.get("completion")
+            if (row.get("state") != "complete" or not isinstance(completion, dict)
+                    or completion.get("local") != "terminal"
+                    or completion.get("remote") != "confirmed"
+                    or completion.get("failures") != []
+                    or not isinstance(completion.get("committed"), list)
+                    or not isinstance(completion.get("storage"), list)
+                    or any(not isinstance(storage, dict) or storage.get("state") != "removed"
+                           for storage in completion["storage"])):
+                status = "unknown"
+    except (OSError, ValueError, TypeError, KeyError):
+        return {"status": "unknown", "reason": "native owner receipt unavailable", "owners": owners}
+    if not owners:
+        status = "not_observed"
+    return {"status": status, "owners": owners}
+
+
+def native_protected(directory: Path, record: Mapping[str, Any] | None, native: Mapping[str, Any]) -> bool:
+    if not _native_pending(record, native):
+        return False
+    from surrealdb_pd02_recovery import recovered
+    return not recovered(directory, record)
+
+
+def _native_pending(record: Mapping[str, Any] | None, native: Mapping[str, Any]) -> bool:
+    code = (record or {}).get("child_exit_code")
+    return native["status"] == "unknown" or (native["status"] == "not_observed"
+        and (bool((record or {}).get("interrupted")) or isinstance(code, int) and code < 0))
 
 
 def _recover_attachment(path: Path, record: dict[str, Any]) -> dict[str, Any]:
@@ -471,6 +533,8 @@ class Attachment:
             directory.mkdir(mode=0o700)
             lock = hold_lock(directory / "owner.lock")
             (directory / "scratch").mkdir(mode=0o700)
+            (directory / "native-drain").mkdir(mode=0o700)
+            (directory / "pd02-recovery").mkdir(mode=0o700)
             cfg = server.installation.runtime()
             config = {
                 "scratch": str(directory / "scratch"),
@@ -501,7 +565,10 @@ class Attachment:
                 attachment.compiler_config_path,
                 {**cfg, "selection": str(directory / "scratch/selected.json")},
             )
-            attachment._write_record(None, released=False, maintenance=maintenance)
+            attachment._write_record(None, released=False, maintenance=maintenance,
+                native_drain={"directory": str(directory / "native-drain"),
+                              "attachment": attachment_id,
+                              "generation": bytes(server.record["service_generation"]).hex()})
             attachment._storage_admission = storage
             attachment._storage_id = storage_owners.enroll(
                 directory,
@@ -549,6 +616,8 @@ class Attachment:
                 "LCTX_SURREAL_GENERATION": bytes(self.server.record["service_generation"]).hex(),
                 "LCTX_FIXTURE_ID": self.server.id,
                 "LCTX_FIXTURE_ATTACHMENT": self.id,
+                "LCTX_NATIVE_DRAIN_DIRECTORY": str(self.directory / "native-drain"),
+                "LCTX_PD02_RECOVERY_DIRECTORY": str(self.directory / "pd02-recovery"),
                 **self.extra_env,
             }
         )
@@ -654,6 +723,10 @@ class Attachment:
     def release(self) -> None:
         record = read_json(self.directory / "record.json")
         unresolved = _cleanup_pending(record) or _command_observation(record)["status"] == "owned"
+        native = native_completion(self.directory, record)
+        self._write_record(None, native_completion=native)
+        if _native_pending(record, native):
+            unresolved = True
         if self._command_cleanup is not None and self._command_cleanup.get("status") != "confirmed":
             unresolved = True
         if not unresolved:
@@ -783,7 +856,8 @@ def inventory(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
         if checkout and row.get("checkout") != str(Path(checkout).resolve()):
             continue
         observation = _command_observation(row)
-        protected = row.get("released") is not True
+        native = native_completion(path.parent, row)
+        protected = row.get("released") is not True or native_protected(path.parent, row, native)
         rows.append(
             {
                 **{k: row.get(k) for k in ("id", "checkout", "owner", "fixture")},
@@ -793,6 +867,8 @@ def inventory(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
                 else observation["status"],
                 "protected": protected,
                 "cleanup": "unresolved" if protected else "confirmed",
+                "native_completion": native,
+                "host_recovery": row.get("host_recovery"),
                 "unit": installation.unit,
                 "owner_alive": owner_alive(row.get("owner"), path.parent / "owner.lock"),
             }
@@ -816,6 +892,11 @@ def _recover_local(installation: Installation, directory: Path) -> None:
         cleanup = _recover_attachment(directory, row)
         if cleanup.get("status") != "confirmed":
             raise FixtureFailed("cleanup", "command cleanup is unresolved")
+        native = native_completion(directory, row)
+        if native_protected(directory, row, native):
+            raise FixtureFailed("native", "native completion remains unknown; process cleanup cannot release it; "
+                f"explicit service recovery: just service maintenance --recover-attachment {directory.name} "
+                f"(PD02) or --recover-native-attachment {directory.name} (Started native store/workspace owners)")
         # Local drainage is separate from native effects. The service manager invokes the
         # native installation drain before disruptive work and before reopening admission.
         write_json_atomic(
@@ -832,8 +913,7 @@ def _recover_local(installation: Installation, directory: Path) -> None:
 
 
 def recover(attachment_id: str) -> None:
-    import storage_owners
-    from storage_lifecycle import Storage, admission
+    from storage_lifecycle import admission
 
     installation = Installation.load()
     try:
@@ -845,18 +925,25 @@ def recover(attachment_id: str) -> None:
     directory = installation.directory / "attachments" / attachment_id
     with admission([directory]):
         _recover_local(installation, directory)
-        # Recovery activates only already-declared local obligations. It neither adopts an
-        # unmanaged legacy attachment nor releases native persisted content.
-        for row in Storage().records():
-            if row.get("retired_at") or row.get("owner", {}).get("kind") != "attachment":
-                continue
-            if row["owner"].get("path") != str(directory.resolve()):
-                continue
+        _complete_attachment_obligations(directory, "confirmed local attachment recovery")
+
+
+def _complete_attachment_obligations(directory: Path, reason: str, *, owner_lease: int | None = None) -> None:
+    # Only declared local attachment obligations; never persisted native content.
+    import storage_owners
+    from storage_lifecycle import Storage
+    for row in Storage().records():
+        if row.get("retired_at") or row.get("owner", {}).get("kind") != "attachment":
+            continue
+        if row["owner"].get("path") != str(directory.resolve()):
+            continue
+        guard = (storage_owners.owner_guard(row, attachment_lease=owner_lease)
+            if owner_lease is not None else contextlib.nullcontext())
+        with guard:
             for consumer, obligation in row["obligations"].items():
                 if obligation.get("temporary_days") is not None:
-                    storage_owners.complete(
-                        row["id"], consumer, reason="confirmed local attachment recovery"
-                    )
+                    if not storage_owners.complete(row["id"], consumer, reason=reason):
+                        raise FixtureFailed("storage", "declared attachment obligation completion remains unresolved")
 
 
 class _Interrupted(Exception):
@@ -900,6 +987,7 @@ def run_attached(
         previous_record
         and (
             _cleanup_pending(previous_record)
+            or _native_pending(previous_record, native_completion(directory, previous_record))
             or _command_observation(previous_record)["status"] == "owned"
         )
     ):
@@ -960,7 +1048,8 @@ def run_attached(
                         if code is not None:
                             break
                         time.sleep(0.5)
-                except _Interrupted:
+                except _Interrupted as interrupted:
+                    attachment._write_record(None, interrupted=interrupted.signum)
                     for sig in TERMINATING:
                         signal.signal(sig, signal.SIG_IGN)
                     raise
@@ -974,6 +1063,8 @@ def run_attached(
                 "command_cleanup": guard.cleanup,
                 "child_exit_code": code if code is not None else guard.returncode,
             }
+            if directory is not None:
+                updates["native_completion"] = native_completion(directory, read_json(directory / "record.json"))
             if (
                 guard.cleanup["status"] != "confirmed"
                 and "start_ticks" not in command_record["leader"]
@@ -997,6 +1088,10 @@ def run_attached(
                 report(f"fixture: command cleanup receipt not written: {type(error).__name__}")
         if guard.cleanup["status"] != "confirmed":
             report(f"fixture: command cleanup {guard.cleanup['status']}")
+            return code or 1
+        if directory is not None and _native_pending(
+                read_json(directory / "record.json"), updates["native_completion"]):
+            report("fixture: native completion unknown; attachment retained independently of child exit")
             return code or 1
         assert code is not None
         return code

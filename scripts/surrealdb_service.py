@@ -309,6 +309,9 @@ def _descriptor(root: Path) -> dict[str, Any]:
             "installation descriptor is incompatible",
             "just service maintenance --check",
         )
+    if (value.get("server_log_filter", "warn") not in {"warn", "warn,surrealdb::net=info"}
+            or value.get("server_log_filter", "warn") != "warn" and value.get("kind", "stable") != "campaign"):
+        raise FixtureBlocked("identity", "owned server log filter is incompatible")
     generation = value.get("service_generation")
     if (
         not isinstance(generation, list)
@@ -433,7 +436,8 @@ class Installation:
                 )
             expected_store = f"rocksdb://{self.directory / 'data/store'}".encode()
             expected_bind = self.endpoint.removeprefix("http://").encode()
-            if expected_store not in argv or expected_bind not in argv:
+            expected_log = ("--log=" + self.record.get("server_log_filter", "warn")).encode()
+            if expected_store not in argv or expected_bind not in argv or expected_log not in argv:
                 raise FixtureBlocked(
                     "identity", "running service storage/endpoint differs from installation"
                 )
@@ -552,18 +556,20 @@ def sql(
         ) from None
 
 
-def unit_text(root: Path, binary: Path, port: int) -> str:
+def unit_text(root: Path, binary: Path, port: int, *, log_filter: str = "warn") -> str:
     if "\n" in str(root) or "\r" in str(root):
         raise FixtureBlocked("configuration", "service state path cannot contain line separators")
 
     def quote(value: str | Path) -> str:
         return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%") + '"'
 
+    if log_filter not in {"warn", "warn,surrealdb::net=info"}:
+        raise FixtureBlocked("configuration", "unrecognized owned server log filter")
     argv = [
         binary,
         "start",
         "--no-banner",
-        "--log=warn",
+        f"--log={log_filter}",
         "--bind",
         f"127.0.0.1:{port}",
         "--query-timeout",
@@ -861,8 +867,11 @@ def borrowers(installation: Installation) -> list[dict[str, Any]]:
         row = read_json(path)
         if not isinstance(row, dict):
             found.append({"id": path.parent.name, "state": "unknown", "protected": True})
-        elif row.get("released") is not True:
-            found.append({**row, "protected": True})
+        else:
+            import surrealdb_fixture
+            native = surrealdb_fixture.native_completion(path.parent, row)
+            if row.get("released") is not True or surrealdb_fixture.native_protected(path.parent, row, native):
+                found.append({**row, "protected": True})
     return found
 
 
@@ -1221,7 +1230,7 @@ def _bootstrap_owned(installation: Installation) -> None:
         installation.runtime(database, installer=True)
     binary = _installed_binary(installation)
     port = int(installation.endpoint.rsplit(":", 1)[1])
-    if _unit_path(installation.unit).read_text() != unit_text(installation.directory, binary, port):
+    if _unit_path(installation.unit).read_text() != unit_text(installation.directory, binary, port, log_filter=installation.record.get("server_log_filter", "warn")):
         raise FixtureBlocked("identity", "dead service unit differs from installation")
     _stop_owned(installation)
     _start_owned(installation)
@@ -1966,7 +1975,7 @@ def _upgrade_restart(installation: Installation) -> None:
     # Even after an unknown RPC acknowledgment, confirmed process drainage precedes replay.
     binary = _installed_binary(installation)
     port = int(installation.endpoint.rsplit(":", 1)[1])
-    if _unit_path(installation.unit).read_text() != unit_text(installation.directory, binary, port):
+    if _unit_path(installation.unit).read_text() != unit_text(installation.directory, binary, port, log_filter=installation.record.get("server_log_filter", "warn")):
         raise FixtureBlocked("identity", "upgrade service unit differs from installation")
     _stopped_attachment_commands(installation)
     _stop_owned(installation)
@@ -2702,6 +2711,11 @@ def _server_scope_markers(installation: Installation, expected: Mapping[str, Any
     return markers
 
 
+def prepare_grpc_recovery(installation: Installation) -> dict:
+    from surrealdb_pd02_recovery import prepare_logs
+    return prepare_logs(installation)
+
+
 def handoff_server(installation: Installation, descriptor: Path) -> dict:
     """Explicitly switch one proven server generation without migrating native state."""
     from storage_lifecycle import admission, durable_json, fsync_directory
@@ -2740,7 +2754,7 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
                 previous_path = _installed_binary(installation)
                 if previous == _generation_binary(generation):
                     raise FixtureBlocked("identity", "server generation is already installed")
-                expected_unit = unit_text(installation.directory, previous_path, port)
+                expected_unit = unit_text(installation.directory, previous_path, port, log_filter=installation.record.get("server_log_filter", "warn"))
                 if _unit_path(installation.unit).read_text() != expected_unit:
                     raise FixtureBlocked("identity", "owned service unit differs before server handoff")
                 if plans:
@@ -2758,7 +2772,7 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
                 plan = {"schema": 1, "operation": operation, "installation_id": installation.id,
                     "service_generation": installation.record["service_generation"],
                     "previous_binary": previous, "generation": generation,
-                    "previous_unit": expected_unit, "successor_unit": unit_text(installation.directory, Path(generation["path"]), port),
+                    "previous_unit": expected_unit, "successor_unit": unit_text(installation.directory, Path(generation["path"]), port, log_filter=installation.record.get("server_log_filter", "warn")),
                     "previous_handoff": installation.record.get("server_handoff"),
                     "upgrade": pending_upgrade, "scopes": scopes}
                 journal = directory / "plan.json"
@@ -2848,6 +2862,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "maintenance", help="close admission, drain borrowers and run selected operation"
     )
     operations = maintenance_parser.add_mutually_exclusive_group()
+    operations.add_argument("--recover-attachment", metavar="ID",
+        help="explicit named PD02 unknown recovery with exact joined server invocation")
+    operations.add_argument("--recover-native-attachment", metavar="ID", action="append",
+        help="campaign-only Started native owner recovery with source-correlated registered shutdown join")
+    maintenance_parser.add_argument("--legacy-attachment-run", metavar="ID=RUN", action="append", default=[],
+        help="preserve the explicitly named historical local-release peer's original ended-run evidence")
+    operations.add_argument("--prepare-grpc-recovery", action="store_true",
+        help="explicit campaign-only positive shutdown-log preparation; requires resolved borrowers")
     operations.add_argument("--restart", action="store_true")
     operations.add_argument("--check", action="store_true")
     operations.add_argument(
@@ -2903,10 +2925,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.reconcile_pin or args.reconcile_backup_hold
     )
     if args.action == "maintenance":
+        if args.legacy_attachment_run and not args.recover_native_attachment:
+            parser.error("--legacy-attachment-run requires --recover-native-attachment")
         if (
             (reconcile and (not args.recover or not args.reconcile_database))
             or (args.reconcile_database and not reconcile)
-            or ((args.recover or args.upgrade_installer or args.replace_upgrade_installer or args.reconcile_upgrade_installer or args.server_generation) and args.command)
+            or ((args.recover or args.upgrade_installer or args.replace_upgrade_installer or args.reconcile_upgrade_installer or args.server_generation or args.recover_attachment or args.recover_native_attachment or args.prepare_grpc_recovery) and args.command)
         ):
             parser.error(
                 "named reader reconciliation requires --recover, --reconcile-database "
@@ -2921,7 +2945,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("named reconciliation identities must be distinct")
     if args.action == "maintenance" and args.native_clients:
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
-        if not command or args.restart or args.check or args.recover or args.stabilize_installer or args.upgrade_installer or args.replace_upgrade_installer or args.reconcile_upgrade_installer or args.server_generation:
+        if not command or args.restart or args.check or args.recover or args.stabilize_installer or args.upgrade_installer or args.replace_upgrade_installer or args.reconcile_upgrade_installer or args.server_generation or args.recover_attachment or args.recover_native_attachment or args.prepare_grpc_recovery:
             parser.error("--native-clients requires only an explicit command after --")
     try:
         if args.action == "install":
@@ -2960,6 +2984,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                 value = restore_service(installation, args.archive, apply=args.apply)
             else:
                 command = args.command[1:] if args.command[:1] == ["--"] else args.command
+                if args.recover_attachment:
+                    from surrealdb_pd02_recovery import recover
+                    print(json.dumps(recover(installation, args.recover_attachment), indent=2))
+                    return 0
+                if args.recover_native_attachment:
+                    from surrealdb_pd02_recovery import recover_native
+                    mappings={}
+                    for value in args.legacy_attachment_run:
+                        identity,separator,run=value.partition("=")
+                        if not separator or identity in mappings:
+                            parser.error("--legacy-attachment-run requires distinct ID=RUN mappings")
+                        mappings[identity]=run
+                    print(json.dumps(recover_native(installation, args.recover_native_attachment,legacy_runs=mappings), indent=2))
+                    return 0
+                if args.prepare_grpc_recovery:
+                    print(json.dumps(prepare_grpc_recovery(installation), indent=2))
+                    return 0
                 if args.server_generation:
                     print(json.dumps(handoff_server(installation, args.server_generation), indent=2))
                     return 0
@@ -2975,6 +3016,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     native_started = False
                     try:
                         row = read_json(installation.directory / "maintenance.json")
+                        if row and row.get("operation") in {"PD02 named attachment recovery", "PD02 campaign log preparation", "native named attachment recovery"}:
+                            raise FixtureBlocked("maintenance", "resume the exact named PD02 maintenance operation")
                         if row and (row.get("server_handoff") or row.get("operation") == SERVER_HANDOFF_OPERATION):
                             raise FixtureBlocked("maintenance", "incomplete server handoff requires the exact --server-generation descriptor")
                         if row and row.get("operation") == UPGRADE_OPERATION:
@@ -3140,4 +3183,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    # Helpers import this owner by its canonical name. Keep the CLI's classes
+    # and checked-generation context identical to that import, so a transient
+    # readiness refusal is caught by the same owner's startup retry loop.
+    sys.modules["surrealdb_service"] = sys.modules[__name__]
     raise SystemExit(main())

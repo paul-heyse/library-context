@@ -78,10 +78,10 @@ def installed(tmp_path, monkeypatch):
     return fx.Server(service.Installation.load())
 
 
-def install_fake_patched_generation(installed, tmp_path):
+def install_fake_patched_generation(installed, tmp_path, *, cpu_count=7):
     import surrealdb_server as server
     from storage_service import prepare_server
-    selected = server.recipe(cpu_count=7)
+    selected = server.recipe(cpu_count=cpu_count)
     provenance = server.build_provenance(installed.directory, selected,
         "rustc 1.99.0-nightly\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu",
         "cargo 1.99.0-nightly", cache_record_sha256="a" * 64)
@@ -588,3 +588,707 @@ def test_attachment_recovery_completes_declared_local_obligation_after_process_d
     assert storage_owners.observe(row)["state"] == "released"
     assert row["obligations"][f"attachment:{attachment_id}"]["until"]
     assert (installed.directory / "installation.json").is_file()
+
+
+def native_receipt(attachment, *, state="complete", remote="confirmed", failures=None):
+    """Protocol fixture only; real native finality requires the Rust producer."""
+    record = json.loads((attachment.directory / "record.json").read_text())
+    row = {"schema": 1, "kind": "native-process-owner", "owner": "protocol control",
+        "attachment": attachment.id, "generation": record["native_drain"]["generation"],
+        "process": {"pid": 123, "start_ticks": 456}, "registration": 0,
+        "state": state, "signal": "SIGINT", "completion": None}
+    if state == "complete":
+        row["completion"] = {"local": "terminal", "remote": remote, "storage": [],
+            "committed": [{"kind": "accepted effect", "identity": "exact-attempt"}],
+            "failures": failures or []}
+    path = attachment.directory / "native-drain/123-456-0.json"
+    fx.write_json_atomic(path, row)
+    return path, row
+
+
+@pytest.mark.parametrize("state,remote,failures", [
+    ("started", "confirmed", []), ("complete", "unknown", []),
+    ("complete", "confirmed", [{"step": "session close", "error": "unknown"}]),
+])
+def test_native_unknown_retains_attachment_despite_confirmed_process_cleanup(
+    installed, state, remote, failures
+):
+    attachment = fx.Attachment.create(installed)
+    unrelated = fx.Attachment.create(installed)
+    native_receipt(attachment, state=state, remote=remote, failures=failures)
+    attachment._write_record(None, command_cleanup={"status": "confirmed"}, child_exit_code=0)
+    try:
+        attachment.release()
+        row = json.loads((attachment.directory / "record.json").read_text())
+        assert row["released"] is False
+        assert row["child_exit_code"] == 0 and row["command_cleanup"]["status"] == "confirmed"
+        assert row["native_completion"]["status"] == "unknown"
+        assert unrelated.environment()["LCTX_FIXTURE_ATTACHMENT"] == unrelated.id
+        with pytest.raises(fx.FixtureFailed, match="prior command cleanup unresolved"):
+            fx.run_attached(attachment, ["true"])
+    finally:
+        unrelated.release()
+        attachment.release()
+
+
+def test_confirmed_native_completion_releases_and_retains_committed_identity(installed):
+    attachment = fx.Attachment.create(installed)
+    native_receipt(attachment)
+    attachment._write_record(None, command_cleanup={"status": "confirmed"}, child_exit_code=1)
+    attachment.release()
+    row = json.loads((attachment.directory / "record.json").read_text())
+    assert row["released"] is True and row["child_exit_code"] == 1
+    assert row["native_completion"]["status"] == "confirmed"
+    assert row["native_completion"]["owners"][0]["completion"]["committed"][0]["identity"] == "exact-attempt"
+
+
+def test_native_receipt_binding_and_hard_stop_without_receipt_remain_unknown(installed):
+    attachment = fx.Attachment.create(installed)
+    path, row = native_receipt(attachment)
+    row["generation"] = "f" * 64
+    fx.write_json_atomic(path, row)
+    assert fx.native_completion(attachment.directory,
+        json.loads((attachment.directory / "record.json").read_text()))["status"] == "unknown"
+    path.unlink()
+    attachment._write_record(None, command_cleanup={"status": "confirmed"}, child_exit_code=-9)
+    attachment.release()
+    row = json.loads((attachment.directory / "record.json").read_text())
+    assert row["released"] is False
+    assert row["native_completion"]["status"] == "not_observed"
+
+
+def pd02_manifest(attachment, *, table=None, sequence=0, policy="signin", session=None):
+    """Finite protocol fixture; this is not actual server/remote-finality evidence."""
+    import surrealdb_pd02_recovery as recovery
+    table = table or "pd02_" + "a" * 64
+    record = fx.read_json(attachment.directory / "record.json")
+    manifest = {"schema": 1, "kind": "PD02-wire-request", "attachment": attachment.id,
+        "generation": record["native_drain"]["generation"], "namespace": service.NAMESPACE,
+        "database": "validation", "table": table, "sequence": sequence,
+        "session": None if policy == "attach_session" else session or str(uuid.UUID(int=7)),
+        "process": {"pid":123,"start_ticks":456}, "policy": policy,
+        "effects": recovery.POLICIES[policy], "live": "absent_after_join",
+        "session_policy": "volatile_named_session_after_join", "sql_blake3": "b" * 64}
+    path = attachment.directory / "pd02-recovery" / f"{table[5:]}-{sequence}.json"
+    recovery.immutable(path, manifest)
+    return path, manifest
+
+
+def pd02_dead_attachment(installed, monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    attachment = fx.Attachment.create(installed)
+    path, native = native_receipt(attachment, remote="unknown")
+    native["owner"] = "PD02 installed fixture wire owner"
+    fx.write_json_atomic(path, native)
+    attachment._write_record(None, command_cleanup={"status":"confirmed","survivors":[]}, child_exit_code=0)
+    pd02_manifest(attachment, policy="attach_session")
+    pd02_manifest(attachment, sequence=1, policy="signin")
+    pd02_manifest(attachment, sequence=2, policy="use")
+    pd02_manifest(attachment, sequence=3, policy="committed_before_disconnect")
+    attachment.release()
+    row = fx.read_json(attachment.directory / "record.json")
+    row["owner"] = {**service.ProcessIdentity.of().to_json(),"pid":99999999,"start_ticks":1}
+    fx.write_json_atomic(attachment.directory / "record.json", row)
+    monkeypatch.setattr(fx, "_command_observation", lambda row: {"status":"gone"})
+    return attachment, path, path.read_bytes()
+
+
+def test_pd02_manifest_finite_policy_refuses_sql_injection_and_incomplete_session(installed):
+    import surrealdb_pd02_recovery as recovery
+    attachment = fx.Attachment.create(installed)
+    try:
+        pd02_manifest(attachment, policy="attach_session")
+        row = fx.read_json(attachment.directory / "record.json")
+        with pytest.raises(fx.FixtureBlocked, match="incomplete"):
+            recovery.manifests(attachment.directory, row)
+        path, manifest = pd02_manifest(attachment, sequence=1, policy="signin")
+        pd02_manifest(attachment, sequence=2, policy="use")
+        assert recovery.manifests(attachment.directory, row)["sessions"] == [str(uuid.UUID(int=7))]
+        path.chmod(0o600)
+        manifest["table"] += "; REMOVE DATABASE validation"
+        fx.write_json_atomic(path, manifest)
+        path.chmod(0o400)
+        with pytest.raises(fx.FixtureBlocked, match="identity/policy"):
+            recovery.manifests(attachment.directory, row)
+    finally:
+        attachment.release()
+
+
+@pytest.mark.parametrize("change", ["unknown_policy", "effect", "generation", "symlink", "process"])
+def test_pd02_manifest_identity_and_request_policies_are_not_sql_authority(installed, change):
+    import surrealdb_pd02_recovery as recovery
+    attachment = fx.Attachment.create(installed)
+    try:
+        pd02_manifest(attachment, policy="attach_session")
+        path, row = pd02_manifest(attachment, sequence=1, policy="signin")
+        path.chmod(0o600)
+        if change == "unknown_policy": row["policy"] = "execute_serialized_sql"
+        elif change == "effect": row["effects"] = {"foreign":"absent"}
+        elif change == "generation": row["generation"] = "f" * 64
+        elif change == "process": row["process"]["pid"] = -1
+        else:
+            path.unlink()
+            path.symlink_to(attachment.directory / "record.json")
+        if change != "symlink":
+            fx.write_json_atomic(path, row)
+            path.chmod(0o400)
+        with pytest.raises((fx.FixtureBlocked, ValueError)):
+            recovery.manifests(attachment.directory, fx.read_json(attachment.directory / "record.json"))
+    finally:
+        attachment.release()
+
+
+def test_pd02_graceful_join_requires_exact_invocation_clean_zero_and_positive_log(installed, monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    old = {**service.ProcessIdentity.of().to_json(), "pid":99999999,"start_ticks":1}
+    plan = {"daemon":{"invocation":"a"*32,"process":old}}
+    commands = []
+    state = {"InvocationID":"a"*32,"MainPID":"0","ActiveState":"inactive",
+        "Result":"success","ExecMainCode":"1","ExecMainStatus":"0"}
+    monkeypatch.setattr(service, "unit_properties", lambda *args: state)
+    monkeypatch.setattr(service, "systemctl", lambda *args: commands.append(args))
+    monkeypatch.setattr(recovery, "journal_join", lambda *args: {"exact":"positive"})
+    assert recovery.joined_exit(installed.installation, plan)["journal"] == {"exact":"positive"}
+    assert not commands  # Already exited only qualifies through clean0 + positive join proof.
+    for field, wrong in (("ExecMainCode","2"),("ExecMainStatus","9"),("Result","signal"),("InvocationID","b"*32)):
+        before = dict(state)
+        state[field] = wrong
+        with pytest.raises(fx.FixtureBlocked):
+            recovery.joined_exit(installed.installation, plan)
+        state.clear()
+        state.update(before)
+
+
+def test_pd02_join_signals_without_systemd_stop_or_timeout_abort(installed, monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    current = service.ProcessIdentity.of()
+    states = iter([
+        {"InvocationID":"a"*32,"MainPID":str(current.pid),"ActiveState":"active"},
+        {"InvocationID":"a"*32,"MainPID":str(current.pid),"ActiveState":"deactivating"},
+    ])
+    monkeypatch.setattr(service, "unit_properties", lambda *args: next(states))
+    commands = []
+    monkeypatch.setattr(service, "systemctl", lambda *args: commands.append(args) or SimpleNamespace(returncode=0))
+    monkeypatch.setattr(recovery.time, "sleep", lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        recovery.joined_exit(installed.installation, {"daemon":{"invocation":"a"*32,"process":current.to_json()}})
+    assert commands == [("kill","--signal=SIGTERM","--kill-whom=main",installed.unit)]
+
+
+def test_pd02_positive_journal_is_bound_to_invocation_and_unit(installed, monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    invocation = "a" * 32
+    output = {"_SYSTEMD_INVOCATION_ID":invocation,"_SYSTEMD_USER_UNIT":installed.unit,
+        "MESSAGE":"INFO surrealdb::net: Web server stopped. Bye!"}
+    commands = []
+    monkeypatch.setattr(recovery.subprocess, "run", lambda args, **kw:
+        commands.append(args) or SimpleNamespace(returncode=0,stdout=json.dumps(output)+"\n"))
+    assert recovery.journal_join(installed.installation, invocation)["entries"] == [output]
+    assert "_SYSTEMD_INVOCATION_ID=" + invocation in commands[0]
+    output["_SYSTEMD_INVOCATION_ID"] = "b" * 32
+    with pytest.raises(fx.FixtureBlocked, match="differs"):
+        recovery.journal_join(installed.installation, invocation)
+
+
+def test_pd02_reconcile_checks_all_owned_effects_and_live_before_deletion(installed, monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    table = "pd02_" + "a" * 64
+    manifest = {"tables":[table],"effects":{table:{"committed":"present","later":"absent"}}}
+    calls = []
+    values = iter([{"lives":{}},True,False,["committed"]])
+    monkeypatch.setattr(service.Installation, "check_daemon", lambda self: None)
+    monkeypatch.setattr(service.Installation, "runtime", lambda self,*a,**kw: {})
+    monkeypatch.setattr(service, "sql", lambda inst, sql, **kw:
+        calls.append(sql) or [{"status":"OK","result":next(values)}])
+    outcomes = recovery.reconcile(installed.installation, manifest, {"pid":1,"start_ticks":2})
+    assert outcomes[table]["effects"] == manifest["effects"][table]
+    assert calls == [f"INFO FOR TABLE {table}", f"RETURN record::exists({table}:committed)",
+        f"RETURN record::exists({table}:later)", f"SELECT VALUE record::id(id) FROM {table}"]
+    values = iter([{"lives":{}},False])
+    with pytest.raises(fx.FixtureBlocked, match="disagrees"):
+        recovery.reconcile(installed.installation, manifest, {})
+    assert not any("REMOVE" in sql for sql in calls)
+
+
+@pytest.mark.parametrize("blocker", ["live_owner","foreign_owner","missing_owner","unnamed_borrower","borrower_lease","command_unknown"])
+def test_pd02_recovery_refuses_live_or_unnamed_owners_before_server_actions(installed, monkeypatch, blocker):
+    import surrealdb_pd02_recovery as recovery
+    attachment, _, _ = pd02_dead_attachment(installed, monkeypatch)
+    other = None
+    held = None
+    row = fx.read_json(attachment.directory / "record.json")
+    if blocker == "live_owner":
+        row["owner"] = service.ProcessIdentity.of().to_json()
+        fx.write_json_atomic(attachment.directory / "record.json", row)
+    elif blocker == "foreign_owner":
+        row["owner"] = service.ProcessIdentity.of().to_json()
+        row["owner"]["pid_namespace"] += 1
+        fx.write_json_atomic(attachment.directory / "record.json", row)
+    elif blocker == "missing_owner":
+        row.pop("owner")
+        fx.write_json_atomic(attachment.directory / "record.json", row)
+    elif blocker == "unnamed_borrower": other = fx.Attachment.create(installed)
+    elif blocker == "borrower_lease":
+        import fcntl
+        held = os.open(installed.directory / "borrowers.lock", os.O_RDWR)
+        fcntl.flock(held, fcntl.LOCK_SH)
+    else: monkeypatch.setattr(fx, "_command_observation", lambda row: {"status":"unknown"})
+    commands = []
+    monkeypatch.setattr(service, "systemctl", lambda *args: commands.append(args))
+    try:
+        with pytest.raises(fx.FixtureBlocked):
+            recovery.recover(installed.installation, attachment.id)
+        assert not commands
+        assert fx.read_json(attachment.directory / "record.json")["released"] is False
+    finally:
+        if other: other.release()
+        if held is not None: os.close(held)
+
+
+def pd02_join_protocol_fixture(installed, process):
+    import surrealdb_pd02_recovery as recovery
+    entries = [{"_SYSTEMD_INVOCATION_ID":"a"*32,"_SYSTEMD_USER_UNIT":installed.unit,
+        "_PID":str(process.pid),"MESSAGE":recovery.JOIN_MESSAGE}]
+    text = json.dumps(entries[0]) + "\n"
+    return {"state":{"InvocationID":"a"*32,"MainPID":"0","ActiveState":"inactive",
+        "Result":"success","ExecMainCode":"1","ExecMainStatus":"0"},
+        "journal":{"text":text,"sha256":recovery.digest_bytes(text.encode()),"entries":entries}}
+
+
+def pd02_mock_recovery_ready(installed, monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    attachment, native_path, original_native = pd02_dead_attachment(installed, monkeypatch)
+    installation = installed.installation
+    installation.directory.chmod(0o700)
+    old = service.ProcessIdentity.of()
+    new = SimpleNamespace(to_json=lambda: {"pid":99999998,"start_ticks":7})
+    installation._daemon_identity = (old, ())
+    monkeypatch.setattr(recovery, "validate_server", lambda inst: None)
+    monkeypatch.setattr(service.Installation, "check_daemon", lambda inst: None)
+    monkeypatch.setattr(service, "unit_properties", lambda *args: {"InvocationID":"a"*32,"MainPID":str(old.pid)})
+    joined = pd02_join_protocol_fixture(installed, old)
+    monkeypatch.setattr(recovery, "joined_exit", lambda *args: joined)
+    monkeypatch.setattr(service, "_start_owned", lambda inst: setattr(inst,"_daemon_identity",(new,())))
+    monkeypatch.setattr(service.Installation, "runtime", lambda *a, **kw: {})
+    monkeypatch.setattr(service, "sql", lambda inst, statement, **kw: [{"status":"OK","result":None}])
+    table = "pd02_" + "a"*64
+    monkeypatch.setattr(recovery, "reconcile", lambda *args: {table:{"live":"absent",
+        "effects":{"committed":"present","later":"absent"},"records":["committed"]}})
+    return attachment, native_path, original_native
+
+
+def test_pd02_host_recovery_preserves_original_unknown_and_independent_receipt(installed, monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    attachment, native_path, original_native = pd02_mock_recovery_ready(installed, monkeypatch)
+    installation = installed.installation
+    result = recovery.recover(installation, attachment.id)
+    assert result["outcome"] == "recovered"
+    assert native_path.read_bytes() == original_native
+    row = fx.read_json(attachment.directory / "record.json")
+    assert row["released"] is True
+    assert fx.native_completion(attachment.directory, row)["status"] == "unknown"
+    assert not fx.native_protected(attachment.directory, row, fx.native_completion(attachment.directory,row))
+    assert not service.borrowers(installation)
+    import storage_owners
+    from storage_lifecycle import Storage
+    assert storage_owners.observe(Storage().get(attachment._storage_id))["state"] == "released"
+    assert Storage().get(attachment._storage_id)["obligations"][f"attachment:{attachment.id}"]["until"]
+    assert not (installation.directory / "maintenance.json").exists()
+    assert fx.inventory()[0]["native_completion"]["status"] == "unknown"
+    assert fx.inventory()[0]["protected"] is False
+    # Changed original native evidence cannot be masked by an old host receipt.
+    native_path.write_bytes(original_native + b" ")
+    assert recovery.recovered(attachment.directory, row) is False
+    assert service.borrowers(installation)[0]["id"] == attachment.id
+    assert storage_owners.observe(Storage().get(attachment._storage_id))["state"] == "unresolved"
+
+
+@pytest.mark.parametrize("phase", ["join", "reconcile", "remove", "drain", "open"])
+def test_pd02_interrupted_recovery_preserves_unknown_and_resumes_exact_owner(installed, monkeypatch, phase):
+    import surrealdb_pd02_recovery as recovery
+    attachment, native_path, original = pd02_mock_recovery_ready(installed, monkeypatch)
+    installation = installed.installation
+    target, name = {"join":(recovery,"joined_exit"), "reconcile":(recovery,"reconcile"),
+        "remove":(service,"sql"), "drain":(service,"_run_installer"),
+        "open":(service,"_run_installer")}[phase]
+    original_function = getattr(target, name)
+    fired = False
+    def interrupt_once(*args, **kw):
+        nonlocal fired
+        chosen = phase not in {"drain", "open"} or args[2] == ("drain" if phase == "drain" else "open-admission")
+        if not fired and chosen:
+            fired = True
+            raise KeyboardInterrupt()
+        return original_function(*args, **kw)
+    monkeypatch.setattr(target, name, interrupt_once)
+    with pytest.raises(KeyboardInterrupt):
+        recovery.recover(installation, attachment.id)
+    marker_path = installation.directory / "maintenance.json"
+    marker = fx.read_json(marker_path)
+    assert marker["attachment"] == attachment.id
+    assert marker["operation"] == recovery.OPERATION
+    assert native_path.read_bytes() == original
+    row = fx.read_json(attachment.directory / "record.json")
+    assert fx.native_completion(attachment.directory, row)["status"] == "unknown"
+    if phase != "open": assert row["released"] is False
+    assert not service.lock_held(installation.directory / "admission.lock")
+    # A real CLI resume is a new process. Simulate only its dead host identity;
+    # do not mutate the original request/native or daemon recovery evidence.
+    marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid":99999999}
+    fx.write_json_atomic(marker_path, marker)
+    assert recovery.recover(installation, attachment.id)["outcome"] == "recovered"
+    assert native_path.read_bytes() == original
+    assert not marker_path.exists()
+
+
+def test_pd02_log_preparation_is_explicit_campaign_only_and_preserves_default(installed):
+    import surrealdb_pd02_recovery as recovery
+    assert '"--log=warn"' in service.unit_text(installed.directory, Path("/checked/server"), 29000)
+    assert '"--log=warn,surrealdb::net=info"' in service.unit_text(installed.directory,
+        Path("/checked/server"),29000,log_filter="warn,surrealdb::net=info")
+    with pytest.raises(fx.FixtureBlocked, match="campaign-only"):
+        recovery.prepare_logs(installed.installation)
+    with pytest.raises(fx.FixtureBlocked, match="unrecognized"):
+        service.unit_text(installed.directory, Path("/checked/server"), 29000, log_filter="trace")
+
+
+@pytest.mark.parametrize("interrupt", [None, "reload", "join", "open"])
+def test_pd02_log_preparation_journals_exact_unit_binary_and_rechecks(installed, tmp_path, monkeypatch, interrupt):
+    import surrealdb_pd02_recovery as recovery
+    generation = install_fake_patched_generation(installed, tmp_path)
+    installation = installed.installation
+    installation.directory.chmod(0o700)
+    installation.record.update(kind="campaign")
+    installation.record["unit"] = service.installation_unit(installation.record)
+    service.private_json(installation.directory / "installation.json", installation.record)
+    unit = tmp_path / "owned-unit.service"
+    unit.write_text(service.unit_text(installation.directory, Path(generation["path"]), 29000))
+    monkeypatch.setattr(service,"_unit_path",lambda *a:unit)
+    process = service.ProcessIdentity.of()
+    installation._daemon_identity = (process, ())
+    monkeypatch.setattr(service.Installation,"check_daemon",lambda self:None)
+    monkeypatch.setattr(service,"unit_properties",lambda *args:{"InvocationID":"a"*32,"MainPID":str(process.pid)})
+    monkeypatch.setattr(recovery,"joined_exit",lambda *args:pd02_join_protocol_fixture(installed,process))
+    actions = []
+    monkeypatch.setattr(service,"_stop_owned",lambda inst:actions.append("ordinary preparation stop"))
+    monkeypatch.setattr(service,"_start_owned",lambda inst:actions.append("checked preparation start"))
+    monkeypatch.setattr(service,"_run_installer",lambda inst,binary,action:actions.append(action))
+    monkeypatch.setattr(service,"systemctl",lambda *args:SimpleNamespace(returncode=0))
+    before = dict(installation.record["binary"])
+    if interrupt:
+        target, name = {"reload":(service,"systemctl"), "join":(recovery,"joined_exit"),
+            "open":(service,"_run_installer")}[interrupt]
+        original = getattr(target, name)
+        def interrupted(*args, **kw):
+            selected = interrupt == "join" or interrupt == "reload" and args[0] == "daemon-reload" or interrupt == "open" and args[2] == "open-admission"
+            if selected: raise KeyboardInterrupt()
+            return original(*args, **kw)
+        monkeypatch.setattr(target,name,interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            recovery.prepare_logs(installation)
+        marker_path = installation.directory / "maintenance.json"
+        marker = fx.read_json(marker_path)
+        assert marker["operation"] == "PD02 campaign log preparation"
+        assert marker["phase"] in {"drained","smoke_joining","smoke_joined"}
+        marker["owner"] = {**service.ProcessIdentity.of().to_json(),"pid":99999999}
+        fx.write_json_atomic(marker_path,marker)
+        monkeypatch.setattr(target,name,original)
+    result = recovery.prepare_logs(installation)
+    assert result["outcome"] == "prepared"
+    assert installation.record["binary"] == before
+    assert installation.record["server_log_filter"] == "warn,surrealdb::net=info"
+    if not interrupt:
+        assert actions == ["close-admission","drain","ordinary preparation stop",
+            "checked preparation start","close-admission","drain", "checked preparation start",
+            "close-admission","drain","open-admission"]
+    receipt = fx.read_json(Path(result["receipt"]))
+    assert "abandoned-request finality not_observed" in receipt["registry_join_evidence"]
+    plan = fx.read_json(Path(result["receipt"]).with_name("plan.json"))
+    assert plan["previous_descriptor"]["binary"] == plan["successor_descriptor"]["binary"]
+    assert "--log=warn,surrealdb::net=info" in plan["successor_unit"]
+    assert unit.read_text() == plan["successor_unit"]
+    assert not (installation.directory / "maintenance.json").exists()
+
+    recovery.validate_server(installation)
+
+
+@pytest.mark.parametrize("result", [[], [{"status":"ERR"}], [{"status":"OK"},{"status":"OK"}]])
+def test_pd02_unchecked_cleanup_terminal_cannot_become_immutable_authority(installed, monkeypatch, result):
+    import surrealdb_pd02_recovery as recovery
+    attachment, native, original = pd02_mock_recovery_ready(installed, monkeypatch)
+    monkeypatch.setattr(service,"sql",lambda *args,**kw:result)
+    with pytest.raises(fx.FixtureBlocked, match="checked terminal"):
+        recovery.recover(installed.installation,attachment.id)
+    assert not list((attachment.directory / "pd02-host-recovery").glob("removed-*.json"))
+    assert native.read_bytes() == original
+    assert fx.read_json(attachment.directory / "record.json")["released"] is False
+    assert (installed.directory / "maintenance.json").exists()
+
+
+@pytest.mark.parametrize("change", ["unit", "pid", "digest", "transaction_error"])
+def test_pd02_retained_join_requires_unit_pid_digest_and_no_unresolved_cleanup(installed, change):
+    import surrealdb_pd02_recovery as recovery
+    process = service.ProcessIdentity.of()
+    joined = pd02_join_protocol_fixture(installed,process)
+    daemon = {"invocation":"a"*32,"process":process.to_json()}
+    if change == "digest": joined["journal"]["sha256"] = "b"*64
+    else:
+        entry = joined["journal"]["entries"][0]
+        if change == "unit": entry["_SYSTEMD_USER_UNIT"] = "unrelated.service"
+        elif change == "pid": entry["_PID"] = "99999999"
+        else: entry["MESSAGE"] = "Error cancelling gRPC transaction exact-owned: failed; " + recovery.JOIN_MESSAGE
+        joined["journal"]["text"] = json.dumps(entry) + "\n"
+        joined["journal"]["sha256"] = recovery.digest_bytes(joined["journal"]["text"].encode())
+    assert recovery.valid_join_evidence(joined,daemon,installed.unit) is False
+
+
+def native_join_protocol_fixture(installed, process):
+    import surrealdb_pd02_recovery as recovery
+    joined = pd02_join_protocol_fixture(installed, process)
+    joined["source_proof"] = recovery.SOURCE_JOIN
+    joined["journal"]["entries"][0]["MESSAGE"] = "SIGTERM received. Waiting for graceful shutdown; another signal closes transport immediately but still waits for query finality."
+    text = json.dumps(joined["journal"]["entries"][0]) + "\n"
+    joined["journal"].update(text=text,sha256=recovery.digest_bytes(text.encode()))
+    return joined
+
+
+def native_mock_recovery_ready(installed, tmp_path, monkeypatch):
+    import base64
+    import surrealdb_pd02_recovery as recovery
+    installation = installed.installation
+    installation.directory.chmod(0o700)
+    installation.record.update(kind="campaign")
+    installation.record["unit"] = service.installation_unit(installation.record)
+    install_fake_patched_generation(installed,tmp_path,cpu_count=32)
+    installer = tmp_path / "original-installer"
+    installer.write_text("original immutable installer")
+    installation.record.update(installer=str(installer),installer_generation={"path":str(installer),"sha256":service.file_sha256(installer)})
+    service.private_json(installation.directory / "installation.json",installation.record)
+    attachment = fx.Attachment.create(installed)
+    native_path, native = native_receipt(attachment,state="started")
+    native["owner"] = "native compiler store"
+    fx.write_json_atomic(native_path,native)
+    attachment._write_record(None,command_cleanup={"status":"confirmed","survivors":[]},child_exit_code=100)
+    attachment.release()
+    row = fx.read_json(attachment.directory / "record.json")
+    row["owner"] = {**service.ProcessIdentity.of().to_json(),"pid":99999999,"start_ticks":1}
+    fx.write_json_atomic(attachment.directory / "record.json",row)
+    monkeypatch.setattr(fx,"_command_observation",lambda row:{"status":"gone"})
+    old = service.ProcessIdentity.of()
+    new = service.ProcessIdentity.from_json({**old.to_json(),"pid":99999998,"start_ticks":7})
+    installation._daemon_identity = (old,(1,2,3,4,5))
+    unit = tmp_path / "native-campaign.service"
+    unit.write_text(service.unit_text(installation.directory,Path(installation.record["binary"]["path"]),29000))
+    monkeypatch.setattr(service,"_unit_path",lambda _:unit)
+    monkeypatch.setattr(service.Installation,"check_daemon",lambda inst:None)
+    monkeypatch.setattr(service,"unit_properties",lambda *a:{"InvocationID":("a" if installation._daemon_identity[0] == old else "b")*32,
+        "MainPID":str(installation._daemon_identity[0].pid),"ActiveState":"active"})
+    monkeypatch.setattr(recovery,"joined_exit",lambda *a,**kw:native_join_protocol_fixture(installed,old))
+    monkeypatch.setattr(service,"_start_owned",lambda inst:setattr(inst,"_daemon_identity",(new,(1,2,3,4,6))))
+    argv = b"\0".join(value.encode() for value in [installation.record["binary"]["path"],"start","--log=warn","127.0.0.1:29000",f"rocksdb://{installation.directory / 'data/store'}"])
+    monkeypatch.setattr(recovery,"native_daemon_snapshot",lambda *a:{"argv":base64.b64encode(argv).decode(),"executable_identity":[1,2,3,4,5]})
+    monkeypatch.setattr(service,"sql",lambda *a,**kw:pytest.fail("generic recovery has no direct SQL/deletion authority"))
+    return attachment,native_path,native_path.read_bytes()
+
+
+def test_native_host_source_proof_is_distinct_from_positive_log(installed, monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    process = service.ProcessIdentity.of()
+    joined = native_join_protocol_fixture(installed,process)
+    daemon = {"invocation":"a"*32,"process":process.to_json()}
+    assert recovery.valid_join_evidence(joined,daemon,installed.unit,source_correlated=True)
+    assert not recovery.valid_join_evidence(joined,daemon,installed.unit)
+    text = joined["journal"]["text"]
+    monkeypatch.setattr(recovery.subprocess,"run",lambda *a,**kw:SimpleNamespace(returncode=0,stdout=text))
+    assert recovery.journal_join(installed.installation,"a"*32,process.pid,source_correlated=True)["text"] == text
+    with pytest.raises(fx.FixtureBlocked,match="positive"):
+        recovery.journal_join(installed.installation,"a"*32,process.pid)
+    joined["source_proof"] = {**recovery.SOURCE_JOIN,"patch":"wrong"}
+    assert not recovery.valid_join_evidence(joined,daemon,installed.unit,source_correlated=True)
+
+
+@pytest.mark.parametrize("message,priority",[
+    ("Error cancelling gRPC transaction exact: failed",None),
+    ("Error cleaning up live query exact on shutdown: failed",None),
+    ("Error killing subscription-owned live query exact: failed",None),
+    ("Error cleaning up the live queries of an unfinished gRPC streaming query: failed",None),
+    ("gRPC delivery-loss cleanup unresolved; client acknowledgement remains unknown",None),
+    ("2026-10-11 \x1b[31mERROR\x1b[0m arbitrary cleanup component: failed","6"),
+    ("structured error without rendered level","3"),
+])
+def test_native_host_join_rejects_nonpropagated_cleanup_errors(installed,message,priority):
+    import surrealdb_pd02_recovery as recovery
+    process=service.ProcessIdentity.of()
+    joined=native_join_protocol_fixture(installed,process)
+    entry={**joined["journal"]["entries"][0],"MESSAGE":message}
+    if priority is not None: entry["PRIORITY"]=priority
+    joined["journal"]["entries"].append(entry)
+    text="".join(json.dumps(row)+"\n" for row in joined["journal"]["entries"])
+    joined["journal"].update(text=text,sha256=recovery.digest_bytes(text.encode()))
+    assert not recovery.valid_join_evidence(joined,{"invocation":"a"*32,"process":process.to_json()},installed.unit,source_correlated=True)
+
+
+def test_native_host_recovery_preserves_started_bytes_and_request_unknown(installed,tmp_path,monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    from storage_lifecycle import Storage
+    import storage_owners
+    attachment,native,original = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    calls = []
+    monkeypatch.setattr(service,"_run_installer",lambda inst,path,action:calls.append(action))
+    result = recovery.recover(installed.installation,attachment.id,native=True)
+    assert result["outcome"] == "recovered"
+    assert native.read_bytes() == original
+    row = fx.read_json(attachment.directory / "record.json")
+    assert row["released"] and fx.native_completion(attachment.directory,row)["status"] == "unknown"
+    receipt = fx.read_json(Path(row["host_recovery"]["path"]))
+    assert receipt["original_request_outcomes"].startswith("unknown;")
+    assert receipt["tables_removed"] == [] and receipt["reconciliation"] is None
+    assert calls == ["close-admission","close-admission","drain","open-admission"]
+    assert recovery.native_recovered(attachment.directory,row)
+    assert not service.borrowers(installed.installation)
+    assert storage_owners.observe(Storage().get(attachment._storage_id))["state"] == "released"
+    assert Storage().get(attachment._storage_id)["obligations"][f"attachment:{attachment.id}"]["until"]
+    native.write_bytes(original+b" ")
+    assert not recovery.native_recovered(attachment.directory,row)
+    assert service.borrowers(installed.installation)[0]["id"] == attachment.id
+
+
+@pytest.mark.parametrize("phase",["join","drain","open"])
+def test_native_host_interruption_retains_unknown_and_resumes_exact_plan(installed,tmp_path,monkeypatch,phase):
+    import surrealdb_pd02_recovery as recovery
+    attachment,native,original = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    joined = recovery.joined_exit
+    def interrupt_join(*a,**kw):
+        if phase == "join": raise KeyboardInterrupt()
+        return joined(*a,**kw)
+    def interrupt_installer(inst,path,action):
+        if action == {"drain":"drain","open":"open-admission"}.get(phase): raise KeyboardInterrupt()
+    monkeypatch.setattr(recovery,"joined_exit",interrupt_join)
+    monkeypatch.setattr(service,"_run_installer",interrupt_installer)
+    with pytest.raises(KeyboardInterrupt): recovery.recover(installed.installation,attachment.id,native=True)
+    assert native.read_bytes() == original
+    marker_path = installed.directory / "maintenance.json"
+    marker = fx.read_json(marker_path)
+    marker["owner"] = {**service.ProcessIdentity.of().to_json(),"pid":99999997,"start_ticks":1}
+    fx.write_json_atomic(marker_path,marker)
+    monkeypatch.setattr(recovery,"joined_exit",joined)
+    monkeypatch.setattr(service,"_run_installer",lambda *a:None)
+    assert recovery.recover(installed.installation,attachment.id,native=True)["outcome"] == "recovered"
+    assert native.read_bytes() == original and not marker_path.exists()
+
+
+@pytest.mark.parametrize("change",["owner","terminal","generation","live","recipe","unit","installer","stable"])
+def test_native_host_refuses_unbound_owners_or_server_before_effect(installed,tmp_path,monkeypatch,change):
+    import surrealdb_pd02_recovery as recovery
+    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    row = fx.read_json(path)
+    if change == "owner": row["owner"] = "other owner"
+    if change == "terminal": row.update(state="complete",completion={"remote":"unknown"})
+    if change == "generation": row["generation"] = "f"*64
+    if change == "live":
+        current=service.ProcessIdentity.of()
+        path.unlink()
+        row.update(process={"pid":current.pid,"start_ticks":current.start_ticks})
+        path=path.with_name(f"{current.pid}-{current.start_ticks}-0.json")
+    fx.write_json_atomic(path,row)
+    if change == "recipe": installed.record["binary"]["generation"]["provenance"]["recipe_identity"] = "f"*64
+    if change == "unit": service._unit_path(installed.unit).write_text("foreign unit")
+    if change == "installer": Path(installed.record["installer"]).write_text("changed")
+    if change == "stable": installed.record["kind"] = "stable"
+    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("must refuse before any native operation"))
+    with pytest.raises(fx.FixtureBlocked): recovery.recover(installed.installation,attachment.id,native=True)
+    assert not (attachment.directory / "native-host-recovery" / "receipt.json").exists()
+
+
+def native_legacy_peer(installed,tmp_path,monkeypatch):
+    import runs
+    daemon=installed.installation._daemon_identity
+    installed.installation._daemon_identity=None
+    try:
+        peer=fx.Attachment.create(installed)
+    finally:
+        installed.installation._daemon_identity=daemon
+    peer.release()
+    row=fx.read_json(peer.directory / "record.json")
+    row.pop("native_drain",None)
+    row.pop("native_completion",None)
+    row.update(child_exit_code=-15,command_cleanup={"status":"confirmed","survivors":[]},
+        owner={**service.ProcessIdentity.of().to_json(),"pid":99999996,"start_ticks":1})
+    fx.write_json_atomic(peer.directory / "record.json",row)
+    monkeypatch.setenv("LCTX_RUNS_ROOT",str(tmp_path / "runs"))
+    run_id="20261011T164850.001Z-0114a7"
+    directory=runs.runs_root() / run_id
+    directory.mkdir(parents=True)
+    output=directory / "output.log"
+    output.write_text("historical command output; no prerequest authority\n")
+    service.private_json(directory / "record.json",{"id":run_id,"phase":"ended",
+        "started":row["created"],"ended":row["released_at"],"cwd":row["checkout"],
+        "cleanup":{"status":"confirmed","survivors":[]},"logs":{"output":str(output)}})
+    return peer,run_id,row
+
+
+def test_native_joint_recovery_preserves_legacy_local_release_and_native_not_observed(installed,tmp_path,monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    primary,native,original=native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    peer,run_id,legacy=native_legacy_peer(installed,tmp_path,monkeypatch)
+    result=recovery.recover_native(installed.installation,[peer.id,primary.id],legacy_runs={peer.id:run_id})
+    assert result["outcome"] == "recovered" and native.read_bytes() == original
+    row=fx.read_json(peer.directory / "record.json")
+    assert row["released_at"] == legacy["released_at"] and row.get("native_drain") is None
+    assert fx.native_completion(peer.directory,row)["status"] == "not_observed"
+    assert fx.native_completion(primary.directory,fx.read_json(primary.directory / "record.json"))["status"] == "unknown"
+    assert recovery.native_recovered(peer.directory,row) and not service.borrowers(installed.installation)
+    plan=fx.read_json(primary.directory / "native-host-recovery/plan.json")
+    assert set(plan["named_scope"]) == {peer.id,primary.id}
+    assert plan["named_scope"][peer.id]["original_record"] == legacy
+    assert "not retrospectively qualified" in plan["named_scope"][peer.id]["classification"]
+    assert "no prerequest" in plan["legacy_runs"][peer.id]["evidence_scope"]
+    row["child_exit_code"]=-9
+    fx.write_json_atomic(peer.directory / "record.json",row)
+    assert not recovery.native_recovered(primary.directory,fx.read_json(primary.directory / "record.json"))
+    assert len(service.borrowers(installed.installation)) == 2
+
+
+@pytest.mark.parametrize("phase",["peer_reference","open"])
+def test_native_joint_resume_retains_common_scope_after_partial_publication(installed,tmp_path,monkeypatch,phase):
+    import surrealdb_pd02_recovery as recovery
+    primary,native,original=native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    peer,run_id,legacy=native_legacy_peer(installed,tmp_path,monkeypatch)
+    publish=recovery.durable_json
+    def interrupted_publish(path,value):
+        if phase == "peer_reference" and path == peer.directory / "record.json" and value.get("host_recovery"):
+            raise KeyboardInterrupt()
+        return publish(path,value)
+    def interrupted_installer(inst,path,action):
+        if phase == "open" and action == "open-admission": raise KeyboardInterrupt()
+    monkeypatch.setattr(recovery,"durable_json",interrupted_publish)
+    monkeypatch.setattr(service,"_run_installer",interrupted_installer)
+    with pytest.raises(KeyboardInterrupt):
+        recovery.recover_native(installed.installation,[peer.id,primary.id],legacy_runs={peer.id:run_id})
+    assert native.read_bytes() == original
+    marker_path=installed.directory / "maintenance.json"
+    marker=fx.read_json(marker_path)
+    marker["owner"]={**service.ProcessIdentity.of().to_json(),"pid":99999995,"start_ticks":1}
+    fx.write_json_atomic(marker_path,marker)
+    monkeypatch.setattr(recovery,"durable_json",publish)
+    monkeypatch.setattr(service,"_run_installer",lambda *a:None)
+    assert recovery.recover_native(installed.installation,[primary.id,peer.id],legacy_runs={peer.id:run_id})["outcome"] == "recovered"
+    assert native.read_bytes() == original and fx.read_json(peer.directory / "record.json")["released_at"] == legacy["released_at"]
+    assert not marker_path.exists()
+
+
+@pytest.mark.parametrize("change",["unnamed","missing_run","receipt","live","cleanup"])
+def test_native_joint_refuses_ineligible_or_unnamed_peer_before_effect(installed,tmp_path,monkeypatch,change):
+    import surrealdb_pd02_recovery as recovery
+    primary,_,_=native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    peer,run_id,row=native_legacy_peer(installed,tmp_path,monkeypatch)
+    selected=[primary.id,peer.id]
+    mapping={peer.id:run_id}
+    if change == "unnamed": selected=[primary.id];mapping={}
+    if change == "missing_run": mapping={}
+    if change == "receipt": service.private_json(peer.directory / "native-drain/unexpected.json",{})
+    if change == "live": row["owner"]=service.ProcessIdentity.of().to_json()
+    if change == "cleanup": row["command_cleanup"]["survivors"]=[{"pid":1}]
+    fx.write_json_atomic(peer.directory / "record.json",row)
+    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("refuse before effects"))
+    with pytest.raises(fx.FixtureBlocked): recovery.recover_native(installed.installation,selected,legacy_runs=mapping)

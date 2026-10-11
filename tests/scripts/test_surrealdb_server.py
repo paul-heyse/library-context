@@ -28,7 +28,7 @@ def provenance(directory):
 
 def executable(tmp_path):
     path = tmp_path / "surreal"
-    path.write_text("#!/bin/sh\nprintf '3.3.0+lctx.timeout-stack.1 for linux on x86_64\\n'\n")
+    path.write_text("#!/bin/sh\nprintf '" + server.recipe()["pin"]["cli_version"] + "\\n'\n")
     path.chmod(0o700)
     return path
 
@@ -79,7 +79,7 @@ def test_build_environment_reuses_tools_without_foreign_flags_targets_or_caps(tm
     assert env["CARGO_PROFILE_RELEASE_LTO"] == "thin"
     assert env["RUSTC_WRAPPER"] == "sccache"
     assert env["CC"] == "clang" and env["CXX"] == "clang++"
-    assert env["SURREAL_BUILD_METADATA"] == "lctx.timeout-stack.1"
+    assert env["SURREAL_BUILD_METADATA"] == "lctx.timeout-stack.grpc-drain.1"
     assert "-fuse-ld=mold" in env["RUSTFLAGS"]
     assert "CARGO_BUILD_JOBS" in os.environ  # No global environment mutation.
 
@@ -138,7 +138,7 @@ def test_server_generation_refuses_foreign_path_symlinks_and_wrong_version(tmp_p
 
 
 def test_source_validation_refuses_other_changes_and_modified_lock(tmp_path, monkeypatch):
-    selected = server.recipe()
+    selected = server.recipe(grpc_drain=False)
     paths = server.cache_paths(tmp_path / "service", selected)
     calls = []
     def run(argv, **kw):
@@ -182,13 +182,17 @@ def test_build_admits_before_creation_persists_warm_cache_and_uses_locked_full_r
                 active.pop()
     monkeypatch.setattr(server, "admission", admitted)
     monkeypatch.setattr(server, "verify_source", lambda *a, **kw: None)
+    def prepare_source(paths, *a, **kw):
+        assert active and paths["source"] == paths["root"] / "source"
+        assert paths["source"] != paths["cache"] / "source"
+    monkeypatch.setattr(server, "prepare_source_patches", prepare_source)
     monkeypatch.setattr(server, "prepare_dependency", lambda paths, *a, **kw:
                         paths["dependency"].mkdir(parents=True))
     monkeypatch.setattr(server, "verify_dependency_source", lambda *a, **kw: None)
     pin = server.recipe()["pin"]
     real_digest = server.digest
     monkeypatch.setattr(server, "digest", lambda p: pin["original_file_sha256"] if p.name == "executor.rs"
-                        else server.LOCK_SHA256 if p.name == "Cargo.lock" else real_digest(p))
+                        else server.source_lock_sha256(selected) if p.name == "Cargo.lock" else real_digest(p))
     calls = []
     def run(argv, *, cwd, env, capture=False):
         assert active
@@ -373,7 +377,8 @@ def test_owned_dependency_patch_preserves_manifest_lock_and_original_archive(tmp
         server.prepare_dependency(paths, selected, archives=[archive])  # Exact retry, no replay patch.
     assert (paths["source"] / "Cargo.lock").read_bytes() == lock_before
     assert archive.read_bytes() == archive_before
-    assert paths["source"].is_relative_to(paths["cache"])
+    assert paths["source"].is_relative_to(paths["root"])
+    assert not paths["source"].is_relative_to(paths["cache"])
     assert paths["dependency"].is_relative_to(paths["root"])
     assert paths["cache"] != paths["root"]
 
@@ -426,7 +431,8 @@ def test_locked_metadata_requires_owned_override_and_unchanged_lock(tmp_path, mo
     paths["source"].mkdir(parents=True)
     lock = paths["source"] / "Cargo.lock"
     lock.write_bytes(b"exact locked dependency graph")
-    monkeypatch.setattr(server, "LOCK_SHA256", hashlib.sha256(lock.read_bytes()).hexdigest())
+    reviewed = hashlib.sha256(lock.read_bytes()).hexdigest()
+    monkeypatch.setattr(server, "source_lock_sha256", lambda selected: reviewed)
     seen = []
     def run(argv, **kw):
         seen.append(argv)
@@ -443,7 +449,7 @@ def test_locked_metadata_requires_owned_override_and_unchanged_lock(tmp_path, mo
         result = run(argv, **kw)
         lock.write_bytes(b"different graph")
         return result
-    with pytest.raises(Blocked, match="changed the pinned upstream lock"):
+    with pytest.raises(Blocked, match="changed the selected reviewed lock"):
         server.verify_metadata(paths, selected, env={}, run=altered)
 
 

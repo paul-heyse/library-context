@@ -1,0 +1,58 @@
+{
+  "build_metadata": "lctx.timeout-stack.grpc-drain.1",
+  "cli_version": "3.3.0+lctx.timeout-stack.grpc-drain.1 for linux on x86_64",
+  "files": [
+    {
+      "original_sha256": "6ec3773437dcad1ce1e354398f8a2f7ead00e185f9ff7afc187655670a0dbbd5",
+      "patched_sha256": "d692b2e71fa7402e4171ad7c19912fc931d699b665c3ed168d95f8a9b26a9e2a",
+      "path": "Cargo.lock"
+    },
+    {
+      "original_sha256": "c90dabea9ee6c5d5df9c6c2e119b82b8ae691410bd01873c171d919ee5a74f4e",
+      "patched_sha256": "bd59331391114232c3a3764ea48f4aaff07264a28d9b714c9b659e2c6f24a7cf",
+      "path": "surrealdb/server/Cargo.toml"
+    },
+    {
+      "original_sha256": "c283ae8510961c31f55237dda128a23234be77f444f5198b2b27d53f1ac1ce43",
+      "patched_sha256": "358b10f7dec331ceccd6ad67226a009bf71f66b2e2a267d87925659c9c95d29f",
+      "path": "surrealdb/server/src/ntw/mod.rs"
+    },
+    {
+      "original_sha256": "5966354888f20337a66ecc9e1757a7af32d8872ad13054cc119b32484c943d60",
+      "patched_sha256": "cb3250cc87dbeb6e058b486fc52b02b1a7b6f5d8d33088d3e68bd4bcfd622cbf",
+      "path": "surrealdb/server/src/ntw/signals.rs"
+    },
+    {
+      "original_sha256": "85af245d0aded4228dc5f9e1e4de7687bf2d49850a94f7b3afbe5108ff03c637",
+      "patched_sha256": "2142b58e1299576f81fd85bab80c6eaf060885abfe326e5e9ed5fb32e47d4615",
+      "path": "surrealdb/server/src/rpc/grpc.rs"
+    },
+    {
+      "original_sha256": "73afb391925843b4722434fc5218c6d6ff9d6d14e849d5be40ab33fec894cbdb",
+      "patched_sha256": "b5bfe4fa23d8e1eb0dee93300c76bd1b24a2fa5d4fc04034d7132e650acf9aca",
+      "path": "surrealdb/server/src/rpc/mod.rs"
+    },
+    {
+      "original_sha256": null,
+      "patched_sha256": "226a78cd757409e72d6a07000676826cfb1b0db6f85af966cd891b4dde6ff4d8",
+      "path": "surrealdb/server/src/rpc/query_drain.rs"
+    }
+  ],
+  "http_version": "surrealdb-3.3.0+lctx.timeout-stack.grpc-drain.1",
+  "lock_dependency_edges": [
+    {
+      "added": [
+        "futures-util"
+      ],
+      "package": "tokio-util",
+      "version": "0.7.18"
+    }
+  ],
+  "name": "grpc-execution-drain",
+  "patch_file": "grpc-execution-drain.patch",
+  "patch_sha256": "1b93f5374afd6fc076cab76da465fe6eb61edcaa177402ed5d624284af9d284b",
+  "patched_lock_sha256": "d692b2e71fa7402e4171ad7c19912fc931d699b665c3ed168d95f8a9b26a9e2a",
+  "schema": 1,
+  "upstream_commit": "238bfeb11f5725bebed370167656748df8067595",
+  "upstream_lock_sha256": "6ec3773437dcad1ce1e354398f8a2f7ead00e185f9ff7afc187655670a0dbbd5"
+}

@@ -7,6 +7,8 @@ The lifecycle manager holds admission before entering ``owner_guard`` and reobse
 from __future__ import annotations
 
 import contextlib
+import fcntl
+import stat
 import os
 import tomllib
 from collections.abc import Iterator
@@ -95,6 +97,8 @@ def observe(record: dict[str, Any]) -> dict[str, Any]:
                 return _result("unresolved", "logical attachment release or cleanup unresolved")
             if fixture._command_observation(row)["status"] != "gone":
                 return _result("unresolved", "logical attachment command identity unresolved")
+            if fixture.native_protected(path, row, fixture.native_completion(path, row)):
+                return _result("unresolved", "native attachment completion or authenticated host recovery unresolved")
             return _result(
                 "released",
                 "local attachment released; native content unaffected",
@@ -168,7 +172,7 @@ def observe(record: dict[str, Any]) -> dict[str, Any]:
 
 
 @contextlib.contextmanager
-def owner_guard(record: dict[str, Any]) -> Iterator[None]:
+def owner_guard(record: dict[str, Any], *, attachment_lease: int | None = None) -> Iterator[None]:
     """Exclude actual owner writes without waiting; callers reobserve before an effect."""
     kind = (record.get("owner") or {}).get("kind")
     descriptors: list[int] = []
@@ -179,10 +183,21 @@ def owner_guard(record: dict[str, Any]) -> Iterator[None]:
         if kind in ("run", "profile", "attachment", "docs"):
             if not path.is_dir():
                 raise OwnerBusy("authoritative owner directory unavailable")
-            fd = try_hold_lock(path / "owner.lock")
-            if fd is None:
-                raise OwnerBusy("authoritative owner is busy")
-            descriptors.append(fd)
+            if attachment_lease is not None:
+                if kind != "attachment":
+                    raise OwnerBusy("held attachment lease cannot guard another owner")
+                actual, expected = os.fstat(attachment_lease), (path / "owner.lock").lstat()
+                if (not stat.S_ISREG(expected.st_mode) or expected.st_uid != os.getuid()
+                        or (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino)):
+                    raise OwnerBusy("held attachment lease names another owner")
+                # Reuse the live open file description; JSON or a copied inode
+                # fact cannot grant this in-process lifetime protection.
+                fcntl.flock(attachment_lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                fd = try_hold_lock(path / "owner.lock")
+                if fd is None:
+                    raise OwnerBusy("authoritative owner is busy")
+                descriptors.append(fd)
         elif kind == "task":
             if observe(record)["state"] != "released":
                 raise OwnerBusy("task checkout remains selected or unresolved")

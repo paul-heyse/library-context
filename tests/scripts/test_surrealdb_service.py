@@ -21,6 +21,71 @@ import surrealdb_service as service
 from surrealdb_service import _run_installer, verify_binary as verify_official_binary
 
 INSTALLATION_CHECK = service.Installation.check
+OWNED_START = service._start_owned
+
+
+def test_actual_service_cli_keeps_helper_owner_and_startup_retry_identity():
+    code = """
+import argparse, runpy, sys
+from pathlib import Path
+from types import SimpleNamespace
+sys.path.insert(0,str(Path(sys.argv[1]).parent))
+def observe_cli(self, *args, **kwargs):
+    import surrealdb_service as owner
+    import surrealdb_pd02_recovery as recovery
+    assert owner is sys.modules['__main__']
+    assert recovery.service is owner
+    assert recovery.service.FixtureBlocked is owner.FixtureBlocked
+    assert recovery.service.Installation is owner.Installation
+    assert recovery.service._checked_generations is owner._checked_generations
+    calls = []
+    def check(**kwargs):
+        calls.append('checked same generation')
+        assert kwargs == {'allow_maintenance': True}
+        if len(calls) == 1:
+            raise owner.FixtureBlocked('readiness', 'successor still starting')
+    owner.systemctl = lambda *args: SimpleNamespace(returncode=0)
+    owner.time.sleep = lambda delay: None
+    recovery.service._start_owned(SimpleNamespace(unit='exact-owned.service', check=check))
+    assert calls == ['checked same generation', 'checked same generation']
+    print('canonical CLI/helper owner; transient readiness retried')
+    raise SystemExit(0)
+argparse.ArgumentParser.parse_args = observe_cli
+runpy.run_path(sys.argv[1], run_name='__main__')
+"""
+    result = subprocess.run([sys.executable,"-c",code,str(Path(service.__file__).resolve())],
+        cwd=service.ROOT,capture_output=True,text=True,check=False)
+    assert result.returncode == 0, result.stderr
+    assert "canonical CLI/helper owner; transient readiness retried" in result.stdout
+
+
+def test_owned_start_rechecks_same_generation_without_restarting_or_extending_deadline(recoverable,monkeypatch):
+    installation,_archive,_actions=recoverable
+    original=json.loads(json.dumps(installation.record))
+    calls=[]
+    checks=0
+    def check(current,**kwargs):
+        nonlocal checks
+        checks+=1
+        assert current.record == original and kwargs == {"allow_maintenance":True}
+        if checks < 3:
+            raise service.FixtureBlocked("readiness","same successor not ready yet")
+        return {"outcome":"passed"}
+    monkeypatch.setattr(service.Installation,"check",check)
+    monkeypatch.setattr(service,"systemctl",lambda *args:calls.append(args) or SimpleNamespace(returncode=0))
+    sleeps=[]
+    monkeypatch.setattr(service.time,"sleep",lambda delay:sleeps.append(delay))
+    OWNED_START(installation)
+    assert calls == [("start",installation.unit)] and sleeps == [0.1,0.1]
+    assert checks == 3 and service.READY_TIMEOUT == 40.0
+    refusal=service.FixtureBlocked("identity","successor executable differs")
+    monkeypatch.setattr(service.Installation,"check",lambda *a,**kw:(_ for _ in ()).throw(refusal))
+    times=iter([100.0,139.0,140.0])
+    monkeypatch.setattr(service.time,"monotonic",lambda:next(times))
+    with pytest.raises(service.FixtureBlocked) as caught:
+        OWNED_START(installation)
+    assert caught.value is refusal and sleeps == [0.1,0.1,0.1]
+    assert calls == [("start",installation.unit),("start",installation.unit)]
 
 
 def assert_borrow_protected(path):
@@ -1951,7 +2016,7 @@ def test_check_daemon_checks_patched_actual_http_version_after_exact_executable(
         return binary if str(path) == "/proc/1234/exe" else resolve(path, *args, **kw)
     def bytes_for(path):
         if str(path) == "/proc/1234/cmdline":
-            return ("surreal\0rocksdb://" + str(installation.directory / "data/store") + "\0" + installation.endpoint.removeprefix("http://") + "\0").encode()
+            return ("surreal\0--log=warn\0rocksdb://" + str(installation.directory / "data/store") + "\0" + installation.endpoint.removeprefix("http://") + "\0").encode()
         if str(path) == "/proc/1234/environ":
             return b"\0".join((key + "=" + value).encode() for key, value in service.SERVER_SETTINGS.items())
         return read_bytes(path)
