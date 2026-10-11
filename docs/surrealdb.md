@@ -17,6 +17,20 @@ SurrealDB3.3.0 RocksDB service and schemas. It verifies binary digest/version, c
 `LCTX_SURREAL_SERVICE_CONFIG` to that manifest when using another selected location. State and
 coordination belong outside checkouts. Neither ordinary commands nor worktrees start a substitute.
 
+An explicitly authorized independent campaign uses the same installation owner with a separate
+configuration and UUID-derived unit (ADR-0149):
+
+```sh
+LCTX_SURREAL_SERVICE_CONFIG=/absolute/private/campaign/installation.json just service install --campaign --installer /absolute/immutable/lctx
+LCTX_SURREAL_SERVICE_CONFIG=/absolute/private/campaign/installation.json just fixture -- COMMAND
+```
+
+Keep the selected configuration on all campaign commands. The installer refuses the default state
+location, arbitrary unit names and conversion of an existing installation's mode. Check, status,
+maintenance, backups, native upgrades and server handoffs route to the checked selected unit.
+Ordinary fixture/verification never installs or starts a substitute. The campaign retains its own
+native/evidence obligations; finishing tests does not retire its service or content.
+
 The stable namespace is `library_context`, with `main` and `validation` databases. Main contains
 canonical payloads, exact memberships, manifests, attempts, effects, pins and cache tables.
 Validation contains synthetic test data under the same schema. Tests never inspect/reset main.

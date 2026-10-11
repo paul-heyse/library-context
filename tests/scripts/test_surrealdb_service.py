@@ -160,7 +160,7 @@ def recoverable(tmp_path, monkeypatch):
     unit = tmp_path / "unit"
     unit.write_text("exact-owned-unit")
     monkeypatch.setattr(service, "BINARY_SHA256", service.file_sha256(binary))
-    monkeypatch.setattr(service, "_unit_path", lambda: unit)
+    monkeypatch.setattr(service, "_unit_path", lambda unit_name=service.UNIT: unit)
     record = {
         "schema": 1,
         "phase": "ready",
@@ -730,10 +730,10 @@ def test_stop_accepts_failed_unit_only_when_no_main_process_or_descendants(monke
     monkeypatch.setattr(service, "systemctl", lambda *a: subprocess.CompletedProcess(a, 0))
     state = {"ActiveState": "failed", "MainPID": "0", "ControlGroup": ""}
     monkeypatch.setattr(service, "unit_properties", lambda *a: state)
-    service._stop_owned(SimpleNamespace())
+    service._stop_owned(SimpleNamespace(unit=service.UNIT))
     state["MainPID"] = "123"
     with pytest.raises(service.FixtureBlocked, match="stop is not confirmed"):
-        service._stop_owned(SimpleNamespace())
+        service._stop_owned(SimpleNamespace(unit=service.UNIT))
 
 
 @pytest.mark.parametrize("path", ["../escape", "/absolute", "state/../escape", "state/./escape"])
@@ -1562,14 +1562,14 @@ def test_upgrade_cli_failure_retains_unique_private_diagnostics_without_public_s
 def test_upgrade_restart_after_core_dump_confirms_stop_before_daemon_only_readiness(tmp_path, monkeypatch):
     actions = []
     binary = tmp_path / "surreal"
-    installation = SimpleNamespace(directory=tmp_path / "service", endpoint="grpc://localhost:8000",
+    installation = SimpleNamespace(unit=service.UNIT, directory=tmp_path / "service", endpoint="grpc://localhost:8000",
                                    record={"binary": {"path": str(binary), "sha256": service.BINARY_SHA256,
                                                       "version": service.VERSION}})
     unit = tmp_path / "owned.service"
     unit.write_text(service.unit_text(installation.directory, binary,
         int(installation.endpoint.rsplit(":", 1)[1])))
     monkeypatch.setattr(service, "verify_binary", lambda env: binary)
-    monkeypatch.setattr(service, "_unit_path", lambda: unit)
+    monkeypatch.setattr(service, "_unit_path", lambda unit_name=service.UNIT: unit)
     monkeypatch.setattr(service, "_stopped_attachment_commands", lambda inst: actions.append("attachments-drained"))
     alive = False
     def systemctl(command, name):
@@ -2476,7 +2476,7 @@ def test_failed_install_metadata_can_retry_corrected_candidate_before_owned_dire
     monkeypatch.setattr(service, "verify_binary", lambda env: candidate)
     monkeypatch.setattr(service, "systemd_available", lambda **kw: None)
     monkeypatch.setattr(service, "unit_properties", lambda *a: {"LoadState": "not-found"})
-    monkeypatch.setattr(service, "_unit_path", lambda: tmp_path / "service-unit")
+    monkeypatch.setattr(service, "_unit_path", lambda unit_name=service.UNIT: tmp_path / "service-unit")
     monkeypatch.setattr(service, "_available_port", lambda: 29000)
     monkeypatch.setattr(storage_service, "prepare", lambda directory, source: {
         "path": str(source), "sha256": service.file_sha256(source)})
@@ -2582,3 +2582,65 @@ def test_owned_http_refuses_foreign_or_credential_bearing_endpoints(url, monkeyp
     monkeypatch.setattr(service.urllib.request, "build_opener", unexpected)
     with pytest.raises(ValueError, match="local HTTP endpoint"):
         service.local_urlopen(url, timeout=2)
+
+
+def test_campaign_requires_explicit_nonstable_state_before_any_effect(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, "verify_binary", lambda *a, **kw: pytest.fail("binary access"))
+    with pytest.raises(service.FixtureBlocked, match="explicit separate"):
+        service.install(tmp_path / "lctx", env={"HOME": str(tmp_path)}, campaign=True)
+    stable = service.state_root({"HOME": str(tmp_path)})
+    with pytest.raises(service.FixtureBlocked, match="explicit separate"):
+        service.install(tmp_path / "lctx", env={"HOME": str(tmp_path),
+            "LCTX_SURREAL_SERVICE_CONFIG": str(stable / "installation.json")}, campaign=True)
+    assert not stable.exists()
+
+
+def test_campaign_descriptor_unit_is_derived_and_cannot_alias_stable(recoverable):
+    installation, _archive, _actions = recoverable
+    record = {**installation.record, "kind": "campaign"}
+    record["unit"] = service.installation_unit(record)
+    assert record["unit"] == f"library-context-surrealdb-campaign-{installation.id}.service"
+    service.private_json(installation.directory / "installation.json", record)
+    loaded = service.Installation.load({"LCTX_SURREAL_SERVICE_CONFIG":
+        str(installation.directory / "installation.json")})
+    assert loaded.unit != service.UNIT
+    for invalid in (service.UNIT, "other.service", "../escape.service"):
+        service.private_json(installation.directory / "installation.json", {**record, "unit": invalid})
+        with pytest.raises(service.FixtureBlocked, match="incompatible"):
+            service.Installation.load({"LCTX_SURREAL_SERVICE_CONFIG":
+                str(installation.directory / "installation.json")})
+
+
+def test_campaign_start_and_recovery_assets_use_only_its_unit(recoverable, monkeypatch):
+    installation, _archive, _actions = recoverable
+    installation.record.update(kind="campaign")
+    installation.record["unit"] = service.installation_unit(installation.record)
+    calls = []
+    monkeypatch.setattr(service, "systemctl", lambda *args, **kw:
+        calls.append(args) or subprocess.CompletedProcess(args, 0))
+    monkeypatch.setattr(service, "unit_properties", lambda unit, *names:
+        calls.append(("show", unit)) or {"ActiveState": "inactive", "MainPID": "0"})
+    # The low-level start helper is independent of schema migration readiness.
+    monkeypatch.setattr(service.Installation, "check_daemon", lambda self: None)
+    service._upgrade_daemon_start(installation)
+    assert calls == [("start", installation.unit)]
+    campaign_unit = installation.directory.parent / "campaign-unit"
+    campaign_unit.write_text("campaign")
+    observed = []
+    monkeypatch.setattr(service, "_unit_path", lambda unit=service.UNIT:
+        observed.append(unit) or campaign_unit)
+    assert service._recovery_sources(installation)["assets/service-unit"] == campaign_unit
+    assert observed == [installation.unit]
+
+
+def test_campaign_stop_confirms_only_its_owned_unit(tmp_path, monkeypatch):
+    record = {"kind": "campaign", "installation_id": str(uuid.uuid4())}
+    record["unit"] = service.installation_unit(record)
+    installation = service.Installation(tmp_path, record)
+    calls = []
+    monkeypatch.setattr(service, "systemctl", lambda *args, **kw:
+        calls.append(args) or subprocess.CompletedProcess(args, 0))
+    monkeypatch.setattr(service, "unit_properties", lambda unit, *names:
+        calls.append(("show", unit)) or {"ActiveState": "inactive", "MainPID": "0"})
+    service._stop_owned(installation)
+    assert calls == [("stop", installation.unit), ("show", installation.unit)]

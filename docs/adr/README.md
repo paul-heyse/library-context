@@ -82,6 +82,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0146](0146-recoverable-native-upgrade-progress.md) | Native upgrades preserve atomic progress under explicit successor authority | 2026-10-10 | [§6](../design/sections/storage-and-publication.md#section-6) | Proposed |  |
 | [ADR-0147](0147-native-test-evidence.md) | Native test evidence remains authoritative behind selective verification access | 2026-10-11 | [§1.2](../design/DESIGN.md#section-1-2) | Tested |  |
 | [ADR-0148](0148-causal-test-reviews.md) | Test reviews investigate causes across code, tests and execution conditions | 2026-10-11 | [§2](../design/DESIGN.md#section-2) | Implemented |  |
+| [ADR-0149](0149-owned-campaign-installations.md) | Isolate native qualification through checked campaign installations | 2026-10-11 | [§8](../design/sections/validation-and-evaluation.md#section-8) | Interface-checked |  |
 
 ## Proposed: open choices, not accepted decisions
 

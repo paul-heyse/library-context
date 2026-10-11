@@ -1,9 +1,9 @@
 # Reconciled efficiency alignment — implementation plan
 
-**Proposed implementation track, 2026-10-11.** The operator approved creation of this new plan series
+**Authorized implementation track / execution in progress, 2026-10-11.** The operator approved creation of this new plan series
 and all 18 reconciled rule dispositions below. The subsequently authorized design-decision
 investigation resolves the mechanisms and migrations in §6, using static evidence and bounded
-probes. It does not implement the product changes. Every implementation package remains **Planned**;
+probes. It does not implement the product changes. The execution checkpoint in §4 owns implementation progress;
 the investigation's controls are distinct from product acceptance. Functional completion is the track
 exit. Performance measurements and real-library campaigns remain explicit external follow-ups.
 
@@ -179,6 +179,20 @@ No memory or standing skill edit is required. If implementation uncovers a genui
 present its concrete consequence to the operator; these approvals need not be requested again.
 
 ## 4. Package sequence and sole execution checkpoint
+
+**Execution started, 2026-10-11, baseline `ebcf423cc16e6cacea6455500a0cdfc9795d08ac`.**
+The operator approved the detailed execution sequence, one dedicated campaign installation and
+all affected functional boundaries, enabled optional paths and representative integrated journeys.
+Repository quality campaigns and complete ordinary-suite execution remain excluded. The shared
+service and paused qualification retain their own state. The existing plans and source reviews are
+unchanged. Package/finding closure still requires its complete corrective obligations.
+
+| Implementation slice | Current evidence and remaining boundary |
+|---|---|
+| Campaign prerequisite / G00 validation owner | **Implemented / focused-Tested 2026-10-11:** ADR-0149 and the existing installation owner add an explicit checked UUID-derived campaign unit; fixtures, daemon checks, recovery assets and restart/handoff paths use its identity. `just run --background --label efficiency-campaign-routing -- uv run --no-sync pytest -q tests/scripts/test_surrealdb_service.py tests/scripts/test_surrealdb_fixture.py` passed, run `20261011T161840.282Z-c6ffb5`, cleanup confirmed. Script controls are not native finality evidence. |
+| Dedicated source-format installation | **Passed 2026-10-11:** `LCTX_SURREAL_SERVICE_CONFIG=/home/paul/.local/state/library-context/efficiency-alignment-2026-10-11/installation.json just run --background --label efficiency-campaign-install -- uv run --no-sync python scripts/surrealdb_service.py install --campaign --installer target/release/lctx`, run `20261011T161912.657Z-56a20d`, cleanup confirmed. Installation `0ec1d0c0-fbd0-4265-93e5-d9e186bab099`, schema5/eec4, owns its immutable installer and main/validation scopes. Actual source5 obligation populations, repeatable cold checkpoint and source→target conversion remain to be delivered. No shared installation was observed or modified. |
+| Ready independent packages | S02/S08, D06–D09 and A01–A05 are being implemented; focused evidence is pending. All other product packages remain Planned. |
+
 
 All package rows below are **Planned** at this checkpoint. No source finding is closed by plan approval.
 Update this section with actual delivered prerequisites and dated receipt links as execution progresses;
@@ -497,18 +511,14 @@ or obligatory benchmark matrix is introduced; collect only evidence that answers
 
 ## 9. Functional closeout and later existing-plan resumption
 
-**Current checkpoint, 2026-10-11:** the approved design-decision investigation selected mechanisms
-and migrations for the six new plans (§6), preserving all 18 confirmed rule dispositions. Engine,
-finite provider/semantic, Cargo/Hakari/profile and tar controls retain their exact scope in the
-[evidence folder](../design_review/evidence/2026-10-11_efficiency-design-decisions/README.md).
-The actual gRPC disconnect reproduced an unfinalized transaction; S09/D10 now requires a server
-execution-owner handoff, not just local signal propagation. All product implementation packages
-and source findings remain **Planned**. No implementation acceptance, real-library qualification
-or performance result is claimed. Next is G00's relevant owner/decision slices and ready packages
-in §4 under product-implementation authority; the present authorization covered investigation and
-decision documents only. Existing shared-service and old-plan work retains its separately recorded
-paused/qualification state. The earlier authoring review remains attributable to its original scope;
-the decision investigation has its own independent content review in the linked evidence.
+**Current checkpoint, 2026-10-11:** implementation is authorized and underway at the §4 checkpoint.
+The resolved design decisions and their bounded investigation evidence remain applicable within their
+original scope. Campaign isolation is implemented and the dedicated schema5 installation is available;
+source5 obligation populations and cold checkpoint are next native prerequisites. Ready independent
+packages are in progress. S09/D10 still requires the selected server execution-owner handoff and
+actual finality controls. No source finding is closed by installation or by an accepted decision.
+Real-library/performance campaigns and repository quality checks remain not_run. Existing shared-service
+and old-plan qualification state is unchanged.
 
 At X01 completion, this sole disposition table must distinguish delivered contracts, verified scope,
 accepted residual limits and external follow-ups. Preserve source reviews/evidence while they have

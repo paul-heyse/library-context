@@ -21,6 +21,15 @@ comparison before it can qualify replacement serving. Product evaluation remains
 
 > Decision: ADR-0130
 
+**Accepted isolated-campaign target, 2026-10-11.** Native format and disruptive transport controls
+may explicitly install one checked campaign service using the existing installation/fixture owner.
+Its UUID-derived unit, private configuration, borrower admission and maintenance/recovery assets
+are independent of the stable installation. Ordinary tests only borrow logical validation attempts;
+service creation, migration and restart remain explicit. Script routing controls do not establish
+native persistence or remote finality. The efficiency coordinator owns current implementation evidence.
+
+> Decision: ADR-0149
+
 **Accepted target.** Model declarations own structural and reference checks. Targeted independent
 known-answer and invalid-row controls challenge semantic operations. Admission retains exact
 producer outcomes and declared derivation topology; it does not rerun every compiler algorithm.

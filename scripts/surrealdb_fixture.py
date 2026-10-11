@@ -271,7 +271,7 @@ class Server:
 
     @property
     def unit(self) -> str:
-        return service.UNIT
+        return self.installation.unit
 
     @property
     def endpoint(self) -> str:
@@ -787,7 +787,7 @@ def inventory(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
                 else observation["status"],
                 "protected": protected,
                 "cleanup": "unresolved" if protected else "confirmed",
-                "unit": service.UNIT,
+                "unit": installation.unit,
                 "owner_alive": owner_alive(row.get("owner"), path.parent / "owner.lock"),
             }
         )

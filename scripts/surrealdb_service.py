@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One durable, explicitly installed library-context SurrealDB user service.
+"""Durable, explicitly installed library-context SurrealDB user services.
 
 Ordinary callers only observe and borrow the installation. Installation, schema changes,
 restart and privileged validation diagnostics are explicit maintenance operations. State,
@@ -255,13 +255,27 @@ def unit_properties(unit: str = UNIT, *names: str) -> dict[str, str]:
     return dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
 
 
+def installation_unit(record: Mapping[str, Any]) -> str:
+    """Derive the only unit this descriptor may own; never accept an arbitrary override."""
+    kind = record.get("kind", "stable")
+    if kind == "stable":
+        return UNIT
+    if kind == "campaign":
+        try:
+            identity = str(uuid.UUID(record["installation_id"]))
+        except (KeyError, ValueError, TypeError, AttributeError):
+            raise FixtureBlocked("identity", "campaign installation ID is invalid") from None
+        return f"library-context-surrealdb-campaign-{identity}.service"
+    raise FixtureBlocked("identity", "installation kind is incompatible")
+
+
 def _descriptor(root: Path) -> dict[str, Any]:
     value = read_json(root / "installation.json")
     if not isinstance(value, dict):
         raise FixtureBlocked("installation", f"no installed service at {root}", INSTALL_REPAIR)
     expected = {
         "schema": SCHEMA,
-        "unit": UNIT,
+        "unit": installation_unit(value),
         "namespace": NAMESPACE,
         "databases": list(DATABASES),
         "state_root": str(root.resolve()),
@@ -322,6 +336,13 @@ class Installation:
         return self.record["installation_id"]
 
     @property
+    def unit(self) -> str:
+        expected = installation_unit(self.record)
+        if self.record.get("unit") != expected:
+            raise FixtureBlocked("identity", "installation unit differs from its checked identity")
+        return expected
+
+    @property
     def endpoint(self) -> str:
         return self.record["endpoint"]
 
@@ -373,7 +394,7 @@ class Installation:
     def check_daemon(self) -> None:
         """Prove the exact owned daemon before any initial/retried administrative query."""
         binary = _installed_binary(self)
-        state = unit_properties(UNIT, "ActiveState", "Result", "MainPID", "ExecStart")
+        state = unit_properties(self.unit, "ActiveState", "Result", "MainPID", "ExecStart")
         if state.get("ActiveState") != "active":
             raise FixtureBlocked(
                 "readiness",
@@ -450,7 +471,7 @@ class Installation:
         return {
             "installation_id": self.id,
             "service_generation": self.record["service_generation"],
-            "unit": UNIT,
+            "unit": self.unit,
             "endpoint": self.endpoint,
             "namespace": NAMESPACE,
             "databases": list(DATABASES),
@@ -550,9 +571,9 @@ def _available_port() -> int:
         return listener.getsockname()[1]
 
 
-def _unit_path() -> Path:
+def _unit_path(unit: str = UNIT) -> Path:
     return (
-        Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "systemd/user" / UNIT
+        Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "systemd/user" / unit
     )
 
 
@@ -640,8 +661,28 @@ def _native_identity_argument(value: str) -> str:
     return value
 
 
-def install(installer: Path, *, env: Mapping[str, str] | None = None) -> Installation:
+def install(
+    installer: Path, *, env: Mapping[str, str] | None = None, campaign: bool = False
+) -> Installation:
     env = os.environ if env is None else env
+    root = state_root(env).resolve()
+    if campaign:
+        if not env.get("LCTX_SURREAL_SERVICE_CONFIG") or root == state_root({
+            k: v for k, v in env.items() if k != "LCTX_SURREAL_SERVICE_CONFIG"
+        }).resolve():
+            raise FixtureBlocked("ownership", "campaign installation requires an explicit separate service configuration")
+    from storage_lifecycle import Storage, admission
+    from storage_service import tools_root
+
+    with admission([root, tools_root(root), installer]):
+        installation = _install(installer, env=env, campaign=campaign)
+        if campaign:
+            Storage().publish(root, "native-content", {"kind": "native", "path": str(root)},
+                              "efficiency-campaign:" + installation.id, requires="raw-replay")
+        return installation
+
+
+def _install(installer: Path, *, env: Mapping[str, str], campaign: bool) -> Installation:
     root = state_root(env).resolve()
     binary = verify_binary(env)
     if missing := systemd_available(env=env):
@@ -659,6 +700,8 @@ def install(installer: Path, *, env: Mapping[str, str] | None = None) -> Install
         stack.callback(os.close, gate)
         if (root / "installation.json").exists():
             installation = Installation.load(env, ready=False)
+            if (installation.record.get("kind", "stable") == "campaign") != campaign:
+                raise FixtureBlocked("ownership", "install mode differs from the existing installation")
             if installation.record["phase"] == "ready":
                 installation.check()
                 return installation
@@ -667,12 +710,14 @@ def install(installer: Path, *, env: Mapping[str, str] | None = None) -> Install
                     "ownership", "incomplete installation has unresolved borrowers"
                 )
         else:
-            state = unit_properties(UNIT, "LoadState", "ActiveState")
-            if state.get("LoadState") != "not-found" or _unit_path().exists():
-                raise FixtureBlocked(
-                    "ownership", "stable unit exists without this installation; refusing adoption"
-                )
             installation_id = str(uuid.uuid4())
+            kind = "campaign" if campaign else "stable"
+            unit_name = installation_unit({"kind": kind, "installation_id": installation_id})
+            state = unit_properties(unit_name, "LoadState", "ActiveState")
+            if state.get("LoadState") != "not-found" or _unit_path(unit_name).exists():
+                raise FixtureBlocked(
+                    "ownership", "owned unit exists without this installation; refusing adoption"
+                )
             generation = list(secrets.token_bytes(32))
             port = _available_port()
             from storage_service import prepare
@@ -682,9 +727,10 @@ def install(installer: Path, *, env: Mapping[str, str] | None = None) -> Install
             record = {
                 "schema": SCHEMA,
                 "installation_id": installation_id,
+                "kind": kind,
                 "phase": "installing",
                 "service_generation": generation,
-                "unit": UNIT,
+                "unit": unit_name,
                 "state_root": str(root),
                 "endpoint": f"http://127.0.0.1:{port}",
                 "grpc_endpoint": f"grpc://127.0.0.1:{port}",
@@ -737,13 +783,13 @@ def install(installer: Path, *, env: Mapping[str, str] | None = None) -> Install
                     installation.runtime_path(db, installer=True),
                     {**cfg, "username": root_user, "password": root_pass, "authentication": "root"},
                 )
-            unit = _unit_path()
+            unit = _unit_path(installation.unit)
             unit.parent.mkdir(parents=True, exist_ok=True)
             unit.write_text(unit_text(root, binary, port))
             result = systemctl("daemon-reload")
             if result.returncode:
                 raise FixtureBlocked("systemd", "daemon-reload failed", SYSTEMD_REPAIR)
-        result = systemctl("enable", "--now", UNIT)
+        result = systemctl("enable", "--now", installation.unit)
         if result.returncode:
             raise FixtureBlocked("launch", "owned service launch failed", "just service status")
         deadline = time.monotonic() + READY_TIMEOUT
@@ -1032,9 +1078,9 @@ def _coordination_identity(installation: Installation) -> dict[str, Any]:
 
 
 def _stop_owned(installation: Installation) -> None:
-    if systemctl("stop", UNIT).returncode:
+    if systemctl("stop", installation.unit).returncode:
         raise FixtureBlocked("recovery", "owned daemon did not stop; no cold copy is permitted")
-    state = unit_properties(UNIT, "ActiveState", "MainPID", "ControlGroup")
+    state = unit_properties(installation.unit, "ActiveState", "MainPID", "ControlGroup")
     if state.get("ActiveState") not in {"inactive", "failed"} or state.get("MainPID") != "0":
         raise FixtureBlocked("drainage", "owned daemon stop is not confirmed")
     group = state.get("ControlGroup", "")
@@ -1048,7 +1094,7 @@ def _stop_owned(installation: Installation) -> None:
 
 
 def _start_owned(installation: Installation) -> None:
-    if systemctl("start", UNIT).returncode:
+    if systemctl("start", installation.unit).returncode:
         raise FixtureBlocked("launch", "owned daemon restart failed; maintenance remains closed")
     deadline = time.monotonic() + READY_TIMEOUT
     while True:
@@ -1071,7 +1117,7 @@ def _bootstrap_owned(installation: Installation) -> None:
         installation.check_daemon()
         return
     except FixtureBlocked:
-        state = unit_properties(UNIT, "ActiveState", "MainPID")
+        state = unit_properties(installation.unit, "ActiveState", "MainPID")
         if state.get("ActiveState") not in {"inactive", "failed"}:
             raise
     if not lock_held(installation.directory / "admission.lock") or not lock_held(
@@ -1082,7 +1128,7 @@ def _bootstrap_owned(installation: Installation) -> None:
         installation.runtime(database, installer=True)
     binary = _installed_binary(installation)
     port = int(installation.endpoint.rsplit(":", 1)[1])
-    if _unit_path().read_text() != unit_text(installation.directory, binary, port):
+    if _unit_path(installation.unit).read_text() != unit_text(installation.directory, binary, port):
         raise FixtureBlocked("identity", "dead service unit differs from installation")
     _stop_owned(installation)
     _start_owned(installation)
@@ -1178,7 +1224,7 @@ def _recovery_sources(installation: Installation) -> dict[str, Path]:
         if path.is_file():
             sources["state/" + relative.as_posix()] = path
     for name, path in {
-        "service-unit": _unit_path(),
+        "service-unit": _unit_path(installation.unit),
         "surreal": Path(installation.record["binary"]["path"]),
         "lctx": Path(installation.record["installer"]),
     }.items():
@@ -1445,7 +1491,7 @@ def _stage_recovery(installation: Installation, archive: Path, stage: Path) -> d
                 raise FixtureBlocked("recovery", "archive asset digest does not match")
     # Archived executable bytes are recovery assets, never a license to replace another unit.
     current_assets = {
-        "service-unit": _unit_path(),
+        "service-unit": _unit_path(installation.unit),
         "surreal": Path(installation.record["binary"]["path"]),
         "lctx": Path(installation.record["installer"]),
     }
@@ -1740,7 +1786,7 @@ def _upgrade_cli(installation: Installation, candidate: Mapping[str, Any], datab
 
 def _upgrade_daemon_start(installation: Installation) -> None:
     """Partial schema migration can only use daemon readiness, never whole-schema readiness."""
-    if systemctl("start", UNIT).returncode:
+    if systemctl("start", installation.unit).returncode:
         raise FixtureBlocked("launch", "upgrade daemon start failed; admission stays closed")
     deadline = time.monotonic() + READY_TIMEOUT
     while True:
@@ -1757,7 +1803,7 @@ def _upgrade_restart(installation: Installation) -> None:
     # Even after an unknown RPC acknowledgment, confirmed process drainage precedes replay.
     binary = _installed_binary(installation)
     port = int(installation.endpoint.rsplit(":", 1)[1])
-    if _unit_path().read_text() != unit_text(installation.directory, binary, port):
+    if _unit_path(installation.unit).read_text() != unit_text(installation.directory, binary, port):
         raise FixtureBlocked("identity", "upgrade service unit differs from installation")
     _stopped_attachment_commands(installation)
     _stop_owned(installation)
@@ -2532,7 +2578,7 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
                 if previous == _generation_binary(generation):
                     raise FixtureBlocked("identity", "server generation is already installed")
                 expected_unit = unit_text(installation.directory, previous_path, port)
-                if _unit_path().read_text() != expected_unit:
+                if _unit_path(installation.unit).read_text() != expected_unit:
                     raise FixtureBlocked("identity", "owned service unit differs before server handoff")
                 if plans:
                     current = plans[-1]
@@ -2563,7 +2609,7 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
             durable_json(marker_path, marker)
             if installation.record["binary"] not in (plan["previous_binary"], _generation_binary(generation)):
                 raise FixtureBlocked("identity", "server handoff installed generation changed")
-            if _unit_path().read_text() not in (plan["previous_unit"], plan["successor_unit"]):
+            if _unit_path(installation.unit).read_text() not in (plan["previous_unit"], plan["successor_unit"]):
                 raise FixtureBlocked("identity", "server handoff unit changed outside its exact journal")
             _stopped_attachment_commands(installation)
             if not resumed and not pending_upgrade:
@@ -2571,7 +2617,7 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
                 _run_installer(installation, Path(installation.record["installer"]), "drain")
             # This also confirms a core-dumped daemon has no surviving descendants.
             _stop_owned(installation)
-            _upgrade_write_private(_unit_path(), plan["successor_unit"])
+            _upgrade_write_private(_unit_path(installation.unit), plan["successor_unit"])
             if systemctl("daemon-reload").returncode:
                 raise FixtureBlocked("systemd", "server handoff daemon-reload failed; admission stays closed")
             reference = {key: marker["server_handoff"][key] for key in ("operation", "journal", "journal_sha256")}
@@ -2619,6 +2665,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     install_parser = commands.add_parser(
         "install", help="explicitly install stable service and native schemas"
     )
+    install_parser.add_argument("--campaign", action="store_true",
+                                help="install an isolated checked campaign unit at an explicit LCTX_SURREAL_SERVICE_CONFIG")
     install_parser.add_argument("--installer", type=Path, default=ROOT / "target/release/lctx")
     commands.add_parser("check", help="read-only compatibility and native readiness")
     commands.add_parser("status", help="read-only ownership, state and maintenance observation")
@@ -2714,7 +2762,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("--native-clients requires only an explicit command after --")
     try:
         if args.action == "install":
-            value = install(args.installer.resolve()).check()
+            value = install(args.installer.resolve(), campaign=args.campaign).check()
         else:
             installation = Installation.load(ready=args.action != "status")
             if args.action == "status":
@@ -2722,8 +2770,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 value = {
                     "installation_id": installation.id,
                     "phase": installation.record["phase"],
-                    "unit": UNIT,
-                    "state": unit_properties(UNIT, "ActiveState", "Result"),
+                    "unit": installation.unit,
+                    "state": unit_properties(installation.unit, "ActiveState", "Result"),
                     "maintenance": (installation.directory / "maintenance.json").exists(),
                     "server": {"path": installation.record["binary"]["path"],
                         "sha256": installation.record["binary"]["sha256"],
@@ -2866,7 +2914,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         installation, native_clients=args.native_clients, restart=args.restart
                     ) as env:
                         if args.restart:
-                            if systemctl("restart", UNIT).returncode:
+                            if systemctl("restart", installation.unit).returncode:
                                 raise FixtureBlocked("launch", "explicit restart failed")
                             deadline = time.monotonic() + READY_TIMEOUT
                             while True:
