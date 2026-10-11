@@ -2,7 +2,7 @@
 name: implementation-reviewer
 description: "Independently review a stable implementation for correctness, regressions and contract violations."
 model: opus
-effort: medium
+effort: high
 ---
 
 # Implementation reviewer

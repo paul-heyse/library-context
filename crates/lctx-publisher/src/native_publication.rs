@@ -288,10 +288,13 @@ async fn seal_staging(
     marker_phase.finish_result(&marking);
     marking?;
     lease.record_committed(committed_identity.clone());
-    lctx_surrealdb::control::close_attempt(client, attempt, "closed").await?;
-    // The marker is committed. Session/readback failures must retain that effect exactly.
+    // The marker is committed. Every subsequent failure, including attempt closure,
+    // must retain that effect exactly.
     let mut completion = Completion::default();
     completion.committed("published unselected manifest", committed_identity);
+    if let Err(error) = lctx_surrealdb::control::close_attempt(client, attempt, "closed").await {
+        return complete(Err(error), completion);
+    }
     let readback_phase = Phase::begin("publication_readback");
     completion.step(
         "publication session invalidation",

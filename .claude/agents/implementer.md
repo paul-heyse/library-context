@@ -2,7 +2,7 @@
 name: implementer
 description: "Implement a delegated code change. Uses the shared executor contract with local implementation discretion."
 model: opus
-effort: medium
+effort: high
 ---
 
 # Implementer

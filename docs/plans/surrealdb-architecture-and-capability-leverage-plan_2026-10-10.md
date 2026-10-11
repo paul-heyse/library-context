@@ -319,14 +319,20 @@ BC3 profile adoption, SM8 service-survival qualification and real-library/operat
 
 ## 9. Verification, cutover and completion
 
-**Restart checkpoint,2026-10-10:** execution is paused at the operator's request. Current source
-is integrated in main; independent review accepted the foreign-context completion correction.
-Readiness passed before final formatting, but the focused run was cancelled during compilation
-before any test body (exit143, cleanup confirmed). SA9 and all open findings remain open.
-Coordinator §9.1 owns exact receipts and the restart command; resume with `just ready`, focused
-completion/sort/native controls and the small facts-phase diagnostic before broader assurance.
-Frozen earlier-generation recovery/planner worktrees remain protected; no obsolete implementation
-is a new merge candidate. Reuse completed build artifacts without cleaning caches.
+**Resumed execution boundary,2026-10-11:** the operator authorized the remaining current-source
+assurance through SA9 and its shared HS/UP/NE obligations. The completed format3→4 recovery and
+format4→5 transition are retained evidence; neither migration is replayed against installed format5.
+The operator explicitly chose to preserve the unexecuted legacy per-pass/nested-cleanup interruption
+matrix as a scoped SA-F02 qualification gap. Current-source qualification may pass without proving
+that historical matrix, but SA-F02 and whole-plan completion remain open for that requirement.
+BC3, SM8, additional testing campaigns and activation retain their separate owners.
+
+Coordinator §9.1 owns exact receipts and the restart command. Execution resumes with guard-free
+`just ready`, focused completion/sort/native controls and the small facts-phase diagnostic before
+broader assurance. Retain valid source-matched catalog/history/recovery receipts; explicitly route
+outstanding maintenance and retained-serving controls through their existing owners. Frozen
+earlier-generation worktrees remain protected replay inputs, not new merge candidates. Reuse
+completed build artifacts without cleaning caches.
 
 Resolve current commands with `just verify --help` and `just verify --print --select FAMILY:BOUNDARY`;
 use actual test names and source identities. Relevant boundaries are `tooling:python`, `store:rust`,

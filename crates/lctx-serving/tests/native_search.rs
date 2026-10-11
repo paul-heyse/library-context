@@ -405,7 +405,7 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
         native
             .records_from_candidates::<CatalogMember>(&wrong)
             .await,
-        Err(ModelError::Conflict("native candidate backing missing"))
+        Err(ModelError::Conflict("native candidate outside exact view"))
     ));
     assert!(matches!(
         native
@@ -436,6 +436,15 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
             .records_from_candidates::<CatalogMember>(&candidates[..1])
             .await,
         Err(ModelError::Conflict("native candidate canonical identity"))
+    ));
+    // A nominated selected identity whose payload disappears is distinct from a
+    // physical pointer that was never admitted into this exact completed view.
+    let mut bindings = Variables::new();
+    bindings.insert("node", candidates[1].node.clone());
+    native.query::<serde_json::Value>("DELETE ONLY $node RETURN NONE", bindings).await.unwrap();
+    assert!(matches!(
+        native.records_from_candidates::<CatalogMember>(&candidates[1..2]).await,
+        Err(ModelError::Conflict("native candidate backing missing"))
     ));
     drop(members);
     assert_eq!(budget.reserved(), 0);
@@ -844,7 +853,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     let mut crowd_occurrences = Vec::new();
     for n in 0..1400u32 {
         let key = format!("quota{n:04}");
-        let text = format!("beta pkg quota_option crowded window {n}");
+        let text = format!("beta pkg quota_option --- crowded window {n}");
         let source = record("search_api_options", key.clone());
         crowd_docs.push(Value::Object(object(
             serde_json::json!({"text":text,"digest":ContentHash::of(text.as_bytes())}),
@@ -927,7 +936,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
         assert_eq!(
             admitted.len(),
             2,
-            "window multiplicity must not consume target/context quota"
+            "window multiplicity must not consume target/context quota for {query:?}"
         );
         assert!(
             matches!(admitted[0].occurrence.target,lctx_model::domain::serving::ranking::Target::Member{member} if member==beta.id()),
@@ -1204,7 +1213,7 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
         "pinned scores and order survive unrelated and changed-window insertions"
     );
     let mut explain = Variables::new(); explain.insert("query", "needle absentterm");
-    let plan = a.reader.query_prepared_native::<Vec<Value>>(lctx_surrealdb::prepared::PreparedQuery::new(explain, vec![], vec![format!("{} EXPLAIN", lctx_surrealdb::derived_search::lexical_nomination_sql("search_api_options").unwrap())]).unwrap()).await.unwrap();
+    let plan = a.reader.query_prepared_native::<Value>(lctx_surrealdb::prepared::PreparedQuery::new(explain, vec![], vec![format!("{} EXPLAIN", lctx_surrealdb::derived_search::lexical_nomination_sql("search_api_options").unwrap())]).unwrap()).await.unwrap();
     assert!(format!("{plan:?}").contains("lexical"), "FULLTEXT nomination must have a native family-table index executor: {plan:?}");
     let or_match = lctx_serving::search::lexical_scoped(&a.reader, "needle absentterm", Family::ApiOptions, &[*input.bytes()], None, false, lctx_serving::search::UnitScope::All, 10, &policy, &search_budget()).await.unwrap();
     assert_eq!(before.iter().map(|r| (&r.occurrence, r.score)).collect::<Vec<_>>(), or_match.iter().map(|r| (&r.occurrence, r.score)).collect::<Vec<_>>(), "OR nomination retains known terms when another term is absent");

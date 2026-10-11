@@ -5,6 +5,9 @@ mod backup_decode;
 mod native_fixture;
 #[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
 mod runtime;
+#[allow(dead_code, reason = "The shared scoped fixture also serves standalone native controls")]
+#[path = "../../lctx-serving/tests/fixtures/scoped.rs"]
+mod scoped_search_fixture;
 use cpg_core::{
     artifact, compilation,
     workspace::{Workspace, WorkspaceOptions},
@@ -780,6 +783,141 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
     let cleanup = completion::complete(Ok(()), completion);
     if let Err(primary) = outcome {
         if let Err(secondary) = cleanup { eprintln!("composed backup assertion failed; owned cleanup also failed: {secondary:#?}"); }
+        std::panic::resume_unwind(primary);
+    }
+    cleanup.unwrap();
+}
+
+#[tokio::test]
+async fn selected_backup_restores_fresh_ownership_while_foreign_window_binding_coexists() {
+    use lctx_surrealdb::surrealdb::types::{RecordId, RecordIdKey, Value, Variables};
+    use retrieval::{BindingBasis, WindowBinding};
+    let fixture = small_publication("selected_backup_foreign_binding").await.unwrap();
+    let definitions = lctx_surrealdb::materialization::native_definitions();
+    let budget = resources::ResourceBudget::fixed(WorkspaceOptions::default().memory_bytes).unwrap();
+    let mut selected_owner = None;
+    let mut restored_owner = None;
+    let mut foreign_owner = None;
+    let outcome = AssertUnwindSafe(async {
+        selected_owner = Some(NativeReader::connect(&fixture.config.endpoint,
+            &fixture.config.writer_credentials(), fixture.handle.clone()).await.unwrap().with_budget(&budget));
+        let reader = selected_owner.as_ref().unwrap();
+        let mut publication = Variables::new();
+        publication.insert("publication", RecordId::new("publication", fixture.handle.publication.hex()));
+        let pins_query = "SELECT VALUE owner FROM native_hold WITH INDEX object_holds WHERE object=$publication AND record::table(owner)='native_pin' ORDER BY owner";
+        let selected_pins: Vec<RecordId> = reader.query_native(pins_query, publication.clone()).await.unwrap();
+        assert_eq!(selected_pins.len(), 1, "the selected reader owns one exact publication pin");
+        let owners_query = "SELECT VALUE object.attempt FROM native_hold WITH INDEX owner_holds WHERE owner=$publication AND record::table(object)='compiler_contribution'";
+        let original_owners: Vec<RecordId> = reader.query_native(owners_query, publication.clone()).await.unwrap();
+        let original_owners = original_owners.into_iter().collect::<std::collections::BTreeSet<_>>();
+        assert!(!original_owners.is_empty());
+        let baseline = fixture.scratch.path().join("before-foreign.surql");
+        lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &baseline, &definitions).await.unwrap();
+        let expected = logical_backup_rows(&baseline);
+        let mut entities = Vec::new();
+        let mut assertions = Vec::new();
+        for (id, row) in &expected {
+            if !matches!(id.table.as_str(), "entity" | "assertion") { continue; }
+            let Value::Object(row) = row else { panic!("selected canonical graph row"); };
+            let Some(Value::Bytes(bytes)) = row.get("canonical") else { panic!("selected canonical graph bytes"); };
+            if id.table.as_str() == "entity" {
+                entities.push(serde_json::from_slice::<graph::Entity>(bytes).unwrap());
+            } else {
+                let assertion = serde_json::from_slice::<graph::Assertion>(bytes).unwrap();
+                if assertion.source.is_some() { assertions.push(assertion); }
+            }
+        }
+        let binding = entities.iter().find_map(|entity| match entity {
+            graph::Entity::RetrievalWindowBinding(binding) => Some(binding.clone()), _ => None,
+        }).expect("real published fixture has a window binding");
+        let foreign_binding = WindowBinding {
+            basis: if binding.basis == BindingBasis::PublicContract { BindingBasis::DirectDefinition } else { BindingBasis::PublicContract },
+            ..binding.clone()
+        };
+        let foreign_payload = lctx_surrealdb::loader::entity_payload_id(&graph::Entity::from(foreign_binding.clone())).unwrap();
+        assert!(!expected.contains_key(&foreign_payload), "B's additional binding is absent from A's exact view");
+        entities.push(graph::Entity::from(foreign_binding.clone()));
+        foreign_owner = Some(scoped_search_fixture::reader(&fixture.config, &entities, &assertions).await.unwrap());
+        let foreign = foreign_owner.as_ref().unwrap();
+        let foreign_vars = foreign.reader.view_bindings();
+        let Some(Value::Array(views)) = foreign_vars.get("lctx_views") else { panic!("foreign exact view IDs"); };
+        let views = views.iter().map(|view| {
+            let Value::RecordId(view) = view else { panic!("foreign view record ID"); };
+            let RecordIdKey::String(hash) = &view.key else { panic!("foreign view identity"); };
+            ContentHash(hex::decode(hash).unwrap().try_into().unwrap())
+        }).collect::<Vec<_>>();
+        let foreign_loader = lctx_surrealdb::Loader::for_attempt_views(foreign.reader.shared_client(),
+            foreign.store.attempt(), views).with_budget(&budget);
+        lctx_publisher::materialize_search(&foreign_loader).await.unwrap();
+        lctx_publisher::reconcile_search(&foreign_loader).await.unwrap();
+        let mut binding_vars = Variables::new();
+        binding_vars.insert("binding", lctx_surrealdb::loader::json_value(serde_json::json!(foreign_binding.id().bytes())).unwrap());
+        let foreign_rows: Vec<Value> = foreign.reader.query_native(
+            "SELECT * FROM lex_occurs WHERE binding=$binding ORDER BY id", binding_vars.clone()).await.unwrap();
+        assert_eq!(foreign_rows.len(), 1, "the extra B binding creates one distinct lexical claim for A's shared window/unit");
+        let Value::Object(foreign_claim) = &foreign_rows[0] else { panic!("foreign lexical claim"); };
+        let Some(Value::RecordId(foreign_claim_id)) = foreign_claim.get("id") else { panic!("foreign lexical claim identity"); };
+        assert!(!expected.contains_key(foreign_claim_id));
+        assert!(foreign_claim.get("dependencies").unwrap().as_array().unwrap().contains(&Value::RecordId(foreign_payload.clone())));
+        let Some(Value::RecordId(unit)) = foreign_claim.get("unit_payload") else { panic!("shared unit payload"); };
+        assert!(expected.contains_key(unit), "B's occurrence shares A's exact unit payload");
+        assert!(expected.values().any(|row| row.as_object().is_some_and(|row|
+            row.get("window") == foreign_claim.get("window") && row.get("unit_payload") == Some(&Value::RecordId(unit.clone())))),
+            "A already has an occurrence for the exact shared unit and window");
+        let output = fixture.scratch.path().join("with-foreign.surql");
+        lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &output, &definitions).await.unwrap();
+        let backed_up = logical_backup_rows(&output);
+        assert_eq!(backed_up, expected, "B's binding and its actual search claim cannot enter A's selected backup");
+        assert!(!backed_up.contains_key(&foreign_payload));
+        assert!(!backed_up.contains_key(foreign_claim_id));
+        let restored = lctx_publisher::backup::restore_publication(&fixture.config, &output,
+            fixture.handle.publication, &definitions).await.unwrap();
+        assert_eq!(restored, fixture.handle);
+        assert!(!fixture.config.selection.exists(), "independent restore does not select the publication");
+        lctx_publisher::inspection::audit(&fixture.config, &restored, &definitions).await.unwrap();
+        let after_owners: Vec<RecordId> = reader.query_native(owners_query, publication.clone()).await.unwrap();
+        let after_owners = after_owners.into_iter().collect::<std::collections::BTreeSet<_>>();
+        let fresh = after_owners.difference(&original_owners).cloned().collect::<Vec<_>>();
+        assert_eq!(fresh.len(), 1, "restore must independently admit a fresh physical attempt owner");
+        let mut owner_vars = Variables::new(); owner_vars.insert("attempts", fresh);
+        let attempts: Vec<lctx_surrealdb::surrealdb::types::Object> = reader.query_native("SELECT * FROM $attempts", owner_vars).await.unwrap();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].get("state"), Some(&Value::String("closed".into())));
+        assert_eq!(attempts[0].get("admitted"), Some(&Value::Bool(true)));
+        assert_eq!(attempts[0].get("generation"), Some(&Value::String(fixture.config.service_generation.hex())));
+        let pins_after_restore: Vec<RecordId> = reader.query_native(pins_query, publication.clone()).await.unwrap();
+        assert_eq!(pins_after_restore, selected_pins, "backup and restore release their exact internal pins");
+        restored_owner = Some(NativeReader::connect(&fixture.config.endpoint,
+            &fixture.config.writer_credentials(), restored).await.unwrap().with_budget(&budget));
+        let restored_reader = restored_owner.as_ref().unwrap();
+        let details = lctx_publisher::inspection::show(restored_reader).await.unwrap();
+        assert_eq!(details.manifest.content(), fixture.manifest.content());
+        assert_eq!(details.manifest.originals, fixture.manifest.originals);
+        assert_eq!(fixture.manifest.originals.len(), 1);
+        for original in &fixture.manifest.originals {
+            assert_eq!(restored_reader.original_bytes(original.source, 0, usize::try_from(original.byte_len).unwrap()).await.unwrap(), fixture.source);
+        }
+        close_reader_owner(&mut restored_owner).await.unwrap();
+        let pins_after_close: Vec<RecordId> = reader.query_native(pins_query, publication).await.unwrap();
+        assert_eq!(pins_after_close, selected_pins, "the restored viewer releases its pin while A's original reader stays live");
+        let foreign_after: Vec<Value> = foreign.reader.query_native(
+            "SELECT * FROM lex_occurs WHERE binding=$binding ORDER BY id", binding_vars).await.unwrap();
+        assert_eq!(foreign_after, foreign_rows, "A backup/restore leaves B's foreign search claim unchanged");
+        lctx_publisher::reconcile_search(&foreign_loader).await.unwrap();
+        let foreign_binding_after: Vec<Value> = foreign.reader.query_native("SELECT * FROM $id", {
+            let mut vars=Variables::new(); vars.insert("id", foreign_payload.clone()); vars
+        }).await.unwrap();
+        assert_eq!(foreign_binding_after.len(), 1, "B's exact foreign payload remains present through restore");
+    }).catch_unwind().await;
+    let mut completion = finalize_reader_owners([&mut selected_owner, &mut restored_owner]).await;
+    if let Some(foreign) = foreign_owner.as_ref() {
+        completion.step("foreign shared search view cleanup", foreign.close().await);
+        completion.step("foreign shared search reader invalidation", foreign.reader.client().invalidate().await.map_err(ModelError::codec));
+    }
+    completion.step("shared-window backup publication retirement", retire_publication_completely(&fixture.config, &fixture.handle).await);
+    let cleanup=completion::complete(Ok(()), completion);
+    if let Err(primary)=outcome {
+        if let Err(secondary)=cleanup { eprintln!("shared-window backup assertion failed; owned cleanup also failed: {secondary:#?}"); }
         std::panic::resume_unwind(primary);
     }
     cleanup.unwrap();

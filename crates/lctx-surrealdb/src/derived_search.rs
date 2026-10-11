@@ -42,6 +42,10 @@ fn table(family: Family) -> &'static str {
 fn reader(loader: &Loader) -> Result<NativeReader<()>, ModelError> {
     Ok(loader.reader())
 }
+fn original_anchor_nomination_sql() -> Result<String, ModelError> {
+    let table = crate::schema::ScopeTable::for_relation(OriginalAnchor::NAME)?.name();
+    Ok(format!("SELECT id FROM {table} WITH INDEX by_scope WHERE semantic_type=$type AND scope_keys CONTAINSANY $scopes AND body.original IN $originals"))
+}
 
 /// Complete selected occurrence stream. Unit payload windows use the installed equality
 /// index; dependency eligibility is evaluated before the caller's ranking/quota policy.
@@ -102,7 +106,7 @@ pub fn lexical_occurrences<Context>(reader: &NativeReader<Context>, family_table
     })?;
     hydrate_occurrence_nominations(reader, nominations, budget)
 }
-fn nomination_dependencies(object: &Object) -> Result<Vec<RecordId>, ModelError> {
+pub(crate) fn nomination_dependencies(object: &Object) -> Result<Vec<RecordId>, ModelError> {
     let mut dependencies = Vec::<RecordId>::from_value(object.get("dependencies").cloned().ok_or(ModelError::Schema("occurrence dependencies"))?).map_err(ModelError::codec)?;
     if dependencies.is_empty() { return Ok(dependencies); }
     dependencies.push(RecordId::from_value(object.get("unit_payload").cloned().ok_or(ModelError::Schema("occurrence unit payload"))?).map_err(ModelError::codec)?);
@@ -456,12 +460,26 @@ impl Expected {
         let result = async {
             let mut indices = (0..TABLES.len()).collect::<Vec<_>>(); indices.sort_by_key(|index| TABLES[*index]);
             for index in indices { while let Some(expected) = self.finish(index)?.next_row()? {
-                let row = actual.next().await?.ok_or(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))?;
+                let Some(row) = actual.next().await? else {
+                    tracing::error!(expected_id = ?expected.as_object().and_then(|row| row.get("id")), mismatch = "missing", "derived search reconciliation refused");
+                    return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt));
+                };
                 if serde_json::to_vec(&expected).map_err(ModelError::codec)? != serde_json::to_vec(&row).map_err(ModelError::codec)? {
+                    let mut changed_fields = Vec::new();
+                    if let (Some(expected), Some(actual)) = (expected.as_object(), row.as_object()) {
+                        let fields = expected.keys().chain(actual.keys()).collect::<BTreeSet<_>>();
+                        for field in fields {
+                            if expected.get(field).is_some() != actual.get(field).is_some() || serde_json::to_vec(&expected.get(field)).map_err(ModelError::codec)? != serde_json::to_vec(&actual.get(field)).map_err(ModelError::codec)? { changed_fields.push(field.to_owned()); }
+                        }
+                    }
+                    tracing::error!(expected_id = ?expected.as_object().and_then(|row| row.get("id")), actual_id = ?row.as_object().and_then(|row| row.get("id")), ?changed_fields, mismatch = "different", "derived search reconciliation refused");
                     return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt));
                 }
             } }
-            if actual.next().await?.is_some() { return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt)); }
+            if let Some(row) = actual.next().await? {
+                tracing::error!(actual_id = ?row.as_object().and_then(|row| row.get("id")), mismatch = "extra", "derived search reconciliation refused");
+                return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt));
+            }
             Ok(())
         }.await;
         let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("derived actual rows transport drainage", actual.drain_transport().await);
@@ -469,11 +487,12 @@ impl Expected {
     }
 }
 pub fn actual_search_rows<Context>(reader: &NativeReader<Context>, budget: &resources::ResourceBudget) -> Result<crate::reader::NativeRows, ModelError> {
-    // Actual-state nomination deliberately retains bad dependency lists and unexpected rows.
-    // The independent cold lowering, rather than eligibility filtering, diagnoses them.
+    // Shared unit/window payloads can have companions from other exact views. Admit
+    // only complete selected lineages; independent cold lowering still refuses missing
+    // expected occurrences, changed payloads, and unexpected eligible occurrences.
     let budget = budget.clone();
-    let mut lexical = occurrence_rows(reader, "lex_occurs", "true", Variables::new(), false, &budget)?;
-    let mut vectors = occurrence_rows(reader, "vec_occurs", "true", Variables::new(), false, &budget)?;
+    let mut lexical = selected_occurrences(reader, "lex_occurs", "true", Variables::new(), &budget)?;
+    let mut vectors = selected_occurrences(reader, "vec_occurs", "true", Variables::new(), &budget)?;
     let client = reader.shared_client(); let cancellation = reader.read_cancellation();
     crate::reader::NativeRows::owned(move |sender| async move {
         let mut actual = SortedRows::with_budget(&budget)?; let mut documents = SortedRows::with_budget(&budget)?;
@@ -901,7 +920,7 @@ impl Companions {
         vars.insert("scopes", scopes);
         vars.insert("type", OriginalAnchor::NAME.to_owned());
         let mut rows = reader.record_stream_candidates::<OriginalAnchor>(
-            crate::prepared::PreparedQuery::new(vars, vec![], vec!["SELECT id FROM entity WITH INDEX by_scope WHERE semantic_type=$type AND scope_keys CONTAINSANY $scopes AND body.original IN $originals".into()])?, "semantic_key",
+            crate::prepared::PreparedQuery::new(vars, vec![], vec![original_anchor_nomination_sql()?])?, "semantic_key",
         )?;
         let mut anchors = BTreeMap::new();
         let mut original_rows = Index::new();

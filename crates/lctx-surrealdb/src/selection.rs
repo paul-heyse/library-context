@@ -107,7 +107,18 @@ fn order_key(row: &Value, fields: &[String]) -> Result<String, ModelError> {
         let value = if let Some(body_field) = field.strip_prefix("body.") { object.get("body").and_then(Value::as_object).and_then(|body| body.get(body_field)) } else { object.get(field) }.ok_or(ModelError::Schema("selected ordering field"))?;
         match (field.as_str(), value) {
             ("id" | "anchor", Value::RecordId(value)) => order_record(value, &mut key)?,
-            ("semantic_key" | "body.projection" | "body.window", Value::String(value)) => order_string(value, &mut key),
+            ("semantic_key", Value::String(value)) => order_string(value, &mut key),
+            ("body.projection" | "body.window", Value::Array(values)) => {
+                // Canonical Id fields lower from FixedSizeBinary(16) to native
+                // integer arrays. Fixed-width byte hex preserves their tuple order.
+                if values.len() != 16 { return Err(ModelError::Schema("selected ordering nominal identity")); }
+                let mut bytes = [0u8; 16];
+                for (byte, value) in bytes.iter_mut().zip(values.iter()) {
+                    let Value::Number(surrealdb::types::Number::Int(value)) = value else { return Err(ModelError::Schema("selected ordering nominal byte")); };
+                    *byte = u8::try_from(*value).map_err(|_| ModelError::Schema("selected ordering nominal byte"))?;
+                }
+                key.push_str(&hex::encode(bytes)); key.push('!');
+            }
             _ => return Err(ModelError::Schema("selected ordering field type")),
         }
     }
@@ -566,8 +577,8 @@ impl SelectedPayloads {
     /// Raw source roles plus their actual external endpoints. These are integrity claims,
     /// never nominations constrained by canonical expected roles.
     pub fn recovery_roles(&self) -> Result<NativeRows, ModelError> { self.recovery_derived(true) }
-    /// Raw source occurrences plus actual referenced documents/vectors, including invalid
-    /// dependency lists and unexpected eligible rows for independent cold comparison.
+    /// Exact selected occurrence lineages plus actual referenced documents/vectors.
+    /// Unexpected eligible rows remain claims for independent cold comparison.
     pub fn recovery_search(&self) -> Result<NativeRows, ModelError> { self.recovery_derived(false) }
     fn recovery_derived(&self, roles: bool) -> Result<NativeRows, ModelError> {
         let selected = self.clone();
@@ -577,12 +588,25 @@ impl SelectedPayloads {
                 let mut cursor = selected.pointers()?;
                 loop {
                     if sender.is_closed() { return Ok(()); }
-                    let mut nodes = Vec::new(); while nodes.len() < WINDOW { let Some(row) = cursor.next_row()? else { break; }; nodes.push(id(&row)?); }
+                    let mut search_window = (!roles).then(|| StateCharge::new(&selected.budget, "recovery-search-pointer-window"));
+                    let mut nodes = Vec::new(); while nodes.len() < WINDOW {
+                        let Some(row) = cursor.next_row()? else { break; };
+                        let node = id(&row)?;
+                        if let Some(charge) = &mut search_window { charge.grow(node_bytes(&node).saturating_mul(2))?; }
+                        nodes.push(node);
+                    }
                     if nodes.is_empty() { break; }
                     let mut vars = Variables::new(); vars.insert("nodes", nodes);
                     let (index, field) = if roles { ("outgoing", "in") } else { ("exact_unit_payload", "unit_payload") };
+                    let mut membership = if roles { None } else { Some(selected.membership.cursor(&selected.budget)?) };
                     consume(&selected.source, format!("SELECT * FROM {table} WITH INDEX {index} WHERE {field} IN $nodes"), vars, |row| {
                         let Value::Object(object) = &row else { return Err(ModelError::Schema("recovery derived object")); };
+                        if let Some(membership) = &mut membership {
+                            let _scratch = selected.budget.reserve("recovery search dependency scratch", crate::loader::native_bytes(&row).saturating_mul(8))?;
+                            let dependencies = crate::derived_search::nomination_dependencies(object)?;
+                            if dependencies.is_empty() { return Ok(()); }
+                            for dependency in dependencies { if !membership.contains(&dependency)? { return Ok(()); } }
+                        }
                         let endpoint = RecordId::from_value(object.get(if roles {"out"} else {"in"}).cloned().ok_or(ModelError::Schema("recovery derived endpoint"))?).map_err(ModelError::codec)?;
                         if !roles || endpoint.table.as_str() == "external" { endpoints.push(pointer(endpoint))?; }
                         actual.push(row)
@@ -642,6 +666,35 @@ mod tests {
         }
         let mut row = Object::new(); row.insert("id", RecordId::new("entity", 1i64));
         assert!(order_key(&Value::Object(row), &["id".into()]).is_err());
+    }
+    #[test]
+    fn selected_order_preserves_fixed_nominal_projection_and_window_tuples() {
+        let mut low_tail = [0u8; 16]; low_tail[15] = 255;
+        let identities = [[0u8; 16], low_tail, [1; 16], [15; 16], [16; 16], [128; 16], [255; 16]];
+        let fields = ["body.projection", "body.window", "semantic_key"].map(str::to_owned);
+        let mut rows = Vec::new();
+        for projection in identities { for window in identities { for semantic_key in ["a", "a!"] {
+            let mut body = Object::new(); body.insert("projection", projection.to_vec()); body.insert("window", window.to_vec());
+            let mut row = Object::new(); row.insert("body", body); row.insert("semantic_key", semantic_key);
+            row.insert("id", RecordId::new("entity", format!("row-{:04}", rows.len())));
+            rows.push((projection, window, semantic_key, Value::Object(row)));
+        } } }
+        for (lp, lw, lk, left) in &rows { for (rp, rw, rk, right) in &rows {
+            let expected = (lp, lw, lk, id(left).unwrap()).cmp(&(rp, rw, rk, id(right).unwrap()));
+            assert_eq!(order_key(left, &fields).unwrap().cmp(&order_key(right, &fields).unwrap()), expected);
+        } }
+        let wrong = [
+            Value::Null, Value::String(hex::encode([0u8; 16])),
+            vec![0u8; 15].into_value(), vec![0u8; 17].into_value(),
+            vec![-1i64; 16].into_value(), vec![256i64; 16].into_value(),
+            vec![0.0f64; 16].into_value(),
+        ];
+        for field in ["projection", "window"] { for value in &wrong {
+            let mut row = rows[0].3.as_object().unwrap().clone();
+            let mut body = row.get("body").unwrap().as_object().unwrap().clone();
+            body.insert(field, value.clone()); row.insert("body", body);
+            assert!(order_key(&Value::Object(row), &fields).is_err(), "invalid {field} order value: {value:?}");
+        } }
     }
     #[test]
     fn finite_member_probe_preserves_aliases_and_absence() {

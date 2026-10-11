@@ -7492,7 +7492,21 @@ mod compiler_scope_tests {
         if let Some(id) = forged_id {
             if can_retire {
                 let retired = async {
-                    crate::control::retire_reachable(&client, vec![id.clone()], 4096).await?;
+                    let mut progress = crate::control::retire_reachable(&client, vec![id.clone()], 4096).await?;
+                    // Newly nominated child IDs can precede this advancement's keyset
+                    // cursor. Finish the exact invocation before checking its cleanup.
+                    let required = serde_json::to_string(&id).map_err(ModelError::codec)?;
+                    loop {
+                        if progress.retained.contains(&required) {
+                            return Err(ModelError::Conflict("forged view cleanup remains protected"));
+                        }
+                        if progress.remaining.is_empty() { break; }
+                        let next = crate::control::resume_retirement(&client, progress.identity, 4096).await?;
+                        if next.remaining == progress.remaining && next.retired == progress.retired && next.examined == progress.examined {
+                            return Err(ModelError::Conflict("forged view cleanup made no progress"));
+                        }
+                        progress = next;
+                    }
                     let mut vars = Variables::new();
                     vars.insert("view", id.clone());
                     let view: Vec<RecordId> = reader.query_native(
@@ -7633,7 +7647,19 @@ mod compiler_scope_tests {
             target.drain().await?;
             crate::control::close_attempt(&client, target.attempt, "abandoned").await?;
             let terminal_roots: Vec<RecordId> = reader.query_native("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt", vars.clone()).await?;
-            let retired = crate::control::retire_reachable(&client, contributors.clone(), 16).await?;
+            let mut retired = crate::control::retire_reachable(&client, contributors.clone(), 16).await?;
+            // A bounded advancement need not revisit children inserted before its
+            // current item cursor, even when its effect allowance is not exhausted.
+            while !retired.remaining.is_empty() {
+                if !retired.retained.is_empty() {
+                    return Err(ModelError::Conflict("partial import cleanup remains protected"));
+                }
+                let next = crate::control::resume_retirement(&client, retired.identity, 16).await?;
+                if next.remaining == retired.remaining && next.retired == retired.retired && next.examined == retired.examined {
+                    return Err(ModelError::Conflict("partial import cleanup made no progress"));
+                }
+                retired = next;
+            }
             let remaining_members: Vec<RecordId> = reader.query_native("SELECT VALUE id FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors", vars.clone()).await?;
             let retained: Vec<Value> = reader.query_native("SELECT * FROM $node", vars).await?;
             source.verify_state(&native_operation_budget).await?;

@@ -581,6 +581,17 @@ async fn native_binary_backed_text_preserves_flexible_bodies() {
 async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_budget_lifetimes() {
     use lctx_model::domain::retrieval::{CorpusText, Family, RENDER_VERSION, Unit};
     use lctx_surrealdb::prepared::PreparedQuery;
+    async fn limited_relation(reader: &NativeReader<()>, relation: &str) -> Result<Vec<Value>, ModelError> {
+        let mut rows = reader.relation_bodies(relation, 1)?;
+        let result = async {
+            let mut values = Vec::new();
+            while let Some(row) = rows.next().await? { values.push(row); }
+            Ok(values)
+        }.await;
+        let mut terminal = completion::Completion::default();
+        terminal.step("tiny selected relation drainage", rows.drain_transport().await);
+        completion::complete(result, terminal)
+    }
     let config = scoped::config();
     let nonce = lctx_surrealdb::control::fresh_identity("sparse-indexed-selection").unwrap();
     let packages = (0..260).map(|ordinal| Package { name: format!("sparse-{}-{ordinal:04}", nonce.hex()) }).collect::<Vec<_>>();
@@ -628,7 +639,35 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
     let reader = selected.reader.with_request_budget_clone(&request);
     let retained_baseline = retained.reserved();
     assert!(retained_baseline > 0);
+    let mut growth = None;
     let result = async {
+        let expected_release = Entity::from(release.clone());
+        let before_tiny = limited_relation(&reader, Release::NAME).await?;
+        assert_eq!(before_tiny.len(), 1);
+        let row = before_tiny[0].as_object().ok_or(ModelError::Schema("tiny relation envelope"))?;
+        assert_eq!(row.get("id"), Some(&Value::RecordId(lctx_surrealdb::loader::entity_payload_id(&expected_release)?)));
+        assert_eq!(row.get("semantic_key"), Some(&Value::String(release.id().hex())));
+        let Some(Value::Bytes(canonical)) = row.get("canonical") else { return Err(ModelError::Schema("tiny relation canonical")); };
+        assert_eq!(serde_json::from_slice::<Entity>(canonical.as_ref()).map_err(ModelError::codec)?, expected_release);
+        assert!(limited_relation(&reader, input::InputRevision::NAME).await?.is_empty(), "positive demand on an empty selected relation remains empty");
+        assert_eq!(request.reserved(), 0);
+        let foreign_growth = (0..4).flat_map(|ordinal| [
+            Entity::from(Release { package: foreign_package.id(), version: format!("growth-{}-{ordinal}", nonce.hex()) }),
+            Entity::from(input::InputRevision { manifest: ContentHash::of(format!("foreign-growth-{}-{ordinal}", nonce.hex()).as_bytes()) }),
+        ]).collect::<Vec<_>>();
+        growth = Some(scoped::reader_at_frontier(&config, admission::Frontier::Normalized, &foreign_growth, &[]).await?);
+        let foreign_growth = growth.as_ref().ok_or(ModelError::Schema("foreign growth fixture"))?;
+        for relation in [Release::NAME, input::InputRevision::NAME] {
+            let mut vars = foreign_growth.view_bindings(); vars.insert("relation", relation);
+            let members: Vec<RecordId> = foreign_growth.query_native("SELECT VALUE node FROM compiler_view_member WITH INDEX view_key WHERE view IN $lctx_views AND relation=$relation", vars).await?;
+            assert_eq!(members.len(), 4, "actual unselected same-relation growth for {relation}");
+            let mut vars = Variables::new(); vars.insert("view", RecordId::new("compiler_view", selected.views[0].hex())); vars.insert("relation", relation);
+            let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(vars, vec![], vec!["SELECT node AS id FROM compiler_view_member WITH INDEX view_key WHERE view=$view AND relation=$relation EXPLAIN".into()])?).await?;
+            assert!(format!("{plan:?}").contains("view_key"), "tiny/empty selected relation prefix plan: {plan:?}");
+        }
+        assert_eq!(limited_relation(&reader, Release::NAME).await?, before_tiny, "foreign growth cannot change the exact tiny selected payload");
+        assert!(limited_relation(&reader, input::InputRevision::NAME).await?.is_empty(), "foreign growth cannot populate an empty selected relation");
+        assert_eq!(request.reserved(), 0, "tiny/empty relation reads release request-owned selection and sort state");
         let keys = vec![*packages[0].id().bytes(), *foreign_package.id().bytes()];
         for _ in 0..3 {
             assert_eq!(reader.records::<Package>(RecordSelection::Keys(keys.clone())).await?, vec![packages[0].clone()]);
@@ -730,8 +769,9 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
     terminal.step("sparse selected fixture close", selected.close().await);
     terminal.step("sparse foreign fixture close", foreign.close().await);
     terminal.step("sparse compatible union fixture close", compatible.close().await);
+    if let Some(growth) = &growth { terminal.step("sparse foreign growth fixture close", growth.close().await); }
     completion::complete(result, terminal).unwrap();
-    drop(selected); drop(foreign); drop(compatible);
+    drop(selected); drop(foreign); drop(compatible); drop(growth);
     assert_eq!(request.reserved(), 0);
     assert!(retained.reserved() > 0, "the immutable selected borrower retains its original charge after cache/owner release");
     drop(exact);

@@ -180,7 +180,9 @@ async fn publication_completion<T>(
     if let Err(error) = result {
         native.fail();
         completion = native.drain_report().await;
-        if !error.has_committed_effect() {
+        // Drainage can recover an acknowledged marker that cancellation or a
+        // finalizer failure kept out of the immediate error. Both owners count.
+        if !error.has_committed_effect() && completion.committed.is_empty() {
             if error.permits_storage_cleanup() {
                 completion.step("publication abandon", native.abandon().await);
             } else {
@@ -193,6 +195,64 @@ async fn publication_completion<T>(
         }
     }
     completion
+}
+
+#[cfg(test)]
+mod publication_completion_controls {
+    use super::*;
+    use lctx_model::domain::{resources::ResourceBudget, admission::Frontier};
+    use lctx_surrealdb::{NativeReader, compiler::NativeCompilerStore};
+    use lctx_surrealdb::surrealdb::types::{RecordId, Variables};
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn retained_publication_acknowledgement_prevents_abandon_on_confirmed_finalization_error() {
+        let config = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+        )).unwrap();
+        let native = NativeCompilerStore::begin(&config, Frontier::Facts).await.unwrap();
+        let client = lctx_surrealdb::compiler::check_installation(&config).await.unwrap();
+        let reader = NativeReader::private(client.clone());
+        let result = async {
+            let budget = ResourceBudget::fixed(256 << 20)?;
+            native.freeze_content(&budget).await?;
+            let lease = native.begin_finalization().await?;
+            let identity = native.attempt().hex();
+            // Model the confirmed failure after the marker acknowledgement has
+            // reached its real lease owner, before the caller receives metadata.
+            lease.record_committed(identity.clone());
+            lease.finish_with(Ok::<(), ModelError>(()))?;
+            let failed: Result<(), ModelError> = Err(ModelError::Conflict(
+                "controlled confirmed post-marker close failure",
+            ));
+            assert!(!failed.as_ref().unwrap_err().has_committed_effect());
+            let completion = publication_completion(&native, &failed).await;
+            let mut variables = Variables::new();
+            variables.insert("attempt", RecordId::new("native_attempt", native.attempt().hex()));
+            let states: Vec<String> = reader.query_native(
+                "SELECT VALUE state FROM $attempt", variables,
+            ).await?;
+            assert_eq!(states, ["open"], "acknowledgement excludes abandonment");
+            assert_eq!(completion.local, lctx_model::domain::completion::LocalState::Terminal);
+            assert_eq!(completion.remote, RemoteState::Confirmed);
+            assert_eq!(completion.committed, [lctx_model::domain::completion::CommittedEffect {
+                kind: "published unselected manifest", identity,
+            }]);
+            assert!(completion.failures.iter().all(|failure| failure.step != "publication abandon"));
+            let error = complete(failed, completion).unwrap_err();
+            assert!(error.has_committed_effect());
+            assert!(matches!(error.primary(), Some(ModelError::Conflict(
+                "controlled confirmed post-marker close failure",
+            ))));
+            Ok::<_, ModelError>(())
+        }.await;
+        // This nonce attempt has no publication content; its explicit test owner
+        // releases it only after observing the production finalizer's decision.
+        let mut cleanup = Completion::default();
+        cleanup.step("controlled publication attempt cleanup", native.abandon().await);
+        cleanup.step("controlled publication reader close", reader.close().await);
+        cleanup.step("controlled publication session invalidation", client.invalidate().await.map_err(ModelError::codec));
+        complete(result, cleanup).unwrap();
+    }
 }
 
 mod search;

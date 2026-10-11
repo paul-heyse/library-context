@@ -65,6 +65,21 @@ async fn rows(loader: &Loader, table: &str) -> Vec<Value> {
     }
     rows.sort_by_key(|row| row.as_object().unwrap().get("id").unwrap().clone()); rows
 }
+async fn recovery_search_counts(loader: &Loader) -> (usize, usize, usize) {
+    let selected = loader.reader().prepare_selection().await.unwrap().unwrap();
+    let mut rows = selected.recovery_search().unwrap();
+    let mut counts = (0, 0, 0);
+    while let Some(row) = rows.next().await.unwrap() {
+        match row.as_object().unwrap().get("id").unwrap().as_record().unwrap().table.as_str() {
+            "lex_occurs" => counts.0 += 1,
+            "vec_occurs" => counts.1 += 1,
+            "vector" => counts.2 += 1,
+            _ => {},
+        }
+    }
+    rows.drain_transport().await.unwrap();
+    counts
+}
 
 async fn restore(loader: &Loader, row: &Value, relation: bool) {
     let mut bind = Variables::new();
@@ -194,6 +209,7 @@ async fn streamed_control(target: AuditTarget) {
     }
     let mut units = Vec::new();
     let mut expected_anchor = Vec::new();
+    let mut foreign_binding = None;
     entities.push(Entity::from(Origin::Api {
         member: members[0].0,
     }));
@@ -288,6 +304,13 @@ async fn streamed_control(target: AuditTarget) {
                     basis: BindingBasis::PublicContract,
                     qualification: None,
                 }));
+                foreign_binding.get_or_insert(WindowBinding {
+                    window: window.id(),
+                    part: part.id(),
+                    subject: members[1].1,
+                    basis: BindingBasis::PublicContract,
+                    qualification: None,
+                });
                 entities.push(Entity::from(WindowSourceMap {
                     window: window.id(),
                     ordinal: 0,
@@ -429,6 +452,54 @@ async fn streamed_control(target: AuditTarget) {
     progress("initial cold audit");
     reconcile_search(&loader).await.unwrap();
     progress("initial cold audit passed");
+    if matches!(target, AuditTarget::Baseline) {
+        // A second exact view shares the unit/window while adding a distinct binding.
+        // Its otherwise valid occurrence must not enter the first view's cold audit.
+        let foreign_binding = foreign_binding.unwrap();
+        let foreign_payload = lctx_surrealdb::loader::entity_payload_id(&Entity::from(foreign_binding.clone())).unwrap();
+        let mut foreign_entities = entities.clone();
+        foreign_entities.push(Entity::from(foreign_binding));
+        let foreign = scoped::reader(&config, &foreign_entities, &assertions).await.unwrap();
+        let foreign_vars = foreign.reader.view_bindings();
+        let Some(Value::Array(selected)) = foreign_vars.get("lctx_views") else { panic!("explicit foreign fixture views") };
+        let foreign_views = selected.iter().map(|view| {
+            let Value::RecordId(view) = view else { panic!("foreign view ID") };
+            let lctx_surrealdb::surrealdb::types::RecordIdKey::String(hash) = &view.key else { panic!("foreign view hash") };
+            ContentHash(hex::decode(hash).unwrap().try_into().unwrap())
+        }).collect::<Vec<_>>();
+        let foreign_loader = Loader::for_attempt_views(foreign.reader.shared_client(), foreign.store.attempt(), foreign_views).with_budget(&native_read_budget);
+        materialize_search(&foreign_loader).await.unwrap();
+        assert_eq!(rows(&foreign_loader, "lex_occurs").await.len(), 81);
+        assert_eq!(rows(&foreign_loader, "vec_occurs").await.len(), 162);
+        assert_eq!(rows(&loader, "lex_occurs").await.len(), 80);
+        assert_eq!(rows(&loader, "vec_occurs").await.len(), 160);
+        assert_eq!(recovery_search_counts(&foreign_loader).await, (81, 162, 8));
+        assert_eq!(recovery_search_counts(&loader).await, (80, 160, 8));
+        reconcile_search(&loader).await.unwrap();
+
+        // Filtering a corrupted expected occurrence must still fail the exhaustive
+        // comparison, and neither refusal may repair the persisted dependency list.
+        let saved = lexical[0].clone();
+        let mut dependencies = saved.as_object().unwrap().get("dependencies").unwrap().as_array().unwrap().clone();
+        dependencies.push(Value::RecordId(foreign_payload));
+        let mut mutation = Variables::new();
+        mutation.insert("id", saved.as_object().unwrap().get("id").unwrap().clone());
+        mutation.insert("dependencies", dependencies);
+        execute(&loader, "UPDATE $id SET dependencies=$dependencies", mutation.clone()).await;
+        let changed: Value = loader.reader().query_native("SELECT * FROM ONLY $id", mutation.clone()).await.unwrap();
+        let first_refusal = reconcile_search(&loader).await;
+        let after: Value = loader.reader().query_native("SELECT * FROM ONLY $id", mutation.clone()).await.unwrap();
+        let second_refusal = reconcile_search(&loader).await;
+        let after_second: Value = loader.reader().query_native("SELECT * FROM ONLY $id", mutation.clone()).await.unwrap();
+        mutation.insert("saved", saved);
+        execute(&loader, "UPDATE $id CONTENT $saved", mutation).await;
+        assert!(first_refusal.is_err());
+        assert!(second_refusal.is_err());
+        assert_eq!(changed, after);
+        assert_eq!(after, after_second);
+        reconcile_search(&loader).await.unwrap();
+        foreign.close().await.unwrap();
+    }
     // Frozen lexical statistics are reconciled by actual payload, without repairing corruption.
     for (table, change) in [
         ("lexical_corpus", "documents=documents+1"),
