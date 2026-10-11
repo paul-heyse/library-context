@@ -105,6 +105,7 @@ No dependency version or public artifact schema changed; [pins](docs/pins.md) ow
 
 **Complete ordinary test entrypoint implemented,2026-10-11:** `just test-all` uses the existing verification/fixture owners; `just qualify` adds non-functional leaves. [README](README.md#tests) owns usage and scope limits.
 Coverage accounts for161 Rust targets and51 Python files; maintenance/historical/optional-feature scope is explicit. Daemon restart requires `--restart-service`. Full execution is **not_run**; focused verification is recorded in the command's implementation commit. Failure-based design review is paused; its supplied XML/recording and partial inventory are preserved.
+**Test-evidence target review completed,2026-10-11:** [review](docs/design_review/reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md) owns unscheduled F01–F04; native-first selective evidence and rerun tooling remain **Proposed**. Four synthetic reporting scenarios **passed** (`052916…80b055`), as did `just docs-check`; full product tests **not_run** for this assessment. Next: implementation planning; existing configuration and paused failure-review evidence preserved.
 
 **Existing qualification follow-up:** source-specific failures require correction and affected reruns.
 Coordinator §9.1 retains failures/timeouts and the source-accepted foreign-context completion correction; resume with `just ready`, focused completion/sort/native controls, then the facts-phase diagnostic.

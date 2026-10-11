@@ -1,0 +1,270 @@
+{
+  "python": "3.14.7",
+  "pytest": "9.1.1",
+  "reportlog": "1.0.0",
+  "wheel_sha256": "3fc837ef3be6e50f33b52aaf99f88bfbb2ec525febbc3990389d24bbfba28753",
+  "scope": "synthetic report-format capability controls; no project tests",
+  "cases": {
+    "normal": {
+      "exit": 1,
+      "event_types": [
+        "CollectReport",
+        "SessionFinish",
+        "SessionStart",
+        "TestReport",
+        "WarningMessage"
+      ],
+      "phase_outcomes": [
+        {
+          "nodeid": "test_case.py::test_pass",
+          "when": "setup",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_pass",
+          "when": "call",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_pass",
+          "when": "teardown",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_setup",
+          "when": "setup",
+          "outcome": "failed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_setup",
+          "when": "teardown",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_call_and_teardown",
+          "when": "setup",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_call_and_teardown",
+          "when": "call",
+          "outcome": "failed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_call_and_teardown",
+          "when": "teardown",
+          "outcome": "failed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_skip",
+          "when": "setup",
+          "outcome": "skipped",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_skip",
+          "when": "teardown",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_xfail",
+          "when": "setup",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_xfail",
+          "when": "call",
+          "outcome": "skipped",
+          "wasxfail": "xfail-reason"
+        },
+        {
+          "nodeid": "test_case.py::test_xfail",
+          "when": "teardown",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_xpass",
+          "when": "setup",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_xpass",
+          "when": "call",
+          "outcome": "failed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_xpass",
+          "when": "teardown",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_warning",
+          "when": "setup",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_warning",
+          "when": "call",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_warning",
+          "when": "teardown",
+          "outcome": "passed",
+          "wasxfail": null
+        }
+      ],
+      "session_finished": true,
+      "junit_exists": true,
+      "junit_names": [
+        "test_pass",
+        "test_setup",
+        "test_call_and_teardown",
+        "test_call_and_teardown",
+        "test_skip",
+        "test_xfail",
+        "test_xpass",
+        "test_warning"
+      ],
+      "junit_failures": 2,
+      "junit_errors": 2,
+      "passing_sections": [
+        "Captured stdout call",
+        "Captured stderr call",
+        "Captured log call",
+        "Captured stdout call",
+        "Captured stderr call",
+        "Captured log call"
+      ],
+      "exception_chain_retained": true,
+      "unfinished_output_retained": false,
+      "has_test_start_event": false
+    },
+    "collection": {
+      "exit": 2,
+      "event_types": [
+        "CollectReport",
+        "SessionFinish",
+        "SessionStart"
+      ],
+      "phase_outcomes": [],
+      "session_finished": true,
+      "junit_exists": true,
+      "junit_names": [
+        "test_case"
+      ],
+      "junit_failures": 0,
+      "junit_errors": 1,
+      "passing_sections": [],
+      "exception_chain_retained": false,
+      "unfinished_output_retained": false,
+      "has_test_start_event": false
+    },
+    "interrupt": {
+      "exit": 2,
+      "event_types": [
+        "CollectReport",
+        "SessionFinish",
+        "SessionStart",
+        "TestReport"
+      ],
+      "phase_outcomes": [
+        {
+          "nodeid": "test_case.py::test_a_pass",
+          "when": "setup",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_a_pass",
+          "when": "call",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_a_pass",
+          "when": "teardown",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_b_interrupt",
+          "when": "setup",
+          "outcome": "passed",
+          "wasxfail": null
+        }
+      ],
+      "session_finished": true,
+      "junit_exists": true,
+      "junit_names": [
+        "test_a_pass",
+        null
+      ],
+      "junit_failures": 0,
+      "junit_errors": 0,
+      "passing_sections": [],
+      "exception_chain_retained": false,
+      "unfinished_output_retained": false,
+      "has_test_start_event": false
+    },
+    "killed": {
+      "exit": -15,
+      "event_types": [
+        "CollectReport",
+        "SessionStart",
+        "TestReport"
+      ],
+      "phase_outcomes": [
+        {
+          "nodeid": "test_case.py::test_a_pass",
+          "when": "setup",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_a_pass",
+          "when": "call",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_a_pass",
+          "when": "teardown",
+          "outcome": "passed",
+          "wasxfail": null
+        },
+        {
+          "nodeid": "test_case.py::test_b_inflight",
+          "when": "setup",
+          "outcome": "passed",
+          "wasxfail": null
+        }
+      ],
+      "session_finished": false,
+      "junit_exists": false,
+      "junit_names": [],
+      "junit_failures": 0,
+      "junit_errors": 0,
+      "passing_sections": [],
+      "exception_chain_retained": false,
+      "unfinished_output_retained": false,
+      "has_test_start_event": false
+    }
+  }
+}

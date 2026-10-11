@@ -21,6 +21,7 @@ removed and recovered from Git (ADR-0042, [historical recovery](../../README.md#
 
 | Folder | Question | Current consumer |
 |---|---|---|
+| [`2026-10-11_agent-test-evidence`](2026-10-11_agent-test-evidence/README.md) | Which native/maintained report formats preserve distinct failures, completed phases and interruption evidence for Codex analysis? | [Agent test-evidence and causal-analysis review](../reviews/design_review_agent-test-evidence-and-causal-analysis_2026-10-11.md) |
 | [`2026-10-09_build-storage`](2026-10-09_build-storage/README.md) | Which build outputs and captures still have consumers, what can be reclaimed, and which producer/lifecycle choices cause disk growth? | [Storage lifecycle plan](../../plans/storage-lifecycle-management-plan_2026-10-09.md), grounded in the [build-storage review](../reviews/design_review_build-storage_2026-10-09.md) |
 | [`2026-10-09_agent-effectiveness-followup`](2026-10-09_agent-effectiveness-followup/README.md) | Which recent command failures and native tooling capabilities identify useful Codex-focused workstation/repository improvements? | [Agent effectiveness follow-up review](../reviews/design_review_agent-effectiveness-followup_2026-10-09.md) |
 | [`2026-10-07_agent-workspace-effectiveness`](2026-10-07_agent-workspace-effectiveness/README.md) | Which environment, command-surface, tooling and agent-configuration changes would make capable agents more effective here? | [Agent workspace effectiveness plan](../../plans/agent-workspace-effectiveness-plan_2026-10-07.md) |
