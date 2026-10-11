@@ -973,10 +973,224 @@ This correction is independently source-accepted. Focused native rerun
 capture distinguishes foreign81 lexical/162 vector occurrences/8 vectors from selected80/160/8,
 with cold dependency-corruption and lexical missing/extra/changed refusal checks preserved.
 Published backup→fresh-restore coexistence control
-`20261011T093642.209Z-3a42ce` is in progress. Independent source review accepted its real
-publication/backup/restore path, complete pre-foreign inventory oracle, fresh owner and preservation
-assertions. Source A remains present; this does not replace the separately required source-retirement
-restore evidence. HS-F04/UP-F03/SA-F06 retain the pending actual published result and enclosing assurance.
+`20261011T093642.209Z-3a42ce` **failed**,exit100/confirmed managed cleanup: its normalized
+publication fixture has no existing window binding, so the test panicked before foreign capture or
+restore. Complete-retirement finalization then exceeded the unchanged360s test timeout; no restore
+success is claimed. The failed run is retained. Fixture construction and finalization ownership are
+under correction before dependent preparation proceeds. Independent source review accepted the
+intended complete pre-foreign inventory oracle, fresh owner and preservation assertions, conditional
+on execution. Source A remains present; this does not replace the separately required source-retirement
+restore evidence. HS-F04/UP-F03/SA-F06 retain the pending published result and enclosing assurance.
+
+**Open companion-context defect, source-inspected2026-10-11:** independent review found that
+positive dependency membership alone cannot distinguish an older unbound occurrence when a
+selected superset adds the window/part's first binding. Independent lowering replaces the unbound
+claim, while its positive dependencies remain selected and actual/capture eligibility admits it.
+SA-F06/HS-F04/UP-F03 retain this defect. Paired-view native control
+`20261011T095413.964Z-f1d3ac` **failed**,exit100/confirmed cleanup: A's independent cold audit
+passed; B's materialization and independent cold audit both refused actual-row reconciliation.
+The105.321s body captured both outcomes before cleanup/assertions; its release compilation passed.
+Correction is Implemented, qualification pending: require each occurrence's complete current
+witness context as well as positive selected membership, without full vector preparation or an
+expected-ID whitelist. `cargo check --release -p lctx-surrealdb` **passed**,exit0; paired first-binding
+and additive WindowPart native controls ran as `20261011T100735.428Z-ffb2e8`: **failed / partial**,
+exit100/confirmed managed cleanup. Release build passed4m01s and the additive companion case
+passed66.738s. First-binding control hit a null-binding nominal decoder error before B; its test
+then aborted with stack overflow during panic cleanup (SIGABRT18.552s). Explicit physical NULL
+handling now matches emitted unbound occurrences; missing/NONE/malformed identities still refuse.
+The pure boundary control and failure-path fixture finalization are source-accepted at
+`45ae3b26…`/`e13b1c20…`; the exact cause of the secondary overflow remains unestablished.
+Final-source pure decoder/budget run `20261011T101500.774Z-d41820` **passed**,6 controls/exit0/
+confirmed cleanup. Native five-control run `20261011T101500.778Z-54034f` **failed / partial**,
+exit100/confirmed managed cleanup: first-binding, additive companion and baseline controls passed
+114.699s/135.431s/146.322s respectively. Lexical/vector corruption controls failed167.244s/173.429s
+when their observation helper tried selected-context access after deliberately zeroing the window.
+The helper now needs exact raw baseline-family IDs for read-only mutation observations; cold
+refusal and restoration assertions remain binding. The full remaining mutation sequence is not
+yet qualified. No successful native retirement is inferred from managed process cleanup.
+An additional source budget-composition correction binds context transport readers to the caller's
+explicit pool, preserving source/selection semantics. A saturated inherited-reader pool versus
+independent caller-pool native control will distinguish this ownership requirement.
+Independent review accepted this bounded delta at `a0d846bb…`/`17c7ed85…`, including exact raw
+baseline-ID observations for all11 physical-field mutations, dual cold refusals, restoration and
+the complete/indexed actual-stream budget countercase. Pure final-budget-source run
+`20261011T102859.713Z-7fb87d` **passed**,6 controls/exit0/confirmed cleanup. Native first-binding/
+budget and lexical/vector corruption rerun `20261011T102859.713Z-0e31d5` **passed**,3 controls,
+190.177s/192.645s/211.618s bodies, exit0/confirmed cleanup. Both complete11-field mutation
+matrices preserve raw rows across dual cold refusals and restore them before final audit; the
+first-binding case proves complete and indexed streams use the explicit caller pool while the
+inherited reader pool is saturated. Published backup/fresh restore
+`20261011T102946.407Z-d4e96c` **failed**,exit100/confirmed cleanup,157.220s: the normalized
+fixture also has no primary WindowPart/search window, so it stopped before B or restore.
+Bounded reader finalization and retirement passed0.435s/15.969s. A minimal genuine catalog
+fixture is being substituted for this control; its actual binding supplies the distinct B
+binding case, while the separate first-binding case retains absence-context coverage.
+Native channels `20261011T102946.576Z-162e6d` **passed**,1 control/153.199s,exit0/confirmed
+cleanup. Reviewed minimal genuine catalog fixture `895ec10d…`, nonce-comment plus `pass`, ran as
+`20261011T103939.275Z-7cabd9`: **failed**,unchanged360.021s timeout/exit100/confirmed cleanup.
+Compilation completed; artifact admission passed145.065s (manifest103.173s), publication references
+13.464s and search37.973s passed; final publication reconciliation began before the deadline.
+No B, selected backup or restore assertion ran. Minimal input alone did not bound this genuine
+catalog path within the control. Existing supported admitted-fixture routes and the material
+manifest/preparation work were then under investigation; no deadline change was accepted at that
+checkpoint. The subsequent narrow new-control allowance is recorded below; no resource cap or
+bypass of admission is accepted. No enclosing acceptance follows from these focused passes.
+Affected scope-definition maintenance rerun `20261011T104831.199Z-2cd9d7` **failed** before
+its test body: native validation drain reported live reader/backup guards. Exit1/managed cleanup
+confirmed/no survivors; host maintenance remains closed with no borrowers. Exact validation
+guard inventory and released-client evidence are required before named maintenance recovery;
+process cleanup alone does not establish native pin release or permit content retirement.
+**Implemented / pure Tested root batching,2026-10-11:** complete selected-membership preparation
+and completed-state metadata scans now bind at most128 exact roots per native query, preserving
+the existing indexed predicates, independent actual-state audits and complete external sorting.
+Root-window charges precede bindings and remain held through checked drainage. Independent
+review accepted compiler `999cd2f9…` and selection `2cb1591d…`, including pinned3.3 first-index-
+column IN/Union semantics. `cargo nextest run --release -p lctx-surrealdb --lib --no-tests=fail
+-E 'test(selection::tests)'`, `20261011T105356.675Z-fa15c8`, **passed**,11 controls/0.034s,
+exit0/confirmed cleanup. Three new controls compare exact singleton unions across0/1/128/129/257
+roots with overlap/order/dedup, prebinding budget refusal, cancellation and consumer/late-terminal
+error drainage. Actual native index-plan/result correspondence and complete publication remain
+pending. The103s manifest interval includes other required work; no causal or overall speed claim.
+The existing native sparse control now compares actual multi-root membership and descriptor batches
+against independent singleton full-row unions, checks `contribution_rows`/`view_nodes` EXPLAIN and
+retains selected/shared versus foreign payload assertions. Independent review accepted test
+`c272f1e…`; managed `cargo nextest run --release -p lctx-surrealdb --test native --no-run`,
+`20261011T105724.691Z-d812ec`, **passed**,exit0/confirmed cleanup after1m43s compilation.
+Native >128-root behavior is not yet claimed from that test; pure257-root coverage is distinct.
+Fixture-backed exact sparse-growth and authenticated-session selection
+`20261011T111319.904Z-7c0c46` **passed**,2 controls/25.521s bodies,exit0/cleanup confirmed
+11:16:45UTC/no survivors. Actual two-contribution/multi-view batched full-row and descriptor
+results equal the independent singleton unions; EXPLAIN names both declared indexes and the
+foreign exclusion/shared selection assertions pass. Existing alias/conflict/absence/growth,
+budget-lifetime and checked stream-drainage assertions remain intact. The preceding2m57s build
+interval includes artifact-lock waiting; it is not test runtime or a performance comparison.
+
+Read-only closed-maintenance inventory `20261011T105516.341Z-6551e1` **passed**,exit0/confirmed
+cleanup: one unreleased validation pin, no active backup holds and no borrowers. Exact source
+attribution `20261011T110059.167Z-079962` **passed**,exit0/confirmed cleanup. Protected chain
+`timeout-pin-recovery-69e2df82501a440d90769b8753d72dda/inventory.json` SHA256 `92e5ea5199d7d0574c9685dbd04e80f5c13a69aaa5fb566d3dc56057225f9c63`
+and `timeout-pin-exact-source-80a6aebdf44248248fe30ef6603d5dbe/exact-source.json`
+SHA256 `f2baa74af5740f1096e5f8523402109f5f9675d65e4ee5153ccf0675563c2af6`, under the installed
+service state, bind pin `31a5432d9a381ea9847f69fea7570de17b0623eb91558293b493789e4212b4a8`
+to publication `95470c30903fb1d82d4c496a154679a8b48e86aec5a5db2e325891fd8bfd4437` and its896
+exact selected views. The publication marker is present. Captured original191 bytes exactly equal
+the retained nonce-source/native-signature input from `4cb00b`, whose attachment and managed
+command cleanup are confirmed; this pin is not attributed to minimal-pass run `7cabd9`.
+Independent recovery review accepted only the named pin through standard fenced maintenance
+recovery. Evidence/source inputs retain `citation:SA9-timeout-pin-recovery` holds; no content
+retirement or backup-hold release is authorized by that conclusion. Earlier attribution helpers
+`398015`/`61b398` failed on diagnostic-only missing-module/ArtifactChunk-body assumptions,
+respectively; neither performed a reconciliation effect. Standard named recovery
+`just service maintenance --recover --reconcile-database validation --reconcile-pin
+31a5432d9a381ea9847f69fea7570de17b0623eb91558293b493789e4212b4a8`,
+`20261011T110507.048Z-30b9f2`, **failed**,exit1/confirmed cleanup/no survivors: native request
+`7ad9a180a2dfbb401c26e14d5759afc19a28a2e07b49b1bae6ce46d8f46bec09`,era9,
+digest `f0be357073d05926b18d9d9fbcf345938578289f170546552f4db464fdd289a4` hit its native10s
+transaction timeout. Both scopes remain closed. Exact outcome/pin/remaining-hold readback and a
+bounded recovery-owner repair are pending; no successful release or dependent check is claimed.
+Exact read-only outcome `20261011T110844.202Z-572ced` **passed**,exit0/confirmed cleanup:
+the pin's durable released fence is true,384 holds were drained and the513 remaining IDs are
+an exact subset of its original897. Failed effect `7ad9…` is committed=false/resolved=true and
+no effects are pending. Protected `timeout-pin-recovery-outcome-f636a1b081f44bff930d93d6e5e189d9/outcome.json`
+SHA256 `f2312c2bbb7d6c9e447bb47b31cf9f9d725cb87ccf58517199378c88a531cdee` retains the actual
+readback. Independent review accepted continuation of the same named recovery through the existing
+released-pin/128-hold drainage protocol, preserving its ordinary fences and unchanged budgets.
+This proves durable partial progress, not completed recovery or native content retirement.
+The same exact named continuation `20261011T110945.659Z-d896ac` **passed**,exit0/cleanup
+confirmed11:10:12UTC/no survivors. Standard reconciliation/drain/check completed and both scopes
+reported ready. Service status is ready/maintenance=false/borrowers=[]; installation, native
+generation/format5, frozen0dcc executable and patched server710229df/generation405f6c02 remain
+unchanged. The frozen installer's captured source/manifest independently corroborates durable
+fence then128-owned-hold continuation. No other pin/backup guard or native content was retired.
+Guard-free current-source `just ready`, `20261011T111102.164Z-bec1a2`, **passed**,exit0/cleanup
+confirmed11:12:50UTC/no survivors, rebuilding the stale native extension in this checkout's
+Python3.14.7 environment. Reviewed minimal catalog publication/backup/fresh-owner regression
+`20261011T111256.987Z-9e5ab8` **failed**,360.015s timeout,exit100/cleanup confirmed11:22:19UTC/
+no survivors. Catalog compilation completed in137s; content freeze took62.431s, followed by
+semantic7.999s/canonical2.571s/graph0.964s admission. Artifact manifest construction began
+11:19:50.526UTC and had not completed about148s later when the test was terminated. Publication
+seal, baseline backup, B coexistence and fresh restore assertions were not reached. Root batching
+does not establish a speed improvement or explain the remaining manifest interval. Exact source:
+publication895ec10d/compiler999cd2f9/selection2cb1591d. Manifest phase attribution and this new
+compound Catalog control's deadline were reassessed before dependent acceptance proceeds.
+**New-control orchestration allowance,2026-10-11:** independent source/acceptance review found no
+safe removable admission audit. This newly added regression now receives an explicit900s Nextest
+allowance, matching the existing Catalog admission/export journey policy. It compiles/admit/seals
+a genuine Catalog, takes two exact backups, materializes/reconciles B, independently restores/audits
+fresh ownership, checks originals/pins/B preservation and cleans up. Its previous360s runs did not
+reach these assertions. This is an explicit exception to the earlier unchanged-test-deadline
+checkpoint for this new control only. Existing test deadlines and all native/request deadlines,
+resources, parallelism and semantic assertions remain unchanged. Prior timeout receipts remain
+failed; no performance claim or waiver of existing timeout obligations follows.
+**Implemented / source accepted traversal refinement,2026-10-11:** recovery closure now fetches
+input-view descriptors only on the first inclusion of each physical contribution owner. Every
+output view still freshly reads/validates its owner descriptor and undergoes the model's exact
+contributor inventory/output ownership/collision checks. `RecoveryTraversal::include_view` already
+skips its dependency callback for an included logical contribution; repeated output-view input
+queries were therefore computed and discarded. Independent review accepted compiler30f15321…;
+independent audits/captures are still separate. Fixed-name phase observations now distinguish
+logical closure/payload selection and manifest producer/outcome/projection/embedding/admission/
+completed-state work (manifest126739…); errors, order and completion ownership are unchanged.
+No runtime benefit or attribution of the earlier103s/148s interval is established.
+`cargo nextest run --release -p lctx-surrealdb --lib --no-tests=fail -E 'test(phase::tests)'`,
+`20261011T113050.941Z-e6829a`, **passed**,3 controls/0.012s,exit0/cleanup confirmed11:33:19UTC/
+no survivors after2m28s compilation. The actual compound publication/backup/restore journey
+remains required; pure phase controls do not establish native closure equivalence.
+Affected installed-scope-definition maintenance control
+`just service maintenance --native-clients -- cargo nextest run --release --locked
+-p lctx-publisher --test stream_search --run-ignored only --no-tests=fail
+-E 'test(=installed_scope_definition_drift_is_detected_read_only)'`,
+`20261011T112812.695Z-c4b9c6`, **passed**,1 control/287.068s,14 skipped,exit0/cleanup confirmed
+11:33:41UTC/no survivors. Service reported ready/maintenance=false/borrowers=[] afterward.
+The later closure refinement does not change its selected search/definition checks. Exact analyzer
+drift control `just service maintenance --native-clients -- cargo nextest run --release --locked
+-p lctx-publisher --test publication --run-ignored only --no-tests=fail
+-E 'test(=actual_installed_analyzer_drift_is_refused)'`,
+`20261011T113358.141Z-926e40`, **passed**,1 control/129.871s,20 skipped,exit0/cleanup confirmed
+11:40:12UTC/no survivors on compiler30f15321…/manifest126739…. Its3m59s release build is separate.
+Current CLI `cargo build --release --locked -p lctx --bin lctx`,
+`20261011T114154.118Z-b05cfd`, **passed**,2m33s,exit0/cleanup confirmed11:44:27UTC/no survivors,
+retained. This was a pure build concurrent with the single publication native owner; no environment
+synchronization or service effect ran under its guards. Compound publication rerun
+`20261011T114046.102Z-80bd97` was **cancelled at the operator's request**,2026-10-11,
+through `just runs cancel 80bd97` at11:54:10UTC: exit143, cleanup confirmed11:54:15UTC,
+no surviving processes; retained. Nextest received SIGTERM after801.571s, before the explicit900s
+allowance. This is interrupted assurance, not a900s timeout or an accepted test. A's manifest
+completed at11:44:16UTC/11.143s and seal at11:48:28UTC/194.083s. Baseline backup and B construction
+were reached; B contribution completion was observed at11:51:03UTC, and the last recorded phase
+was native payload selection at11:52:00.178UTC/351.899ms. The exact unfinished search/backup
+operation is unknown. Full B preservation, exact A backup comparison and fresh-restore assertions
+remain unproven. These phase durations do not establish improvement between runs.
+Host cleanup reported ready/maintenance=false/borrowers=[] with unchanged installation/server;
+native pins and attempts were not queried after stopping, so database cleanup is **unknown**.
+Storage attachment completion remains **blocked**, IDs13aa5d7f-d1e0-4f7b-a436-f5ae99888dfa and
+7be2dcac-2b3b-40bb-b50d-59e7f7e6f223; their content is preserved. Native readiness, serving restart,
+remaining maintenance/serving controls and assembled qualification were not run after the stop.
+Independent source review accepted production fingerprints `78b80869…`/`a01922a8…`/`adac05a5…`
+and paired controls `c8b3cd3f…`: coherent transaction/session adapters, sparse witness-only context,
+bounded charges and composed drainage, unchanged emitted identities, and eligible extra/changed
+claims still exposed to independent cold comparison. Native channel fixture `039435d4…` supplies
+genuine companions for1400 distinct windows while preserving quotas and negative cohorts;
+its actual channel/order/quota/budget/refusal assertions passed in `162e6d` above.
+The second-binding coexistence regression does not close this absence-dependent case. No
+unexpected-row waiver or change to independent cold validation is accepted.
+
+Read-only exact-publication retirement diagnostic `20261011T095059.973Z-cde192` **passed**,
+exit0/confirmed cleanup under explicit maintenance. The failed test's publication root is absent,
+its root item is done, and its job has2908 done/979 retained items with no pending/retiring items,
+root holds or unresolved effects. The job remains open; retained shared content is preserved.
+This does not prove the cause of the360s timeout or complete native retirement. The source-present
+coexistence regression uses the existing bounded fixture finalizer; the separate cold-source
+regression retains complete source-absence assertions and resumed bounded retirement passes.
+
+Catalog-frontier fixture retry `20261011T095410.471Z-4cb00b` **failed**,exit100/confirmed
+managed cleanup,360.021s test timeout. Admission passed in108.9s and publication sealing in63.4s;
+the baseline backup completed, and the timeout occurred during B's native contribution writes,
+before restore. Independent review accepted the fixture/error-path changes at source strength.
+With the first-binding context defect now exposed and being corrected, the complete backup/restore
+control will use the smaller supported normalized A plus B's first genuine source binding. It
+retains actual admission, independent cold checks, exact backup inventory, fresh ownership,
+original bytes, pin release and preservation assertions. No timeout or concurrency limit changes.
 
 **SA0–SA9 implementation in progress,2026-10-10, baseline `3d41aec1`.**
 ADR-0146 records accepted recoverable native progress and the distinct checked successor.
@@ -1046,7 +1260,7 @@ need explicit disposition. Timer/operator/real-library/heldout/Qwen activation r
 | Remaining all-testing inventory | Static inventory,2026-10-10, confirms assembled provider filtering omits full extraction targets/modules, flow call_paths, offline lctx-embed and lctx-eval test packages. Subsequent full release workspace Nextest and workspace docs cover these with normal available parallelism;13 extra controlled MCP Python tests already passed. Live embed vector/tokenizer controls return early without configured endpoints and remain explicitly **not_run**, not silently successful qualification. No additional Python population, trybuild or UI harness was found beyond current tooling/MCP routes; optional finite-evaluator CLI smoke can add invocation coverage only. |
 | SM8 exact-checkout survival runner | Implemented/source-accepted after independent final re-review,2026-10-10. Typed validation handle, durable fresh checkout ownership and named indefinite failure retention are present. Independent review identified generic absent-path removal could prune unrelated stale worktrees; corrected runner refuses any absent path with surviving branch/registration before generic removal, preserving exact resolution evidence. Focused pure storage controls `20261010T230733.936Z-146672` **passed**,16; prior runs retain their original source scope. Actual publication/recovery/daemon survival through owned checkout removal is **not_run** and remains distinct from prior installed executable transfer. |
 | Current tooling and publisher assurance follow-up | `just run --background --label sa-final-tooling-functional -- just verify --select tooling:python`, `20261010T230825.936Z-343bc8`, **failed**,110.8s: foreign-namespace holder control saw an unexpectedly held environment lock; exact temporary registry and checkout resource isolation were corrected without weakening foreign-owner semantics. Focused17 controls `20261010T231155.874Z-3b2a53` **passed**; full tooling rerun `20261010T231238.218Z-1fac84` **passed**,108.1s, confirmed cleanup. Publisher selection `20261010T230915.416Z-4047a9` ran21 controls:20 **passed**, one actual cold native claim comparison failed before its body because this launch omitted the required validation fixture. Rerun that native case under `just fixture` after recovery; this launch is not cold-admission acceptance. |
-| Native range LIMIT amplification correction | Actual read-only `20261010T232349.381Z-c2a264` **passed** complete128-row/body/order equivalence on retained native_hold: literal range1.834399799s versus `type::record(range)`10.449262ms,34826 encoded bytes each. Exact3.3.0 installed source shows literal RecordIdScan invokes shared lookup with no limit and materializes the remaining range before outer LIMIT; DynamicScan forwards its pushed limit. Actual EXPLAIN confirms that distinction. Timings measure only this query, not overall migration speed. New managed `/home/paul/library-context-wt/sa-format4-range-recovery` restores hash-verified protected9088 source then changes only the physical keyset wrapper; target4/protocol/source-form/verifier identities stay exact. Corrected candidate4 build `20261010T232555.950Z-23b47a` **passed**,8m59s. Exact metadata/contracts/source capture `20261010T233526.860Z-c832cb` **passed**: both scope contracts equal the active immutable predecessor, target4/0870158e, binary SHA256 `c58fd6e4cd9e5060d82800bc9347df35fa8586491fbb1869182aab11fbc1a4ca`. Protected reproducible bundle `233526…c832cb/source` has manifest SHA256 `b7198a9c5f5fc1f0aadd02df54455a0a7d2e04843b01af2b5f7759710c8f3cda`. Independent read-only implementation review accepted the separate4 production delta and5 helper/controls: native key types/bounds/order remain intact; pure controls cover typed cursors/grammar/refusal, and the ignored fixture checks complete nonce-owned128/128/4/0 pages, pushed limits and guarded cleanup/invalidation. Main5 matching executable is built; later actual native control results are recorded separately below. Matching build `20261010T233541.892Z-1731cf` **failed** on SDK-unsupported direct String extraction in the new test; the compiler remained live after its diagnostic and root gracefully cancelled that failed-source build (exit143). The test now extracts native Value then requires Value::String; independent review accepted unchanged assertions and error/cleanup semantics. Corrected `20261010T233609.059Z-85699f` **passed** the two pure keyset controls/164 skipped/0.007s bodies after4m21s build, normal CLI release build8m27s and native-control discovery11.16s; exit0, confirmed cleanup. Exact CLI identity `20261010T234924.317Z-48a616` **passed**, SHA256 `0dcc07890b30b6b6f2302b7928d458bda7b2e501dbf3dccc5af7eb25d80bd0ff`, target5/schema `eec4dc767fe4477fbfc3f5a584b54a6c8855345af02c3390ad5f77ac326e0383`. Matching main5 source capture `20261011T000717.251Z-4d2679` **passed**, retained under its named hold: `source/manifest.json` SHA256 `ac7432d3a276750f606d6e6c43eba8faef75b8ce587ec31d6ca4feb2dc6246ee`, binding the same0dcc0789 CLI and base3d41aec1. Discovery is not execution of native control bodies. Old acknowledged progress is preserved, not reset. Queued `230723…00056e`/`231213…a4b795` were cancelled before dependent bodies and require matching replacements. Initial stdin-only background probe `232316…9b88c3` executed no body; unrelated baseline build `sa-format4-range-recovery/232447…d5c8e6` was cancelled before corrected source build and is not candidate evidence. |
+| Native range LIMIT amplification correction | Actual read-only `20261010T232349.381Z-c2a264` **passed** complete128-row/body/order equivalence on retained native_hold: literal range1.834399799s versus `type::record(range)`10.449262ms,34826 encoded bytes each. Exact3.3.0 installed source shows literal RecordIdScan invokes shared lookup with no limit and materializes the remaining range before outer LIMIT; DynamicScan forwards its pushed limit. Actual EXPLAIN confirms that distinction. Timings measure only this query, not overall migration speed. New managed `/home/paul/library-context-wt/sa-format4-range-recovery` restores hash-verified protected9088 source then changes only the physical keyset wrapper; target4/protocol/source-form/verifier identities stay exact. Corrected candidate4 build `23b47a` **passed**,8m59s. Exact metadata/contracts/source capture `20261010T233526.860Z-c832cb` **passed**: both scope contracts equal the active immutable predecessor, target4/0870158e, binary SHA256 `c58fd6e4cd9e5060d82800bc9347df35fa8586491fbb1869182aab11fbc1a4ca`. Protected reproducible bundle `233526…c832cb/source` has manifest SHA256 `b7198a9c5f5fc1f0aadd02df54455a0a7d2e04843b01af2b5f7759710c8f3cda`. Independent read-only implementation review accepted the separate4 production delta and5 helper/controls: native key types/bounds/order remain intact; pure controls cover typed cursors/grammar/refusal, and the ignored fixture checks complete nonce-owned128/128/4/0 pages, pushed limits and guarded cleanup/invalidation. Main5 matching executable is built; later actual native control results are recorded separately below. Matching build `20261010T233541.892Z-1731cf` **failed** on SDK-unsupported direct String extraction in the new test; the compiler remained live after its diagnostic and root gracefully cancelled that failed-source build (exit143). The test now extracts native Value then requires Value::String; independent review accepted unchanged assertions and error/cleanup semantics. Corrected `20261010T233609.059Z-85699f` **passed** the two pure keyset controls/164 skipped/0.007s bodies after4m21s build, normal CLI release build8m27s and native-control discovery11.16s; exit0, confirmed cleanup. Exact CLI identity `20261010T234924.317Z-48a616` **passed**, SHA256 `0dcc07890b30b6b6f2302b7928d458bda7b2e501dbf3dccc5af7eb25d80bd0ff`, target5/schema `eec4dc767fe4477fbfc3f5a584b54a6c8855345af02c3390ad5f77ac326e0383`. Matching main5 source capture `20261011T000717.251Z-4d2679` **passed**, retained under its named hold: `source/manifest.json` SHA256 `ac7432d3a276750f606d6e6c43eba8faef75b8ce587ec31d6ca4feb2dc6246ee`, binding the same0dcc0789 CLI and base3d41aec1. Discovery is not execution of native control bodies. Old acknowledged progress is preserved, not reset. Queued `230723…00056e`/`231213…a4b795` were cancelled before dependent bodies and require matching replacements. Initial stdin-only background probe `232316…9b88c3` executed no body; unrelated baseline build `sa-format4-range-recovery/232447…d5c8e6` was cancelled before corrected source build and is not candidate evidence. |
 | Actual range-corrected4 successor and continuation | `20261010T233534.513Z-5f459e` **passed** actual reconciliation, qualification and one checked step with immutable candidatec58fd6e4. Successor `59b9fa33fb85ea798e6c65fc7a7ffb9a80522f1f734254396b3c03b7c6df59bf` checkpointed revision12223/preflight, admissionfalse, preserving original native migration/credential identities and acknowledged prefix. Full resume `20261010T233608.829Z-148532` **failed**, exit1, after retained revision43933 at Protect entry; all preflight and translation completed. An earlier observation advanced revision12223→18974 in about1min within preflight family8/native_hold; this remains observed progress, not overall throughput or completion. At that failure admission stayed closed; original identities/prefix/artifacts remain retained. Subsequent corrected format4 recovery and actual format5 transition completed below; broader acceptance remains open. |
 | Source4 locked-target correction | Actual failed recovery diagnosed pinned3.3 SELECT FOR UPDATE rejecting a field expression target (`$hold.guard`) rather than a record-ID parameter. Root corrected two old format4 migration targets to LET-bound `guard_id`/`cleanup_id` followed by plain-parameter `SELECT * FROM ONLY ... FOR UPDATE`; semantic guards/schema/protocol remain unchanged. The corrected rebuild, checked compatible-successor qualification and full format4 recovery passed below. Actual closed-validation read-only probe `20261010T234346.669Z-ed8471` **passed** direct-field refusal and LET-parameter acceptance in committed read-only transactions; no records created/modified. Initial `20261010T234319.464Z-8b0abf` **failed** on harness exception handling; `20261010T234336.437Z-898caa` **failed** because CANCEL marks returned statements failed. Neither failed probe is credited as passed. |
 | Source4 actual Protect-body qualification refinement | Independent bounded source review **Accepted**,2026-10-10: restored4 `upgrade.rs` SHA256 `952c995c33dc16b31a531104189591240448faa738f9d3f7902c2a93f9b04f1f`, paired migration lock fix SHA256 `a68bfba49649de188c79b5f88f59185e23957eae751e419ec5976e4550cb854d`. Earlier automatic qualification exercised sentinel/no-op bodies, not the actual Protect body. The refinement obtains the production page, requires1..128 actual native holds and an extant-object branch rechecked in the same production transaction, appends deliberate THROW after the real body, then compares bounded complete hold/guard/progress snapshots including absence. Optional `protection_rollback` is emitted only at Protect; no other pass, historical outcome, schema or semantic protocol is fabricated. Waiting build `20261010T234525.620Z-f9114d` was cancelled before Cargo to strengthen this qualification. Corrected composite `20261010T235000.233Z-320a5c` **passed** two pure qualification controls/151 skipped/0.006s and normal CLI release build8m38s; confirmed cleanup. Candidate proof `20261011T000334.003Z-8d8bec` **passed** both exact immutable-predecessor scope contracts, target4/0870158e; binary SHA256 `d9ba0327b1f12b760b91a33ac49003ee6336dedb5ce22e7d055cfc94d32b715c`. Protected reproducible `8d8bec/source` manifest SHA256 `f7bdf78bd713133d0f8cd969b20fc309a8c1fe612c32016d0219982088071a40`. |
@@ -2533,6 +2747,58 @@ corruption checks. Broader required backing coverage remains under final targete
 Enclosing publication/transport and whole-plan acceptance remain separate. Real FastMCP/Q1 pilots,
 live Qwen qualification, protected evaluation activation, operator adoption and push remain held.
 
+### 9.2. Operator stop and worktree preservation,2026-10-11
+
+The operator requested stopping testing, integrating necessary work, deleting auxiliary worktrees
+and reconciling documentation. No further product assurance or native recovery is performed in
+this closeout. Current main already contains the adapted audit/planner implementation; neither
+predecessor patch is appropriate to merge over it. Exact snapshots are committed on archival
+branches before checkout removal:
+
+| Checkout | Exact snapshot | Retained Git branch / integration disposition |
+|---|---|---|
+| audit-closure | a8bcdb81 | `archive/audit-closure-2026-10-11`; predecessor capture helpers superseded by current owned audit consumers. |
+| pc3-scope | 013f36e1 | `archive/pc3-scope-2026-10-11`; current genuine scoped-contribution planner controls cover the adapted implementation. |
+| sa-format4-batch-recovery | 94081877 | `archive/sa-format4-batch-recovery-2026-10-11`; historical format4 source, separate from format5 main. |
+| sa-format4-range-recovery | c821ee10 | `archive/sa-format4-range-recovery-2026-10-11`; historical format4 source, separate from format5 main. |
+
+The audit archive retains two unmatched predecessor test scenarios (contradictory SourceSnapshot
+row count and bound-membership content mutation/refusal/restoration). Adapt them to current
+capture_audit/verify_captured only if a future task needs them; do not restore obsolete helpers.
+Current frozen-worktree snapshots differ from the original qualified source captures. Both are
+preserved independently; an archival snapshot is not substituted for qualified replay evidence.
+The full local range-build receipts/logs (`23b47a` and `d5c8e6`, nine files) were copied and
+SHA256-verified into owned retained run
+`build/runs/20261011T115901.937Z-b2e745/preserved-worktree-runs` before releasing the originals.
+Its manifest SHA256 is `abc345ed5b157b717cf00f07c42ce25ea62272b4842c1a71bfec48d1d19511f4`;
+parent storage object e6870a04-e283-4aeb-b4b7-06c8142d1a81 has permanent
+`citation:SA9-worktree-preservation` raw-replay retention. This is the current evidence route.
+Shared Cargo/native/service caches, original qualified source bundles and operator state stay
+protected. All four auxiliary checkouts and their `wt/*` branches were removed after clean/integration,
+live-owner and identity checks; only main remains. Archival branches above are retained. Managed
+removal receipts `20261011T120623.522Z-e1d15b` (first three) and
+`20261011T120834.420Z-2b48e3` (range) both exited0 with confirmed cleanup/no survivors at
+12:08:22UTC and12:08:35UTC respectively. The first launcher initially reported no confirmed start
+while storage admission was delayed; the eventual native run record and complete log establish
+successful removal. No removal was repeated on that uncertainty alone.
+The four original local run/log objects were released after the verified evidence handoff and retired
+through their storage owner, child logs before parent receipts:
+98fc781f-972c-49e0-ae5c-8c1f2d440d30,289c73cf-337f-4b1d-b0d6-7eb32712f532,
+e97d8af2-cefa-4e7b-998f-15f14d037f92,a3a9c546-2855-4ebd-85c1-f614c36e7272.
+No other storage objects were collected. Main and protected external service/build state remain.
+
+The ordinary worktree removal attempt (`e77bad`) refused because nested service-generation
+observation reversed storage admission order, not because an actual service dependency was found.
+Independent read-only inspection verified existing owner APIs could compose checkout-exclusive and
+current-server-generation-shared admissions up front; removal used that composition without changing
+or bypassing owner checks. The wrapper limitation remains; this closeout does not claim a product
+fix or SM8 service-survival qualification.
+
+Documentation closeout `just docs-check` **passed**,2026-10-11:402 canonical pages, zero link
+errors; included ADR lint (84 records) and agent lint. `git diff --check` passed before scoped
+turn-end formatting. These are documentation/format controls, not resumed product assurance.
+All product qualification remains at the stopped boundaries recorded above.
+
 ## 10. Library fit, remaining investigations and future change
 
 The comprehensive neo4j-surrealdb skill research from the source review was reused, then deepened
@@ -2580,52 +2846,48 @@ features silently scheduled here.
 
 ## 11. Current plan checkpoint
 
-**2026-10-10: SurrealDB architecture correction plan Proposed; execution next.** The
-[architecture companion](surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) §3
-defines the complete transition/progress/checked-successor target. SA0–SA3 precede the next owned
-installed migration attempt; ready catalog/access work uses its own actual prerequisites. SA findings
-remain Open in §8. Document acceptance does not close native/product acceptance.
+**Implemented / focused Tested,2026-10-11; integrated acceptance paused by operator.**
+The [architecture companion](surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
+coordinates SA0–SA9 with HS11/UP9/NE9/GK7/GR6/PC6/PJ5/CU6. ADR-0146's checked recovery
+completed mixed-state recovery and the format5 transition. Installed format5/eec4, frozen0dcc
+maintenance executable and patched server405f6c02 remain intact. Completed migration evidence
+is retained without replay. §8 alone owns dispositions; §9.1 retains exact passing/failed/interrupted
+receipts, and §9.2 owns the authorized worktree/evidence closeout.
 
-**2026-10-10: holistic corrections implemented; integrated qualification interrupted.** The
-[companion](holistic-state-management-plan_2026-10-10.md) adds HS0–HS11 to the combined UP/NE/PC/GK/GR
-target (§7.4); HS findings remain Open in §8 pending their actual acceptance. ADR-0145 and the
-owners carry implemented selected backup, phased retirement and original issuance/outcome
-contracts; history deletion still requires separately qualified horizons. All-test compilation,
-the corrected installer and67 pure controls passed (§9.1). The owned migration published main4
-but validation remains3 behind closed admission. The exact patched server and its locked
-dependency correction were built and adopted; continuation `20261010T174350.233Z-05d48c` failed
-at19:02:54UTC on the omitted mandatory retirement field. Current source does not have a qualified
-mixed-state recovery route; SA1–SA3 provide it without changing original native authority.
-Publication/MCP and earlier failed composites retain their receipts.
-HS11 joins UP9 acceptance once; no source review or bounded pass closes whole-plan qualification.
+Implemented/source-accepted changes include operation-valid catalog preparation, selected access,
+nomination, hydration and retirement, current-witness occurrence eligibility with coherent bounded
+canonical reads, caller-owned reader budgets, charged128-root membership/state batches and
+first-inclusion recovery input queries retaining independent output-owner validation. Pure/native
+first-binding, full corruption matrices,1400-window channels, indexed batching/session and affected
+definition/analyzer drift controls passed at their recorded source. CLI build passed; the native
+extension predates the latest compiler/manifest edits. No measured benefit or integrated exit is claimed.
 
-**2026-10-09: GK0–GK6/GR0–GR5 integrated, Implemented / focused Tested; enclosing qualification open.**
-ADR-0139 and the architectural owners install model-owned relation scope compilation, canonical
-program identity and exact-equality XXH3 interning. Finite/native root partitions and bounded
-shared hydration reach normalization/admission, upper consumers and pinned native serving.
-The [independent assembled review](../design_review/reviews/design_review_assembled-graph-scope-compilation_2026-10-09.md)
-accepts the inspected source at Implemented strength; §8 owns its source-qualified findings.
-The 288-control focused selection has passing evidence after the repaired exact-two SourceCall
-rerun; its initial composite remains failed. Affected all-target Clippy and applicable leaves passed
-(§9.1). This is not whole-plan qualification or measured benefit.
-ADR-0140 adds portable products, selected-domain reuse, current dependency metadata and
-viewer preparation. The independent reuse-contract review and repaired controls are recorded
-in §8/§9.1. GK7/GR6 qualification and BC3 remain open; full compiler matrices timed out.
-Prior timeouts and PC/CU/BC obligations survive under §7.1.
-No operator database/configuration, activation, real-library pilot or push is authorized.
+The operator stopped compound publication assurance (`80bd97`, exit143/confirmed process cleanup).
+A seal, baseline backup and B construction were reached; exact backup equality, full B preservation
+and fresh ownership remain unproven. Host ready/empty-borrower observation does not prove native
+pin/attempt cleanup, which was not inspected after stopping. Unresolved storage attachments remain
+preserved. No product test, readiness refresh, maintenance recovery or serving restart follows this stop.
 
-**2026-10-08: PC0–PC6 execution resumed; corrective target accepted under ADR-0138.** The [independent correction-plan review](../design_review/reviews/design_review_persisted-execution-corrections-plan_2026-10-07.md) accepted PC0–PC6 at Proposed strength, with no remaining blocking design finding; runtime closure remains open. Native compiler and adjacent shared operations are on main; current targeted receipts and remaining checks are in §9.1. The correction plan develops all six new findings and both accepted rule changes; §8 owns their current disposition. The independent
-[target-plan review](../design_review/reviews/design_review_persisted-graph-execution-plan_2026-10-07.md)
-accepted the Proposed architecture. Its frozen-universe, deferred-reference, exact-statistics
-and complete-body obligations remain binding during implementation. Source acceptance and
-bounded successful controls do not establish the whole pivot or measured compilation speed.
+**Remaining execution, when resumed:**
 
-PC0–PC5 contracts and consumer migrations remain integrated in the committed baseline. PJ0–PJ3
-and bounded assembled-review corrections are implemented on main as `2a62e817`; prior targeted
-acceptance and its remaining timeouts/qualification limits stay in §9.1. Earlier populated passes
-describe the preceding physical schema. The independent assembled review accepts its scoped
-static/Implemented source, not the new GK/GR target or whole-plan performance. Normalization and
-validation amplification now have scheduled replacement packages GK2/GK3/GR4; causal runtime
-attribution remains unproven. Assembled `qualify`, affected timeout reruns and PC6/CU6/BC3/BC5 are
-open under the final-source route in §7.1. PC3's dirty worktree and shared profiling/build assets
-remain preserved. No push or operator adoption is requested.
+1. Inspect the exact stopped-run native guards/attempts and attachment completion through their
+   existing owners. Resolve only evidenced obligations; preserve unknown content and exact identities.
+2. Attribute the unfinished genuine A/B search/backup path from retained phases and complete
+   `selected_backup_restores_fresh_ownership_while_foreign_window_binding_coexists` with all original
+   assertions. Its explicit900s allowance is limited to this newly added compound control; existing
+   native/request/test deadlines, resources and normal parallelism remain unchanged.
+3. Refresh the checkout's native extension with guard-free `just ready` after final source changes.
+   Prepare fresh `just verify --select serving:mcp --retain-serving sa9_final_20261011 --restart-service`
+   (check name availability); run outstanding exact executable-epoch and absent-library serving controls
+   using their real maintenance/retained-fixture prerequisites. Source-matched definition/analyzer
+   passes are retained; they do not substitute for these outstanding controls.
+4. Run current-source `just verify --qualify --cli` (**not_run**), repair scope-owned failures and rerun
+   affected boundaries. The current complete ordinary inventory is161 default-feature Rust targets/
+   56 Python files; independently required maintenance/historical/live/optional scope remains explicit.
+5. Complete independent acceptance and reconcile owner labels/dispositions from actual evidence.
+   Historical per-pass/nested-cleanup interruption coverage remains an SA-F02 gap even if current-source
+   SA9 passes; SA-F02 and whole-SA completion remain open. Original lost-JWT evidence retains its limit.
+
+BC3 candidate-profile adoption, SM8 native disposable-checkout survival, additional testing campaigns,
+real-library/operator activation and qualified history collection retain their separate authorities.
+No native content or warm shared caches are retired by the requested checkout removal.

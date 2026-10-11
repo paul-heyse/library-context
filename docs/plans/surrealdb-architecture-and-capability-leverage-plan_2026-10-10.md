@@ -319,20 +319,28 @@ BC3 profile adoption, SM8 service-survival qualification and real-library/operat
 
 ## 9. Verification, cutover and completion
 
-**Resumed execution boundary,2026-10-11:** the operator authorized the remaining current-source
-assurance through SA9 and its shared HS/UP/NE obligations. The completed format3→4 recovery and
-format4→5 transition are retained evidence; neither migration is replayed against installed format5.
-The operator explicitly chose to preserve the unexecuted legacy per-pass/nested-cleanup interruption
-matrix as a scoped SA-F02 qualification gap. Current-source qualification may pass without proving
-that historical matrix, but SA-F02 and whole-plan completion remain open for that requirement.
-BC3, SM8, additional testing campaigns and activation retain their separate owners.
+**Execution checkpoint,2026-10-11: Implemented / focused Tested; integrated acceptance paused
+at the operator's request.** Complete mixed-state recovery and format3→4→5 transitions are retained
+without replay. Catalog preparation, selected access/nomination/hydration/lifecycle changes and
+subsequent witness-context, caller-budget and128-root batching corrections are implemented and
+source-accepted. Focused pure/native and definition/analyzer drift controls passed within their
+recorded source boundaries; the compound published A/B backup/fresh-ownership control was cancelled
+before acceptance. Current-source assembled qualification is **not_run**. No measured speed claim.
 
-Coordinator §9.1 owns exact receipts and the restart command. Execution resumes with guard-free
-`just ready`, focused completion/sort/native controls and the small facts-phase diagnostic before
-broader assurance. Retain valid source-matched catalog/history/recovery receipts; explicitly route
-outstanding maintenance and retained-serving controls through their existing owners. Frozen
-earlier-generation worktrees remain protected replay inputs, not new merge candidates. Reuse
-completed build artifacts without cleaning caches.
+[Coordinator §9.1](persisted-graph-execution-plan_2026-10-07.md#91-current-execution-checkpoint-2026-10-07)
+owns exact receipts and stopped-run cleanup uncertainty; its §9.2 owns archival worktree snapshots/
+evidence handoff, and §11 owns ordered remaining execution. Current main already contains the adapted
+audit/planner work. Format4 recovery snapshots remain on archival Git branches separately from
+format5 production; original qualified source bundles and shared warm caches remain protected.
+On resumption, resolve exact stopped-run ownership, finish genuine backup/restore assurance, refresh
+guard-free native readiness, complete retained-serving restart/outstanding controls and run coordinated
+`just verify --qualify --cli`. Do not replay completed migration or infer native cleanup from host exit.
+
+The operator explicitly preserved the unexecuted legacy per-pass/nested-cleanup interruption matrix
+as an SA-F02 gap: current-source acceptance cannot close SA-F02 or whole-plan completion for that
+requirement. Original lost-JWT evidence retains its historical limit. BC3, SM8, additional testing
+campaigns and activation retain their separate owners. §8 of the coordinator remains the sole finding
+disposition owner; this checkpoint does not close findings or waive prior failures.
 
 Resolve current commands with `just verify --help` and `just verify --print --select FAMILY:BOUNDARY`;
 use actual test names and source identities. Relevant boundaries are `tooling:python`, `store:rust`,
