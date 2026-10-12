@@ -214,10 +214,23 @@ pub fn normalize(
             .and_then(|n| n.checked_add(counts.len().checked_mul(512)?))
             .ok_or_else(|| invalid("layer size overflow"))?,
     )?;
+    let _membership_reservation = budget.reserve(
+        "analytic-layer-vertex-membership",
+        vertices
+            .len()
+            .checked_mul(std::mem::size_of::<Id<EntityRef>>())
+            .ok_or_else(|| invalid("layer membership size overflow"))?,
+    )?;
+    let mut membership = vertices.to_vec();
+    membership.sort_unstable();
     let mut strength = BTreeMap::<Id<EntityRef>, u64>::new();
     let mut pairs = BTreeMap::<(Id<EntityRef>, Id<EntityRef>), u64>::new();
     for &(a, b, c) in counts {
-        if c == 0 || a == b || !vertices.contains(&a) || !vertices.contains(&b) {
+        if c == 0
+            || a == b
+            || membership.binary_search(&a).is_err()
+            || membership.binary_search(&b).is_err()
+        {
             return Err(invalid("invalid community count"));
         }
         let value = pairs.entry((a.min(b), a.max(b))).or_default();

@@ -672,10 +672,11 @@ pub fn produce_with_policy(
             let weights = communities::normalize(&vertices, &counts, b)?;
             for pair in weights.pairs() {
                 let count = counts
-                    .iter()
-                    .find(|r| r.0 == pair.left && r.1 == pair.right)
-                    .unwrap()
-                    .2;
+                    .binary_search_by_key(&(pair.left, pair.right), |&(left, right, _)| {
+                        (left, right)
+                    })
+                    .map(|index| counts[index].2)
+                    .unwrap();
                 out.layer_pairs.insert(LayerPair {
                     frame: f.id(),
                     layer,

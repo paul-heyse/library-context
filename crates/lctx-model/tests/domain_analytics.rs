@@ -56,8 +56,14 @@ fn layers_retain_checked_parallel_counts_hub_scaling_and_reservation() {
     let rows = [(id(1), id(2), 3), (id(2), id(1), 2), (id(2), id(3), 1)];
     let a = communities::normalize(&vertices, &rows, &budget).unwrap();
     assert!(budget.reserved() > 0);
-    assert_eq!(a.pairs().len(), 2);
-    assert!((a.pairs().iter().map(|p| p.weight.get()).sum::<f64>() - 1.0).abs() < 1e-14);
+    // Strengths are 5, 6, 1; the retained 95th-percentile threshold is 6,
+    // so neither edge is downscaled before normalization by total count 6.
+    assert_eq!(a.pairs(), &[
+        communities::Pair { left: id(1), right: id(2), weight: FiniteF64::new(5.0 / 6.0).unwrap() },
+        communities::Pair { left: id(2), right: id(3), weight: FiniteF64::new(1.0 / 6.0).unwrap() },
+    ]);
+    let retained = vertices.len() * 256 + rows.len() * 512;
+    assert_eq!(budget.reserved(), retained);
     let b = communities::normalize(
         &vertices,
         &rows.into_iter().rev().collect::<Vec<_>>(),
@@ -65,6 +71,13 @@ fn layers_retain_checked_parallel_counts_hub_scaling_and_reservation() {
     )
     .unwrap();
     assert_eq!(a.pairs(), b.pairs());
+    let unordered = communities::normalize(
+        &[id(4), id(2), id(1), id(3), id(2)],
+        &rows,
+        &budget,
+    ).unwrap();
+    assert_eq!(a.pairs(), unordered.pairs());
+    let before_refusal = budget.reserved();
     assert!(communities::normalize(&vertices, &[(id(1), id(1), 1)], &budget).is_err());
     assert!(communities::normalize(&vertices, &[(id(1), id(5), 1)], &budget).is_err());
     assert!(
@@ -75,8 +88,15 @@ fn layers_retain_checked_parallel_counts_hub_scaling_and_reservation() {
         )
         .is_err()
     );
+    assert_eq!(budget.reserved(), before_refusal);
+    // The temporary membership keys must be charged in addition to the
+    // retained normalization workspace, and refusal releases both owners.
+    let insufficient = ResourceBudget::fixed(retained).unwrap();
+    assert!(communities::normalize(&vertices, &rows, &insufficient).is_err());
+    assert_eq!(insufficient.reserved(), 0);
     drop(a);
     drop(b);
+    drop(unordered);
     assert_eq!(budget.reserved(), 0);
 }
 #[test]
