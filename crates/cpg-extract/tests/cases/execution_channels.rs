@@ -14,18 +14,46 @@ impl typed_driver::Inspector for Facts {
         self.0.clone()
     }
 }
-async fn data() -> (
-    EvaluationData,
-    lctx_model::domain::conditions::entry::EntryData,
-    ResourceBudget,
-) {
+// One owned behavioral compilation supplies immutable batches. Each named assertion
+// reconstructs its own mutable kernel inputs and budget; these are subassertions,
+// not independently executed nextest cases.
+#[tokio::test]
+async fn execution_channels_from_one_behavioral_observation() {
+    let tables = observation().await;
+    macro_rules! check {
+        ($assertion:ident) => {{
+            eprintln!("grouped assertion: {}", stringify!($assertion));
+            $assertion(&tables);
+        }};
+    }
+    check!(native_builtin_read_is_structural_and_refuses_shadowing_frame_and_forged_support);
+    check!(native_closed_expressions_skip_unentered_operands_and_preserve_limits);
+    check!(name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance);
+    check!(native_base_completion_consumes_independent_evaluations_and_replays_pending_order);
+    check!(base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled_membership_forgery);
+    check!(base_completion_stored_replay_rejects_pending_order_and_coupled_proof_forgery);
+    check!(source_body_is_under_entry_and_preserves_required_frame_cleanup);
+    check!(base_producer_reconciles_the_entire_root_inventory_and_actual_request_profile);
+    check!(completion_producer_reconciles_statement_inventory_and_finalizer_order);
+    check!(field_location_does_not_establish_exact_attribute_readiness);
+    check!(body_under_entry_refuses_async_and_unreachable_generator_yield);
+}
+
+async fn observation() -> typed_driver::Tables {
     let tables = typed_driver::Tables::default();
     typed_driver::run_behavioral(&files("execution_channels"), Facts(tables.clone()))
         .await
         .unwrap();
+    tables
+}
+fn data(tables: &typed_driver::Tables) -> (
+    EvaluationData,
+    lctx_model::domain::conditions::entry::EntryData,
+    ResourceBudget,
+) {
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
     let mut facts = entity_normalization::EntityData::new(&budget);
-    macro_rules! inputs {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in rows::<$ty>(&tables){facts.$field.insert(row).unwrap();})*};}
+    macro_rules! inputs {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in rows::<$ty>(tables){facts.$field.insert(row).unwrap();})*};}
     lctx_model::normalized_entity_inputs!(inputs);
     let normalized = entity_normalization::normalize(facts.inputs(), &budget).unwrap();
     let mut data = EvaluationData::new(&budget);
@@ -118,14 +146,13 @@ fn builtin_request(data: &EvaluationData, function: &str) -> ExpressionRequest {
         expression: expression.id(),
     }
 }
-#[tokio::test]
-async fn native_builtin_read_is_structural_and_refuses_shadowing_frame_and_forged_support() {
+fn native_builtin_read_is_structural_and_refuses_shadowing_frame_and_forged_support(tables: &typed_driver::Tables) {
     use lctx_model::domain::{
         analysis::{native::NativeAssertionPremise, policy::EvidenceStatus},
         execution::builtin_read::CheckedBuiltinRead,
         normalized::Rows,
     };
-    let (mut data, _, budget) = data().await;
+    let (mut data, _, budget) = data(tables);
     let request = builtin_request(&data, "builtin_positive");
     let proof = CheckedBuiltinRead::derive(&data, request, &budget)
         .unwrap()
@@ -183,9 +210,8 @@ async fn native_builtin_read_is_structural_and_refuses_shadowing_frame_and_forge
             .any(|row| matches!(row, NativeAssertionPremise::LexicalResolution { .. }))
     );
 }
-#[tokio::test]
-async fn native_closed_expressions_skip_unentered_operands_and_preserve_limits() {
-    let (data, _, budget) = data().await;
+fn native_closed_expressions_skip_unentered_operands_and_preserve_limits(tables: &typed_driver::Tables) {
+    let (data, _, budget) = data(tables);
     for (text, truth) in [
         ("False and effect()", Some(false)),
         ("True or effect()", Some(true)),
@@ -255,10 +281,9 @@ async fn native_closed_expressions_skip_unentered_operands_and_preserve_limits()
     ));
 }
 
-#[tokio::test]
-async fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance() {
+fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance(tables: &typed_driver::Tables) {
     use lctx_model::domain::{conditions::entry::*, normalized::entities::*};
-    let (data, entries, budget) = data().await;
+    let (data, entries, budget) = data(tables);
     let source_files = files("execution_channels");
     let callable = data
         .callables
@@ -384,13 +409,12 @@ async fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_all
     assert!(budget.reserved() < reservation);
 }
 
-#[tokio::test]
-async fn native_base_completion_consumes_independent_evaluations_and_replays_pending_order() {
+fn native_base_completion_consumes_independent_evaluations_and_replays_pending_order(tables: &typed_driver::Tables) {
     use lctx_model::domain::{
         execution::{ExactRuntimeException, completion::*, outcome::PendingOutcome},
         normalized::entities::CallableEntity,
     };
-    let (data, _, budget) = data().await;
+    let (data, _, budget) = data(tables);
     for (function, raised) in [
         ("finally_returns", false),
         ("finally_raises", true),
@@ -486,14 +510,13 @@ async fn native_base_completion_consumes_independent_evaluations_and_replays_pen
     }
 }
 
-#[tokio::test]
-async fn base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled_membership_forgery()
+fn base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled_membership_forgery(tables: &typed_driver::Tables)
  {
     use lctx_model::domain::{
         analysis::{base_evaluation::AnalysisInvocation, policy::EvidenceStatus, *},
         execution::records::*,
     };
-    let (data, entry, budget) = data().await;
+    let (data, entry, budget) = data(tables);
     let req = request(&data, "1 + 2");
     let parameters = MethodParameters {
         depth: None,
@@ -614,14 +637,13 @@ async fn base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled
     }
 }
 
-#[tokio::test]
-async fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_forgery() {
+fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_forgery(tables: &typed_driver::Tables) {
     use lctx_model::domain::{
         analysis::{self, policy::EvidenceStatus, *},
         execution::{completion::*, completion_records::*, records::*},
         normalized::entities::CallableEntity,
     };
-    let (data, entry, budget) = data().await;
+    let (data, entry, budget) = data(tables);
     let source_files = files("execution_channels");
     let callable=data.callables.iter().find(|c|matches!(c,CallableEntity::Source{declaration,..} if {let o=data.occurrences.get(*declaration).unwrap();let source=data.artifacts.get(o.source).unwrap();source_files[&source.path][o.start as usize..o.end as usize].starts_with(b"def finally_returns(")})).unwrap();
     let owner = lctx_model::domain::normalized::entities::EntityRef::Callable {
@@ -869,13 +891,12 @@ async fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_f
     }
 }
 
-#[tokio::test]
-async fn source_body_is_under_entry_and_preserves_required_frame_cleanup() {
+fn source_body_is_under_entry_and_preserves_required_frame_cleanup(tables: &typed_driver::Tables) {
     use lctx_model::domain::{
         execution::{body::*, completion::*, outcome::PendingOutcome},
         normalized::entities::CallableEntity,
     };
-    let (data, _, budget) = data().await;
+    let (data, _, budget) = data(tables);
     let source_files = files("execution_channels");
     for function in ["body_pass", "body_stops"] {
         let callable=data.callables.iter().find(|c|matches!(c,CallableEntity::Source{declaration,..} if {let o=data.occurrences.get(*declaration).unwrap();let source=data.artifacts.get(o.source).unwrap();source_files[&source.path][o.start as usize..o.end as usize].starts_with(format!("def {function}(").as_bytes())})).unwrap();
@@ -972,8 +993,7 @@ async fn source_body_is_under_entry_and_preserves_required_frame_cleanup() {
     }
 }
 
-#[tokio::test]
-async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_profile() {
+fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_profile(tables: &typed_driver::Tables) {
     use lctx_model::domain::{
         analysis::{self, base_evaluation as publication},
         conditions::entry::{EntryAccessSource, EntryValueWitness},
@@ -981,7 +1001,7 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
         normalized::Rows,
         stages::Profile,
     };
-    let (data, entry, budget) = data().await;
+    let (data, entry, budget) = data(tables);
     let req = request(&data, "1 + 2");
     let (_, definition) = lctx_model::domain::execution::configuration::base_evaluation();
     let mut local_definition = definition.clone();
@@ -1195,8 +1215,7 @@ async fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_p
     ));
 }
 
-#[tokio::test]
-async fn completion_producer_reconciles_statement_inventory_and_finalizer_order() {
+fn completion_producer_reconciles_statement_inventory_and_finalizer_order(tables: &typed_driver::Tables) {
     use lctx_model::domain::{
         analysis::{self, base_completion as publication, base_evaluation as earlier},
         conditions::entry::{EntryAccessSource, EntryValueWitness},
@@ -1207,7 +1226,7 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
         normalized::Rows,
         stages::Profile,
     };
-    let (data, entry, budget) = data().await;
+    let (data, entry, budget) = data(tables);
     let req = request(&data, "1 + 2");
     let (_, eval_definition) = lctx_model::domain::execution::configuration::base_evaluation();
     let (_, definition) = lctx_model::domain::execution::configuration::base_completion();
@@ -1451,22 +1470,20 @@ async fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
     assert!(verify_profile(Profile::Behavioral).is_err());
 }
 
-#[tokio::test]
-async fn field_location_does_not_establish_exact_attribute_readiness() {
-    let (data, _, budget) = data().await;
+fn field_location_does_not_establish_exact_attribute_readiness(tables: &typed_driver::Tables) {
+    let (data, _, budget) = data(tables);
     assert!(matches!(
         evaluate(&data, request(&data, "value.field"), &budget).unwrap(),
         Err(ObligationKind::HeapFieldStateUnavailable)
     ));
 }
 
-#[tokio::test]
-async fn body_under_entry_refuses_async_and_unreachable_generator_yield() {
+fn body_under_entry_refuses_async_and_unreachable_generator_yield(tables: &typed_driver::Tables) {
     use lctx_model::domain::{
         execution::{body::*, completion::*},
         normalized::entities::*,
     };
-    let (data, _, budget) = data().await;
+    let (data, _, budget) = data(tables);
     let source_files = files("execution_channels");
     for prefix in ["async def async_body(", "def generator_body("] {
         let callable=data.callables.iter().find(|row|matches!(row,CallableEntity::Source{declaration,..} if {let o=data.occurrences.get(*declaration).unwrap();let artifact=data.artifacts.get(o.source).unwrap();source_files[&artifact.path][o.start as usize..o.end as usize].starts_with(prefix.as_bytes())})).unwrap();

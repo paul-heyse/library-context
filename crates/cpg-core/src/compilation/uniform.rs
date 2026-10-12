@@ -37,7 +37,7 @@ pub(super) async fn produce(access:CompletedInputs,output:ProducerOutput,workspa
     output.declare_async::<UniformNotRequested>().await?;
     output.declare_empty_outputs().await?;
     for row in rows.iter(){output.push(row.clone()).await?;}
-    // Reuse eligibility is a separate whole-output proof. Keep the established terminal
-    // disposition until every consumer supports that proof, including explicit empty input.
+    // Production completed the exact compact declarations and every declared empty output.
+    // Semantic NotRequested belongs to the admitted domains, not the physical disposition.
     output.finish(ProviderOutcome::Complete).await
 }

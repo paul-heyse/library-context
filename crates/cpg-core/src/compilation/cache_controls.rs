@@ -288,6 +288,35 @@ fn reused(receipt: &Receipt) -> bool {
         .hit_log
         .contains("admitted compiled product attached")
 }
+/// Observe the actual attachment event for each operation, rather than allowing an
+/// unrelated package or normalization hit to stand in for compact-owner reuse.
+async fn compact_reuse(receipt: &Receipt, expected_hits: bool) -> std::collections::BTreeMap<String, ContentHash> {
+    use lctx_model::domain::{analysis::owner::AnalysisOwner, uniform_outcome::UniformNotRequested};
+    let expected = AnalysisOwner::ALL.into_iter().filter(|owner|owner.can_be_wholly_unrequested())
+        .map(|owner|owner.name()).collect::<BTreeSet<_>>();
+    let contributions = receipt.workspace.native().contributions(receipt.workspace.budget()).await.unwrap();
+    let mut identities = std::collections::BTreeMap::new();
+    for owner in contributions.iter().filter(|owner|expected.contains(owner.spec.producer.as_str())) {
+        assert_eq!(owner.outcome, ProviderOutcome::Complete.code(), "physical compact production completed");
+        assert_eq!(owner.outputs.get(UniformNotRequested::NAME).map(|output|output.rows), Some(1),
+            "one actual input/context retains one compact descriptor");
+        assert!(owner.outputs.iter().all(|(name,output)|name==UniformNotRequested::NAME || output.rows==0),
+            "compact ordinary outputs remain explicitly empty");
+        assert!(identities.insert(owner.spec.producer.clone(),owner.identity().unwrap()).is_none(),
+            "one exact compact contribution per current owner");
+    }
+    assert_eq!(identities.keys().map(String::as_str).collect::<BTreeSet<_>>(), expected);
+    for owner in AnalysisOwner::ALL.into_iter().filter(|owner|owner.can_be_wholly_unrequested()) {
+        let attached = receipt.hit_log.lines().any(|line|line.contains("admitted compiled product attached")
+            && line.split_whitespace().any(|field|field.strip_prefix("operation=")
+                .is_some_and(|name|name.trim_matches('"')==owner.name())));
+        // This is the expected Catalog contract, independent of the classifier under test.
+        let rows_reuse = owner != AnalysisOwner::Embedding;
+        assert_eq!(attached, expected_hits && rows_reuse,
+            "actual compact attachment for {} (Embedding retains its Fresh policy): {}", owner.name(), receipt.hit_log);
+    }
+    identities
+}
 async fn matrix(profile: Profile, frontier: Frontier) {
     let config = lctx_native::RuntimeConfig::read(Path::new(
         &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
@@ -433,6 +462,20 @@ async fn matrix(profile: Profile, frontier: Frontier) {
         deleted.manifest.content(),
         "deleted declarations must not survive through retained products"
     );
+    if profile == Profile::Catalog {
+        let original = compact_reuse(&off, false).await;
+        assert_eq!(compact_reuse(&cold, false).await, original);
+        assert_eq!(compact_reuse(&warm, true).await, original);
+        assert_eq!(compact_reuse(&reload, true).await, original);
+        let changed_owners = compact_reuse(&changed, false).await;
+        assert_eq!(compact_reuse(&changed_off, false).await, changed_owners);
+        for (name, identity) in &original {
+            assert_ne!(changed_owners.get(name), Some(identity),
+                "changed actual input/domain cannot inherit {}'s previous compact completion", name);
+        }
+        assert_eq!(compact_reuse(&deleted, true).await, original);
+        assert_eq!(compact_reuse(&deleted_off, false).await, original);
+    }
     for receipt in [
         off,
         cold,

@@ -65,7 +65,7 @@ async fn journey(empty:bool)->Result<(),ModelError>{
         let actual=contributions.iter().filter(|owner|expected.contains(&owner.spec.producer)).collect::<Vec<_>>();
         require(actual.len()==9,"actual Catalog must complete all nine compact analysis owners")?;
         for owner in actual{
-            require(owner.assurance.is_current() && owner.outcome==0,"compact output keeps current Complete disposition until whole reuse eligibility")?;
+            require(owner.assurance.is_current() && owner.outcome==0,"compact declarations complete physical production without changing semantic NotRequested")?;
             require(owner.outputs.get(UniformNotRequested::NAME).is_some_and(|output|output.rows==1),"one actual captured input/context needs one compact descriptor")?;
             require(owner.outputs.iter().all(|(name,output)|name==UniformNotRequested::NAME || output.rows==0),"compact owner ordinary outputs must be explicitly empty")?;
         }

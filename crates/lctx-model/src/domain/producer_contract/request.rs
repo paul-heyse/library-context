@@ -31,9 +31,9 @@ impl CapturedRequest {
         if descriptor.spec!=self.contribution {return Eligibility::Corrupt(ModelError::Conflict("equal request with inconsistent contribution specification"))}
         match descriptor.outcome {
             0 => {},
-            // Compact whole-output NotRequested and its admission validator are C06. A stage
-            // outcome alone cannot establish its exact domain or uniformly unrequested coverage.
-            4 => return Eligibility::Miss("NotRequested requires the compact whole-output admission contract"),
+            // Completed compact declarations use physical Complete and independently admitted
+            // semantic NotRequested domains. A stage outcome alone supplies no such proof.
+            4 => return Eligibility::Miss("stage NotRequested has no admitted compact output proof"),
             1..=3 => return Eligibility::Miss("partial unavailable or failed provider outcome"),
             _ => return Eligibility::Corrupt(ModelError::Conflict("unknown provider outcome")),
         }

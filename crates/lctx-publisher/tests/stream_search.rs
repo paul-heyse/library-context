@@ -485,9 +485,10 @@ async fn streamed_control(target: AuditTarget) {
             }));
         }
     }
-    let fixture = scoped::reader(&config, &entities, &assertions)
+    let mut fixture = scoped::reader(&config, &entities, &assertions)
         .await
         .unwrap();
+    fixture.reader = fixture.reader.with_budget(&native_read_budget);
     let vars = fixture.reader.view_bindings();
     let Some(Value::Array(selected)) = vars.get("lctx_views") else {
         panic!("explicit fixture views")
@@ -509,7 +510,10 @@ async fn streamed_control(target: AuditTarget) {
         fixture.store.attempt(),
         views.clone(),
     )
-    .with_budget(&native_read_budget);
+    .with_budget(&native_read_budget)
+    .with_derivation(fixture.reader.derivation().unwrap())
+    .with_installed_reader(&fixture.reader)
+    .unwrap();
     let privileged = if maintenance {
         let installer = RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
@@ -565,9 +569,10 @@ async fn streamed_control(target: AuditTarget) {
         } else {
             Entity::from(additional_link.unwrap())
         });
-        let bound = scoped::reader(&config, &bound_entities, &assertions)
+        let mut bound = scoped::reader(&config, &bound_entities, &assertions)
             .await
             .unwrap();
+        bound.reader = bound.reader.with_budget(&native_read_budget);
         let bound_vars = bound.reader.view_bindings();
         let Some(Value::Array(selected)) = bound_vars.get("lctx_views") else {
             panic!("explicit bound fixture views")
@@ -589,7 +594,10 @@ async fn streamed_control(target: AuditTarget) {
             bound.store.attempt(),
             bound_views,
         )
-        .with_budget(&native_read_budget);
+        .with_budget(&native_read_budget)
+        .with_derivation(bound.reader.derivation().unwrap())
+        .with_installed_reader(&bound.reader)
+        .unwrap();
         progress("materialize companion-context superset");
         let bound_materialization = materialize_search(&bound_loader).await;
         progress("independent unbound-view cold audit");
@@ -745,9 +753,10 @@ async fn streamed_control(target: AuditTarget) {
                 .unwrap();
         let mut foreign_entities = entities.clone();
         foreign_entities.push(Entity::from(foreign_binding));
-        let foreign = scoped::reader(&config, &foreign_entities, &assertions)
+        let mut foreign = scoped::reader(&config, &foreign_entities, &assertions)
             .await
             .unwrap();
+        foreign.reader = foreign.reader.with_budget(&native_read_budget);
         let foreign_vars = foreign.reader.view_bindings();
         let Some(Value::Array(selected)) = foreign_vars.get("lctx_views") else {
             panic!("explicit foreign fixture views")
@@ -769,7 +778,10 @@ async fn streamed_control(target: AuditTarget) {
             foreign.store.attempt(),
             foreign_views,
         )
-        .with_budget(&native_read_budget);
+        .with_budget(&native_read_budget)
+        .with_derivation(foreign.reader.derivation().unwrap())
+        .with_installed_reader(&foreign.reader)
+        .unwrap();
         materialize_search(&foreign_loader).await.unwrap();
         assert_eq!(rows(&foreign_loader, "lex_occurs").await.len(), 81);
         assert_eq!(rows(&foreign_loader, "vec_occurs").await.len(), 162);

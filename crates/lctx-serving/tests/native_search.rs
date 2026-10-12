@@ -58,6 +58,16 @@ async fn insert<Context>(
 ) {
     // Synthetic corruption/control documents own fresh content; canonical positive
     // fixtures below use normal content-addressed materialization and shared reuse.
+    if table.starts_with("search_") || matches!(table, "lex_occurs" | "vec_occurs" | "vector") {
+        let derivation = reader.derivation().unwrap().hex();
+        for row in &mut rows {
+            let Value::Object(row) = row else { panic!("derived fixture row") };
+            if let Some(previous) = row.get("derivation") {
+                assert_eq!(previous, &Value::String(derivation.clone()), "fixture realization changed");
+            }
+            row.insert("derivation", derivation.clone());
+        }
+    }
     if table.starts_with("search_") {
         for row in &mut rows {
             let Value::Object(row) = row else {
@@ -128,13 +138,14 @@ async fn extend(
     config: &lctx_native::RuntimeConfig,
     entities: &[Entity],
 ) {
-    let native_read_budget =
-        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget = native.resource_budget().unwrap();
     let added = scoped::reader(config, entities, &[]).await.unwrap();
     let mut installed=fixtures.iter().flat_map(|fixture|fixture.installed.iter().cloned()).collect::<Vec<_>>();
     installed.extend(added.installed.iter().cloned());
     let derivation=native.derivation().unwrap();
-    *native=NativeReader::for_installed_views(native.shared_client(),&installed,&native_read_budget).await.unwrap().with_derivation(derivation);
+    let replacement=NativeReader::for_installed_views(native.shared_client(),&installed,&native_read_budget).await.unwrap().with_derivation(derivation);
+    native.close().await.unwrap();
+    *native=replacement;
     fixtures.push(added);
 }
 async fn freeze(
@@ -142,8 +153,7 @@ async fn freeze(
     fixtures: &mut Vec<scoped::ScopedFixture>,
     config: &lctx_native::RuntimeConfig,
 ) {
-    let native_read_budget =
-        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget = native.resource_budget().unwrap();
     let marker = input::InputRevision {
         manifest: ContentHash::of(
             format!("{}-lexical-phase-{}", nonce(), fixtures.len()).as_bytes(),
@@ -216,6 +226,73 @@ fn occurrence(
     );
     Value::Object(obj)
 }
+/// This fixture has real nonempty sources, so its one completed contribution also
+/// supplies their typed original chunks. Metadata alone cannot earn blob completion.
+async fn member_fixture(
+    config: &lctx_native::RuntimeConfig, entities: &[Entity],
+    assertions: &[graph::Assertion], originals: &[(&source::SourceArtifact, &[u8])],
+) -> Result<scoped::ScopedFixture, ModelError> {
+    use std::collections::{BTreeMap, BTreeSet};
+    use lctx_model::domain::{admission::Frontier, artifact::ArtifactChunk,
+        completed::{ContributionSpec, OutputProfile}, stages::{Profile, ProviderOutcome}};
+    let store=lctx_compiler_store::compiler::NativeCompilerStore::begin(config,Frontier::Facts).await?;
+    let budget=ResourceBudget::fixed(64<<20)?;
+    let result:Result<_,ModelError>=async {
+        let model=model()?;
+        let mut groups=BTreeMap::<String,Vec<Value>>::new();
+        for row in lctx_native::codec::entity_views(entities)?.into_iter()
+            .chain(lctx_native::codec::assertion_views(assertions)?) {
+            let Value::Object(mut body)=row.body else {return Err(ModelError::Schema("member fixture typed body"));};
+            body.insert("id",row.semantic_key);
+            groups.entry(row.semantic_type).or_default().push(Value::Object(body));
+        }
+        let mut relations=groups.keys().map(|name|model.relation(name).cloned()
+            .ok_or(ModelError::Schema("member fixture relation"))).collect::<Result<Vec<_>,_>>()?;
+        let chunks=originals.iter().map(|(source,body)|ArtifactChunk::split(source,body)
+            .map(|rows|rows.collect::<Vec<_>>())).collect::<Result<Vec<_>,_>>()?
+            .into_iter().flatten().collect::<Vec<_>>();
+        let chunk_relation=Relation::of::<ArtifactChunk>();relations.push(chunk_relation.clone());
+        let contribution=store.begin_contribution(ContributionSpec{
+            captured_binding:None,producer:"scoped-native-member-fixture".into(),
+            profile:OutputProfile::Specific(Profile::Catalog),model:model.digest(),
+            implementation:ContentHash::of(b"scoped-native-member-fixture/v1"),configuration:None,
+            inputs:vec![],outputs:relations.iter().map(|relation|relation.name().to_owned()).collect::<BTreeSet<_>>(),
+        }).await?;
+        for relation in &relations {
+            let batch=if relation.name()==ArtifactChunk::NAME {<ArtifactChunk as Record>::encode(&chunks)?}
+                else {lctx_native::codec::decode_bodies(relation,groups.remove(relation.name())
+                    .ok_or(ModelError::Schema("member fixture missing bodies"))?,&budget)?};
+            store.write_batch(&contribution,relation,&batch,&budget).await?;
+        }
+        let views=store.complete_contribution(contribution,ProviderOutcome::Complete,&relations,&BTreeMap::new(),&budget).await?;
+        let derivation=ContentHash::of(format!("scoped-native-member-fixture/{}",store.attempt().hex()).as_bytes());
+        let client=lctx_compiler_store::compiler::check_installation(config).await?;
+        let session=reader::SessionFinalizationGuard::new(client.clone());
+        let references=async {
+            let loader=lctx_native::Loader::for_attempt_views(client.clone(),store.attempt(),views.values().map(|view|view.identity).collect())
+                .with_derivation(derivation).with_budget(&budget);
+            loader.entity_references(entities).await?;loader.assertion_references(assertions).await
+        }.await;
+        let mut terminal=completion::Completion::default();
+        if references.as_ref().err().is_none_or(ModelError::permits_storage_cleanup) {
+            terminal.step("member fixture reference session close",session.close().await);
+        }
+        completion::complete(references,terminal)?;
+        let descriptors=views.into_values().collect::<Vec<_>>();
+        let mut installed=Vec::new();
+        for view in &descriptors {installed.push(store.installed_view(view,&budget).await?);}
+        let reader=store.reader_for_views(&descriptors,&budget).await?.with_derivation(derivation);
+        Ok((reader,installed))
+    }.await;
+    match result {
+        Ok((reader,installed))=>Ok(scoped::ScopedFixture{reader,store,installed}),
+        Err(error)=>{
+            let mut terminal=completion::Completion::default();
+            if error.permits_storage_cleanup(){terminal.step("member fixture failed setup abandonment",store.abandon().await);}
+            completion::complete(Err(error),terminal)
+        }
+    }
+}
 #[tokio::test]
 async fn native_member_hydration_uses_bounded_physical_windows_without_family_scans() {
     use graph::Assertion;
@@ -281,8 +358,8 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
         Entity::from(unrelated_package),
         Entity::from(release.clone()),
         Entity::from(unrelated_release.clone()),
-        Entity::from(source),
-        Entity::from(other_source),
+        Entity::from(source.clone()),
+        Entity::from(other_source.clone()),
         Entity::from(module),
         Entity::from(other_module),
     ];
@@ -302,7 +379,8 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
     .into_iter()
     .map(|row| Assertion::from_record(row).unwrap())
     .collect::<Vec<_>>();
-    let native = scoped::reader(&config, &entities, &assertions)
+    let native = member_fixture(&config, &entities, &assertions,
+        &[(&source, b"selected source"), (&other_source, b"other source")])
         .await
         .unwrap();
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
@@ -1168,8 +1246,6 @@ async fn lexical_fixture(
     context: Id<AnalysisContext>,
     texts: &[String],
 ) -> (scoped::ScopedFixture, lctx_native::Loader, Vec<Unit>) {
-    let native_read_budget =
-        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use retrieval::*;
     let origin = Origin::Brief { brief: id(200) };
     let mut entities = vec![Entity::from(origin.clone())];
@@ -1236,6 +1312,7 @@ async fn lexical_fixture(
         units.push(unit);
     }
     let fixture = scoped::reader(config, &entities, &[]).await.unwrap();
+    let native_read_budget = fixture.reader.resource_budget().unwrap();
     let views = selected_views(&fixture.reader);
     let loader = lctx_native::Loader::for_attempt_views(
         fixture.reader.shared_client(),

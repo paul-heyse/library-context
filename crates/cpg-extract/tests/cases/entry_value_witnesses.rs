@@ -25,7 +25,26 @@ inspector!(Facts => {
     demand.include::<lctx_model::domain::calls::CallTarget>();
     demand
 });
-async fn fixture() -> (EntryData, BindingData, BindingOutput, ResourceBudget) {
+// One owned behavioral compilation supplies immutable batches. Each named assertion
+// reconstructs its own mutable kernel inputs and budget; these are subassertions,
+// not independently executed nextest cases.
+#[tokio::test]
+async fn entry_value_witnesses_from_one_behavioral_observation() {
+    let tables = observation().await;
+    macro_rules! check {
+        ($assertion:ident) => {{
+            eprintln!("grouped assertion: {}", stringify!($assertion));
+            $assertion(&tables);
+        }};
+    }
+    check!(entry_identity_retains_parameter_and_receiver_but_refuses_rebinding_and_nested_reach);
+    check!(normalized_actual_and_receiver_guards_preserve_source_operations_and_qualified_influence);
+    check!(stored_summary_substitution_replays_the_original_binding_prefix);
+    check!(native_parameter_bridge_requires_the_exact_first_identifier_and_native_support);
+    check!(partial_family_native_singleton_requires_its_complete_attributed_inventory);
+}
+
+async fn observation() -> typed_driver::Tables {
     let tables = typed_driver::Tables::default();
     typed_driver::run_behavioral(
         &typed_driver::files("entry_value_witnesses"),
@@ -33,17 +52,20 @@ async fn fixture() -> (EntryData, BindingData, BindingOutput, ResourceBudget) {
     )
     .await
     .unwrap();
+    tables
+}
+fn fixture(tables: &typed_driver::Tables) -> (EntryData, BindingData, BindingOutput, ResourceBudget) {
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
     let mut relations = relation_normalization::RelationData::new(&budget);
-    macro_rules! facts {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){relations.facts.$field.insert(row).unwrap();})*};}
+    macro_rules! facts {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(tables){relations.facts.$field.insert(row).unwrap();})*};}
     lctx_model::normalized_entity_inputs!(facts);
     relations.entities =
         entity_normalization::normalize(relations.facts.inputs(), &budget).unwrap();
-    macro_rules! additional {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){relations.$field.insert(row).unwrap();})*};}
+    macro_rules! additional {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(tables){relations.$field.insert(row).unwrap();})*};}
     lctx_model::normalized_relation_inputs!(additional);
     let links = relation_normalization::normalize(&relations, &budget).unwrap();
     let mut bindings = BindingData::new(&budget);
-    macro_rules! raw {($($field:ident:$ty:ty,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){bindings.$field.insert(row).unwrap();})*};}
+    macro_rules! raw {($($field:ident:$ty:ty,)*)=>{$(for row in typed_driver::rows::<$ty>(tables){bindings.$field.insert(row).unwrap();})*};}
     lctx_model::normalized_binding_inputs!(raw);
     macro_rules! entities {($($field:ident:$ty:ty,)*)=>{$(bindings.visit(<$ty>::NAME,&<$ty as Record>::encode(&relations.entities.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
     lctx_model::normalized_entity_outputs!(entities);
@@ -68,7 +90,7 @@ async fn fixture() -> (EntryData, BindingData, BindingOutput, ResourceBudget) {
     macro_rules! output {($($field:ident:$ty:ty,)*)=>{$(bindings.visit(<$ty>::NAME,&<$ty as Record>::encode(&events.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
     lctx_model::normalized_event_outputs!(output);
     let mut entry = EntryData::new(&budget);
-    macro_rules! raw {($($field:ident:$ty:ty,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){entry.$field.insert(row).unwrap();})*};}
+    macro_rules! raw {($($field:ident:$ty:ty,)*)=>{$(for row in typed_driver::rows::<$ty>(tables){entry.$field.insert(row).unwrap();})*};}
     lctx_model::entry_value_inputs!(raw);
     macro_rules! entities {($($field:ident:$ty:ty,)*)=>{$(entry.visit(<$ty>::NAME,&<$ty as Record>::encode(&relations.entities.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
     lctx_model::normalized_entity_outputs!(entities);
@@ -137,9 +159,8 @@ fn request(data: &EntryData, function: &str) -> EntryRequest {
         run: run.id(),
     }
 }
-#[tokio::test]
-async fn entry_identity_retains_parameter_and_receiver_but_refuses_rebinding_and_nested_reach() {
-    let (data, _, _, budget) = fixture().await;
+fn entry_identity_retains_parameter_and_receiver_but_refuses_rebinding_and_nested_reach(tables: &typed_driver::Tables) {
+    let (data, _, _, budget) = fixture(tables);
     for function in ["parameter", "method", "class_method"] {
         let req = request(&data, function);
         let refusal = EntryValueWitness::derive(&data, req, &budget)
@@ -298,18 +319,16 @@ fn replay_substitution(
     )?;
     check.finish()
 }
-#[tokio::test]
-async fn normalized_actual_and_receiver_guards_preserve_source_operations_and_qualified_influence()
+fn normalized_actual_and_receiver_guards_preserve_source_operations_and_qualified_influence(tables: &typed_driver::Tables)
 {
-    guard_controls(false).await;
+    guard_controls(tables, false);
 }
-#[tokio::test]
-async fn stored_summary_substitution_replays_the_original_binding_prefix() {
-    guard_controls(true).await;
+fn stored_summary_substitution_replays_the_original_binding_prefix(tables: &typed_driver::Tables) {
+    guard_controls(tables, true);
 }
-async fn guard_controls(stored: bool) {
+fn guard_controls(tables: &typed_driver::Tables, stored: bool) {
     use lctx_model::domain::{normalized::bindings::CallBinding, value::*};
-    let (entry_data, data, output, budget) = fixture().await;
+    let (entry_data, data, output, budget) = fixture(tables);
     let verified = binding_normalization::verify(&data, &output, &budget).unwrap();
     for (function, call, class_of) in [
         ("parameter", "parameter(None)", false),
@@ -541,10 +560,9 @@ async fn guard_controls(stored: bool) {
         assert_eq!(tiny.reserved(), 0);
     }
 }
-#[tokio::test]
-async fn native_parameter_bridge_requires_the_exact_first_identifier_and_native_support() {
+fn native_parameter_bridge_requires_the_exact_first_identifier_and_native_support(tables: &typed_driver::Tables) {
     for mutation in 0..3 {
-        let (mut data, _, _, budget) = fixture().await;
+        let (mut data, _, _, budget) = fixture(tables);
         let req = request(&data, "parameter");
         let stored = EntryValueWitness::derive(&data, req, &budget)
             .unwrap()
@@ -652,10 +670,9 @@ async fn native_parameter_bridge_requires_the_exact_first_identifier_and_native_
     }
 }
 
-#[tokio::test]
-async fn partial_family_native_singleton_requires_its_complete_attributed_inventory() {
+fn partial_family_native_singleton_requires_its_complete_attributed_inventory(tables: &typed_driver::Tables) {
     use lctx_model::domain::{attribution::*, flow_inventory::*};
-    let (mut data, _, _, budget) = fixture().await;
+    let (mut data, _, _, budget) = fixture(tables);
     let req = request(&data, "parameter");
     let coverage = data.coverage.iter().cloned().collect::<Vec<_>>();
     data.coverage = Rows::new(&budget);

@@ -15,12 +15,34 @@ use lctx_model::domain::{
 };
 // This control reconstructs the complete native inventory or compares complete output.
 inspector!(Facts, complete);
-async fn fixture() -> (
-    LocalData,
-    local::AnalysisInvocation,
-    analysis::AnalysisDefinition,
-    ResourceBudget,
-) {
+// One owned behavioral compilation supplies immutable batches. Each named assertion
+// reconstructs its own mutable kernel inputs and budget; these are subassertions,
+// not independently executed nextest cases.
+#[tokio::test]
+async fn local_semantics_from_one_behavioral_observation() {
+    let tables = observation().await;
+    macro_rules! check {
+        ($assertion:ident) => {{
+            eprintln!("grouped assertion: {}", stringify!($assertion));
+            $assertion(&tables);
+        }};
+    }
+    check!(native_local_parameter_receiver_and_class_receiver_return_transfers_are_witnessed);
+    check!(local_shared_replay_refuses_forged_transfer_guard_entry_influence_and_qualification);
+    check!(local_cross_context_and_budget_refuse_without_producing_proofs);
+    check!(native_entry_sources_refuse_other_values_regions_supports_and_guard_phases);
+    check!(native_finite_domains_scalar_refutation_and_complete_diamond_mro_retain_boundaries);
+    check!(theory_shared_replay_refuses_forged_exhaustiveness_scalar_truth_and_ancestry_members);
+    check!(local_definitions_are_bound_to_code_parameters_and_interpretation);
+    check!(native_type_domains_refuse_missing_prefix_mro_partial_coverage_and_foreign_frames);
+    check!(native_builtin_type_predicates_use_supported_operands_and_refuse_shadowed_functions);
+    check!(native_scalar_admission_refuses_a_type_known_only_outside_the_leaf_domain);
+    check!(native_field_locations_keep_two_fields_and_unrelated_readers_distinct_and_state_open);
+    check!(native_field_locations_refuse_wrong_role_foreign_placement_support_and_context);
+    check!(native_assignment_transfer_retains_exact_definition_premise_and_refuses_rebound_input);
+}
+
+async fn observation() -> typed_driver::Tables {
     let tables = typed_driver::Tables::default();
     typed_driver::run_behavioral(
         &typed_driver::files("local_semantics"),
@@ -28,27 +50,35 @@ async fn fixture() -> (
     )
     .await
     .unwrap();
+    tables
+}
+fn fixture(tables: &typed_driver::Tables) -> (
+    LocalData,
+    local::AnalysisInvocation,
+    analysis::AnalysisDefinition,
+    ResourceBudget,
+) {
     let budget = ResourceBudget::fixed(512 << 20).unwrap();
     let mut data = LocalData::new(&budget);
     let mut entities = entity_normalization::EntityData::new(&budget);
-    macro_rules! facts {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){entities.$field.insert(row).unwrap();})*};}
+    macro_rules! facts {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(tables){entities.$field.insert(row).unwrap();})*};}
     lctx_model::normalized_entity_inputs!(facts);
     let normalized = entity_normalization::normalize(entities.inputs(), &budget).unwrap();
-    macro_rules! input {($($field:ident:$ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty as Record>::encode(&typed_driver::rows::<$ty>(&tables)).unwrap()).unwrap();)*};}
+    macro_rules! input {($($field:ident:$ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty as Record>::encode(&typed_driver::rows::<$ty>(tables)).unwrap()).unwrap();)*};}
     lctx_model::entry_value_inputs!(input);
     lctx_model::local_semantic_inputs!(input);
     macro_rules! output {($($field:ident:$ty:ty,)*)=>{$(data.visit(<$ty>::NAME,&<$ty as Record>::encode(&normalized.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
     lctx_model::normalized_entity_outputs!(output);
     macro_rules! field_entities{($($field:ident:$ty:ty,)*)=>{$(data.fields.visit(<$ty>::NAME,&<$ty as Record>::encode(&normalized.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
     lctx_model::normalized_entity_outputs!(field_entities);
-    macro_rules! theory_input {($($field:ident:$ty:ty,)*)=>{$(data.theory.visit(<$ty>::NAME,&<$ty as Record>::encode(&typed_driver::rows::<$ty>(&tables)).unwrap()).unwrap();)*};}
+    macro_rules! theory_input {($($field:ident:$ty:ty,)*)=>{$(data.theory.visit(<$ty>::NAME,&<$ty as Record>::encode(&typed_driver::rows::<$ty>(tables)).unwrap()).unwrap();)*};}
     lctx_model::local_theory_inputs!(theory_input);
-    macro_rules! field_input{($($field:ident:$ty:ty,)*)=>{$(data.fields.visit(<$ty>::NAME,&<$ty as Record>::encode(&typed_driver::rows::<$ty>(&tables)).unwrap()).unwrap();)*};}
+    macro_rules! field_input{($($field:ident:$ty:ty,)*)=>{$(data.fields.visit(<$ty>::NAME,&<$ty as Record>::encode(&typed_driver::rows::<$ty>(tables)).unwrap()).unwrap();)*};}
     lctx_model::local_field_inputs!(field_input);
     let mut relation_data = normalized::relation_normalization::RelationData::new(&budget);
     relation_data.facts = entities;
     relation_data.entities = normalized;
-    macro_rules! relationship_input {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(&tables){relation_data.$field.insert(row).unwrap();})*};}
+    macro_rules! relationship_input {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(tables){relation_data.$field.insert(row).unwrap();})*};}
     lctx_model::normalized_relation_inputs!(relationship_input);
     let relationships =
         normalized::relation_normalization::normalize(&relation_data, &budget).unwrap();
@@ -101,9 +131,8 @@ fn owner_name(data: &LocalData, key: &transfer::local::TransferKey) -> String {
     )
     .unwrap()
 }
-#[tokio::test]
-async fn native_local_parameter_receiver_and_class_receiver_return_transfers_are_witnessed() {
-    let (data, invocation, definition, budget) = fixture().await;
+fn native_local_parameter_receiver_and_class_receiver_return_transfers_are_witnessed(tables: &typed_driver::Tables) {
+    let (data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
@@ -236,9 +265,8 @@ fn replay(
     );
     check.finish()
 }
-#[tokio::test]
-async fn local_shared_replay_refuses_forged_transfer_guard_entry_influence_and_qualification() {
-    let (data, invocation, definition, budget) = fixture().await;
+fn local_shared_replay_refuses_forged_transfer_guard_entry_influence_and_qualification(tables: &typed_driver::Tables) {
+    let (data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
@@ -251,9 +279,8 @@ async fn local_shared_replay_refuses_forged_transfer_guard_entry_influence_and_q
         );
     }
 }
-#[tokio::test]
-async fn local_cross_context_and_budget_refuse_without_producing_proofs() {
-    let (data, invocation, definition, budget) = fixture().await;
+fn local_cross_context_and_budget_refuse_without_producing_proofs(tables: &typed_driver::Tables) {
+    let (data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
@@ -298,11 +325,10 @@ fn entry_replay(
     )?;
     check.finish()
 }
-#[tokio::test]
-async fn native_entry_sources_refuse_other_values_regions_supports_and_guard_phases() {
+fn native_entry_sources_refuse_other_values_regions_supports_and_guard_phases(tables: &typed_driver::Tables) {
     use conditions::entry::*;
     use conditions::stability::StabilityWitness;
-    let (mut data, invocation, definition, budget) = fixture().await;
+    let (mut data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
@@ -493,10 +519,9 @@ fn occurrence_text(data: &LocalData, id: Id<Occurrence>) -> String {
     )
     .unwrap()
 }
-#[tokio::test]
-async fn native_finite_domains_scalar_refutation_and_complete_diamond_mro_retain_boundaries() {
+fn native_finite_domains_scalar_refutation_and_complete_diamond_mro_retain_boundaries(tables: &typed_driver::Tables) {
     use lctx_model::domain::local_theory::*;
-    let (data, invocation, definition, budget) = fixture().await;
+    let (data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
@@ -654,9 +679,8 @@ fn replay_theory(
     lctx_model::local_theory_outputs!(output);
     check.finish()
 }
-#[tokio::test]
-async fn theory_shared_replay_refuses_forged_exhaustiveness_scalar_truth_and_ancestry_members() {
-    let (data, invocation, definition, budget) = fixture().await;
+fn theory_shared_replay_refuses_forged_exhaustiveness_scalar_truth_and_ancestry_members(tables: &typed_driver::Tables) {
+    let (data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
@@ -668,9 +692,8 @@ async fn theory_shared_replay_refuses_forged_exhaustiveness_scalar_truth_and_anc
         );
     }
 }
-#[tokio::test]
-async fn local_definitions_are_bound_to_code_parameters_and_interpretation() {
-    let (data, invocation, definition, budget) = fixture().await;
+fn local_definitions_are_bound_to_code_parameters_and_interpretation(tables: &typed_driver::Tables) {
+    let (data, invocation, definition, budget) = fixture(tables);
     let before = budget.reserved();
     for mutation in 0..3 {
         let mut definition = definition.clone();
@@ -691,11 +714,10 @@ async fn local_definitions_are_bound_to_code_parameters_and_interpretation() {
     assert_eq!(budget.reserved(), before);
 }
 
-#[tokio::test]
-async fn native_type_domains_refuse_missing_prefix_mro_partial_coverage_and_foreign_frames() {
+fn native_type_domains_refuse_missing_prefix_mro_partial_coverage_and_foreign_frames(tables: &typed_driver::Tables) {
     use lctx_model::domain::{attribution::*, local_theory::*, symbols::*};
     use normalized::Rows;
-    let (mut data, invocation, definition, budget) = fixture().await;
+    let (mut data, invocation, definition, budget) = fixture(tables);
     let records =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
@@ -855,10 +877,9 @@ async fn native_type_domains_refuse_missing_prefix_mro_partial_coverage_and_fore
     assert_eq!(tiny.reserved(), 0);
 }
 
-#[tokio::test]
-async fn native_builtin_type_predicates_use_supported_operands_and_refuse_shadowed_functions() {
+fn native_builtin_type_predicates_use_supported_operands_and_refuse_shadowed_functions(tables: &typed_driver::Tables) {
     use lctx_model::domain::local_theory::*;
-    let (data, invocation, definition, budget) = fixture().await;
+    let (data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
@@ -931,11 +952,10 @@ async fn native_builtin_type_predicates_use_supported_operands_and_refuse_shadow
     replay_theory(&data, &invocation, &rows.theory, 0, &budget).unwrap();
 }
 
-#[tokio::test]
-async fn native_scalar_admission_refuses_a_type_known_only_outside_the_leaf_domain() {
+fn native_scalar_admission_refuses_a_type_known_only_outside_the_leaf_domain(tables: &typed_driver::Tables) {
     use lctx_model::domain::{conditions::Diagram, local_theory::*, types::*};
     use normalized::{Rows, links::*};
-    let (mut data, invocation, definition, budget) = fixture().await;
+    let (mut data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
@@ -1108,10 +1128,9 @@ fn replay_fields(
     )?;
     check.finish()
 }
-#[tokio::test]
-async fn native_field_locations_keep_two_fields_and_unrelated_readers_distinct_and_state_open() {
+fn native_field_locations_keep_two_fields_and_unrelated_readers_distinct_and_state_open(tables: &typed_driver::Tables) {
     use local_fields::*;
-    let (data, invocation, definition, budget) = fixture().await;
+    let (data, invocation, definition, budget) = fixture(tables);
     let records =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
@@ -1185,12 +1204,11 @@ async fn native_field_locations_keep_two_fields_and_unrelated_readers_distinct_a
         );
     }
 }
-#[tokio::test]
-async fn native_field_locations_refuse_wrong_role_foreign_placement_support_and_context() {
+fn native_field_locations_refuse_wrong_role_foreign_placement_support_and_context(tables: &typed_driver::Tables) {
     use local_fields::*;
     use normalized::Rows;
     for mutation in 0..3 {
-        let (mut data, invocation, definition, budget) = fixture().await;
+        let (mut data, invocation, definition, budget) = fixture(tables);
         let records =
             lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
                 .unwrap();
@@ -1291,9 +1309,8 @@ async fn native_field_locations_refuse_wrong_role_foreign_placement_support_and_
     }
 }
 
-#[tokio::test]
-async fn native_assignment_transfer_retains_exact_definition_premise_and_refuses_rebound_input() {
-    let (mut data, invocation, definition, budget) = fixture().await;
+fn native_assignment_transfer_retains_exact_definition_premise_and_refuses_rebound_input(tables: &typed_driver::Tables) {
+    let (mut data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
             .unwrap();
