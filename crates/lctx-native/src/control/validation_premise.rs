@@ -203,7 +203,7 @@ impl PendingValidation {
         for cap in &self.caps{let mut row=Object::new();row.insert("record",cap.completion().record()?);row.insert("guard",guard_id(&Value::RecordId(cap.completion().record()?))?);row.insert("incarnation",cap.completion_incarnation());row.insert("bytes",cap.completion().value()?);expected.push(Value::Object(row));}
         variables.insert("premise_inputs",expected);
         variables.insert("premise_generation",self.key.physical[0].completion.generation.hex());variables.insert("premise_validity",self.key.physical[0].completion.validity_epoch);
-        let sql=format!("IF $__generation!=$premise_generation OR $__installation.validity_epoch!=$premise_validity {{ THROW 'native premise installation changed'; }}; FOR $input IN $premise_inputs {{ LET $guard=SELECT * FROM ONLY $input.guard FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$input.incarnation OR (SELECT * FROM ONLY $input.record)!=$input.bytes {{ THROW 'native premise protected input changed'; }}; }}; {insert}; {holds}");
+        let sql=format!("IF $__generation!=$premise_generation OR $__installation.validity_epoch!=$premise_validity {{ THROW 'native premise installation changed'; }}; FOR $input IN $premise_inputs {{ LET $guard_id=$input.guard; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$input.incarnation OR (SELECT * FROM ONLY $input.record)!=$input.bytes {{ THROW 'native premise protected input changed'; }}; }}; {insert}; {holds}");
         effect_for_owner(self.reader.client(),EffectOwner::Installation,&sql,variables).await?;
         self.current().await?;Ok(())
     }

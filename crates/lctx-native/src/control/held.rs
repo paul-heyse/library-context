@@ -206,7 +206,7 @@ pub(crate) async fn hold_live_views_expected(client:&Surreal<Client>,owner:&supe
         let mut row=Object::new();row.insert("record",expected.record().clone());row.insert("guard",guard_id(&Value::RecordId(expected.record().clone()))?);row.insert("incarnation",expected.incarnation());row.insert("bytes",expected.row().clone());Ok(Value::Object(row))
     }).collect::<Result<Vec<_>,ModelError>>()?;
     variables.insert("attached_checks",checks);
-    let sql=format!("{} FOR $check IN $attached_checks {{ LET $guard=SELECT * FROM ONLY $check.guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $check.record FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$check.incarnation OR $actual!=$check.bytes {{ THROW 'atomic installed attachment source changed'; }}; }}; {holds}",super::live_view::GUARD);
+    let sql=format!("{} FOR $check IN $attached_checks {{ LET $guard_id=$check.guard; LET $record_id=$check.record; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; LET $actual=SELECT * FROM ONLY $record_id FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$check.incarnation OR $actual!=$check.bytes {{ THROW 'atomic installed attachment source changed'; }}; }}; {holds}",super::live_view::GUARD);
     effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt()),&sql,variables).await?;
     Ok(expected.into_iter().map(|expected|HeldRecord{expected,owner:holder.clone()}).collect())
 }

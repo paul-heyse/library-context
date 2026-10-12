@@ -327,7 +327,7 @@ fn immutable_row_plan(
         ""
     };
     let sql = format!(
-        "{fence} FOR $i IN 0..array::len($rows) {{ LET $row=$rows[$i]; IF record::table($row.id)='original_chunk' {{ fn::native_touch($row.blob); LET $blob_header=SELECT * FROM ONLY $row.blob; IF $blob_header=NONE OR type::is_bool($blob_header.completed)=false {{ THROW 'native original blob declaration missing'; }}; IF $blob_header.completed AND (SELECT * FROM ONLY $row.id)!=$row {{ THROW 'completed original blob refuses missing or changed piece'; }}; }}; fn::native_incidence_insert($row); LET $existing=SELECT * FROM ONLY $row.id; IF $existing != NONE AND $existing != $row {{ THROW 'native immutable address collision'; }}; IF $existing=NONE {{ IF record::table($row.id) IN ['participant','reference','lex_occurs','vec_occurs'] {{ INSERT RELATION $row RETURN NONE; }} ELSE {{ CREATE $row.id CONTENT $row RETURN NONE; }}; }}; }}"
+        "{fence} FOR $i IN 0..array::len($rows) {{ LET $row=$rows[$i]; IF record::table($row.id)='original_chunk' {{ fn::native_touch($row.blob); LET $blob_header=SELECT * FROM ONLY $row.blob; IF $blob_header=NONE OR type::is_bool($blob_header.completed)=false {{ THROW 'native original blob declaration missing'; }}; IF $blob_header.completed AND (SELECT * FROM ONLY $row.id)!=$row {{ THROW 'completed original blob refuses missing or changed piece'; }}; }}; fn::native_incidence_insert($row); LET $existing=SELECT * FROM ONLY $row.id; IF $existing != NONE AND $existing != $row {{ THROW 'native immutable address collision'; }}; IF $existing=NONE {{ IF record::table($row.id) IN ['participant','reference','lex_occurs','vec_occurs'] {{ INSERT RELATION $row RETURN NONE; }} ELSE {{ CREATE $row.id CONTENT $row RETURN NONE; }}; }}; }};"
     );
     Ok(Some((sql, bindings)))
 }
@@ -730,6 +730,16 @@ impl Drop for ReaderPin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn immutable_witness_fragments_compose_inside_actual_payload_closure(){
+        let attempt=ContentHash([17;32]);
+        let blob=crate::originals::Blob::new(ContentHash::of(b"abc"),3).unwrap();
+        let (rows,_)=immutable_row_plan(None,None,vec![blob.value(false)]).unwrap().unwrap();
+        let (_,holds,_)=hold_plan(Some(attempt),vec![(RecordId::new("native_attempt",attempt.hex()),blob.id())]).unwrap().unwrap();
+        // Completed/live/recovery witnesses concatenate these actual fragments. A
+        // missing statement delimiter previously reached the service as `}FOR`.
+        surrealdb_syn::parse(&format!("BEGIN; LET $__payload=|| {{ {rows}{holds}; }}; RETURN $__payload(); COMMIT;")).unwrap();
+    }
     #[test]
     fn keyset_identity_cast_preserves_native_key_types_and_excluded_bounds(){
         use surrealdb::types::{RecordIdKey,ToSql};

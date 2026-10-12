@@ -216,6 +216,7 @@ async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisi
 }
 #[tokio::test]
 async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_drainage() {
+    let budget = resources::ResourceBudget::fixed(256 << 20).unwrap();
     let cfg = config();
     let credentials = Credentials::Database {
         username: cfg["admin_user"].as_str().unwrap().into(),
@@ -231,7 +232,7 @@ async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_
     .unwrap();
     // session::id is the server-assigned RPC session UUID, not the authenticated user.
     let sql = "RETURN { id: session::id(), ns: session::ns(), db: session::db() }";
-    let native = NativeReader::private(client.clone());
+    let native = NativeReader::private(client.clone()).with_budget(&budget);
     let expected: Value = native.query_native(sql, Variables::new()).await.unwrap();
     let Value::Object(session) = &expected else {
         panic!("session descriptor must be an object")
@@ -248,7 +249,7 @@ async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_
         Some(&Value::String(cfg["database"].as_str().unwrap().to_owned()))
     );
     // Revealing contrast: cloning Surreal itself recreates a distinct authenticated session.
-    let independent = NativeReader::private(std::sync::Arc::new(client.as_ref().clone()));
+    let independent = NativeReader::private(std::sync::Arc::new(client.as_ref().clone())).with_budget(&budget);
     let other: Value = independent
         .query_native(sql, Variables::new())
         .await
