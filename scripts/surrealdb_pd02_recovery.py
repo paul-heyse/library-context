@@ -3,8 +3,9 @@
 The immutable wire manifests enumerate policies, never executable SQL. A host
 recovery receipt supplements the original unknown native owner receipt; it does
 not rewrite it or infer remote finality from command/process cleanup.
-Started compiler owners have a separate exact-source shutdown proof and use the
-existing installation maintenance owner, without wire policy or request claims.
+Registered compiler owners, including failed terminal receipts and clean signal
+owner siblings, use an exact-source shutdown proof and the existing installation
+maintenance owner, without wire policy or request claims.
 """
 from __future__ import annotations
 
@@ -201,23 +202,33 @@ def inputs(directory, row):
 
 
 def native_owner_class(owner):
-    """Finite owner classes; neither one certifies a successful original request."""
-    if (owner["owner"] in {"native compiler store", "compiler workspace"}
+    """Finite owner classes; eligibility never promotes an original outcome."""
+    store = owner["owner"] in {"native compiler store", "compiler workspace"}
+    if (store
             and owner.get("state") == "started" and owner.get("completion") is None):
         return "Started native store/workspace owners"
     completion = owner.get("completion")
-    if (owner["owner"] == "S09 finite accepted-query wire owner"
-            and owner.get("state") == "complete" and isinstance(completion, dict)
+    terminal = (owner.get("state") == "complete" and isinstance(completion, dict)
             and set(completion) == {"local", "remote", "storage", "committed", "failures"}
             and completion["local"] == "terminal" and completion["remote"] == "confirmed"
             and completion["storage"] == [] and completion["committed"] == []
-            and isinstance(completion["failures"], list) and completion["failures"]
+            and isinstance(completion["failures"], list)
             and all(isinstance(item, dict) and set(item) == {"step", "error"}
-                    and item["step"] == "S09 actual wire control"
+                    and isinstance(item["step"], str) and item["step"]
                     and isinstance(item["error"], str) and item["error"]
-                    for item in completion["failures"])):
+                    for item in completion["failures"]))
+    if terminal and store:
+        if completion["failures"]:
+            return "Failed terminal native store/workspace owners; original failure preserved"
+        return "Clean terminal native store/workspace siblings; original outcome preserved"
+    if (terminal and owner["owner"] == "D10 direct native query signal owner"
+            and not completion["failures"]):
+        return "Clean terminal direct-query signal sibling; original outcome preserved"
+    if (terminal and owner["owner"] == "S09 finite accepted-query wire owner"
+            and completion["failures"]
+            and all(item["step"] == "S09 actual wire control" for item in completion["failures"])):
         return "Failed terminal finite-query wire owner; original failure preserved"
-    fail("native owner is outside the bounded Started or failed terminal wire recovery")
+    fail("native owner is outside the bounded registered store/workspace or terminal wire recovery")
 
 
 def native_inputs(directory, row):

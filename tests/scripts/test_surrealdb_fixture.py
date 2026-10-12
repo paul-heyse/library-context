@@ -1162,6 +1162,88 @@ def failed_wire_owner(path):
     fx.write_json_atomic(path,row)
 
 
+def terminal_native_sibling(path, registration, owner, failures):
+    row = fx.read_json(path)
+    row.update(owner=owner, registration=registration, state="complete", completion={
+        "local":"terminal", "remote":"confirmed", "storage":[], "committed":[],
+        "failures":failures,
+    })
+    sibling = path.with_name(f"{row['process']['pid']}-{row['process']['start_ticks']}-{registration}.json")
+    fx.write_json_atomic(sibling,row)
+    return sibling
+
+
+def test_native_host_mixed_registered_owners_preserve_all_original_outcomes(installed,tmp_path,monkeypatch):
+    import base64
+    import surrealdb_pd02_recovery as recovery
+    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    paths = [path]
+    for owner in ("native compiler store", "compiler workspace"):
+        paths.append(terminal_native_sibling(path,len(paths),owner,[
+            {"step":"install exact predecessor view", "error":"original parser failure"},
+            {"step":"native attempt abandonment", "error":"original cleanup runtime failure"},
+        ]))
+        paths.append(terminal_native_sibling(path,len(paths),owner,[]))
+    paths.append(terminal_native_sibling(path,len(paths),"D10 direct native query signal owner",[]))
+    originals = {item.name:item.read_bytes() for item in paths}
+    row = fx.read_json(attachment.directory / "record.json")
+    assert fx.native_completion(attachment.directory,row)["status"] == "unknown"
+    calls = []
+    monkeypatch.setattr(service,"_run_installer",lambda inst,path,action:calls.append(action))
+    assert recovery.recover_native(installed.installation,[attachment.id])["outcome"] == "recovered"
+    assert calls == ["close-admission","close-admission","drain","open-admission"]
+    assert {item.name:item.read_bytes() for item in paths} == originals
+    row = fx.read_json(attachment.directory / "record.json")
+    assert row["released"] and fx.native_completion(attachment.directory,row)["status"] == "unknown"
+    plan = fx.read_json(attachment.directory / "native-host-recovery" / "plan.json")
+    assert {name:base64.b64decode(raw) for name,raw in plan["native_bytes"].items()} == originals
+    classification = plan["named_scope"][attachment.id]["classification"]
+    assert "Started native store/workspace" in classification
+    assert "Failed terminal native store/workspace" in classification
+    assert "Clean terminal native store/workspace" in classification
+    assert "Clean terminal direct-query signal sibling" in classification
+    assert recovery.native_recovered(attachment.directory,row)
+    assert not service.borrowers(installed.installation)
+    paths[-1].write_bytes(originals[paths[-1].name]+b" ")
+    assert not recovery.native_recovered(attachment.directory,row)
+    assert service.borrowers(installed.installation)[0]["id"] == attachment.id
+
+
+@pytest.mark.parametrize("change",[
+    "owner", "state", "local", "remote", "storage", "committed", "failure_step",
+    "failure_error", "extra", "generation", "attachment", "live", "signal_failure",
+])
+def test_native_host_refuses_ineligible_terminal_sibling_before_effect(installed,tmp_path,monkeypatch,change):
+    import surrealdb_pd02_recovery as recovery
+    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    sibling = terminal_native_sibling(path,1,"native compiler store",[
+        {"step":"native attempt abandonment", "error":"original cleanup runtime failure"},
+    ])
+    row = fx.read_json(sibling)
+    if change == "owner": row["owner"] = "arbitrary completed owner"
+    elif change == "state": row["state"] = "started"
+    elif change == "failure_step": row["completion"]["failures"][0]["step"] = ""
+    elif change == "failure_error": row["completion"]["failures"][0]["error"] = ""
+    elif change == "extra": row["completion"]["extra"] = True
+    elif change in {"storage","committed"}: row["completion"][change] = ["unresolved"]
+    elif change in {"local","remote"}: row["completion"][change] = "unknown"
+    elif change == "generation": row["generation"] = "f"*64
+    elif change == "attachment": row["attachment"] = "unbound"
+    elif change == "signal_failure": row["owner"] = "D10 direct native query signal owner"
+    else:
+        current = service.ProcessIdentity.of()
+        sibling.unlink()
+        row["process"] = {"pid":current.pid,"start_ticks":current.start_ticks}
+        sibling = sibling.with_name(f"{current.pid}-{current.start_ticks}-1.json")
+    fx.write_json_atomic(sibling,row)
+    original = sibling.read_bytes()
+    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("ineligible sibling cannot trigger effects"))
+    with pytest.raises(fx.FixtureBlocked):
+        recovery.recover_native(installed.installation,[attachment.id])
+    assert sibling.read_bytes() == original
+    assert not (attachment.directory / "native-host-recovery" / "receipt.json").exists()
+
+
 def test_native_host_recovers_failed_wire_owner_without_rewriting_failure(installed,tmp_path,monkeypatch):
     import surrealdb_pd02_recovery as recovery
     attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
