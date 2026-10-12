@@ -4653,6 +4653,19 @@ impl NativeCompilerStore {
                 holds.push((owner.clone(), id.clone()));
                 let _ = node;
             }
+            if *table == "compiler_view" {
+                // Transport orders views by identity, not dependency. Establish every
+                // imported view's exact contributor incidence before any installed-view
+                // audit can traverse a later view in the same imported closure.
+                let view: CompletedView = decode_descriptor(row)?;
+                let known = self.known_contributors.lock()
+                    .map_err(|_| ModelError::Conflict("import contribution ownership"))?;
+                for logical in &view.contributions {
+                    let physical = known.get(logical)
+                        .ok_or(ModelError::Conflict("import view contributor missing"))?;
+                    holds.push((id.clone(), RecordId::new("compiler_contribution", physical.hex())));
+                }
+            }
             if *table == "compiler_alias" {
                 let (Some(Value::RecordId(source)), Some(Value::RecordId(target))) =
                     (object.get("source"), object.get("target"))
@@ -5904,6 +5917,23 @@ mod completion_tests {
         let mut bad=value_object(&one).unwrap().clone();bad.insert("id",RecordId::new("compiler_contribution","unrelated"));
         assert!(validate_state_row("compiler_contribution",&Value::Object(bad)).is_err());
         assert_ne!(lctx_native::completed_logical_rows::normalize("compiler_contribution",&one,&BTreeMap::new()).unwrap(),lctx_native::completed_logical_rows::normalize("compiler_contribution",&two,&BTreeMap::new()).unwrap());
+    }
+    #[tokio::test]
+    async fn import_view_missing_exact_contributor_refuses_before_native_installation() {
+        // This store has no connected native transport: a missing selected input must
+        // refuse locally, rather than installing an empty or globally matched view.
+        let store = local_store();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let view = CompletedView::new("packages".into(),
+            [ContentHash::of(b"unimported contributor")].into(), 0).unwrap();
+        let mut row = Object::new();
+        row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
+        row.insert("descriptor", Bytes::from(serde_json::to_vec(&view).unwrap()));
+        for (field, value) in view_projection(&view).unwrap() { row.insert(field, value); }
+        let table = STATE_TABLES.iter().position(|table| *table == "compiler_view").unwrap();
+        let error = store.insert_state_batch(table, vec![Value::Object(row)], &budget)
+            .await.unwrap_err();
+        assert!(matches!(error, ModelError::Conflict("import view contributor missing")));
     }
     #[tokio::test]
     async fn registering_contribution_cannot_complete_or_write_before_checked_attachment() {
