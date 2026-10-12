@@ -44,6 +44,17 @@ pub(crate) async fn install(client:&Surreal<Client>,owner:&LiveViewOwner,row:Opt
     if let Some((_,plan,bindings))=hold_plan(Some(owner.attempt),edges)?{sql.push_str(&plan);merge_plan_bindings(&mut variables,bindings)?;}
     effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt),&sql,variables).await
 }
+pub(crate) async fn install_members(client:&Surreal<Client>,owner:&LiveViewOwner,root:&RecordId,
+    members:&crate::ordered_rows::PreparedRows,budget:&ResourceBudget)->Result<usize,ModelError>{
+    let mut cursor=members.cursor_with_budget(budget)?;
+    let rows=std::iter::from_fn(move||cursor.next_row().transpose());
+    let mut variables=Variables::new();bind(owner,&mut variables);
+    let mut installed=0usize;
+    for window in ImmutableWindows::for_view_members(rows,root.clone(),GUARD,variables).with_budget(Some(budget)) {
+        immutable_window::install_member_window(client,EffectOwner::OpenAttempt(owner.attempt),window?,budget).await?;
+        installed=installed.checked_add(1).ok_or(ModelError::Schema("live member window count"))?;
+    }Ok(installed)
+}
 pub(crate) async fn hold_contributor(client:&Surreal<Client>,owner:&LiveViewOwner,root:&RecordId,expected:&ExpectedRecord,budget:&ResourceBudget)->Result<(),ModelError>{
     let _charge=budget.reserve("live view exact contributor hold",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(131072))?;
     let (_,holds,mut variables)=hold_plan(Some(owner.attempt),vec![(root.clone(),expected.record().clone())])?.ok_or(ModelError::Schema("live contributor hold plan"))?;

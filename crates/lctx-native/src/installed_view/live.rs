@@ -55,12 +55,7 @@ pub async fn install_live_view(client:Arc<Surreal<Client>>,attempt:ContentHash,v
         } else {declaration};
         live_view::install(&client,&owner,Some(declaration),vec![(RecordId::new("native_attempt",attempt.hex()),root.clone()),(root.clone(),RecordId::new("compiler_view",view.identity.hex()))],budget).await?;
         for mapping in mappings {live_view::hold_contributor(&client,&owner,&root,&closure.contributors[&mapping.physical],budget).await?;}
-        let mut cursor=members.cursor_with_budget(budget)?;
-        while let Some(member)=cursor.next_row()? {
-            let Some(Value::RecordId(id))=member.as_object().and_then(|row|row.get("id")) else{return Err(ModelError::Schema("live member id"));};
-            let Some(Value::RecordId(node))=member.as_object().and_then(|row|row.get("node")) else{return Err(ModelError::Schema("live member node"));};
-            live_view::install(&client,&owner,Some(member.clone()),vec![(root.clone(),id.clone()),(id.clone(),node.clone())],budget).await?;
-        }
+        live_view::install_members(&client,&owner,&root,&members,budget).await?;
         let expected=crate::control::inspect_expected_read(&reader,root.clone(),budget).await?.ok_or(ModelError::Conflict("live realization disappeared"))?;
         let before=revision(&reader,&root).await?;
         let membership_content=verify_members(&reader,realization,&members,view.rows,budget).await?;

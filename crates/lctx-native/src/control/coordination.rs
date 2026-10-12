@@ -72,10 +72,11 @@ impl ExpectedObject {
         if tombstone.is_some_and(|revision| revision < 0) { return Err(ModelError::Schema("native expected tombstone")); }
         Ok(Self { record, incarnation, phase: phase.clone(), tombstone_revision_if_vacant: tombstone })
     }
-    fn binding(&self, guard: RecordId) -> Value {
+    fn binding(&self, guard: RecordId, creation: Option<&Value>) -> Value {
         let mut row=Object::new(); row.insert("record",self.record.clone());row.insert("guard",guard);
         row.insert("incarnation",self.incarnation);row.insert("phase",self.phase.clone());
         row.insert("tombstone_revision",self.tombstone_revision_if_vacant.map(surrealdb::types::SurrealValue::into_value).unwrap_or(Value::None));
+        row.insert("creation",creation.cloned().unwrap_or(Value::None));
         Value::Object(row)
     }
 }
@@ -105,10 +106,67 @@ pub(super) async fn prepare_expectations(client: &Surreal<Client>, bindings: &mu
     let Some(Value::Array(records))=bindings.get("__guard_records") else{return Err(ModelError::Schema("native expected record map missing"));};
     let mut mapping=std::collections::BTreeMap::new();
     for value in records {let Value::Object(row)=value else{return Err(ModelError::Schema("native expected record map"));};let (Some(Value::RecordId(guard)),Some(Value::RecordId(record)))=(row.get("guard"),row.get("record")) else{return Err(ModelError::Schema("native expected record identity"));};if guard_id(&Value::RecordId(record.clone()))?!=*guard{return Err(ModelError::Conflict("native expected guard correspondence"));}if let Some(prior)=mapping.insert(guard.clone(),record.clone()){if prior!=*record{return Err(ModelError::Conflict("native expected record collision"));}}}
-    let expected=guards.into_iter().map(|guard|{let record=mapping.get(&guard).ok_or(ModelError::Schema("native expected record absent"))?;ExpectedObject::from_guard(record.clone(),actual.get(&guard)).map(|expected|expected.binding(guard))}).collect::<Result<Vec<_>,_>>()?;
+    let creations=creation_indices(bindings)?;
+    let expected=guards.into_iter().map(|guard|{let record=mapping.get(&guard).ok_or(ModelError::Schema("native expected record absent"))?;ExpectedObject::from_guard(record.clone(),actual.get(&guard)).map(|expected|expected.binding(guard,creations.get(record)))}).collect::<Result<Vec<_>,_>>()?;
     bindings.insert("__object_expectations",expected);Ok(())
 }
-pub(super) const EXPECTED_OBJECT_GUARD: &str = "FOR $__expected IN ($__object_expectations ?? []) { LET $__guard_id=$__expected.guard; LET $__before=SELECT * FROM ONLY $__guard_id FOR UPDATE; IF $__before!=NONE AND $__before.revision>=9223372036854775807 { THROW 'native guard revision exhausted'; }; IF $__expected.phase='active' { IF $__before=NONE OR $__before.phase!='active' OR $__before.incarnation!=$__expected.incarnation { THROW 'native expected active incarnation changed'; }; UPDATE $__guard_id SET revision+=1 RETURN NONE; } ELSE { IF $__expected.phase='vacant' { IF $__before!=NONE OR $__expected.incarnation!=0 OR $__expected.tombstone_revision!=0 { THROW 'native expected vacant guard changed'; }; } ELSE IF $__expected.phase='retired' { IF $__before=NONE OR $__before.phase!='retired' OR $__before.incarnation!=$__expected.incarnation OR $__before.tombstone_revision!=$__expected.tombstone_revision { THROW 'native expected tombstone changed'; }; } ELSE { THROW 'native expected phase invalid'; }; IF $__expected.incarnation>=9223372036854775807 { THROW 'native incarnation exhausted'; }; UPSERT $__guard_id SET phase='active',incarnation=$__expected.incarnation+1,tombstone_revision=($__before.tombstone_revision ?? 0),revision=($__before.revision ?? 0)+1,retired=false,retiring_item=NONE RETURN NONE; }; };";
+// Only immutable plans declare these alternatives. Equal repeated declarations share
+// one index; differing full values at an address never gain a creation alternative.
+fn creation_indices(bindings:&Variables)->Result<std::collections::BTreeMap<RecordId,Value>,ModelError>{
+    let mut indices=std::collections::BTreeMap::new();
+    let Some(values)=bindings.get("__immutable_creations") else{return Ok(indices)};
+    let Value::Array(values)=values else{return Err(ModelError::Schema("native immutable creations"))};
+    for value in values.iter(){
+        let Value::Object(creation)=value else{return Err(ModelError::Schema("native immutable creation"))};
+        let (Some(Value::String(kind)),Some(Value::RecordId(record)))=(creation.get("kind"),creation.get("record")) else{return Err(ModelError::Schema("native immutable creation envelope"))};
+        if kind!="immutable" && !(kind=="original_blob" && record.table.as_str()=="original_blob"){return Err(ModelError::Schema("native immutable creation kind"))}
+        let source=if kind=="immutable" {"rows"}else{"original_blobs"};
+        let Some(Value::Array(rows))=bindings.get(source) else{return Err(ModelError::Schema("native immutable creation payload"))};
+        let mut selected:Option<(usize,&Value)>=None;
+        for (index,row) in rows.iter().enumerate().filter(|(_,row)|row.as_object().and_then(|row|row.get("id"))==Some(&Value::RecordId(record.clone()))) {
+            if let Some((_,previous))=selected {if previous!=row{return Err(ModelError::Conflict("native immutable creation collision"))}}else{selected=Some((index,row));}
+        }
+        let (index,_)=selected.ok_or(ModelError::Schema("native immutable creation row missing"))?;
+        let mut reference=Object::new();reference.insert("kind",kind.clone());reference.insert("index",index as i64);
+        let reference=Value::Object(reference);
+        if let Some(previous)=indices.insert(record.clone(),reference.clone()){if previous!=reference{return Err(ModelError::Conflict("native immutable creation collision"))}}
+    }Ok(indices)
+}
+pub(super) const EXPECTED_OBJECT_GUARD: &str = r#"
+FOR $__expected IN ($__object_expectations ?? []) {
+    LET $__guard_id=$__expected.guard;
+    LET $__before=SELECT * FROM ONLY $__guard_id FOR UPDATE;
+    IF $__before!=NONE AND $__before.revision>=9223372036854775807 { THROW 'native guard revision exhausted'; };
+    IF $__expected.phase='active' {
+        IF $__before=NONE OR $__before.phase!='active' OR $__before.incarnation!=$__expected.incarnation { THROW 'native expected active incarnation changed'; };
+        UPDATE $__guard_id SET revision+=1 RETURN NONE;
+    } ELSE {
+        IF $__expected.phase='vacant' {
+            IF $__expected.incarnation!=0 OR $__expected.tombstone_revision!=0 { THROW 'native expected vacant identity invalid'; };
+        } ELSE IF $__expected.phase='retired' {
+            IF $__expected.incarnation<=0 OR $__expected.tombstone_revision<0 { THROW 'native expected tombstone identity invalid'; };
+        } ELSE { THROW 'native expected phase invalid'; };
+        IF $__expected.incarnation>=9223372036854775807 { THROW 'native incarnation exhausted'; };
+        IF $__expected.creation!=NONE AND $__before.phase='active' AND $__before.incarnation=$__expected.incarnation+1 AND $__before.tombstone_revision=$__expected.tombstone_revision AND $__before.retired=false {
+            LET $__creation=$__expected.creation;
+            LET $__record=$__expected.record;
+            LET $__actual=SELECT * FROM ONLY $__record FOR UPDATE;
+            LET $__wanted=IF $__creation.kind='immutable' { $rows[$__creation.index] } ELSE { $original_blobs[$__creation.index] };
+            IF $__wanted.id!=$__record OR $__actual=NONE { THROW 'native immutable creation identity changed'; };
+            IF $__creation.kind='immutable' {
+                IF $__actual!=$__wanted { THROW 'native immutable address collision'; };
+            } ELSE IF $__creation.kind='original_blob' AND record::table($__record)='original_blob' {
+                IF $__actual.id!=$__wanted.id OR $__actual.content!=$__wanted.content OR $__actual.byte_len!=$__wanted.byte_len OR $__actual.format!=$__wanted.format OR type::is_bool($__actual.completed)=false OR array::len(object::keys($__actual))!=5 { THROW 'original blob declaration collision'; };
+            } ELSE { THROW 'native immutable creation kind invalid'; };
+            UPDATE $__guard_id SET revision+=1 RETURN NONE;
+        } ELSE {
+            IF $__expected.phase='vacant' {
+                IF $__before!=NONE { THROW 'native expected vacant guard changed'; };
+            } ELSE IF $__before=NONE OR $__before.phase!='retired' OR $__before.incarnation!=$__expected.incarnation OR $__before.tombstone_revision!=$__expected.tombstone_revision { THROW 'native expected tombstone changed'; };
+            UPSERT $__guard_id SET phase='active',incarnation=$__expected.incarnation+1,tombstone_revision=($__before.tombstone_revision ?? 0),revision=($__before.revision ?? 0)+1,retired=false,retiring_item=NONE RETURN NONE;
+        };
+    };
+};"#;
 
 #[cfg(test)]
 mod tests {

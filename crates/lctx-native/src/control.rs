@@ -311,6 +311,10 @@ fn immutable_row_plan(
         }
     }
     let mut bindings = Variables::new();
+    // Creation may join only the exact successor incarnation this request planned.
+    // These full values remain in the frozen payload, separate from ordinary holds.
+    let creations=rows.iter().map(|row|{let mut creation=Object::new();creation.insert("kind","immutable");creation.insert("record",row.as_object().and_then(|row|row.get("id")).unwrap().clone());Value::Object(creation)}).collect::<Vec<_>>();
+    bindings.insert("__immutable_creations",creations);
     bindings.insert("rows", rows);
     bindings.insert("guards", guards);
     bindings.insert("__write_guards",blob_guards);

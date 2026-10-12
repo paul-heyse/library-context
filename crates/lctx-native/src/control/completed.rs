@@ -23,6 +23,17 @@ pub(crate) async fn install_witness(client:&Surreal<Client>,fence:&FrozenContent
     frozen::bind_fence(fence,&mut variables);
     effect_for_owner(client,EffectOwner::FrozenAttempt(fence.attempt()),&sql,variables).await
 }
+pub(crate) async fn install_members(client:&Surreal<Client>,fence:&FrozenContentFence,root:&RecordId,
+    members:&crate::ordered_rows::PreparedRows,budget:&ResourceBudget)->Result<usize,ModelError>{
+    let mut cursor=members.cursor_with_budget(budget)?;
+    let rows=std::iter::from_fn(move||cursor.next_row().transpose());
+    let mut variables=Variables::new();frozen::bind_fence(fence,&mut variables);
+    let mut installed=0usize;
+    for window in ImmutableWindows::for_view_members(rows,root.clone(),frozen::FENCE_GUARD,variables).with_budget(Some(budget)) {
+        immutable_window::install_member_window(client,EffectOwner::FrozenAttempt(fence.attempt()),window?,budget).await?;
+        installed=installed.checked_add(1).ok_or(ModelError::Schema("frozen member window count"))?;
+    }Ok(installed)
+}
 pub(crate) async fn seal_realization(client:&Surreal<Client>,fence:&FrozenContentFence,expected:&ExpectedRecord,
     revision:i64,budget:&ResourceBudget)->Result<(),ModelError>{
     let _charge=budget.reserve("exact realization seal",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(131072))?;
@@ -66,4 +77,61 @@ pub(crate) async fn retain_installed_view(client:&Surreal<Client>,fence:&FrozenC
     variables.insert("root_revision",revision);
     let sql=format!("{} LET $predicate=SELECT * FROM ONLY type::record('native_predicate',[$root_record]) FOR UPDATE; LET $rg=SELECT * FROM ONLY $root_guard FOR UPDATE; LET $root=SELECT * FROM ONLY $root_record FOR UPDATE; LET $cg=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $completion=SELECT * FROM ONLY $completion_record FOR UPDATE; IF $predicate.revision!=$root_revision OR $rg.phase!='active' OR $rg.incarnation!=$root_incarnation OR $root!=$root_bytes OR $root.sealed!=true OR $cg.phase!='active' OR $cg.incarnation!=$completion_incarnation OR $completion!=$completion_bytes OR $completion.completed!=true {{ THROW 'retained installed witness changed after EOF audit'; }}",frozen::FENCE_GUARD);
     effect_for_owner(client,EffectOwner::FrozenAttempt(fence.attempt()),&sql,variables).await
+}
+
+#[cfg(test)]
+mod member_window_controls {
+    use super::*;
+    use futures::FutureExt;
+    use lctx_model::domain::{Record,input::Package,graph::Entity,completion::{Completion,complete}};
+
+    /// Exercises the fixed frozen writer directly: ordinary provider completion may
+    /// already have sealed its live namespace and therefore skip this construction.
+    /// This is physical member/owner evidence, never semantic artifact admission.
+    #[tokio::test(flavor="multi_thread")]
+    async fn frozen_member_installer_executes_multiple_windows_with_exact_holds_and_owner_fence(){
+        let path=std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned frozen-member campaign fixture");
+        let config=crate::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+        let store_config=lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+        let store=lctx_compiler_store::compiler::NativeCompilerStore::begin(&store_config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+        let client=crate::reader::connect(&config.endpoint,&config.writer_credentials(),store.namespace().as_str(),store.database().as_str()).await.unwrap();
+        let budget=ResourceBudget::fixed(256<<20).unwrap();let attempt=store.attempt();let nonce=fresh_identity("frozen-member-window-control").unwrap();
+        let outcome=std::panic::AssertUnwindSafe(async {
+            let packages=(0..300).map(|index|Package{name:format!("frozen-member-{}-{index}",nonce.hex())}).collect::<Vec<_>>();
+            let entities=packages.iter().cloned().map(Entity::from).collect::<Vec<_>>();
+            crate::Loader::for_attempt_views(client.clone(),attempt,vec![]).with_budget(&budget).entities(&entities).await?;
+            let root=RecordId::new("compiler_view_realization",nonce.hex());
+            let mut declaration=Object::new();declaration.insert("id",root.clone());declaration.insert("sealed",false);declaration.insert("descriptor",surrealdb::types::Bytes::from(b"fixed frozen member control".to_vec()));
+            let window=ImmutableWindows::new(vec![Value::Object(declaration)],Some(attempt),None,Some(RecordId::new("native_attempt",attempt.hex()))).with_budget(Some(&budget)).next().unwrap()?;
+            install_window(&client,Some(attempt),window,Some(&budget)).await?;
+            let mut prepared=crate::ordered_rows::SortedRows::with_budget(&budget)?;let mut expected=std::collections::BTreeMap::new();
+            for (package,entity) in packages.iter().zip(&entities){
+                let key=*package.id().bytes();let id=crate::installed_view::member_id(nonce,Package::NAME,&key);
+                let mut row=Object::new();row.insert("id",id.clone());row.insert("realization",root.clone());row.insert("relation",Package::NAME);row.insert("semantic_key",hex::encode(key));row.insert("node",crate::loader::entity_payload_id(entity)?);row.insert("content",entity.content().hex());
+                let row=Value::Object(row);prepared.push(row.clone())?;expected.insert(id,row);
+            }
+            let members=prepared.finish()?.into_prepared();
+            let mut response=client.query("SELECT revision FROM $attempt").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            let owners:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let [owner]=owners.as_slice()else{return Err(ModelError::Schema("frozen member test owner cardinality"))};
+            let fence=frozen::freeze_content_native(client.clone(),attempt,authorization::int_field(owner,"revision")?,ContentHash::of(b"empty physical test bindings"),&budget).await?;
+            let installed=install_members(&client,&fence,&root,&members,&budget).await?;assert!(installed>1,"actual frozen installer must acknowledge more than one bounded window");
+            // Read exact bounded windows independently of the prepared cursor. Both
+            // outgoing hold levels and every full member value must be present.
+            let ids=expected.keys().cloned().collect::<Vec<_>>();
+            for ids in ids.chunks(crate::loader::NATIVE_WINDOW_ROWS){
+                let mut response=client.query("SELECT * FROM $ids; SELECT owner,object FROM native_hold WITH INDEX owner_holds WHERE owner=$root AND object IN $ids; SELECT owner,object FROM native_hold WITH INDEX owner_holds WHERE owner IN $ids")
+                    .bind(("ids",ids.to_vec())).bind(("root",root.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                let rows:Vec<Value>=response.take(0).map_err(ModelError::codec)?;let root_holds:Vec<Object>=response.take(1).map_err(ModelError::codec)?;let node_holds:Vec<Object>=response.take(2).map_err(ModelError::codec)?;
+                assert_eq!(rows.len(),ids.len());assert_eq!(root_holds.len(),ids.len());assert_eq!(node_holds.len(),ids.len());
+                let observed=rows.into_iter().map(|row|{let Some(Value::RecordId(id))=row.as_object().and_then(|row|row.get("id"))else{panic!("observed member identity")};(id.clone(),row)}).collect::<std::collections::BTreeMap<_,_>>();
+                for id in ids {let row=&expected[id];assert_eq!(observed.get(id),Some(row));let node=row.as_object().unwrap().get("node").unwrap();assert!(root_holds.iter().any(|hold|hold.get("owner")==Some(&Value::RecordId(root.clone()))&&hold.get("object")==Some(&Value::RecordId(id.clone()))));assert!(node_holds.iter().any(|hold|hold.get("owner")==Some(&Value::RecordId(id.clone()))&&hold.get("object")==Some(node)));}
+            }
+            let wrong=FrozenContentFence{attempt_epoch:fence.attempt_epoch()+1,..fence};
+            let error=install_members(&client,&wrong,&root,&members,&budget).await.unwrap_err();assert!(error.to_string().contains("native frozen content fence changed"),"{error}");assert!(error.permits_storage_cleanup(),"fixed owner refusal is acknowledged: {error}");
+            let mut response=client.query("SELECT count() AS count FROM compiler_view_member WITH INDEX realization_nodes WHERE realization=$root GROUP ALL").bind(("root",root)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;let counts:Vec<Object>=response.take(0).map_err(ModelError::codec)?;assert_eq!(counts[0].get("count"),Some(&test_value(300i64)),"wrong owner cannot change the namespace");
+            Ok::<_,ModelError>(())
+        }).catch_unwind().await;
+        let mut terminal=Completion::default();terminal.step("frozen member control owner abandon",store.abandon().await);terminal.step("frozen member control session close",client.invalidate().await.map_err(ModelError::codec));
+        match outcome {Ok(result)=>complete(result,terminal).unwrap(),Err(panic)=>{if let Err(error)=complete(Ok(()),terminal){eprintln!("frozen member control cleanup: {error:#?}");}std::panic::resume_unwind(panic)}}
+    }
 }

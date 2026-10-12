@@ -104,9 +104,10 @@ pub async fn issue_attempt(client: &Surreal<Client>, generation: ContentHash) ->
 pub async fn begin_attempt_in(client: &Surreal<Client>, attempt: ContentHash, era: IssuanceEra) -> Result<(), ModelError> {
     let mut bindings = Variables::new();
     bindings.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
+    bindings.insert("attempt_guard",guard_id(&Value::RecordId(RecordId::new("native_attempt",attempt.hex())))?);
     bindings.insert("__generation", era.generation.hex()); bindings.insert("__era", era.era);
     coordination::bind_stripe(&mut bindings,attempt);
-    let query = format!("BEGIN; {ERA_GUARD} LET $existing=SELECT * FROM ONLY $attempt FOR UPDATE; IF $existing!=NONE {{ IF $existing.generation!=$__generation OR $existing.era!=$__era OR $existing.epoch<=0 {{ THROW 'native attempt identity collision'; }}; }} ELSE {{ IF !$__admission.admission_open {{ THROW 'native installation admission closed'; }}; fn::native_touch($attempt); CREATE $attempt SET generation=$__generation,era=$__era,state='open',revision=0,admitted=false,epoch=1 RETURN NONE; }}; COMMIT;");
+    let query = format!("BEGIN; {ERA_GUARD} LET $existing=SELECT * FROM ONLY $attempt FOR UPDATE; IF $existing!=NONE {{ IF $existing.generation!=$__generation OR $existing.era!=$__era OR $existing.epoch<=0 {{ THROW 'native attempt identity collision'; }}; }} ELSE {{ IF !$__admission.admission_open {{ THROW 'native installation admission closed'; }}; IF (SELECT VALUE id FROM ONLY $attempt_guard)!=NONE {{ THROW 'native attempt guard identity collision'; }}; fn::native_touch($attempt); CREATE $attempt_guard SET phase='active',incarnation=1,tombstone_revision=0,revision=1,retired=false,retiring_item=NONE RETURN NONE; CREATE $attempt SET generation=$__generation,era=$__era,state='open',revision=0,admitted=false,epoch=1 RETURN NONE; }}; COMMIT;");
     coordination::preflight(&query,&bindings)?;
     super::run_transaction(client, &query, bindings).await.map_err(|source|ModelError::Cause(Box::new(NativeAttemptError{attempt,issuance:era,source})))
 }

@@ -11,7 +11,7 @@ pub struct ImmutableWindow {
 }
 impl ImmutableWindow {
     fn unit(row: Value, attempt: Option<ContentHash>, contribution: Option<ContentHash>,
-        owner: Option<&RecordId>, unit_references: bool, budget: Option<&ResourceBudget>) -> Result<Self, ModelError> {
+        owner: Option<&RecordId>, unit_references: bool, member_control:Option<&(String,Variables)>, budget: Option<&ResourceBudget>) -> Result<Self, ModelError> {
         // Reserve expansion before constructing anchors, reference guards or binding arrays.
         // Native values include their container storage; escaped JSON can occupy six bytes
         // per source byte. The bound also covers duplicated guards and fixed SQL overhead.
@@ -20,6 +20,7 @@ impl ImmutableWindow {
         crate::loader::validate_native_row(&row)?;
         let Value::Object(object) = &row else { return Err(ModelError::Schema("native immutable object")); };
         let Some(Value::RecordId(id)) = object.get("id") else { return Err(ModelError::Schema("native immutable identity")); };
+        if member_control.is_some() && object.contains_key("anchor") {return Err(ModelError::Conflict("native member window canonical expansion"));}
         let mut rows = Vec::new();
         if let Some(Value::RecordId(anchor)) = object.get("anchor") {
             if !matches!(anchor.table.as_str(), "entity_anchor" | "assertion_anchor") {
@@ -35,7 +36,12 @@ impl ImmutableWindow {
             rows.push(Value::Object(value));
         }
         let mut references = Vec::new();
-        if id.table.as_str()=="original_chunk" {
+        if member_control.is_some() {
+            let root=owner.ok_or(ModelError::Schema("native member window owner"))?;
+            if root.table.as_str()!="compiler_view_realization" || id.table.as_str()!="compiler_view_member" || object.get("realization")!=Some(&Value::RecordId(root.clone())) {return Err(ModelError::Conflict("native member window realization"));}
+            let Some(Value::RecordId(node))=object.get("node") else{return Err(ModelError::Schema("native member window node"))};
+            references.push((root.clone(),id.clone()));references.push((id.clone(),node.clone()));
+        } else if id.table.as_str()=="original_chunk" {
             let Some(Value::RecordId(blob))=object.get("blob") else { return Err(ModelError::Schema("native original piece parent")); };
             references.push((blob.clone(),id.clone()));
         } else if let Some(owner) = owner {
@@ -56,6 +62,7 @@ impl ImmutableWindow {
         if let Some(blob)=original_blob {
             bindings.insert("original_blobs",vec![blob.value(false)]);
             let mut scope=Variables::new();scope.insert("__write_guards",vec![guard_id(&Value::RecordId(blob.id()))?]);scope.insert("__guard_records",guard_records(std::iter::once(&blob.id()))?);
+            let mut creation=Object::new();creation.insert("kind","original_blob");creation.insert("record",blob.id());scope.insert("__immutable_creations",vec![Value::Object(creation)]);
             merge_plan_bindings(&mut bindings,scope)?;
             // Declaration and logical layout ownership have one atomic outcome. Completion
             // is mutable, while immutable declaration fields and exact header shape collide.
@@ -67,6 +74,9 @@ impl ImmutableWindow {
             }
             sql.push(';'); sql.push_str(&hold_sql);
             merge_plan_bindings(&mut bindings,holds)?;
+        }
+        if let Some((control,variables))=member_control {
+            sql=format!("{control} {sql}");merge_plan_bindings(&mut bindings,variables.clone())?;
         }
         let bytes = plan_bytes(&sql, &bindings)?;
         if bytes > MAX_ROW_BYTES {
@@ -117,6 +127,7 @@ pub struct ImmutableWindows<'a> {
     contribution: Option<ContentHash>,
     owner: Option<RecordId>,
     unit_references: bool,
+    member_control:Option<(String,Variables)>,
     failed: bool,
     budget: Option<ResourceBudget>,
 }
@@ -128,7 +139,7 @@ impl<'a> ImmutableWindows<'a> {
     /// that reservation and the expanded transaction charge survive acknowledgement.
     pub fn from_charged_iter(rows: impl Iterator<Item = Result<(Value, Option<Box<dyn Reservation>>), ModelError>> + Send + 'a,
         attempt: Option<ContentHash>, contribution: Option<ContentHash>, owner: Option<RecordId>) -> Self {
-        Self { rows: Box::new(rows), pending: None, attempt, contribution, owner, unit_references: false, failed: false, budget: None }
+        Self { rows: Box::new(rows), pending: None, attempt, contribution, owner, unit_references: false, member_control:None, failed: false, budget: None }
     }
     pub fn with_budget(mut self, budget: Option<&ResourceBudget>) -> Self {
         self.budget = budget.cloned(); self
@@ -137,6 +148,13 @@ impl<'a> ImmutableWindows<'a> {
         let mut windows = Self::new(rows, attempt, None, owner);
         windows.unit_references = true;
         windows
+    }
+    /// Fixed live/frozen member writers use the same complete-unit admission as ingress.
+    /// Authority is included before packing; neither rows nor their two holds split.
+    pub(super) fn for_view_members(rows:impl Iterator<Item=Result<Value,ModelError>>+Send+'a,
+        root:RecordId,control:&str,variables:Variables)->Self {
+        let mut windows=Self::from_charged_iter(rows.map(|row|row.map(|row|(row,None))),None,None,Some(root));
+        windows.member_control=Some((control.to_owned(),variables));windows
     }
 }
 impl Iterator for ImmutableWindows<'_> {
@@ -147,7 +165,7 @@ impl Iterator for ImmutableWindows<'_> {
             let mut output = self.pending.take();
             for input in self.rows.by_ref() {
                 let (row, input_charge) = input?;
-                let mut unit = ImmutableWindow::unit(row, self.attempt, self.contribution, self.owner.as_ref(), self.unit_references, self.budget.as_ref())?;
+                let mut unit = ImmutableWindow::unit(row, self.attempt, self.contribution, self.owner.as_ref(), self.unit_references, self.member_control.as_ref(), self.budget.as_ref())?;
                 unit.charges.extend(input_charge);
                 if let Some(window) = &output {
                     if window.sql!=unit.sql || window.rows + unit.rows > crate::loader::NATIVE_WINDOW_ROWS || window.bytes.saturating_add(unit.bytes) > TRANSFER_BYTES {
@@ -165,6 +183,12 @@ pub async fn install_window(client: &Surreal<Client>, attempt: Option<ContentHas
     budget: Option<&ResourceBudget>) -> Result<(), ModelError> {
     let _charge: Option<Box<dyn Reservation>> = if window.charges.is_empty() { budget.map(|budget| budget.reserve("native immutable window", window.bytes)).transpose()? } else { None };
     effect(client, attempt, &window.sql, window.bindings.into()).await
+}
+
+pub(super) async fn install_member_window(client:&Surreal<Client>,owner:EffectOwner,window:ImmutableWindow,budget:&ResourceBudget)->Result<(),ModelError>{
+    if !matches!(&owner,EffectOwner::OpenAttempt(_)|EffectOwner::FrozenAttempt(_)){return Err(ModelError::Conflict("native member window authority"));}
+    let _charge=if window.charges.is_empty(){Some(budget.reserve("native member window",window.bytes)?)}else{None};
+    effect_for_owner(client,owner,&window.sql,window.bindings.into()).await
 }
 
 
@@ -234,6 +258,28 @@ mod tests {
         assert_eq!(budget.reserved(), 0);
     }
     #[test]
+    fn member_windows_keep_exact_root_node_holds_and_authority_inside_charged_units() {
+        let root=RecordId::new("compiler_view_realization",ContentHash::of(b"member-window-root").hex());
+        let make=|index:u64|{let mut row=Object::new();row.insert("id",RecordId::new("compiler_view_member",format!("member-{index}")));row.insert("realization",root.clone());row.insert("node",RecordId::new("entity",format!("node-{index}")));Value::Object(row)};
+        let budget=ResourceBudget::fixed(16<<20).unwrap();
+        let mut windows=ImmutableWindows::for_view_members((0..300).map(|index|Ok(make(index))),root.clone(),"IF $member_epoch!=7 { THROW 'member authority'; };",{let mut vars=Variables::new();vars.insert("member_epoch",7i64);vars}).with_budget(Some(&budget));
+        let mut count=0;let mut window_count=0;
+        while let Some(window)=windows.next() {
+            let window=window.unwrap();window_count+=1;count+=window.rows;
+            assert!(window.rows<=crate::loader::NATIVE_WINDOW_ROWS);assert!(window.bytes<=TRANSFER_BYTES);assert!(window.sql.starts_with("IF $member_epoch"));assert_eq!(window.bindings.get("member_epoch"),Some(&test_value(7i64)));
+            let Some(Value::Array(rows))=window.bindings.get("rows")else{panic!("member rows")};let Some(Value::Array(holds))=window.bindings.get("holds")else{panic!("member holds")};assert_eq!(holds.len(),2*rows.len());
+            for row in rows.iter(){let row=row.as_object().unwrap();let member=row.get("id").unwrap();let node=row.get("node").unwrap();
+                assert!(holds.iter().any(|hold|hold.as_object().is_some_and(|hold|hold.get("owner")==Some(&Value::RecordId(root.clone()))&&hold.get("object")==Some(member))));
+                assert!(holds.iter().any(|hold|hold.as_object().is_some_and(|hold|hold.get("owner")==Some(member)&&hold.get("object")==Some(node))));
+            }
+            assert!(budget.reserved()>=window.bytes);
+        }
+        assert_eq!(count,300);assert!(window_count>1);drop(windows);assert_eq!(budget.reserved(),0);
+        let mut wrong=make(0);let Value::Object(row)=&mut wrong else{unreachable!()};row.insert("realization",RecordId::new("compiler_view_realization","other"));
+        let error=ImmutableWindows::for_view_members(std::iter::once(Ok(wrong)),root,"RETURN NONE;",Variables::new()).with_budget(Some(&budget)).next().unwrap().err().unwrap();
+        assert!(matches!(error,ModelError::Conflict("native member window realization")));assert_eq!(budget.reserved(),0);
+    }
+    #[test]
     fn construction_is_admitted_and_lookahead_stays_charged_until_drop() {
         let budget = ResourceBudget::fixed(4 * 1024 * 1024).unwrap();
         let rows = (0..300).map(|n| immutable_control_row(&format!("charged-{n}"), 0)).collect();
@@ -246,6 +292,59 @@ mod tests {
         assert!(matches!(ImmutableWindows::new(vec![immutable_control_row("refuse", 0)], None, None, None)
             .with_budget(Some(&tiny)).next().unwrap(), Err(ModelError::Resource { .. })));
         assert_eq!(tiny.reserved(), 0);
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn frozen_immutable_creation_joins_only_equal_planned_successor_and_keeps_holds_atomic() {
+        let config=lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned campaign fixture"))).unwrap();
+        let first=lctx_compiler_store::compiler::NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+        let second=lctx_compiler_store::compiler::NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+        let client=lctx_compiler_store::reader::connect(&config.endpoint,&config.writer_credentials(),first.namespace().as_str(),first.database().as_str()).await.unwrap();
+        async fn freeze(client:&Surreal<Client>,mut window:ImmutableWindow)->Result<ImmutableWindow,ModelError>{
+            let mut bindings:Variables=window.bindings.into();
+            coordination::prepare_expectations(client,&mut bindings).await?;
+            window.bindings=bindings.into_iter().collect();Ok(window)
+        }
+        fn address(value:&Value)->RecordId {let Some(Value::RecordId(id))=value.as_object().and_then(|row|row.get("id")) else{panic!("control record")};id.clone()}
+        let owner1=RecordId::new("native_attempt",first.attempt().hex());let owner2=RecordId::new("native_attempt",second.attempt().hex());
+        let result:Result<(),ModelError>=async {
+            for retired in [false,true] {
+                let row=immutable_control_row(&format!("{}-equal-{retired}",first.attempt().hex()),0);let record=address(&row);
+                if retired {ensure_rows(&client,None,vec![row.clone()]).await?;retire(&client,record.clone()).await?;}
+                // Both requests capture the SAME vacant/tombstoned boundary before a peer
+                // activates it. This deterministically exposes the real planning race.
+                let a=freeze(&client,ImmutableWindows::new(vec![row.clone()],Some(first.attempt()),None,Some(owner1.clone())).next().unwrap()?).await?;
+                let b=freeze(&client,ImmutableWindows::new(vec![row.clone()],Some(second.attempt()),None,Some(owner2.clone())).next().unwrap()?).await?;
+                let digest=ContentHash::of(&serde_json::to_vec(&(&a.sql,&a.bindings)).map_err(ModelError::codec)?);
+                install_window(&client,Some(second.attempt()),b,None).await?;
+                assert_eq!(digest,ContentHash::of(&serde_json::to_vec(&(&a.sql,&a.bindings)).map_err(ModelError::codec)?),"peer execution never refreshes the original request");
+                install_window(&client,Some(first.attempt()),a,None).await?;
+                let mut response=client.query("SELECT * FROM $record; SELECT owner FROM native_hold WITH INDEX object_holds WHERE object=$record; SELECT incarnation,tombstone_revision FROM $guard")
+                    .bind(("record",record.clone())).bind(("guard",guard_id(&Value::RecordId(record))?)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                let rows:Vec<Value>=response.take(0).map_err(ModelError::codec)?;let holds:Vec<Object>=response.take(1).map_err(ModelError::codec)?;let guards:Vec<Object>=response.take(2).map_err(ModelError::codec)?;
+                assert_eq!(rows,vec![row]);assert_eq!(holds.len(),2);assert!(holds.iter().any(|row|row.get("owner")==Some(&Value::RecordId(owner1.clone()))));assert!(holds.iter().any(|row|row.get("owner")==Some(&Value::RecordId(owner2.clone()))));
+                assert_eq!(guards[0].get("incarnation"),Some(&test_value(if retired {2i64}else{1i64})));assert_eq!(guards[0].get("tombstone_revision"),Some(&test_value(if retired {1i64}else{0i64})));
+            }
+            let name=format!("{}-collision",first.attempt().hex());let row=immutable_control_row(&name,0);let absent=immutable_control_row(&format!("{}-rollback",first.attempt().hex()),0);
+            let a=freeze(&client,ImmutableWindows::new(vec![absent.clone(),immutable_control_row(&name,1)],Some(first.attempt()),None,Some(owner1.clone())).next().unwrap()?).await?;
+            let record=address(&row);ensure_rows(&client,Some(second.attempt()),vec![row]).await?;hold(&client,Some(second.attempt()),owner2.clone(),vec![record]).await?;
+            let error=install_window(&client,Some(first.attempt()),a,None).await.unwrap_err();assert!(error.to_string().contains("native immutable address collision"),"{error}");assert!(error.permits_storage_cleanup(),"collision is acknowledged and reconciled: {error}");
+            let mut response=client.query("SELECT * FROM $record; SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$record").bind(("record",address(&absent))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            let rows:Vec<Value>=response.take(0).map_err(ModelError::codec)?;let holds:Vec<RecordId>=response.take(1).map_err(ModelError::codec)?;assert!(rows.is_empty() && holds.is_empty(),"late comparison rolls back preceding guard/row/hold work");
+            let row=immutable_control_row(&format!("{}-later-incarnation",first.attempt().hex()),0);let record=address(&row);
+            let a=freeze(&client,ImmutableWindows::new(vec![row.clone()],Some(first.attempt()),None,Some(owner1)).next().unwrap()?).await?;
+            ensure_rows(&client,None,vec![row.clone()]).await?;retire(&client,record.clone()).await?;ensure_rows(&client,None,vec![row]).await?;hold(&client,Some(second.attempt()),owner2.clone(),vec![record]).await?;
+            let error=install_window(&client,Some(first.attempt()),a,None).await.unwrap_err();assert!(error.to_string().contains("native expected vacant guard changed"),"equal bytes at a later incarnation remain fenced: {error}");assert!(error.permits_storage_cleanup(),"{error}");
+            let row=immutable_control_row(&format!("{}-strict-generic",first.attempt().hex()),0);let record=address(&row);let mut vars=Variables::new();vars.insert("record",record.clone());
+            let sql=guarded_effect_plan(vec![record.clone()],"UPDATE $record SET forbidden=true RETURN NONE",&mut vars)?;coordination::prepare_expectations(&client,&mut vars).await?;
+            ensure_rows(&client,None,vec![row.clone()]).await?;hold(&client,Some(second.attempt()),owner2.clone(),vec![record.clone()]).await?;
+            let error=effect(&client,None,&sql,vars).await.unwrap_err();assert!(error.to_string().contains("native expected vacant guard changed"),"generic mutable writes cannot adopt immutable alternatives: {error}");assert!(error.permits_storage_cleanup(),"{error}");
+            let mut response=client.query("SELECT * FROM $record").bind(("record",record)).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;let rows:Vec<Value>=response.take(0).map_err(ModelError::codec)?;assert_eq!(rows,vec![row],"refused mutable request has no payload effect");
+            Ok(())
+        }.await;
+        let mut completion=lctx_model::domain::completion::Completion::default();
+        completion.step("creation control session close",client.invalidate().await.map_err(ModelError::codec));
+        completion.step("first creation owner abandon",first.abandon().await);completion.step("second creation owner abandon",second.abandon().await);
+        lctx_model::domain::completion::complete(result,completion).unwrap();
     }
     #[tokio::test(flavor = "multi_thread")]
     async fn native_late_collision_rolls_back_rows_and_holds_together() {

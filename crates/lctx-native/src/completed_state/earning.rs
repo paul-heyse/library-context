@@ -129,12 +129,7 @@ pub async fn complete_frozen_content(client:Arc<Surreal<Client>>,fence:&FrozenCo
                 // alias incidence accepted before contribution completion.
                 crate::control::completed::hold_selected_contributor(&client,fence,&root,&closure.contributors[&mapping.physical],budget).await?;
             }
-            let mut cursor=members.cursor_with_budget(budget)?;
-            while let Some(member)=cursor.next_row()? {
-                let Some(Value::RecordId(id))=member.as_object().and_then(|row|row.get("id")) else{return Err(ModelError::Schema("prepared member id"));};
-                let Some(Value::RecordId(node))=member.as_object().and_then(|row|row.get("node")) else{return Err(ModelError::Schema("prepared member node"));};
-                crate::control::completed::install_witness(&client,fence,Some(member.clone()),vec![(root.clone(),id.clone()),(id.clone(),node.clone())],budget).await?;
-            }
+            crate::control::completed::install_members(&client,fence,&root,&members,budget).await?;
             let expected=crate::control::inspect_expected_read(&reader,root.clone(),budget).await?.ok_or(ModelError::Conflict("realization disappeared before seal"))?;
             let before=revision(&reader,&root).await?;
             let membership_content=verify_members(&reader,realization,&members,selection.view.rows,budget).await?;
