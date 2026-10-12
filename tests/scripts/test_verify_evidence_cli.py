@@ -319,6 +319,21 @@ def test_narrowed_recorded_target_executes_exact_native_case(tmp_path, native_fi
     assert "unselected.rs" not in done.stderr
 
 
+def test_tooling_python_exact_case_keeps_recorded_evaluator_profile_and_dependency(no_execution):
+    build = recorded("tooling:python", "build-evaluator", "cargo",
+                     ["cargo", "build", "--profile", "test", "--locked", "-p", "lctx-eval"])
+    target = recorded("tooling:python", "pytest", "pytest",
+                      ["uv", "run", "--no-sync", "pytest", "tests/scripts"])
+    case = {"case_key": "node", "nodeid": "tests/scripts/test_programmatic_eval.py::test_worker_generated_schema_and_private_projection_boundary"}
+    result = rerun.plan(target, case, {"options": {}}, [build, target])
+    assert [operation["step"] for operation in result["operations"]] == ["build-evaluator", "pytest"]
+    assert result["operations"][0]["argv"] == build["argv"]
+    assert result["operations"][1]["environment_templates"] == {"LCTX_EVAL_WORKER": "{artifacts}/lctx-eval"}
+    assert result["fixture"] is False
+    with pytest.raises(CaptureUnsupported, match="recorded command"):
+        rerun.plan(target, case, {"options": {}}, [target])
+
+
 def test_serving_prerequisites_compose_shared_build_and_restart_once(no_execution):
     build = recorded(
         "serving:mcp", "build", "cargo", ["cargo", "build", "-p", "lctx-eval", "-p", "lctx"]

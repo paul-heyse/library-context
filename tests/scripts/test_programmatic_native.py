@@ -20,6 +20,7 @@ from programmatic_eval import (
     WorkerError,
     _capture_facts,
     capture_public_journey,
+    default_worker_path,
     mutation_outcome,
 )
 
@@ -200,7 +201,7 @@ async def test_actual_native_final_maps_and_schema_valid_false_pointer(transport
             keep_alive=False,
         )
     )
-    binary = Path(os.environ.get("LCTX_EVAL_WORKER", ROOT / "target/release/lctx-eval"))
+    binary = default_worker_path()
     with Worker(binary) as worker:
         async with Client(target) as client:
             for tool, arguments in [

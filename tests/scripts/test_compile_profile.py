@@ -36,7 +36,7 @@ def root(tmp_path, monkeypatch):
             "cargo",
             "build",
             "--profile",
-            "local-test-candidate",
+            "dev",
             "-p",
             "cpg-core",
             "--features",
@@ -62,7 +62,7 @@ def root(tmp_path, monkeypatch):
             "nextest",
             "run",
             "--cargo-profile",
-            "local-test-candidate",
+            "dev",
             "-E",
             "package(cpg-core)",
             "--",
@@ -800,7 +800,7 @@ def test_session_contract_mismatches_remain_blocked(root, monkeypatch, differenc
     command = [
         "cargo",
         "build",
-        "--profile=local-test-candidate",
+        "--profile=dev",
         "--target-dir",
         str(root / "target"),
     ]
@@ -810,7 +810,7 @@ def test_session_contract_mismatches_remain_blocked(root, monkeypatch, differenc
         "workspace_root": str(root),
         "cwd": str(Path.cwd()),
         "target_dir": str(root / "target"),
-        "profile": "local-test-candidate",
+        "profile": "dev",
         "command": ["/tools/cargo", *command[1:]],
     }
     start[difference] = ["cargo", "test"] if difference == "command" else "different"
@@ -955,7 +955,7 @@ def test_nextest_runner_profile_is_not_cargo_profile(root, monkeypatch):
         "--profile",
         "ci",
         "--cargo-profile",
-        "local-test-candidate",
+        "dev",
     ]
     start = {
         "reason": "build-started",
@@ -963,8 +963,8 @@ def test_nextest_runner_profile_is_not_cargo_profile(root, monkeypatch):
         "workspace_root": str(root),
         "cwd": str(Path.cwd()),
         "target_dir": str(root / "target"),
-        "profile": "local-test-candidate",
-        "command": ["/tools/cargo", "test", "--profile", "local-test-candidate"],
+        "profile": "dev",
+        "command": ["/tools/cargo", "test", "--profile", "dev"],
     }
     (home / "log/exact.jsonl").write_text(json.dumps(start) + "\n")
     monkeypatch.setattr(

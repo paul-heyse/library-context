@@ -287,8 +287,9 @@ BOUNDARIES: tuple[Boundary, ...] = (
             Step(
                 "build",
                 "cargo",
-                ("cargo", "build", "--locked", "-p", "lctx-eval", "-p", "lctx"),
-                produces=("cli", "evaluator"),
+                ("cargo", "build", "--locked", "-p", "lctx-eval", "-p", "lctx",
+                 "-p", "lctx-serving", "--bins", "--example", "native_numeric_replay"),
+                produces=("cli", "evaluator", "native-numeric-replay"),
             ),
             Step(
                 "native_journey",
@@ -323,8 +324,9 @@ BOUNDARIES: tuple[Boundary, ...] = (
                     ("LCTX_NATIVE_TEST_LIBRARY", "synthesis-sources"),
                     ("LCTX_EVAL_WORKER", "{artifacts}/lctx-eval"),
                     ("LCTX_REMEDIATION_CLI_BIN", "{artifacts}/lctx"),
+                    ("LCTX_NATIVE_NUMERIC_REPLAY_BIN", "{artifacts}/examples/native_numeric_replay"),
                 ),
-                consumes=("cli", "evaluator", "serving"),
+                consumes=("cli", "evaluator", "native-numeric-replay", "serving"),
             ),
         ),
         frozenset({"tools", "native-serving", "native-python"}),
@@ -361,6 +363,12 @@ BOUNDARIES: tuple[Boundary, ...] = (
         "harness and tooling scripts",
         (
             Step(
+                "build-evaluator",
+                "cargo",
+                ("cargo", "build", "--locked", "-p", "lctx-eval"),
+                produces=("evaluator",),
+            ),
+            Step(
                 "pytest",
                 "pytest",
                 (
@@ -372,6 +380,8 @@ BOUNDARIES: tuple[Boundary, ...] = (
                     "--ignore=tests/scripts/test_programmatic_native.py",
                     "--ignore=tests/scripts/test_programmatic_native_numeric.py",
                 ),
+                env=(("LCTX_EVAL_WORKER", "{artifacts}/lctx-eval"),),
+                consumes=("evaluator",),
             ),
         ),
         frozenset({"tools"}),

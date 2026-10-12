@@ -18,6 +18,7 @@ from programmatic_eval import (
     Worker,
     WorkerError,
     content_digest,
+    default_worker_path,
     diagnose_stages,
     frozen_judgments,
     grounded_feedback,
@@ -34,13 +35,20 @@ from programmatic_eval import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-BINARY = Path(os.environ.get("LCTX_EVAL_WORKER", ROOT / "target/release/lctx-eval"))
+BINARY = default_worker_path()
+
+
+def test_worker_path_uses_ordinary_artifact_and_preserves_explicit_release_override(monkeypatch):
+    monkeypatch.delenv("LCTX_EVAL_WORKER", raising=False)
+    assert default_worker_path() == ROOT / "target/debug/lctx-eval"
+    monkeypatch.setenv("LCTX_EVAL_WORKER", "/owned/target/release/lctx-eval")
+    assert default_worker_path() == Path("/owned/target/release/lctx-eval")
 
 
 @pytest.fixture(scope="module")
 def worker():
     if not BINARY.is_file():
-        pytest.fail("missing compiled lctx-eval; run cargo build --release -p lctx-eval")
+        pytest.fail("missing compiled lctx-eval; run cargo build --profile test -p lctx-eval")
     with Worker(BINARY) as process:
         yield process
 

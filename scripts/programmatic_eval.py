@@ -25,6 +25,13 @@ MAX_LINE = 4 * 1024 * 1024
 MAX_BATCH = 32
 
 
+def default_worker_path() -> Path:
+    """The caller-selected worker, or this checkout's ordinary dev/test artifact."""
+    return Path(os.environ.get(
+        "LCTX_EVAL_WORKER", Path(__file__).resolve().parents[1] / "target/debug/lctx-eval"
+    ))
+
+
 class WorkerError(RuntimeError):
     """Explicit transport/admission failure, never a task score."""
 
@@ -1046,7 +1053,7 @@ def load_observations(path: Path) -> dict[str, Any]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("cases", type=Path)
-    parser.add_argument("--worker", type=Path, default=Path("target/release/lctx-eval"))
+    parser.add_argument("--worker", type=Path, default=default_worker_path())
     parser.add_argument("--observations", type=Path, help="exact observations keyed by task ID")
     parser.add_argument(
         "--minimize",
