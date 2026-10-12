@@ -98,7 +98,9 @@ def test_invalid_target_is_named_against_the_actual_package_set():
     with pytest.raises(PlanError) as error:
         plan_of("--select", "store", "--nextest-args", "--test nope")
     message = str(error.value)
-    assert "lctx-native, lctx-compiler-store, lctx-publisher" in message and "publication" in message
+    assert (
+        "lctx-native, lctx-compiler-store, lctx-publisher" in message and "publication" in message
+    )
 
 
 def test_explicit_targets_replace_defaults_but_filters_keep_them():
@@ -660,9 +662,7 @@ def test_test_all_keeps_profile_selection_and_pure_work_when_prerequisites_block
     monkeypatch.setattr(verify, "DEFAULT_CARGO_PROFILE", "test")
     selected = plan_of("--test-all", "--cargo-profile", "dev")
     assert all(
-        p.selection["cargo_profile"] == "dev"
-        for p in selected
-        if p.boundary.id != "oracles:flow"
+        p.selection["cargo_profile"] == "dev" for p in selected if p.boundary.id != "oracles:flow"
     )
     defaults = plan_of("--test-all")
     assert all(
@@ -678,6 +678,7 @@ def test_tooling_covers_remaining_workspace_packages_and_pure_mcp_files():
         "lctx-semantics",
         "lctx-workspace-hack",
         "lctx-model-macros",
+        "lctx-surreal-dev",
     }
     assert verify.target_options(argv_of(rust, "nextest")) == [("--lib", None), ("--tests", None)]
     for name in ("test_embedder.py", "test_embed_serve.py", "test_transport_envelope.py"):
@@ -940,6 +941,7 @@ def test_native_prerequisites_are_observed_within_fixture_lifetime():
     runtime = fake.runtime()
     active = False
     original = runtime.fixture
+
     @contextlib.contextmanager
     def fixture(options):
         nonlocal active
@@ -949,15 +951,20 @@ def test_native_prerequisites_are_observed_within_fixture_lifetime():
                 yield attachment
             finally:
                 active = False
+
     runtime.fixture = fixture
     observed = []
+
     def observe(requirements):
         observed.append(set(requirements))
         if set(requirements).intersection(verify.NATIVE_REQUIREMENTS):
             assert active
         return fake.observe(requirements)
+
     runtime.observe = observe
-    (result,) = verify.execute(plan_of("--select", "providers:extract"), runtime, Options(), fake.logs)
+    (result,) = verify.execute(
+        plan_of("--select", "providers:extract"), runtime, Options(), fake.logs
+    )
     assert result["outcome"] == "passed"
     assert observed == [{"tools"}, {"native-store"}] and not active
 
@@ -1229,7 +1236,10 @@ def test_local_profiles_drive_build_test_doc_and_actual_cli_environment():
     assert fake.envs[1]["LCTX_REMEDIATION_CLI_BIN"] == "/owned/artifacts/debug/lctx"
     assert fake.envs[4]["LCTX_EVAL_WORKER"] == "/owned/artifacts/debug/lctx-eval"
     assert fake.envs[4]["LCTX_REMEDIATION_CLI_BIN"] == "/owned/artifacts/debug/lctx"
-    assert fake.envs[4]["LCTX_NATIVE_NUMERIC_REPLAY_BIN"] == "/owned/artifacts/debug/examples/native_numeric_replay"
+    assert (
+        fake.envs[4]["LCTX_NATIVE_NUMERIC_REPLAY_BIN"]
+        == "/owned/artifacts/debug/examples/native_numeric_replay"
+    )
     assert "--example" in fake.commands[2] and "native_numeric_replay" in fake.commands[2]
     assert results[0]["steps"][0]["cargo_profile"] == "dev"
     assert results[0]["steps"][0]["artifact_dir"] == "/owned/artifacts/debug"

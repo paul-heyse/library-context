@@ -1,0 +1,4 @@
+[actors.denied]
+kind = "root"
+username = "lifecycle_deliberately_absent_user"
+password = "intentionally-invalid-not-a-secret"

@@ -41,6 +41,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 compact_str = { version = "0.10.0", features = ["serde"] }
 console = { version = "0.16.6", default-features = false, features = ["ansi-parsing", "std", "unicode-width"] }
 crossbeam-epoch = { version = "0.9.21" }
+crossbeam-utils = { version = "0.8.23" }
 dashmap = { version = "6.2.1", default-features = false, features = ["rayon", "serde"] }
 digest = { version = "0.10.7", features = ["mac", "std"] }
 either = { version = "1.18.0", features = ["use_std"] }
@@ -68,6 +69,7 @@ num-rational = { version = "0.4.2", features = ["num-bigint-std"] }
 ordermap = { version = "1.2.2", features = ["serde"] }
 parking_lot = { version = "0.12.5", features = ["arc_lock", "send_guard"] }
 peg-runtime = { version = "0.8.6", default-features = false, features = ["std"] }
+percent-encoding = { version = "2.3.2" }
 phf = { version = "0.13.1", features = ["macros", "unicase"] }
 phf_shared-594e8ee84c453af0 = { package = "phf_shared", version = "0.13.1", default-features = false, features = ["std", "unicase"] }
 rand = { version = "0.8.8" }
@@ -96,7 +98,7 @@ subtle = { version = "2.6.1" }
 surrealdb-protocol = { version = "0.13.1" }
 sync_wrapper = { version = "1.0.2", default-features = false, features = ["futures"] }
 thin-vec = { version = "0.2.20", features = ["serde"] }
-tokio = { version = "1.53.2", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.53.2", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-stream = { version = "0.1.19", features = ["net", "sync"] }
 tokio-util = { version = "0.7.19", features = ["codec", "compat", "io"] }
 toml = { version = "1.1.6", features = ["preserve_order"] }

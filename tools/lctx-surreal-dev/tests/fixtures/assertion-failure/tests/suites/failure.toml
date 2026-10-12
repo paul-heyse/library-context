@@ -1,0 +1,9 @@
+name = "deliberate assertion failure"
+[[cases]]
+name = "one is not two"
+kind = "sql_expect"
+actor = "root"
+sql = "RETURN 1;"
+[[cases.assertions]]
+path = ""
+equals = 2

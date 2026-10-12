@@ -21,3 +21,7 @@ third-party = [
   { name = "ruff_source_file", version = "=0.0.14" },
   { name = "ruff_text_size", version = "=0.0.14" },
 ]
+
+# Development beta features must not enter the product CLI's generated union.
+[traversal-excludes]
+workspace-members = ["lctx-surreal-dev"]

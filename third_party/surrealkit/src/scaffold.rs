@@ -1,0 +1,213 @@
+use std::fs;
+use std::path::Path;
+
+use anyhow::{Context, Result};
+
+use crate::constants::{
+	fixtures_dir, rollouts_dir, schema_dir, seed_dir, seed_surql_path, setup_surql_path, state_dir,
+	suites_dir, tests_dir,
+};
+
+/// Create the project directory tree and its starter files under `folder`.
+///
+/// Existing files are never overwritten, so this is safe to re-run.
+pub fn scaffold(folder: &str) -> Result<()> {
+	let schema_dir = schema_dir(folder);
+	let rollouts_dir = rollouts_dir(folder);
+	let state_dir = state_dir(folder);
+	let tests_dir = tests_dir(folder);
+	let test_suites_dir = suites_dir(folder);
+	let test_fixtures_dir = fixtures_dir(folder);
+
+	fs::create_dir_all(&schema_dir).with_context(|| format!("creating {}/schema", folder))?;
+	fs::create_dir_all(&rollouts_dir).with_context(|| format!("creating {}/rollouts", folder))?;
+	fs::create_dir_all(&state_dir).with_context(|| format!("creating {}/snapshots", folder))?;
+	fs::create_dir_all(&tests_dir).with_context(|| format!("creating {}/tests", folder))?;
+	fs::create_dir_all(&test_suites_dir)
+		.with_context(|| format!("creating {}/tests/suites", folder))?;
+	fs::create_dir_all(&test_fixtures_dir)
+		.with_context(|| format!("creating {}/tests/fixtures", folder))?;
+
+	let seed_dir = seed_dir(folder);
+	fs::create_dir_all(&seed_dir).with_context(|| format!("creating {}/seed", folder))?;
+	let seed_path = seed_surql_path(folder);
+	if !seed_path.exists() {
+		fs::write(&seed_path, "--- SEED\n")
+			.with_context(|| format!("Writing {}/seed/seed.surql", folder))?;
+	}
+
+	// setup.surql defines SurrealKit metadata tables.
+	let setup_path = setup_surql_path(folder);
+	if !setup_path.exists() {
+		fs::write(&setup_path, DEFAULT_SETUP)
+			.with_context(|| format!("Writing {}/setup.surql", folder))?;
+	}
+
+	let test_config_path = tests_dir.join("config.toml");
+	if !test_config_path.exists() {
+		fs::write(&test_config_path, DEFAULT_TEST_CONFIG)
+			.with_context(|| format!("Writing {}/tests/config.toml", folder))?;
+	}
+
+	let test_suite_path = test_suites_dir.join("smoke.toml");
+	if !test_suite_path.exists() {
+		fs::write(&test_suite_path, DEFAULT_TEST_SUITE)
+			.with_context(|| format!("Writing {}/tests/suites/smoke.toml", folder))?;
+	}
+
+	let project_config_path = Path::new("surrealkit.toml");
+	if !project_config_path.exists() {
+		fs::write(project_config_path, DEFAULT_PROJECT_CONFIG)
+			.context("Writing surrealkit.toml")?;
+	}
+
+	log::info!("Scaffolded project in {}\n", folder);
+	log::info!("  surrealkit.toml");
+	log::info!("  {}/", folder);
+	log::info!("  ├── schema/");
+	log::info!("  ├── rollouts/");
+	log::info!("  ├── snapshots/");
+	log::info!("  ├── tests/");
+	log::info!("  │   ├── suites/");
+	log::info!("  │   └── fixtures/");
+	log::info!("  ├── seed/");
+	log::info!("  │   └── seed.surql");
+	log::info!("  └── setup.surql");
+	Ok(())
+}
+
+/// The SurrealQL defining SurrealKit's metadata tables (`__entity`, `__rollout`,
+/// `__seed`).
+///
+/// Executed on every `setup` and `sync`, after the project's own `setup.surql`,
+/// so additive changes here reach existing databases automatically. Every
+/// statement is `OVERWRITE`/idempotent for that reason.
+pub const DEFAULT_SETUP: &str = r#"DEFINE TABLE OVERWRITE __entity SCHEMAFULL
+	PERMISSIONS NONE;
+
+DEFINE FIELD OVERWRITE ns ON __entity
+	TYPE string;
+
+DEFINE FIELD OVERWRITE key ON __entity
+	TYPE string;
+
+DEFINE FIELD OVERWRITE val ON __entity
+	TYPE any;
+
+DEFINE FIELD OVERWRITE updated_at ON __entity
+	TYPE datetime
+	DEFAULT time::now();
+
+DEFINE INDEX OVERWRITE by_ns_key ON __entity
+	FIELDS ns, key
+	UNIQUE;
+
+DEFINE TABLE OVERWRITE __rollout SCHEMAFULL
+	PERMISSIONS NONE;
+
+DEFINE FIELD OVERWRITE id ON __rollout
+	TYPE string;
+
+DEFINE FIELD OVERWRITE name ON __rollout
+	TYPE string;
+
+DEFINE FIELD OVERWRITE manifest_path ON __rollout
+	TYPE string;
+
+DEFINE FIELD OVERWRITE manifest_checksum ON __rollout
+	TYPE string;
+
+DEFINE FIELD OVERWRITE source_schema_hash ON __rollout
+	TYPE string;
+
+DEFINE FIELD OVERWRITE target_schema_hash ON __rollout
+	TYPE string;
+
+DEFINE FIELD OVERWRITE status ON __rollout
+	TYPE string;
+
+DEFINE FIELD OVERWRITE source_entities ON __rollout
+	TYPE any;
+
+DEFINE FIELD OVERWRITE target_entities ON __rollout
+	TYPE any;
+
+DEFINE FIELD OVERWRITE steps ON __rollout
+	TYPE any
+	DEFAULT [];
+
+DEFINE FIELD OVERWRITE started_at ON __rollout
+	TYPE datetime
+	DEFAULT time::now();
+
+DEFINE FIELD OVERWRITE completed_at ON __rollout
+	TYPE option<datetime>;
+
+DEFINE FIELD OVERWRITE updated_at ON __rollout
+	TYPE datetime
+	DEFAULT time::now();
+
+DEFINE FIELD OVERWRITE last_error ON __rollout
+	TYPE option<string>;
+
+DEFINE INDEX OVERWRITE by_rollout_id ON __rollout
+	FIELDS id
+	UNIQUE;
+
+DEFINE TABLE OVERWRITE __seed SCHEMAFULL
+	PERMISSIONS NONE;
+
+DEFINE FIELD OVERWRITE key ON __seed
+	TYPE string;
+
+DEFINE FIELD OVERWRITE hash ON __seed
+	TYPE string;
+
+DEFINE FIELD OVERWRITE applied_at ON __seed
+	TYPE datetime
+	DEFAULT time::now();
+
+DEFINE INDEX OVERWRITE by_seed_key ON __seed
+	FIELDS key
+	UNIQUE;
+"#;
+
+/// Starter `tests/config.toml` written by [`scaffold`].
+pub const DEFAULT_TEST_CONFIG: &str = r#"[defaults]
+timeout_ms = 10000
+
+[actors.root]
+kind = "root"
+"#;
+
+/// Starter `surrealkit.toml` written by [`scaffold`].
+pub const DEFAULT_PROJECT_CONFIG: &str = r#"# Template variables for use in .surql schema and seed files.
+# Values here have the lowest priority:
+#   --var KEY=VALUE  >  SURREALKIT_VAR_KEY env vars  >  this file
+#
+# [variables]
+# schema_prefix = "myapp"
+# environment   = "development"
+
+# Generate TypeScript types from your schema (surrealdb JS SDK v2).
+# When `typescript` is set, `surrealkit typegen` and `sync --watch` write an
+# index.ts of typed table interfaces into this directory.
+#
+# Optionally run your formatter on the generated file so it matches your house
+# style (the file path is appended to the command). Failures are non-fatal.
+#
+# [typegen]
+# typescript = "../src/types"
+# format     = "biome check --write"   # or "prettier --write", "eslint --fix"
+"#;
+
+/// Starter test suite written by [`scaffold`].
+pub const DEFAULT_TEST_SUITE: &str = r#"name = "smoke"
+tags = ["smoke"]
+
+[[cases]]
+name = "rollout_table_visible"
+kind = "schema_metadata"
+sql = "INFO FOR TABLE __rollout;"
+contains = ["__rollout"]
+"#;

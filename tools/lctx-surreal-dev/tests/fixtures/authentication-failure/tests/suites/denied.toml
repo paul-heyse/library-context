@@ -1,0 +1,6 @@
+name = "deliberate authentication refusal"
+[[cases]]
+name = "must not reach query with absent actor"
+kind = "sql_expect"
+actor = "denied"
+sql = "RETURN 1;"

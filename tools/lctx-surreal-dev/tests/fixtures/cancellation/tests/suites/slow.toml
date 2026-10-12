@@ -1,0 +1,6 @@
+name = "owned in-flight query cancellation"
+[[cases]]
+name = "slow native query"
+kind = "sql_expect"
+actor = "root"
+sql = "CREATE lifecycle_cancel_started:one SET started=true; SLEEP 15s; RETURN 1;"

@@ -1,0 +1,80 @@
+[package]
+name = 'surrealkit'
+description = 'Manage migrations, seeding, typegen and tests for SurrealDB via CLI'
+readme = 'README.md'
+documentation = 'https://docs.rs/surrealkit'
+keywords = ['surrealdb', 'migrations', 'seed', 'testing', 'manage']
+categories = ['database', 'command-line-utilities', 'development-tools']
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+
+[dependencies]
+surrealkit-macros = { workspace = true }
+anyhow = { workspace = true }
+clap = { version = '4.5.47', features = ['derive'], optional = true }
+hex = '0.4'
+log = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = '0.8'
+rust_dotenv = '0.1.2'
+sha2 = '0.10'
+surrealdb = { workspace = true }
+surrealdb-types = { workspace = true }
+time = { version = '0.3', features = ['macros', 'formatting'] }
+tokio = { version = '1.47', features = ['macros', 'rt-multi-thread', 'signal', 'time'] }
+walkdir = { workspace = true }
+reqwest = { version = '0.12', default-features = false, features = ['json', 'rustls-tls'] }
+regex = '1'
+rustls = { version = '0.23', default-features = false, features = ['aws-lc-rs'], optional = true }
+inquire = { version = '0.7', optional = true }
+tempfile = { version = '3', optional = true }
+indoc = "2"
+
+[features]
+# The published CLI binary bundles only the in-memory engine, keeping the
+# prebuilt artifact light. Remote connections (protocol-http/jwks) are always
+# available. Build the CLI with --features kv-surrealkv (or `embedded`) for an
+# embedded build.
+#
+# Library consumers do NOT need these features to target an embedded engine:
+# Cargo unifies features across the dependency graph, so enabling e.g.
+# `surrealdb/kv-surrealkv` in your own crate is enough for SurrealKit's
+# `Surreal<Any>` to open `surrealkv://`.
+default = ['kv-mem', 'cli']
+# The `surrealkit` binary. On by default so `cargo install surrealkit` works, but
+# `default-features = false` drops clap, inquire, rustls (and its aws-lc-rs
+# backend) and tempfile from a library consumer's dependency tree -- none of them
+# are used by the library itself.
+cli = ['dep:clap', 'dep:inquire', 'dep:rustls', 'dep:tempfile']
+kv-mem = ['surrealdb/kv-mem']
+kv-surrealkv = ['surrealdb/kv-surrealkv']
+kv-rocksdb = ['surrealdb/kv-rocksdb']
+# Convenience: a full embedded CLI with every supported local engine.
+embedded = ['kv-surrealkv', 'kv-rocksdb', 'kv-mem']
+
+[[bin]]
+name = 'surrealkit'
+path = 'src/main.rs'
+required-features = ['cli']
+
+[dev-dependencies]
+tempfile = '3'
+test-case = '3'
+insta = { version = '1', features = ['json'] }
+
+[lints]
+workspace = true
+
+# Enable installation of prebuilt release binaries via `cargo binstall surrealkit`.
+# Archives published by .github/workflows/release-binaries.yml are named
+#   surrealkit-vX.Y.Z-<target>.(tar.gz|zip)
+# and contain the binary at the archive root (no `{name}-{target}/` subfolder),
+# so we override `bin-dir` to skip binstall's default prefix.
+[package.metadata.binstall]
+bin-dir = "{ bin }{ binary-ext }"
