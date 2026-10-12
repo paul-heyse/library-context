@@ -258,11 +258,12 @@ mod tests {
     use super::*;
     // One-off actual evidence acquisition, deliberately separate from qualification and
     // collector controls. The host/run owners supply exclusion and artifact retention.
-    const INVENTORY_TABLES:[&str;20]=[
+    const INVENTORY_TABLES:[&str;22]=[
         "native_outcome_ref","native_effect","native_attempt","native_hold",
         "native_cleanup","native_retirement","native_retirement_item","native_guard",
         "native_pin","native_backup_hold","native_history_checkpoint","native_product",
         "compiler_contribution","compiler_binding","compiler_view",
+        "native_pending_original","native_publication_staging",
         "native_installation","native_admission_stripe","native_backup_gate","native_predicate","native_operation_owner",
     ];
     #[derive(serde::Serialize)]
