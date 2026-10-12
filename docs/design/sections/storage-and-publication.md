@@ -295,7 +295,7 @@ A partial diagnostic subgraph reports its boundary and cannot claim global compi
 
 ### §6.3 Schema evolution
 
-**Design-phase evolution target, 2026-10-12 (ADR-0161); implementation in progress.**
+**Design-phase evolution Implemented / campaign cutover Tested, 2026-10-12 (ADR-0161).**
 Current consumers use one current physical format. Prefer practical migration into that format;
 otherwise explicitly regenerate named views from pinned inputs under the actual quiesced owner.
 The completed format3→4→5 transitions remain dated evidence, not retained runtime readers,
@@ -306,8 +306,11 @@ transition, with obsolete code/data removed when its purpose ends.
 Ownership and truthful recovery constraints survive: bind the exact installation and candidate,
 fence new work, drain actual executors before replacing state, keep interrupted outcomes unknown,
 and establish current definitions and content before opening admission. Neither a marker change nor
-local child exit establishes remote completion. The dedicated campaign regeneration has explicit
-scope; shared/operator state and separately paused qualification remain unchanged. A future actual
+local child exit establishes remote completion. The dedicated campaign's main/validation scopes
+were explicitly discarded and regenerated, then checked before reopening admission. Its immutable
+local disposition preserves the interrupted original outcome as Unknown; the generic receipt consumer
+does not depend on the retired one-off producer, old checkout or current executable fingerprints.
+Shared/operator state and separately paused qualification remain unchanged. A future actual
 retained consumer that cannot regenerate requires its own migration decision rather than silently
 retaining an old-format runtime path.
 

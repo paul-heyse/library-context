@@ -95,20 +95,19 @@ An independent read-only exercise found no concrete guidance issue. Those checks
 owns current receipts, failures and remaining scope. ADR-0161 applies the operator's design-phase
 cutover: migrate useful views to current realizations or explicitly regenerate pinned inputs; retain
 no legacy runtime code/data. Historical fixtures and benchmarks are not acceptance prerequisites.
-Historical converters/readers and preserved-assurance paths are removed from source. Campaign
-regeneration is source-reviewed; host controls passed256 (`080327…d98a0e`), then27 resume controls
-(`080559…7cbbe3`), with confirmed cleanup. Native effects remain not_run pending current CLI build.
-Fourteen compact-owner/consumer controls passed release (`072908`) and current ordinary O2 test
-(`075708…d857a4`), cleanup confirmed. Current seven-crate CLI-inclusive test compilation passed (`081133…4ef556`) after repairing
-fixture/type and removed-inventory-count defects; current CLI/evaluator build is running. Installed readers independently pin
-exact closures and own separate sessions; uncertainty retains both. Native lifetime acceptance remains
-pending. Prior nine wire controls and exact failed-wire recovery (`053059`) retain their scoped passes.
-Whole-output NotRequested reuse stays disabled pending actual four-consumer acceptance. Dedicated
-campaign remains schema5; the cancelled old fixture (`071909…e5da48`) has confirmed process cleanup
-and unknown native outcome pending owned drain/regeneration. Shared paused service/operator state
-is unchanged. Analysis/native/serving/profile/X01/X02 acceptance remains open. No full-suite, quality
-campaign, real-library pilot or operator adoption ran. The numerical finite reference passed; its native
-case failed for missing serving-fixture configuration and awaits current fixture production.
+Historical converters/readers and preserved-assurance paths are removed. Current seven-crate test
+compilation passed (`104943…c2639e`); release CLI/evaluator build passed (`130911…a3dcf7`), cleanup confirmed.
+Current campaign regeneration passed (`131431…4f6e67`): main/validation initialized and checked,
+admission open, immutable revision/removal receipts and the original Unknown preserved. One-off
+regeneration tooling is retired; its generic completed receipt remains valid. Focused host controls
+passed35 (`131755…138c17`). Ordinary native contract controls are running (`131447…fd38de`).
+Actual native, compiler, publication and serving controls remain pending. Shared paused/operator state
+is unchanged. Compact model controls passed14 in release and ordinary O2 test; selected ownership passed22.
+Binding-slot retirement, durable-premise reuse and independent session finalizers are source-integrated and reviewed; their native controls remain pending. Ordinary finite
+analysis controls passed23; HTTP client contract controls passed7 (two live-service legs not_run). Actual native,
+analysis/serving/profile and X01/X02 acceptance remain open; whole-output NotRequested reuse stays off.
+The numerical finite reference passed; actual cohort failed for absent serving configuration and awaits
+current fixture production. No full-suite, quality campaign, real-library pilot or operator adoption ran.
 **Preservation and boundaries:** all four auxiliary revisions are committed on `archive/*-2026-10-11`
 branches; [coordinator §9.2](docs/plans/persisted-graph-execution-plan_2026-10-07.md#92-operator-stop-and-worktree-preservation2026-10-11)
 owns exact commits, evidence handoff and checkout-removal outcomes. Preserve qualified recovery
