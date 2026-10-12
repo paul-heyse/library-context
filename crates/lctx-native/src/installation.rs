@@ -293,12 +293,19 @@ pub async fn reconcile_maintenance(
         ));
     }
     let client = check_installation(config).await?;
+    let session = reader::SessionFinalizationGuard::new(client.clone());
+    let mut completion = d::completion::Completion::default();
+    let result = async {
     let mut response = client
         .query("SELECT VALUE admission_open FROM native_installation:current")
         .await
-        .map_err(ModelError::codec)?
+        .map_err(|error| {
+            let mut terminal = d::completion::Completion::default();
+            terminal.remote = d::completion::RemoteState::Unknown;
+            d::completion::complete::<()>(Err(reader::sdk_error(error)), terminal).unwrap_err()
+        })?
         .check()
-        .map_err(ModelError::codec)?;
+        .map_err(reader::sdk_error)?;
     let open: Vec<bool> = response.take(0).map_err(ModelError::codec)?;
     if open != vec![false] {
         return Err(ModelError::Conflict(
@@ -306,8 +313,6 @@ pub async fn reconcile_maintenance(
         ));
     }
     crate::control::drain_effects(&client).await?;
-    let mut completion = lctx_model::domain::completion::Completion::default();
-    let result = async {
         for pin in pins {
             crate::control::release_pin_checked(&client, *pin, true).await?;
             completion.committed("reconciled native reader pin", pin.hex());
@@ -319,5 +324,13 @@ pub async fn reconcile_maintenance(
         Ok(())
     }
     .await;
+    if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+        completion.local = d::completion::LocalState::Outstanding;
+        completion.remote = d::completion::RemoteState::Unknown;
+    } else {
+        let closed = session.close().await;
+        if closed.is_err() { completion.local = d::completion::LocalState::Outstanding; }
+        completion.step("maintenance reconciliation session invalidation", closed);
+    }
     lctx_model::domain::completion::complete(result, completion)
 }
