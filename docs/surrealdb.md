@@ -294,3 +294,76 @@ limited to explicitly synthetic, non-sensitive controls. Check every statement s
 `has_errors`, and preserve truncation and terminality boundaries. Sanitized harness errors omit SQL,
 bind and credential values. Diagnostic controls establish tooling capability, not product acceptance
 or measured effectiveness. Prior AF receipts retain their original disposable-fixture scope.
+
+## Owned lifecycle development campaigns
+
+The development-only `lctx-surreal-dev` worker integrates SurrealKit **1.0.0-beta.1**;
+the product continues to use its native installation and typed gRPC clients. Build it with
+`cargo build --release -p lctx-surreal-dev`. Native Rust declarations generate the tracked
+assets under `tools/lctx-surreal-dev/schema/`; run `lctx-surreal-dev generate` after changing
+their owners and `lctx-surreal-dev generate --check` to check exact file/content inventory.
+The embedded worker refuses stale assets before connecting. Its responsibility modules are
+dependency-closed; tester projects receive one ordered default projection of that closure.
+
+Create a separate physical state directory and use its installation descriptor explicitly:
+
+```sh
+LCTX_SURREAL_SERVICE_CONFIG=/absolute/new-campaign/installation.json \
+  just service install --campaign --purpose surrealdb-lifecycle \
+  --server-generation /absolute/qualified-server-generation/record.json \
+  --installer /absolute/current/lctx
+LCTX_SURREAL_SERVICE_CONFIG=/absolute/new-campaign/installation.json \
+  just surreal-dev test --installation INSTALLATION_UUID
+```
+
+The server descriptor must identify an existing qualified owned generation. Its original
+provenance remains unchanged and the new campaign retains that generation before launch.
+This creates its own datastore, credentials and service unit. The campaign's fixed authenticated
+loopback capability ceiling denies outbound network, scripting and guests and enables no
+experimental feature. It never changes the shared validation or operator installation.
+
+`just surreal-dev sync --installation UUID` applies the generated definitions through a directly
+owned Any gRPC session. `test` invokes the beta Rust tester in a managed worker, using its private
+sessions only within the wholly owned service. Without `--project`, it creates a fresh schema,
+function, permission, record-actor and token-actor sample suite. `--project DIR` copies only
+SurrealQL/TOML test inputs; schema and environment authority are not imported. HTTP API-request
+suites are refused. Root credentials remain in private owner files; the worker binding identifies
+the exact campaign, generation, fresh database and allowed operation. Remote/TLS, watch, arbitrary
+SQL, production pruning and canonical-service attachment are not supported by this route.
+
+Each worker is enrolled in the existing run owner before DDL. The target's `development/` inventory
+exists independently of beta's report, so a failed or interrupted suite remains discoverable.
+Child exit, report capture, local cleanup and remote uncertainty are separate outcomes. SDK
+invalidation clears a session; it does not establish rollback or whole-service finality.
+
+`just surreal-dev inspect --installation UUID` observes owner/run/attachment/disposal state.
+Add `--indexes` for fixed validation membership-index and plain EXPLAIN reads, labeled with
+the current generation and server version. Plain EXPLAIN does not execute the workload;
+EXPLAIN ANALYZE is not part of this inspection preset. These diagnostics do not grant eligibility
+or release protected state. Stable-service SQL continues through the maintenance route above.
+
+After every worker and local native owner is drained, use the exact target identity:
+
+```sh
+LCTX_SURREAL_SERVICE_CONFIG=/absolute/new-campaign/installation.json \
+  just service dispose-campaign INSTALLATION_UUID
+```
+
+Disposal closes host admission, records the actual database inventory, attempts native close/drain,
+confirms the whole owned daemon and descendants stopped, then discards its datastore. Each
+logical close/drain action shares the existing40s readiness allowance across main and validation.
+Exact managed child receipts are journaled before launch and retained through checked disposal;
+resume reconciles those authenticated owners rather than replaying failed logical actions.
+Unknown local child drainage or cancellation blocks physical disposal. A failed
+native drain stays failed; checked whole-executor shutdown and disposal can settle abandoned
+remote obligations without recovering old data. Local cleanup must already be confirmed.
+Attachment acknowledgements retain original native outcomes verbatim and release only their
+host obligations. Stop failure preserves data, consumers and the recovery marker. Retry uses
+the same target and completed steps; a completed disposal is idempotent. Credentials are removed
+after success, together with the campaign's exact private installer copy and unit file.
+Installation/disposal identities remain as minimal current ownership evidence. The separately
+retained server generation is released, never deleted as part of datastore disposal.
+
+The [lifecycle coordinator](plans/surrealdb-lifecycle-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint)
+owns current verification and remaining scope. These tooling boundaries do not establish product
+qualification or a measured efficiency claim.

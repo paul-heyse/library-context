@@ -43,12 +43,26 @@ scratch service or per-test database fallback. Compiler, store, publisher and se
 existing semantic responsibilities. Patched gRPC preserves progressive streaming, cancellation
 and checked physical terminality. Optional transports must preserve those contracts.
 
+**Implemented lifecycle foundations / scoped-Tested, 2026-10-12 (ADR-0164).** Schema/permission and
+destructive development controls may use an explicitly owned disposable remote campaign,
+reused across its parallel suites. The existing service/run/storage owners issue the exact
+target binding and register campaign purpose, generation and consumer before launch. Beta's
+private root sessions remain inside that whole-service boundary; shared and operator targets
+are not fallbacks. Command outcome, capture health, native certainty and disposal are separate.
+Checked disposal closes host admission, bounds logical close/drain attempts through authenticated
+managed child ownership, and stops the exact daemon and descendants before discarding its datastore.
+Unknown local drainage or cancellation blocks disposal. Failed logical cleanup need not preserve obsolete data
+after confirmed whole-target shutdown; unknown drainage retains the current obligation.
+The [lifecycle coordinator](../../plans/surrealdb-lifecycle-plan_2026-10-12.md) owns implementation
+and qualification; actual owned-target disposal passed while preserving failed logical drain and
+native Unknown records. Ordinary product attempts retain logical validation isolation.
+
 **Implemented recovery refinement / integrated qualification open, 2026-10-10 (ADR-0146).**
 Native upgrades preserve atomic page effects and progress under immutable checked host successor
 authority. Schema evolution in §6.3 owns the complete transition and recovery contract;
 the persisted coordinator retains actual migration receipts and enclosing acceptance.
 
-> Decision: ADR-0145, ADR-0146
+> Decision: ADR-0145, ADR-0146, ADR-0164
 
 ### §6.1 Admitted content and native publication
 

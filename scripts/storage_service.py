@@ -71,7 +71,11 @@ def _prepare_open(directory: Path, source: Path, descriptor: int) -> dict:
             after = source.stat()
             if (
                 identity != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-                or identity != tuple(getattr(os.fstat(descriptor), key) for key in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))
+                or identity
+                != tuple(
+                    getattr(os.fstat(descriptor), key)
+                    for key in ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+                )
                 or digest(temporary) != sha
             ):
                 raise Blocked("installer changed during owned transfer")
@@ -83,7 +87,9 @@ def _prepare_open(directory: Path, source: Path, descriptor: int) -> dict:
     # newly linked ancestor, as well as the binary link, before exposing that reference.
     for path in (target.parent, target.parent.parent, root, root.parent):
         fsync_directory(path)
-    if identity != tuple(getattr(source.stat(), key) for key in ("st_dev", "st_ino", "st_size", "st_mtime_ns")):
+    if identity != tuple(
+        getattr(source.stat(), key) for key in ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+    ):
         raise Blocked("installer changed during owned transfer")
     return {"path": str(target), "sha256": sha, "size": info.st_size}
 
@@ -115,10 +121,16 @@ def prepare_server(directory: Path, source: Path, provenance: dict) -> dict:
         "http_version": provenance["recipe"]["pin"]["http_version"],
         "provenance": provenance,
     }
-    identity = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    identity = hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     root = tools_root(directory) / "surreal" / identity
-    descriptor = {**body, "identity": identity, "path": str(root / "surreal"),
-                  "descriptor_path": str(root / "record.json")}
+    descriptor = {
+        **body,
+        "identity": identity,
+        "path": str(root / "surreal"),
+        "descriptor_path": str(root / "record.json"),
+    }
     if any(parent.is_symlink() for parent in (root, *root.parents)):
         raise Blocked("server generation must have a physical path")
     with admission([root, source], exclusive_paths=[root]):
@@ -126,8 +138,12 @@ def prepare_server(directory: Path, source: Path, provenance: dict) -> dict:
             private_directory(path)
         target = root / "surreal"
         if target.exists() or target.is_symlink():
-            if (target.is_symlink() or not target.is_file() or digest(target) != body["sha256"]
-                    or target.stat().st_mode & 0o777 != 0o500):
+            if (
+                target.is_symlink()
+                or not target.is_file()
+                or digest(target) != body["sha256"]
+                or target.stat().st_mode & 0o777 != 0o500
+            ):
                 raise Blocked("server executable generation identity conflicts")
         else:
             temporary = root / (".surreal-" + uuid.uuid4().hex)
@@ -138,8 +154,10 @@ def prepare_server(directory: Path, source: Path, provenance: dict) -> dict:
                     output.flush()
                     os.fsync(output.fileno())
                 after = source.stat()
-                if (before != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-                        or digest(temporary) != body["sha256"]):
+                if (
+                    before != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+                    or digest(temporary) != body["sha256"]
+                ):
                     raise Blocked("server changed during owned transfer")
                 os.link(temporary, target)
             finally:
@@ -163,13 +181,24 @@ def prepare_server(directory: Path, source: Path, provenance: dict) -> dict:
             os.fsync(stream.fileno())
         for path in (root, root.parent, root.parent.parent, root.parent.parent.parent):
             fsync_directory(path)
-        Storage().publish(root, "native-content", {"kind": "native", "path": str(root)},
-                          "service-server-generation:" + identity, requires="raw-replay")
+        Storage().publish(
+            root,
+            "native-content",
+            {"kind": "native", "path": str(root)},
+            "service-server-generation:" + identity,
+            requires="raw-replay",
+        )
     return descriptor
 
 
 def dependencies(installation) -> dict:
     row = installation.record
+    if (
+        row.get("phase") == "disposed"
+        and row.get("kind") == "campaign"
+        and row.get("purpose") == "surrealdb-lifecycle"
+    ):
+        return {"installation_id": installation.id, "stable_installer": False, "dependencies": []}
     selected = Path(row["installer"])
     generation = row.get("installer_generation", {})
     stable = (
@@ -207,11 +236,13 @@ def dependencies(installation) -> dict:
         import json
 
         previous = json.loads(base64.b64decode(plan["previous_bytes"], validate=True))
-        result.extend([
-            {"path": str(journal.parent), "role": "installer-handoff-private-assets"},
-            {"path": previous["installer"], "role": "unresolved-installer-handoff"},
-            {"path": plan["candidate"]["path"], "role": "unresolved-installer-handoff"},
-        ])
+        result.extend(
+            [
+                {"path": str(journal.parent), "role": "installer-handoff-private-assets"},
+                {"path": previous["installer"], "role": "unresolved-installer-handoff"},
+                {"path": plan["candidate"]["path"], "role": "unresolved-installer-handoff"},
+            ]
+        )
     return {"installation_id": installation.id, "stable_installer": stable, "dependencies": result}
 
 

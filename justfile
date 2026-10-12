@@ -153,6 +153,11 @@ qualify *args:
 service *args:
     @uv run --no-project --offline --no-python-downloads python scripts/surrealdb_service.py "$@"
 
+# Explicit whole-campaign development worker; no shared-target fallback.
+[positional-arguments]
+surreal-dev *args:
+    @uv run --no-project --offline --no-python-downloads python scripts/surrealdb_development.py "$@"
+
 # Attach a fresh logical validation attempt to the installed service; no scratch databases.
 # Missing/incompatible installation exits 75 with its explicit repair route.
 [positional-arguments]

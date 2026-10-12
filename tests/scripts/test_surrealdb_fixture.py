@@ -7,8 +7,8 @@ import json
 import os
 import sys
 import uuid
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -66,12 +66,14 @@ def installed(tmp_path, monkeypatch):
         }
         service.private_json(root / f"{database}-runtime.json", cfg)
     monkeypatch.setenv("LCTX_SURREAL_SERVICE_CONFIG", str(root / "installation.json"))
+
     def checked(self, **kw):
         if witness := service.checked_generation(self):
             witness.validate(self)
         else:
             service._installed_binary(self)
         return {"outcome": "passed"}
+
     monkeypatch.setattr(service.Installation, "check", checked)
     monkeypatch.setattr(service, "verify_binary", lambda env: Path(env["LCTX_SURREAL_BIN"]))
     monkeypatch.setattr(service, "_run_installer", lambda *a, **kw: None)
@@ -81,10 +83,15 @@ def installed(tmp_path, monkeypatch):
 def install_fake_patched_generation(installed, tmp_path, *, cpu_count=7):
     import surrealdb_server as server
     from storage_service import prepare_server
+
     selected = server.recipe(cpu_count=cpu_count)
-    provenance = server.build_provenance(installed.directory, selected,
+    provenance = server.build_provenance(
+        installed.directory,
+        selected,
         "rustc 1.99.0-nightly\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu",
-        "cargo 1.99.0-nightly", cache_record_sha256="a" * 64)
+        "cargo 1.99.0-nightly",
+        cache_record_sha256="a" * 64,
+    )
     executable = tmp_path / "fake-reviewed-server"
     executable.write_text("#!/bin/sh\nprintf '" + selected["pin"]["cli_version"] + "\\n'\n")
     executable.chmod(0o700)
@@ -97,7 +104,9 @@ def install_fake_patched_generation(installed, tmp_path, *, cpu_count=7):
 def complete_retained_output(attachment):
     viewer = attachment.retain_serving("retained")
     selection = viewer.parent / "selected.json"
-    service.private_json(selection, {"semantic": "immutable-semantic", "realization": "immutable-view"})
+    service.private_json(
+        selection, {"semantic": "immutable-semantic", "realization": "immutable-view"}
+    )
     service.private_json(viewer, {"selection": str(selection)})
     return attachment.record_serving("retained", ["producer"])
 
@@ -105,32 +114,65 @@ def complete_retained_output(attachment):
 @pytest.fixture
 def retained_retirement_ready(installed, monkeypatch):
     """Controlled host ownership/receipt seam; this executes no native retirement."""
-    installed.record.update(kind="campaign", unit=service.installation_unit({**installed.record, "kind": "campaign"}))
+    installed.record.update(
+        kind="campaign", unit=service.installation_unit({**installed.record, "kind": "campaign"})
+    )
     service.private_json(installed.directory / "installation.json", installed.record)
     monkeypatch.setattr(service.Installation, "check", lambda self, **kwargs: {"outcome": "passed"})
     directory = installed.directory / "serving" / "s01_current_20261012"
     directory.mkdir(mode=0o700)
     viewer_path, selection = directory / "viewer.json", directory / "viewer.selected.json"
-    handle = {"semantic": "a" * 64, "realization": "b" * 64, "publication": "c" * 64,
-        "view": "d" * 64, "definition_epoch": "e" * 64,
+    handle = {
+        "semantic": "a" * 64,
+        "realization": "b" * 64,
+        "publication": "c" * 64,
+        "view": "d" * 64,
+        "definition_epoch": "e" * 64,
         "service_generation": bytes(installed.record["service_generation"]).hex(),
-        "database": {"namespace": service.NAMESPACE, "database": "validation"}}
+        "database": {"namespace": service.NAMESPACE, "database": "validation"},
+    }
     service.private_json(selection, handle)
-    service.private_json(viewer_path, {"endpoint": installed.grpc_endpoint, "username": "validation_writer",
-        "password": "private-password", "selection": str(selection)})
-    identity = {"name": directory.name, "fixture": installed.id,
-        "configuration": {"path": str(viewer_path), "sha256": service.file_sha256(viewer_path),
-            "selection": str(selection), "selection_sha256": service.file_sha256(selection)},
-        "content": {"handle": handle}}
+    service.private_json(
+        viewer_path,
+        {
+            "endpoint": installed.grpc_endpoint,
+            "username": "validation_writer",
+            "password": "private-password",
+            "selection": str(selection),
+        },
+    )
+    identity = {
+        "name": directory.name,
+        "fixture": installed.id,
+        "configuration": {
+            "path": str(viewer_path),
+            "sha256": service.file_sha256(viewer_path),
+            "selection": str(selection),
+            "selection_sha256": service.file_sha256(selection),
+        },
+        "content": {"handle": handle},
+    }
     service.private_json(directory / "identity.json", identity)
-    state = {"calls": [], "code": 0, "remaining": [], "native": "confirmed", "run_attached": fx.run_attached}
-    monkeypatch.setattr(fx, "native_completion", lambda *args: {"status": state["native"], "owners": []})
+    state = {
+        "calls": [],
+        "code": 0,
+        "remaining": [],
+        "native": "confirmed",
+        "run_attached": fx.run_attached,
+    }
+    monkeypatch.setattr(
+        fx, "native_completion", lambda *args: {"status": state["native"], "owners": []}
+    )
 
     def child(attachment, command, *, child_env, stdout):
         assert service.lock_held(installed.directory / "admission.lock")
         assert service.lock_held(installed.directory / "borrowers.lock")
         assert child_env["LCTX_SURREAL_MAINTENANCE_TOKEN"]
-        assert not any(key in child_env for key in fx.ATTACHMENT_VARIABLES if key != "LCTX_SURREAL_SERVICE_CONFIG")
+        assert not any(
+            key in child_env
+            for key in fx.ATTACHMENT_VARIABLES
+            if key != "LCTX_SURREAL_SERVICE_CONFIG"
+        )
         plan = fx.read_json(directory / "retirement-plan.json")
         assert command[-1] == plan["job"]
         assert command[command.index("retire") + 1] == str(directory / "retirement-handle.json")
@@ -140,17 +182,30 @@ def retained_retirement_ready(installed, monkeypatch):
         if selection.exists():
             assert fx.read_json(selection) == handle
             selection.unlink()  # Controlled stand-in for Rust's guarded exact clear.
-        stdout.write(json.dumps({"identity": plan["job"], "retired": 1, "examined": 2,
-            "remaining": state["remaining"], "retained": ["shared-current-contributor"]}).encode())
+        stdout.write(
+            json.dumps(
+                {
+                    "identity": plan["job"],
+                    "retired": 1,
+                    "examined": 2,
+                    "remaining": state["remaining"],
+                    "retained": ["shared-current-contributor"],
+                }
+            ).encode()
+        )
         attachment._command_cleanup = {"status": "confirmed", "survivors": []}
-        attachment._write_record(None, command_cleanup=attachment._command_cleanup, child_exit_code=state["code"])
+        attachment._write_record(
+            None, command_cleanup=attachment._command_cleanup, child_exit_code=state["code"]
+        )
         return state["code"]
 
     monkeypatch.setattr(fx, "run_attached", child)
     return installed, directory, selection, state
 
 
-def test_retained_retirement_releases_only_named_runtime_after_native_ack(retained_retirement_ready):
+def test_retained_retirement_releases_only_named_runtime_after_native_ack(
+    retained_retirement_ready,
+):
     installed, directory, selection, state = retained_retirement_ready
     other = installed.directory / "main-selected.json"
     other.write_bytes(b"other current selection")
@@ -168,14 +223,18 @@ def test_retained_retirement_releases_only_named_runtime_after_native_ack(retain
 
 
 @pytest.mark.parametrize("alias", ["retirement-runtime.json", "retirement.lock"])
-def test_retained_retirement_rejects_selection_alias_before_any_owner_write(retained_retirement_ready, alias):
+def test_retained_retirement_rejects_selection_alias_before_any_owner_write(
+    retained_retirement_ready, alias
+):
     installed, directory, selection, state = retained_retirement_ready
     aliased = directory / alias
     original = selection.read_bytes()
     aliased.write_bytes(original)
     aliased.chmod(0o600)
     identity = fx.read_json(directory / "identity.json")
-    identity["configuration"].update(selection=str(aliased), selection_sha256=service.file_sha256(aliased))
+    identity["configuration"].update(
+        selection=str(aliased), selection_sha256=service.file_sha256(aliased)
+    )
     viewer = fx.read_json(directory / "viewer.json")
     viewer["selection"] = str(aliased)
     service.private_json(directory / "viewer.json", viewer)
@@ -191,9 +250,11 @@ def test_retained_retirement_rejects_selection_alias_before_any_owner_write(reta
 @pytest.mark.parametrize("failure", ["child", "remaining", "unregistered"])
 def test_retained_retirement_refusal_preserves_plan_and_runtime(retained_retirement_ready, failure):
     installed, directory, selection, state = retained_retirement_ready
-    state.update(code=1 if failure == "child" else 0,
+    state.update(
+        code=1 if failure == "child" else 0,
         remaining=["pending-exact-child"] if failure == "remaining" else [],
-        native="not_observed" if failure == "unregistered" else "confirmed")
+        native="not_observed" if failure == "unregistered" else "confirmed",
+    )
     with pytest.raises(fx.FixtureFailed, match="native retirement"):
         fx.retire_serving(directory.name)
     assert (directory / "retirement-plan.json").exists()
@@ -203,7 +264,9 @@ def test_retained_retirement_refusal_preserves_plan_and_runtime(retained_retirem
     assert (installed.directory / "maintenance.json").exists()
 
 
-def test_retained_retirement_retry_uses_same_job_and_refuses_changed_pointer(retained_retirement_ready):
+def test_retained_retirement_retry_uses_same_job_and_refuses_changed_pointer(
+    retained_retirement_ready,
+):
     installed, directory, selection, state = retained_retirement_ready
     state["code"] = 1
     with pytest.raises(fx.FixtureFailed):
@@ -223,14 +286,19 @@ def test_retained_retirement_retry_uses_same_job_and_refuses_changed_pointer(ret
     assert state["calls"][0][-1] == state["calls"][1][-1]
 
 
-def test_retained_retirement_replays_same_job_after_native_receipt_publication_loss(retained_retirement_ready, monkeypatch):
+def test_retained_retirement_replays_same_job_after_native_receipt_publication_loss(
+    retained_retirement_ready, monkeypatch
+):
     import storage_lifecycle
+
     installed, directory, selection, state = retained_retirement_ready
     durable = storage_lifecycle.durable_json
+
     def lose_native_receipt(path, value):
         if path == directory / "native-retirement.json":
             raise OSError("native receipt publication interrupted")
         durable(path, value)
+
     monkeypatch.setattr(storage_lifecycle, "durable_json", lose_native_receipt)
     with pytest.raises(OSError, match="publication interrupted"):
         fx.retire_serving(directory.name)
@@ -245,34 +313,48 @@ def test_retained_retirement_replays_same_job_after_native_receipt_publication_l
     assert (directory / "retirement-plan.json").read_bytes() == plan
 
 
-def test_retained_retirement_resumes_host_cleanup_without_second_native_job(retained_retirement_ready, monkeypatch):
+def test_retained_retirement_resumes_host_cleanup_without_second_native_job(
+    retained_retirement_ready, monkeypatch
+):
     installed, directory, selection, state = retained_retirement_ready
     unlink = Path.unlink
+
     def refuse_viewer_unlink(path, *args, **kwargs):
         if path == directory / "viewer.json":
             raise OSError("host runtime release interrupted")
         return unlink(path, *args, **kwargs)
+
     monkeypatch.setattr(Path, "unlink", refuse_viewer_unlink)
     with pytest.raises(OSError, match="release interrupted"):
         fx.retire_serving(directory.name)
     native = (directory / "native-retirement.json").read_bytes()
     assert not selection.exists() and (directory / "viewer.json").exists()
     monkeypatch.setattr(Path, "unlink", unlink)
-    (installed.directory / "maintenance.json").unlink() # Explicit completed recovery seam.
+    (installed.directory / "maintenance.json").unlink()  # Explicit completed recovery seam.
     assert fx.retire_serving(directory.name)["outcome"] == "retired"
-    assert len(state["calls"]) == 1 and (directory / "native-retirement.json").read_bytes() == native
-    service.private_json(installed.directory / "maintenance.json", {"unresolved": "final maintenance check"})
+    assert (
+        len(state["calls"]) == 1 and (directory / "native-retirement.json").read_bytes() == native
+    )
+    service.private_json(
+        installed.directory / "maintenance.json", {"unresolved": "final maintenance check"}
+    )
     with pytest.raises(fx.FixtureBlocked, match="explicit maintenance recovery"):
         fx.retire_serving(directory.name)
 
 
-def test_retained_retirement_signal_joins_child_and_preserves_unknown(retained_retirement_ready, monkeypatch):
+def test_retained_retirement_signal_joins_child_and_preserves_unknown(
+    retained_retirement_ready, monkeypatch
+):
     import signal
+
     installed, directory, selection, state = retained_retirement_ready
     handlers = {}
-    monkeypatch.setattr(signal, "signal", lambda number, handler: handlers.__setitem__(number, handler))
+    monkeypatch.setattr(
+        signal, "signal", lambda number, handler: handlers.__setitem__(number, handler)
+    )
     observe = fx.observe_exit
     interrupted = False
+
     def interrupt_child(child):
         nonlocal interrupted
         if not interrupted:
@@ -281,35 +363,59 @@ def test_retained_retirement_signal_joins_child_and_preserves_unknown(retained_r
             assert all(handlers[number] is fx._raise_interrupt for number in fx.TERMINATING)
             raise fx._Interrupted(signal.SIGTERM)
         return observe(child)
+
     monkeypatch.setattr(fx, "observe_exit", interrupt_child)
+
     def child(attachment, command, *, child_env, stdout):
-        return state["run_attached"](attachment,
-            [sys.executable, "-c", "import time; time.sleep(60)"], child_env=child_env, stdout=stdout)
+        return state["run_attached"](
+            attachment,
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            child_env=child_env,
+            stdout=stdout,
+        )
+
     monkeypatch.setattr(fx, "run_attached", child)
     assert fx.main(["--retire-serving", directory.name]) == 128 + signal.SIGTERM
-    records = [fx.read_json(path) for path in (installed.directory / "attachments").glob("*/record.json")]
+    records = [
+        fx.read_json(path) for path in (installed.directory / "attachments").glob("*/record.json")
+    ]
     assert len(records) == 1
     assert records[0]["command_cleanup"]["status"] == "confirmed"
     assert records[0]["command_cleanup"]["survivors"] == []
-    assert records[0]["released"] is False and records[0]["native_completion"]["status"] == "unknown"
+    assert (
+        records[0]["released"] is False and records[0]["native_completion"]["status"] == "unknown"
+    )
     assert selection.exists() and (directory / "viewer.json").exists()
     assert (installed.directory / "maintenance.json").exists()
-    assert not (directory / "native-retirement.json").exists() and not (directory / "retired.json").exists()
+    assert (
+        not (directory / "native-retirement.json").exists()
+        and not (directory / "retired.json").exists()
+    )
 
 
 @pytest.mark.parametrize("producer_state", ["confirmed", "unknown", "unreleased"])
-def test_retained_retirement_completes_only_confirmed_exact_producer_temporary_obligations(retained_retirement_ready, monkeypatch, producer_state):
+def test_retained_retirement_completes_only_confirmed_exact_producer_temporary_obligations(
+    retained_retirement_ready, monkeypatch, producer_state
+):
     from storage_lifecycle import Storage
+
     installed, directory, selection, state = retained_retirement_ready
     storage = Storage()
     producer = fx.Attachment.create(installed)
     producer.release()
     unrelated = fx.Attachment.create(installed)
     unrelated.release()
+
     def pending_obligation(attachment):
-        return storage.publish(attachment.directory, "attachment",
+        return storage.publish(
+            attachment.directory,
+            "attachment",
             {"kind": "attachment", "path": str(attachment.directory.resolve())},
-            "retained-publication-retirement", temporary_days=0, managed=True)
+            "retained-publication-retirement",
+            temporary_days=0,
+            managed=True,
+        )
+
     producer_id, unrelated_id = pending_obligation(producer), pending_obligation(unrelated)
     storage.retain(producer_id, "independent-retained-evidence")
     unrelated_before = storage.get(unrelated_id)
@@ -318,9 +424,16 @@ def test_retained_retirement_completes_only_confirmed_exact_producer_temporary_o
     identity["producing_run"] = {"attachment": producer.id}
     service.private_json(directory / "identity.json", identity)
     producer_unknown = False
-    monkeypatch.setattr(fx, "native_completion", lambda path, row:
-        {"status": "unknown" if path == producer.directory and producer_unknown else "confirmed", "owners": []})
+    monkeypatch.setattr(
+        fx,
+        "native_completion",
+        lambda path, row: {
+            "status": "unknown" if path == producer.directory and producer_unknown else "confirmed",
+            "owners": [],
+        },
+    )
     native_child = fx.run_attached
+
     def child(*args, **kwargs):
         nonlocal producer_unknown
         result = native_child(*args, **kwargs)
@@ -330,6 +443,7 @@ def test_retained_retirement_completes_only_confirmed_exact_producer_temporary_o
             row = fx.read_json(producer.directory / "record.json")
             service.private_json(producer.directory / "record.json", {**row, "released": False})
         return result
+
     monkeypatch.setattr(fx, "run_attached", child)
     if producer_state == "confirmed":
         assert fx.retire_serving(directory.name)["outcome"] == "retired"
@@ -337,18 +451,30 @@ def test_retained_retirement_completes_only_confirmed_exact_producer_temporary_o
     else:
         with pytest.raises(fx.FixtureBlocked, match="producer local ownership remains unresolved"):
             fx.retire_serving(directory.name)
-        assert storage.get(producer_id)["obligations"]["retained-publication-retirement"]["until"] is None
+        assert (
+            storage.get(producer_id)["obligations"]["retained-publication-retirement"]["until"]
+            is None
+        )
         assert not (directory / "retired.json").exists()
         assert (installed.directory / "maintenance.json").exists()
-    assert storage.get(producer_id)["obligations"]["independent-retained-evidence"] == retained_before
+    assert (
+        storage.get(producer_id)["obligations"]["independent-retained-evidence"] == retained_before
+    )
     assert storage.get(unrelated_id) == unrelated_before
 
 
 def test_registered_retirement_recovery_class_preserves_unknown_and_terminal_failure():
     import surrealdb_pd02_recovery as recovery
+
     owner = {"owner": "native publication retirement", "state": "started", "completion": None}
     assert "Started native publication retirement" in recovery.native_owner_class(owner)
-    completion = {"local": "terminal", "remote": "confirmed", "storage": [], "committed": [], "failures": []}
+    completion = {
+        "local": "terminal",
+        "remote": "confirmed",
+        "storage": [],
+        "committed": [],
+        "failures": [],
+    }
     owner.update(state="complete", completion=completion)
     assert "Clean terminal" in recovery.native_owner_class(owner)
     completion["failures"] = [{"step": "known retirement refusal", "error": "still held"}]
@@ -362,7 +488,9 @@ def test_registered_retirement_recovery_class_preserves_unknown_and_terminal_fai
 
 
 @pytest.mark.parametrize("patched", [False, True])
-def test_attachment_retained_inputs_and_readiness_report_verified_actual_server(installed, tmp_path, patched, capfd):
+def test_attachment_retained_inputs_and_readiness_report_verified_actual_server(
+    installed, tmp_path, patched, capfd
+):
     generation = install_fake_patched_generation(installed, tmp_path) if patched else None
     binary = installed.record["binary"]
     expected = {"version": binary["version"], "binary_sha256": binary["sha256"]}
@@ -377,14 +505,19 @@ def test_attachment_retained_inputs_and_readiness_report_verified_actual_server(
         assert identity["configuration"]["server"] == identity["inputs"]["server"] == expected
         readiness = fx.substrate_readiness()
         assert readiness.ready
-        assert expected["version"] in readiness.detail and expected["binary_sha256"] in readiness.detail
+        assert (
+            expected["version"] in readiness.detail
+            and expected["binary_sha256"] in readiness.detail
+        )
         if generation:
             assert generation["identity"] in readiness.detail
     finally:
         attachment.release()
 
 
-def test_retained_publication_reuse_records_current_server_change_without_replay(installed, tmp_path, capfd):
+def test_retained_publication_reuse_records_current_server_change_without_replay(
+    installed, tmp_path, capfd
+):
     producer = fx.Attachment.create(installed)
     try:
         identity = complete_retained_output(producer)
@@ -397,7 +530,9 @@ def test_retained_publication_reuse_records_current_server_change_without_replay
         reuse = consumer.use_serving("retained")
         assert reuse["inputs_changed_since_production"]
         assert reuse["current_inputs"]["server"]["generation"] == generation["identity"]
-        assert reuse["skipped_obligations"][0]["produced_at"]["server"] == identity["inputs"]["server"]
+        assert (
+            reuse["skipped_obligations"][0]["produced_at"]["server"] == identity["inputs"]["server"]
+        )
         assert reuse["content"] == identity["content"]
         assert (installed.directory / "serving/retained/identity.json").read_bytes() == immutable
     finally:
@@ -852,23 +987,39 @@ def test_attachment_recovery_completes_declared_local_obligation_after_process_d
 def native_receipt(attachment, *, state="complete", remote="confirmed", failures=None):
     """Protocol fixture only; real native finality requires the Rust producer."""
     record = json.loads((attachment.directory / "record.json").read_text())
-    row = {"schema": 1, "kind": "native-process-owner", "owner": "protocol control",
-        "attachment": attachment.id, "generation": record["native_drain"]["generation"],
-        "process": {"pid": 123, "start_ticks": 456}, "registration": 0,
-        "state": state, "signal": "SIGINT", "completion": None}
+    row = {
+        "schema": 1,
+        "kind": "native-process-owner",
+        "owner": "protocol control",
+        "attachment": attachment.id,
+        "generation": record["native_drain"]["generation"],
+        "process": {"pid": 123, "start_ticks": 456},
+        "registration": 0,
+        "state": state,
+        "signal": "SIGINT",
+        "completion": None,
+    }
     if state == "complete":
-        row["completion"] = {"local": "terminal", "remote": remote, "storage": [],
+        row["completion"] = {
+            "local": "terminal",
+            "remote": remote,
+            "storage": [],
             "committed": [{"kind": "accepted effect", "identity": "exact-attempt"}],
-            "failures": failures or []}
+            "failures": failures or [],
+        }
     path = attachment.directory / "native-drain/123-456-0.json"
     fx.write_json_atomic(path, row)
     return path, row
 
 
-@pytest.mark.parametrize("state,remote,failures", [
-    ("started", "confirmed", []), ("complete", "unknown", []),
-    ("complete", "confirmed", [{"step": "session close", "error": "unknown"}]),
-])
+@pytest.mark.parametrize(
+    "state,remote,failures",
+    [
+        ("started", "confirmed", []),
+        ("complete", "unknown", []),
+        ("complete", "confirmed", [{"step": "session close", "error": "unknown"}]),
+    ],
+)
 def test_native_unknown_retains_attachment_despite_confirmed_process_cleanup(
     installed, state, remote, failures
 ):
@@ -898,7 +1049,10 @@ def test_confirmed_native_completion_releases_and_retains_committed_identity(ins
     row = json.loads((attachment.directory / "record.json").read_text())
     assert row["released"] is True and row["child_exit_code"] == 1
     assert row["native_completion"]["status"] == "confirmed"
-    assert row["native_completion"]["owners"][0]["completion"]["committed"][0]["identity"] == "exact-attempt"
+    assert (
+        row["native_completion"]["owners"][0]["completion"]["committed"][0]["identity"]
+        == "exact-attempt"
+    )
 
 
 def test_native_receipt_binding_and_hard_stop_without_receipt_remain_unknown(installed):
@@ -906,8 +1060,12 @@ def test_native_receipt_binding_and_hard_stop_without_receipt_remain_unknown(ins
     path, row = native_receipt(attachment)
     row["generation"] = "f" * 64
     fx.write_json_atomic(path, row)
-    assert fx.native_completion(attachment.directory,
-        json.loads((attachment.directory / "record.json").read_text()))["status"] == "unknown"
+    assert (
+        fx.native_completion(
+            attachment.directory, json.loads((attachment.directory / "record.json").read_text())
+        )["status"]
+        == "unknown"
+    )
     path.unlink()
     attachment._write_record(None, command_cleanup={"status": "confirmed"}, child_exit_code=-9)
     attachment.release()
@@ -919,41 +1077,55 @@ def test_native_receipt_binding_and_hard_stop_without_receipt_remain_unknown(ins
 def pd02_manifest(attachment, *, table=None, sequence=0, policy="signin", session=None):
     """Finite protocol fixture; this is not actual server/remote-finality evidence."""
     import surrealdb_pd02_recovery as recovery
+
     table = table or "pd02_" + "a" * 64
     record = fx.read_json(attachment.directory / "record.json")
-    manifest = {"schema": 1, "kind": "PD02-wire-request", "attachment": attachment.id,
-        "generation": record["native_drain"]["generation"], "namespace": service.NAMESPACE,
-        "database": "validation", "table": table, "sequence": sequence,
+    manifest = {
+        "schema": 1,
+        "kind": "PD02-wire-request",
+        "attachment": attachment.id,
+        "generation": record["native_drain"]["generation"],
+        "namespace": service.NAMESPACE,
+        "database": "validation",
+        "table": table,
+        "sequence": sequence,
         "session": None if policy == "attach_session" else session or str(uuid.UUID(int=7)),
-        "process": {"pid":123,"start_ticks":456}, "policy": policy,
-        "effects": recovery.POLICIES[policy], "live": "absent_after_join",
-        "session_policy": "volatile_named_session_after_join", "sql_blake3": "b" * 64}
+        "process": {"pid": 123, "start_ticks": 456},
+        "policy": policy,
+        "effects": recovery.POLICIES[policy],
+        "live": "absent_after_join",
+        "session_policy": "volatile_named_session_after_join",
+        "sql_blake3": "b" * 64,
+    }
     path = attachment.directory / "pd02-recovery" / f"{table[5:]}-{sequence}.json"
     recovery.immutable(path, manifest)
     return path, manifest
 
 
 def pd02_dead_attachment(installed, monkeypatch):
-    import surrealdb_pd02_recovery as recovery
+
     attachment = fx.Attachment.create(installed)
     path, native = native_receipt(attachment, remote="unknown")
     native["owner"] = "PD02 installed fixture wire owner"
     fx.write_json_atomic(path, native)
-    attachment._write_record(None, command_cleanup={"status":"confirmed","survivors":[]}, child_exit_code=0)
+    attachment._write_record(
+        None, command_cleanup={"status": "confirmed", "survivors": []}, child_exit_code=0
+    )
     pd02_manifest(attachment, policy="attach_session")
     pd02_manifest(attachment, sequence=1, policy="signin")
     pd02_manifest(attachment, sequence=2, policy="use")
     pd02_manifest(attachment, sequence=3, policy="committed_before_disconnect")
     attachment.release()
     row = fx.read_json(attachment.directory / "record.json")
-    row["owner"] = {**service.ProcessIdentity.of().to_json(),"pid":99999999,"start_ticks":1}
+    row["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999999, "start_ticks": 1}
     fx.write_json_atomic(attachment.directory / "record.json", row)
-    monkeypatch.setattr(fx, "_command_observation", lambda row: {"status":"gone"})
+    monkeypatch.setattr(fx, "_command_observation", lambda row: {"status": "gone"})
     return attachment, path, path.read_bytes()
 
 
 def test_pd02_manifest_finite_policy_refuses_sql_injection_and_incomplete_session(installed):
     import surrealdb_pd02_recovery as recovery
+
     attachment = fx.Attachment.create(installed)
     try:
         pd02_manifest(attachment, policy="attach_session")
@@ -976,15 +1148,20 @@ def test_pd02_manifest_finite_policy_refuses_sql_injection_and_incomplete_sessio
 @pytest.mark.parametrize("change", ["unknown_policy", "effect", "generation", "symlink", "process"])
 def test_pd02_manifest_identity_and_request_policies_are_not_sql_authority(installed, change):
     import surrealdb_pd02_recovery as recovery
+
     attachment = fx.Attachment.create(installed)
     try:
         pd02_manifest(attachment, policy="attach_session")
         path, row = pd02_manifest(attachment, sequence=1, policy="signin")
         path.chmod(0o600)
-        if change == "unknown_policy": row["policy"] = "execute_serialized_sql"
-        elif change == "effect": row["effects"] = {"foreign":"absent"}
-        elif change == "generation": row["generation"] = "f" * 64
-        elif change == "process": row["process"]["pid"] = -1
+        if change == "unknown_policy":
+            row["policy"] = "execute_serialized_sql"
+        elif change == "effect":
+            row["effects"] = {"foreign": "absent"}
+        elif change == "generation":
+            row["generation"] = "f" * 64
+        elif change == "process":
+            row["process"]["pid"] = -1
         else:
             path.unlink()
             path.symlink_to(attachment.directory / "record.json")
@@ -992,24 +1169,40 @@ def test_pd02_manifest_identity_and_request_policies_are_not_sql_authority(insta
             fx.write_json_atomic(path, row)
             path.chmod(0o400)
         with pytest.raises((fx.FixtureBlocked, ValueError)):
-            recovery.manifests(attachment.directory, fx.read_json(attachment.directory / "record.json"))
+            recovery.manifests(
+                attachment.directory, fx.read_json(attachment.directory / "record.json")
+            )
     finally:
         attachment.release()
 
 
-def test_pd02_graceful_join_requires_exact_invocation_clean_zero_and_positive_log(installed, monkeypatch):
+def test_pd02_graceful_join_requires_exact_invocation_clean_zero_and_positive_log(
+    installed, monkeypatch
+):
     import surrealdb_pd02_recovery as recovery
-    old = {**service.ProcessIdentity.of().to_json(), "pid":99999999,"start_ticks":1}
-    plan = {"daemon":{"invocation":"a"*32,"process":old}}
+
+    old = {**service.ProcessIdentity.of().to_json(), "pid": 99999999, "start_ticks": 1}
+    plan = {"daemon": {"invocation": "a" * 32, "process": old}}
     commands = []
-    state = {"InvocationID":"a"*32,"MainPID":"0","ActiveState":"inactive",
-        "Result":"success","ExecMainCode":"1","ExecMainStatus":"0"}
+    state = {
+        "InvocationID": "a" * 32,
+        "MainPID": "0",
+        "ActiveState": "inactive",
+        "Result": "success",
+        "ExecMainCode": "1",
+        "ExecMainStatus": "0",
+    }
     monkeypatch.setattr(service, "unit_properties", lambda *args: state)
     monkeypatch.setattr(service, "systemctl", lambda *args: commands.append(args))
-    monkeypatch.setattr(recovery, "journal_join", lambda *args: {"exact":"positive"})
-    assert recovery.joined_exit(installed.installation, plan)["journal"] == {"exact":"positive"}
+    monkeypatch.setattr(recovery, "journal_join", lambda *args: {"exact": "positive"})
+    assert recovery.joined_exit(installed.installation, plan)["journal"] == {"exact": "positive"}
     assert not commands  # Already exited only qualifies through clean0 + positive join proof.
-    for field, wrong in (("ExecMainCode","2"),("ExecMainStatus","9"),("Result","signal"),("InvocationID","b"*32)):
+    for field, wrong in (
+        ("ExecMainCode", "2"),
+        ("ExecMainStatus", "9"),
+        ("Result", "signal"),
+        ("InvocationID", "b" * 32),
+    ):
         before = dict(state)
         state[field] = wrong
         with pytest.raises(fx.FixtureBlocked):
@@ -1020,28 +1213,47 @@ def test_pd02_graceful_join_requires_exact_invocation_clean_zero_and_positive_lo
 
 def test_pd02_join_signals_without_systemd_stop_or_timeout_abort(installed, monkeypatch):
     import surrealdb_pd02_recovery as recovery
+
     current = service.ProcessIdentity.of()
-    states = iter([
-        {"InvocationID":"a"*32,"MainPID":str(current.pid),"ActiveState":"active"},
-        {"InvocationID":"a"*32,"MainPID":str(current.pid),"ActiveState":"deactivating"},
-    ])
+    states = iter(
+        [
+            {"InvocationID": "a" * 32, "MainPID": str(current.pid), "ActiveState": "active"},
+            {"InvocationID": "a" * 32, "MainPID": str(current.pid), "ActiveState": "deactivating"},
+        ]
+    )
     monkeypatch.setattr(service, "unit_properties", lambda *args: next(states))
     commands = []
-    monkeypatch.setattr(service, "systemctl", lambda *args: commands.append(args) or SimpleNamespace(returncode=0))
-    monkeypatch.setattr(recovery.time, "sleep", lambda _: (_ for _ in ()).throw(KeyboardInterrupt()))
+    monkeypatch.setattr(
+        service, "systemctl", lambda *args: commands.append(args) or SimpleNamespace(returncode=0)
+    )
+    monkeypatch.setattr(
+        recovery.time, "sleep", lambda _: (_ for _ in ()).throw(KeyboardInterrupt())
+    )
     with pytest.raises(KeyboardInterrupt):
-        recovery.joined_exit(installed.installation, {"daemon":{"invocation":"a"*32,"process":current.to_json()}})
-    assert commands == [("kill","--signal=SIGTERM","--kill-whom=main",installed.unit)]
+        recovery.joined_exit(
+            installed.installation,
+            {"daemon": {"invocation": "a" * 32, "process": current.to_json()}},
+        )
+    assert commands == [("kill", "--signal=SIGTERM", "--kill-whom=main", installed.unit)]
 
 
 def test_pd02_positive_journal_is_bound_to_invocation_and_unit(installed, monkeypatch):
     import surrealdb_pd02_recovery as recovery
+
     invocation = "a" * 32
-    output = {"_SYSTEMD_INVOCATION_ID":invocation,"_SYSTEMD_USER_UNIT":installed.unit,
-        "MESSAGE":"INFO surrealdb::net: Web server stopped. Bye!"}
+    output = {
+        "_SYSTEMD_INVOCATION_ID": invocation,
+        "_SYSTEMD_USER_UNIT": installed.unit,
+        "MESSAGE": "INFO surrealdb::net: Web server stopped. Bye!",
+    }
     commands = []
-    monkeypatch.setattr(recovery.subprocess, "run", lambda args, **kw:
-        commands.append(args) or SimpleNamespace(returncode=0,stdout=json.dumps(output)+"\n"))
+    monkeypatch.setattr(
+        recovery.subprocess,
+        "run",
+        lambda args, **kw: (
+            commands.append(args) or SimpleNamespace(returncode=0, stdout=json.dumps(output) + "\n")
+        ),
+    )
     assert recovery.journal_join(installed.installation, invocation)["entries"] == [output]
     assert "_SYSTEMD_INVOCATION_ID=" + invocation in commands[0]
     output["_SYSTEMD_INVOCATION_ID"] = "b" * 32
@@ -1051,27 +1263,48 @@ def test_pd02_positive_journal_is_bound_to_invocation_and_unit(installed, monkey
 
 def test_pd02_reconcile_checks_all_owned_effects_and_live_before_deletion(installed, monkeypatch):
     import surrealdb_pd02_recovery as recovery
+
     table = "pd02_" + "a" * 64
-    manifest = {"tables":[table],"effects":{table:{"committed":"present","later":"absent"}}}
+    manifest = {"tables": [table], "effects": {table: {"committed": "present", "later": "absent"}}}
     calls = []
-    values = iter([{"lives":{}},True,False,["committed"]])
+    values = iter([{"lives": {}}, True, False, ["committed"]])
     monkeypatch.setattr(service.Installation, "check_daemon", lambda self: None)
-    monkeypatch.setattr(service.Installation, "runtime", lambda self,*a,**kw: {})
-    monkeypatch.setattr(service, "sql", lambda inst, sql, **kw:
-        calls.append(sql) or [{"status":"OK","result":next(values)}])
-    outcomes = recovery.reconcile(installed.installation, manifest, {"pid":1,"start_ticks":2})
+    monkeypatch.setattr(service.Installation, "runtime", lambda self, *a, **kw: {})
+    monkeypatch.setattr(
+        service,
+        "sql",
+        lambda inst, sql, **kw: calls.append(sql) or [{"status": "OK", "result": next(values)}],
+    )
+    outcomes = recovery.reconcile(installed.installation, manifest, {"pid": 1, "start_ticks": 2})
     assert outcomes[table]["effects"] == manifest["effects"][table]
-    assert calls == [f"INFO FOR TABLE {table}", f"RETURN record::exists({table}:committed)",
-        f"RETURN record::exists({table}:later)", f"SELECT VALUE record::id(id) FROM {table}"]
-    values = iter([{"lives":{}},False])
+    assert calls == [
+        f"INFO FOR TABLE {table}",
+        f"RETURN record::exists({table}:committed)",
+        f"RETURN record::exists({table}:later)",
+        f"SELECT VALUE record::id(id) FROM {table}",
+    ]
+    values = iter([{"lives": {}}, False])
     with pytest.raises(fx.FixtureBlocked, match="disagrees"):
         recovery.reconcile(installed.installation, manifest, {})
     assert not any("REMOVE" in sql for sql in calls)
 
 
-@pytest.mark.parametrize("blocker", ["live_owner","foreign_owner","missing_owner","unnamed_borrower","borrower_lease","command_unknown"])
-def test_pd02_recovery_refuses_live_or_unnamed_owners_before_server_actions(installed, monkeypatch, blocker):
+@pytest.mark.parametrize(
+    "blocker",
+    [
+        "live_owner",
+        "foreign_owner",
+        "missing_owner",
+        "unnamed_borrower",
+        "borrower_lease",
+        "command_unknown",
+    ],
+)
+def test_pd02_recovery_refuses_live_or_unnamed_owners_before_server_actions(
+    installed, monkeypatch, blocker
+):
     import surrealdb_pd02_recovery as recovery
+
     attachment, _, _ = pd02_dead_attachment(installed, monkeypatch)
     other = None
     held = None
@@ -1086,12 +1319,15 @@ def test_pd02_recovery_refuses_live_or_unnamed_owners_before_server_actions(inst
     elif blocker == "missing_owner":
         row.pop("owner")
         fx.write_json_atomic(attachment.directory / "record.json", row)
-    elif blocker == "unnamed_borrower": other = fx.Attachment.create(installed)
+    elif blocker == "unnamed_borrower":
+        other = fx.Attachment.create(installed)
     elif blocker == "borrower_lease":
         import fcntl
+
         held = os.open(installed.directory / "borrowers.lock", os.O_RDWR)
         fcntl.flock(held, fcntl.LOCK_SH)
-    else: monkeypatch.setattr(fx, "_command_observation", lambda row: {"status":"unknown"})
+    else:
+        monkeypatch.setattr(fx, "_command_observation", lambda row: {"status": "unknown"})
     commands = []
     monkeypatch.setattr(service, "systemctl", lambda *args: commands.append(args))
     try:
@@ -1100,44 +1336,86 @@ def test_pd02_recovery_refuses_live_or_unnamed_owners_before_server_actions(inst
         assert not commands
         assert fx.read_json(attachment.directory / "record.json")["released"] is False
     finally:
-        if other: other.release()
-        if held is not None: os.close(held)
+        if other:
+            other.release()
+        if held is not None:
+            os.close(held)
 
 
 def pd02_join_protocol_fixture(installed, process):
     import surrealdb_pd02_recovery as recovery
-    entries = [{"_SYSTEMD_INVOCATION_ID":"a"*32,"_SYSTEMD_USER_UNIT":installed.unit,
-        "_PID":str(process.pid),"MESSAGE":recovery.JOIN_MESSAGE}]
+
+    entries = [
+        {
+            "_SYSTEMD_INVOCATION_ID": "a" * 32,
+            "_SYSTEMD_USER_UNIT": installed.unit,
+            "_PID": str(process.pid),
+            "MESSAGE": recovery.JOIN_MESSAGE,
+        }
+    ]
     text = json.dumps(entries[0]) + "\n"
-    return {"state":{"InvocationID":"a"*32,"MainPID":"0","ActiveState":"inactive",
-        "Result":"success","ExecMainCode":"1","ExecMainStatus":"0"},
-        "journal":{"text":text,"sha256":recovery.digest_bytes(text.encode()),"entries":entries}}
+    return {
+        "state": {
+            "InvocationID": "a" * 32,
+            "MainPID": "0",
+            "ActiveState": "inactive",
+            "Result": "success",
+            "ExecMainCode": "1",
+            "ExecMainStatus": "0",
+        },
+        "journal": {
+            "text": text,
+            "sha256": recovery.digest_bytes(text.encode()),
+            "entries": entries,
+        },
+    }
 
 
 def pd02_mock_recovery_ready(installed, monkeypatch):
     import surrealdb_pd02_recovery as recovery
+
     attachment, native_path, original_native = pd02_dead_attachment(installed, monkeypatch)
     installation = installed.installation
     installation.directory.chmod(0o700)
     old = service.ProcessIdentity.of()
-    new = SimpleNamespace(to_json=lambda: {"pid":99999998,"start_ticks":7})
+    new = SimpleNamespace(to_json=lambda: {"pid": 99999998, "start_ticks": 7})
     installation._daemon_identity = (old, ())
     monkeypatch.setattr(recovery, "validate_server", lambda inst: None)
     monkeypatch.setattr(service.Installation, "check_daemon", lambda inst: None)
-    monkeypatch.setattr(service, "unit_properties", lambda *args: {"InvocationID":"a"*32,"MainPID":str(old.pid)})
+    monkeypatch.setattr(
+        service,
+        "unit_properties",
+        lambda *args: {"InvocationID": "a" * 32, "MainPID": str(old.pid)},
+    )
     joined = pd02_join_protocol_fixture(installed, old)
     monkeypatch.setattr(recovery, "joined_exit", lambda *args: joined)
-    monkeypatch.setattr(service, "_start_owned", lambda inst: setattr(inst,"_daemon_identity",(new,())))
+    monkeypatch.setattr(
+        service, "_start_owned", lambda inst: setattr(inst, "_daemon_identity", (new, ()))
+    )
     monkeypatch.setattr(service.Installation, "runtime", lambda *a, **kw: {})
-    monkeypatch.setattr(service, "sql", lambda inst, statement, **kw: [{"status":"OK","result":None}])
-    table = "pd02_" + "a"*64
-    monkeypatch.setattr(recovery, "reconcile", lambda *args: {table:{"live":"absent",
-        "effects":{"committed":"present","later":"absent"},"records":["committed"]}})
+    monkeypatch.setattr(
+        service, "sql", lambda inst, statement, **kw: [{"status": "OK", "result": None}]
+    )
+    table = "pd02_" + "a" * 64
+    monkeypatch.setattr(
+        recovery,
+        "reconcile",
+        lambda *args: {
+            table: {
+                "live": "absent",
+                "effects": {"committed": "present", "later": "absent"},
+                "records": ["committed"],
+            }
+        },
+    )
     return attachment, native_path, original_native
 
 
-def test_pd02_host_recovery_preserves_original_unknown_and_independent_receipt(installed, monkeypatch):
+def test_pd02_host_recovery_preserves_original_unknown_and_independent_receipt(
+    installed, monkeypatch
+):
     import surrealdb_pd02_recovery as recovery
+
     attachment, native_path, original_native = pd02_mock_recovery_ready(installed, monkeypatch)
     installation = installed.installation
     result = recovery.recover(installation, attachment.id)
@@ -1146,12 +1424,17 @@ def test_pd02_host_recovery_preserves_original_unknown_and_independent_receipt(i
     row = fx.read_json(attachment.directory / "record.json")
     assert row["released"] is True
     assert fx.native_completion(attachment.directory, row)["status"] == "unknown"
-    assert not fx.native_protected(attachment.directory, row, fx.native_completion(attachment.directory,row))
+    assert not fx.native_protected(
+        attachment.directory, row, fx.native_completion(attachment.directory, row)
+    )
     assert not service.borrowers(installation)
     import storage_owners
     from storage_lifecycle import Storage
+
     assert storage_owners.observe(Storage().get(attachment._storage_id))["state"] == "released"
-    assert Storage().get(attachment._storage_id)["obligations"][f"attachment:{attachment.id}"]["until"]
+    assert Storage().get(attachment._storage_id)["obligations"][f"attachment:{attachment.id}"][
+        "until"
+    ]
     assert not (installation.directory / "maintenance.json").exists()
     assert fx.inventory()[0]["native_completion"]["status"] == "unknown"
     assert fx.inventory()[0]["protected"] is False
@@ -1163,22 +1446,33 @@ def test_pd02_host_recovery_preserves_original_unknown_and_independent_receipt(i
 
 
 @pytest.mark.parametrize("phase", ["join", "reconcile", "remove", "drain", "open"])
-def test_pd02_interrupted_recovery_preserves_unknown_and_resumes_exact_owner(installed, monkeypatch, phase):
+def test_pd02_interrupted_recovery_preserves_unknown_and_resumes_exact_owner(
+    installed, monkeypatch, phase
+):
     import surrealdb_pd02_recovery as recovery
+
     attachment, native_path, original = pd02_mock_recovery_ready(installed, monkeypatch)
     installation = installed.installation
-    target, name = {"join":(recovery,"joined_exit"), "reconcile":(recovery,"reconcile"),
-        "remove":(service,"sql"), "drain":(service,"_run_installer"),
-        "open":(service,"_run_installer")}[phase]
+    target, name = {
+        "join": (recovery, "joined_exit"),
+        "reconcile": (recovery, "reconcile"),
+        "remove": (service, "sql"),
+        "drain": (service, "_run_installer"),
+        "open": (service, "_run_installer"),
+    }[phase]
     original_function = getattr(target, name)
     fired = False
+
     def interrupt_once(*args, **kw):
         nonlocal fired
-        chosen = phase not in {"drain", "open"} or args[2] == ("drain" if phase == "drain" else "open-admission")
+        chosen = phase not in {"drain", "open"} or args[2] == (
+            "drain" if phase == "drain" else "open-admission"
+        )
         if not fired and chosen:
             fired = True
             raise KeyboardInterrupt()
         return original_function(*args, **kw)
+
     monkeypatch.setattr(target, name, interrupt_once)
     with pytest.raises(KeyboardInterrupt):
         recovery.recover(installation, attachment.id)
@@ -1189,11 +1483,12 @@ def test_pd02_interrupted_recovery_preserves_unknown_and_resumes_exact_owner(ins
     assert native_path.read_bytes() == original
     row = fx.read_json(attachment.directory / "record.json")
     assert fx.native_completion(attachment.directory, row)["status"] == "unknown"
-    if phase != "open": assert row["released"] is False
+    if phase != "open":
+        assert row["released"] is False
     assert not service.lock_held(installation.directory / "admission.lock")
     # A real CLI resume is a new process. Simulate only its dead host identity;
     # do not mutate the original request/native or daemon recovery evidence.
-    marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid":99999999}
+    marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999999}
     fx.write_json_atomic(marker_path, marker)
     assert recovery.recover(installation, attachment.id)["outcome"] == "recovered"
     assert native_path.read_bytes() == original
@@ -1202,9 +1497,11 @@ def test_pd02_interrupted_recovery_preserves_unknown_and_resumes_exact_owner(ins
 
 def test_pd02_log_preparation_is_explicit_campaign_only_and_preserves_default(installed):
     import surrealdb_pd02_recovery as recovery
+
     assert '"--log=warn"' in service.unit_text(installed.directory, Path("/checked/server"), 29000)
-    assert '"--log=warn,surrealdb::net=info"' in service.unit_text(installed.directory,
-        Path("/checked/server"),29000,log_filter="warn,surrealdb::net=info")
+    assert '"--log=warn,surrealdb::net=info"' in service.unit_text(
+        installed.directory, Path("/checked/server"), 29000, log_filter="warn,surrealdb::net=info"
+    )
     with pytest.raises(fx.FixtureBlocked, match="campaign-only"):
         recovery.prepare_logs(installed.installation)
     with pytest.raises(fx.FixtureBlocked, match="unrecognized"):
@@ -1212,8 +1509,11 @@ def test_pd02_log_preparation_is_explicit_campaign_only_and_preserves_default(in
 
 
 @pytest.mark.parametrize("interrupt", [None, "reload", "join", "open"])
-def test_pd02_log_preparation_journals_exact_unit_binary_and_rechecks(installed, tmp_path, monkeypatch, interrupt):
+def test_pd02_log_preparation_journals_exact_unit_binary_and_rechecks(
+    installed, tmp_path, monkeypatch, interrupt
+):
     import surrealdb_pd02_recovery as recovery
+
     generation = install_fake_patched_generation(installed, tmp_path)
     installation = installed.installation
     installation.directory.chmod(0o700)
@@ -1222,44 +1522,75 @@ def test_pd02_log_preparation_journals_exact_unit_binary_and_rechecks(installed,
     service.private_json(installation.directory / "installation.json", installation.record)
     unit = tmp_path / "owned-unit.service"
     unit.write_text(service.unit_text(installation.directory, Path(generation["path"]), 29000))
-    monkeypatch.setattr(service,"_unit_path",lambda *a:unit)
+    monkeypatch.setattr(service, "_unit_path", lambda *a: unit)
     process = service.ProcessIdentity.of()
     installation._daemon_identity = (process, ())
-    monkeypatch.setattr(service.Installation,"check_daemon",lambda self:None)
-    monkeypatch.setattr(service,"unit_properties",lambda *args:{"InvocationID":"a"*32,"MainPID":str(process.pid)})
-    monkeypatch.setattr(recovery,"joined_exit",lambda *args:pd02_join_protocol_fixture(installed,process))
+    monkeypatch.setattr(service.Installation, "check_daemon", lambda self: None)
+    monkeypatch.setattr(
+        service,
+        "unit_properties",
+        lambda *args: {"InvocationID": "a" * 32, "MainPID": str(process.pid)},
+    )
+    monkeypatch.setattr(
+        recovery, "joined_exit", lambda *args: pd02_join_protocol_fixture(installed, process)
+    )
     actions = []
-    monkeypatch.setattr(service,"_stop_owned",lambda inst:actions.append("ordinary preparation stop"))
-    monkeypatch.setattr(service,"_start_owned",lambda inst:actions.append("checked preparation start"))
-    monkeypatch.setattr(service,"_run_installer",lambda inst,binary,action:actions.append(action))
-    monkeypatch.setattr(service,"systemctl",lambda *args:SimpleNamespace(returncode=0))
+    monkeypatch.setattr(
+        service, "_stop_owned", lambda inst: actions.append("ordinary preparation stop")
+    )
+    monkeypatch.setattr(
+        service, "_start_owned", lambda inst: actions.append("checked preparation start")
+    )
+    monkeypatch.setattr(
+        service, "_run_installer", lambda inst, binary, action: actions.append(action)
+    )
+    monkeypatch.setattr(service, "systemctl", lambda *args: SimpleNamespace(returncode=0))
     before = dict(installation.record["binary"])
     if interrupt:
-        target, name = {"reload":(service,"systemctl"), "join":(recovery,"joined_exit"),
-            "open":(service,"_run_installer")}[interrupt]
+        target, name = {
+            "reload": (service, "systemctl"),
+            "join": (recovery, "joined_exit"),
+            "open": (service, "_run_installer"),
+        }[interrupt]
         original = getattr(target, name)
+
         def interrupted(*args, **kw):
-            selected = interrupt == "join" or interrupt == "reload" and args[0] == "daemon-reload" or interrupt == "open" and args[2] == "open-admission"
-            if selected: raise KeyboardInterrupt()
+            selected = (
+                interrupt == "join"
+                or (interrupt == "reload" and args[0] == "daemon-reload")
+                or (interrupt == "open" and args[2] == "open-admission")
+            )
+            if selected:
+                raise KeyboardInterrupt()
             return original(*args, **kw)
-        monkeypatch.setattr(target,name,interrupted)
+
+        monkeypatch.setattr(target, name, interrupted)
         with pytest.raises(KeyboardInterrupt):
             recovery.prepare_logs(installation)
         marker_path = installation.directory / "maintenance.json"
         marker = fx.read_json(marker_path)
         assert marker["operation"] == "PD02 campaign log preparation"
-        assert marker["phase"] in {"drained","smoke_joining","smoke_joined"}
-        marker["owner"] = {**service.ProcessIdentity.of().to_json(),"pid":99999999}
-        fx.write_json_atomic(marker_path,marker)
-        monkeypatch.setattr(target,name,original)
+        assert marker["phase"] in {"drained", "smoke_joining", "smoke_joined"}
+        marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999999}
+        fx.write_json_atomic(marker_path, marker)
+        monkeypatch.setattr(target, name, original)
     result = recovery.prepare_logs(installation)
     assert result["outcome"] == "prepared"
     assert installation.record["binary"] == before
     assert installation.record["server_log_filter"] == "warn,surrealdb::net=info"
     if not interrupt:
-        assert actions == ["close-admission","drain","ordinary preparation stop",
-            "checked preparation start","close-admission","drain", "checked preparation start",
-            "close-admission","drain","open-admission"]
+        assert actions == [
+            "close-admission",
+            "drain",
+            "ordinary preparation stop",
+            "checked preparation start",
+            "close-admission",
+            "drain",
+            "checked preparation start",
+            "close-admission",
+            "drain",
+            "open-admission",
+        ]
     receipt = fx.read_json(Path(result["receipt"]))
     assert "abandoned-request finality not_observed" in receipt["registry_join_evidence"]
     plan = fx.read_json(Path(result["receipt"]).with_name("plan.json"))
@@ -1271,13 +1602,16 @@ def test_pd02_log_preparation_journals_exact_unit_binary_and_rechecks(installed,
     recovery.validate_server(installation)
 
 
-@pytest.mark.parametrize("result", [[], [{"status":"ERR"}], [{"status":"OK"},{"status":"OK"}]])
-def test_pd02_unchecked_cleanup_terminal_cannot_become_immutable_authority(installed, monkeypatch, result):
+@pytest.mark.parametrize("result", [[], [{"status": "ERR"}], [{"status": "OK"}, {"status": "OK"}]])
+def test_pd02_unchecked_cleanup_terminal_cannot_become_immutable_authority(
+    installed, monkeypatch, result
+):
     import surrealdb_pd02_recovery as recovery
+
     attachment, native, original = pd02_mock_recovery_ready(installed, monkeypatch)
-    monkeypatch.setattr(service,"sql",lambda *args,**kw:result)
+    monkeypatch.setattr(service, "sql", lambda *args, **kw: result)
     with pytest.raises(fx.FixtureBlocked, match="checked terminal"):
-        recovery.recover(installed.installation,attachment.id)
+        recovery.recover(installed.installation, attachment.id)
     assert not list((attachment.directory / "pd02-host-recovery").glob("removed-*.json"))
     assert native.read_bytes() == original
     assert fx.read_json(attachment.directory / "record.json")["released"] is False
@@ -1287,488 +1621,801 @@ def test_pd02_unchecked_cleanup_terminal_cannot_become_immutable_authority(insta
 @pytest.mark.parametrize("change", ["unit", "pid", "digest", "transaction_error"])
 def test_pd02_retained_join_requires_unit_pid_digest_and_no_unresolved_cleanup(installed, change):
     import surrealdb_pd02_recovery as recovery
+
     process = service.ProcessIdentity.of()
-    joined = pd02_join_protocol_fixture(installed,process)
-    daemon = {"invocation":"a"*32,"process":process.to_json()}
-    if change == "digest": joined["journal"]["sha256"] = "b"*64
+    joined = pd02_join_protocol_fixture(installed, process)
+    daemon = {"invocation": "a" * 32, "process": process.to_json()}
+    if change == "digest":
+        joined["journal"]["sha256"] = "b" * 64
     else:
         entry = joined["journal"]["entries"][0]
-        if change == "unit": entry["_SYSTEMD_USER_UNIT"] = "unrelated.service"
-        elif change == "pid": entry["_PID"] = "99999999"
-        else: entry["MESSAGE"] = "Error cancelling gRPC transaction exact-owned: failed; " + recovery.JOIN_MESSAGE
+        if change == "unit":
+            entry["_SYSTEMD_USER_UNIT"] = "unrelated.service"
+        elif change == "pid":
+            entry["_PID"] = "99999999"
+        else:
+            entry["MESSAGE"] = (
+                "Error cancelling gRPC transaction exact-owned: failed; " + recovery.JOIN_MESSAGE
+            )
         joined["journal"]["text"] = json.dumps(entry) + "\n"
         joined["journal"]["sha256"] = recovery.digest_bytes(joined["journal"]["text"].encode())
-    assert recovery.valid_join_evidence(joined,daemon,installed.unit) is False
+    assert recovery.valid_join_evidence(joined, daemon, installed.unit) is False
 
 
 def native_join_protocol_fixture(installed, process):
     import surrealdb_pd02_recovery as recovery
+
     joined = pd02_join_protocol_fixture(installed, process)
     joined["source_proof"] = recovery.SOURCE_JOIN
-    joined["journal"]["entries"][0]["MESSAGE"] = "SIGTERM received. Waiting for graceful shutdown; another signal closes transport immediately but still waits for query finality."
+    joined["journal"]["entries"][0]["MESSAGE"] = (
+        "SIGTERM received. Waiting for graceful shutdown; another signal closes transport immediately but still waits for query finality."
+    )
     text = json.dumps(joined["journal"]["entries"][0]) + "\n"
-    joined["journal"].update(text=text,sha256=recovery.digest_bytes(text.encode()))
+    joined["journal"].update(text=text, sha256=recovery.digest_bytes(text.encode()))
     return joined
 
 
 def native_mock_recovery_ready(installed, tmp_path, monkeypatch):
     import base64
+
     import surrealdb_pd02_recovery as recovery
+
     installation = installed.installation
     installation.directory.chmod(0o700)
     installation.record.update(kind="campaign")
     installation.record["unit"] = service.installation_unit(installation.record)
-    install_fake_patched_generation(installed,tmp_path,cpu_count=32)
+    install_fake_patched_generation(installed, tmp_path, cpu_count=32)
     installer = tmp_path / "original-installer"
     installer.write_text("original immutable installer")
-    installation.record.update(installer=str(installer),installer_generation={"path":str(installer),"sha256":service.file_sha256(installer)})
-    service.private_json(installation.directory / "installation.json",installation.record)
+    installation.record.update(
+        installer=str(installer),
+        installer_generation={"path": str(installer), "sha256": service.file_sha256(installer)},
+    )
+    service.private_json(installation.directory / "installation.json", installation.record)
     attachment = fx.Attachment.create(installed)
-    native_path, native = native_receipt(attachment,state="started")
+    native_path, native = native_receipt(attachment, state="started")
     native["owner"] = "native compiler store"
-    fx.write_json_atomic(native_path,native)
-    attachment._write_record(None,command_cleanup={"status":"confirmed","survivors":[]},child_exit_code=100)
+    fx.write_json_atomic(native_path, native)
+    attachment._write_record(
+        None, command_cleanup={"status": "confirmed", "survivors": []}, child_exit_code=100
+    )
     attachment.release()
     row = fx.read_json(attachment.directory / "record.json")
-    row["owner"] = {**service.ProcessIdentity.of().to_json(),"pid":99999999,"start_ticks":1}
-    fx.write_json_atomic(attachment.directory / "record.json",row)
-    monkeypatch.setattr(fx,"_command_observation",lambda row:{"status":"gone"})
+    row["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999999, "start_ticks": 1}
+    fx.write_json_atomic(attachment.directory / "record.json", row)
+    monkeypatch.setattr(fx, "_command_observation", lambda row: {"status": "gone"})
     old = service.ProcessIdentity.of()
-    new = service.ProcessIdentity.from_json({**old.to_json(),"pid":99999998,"start_ticks":7})
-    installation._daemon_identity = (old,(1,2,3,4,5))
+    new = service.ProcessIdentity.from_json({**old.to_json(), "pid": 99999998, "start_ticks": 7})
+    installation._daemon_identity = (old, (1, 2, 3, 4, 5))
     unit = tmp_path / "native-campaign.service"
-    unit.write_text(service.unit_text(installation.directory,Path(installation.record["binary"]["path"]),29000))
-    monkeypatch.setattr(service,"_unit_path",lambda _:unit)
-    monkeypatch.setattr(service.Installation,"check_daemon",lambda inst:None)
-    monkeypatch.setattr(service,"unit_properties",lambda *a:{"InvocationID":("a" if installation._daemon_identity[0] == old else "b")*32,
-        "MainPID":str(installation._daemon_identity[0].pid),"ActiveState":"active"})
-    monkeypatch.setattr(recovery,"joined_exit",lambda *a,**kw:native_join_protocol_fixture(installed,old))
-    monkeypatch.setattr(service,"_start_owned",lambda inst:setattr(inst,"_daemon_identity",(new,(1,2,3,4,6))))
-    argv = b"\0".join(value.encode() for value in [installation.record["binary"]["path"],"start","--log=warn","127.0.0.1:29000",f"rocksdb://{installation.directory / 'data/store'}"])
-    monkeypatch.setattr(recovery,"native_daemon_snapshot",lambda *a:{"argv":base64.b64encode(argv).decode(),"executable_identity":[1,2,3,4,5]})
-    monkeypatch.setattr(service,"sql",lambda *a,**kw:pytest.fail("generic recovery has no direct SQL/deletion authority"))
-    return attachment,native_path,native_path.read_bytes()
+    unit.write_text(
+        service.unit_text(
+            installation.directory, Path(installation.record["binary"]["path"]), 29000
+        )
+    )
+    monkeypatch.setattr(service, "_unit_path", lambda _: unit)
+    monkeypatch.setattr(service.Installation, "check_daemon", lambda inst: None)
+    monkeypatch.setattr(
+        service,
+        "unit_properties",
+        lambda *a: {
+            "InvocationID": ("a" if installation._daemon_identity[0] == old else "b") * 32,
+            "MainPID": str(installation._daemon_identity[0].pid),
+            "ActiveState": "active",
+        },
+    )
+    monkeypatch.setattr(
+        recovery, "joined_exit", lambda *a, **kw: native_join_protocol_fixture(installed, old)
+    )
+    monkeypatch.setattr(
+        service,
+        "_start_owned",
+        lambda inst: setattr(inst, "_daemon_identity", (new, (1, 2, 3, 4, 6))),
+    )
+    argv = b"\0".join(
+        value.encode()
+        for value in [
+            installation.record["binary"]["path"],
+            "start",
+            "--log=warn",
+            "127.0.0.1:29000",
+            f"rocksdb://{installation.directory / 'data/store'}",
+        ]
+    )
+    monkeypatch.setattr(
+        recovery,
+        "native_daemon_snapshot",
+        lambda *a: {
+            "argv": base64.b64encode(argv).decode(),
+            "executable_identity": [1, 2, 3, 4, 5],
+        },
+    )
+    monkeypatch.setattr(
+        service,
+        "sql",
+        lambda *a, **kw: pytest.fail("generic recovery has no direct SQL/deletion authority"),
+    )
+    return attachment, native_path, native_path.read_bytes()
 
 
 def test_native_host_source_proof_is_distinct_from_positive_log(installed, monkeypatch):
     import surrealdb_pd02_recovery as recovery
+
     process = service.ProcessIdentity.of()
-    joined = native_join_protocol_fixture(installed,process)
-    daemon = {"invocation":"a"*32,"process":process.to_json()}
-    assert recovery.valid_join_evidence(joined,daemon,installed.unit,source_correlated=True)
-    assert not recovery.valid_join_evidence(joined,daemon,installed.unit)
+    joined = native_join_protocol_fixture(installed, process)
+    daemon = {"invocation": "a" * 32, "process": process.to_json()}
+    assert recovery.valid_join_evidence(joined, daemon, installed.unit, source_correlated=True)
+    assert not recovery.valid_join_evidence(joined, daemon, installed.unit)
     text = joined["journal"]["text"]
-    monkeypatch.setattr(recovery.subprocess,"run",lambda *a,**kw:SimpleNamespace(returncode=0,stdout=text))
-    assert recovery.journal_join(installed.installation,"a"*32,process.pid,source_correlated=True)["text"] == text
-    with pytest.raises(fx.FixtureBlocked,match="positive"):
-        recovery.journal_join(installed.installation,"a"*32,process.pid)
-    joined["source_proof"] = {**recovery.SOURCE_JOIN,"patch":"wrong"}
-    assert not recovery.valid_join_evidence(joined,daemon,installed.unit,source_correlated=True)
+    monkeypatch.setattr(
+        recovery.subprocess, "run", lambda *a, **kw: SimpleNamespace(returncode=0, stdout=text)
+    )
+    assert (
+        recovery.journal_join(
+            installed.installation, "a" * 32, process.pid, source_correlated=True
+        )["text"]
+        == text
+    )
+    with pytest.raises(fx.FixtureBlocked, match="positive"):
+        recovery.journal_join(installed.installation, "a" * 32, process.pid)
+    joined["source_proof"] = {**recovery.SOURCE_JOIN, "patch": "wrong"}
+    assert not recovery.valid_join_evidence(joined, daemon, installed.unit, source_correlated=True)
 
 
-@pytest.mark.parametrize("message,priority",[
-    ("Error cancelling gRPC transaction exact: failed",None),
-    ("Error cleaning up live query exact on shutdown: failed",None),
-    ("Error killing subscription-owned live query exact: failed",None),
-    ("Error cleaning up the live queries of an unfinished gRPC streaming query: failed",None),
-    ("gRPC delivery-loss cleanup unresolved; client acknowledgement remains unknown",None),
-    ("2026-10-11 \x1b[31mERROR\x1b[0m arbitrary cleanup component: failed","6"),
-    ("structured error without rendered level","3"),
-])
-def test_native_host_join_rejects_nonpropagated_cleanup_errors(installed,message,priority):
+@pytest.mark.parametrize(
+    "message,priority",
+    [
+        ("Error cancelling gRPC transaction exact: failed", None),
+        ("Error cleaning up live query exact on shutdown: failed", None),
+        ("Error killing subscription-owned live query exact: failed", None),
+        ("Error cleaning up the live queries of an unfinished gRPC streaming query: failed", None),
+        ("gRPC delivery-loss cleanup unresolved; client acknowledgement remains unknown", None),
+        ("2026-10-11 \x1b[31mERROR\x1b[0m arbitrary cleanup component: failed", "6"),
+        ("structured error without rendered level", "3"),
+    ],
+)
+def test_native_host_join_rejects_nonpropagated_cleanup_errors(installed, message, priority):
     import surrealdb_pd02_recovery as recovery
-    process=service.ProcessIdentity.of()
-    joined=native_join_protocol_fixture(installed,process)
-    entry={**joined["journal"]["entries"][0],"MESSAGE":message}
-    if priority is not None: entry["PRIORITY"]=priority
+
+    process = service.ProcessIdentity.of()
+    joined = native_join_protocol_fixture(installed, process)
+    entry = {**joined["journal"]["entries"][0], "MESSAGE": message}
+    if priority is not None:
+        entry["PRIORITY"] = priority
     joined["journal"]["entries"].append(entry)
-    text="".join(json.dumps(row)+"\n" for row in joined["journal"]["entries"])
-    joined["journal"].update(text=text,sha256=recovery.digest_bytes(text.encode()))
-    assert not recovery.valid_join_evidence(joined,{"invocation":"a"*32,"process":process.to_json()},installed.unit,source_correlated=True)
+    text = "".join(json.dumps(row) + "\n" for row in joined["journal"]["entries"])
+    joined["journal"].update(text=text, sha256=recovery.digest_bytes(text.encode()))
+    assert not recovery.valid_join_evidence(
+        joined,
+        {"invocation": "a" * 32, "process": process.to_json()},
+        installed.unit,
+        source_correlated=True,
+    )
 
 
-def test_native_host_recovery_preserves_started_bytes_and_request_unknown(installed,tmp_path,monkeypatch):
+def test_native_host_recovery_preserves_started_bytes_and_request_unknown(
+    installed, tmp_path, monkeypatch
+):
+    import storage_owners
     import surrealdb_pd02_recovery as recovery
     from storage_lifecycle import Storage
-    import storage_owners
-    attachment,native,original = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+
+    attachment, native, original = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
     calls = []
-    monkeypatch.setattr(service,"_run_installer",lambda inst,path,action:calls.append(action))
-    result = recovery.recover(installed.installation,attachment.id,native=True)
+    monkeypatch.setattr(service, "_run_installer", lambda inst, path, action: calls.append(action))
+    result = recovery.recover(installed.installation, attachment.id, native=True)
     assert result["outcome"] == "recovered"
     assert native.read_bytes() == original
     row = fx.read_json(attachment.directory / "record.json")
-    assert row["released"] and fx.native_completion(attachment.directory,row)["status"] == "unknown"
+    assert (
+        row["released"] and fx.native_completion(attachment.directory, row)["status"] == "unknown"
+    )
     receipt = fx.read_json(Path(row["host_recovery"]["path"]))
     assert receipt["original_request_outcomes"].startswith("unknown;")
     assert receipt["tables_removed"] == [] and receipt["reconciliation"] is None
-    assert calls == ["close-admission","close-admission","drain","open-admission"]
-    assert recovery.native_recovered(attachment.directory,row)
+    assert calls == ["close-admission", "close-admission", "drain", "open-admission"]
+    assert recovery.native_recovered(attachment.directory, row)
     assert not service.borrowers(installed.installation)
     assert storage_owners.observe(Storage().get(attachment._storage_id))["state"] == "released"
-    assert Storage().get(attachment._storage_id)["obligations"][f"attachment:{attachment.id}"]["until"]
-    native.write_bytes(original+b" ")
-    assert not recovery.native_recovered(attachment.directory,row)
+    assert Storage().get(attachment._storage_id)["obligations"][f"attachment:{attachment.id}"][
+        "until"
+    ]
+    native.write_bytes(original + b" ")
+    assert not recovery.native_recovered(attachment.directory, row)
     assert service.borrowers(installed.installation)[0]["id"] == attachment.id
 
 
 def failed_wire_owner(path):
     row = fx.read_json(path)
-    row.update(owner="S09 finite accepted-query wire owner", state="complete", completion={
-        "local":"terminal", "remote":"confirmed", "storage":[], "committed":[],
-        "failures":[{"step":"S09 actual wire control", "error":"logical IAM refusal"}],
-    })
-    fx.write_json_atomic(path,row)
+    row.update(
+        owner="S09 finite accepted-query wire owner",
+        state="complete",
+        completion={
+            "local": "terminal",
+            "remote": "confirmed",
+            "storage": [],
+            "committed": [],
+            "failures": [{"step": "S09 actual wire control", "error": "logical IAM refusal"}],
+        },
+    )
+    fx.write_json_atomic(path, row)
 
 
 def terminal_native_sibling(path, registration, owner, failures):
     row = fx.read_json(path)
-    row.update(owner=owner, registration=registration, state="complete", completion={
-        "local":"terminal", "remote":"confirmed", "storage":[], "committed":[],
-        "failures":failures,
-    })
-    sibling = path.with_name(f"{row['process']['pid']}-{row['process']['start_ticks']}-{registration}.json")
-    fx.write_json_atomic(sibling,row)
+    row.update(
+        owner=owner,
+        registration=registration,
+        state="complete",
+        completion={
+            "local": "terminal",
+            "remote": "confirmed",
+            "storage": [],
+            "committed": [],
+            "failures": failures,
+        },
+    )
+    sibling = path.with_name(
+        f"{row['process']['pid']}-{row['process']['start_ticks']}-{registration}.json"
+    )
+    fx.write_json_atomic(sibling, row)
     return sibling
 
 
-def test_native_host_mixed_registered_owners_preserve_all_original_outcomes(installed,tmp_path,monkeypatch):
+def test_native_host_mixed_registered_owners_preserve_all_original_outcomes(
+    installed, tmp_path, monkeypatch
+):
     import base64
+
     import surrealdb_pd02_recovery as recovery
-    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+
+    attachment, path, _ = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
     paths = [path]
     for owner in ("native compiler store", "compiler workspace"):
-        paths.append(terminal_native_sibling(path,len(paths),owner,[
-            {"step":"install exact predecessor view", "error":"original parser failure"},
-            {"step":"native attempt abandonment", "error":"original cleanup runtime failure"},
-        ]))
-        paths.append(terminal_native_sibling(path,len(paths),owner,[]))
-    paths.append(terminal_native_sibling(path,len(paths),"D10 direct native query signal owner",[]))
-    for owner in ("native product cache session", "native terminal product source",
-            "independent artifact admission"):
-        paths.append(terminal_native_sibling(path,len(paths),owner,[]))
-    started_cache = terminal_native_sibling(path,len(paths),"native product cache session",[])
+        paths.append(
+            terminal_native_sibling(
+                path,
+                len(paths),
+                owner,
+                [
+                    {"step": "install exact predecessor view", "error": "original parser failure"},
+                    {
+                        "step": "native attempt abandonment",
+                        "error": "original cleanup runtime failure",
+                    },
+                ],
+            )
+        )
+        paths.append(terminal_native_sibling(path, len(paths), owner, []))
+    paths.append(
+        terminal_native_sibling(path, len(paths), "D10 direct native query signal owner", [])
+    )
+    for owner in (
+        "native product cache session",
+        "native terminal product source",
+        "independent artifact admission",
+    ):
+        paths.append(terminal_native_sibling(path, len(paths), owner, []))
+    started_cache = terminal_native_sibling(path, len(paths), "native product cache session", [])
     cache_row = fx.read_json(started_cache)
-    cache_row.update(state="started",completion=None)
-    fx.write_json_atomic(started_cache,cache_row)
+    cache_row.update(state="started", completion=None)
+    fx.write_json_atomic(started_cache, cache_row)
     paths.append(started_cache)
-    originals = {item.name:item.read_bytes() for item in paths}
+    originals = {item.name: item.read_bytes() for item in paths}
     row = fx.read_json(attachment.directory / "record.json")
-    assert fx.native_completion(attachment.directory,row)["status"] == "unknown"
+    assert fx.native_completion(attachment.directory, row)["status"] == "unknown"
     calls = []
-    monkeypatch.setattr(service,"_run_installer",lambda inst,path,action:calls.append(action))
-    assert recovery.recover_native(installed.installation,[attachment.id])["outcome"] == "recovered"
-    assert calls == ["close-admission","close-admission","drain","open-admission"]
-    assert {item.name:item.read_bytes() for item in paths} == originals
+    monkeypatch.setattr(service, "_run_installer", lambda inst, path, action: calls.append(action))
+    assert (
+        recovery.recover_native(installed.installation, [attachment.id])["outcome"] == "recovered"
+    )
+    assert calls == ["close-admission", "close-admission", "drain", "open-admission"]
+    assert {item.name: item.read_bytes() for item in paths} == originals
     row = fx.read_json(attachment.directory / "record.json")
-    assert row["released"] and fx.native_completion(attachment.directory,row)["status"] == "unknown"
+    assert (
+        row["released"] and fx.native_completion(attachment.directory, row)["status"] == "unknown"
+    )
     plan = fx.read_json(attachment.directory / "native-host-recovery" / "plan.json")
-    assert {name:base64.b64decode(raw) for name,raw in plan["native_bytes"].items()} == originals
+    assert {name: base64.b64decode(raw) for name, raw in plan["native_bytes"].items()} == originals
     classification = plan["named_scope"][attachment.id]["classification"]
     assert "Started native store/workspace" in classification
     assert "Failed terminal native store/workspace" in classification
     assert "Clean terminal native store/workspace" in classification
     assert "Clean terminal direct-query signal sibling" in classification
     assert "Started native product cache session; original outcome unknown" in classification
-    for owner in ("native product cache session", "native terminal product source",
-            "independent artifact admission"):
+    for owner in (
+        "native product cache session",
+        "native terminal product source",
+        "independent artifact admission",
+    ):
         assert f"Clean terminal {owner} sibling" in classification
-    assert recovery.native_recovered(attachment.directory,row)
+    assert recovery.native_recovered(attachment.directory, row)
     assert not service.borrowers(installed.installation)
     # Completed recovery authenticates its embedded original descriptor; replacing only
     # the live maintenance executable must not rewrite or invalidate that original proof.
     import storage_service
+
     current = tmp_path / "current-fixed-installer"
     current.write_bytes(b"fixed current installer")
     current.chmod(0o700)
     generation = storage_service.prepare(installed.installation.directory, current)
-    installed.installation.record.update(installer=generation["path"], installer_generation=generation)
-    fx.write_json_atomic(installed.installation.directory / "installation.json", installed.installation.record)
-    assert recovery.native_recovered(attachment.directory,row)
-    assert {item.name:item.read_bytes() for item in paths} == originals
-    paths[-1].write_bytes(originals[paths[-1].name]+b" ")
-    assert not recovery.native_recovered(attachment.directory,row)
+    installed.installation.record.update(
+        installer=generation["path"], installer_generation=generation
+    )
+    fx.write_json_atomic(
+        installed.installation.directory / "installation.json", installed.installation.record
+    )
+    assert recovery.native_recovered(attachment.directory, row)
+    assert {item.name: item.read_bytes() for item in paths} == originals
+    paths[-1].write_bytes(originals[paths[-1].name] + b" ")
+    assert not recovery.native_recovered(attachment.directory, row)
     assert service.borrowers(installed.installation)[0]["id"] == attachment.id
 
 
-@pytest.mark.parametrize("change",[
-    "owner", "state", "local", "remote", "storage", "committed", "failure_step",
-    "failure_error", "extra", "generation", "attachment", "live", "signal_failure",
-    "cache_failure", "product_source_failure", "admission_failure",
-    "product_source_started", "admission_started", "cache_started_completion",
-])
-def test_native_host_refuses_ineligible_terminal_sibling_before_effect(installed,tmp_path,monkeypatch,change):
+@pytest.mark.parametrize(
+    "change",
+    [
+        "owner",
+        "state",
+        "local",
+        "remote",
+        "storage",
+        "committed",
+        "failure_step",
+        "failure_error",
+        "extra",
+        "generation",
+        "attachment",
+        "live",
+        "signal_failure",
+        "cache_failure",
+        "product_source_failure",
+        "admission_failure",
+        "product_source_started",
+        "admission_started",
+        "cache_started_completion",
+    ],
+)
+def test_native_host_refuses_ineligible_terminal_sibling_before_effect(
+    installed, tmp_path, monkeypatch, change
+):
     import surrealdb_pd02_recovery as recovery
-    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
-    sibling = terminal_native_sibling(path,1,"native compiler store",[
-        {"step":"native attempt abandonment", "error":"original cleanup runtime failure"},
-    ])
+
+    attachment, path, _ = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
+    sibling = terminal_native_sibling(
+        path,
+        1,
+        "native compiler store",
+        [
+            {"step": "native attempt abandonment", "error": "original cleanup runtime failure"},
+        ],
+    )
     row = fx.read_json(sibling)
-    if change == "owner": row["owner"] = "arbitrary completed owner"
-    elif change == "state": row["state"] = "started"
-    elif change == "failure_step": row["completion"]["failures"][0]["step"] = ""
-    elif change == "failure_error": row["completion"]["failures"][0]["error"] = ""
-    elif change == "extra": row["completion"]["extra"] = True
-    elif change in {"storage","committed"}: row["completion"][change] = ["unresolved"]
-    elif change in {"local","remote"}: row["completion"][change] = "unknown"
-    elif change == "generation": row["generation"] = "f"*64
-    elif change == "attachment": row["attachment"] = "unbound"
-    elif change == "signal_failure": row["owner"] = "D10 direct native query signal owner"
-    elif change in {"cache_failure", "product_source_failure", "admission_failure",
-            "product_source_started", "admission_started", "cache_started_completion"}:
+    if change == "owner":
+        row["owner"] = "arbitrary completed owner"
+    elif change == "state":
+        row["state"] = "started"
+    elif change == "failure_step":
+        row["completion"]["failures"][0]["step"] = ""
+    elif change == "failure_error":
+        row["completion"]["failures"][0]["error"] = ""
+    elif change == "extra":
+        row["completion"]["extra"] = True
+    elif change in {"storage", "committed"}:
+        row["completion"][change] = ["unresolved"]
+    elif change in {"local", "remote"}:
+        row["completion"][change] = "unknown"
+    elif change == "generation":
+        row["generation"] = "f" * 64
+    elif change == "attachment":
+        row["attachment"] = "unbound"
+    elif change == "signal_failure":
+        row["owner"] = "D10 direct native query signal owner"
+    elif change in {
+        "cache_failure",
+        "product_source_failure",
+        "admission_failure",
+        "product_source_started",
+        "admission_started",
+        "cache_started_completion",
+    }:
         row["owner"] = {
-            "cache_failure":"native product cache session",
-            "product_source_failure":"native terminal product source",
-            "admission_failure":"independent artifact admission",
-            "product_source_started":"native terminal product source",
-            "admission_started":"independent artifact admission",
-            "cache_started_completion":"native product cache session",
+            "cache_failure": "native product cache session",
+            "product_source_failure": "native terminal product source",
+            "admission_failure": "independent artifact admission",
+            "product_source_started": "native terminal product source",
+            "admission_started": "independent artifact admission",
+            "cache_started_completion": "native product cache session",
         }[change]
         if change.endswith("_started"):
-            row.update(state="started",completion=None)
+            row.update(state="started", completion=None)
         elif change == "cache_started_completion":
             row["state"] = "started"
     else:
         current = service.ProcessIdentity.of()
         sibling.unlink()
-        row["process"] = {"pid":current.pid,"start_ticks":current.start_ticks}
+        row["process"] = {"pid": current.pid, "start_ticks": current.start_ticks}
         sibling = sibling.with_name(f"{current.pid}-{current.start_ticks}-1.json")
-    fx.write_json_atomic(sibling,row)
+    fx.write_json_atomic(sibling, row)
     original = sibling.read_bytes()
-    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("ineligible sibling cannot trigger effects"))
+    monkeypatch.setattr(
+        service,
+        "_run_installer",
+        lambda *a: pytest.fail("ineligible sibling cannot trigger effects"),
+    )
     with pytest.raises(fx.FixtureBlocked):
-        recovery.recover_native(installed.installation,[attachment.id])
+        recovery.recover_native(installed.installation, [attachment.id])
     assert sibling.read_bytes() == original
     assert not (attachment.directory / "native-host-recovery" / "receipt.json").exists()
 
 
-def test_native_host_recovers_failed_wire_owner_without_rewriting_failure(installed,tmp_path,monkeypatch):
+def test_native_host_recovers_failed_wire_owner_without_rewriting_failure(
+    installed, tmp_path, monkeypatch
+):
     import surrealdb_pd02_recovery as recovery
-    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+
+    attachment, path, _ = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
     failed_wire_owner(path)
     original = path.read_bytes()
     marker_path = installed.directory / "maintenance.json"
-    marker = {"operation":"maintenance", "token":"original-closed-owner", "owner":{
-        **service.ProcessIdentity.of().to_json(), "pid":99999997, "start_ticks":1}}
-    service.private_json(marker_path,marker)
+    marker = {
+        "operation": "maintenance",
+        "token": "original-closed-owner",
+        "owner": {**service.ProcessIdentity.of().to_json(), "pid": 99999997, "start_ticks": 1},
+    }
+    service.private_json(marker_path, marker)
     prior = marker_path.read_bytes()
-    monkeypatch.setattr(service,"_run_installer",lambda *a:None)
-    assert recovery.recover_native(installed.installation,[attachment.id])["outcome"] == "recovered"
+    monkeypatch.setattr(service, "_run_installer", lambda *a: None)
+    assert (
+        recovery.recover_native(installed.installation, [attachment.id])["outcome"] == "recovered"
+    )
     assert path.read_bytes() == original
     row = fx.read_json(attachment.directory / "record.json")
-    assert row["released"] and fx.native_completion(attachment.directory,row)["status"] == "unknown"
+    assert (
+        row["released"] and fx.native_completion(attachment.directory, row)["status"] == "unknown"
+    )
     plan = fx.read_json(attachment.directory / "native-host-recovery" / "plan.json")
     import base64
+
     assert base64.b64decode(plan["transferred_maintenance"]["bytes"]) == prior
     assert plan["transferred_maintenance"]["record"] == marker
     assert plan["named_scope"][attachment.id]["classification"].startswith("Failed terminal")
-    assert recovery.native_recovered(attachment.directory,row)
+    assert recovery.native_recovered(attachment.directory, row)
     assert not marker_path.exists() and not service.borrowers(installed.installation)
 
 
-@pytest.mark.parametrize("change",["owner","state","local","remote","storage","committed","empty_failure","step","extra"])
-def test_native_host_refuses_ineligible_failed_wire_owner_before_effect(installed,tmp_path,monkeypatch,change):
+@pytest.mark.parametrize(
+    "change",
+    ["owner", "state", "local", "remote", "storage", "committed", "empty_failure", "step", "extra"],
+)
+def test_native_host_refuses_ineligible_failed_wire_owner_before_effect(
+    installed, tmp_path, monkeypatch, change
+):
     import surrealdb_pd02_recovery as recovery
-    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+
+    attachment, path, _ = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
     failed_wire_owner(path)
     row = fx.read_json(path)
-    if change == "owner": row["owner"] = "arbitrary completed owner"
-    elif change == "state": row["state"] = "started"
-    elif change == "empty_failure": row["completion"]["failures"] = []
-    elif change == "step": row["completion"]["failures"][0]["step"] = "storage cleanup"
-    elif change == "extra": row["completion"]["extra"] = True
-    elif change in {"storage","committed"}: row["completion"][change] = ["unresolved"]
-    else: row["completion"][change] = "unknown"
-    fx.write_json_atomic(path,row)
-    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("ineligible owner cannot trigger effects"))
+    if change == "owner":
+        row["owner"] = "arbitrary completed owner"
+    elif change == "state":
+        row["state"] = "started"
+    elif change == "empty_failure":
+        row["completion"]["failures"] = []
+    elif change == "step":
+        row["completion"]["failures"][0]["step"] = "storage cleanup"
+    elif change == "extra":
+        row["completion"]["extra"] = True
+    elif change in {"storage", "committed"}:
+        row["completion"][change] = ["unresolved"]
+    else:
+        row["completion"][change] = "unknown"
+    fx.write_json_atomic(path, row)
+    monkeypatch.setattr(
+        service, "_run_installer", lambda *a: pytest.fail("ineligible owner cannot trigger effects")
+    )
     with pytest.raises(fx.FixtureBlocked):
-        recovery.recover_native(installed.installation,[attachment.id])
+        recovery.recover_native(installed.installation, [attachment.id])
 
 
-@pytest.mark.parametrize("change",["live","foreign","specialized","extra","empty_token"])
-def test_native_host_refuses_untransferable_ordinary_maintenance(installed,tmp_path,monkeypatch,change):
+@pytest.mark.parametrize("change", ["live", "foreign", "specialized", "extra", "empty_token"])
+def test_native_host_refuses_untransferable_ordinary_maintenance(
+    installed, tmp_path, monkeypatch, change
+):
     import surrealdb_pd02_recovery as recovery
-    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+
+    attachment, path, _ = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
     failed_wire_owner(path)
-    marker = {"operation":"maintenance", "token":"original", "owner":{
-        **service.ProcessIdentity.of().to_json(), "pid":99999997, "start_ticks":1}}
-    if change == "live": marker["owner"] = service.ProcessIdentity.of().to_json()
-    elif change == "foreign": marker["owner"]["pid_namespace"] += 1
-    elif change == "specialized": marker["operation"] = service.SERVER_HANDOFF_OPERATION
-    elif change == "extra": marker["recovery"] = {"unknown":True}
-    else: marker["token"] = ""
-    service.private_json(installed.directory / "maintenance.json",marker)
-    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("untransferable owner cannot trigger effects"))
+    marker = {
+        "operation": "maintenance",
+        "token": "original",
+        "owner": {**service.ProcessIdentity.of().to_json(), "pid": 99999997, "start_ticks": 1},
+    }
+    if change == "live":
+        marker["owner"] = service.ProcessIdentity.of().to_json()
+    elif change == "foreign":
+        marker["owner"]["pid_namespace"] += 1
+    elif change == "specialized":
+        marker["operation"] = service.SERVER_HANDOFF_OPERATION
+    elif change == "extra":
+        marker["recovery"] = {"unknown": True}
+    else:
+        marker["token"] = ""
+    service.private_json(installed.directory / "maintenance.json", marker)
+    monkeypatch.setattr(
+        service,
+        "_run_installer",
+        lambda *a: pytest.fail("untransferable owner cannot trigger effects"),
+    )
     with pytest.raises(fx.FixtureBlocked):
-        recovery.recover_native(installed.installation,[attachment.id])
+        recovery.recover_native(installed.installation, [attachment.id])
     assert fx.read_json(installed.directory / "maintenance.json") == marker
 
 
-def test_native_host_resumes_between_preservation_and_maintenance_transfer(installed,tmp_path,monkeypatch):
+def test_native_host_resumes_between_preservation_and_maintenance_transfer(
+    installed, tmp_path, monkeypatch
+):
     import surrealdb_pd02_recovery as recovery
-    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+
+    attachment, path, _ = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
     failed_wire_owner(path)
     original = path.read_bytes()
     marker_path = installed.directory / "maintenance.json"
-    marker = {"operation":"maintenance", "token":"prior-owner", "owner":{
-        **service.ProcessIdentity.of().to_json(), "pid":99999997, "start_ticks":1}}
-    service.private_json(marker_path,marker)
+    marker = {
+        "operation": "maintenance",
+        "token": "prior-owner",
+        "owner": {**service.ProcessIdentity.of().to_json(), "pid": 99999997, "start_ticks": 1},
+    }
+    service.private_json(marker_path, marker)
     prior = marker_path.read_bytes()
     publish = recovery.immutable
-    def interrupt_after_preservation(destination,value):
-        publish(destination,value)
+
+    def interrupt_after_preservation(destination, value):
+        publish(destination, value)
         if destination.name == "plan.json":
             raise KeyboardInterrupt()
-    monkeypatch.setattr(recovery,"immutable",interrupt_after_preservation)
-    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("preservation has not claimed maintenance"))
+
+    monkeypatch.setattr(recovery, "immutable", interrupt_after_preservation)
+    monkeypatch.setattr(
+        service,
+        "_run_installer",
+        lambda *a: pytest.fail("preservation has not claimed maintenance"),
+    )
     with pytest.raises(KeyboardInterrupt):
-        recovery.recover_native(installed.installation,[attachment.id])
+        recovery.recover_native(installed.installation, [attachment.id])
     assert marker_path.read_bytes() == prior and path.read_bytes() == original
-    monkeypatch.setattr(recovery,"immutable",publish)
-    monkeypatch.setattr(service,"_run_installer",lambda *a:None)
-    assert recovery.recover_native(installed.installation,[attachment.id])["outcome"] == "recovered"
+    monkeypatch.setattr(recovery, "immutable", publish)
+    monkeypatch.setattr(service, "_run_installer", lambda *a: None)
+    assert (
+        recovery.recover_native(installed.installation, [attachment.id])["outcome"] == "recovered"
+    )
     assert path.read_bytes() == original and not marker_path.exists()
 
 
-@pytest.mark.parametrize("phase",["join","drain","open"])
-def test_native_host_interruption_retains_unknown_and_resumes_exact_plan(installed,tmp_path,monkeypatch,phase):
+@pytest.mark.parametrize("phase", ["join", "drain", "open"])
+def test_native_host_interruption_retains_unknown_and_resumes_exact_plan(
+    installed, tmp_path, monkeypatch, phase
+):
     import surrealdb_pd02_recovery as recovery
-    attachment,native,original = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+
+    attachment, native, original = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
     joined = recovery.joined_exit
-    def interrupt_join(*a,**kw):
-        if phase == "join": raise KeyboardInterrupt()
-        return joined(*a,**kw)
-    def interrupt_installer(inst,path,action):
-        if action == {"drain":"drain","open":"open-admission"}.get(phase): raise KeyboardInterrupt()
-    monkeypatch.setattr(recovery,"joined_exit",interrupt_join)
-    monkeypatch.setattr(service,"_run_installer",interrupt_installer)
-    with pytest.raises(KeyboardInterrupt): recovery.recover(installed.installation,attachment.id,native=True)
+
+    def interrupt_join(*a, **kw):
+        if phase == "join":
+            raise KeyboardInterrupt()
+        return joined(*a, **kw)
+
+    def interrupt_installer(inst, path, action):
+        if action == {"drain": "drain", "open": "open-admission"}.get(phase):
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(recovery, "joined_exit", interrupt_join)
+    monkeypatch.setattr(service, "_run_installer", interrupt_installer)
+    with pytest.raises(KeyboardInterrupt):
+        recovery.recover(installed.installation, attachment.id, native=True)
     assert native.read_bytes() == original
     marker_path = installed.directory / "maintenance.json"
     marker = fx.read_json(marker_path)
-    marker["owner"] = {**service.ProcessIdentity.of().to_json(),"pid":99999997,"start_ticks":1}
-    fx.write_json_atomic(marker_path,marker)
-    monkeypatch.setattr(recovery,"joined_exit",joined)
-    monkeypatch.setattr(service,"_run_installer",lambda *a:None)
-    assert recovery.recover(installed.installation,attachment.id,native=True)["outcome"] == "recovered"
+    marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999997, "start_ticks": 1}
+    fx.write_json_atomic(marker_path, marker)
+    monkeypatch.setattr(recovery, "joined_exit", joined)
+    monkeypatch.setattr(service, "_run_installer", lambda *a: None)
+    assert (
+        recovery.recover(installed.installation, attachment.id, native=True)["outcome"]
+        == "recovered"
+    )
     assert native.read_bytes() == original and not marker_path.exists()
 
 
-@pytest.mark.parametrize("change",["owner","terminal","generation","live","recipe","unit","installer","stable"])
-def test_native_host_refuses_unbound_owners_or_server_before_effect(installed,tmp_path,monkeypatch,change):
+@pytest.mark.parametrize(
+    "change", ["owner", "terminal", "generation", "live", "recipe", "unit", "installer", "stable"]
+)
+def test_native_host_refuses_unbound_owners_or_server_before_effect(
+    installed, tmp_path, monkeypatch, change
+):
     import surrealdb_pd02_recovery as recovery
-    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+
+    attachment, path, _ = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
     row = fx.read_json(path)
-    if change == "owner": row["owner"] = "other owner"
-    if change == "terminal": row.update(state="complete",completion={"remote":"unknown"})
-    if change == "generation": row["generation"] = "f"*64
+    if change == "owner":
+        row["owner"] = "other owner"
+    if change == "terminal":
+        row.update(state="complete", completion={"remote": "unknown"})
+    if change == "generation":
+        row["generation"] = "f" * 64
     if change == "live":
-        current=service.ProcessIdentity.of()
+        current = service.ProcessIdentity.of()
         path.unlink()
-        row.update(process={"pid":current.pid,"start_ticks":current.start_ticks})
-        path=path.with_name(f"{current.pid}-{current.start_ticks}-0.json")
-    fx.write_json_atomic(path,row)
-    if change == "recipe": installed.record["binary"]["generation"]["provenance"]["recipe_identity"] = "f"*64
-    if change == "unit": service._unit_path(installed.unit).write_text("foreign unit")
-    if change == "installer": Path(installed.record["installer"]).write_text("changed")
-    if change == "stable": installed.record["kind"] = "stable"
-    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("must refuse before any native operation"))
-    with pytest.raises(fx.FixtureBlocked): recovery.recover(installed.installation,attachment.id,native=True)
+        row.update(process={"pid": current.pid, "start_ticks": current.start_ticks})
+        path = path.with_name(f"{current.pid}-{current.start_ticks}-0.json")
+    fx.write_json_atomic(path, row)
+    if change == "recipe":
+        installed.record["binary"]["generation"]["provenance"]["recipe_identity"] = "f" * 64
+    if change == "unit":
+        service._unit_path(installed.unit).write_text("foreign unit")
+    if change == "installer":
+        Path(installed.record["installer"]).write_text("changed")
+    if change == "stable":
+        installed.record["kind"] = "stable"
+    monkeypatch.setattr(
+        service, "_run_installer", lambda *a: pytest.fail("must refuse before any native operation")
+    )
+    with pytest.raises(fx.FixtureBlocked):
+        recovery.recover(installed.installation, attachment.id, native=True)
     assert not (attachment.directory / "native-host-recovery" / "receipt.json").exists()
 
 
-def native_legacy_peer(installed,tmp_path,monkeypatch):
+def native_legacy_peer(installed, tmp_path, monkeypatch):
     import runs
-    daemon=installed.installation._daemon_identity
-    installed.installation._daemon_identity=None
+
+    daemon = installed.installation._daemon_identity
+    installed.installation._daemon_identity = None
     try:
-        peer=fx.Attachment.create(installed)
+        peer = fx.Attachment.create(installed)
     finally:
-        installed.installation._daemon_identity=daemon
+        installed.installation._daemon_identity = daemon
     peer.release()
-    row=fx.read_json(peer.directory / "record.json")
-    row.pop("native_drain",None)
-    row.pop("native_completion",None)
-    row.update(child_exit_code=-15,command_cleanup={"status":"confirmed","survivors":[]},
-        owner={**service.ProcessIdentity.of().to_json(),"pid":99999996,"start_ticks":1})
-    fx.write_json_atomic(peer.directory / "record.json",row)
-    monkeypatch.setenv("LCTX_RUNS_ROOT",str(tmp_path / "runs"))
-    run_id="20261011T164850.001Z-0114a7"
-    directory=runs.runs_root() / run_id
+    row = fx.read_json(peer.directory / "record.json")
+    row.pop("native_drain", None)
+    row.pop("native_completion", None)
+    row.update(
+        child_exit_code=-15,
+        command_cleanup={"status": "confirmed", "survivors": []},
+        owner={**service.ProcessIdentity.of().to_json(), "pid": 99999996, "start_ticks": 1},
+    )
+    fx.write_json_atomic(peer.directory / "record.json", row)
+    monkeypatch.setenv("LCTX_RUNS_ROOT", str(tmp_path / "runs"))
+    run_id = "20261011T164850.001Z-0114a7"
+    directory = runs.runs_root() / run_id
     directory.mkdir(parents=True)
-    output=directory / "output.log"
+    output = directory / "output.log"
     output.write_text("historical command output; no prerequest authority\n")
-    service.private_json(directory / "record.json",{"id":run_id,"phase":"ended",
-        "started":row["created"],"ended":row["released_at"],"cwd":row["checkout"],
-        "cleanup":{"status":"confirmed","survivors":[]},"logs":{"output":str(output)}})
-    return peer,run_id,row
+    service.private_json(
+        directory / "record.json",
+        {
+            "id": run_id,
+            "phase": "ended",
+            "started": row["created"],
+            "ended": row["released_at"],
+            "cwd": row["checkout"],
+            "cleanup": {"status": "confirmed", "survivors": []},
+            "logs": {"output": str(output)},
+        },
+    )
+    return peer, run_id, row
 
 
-def test_native_joint_recovery_preserves_legacy_local_release_and_native_not_observed(installed,tmp_path,monkeypatch):
+def test_native_joint_recovery_preserves_legacy_local_release_and_native_not_observed(
+    installed, tmp_path, monkeypatch
+):
     import surrealdb_pd02_recovery as recovery
-    primary,native,original=native_mock_recovery_ready(installed,tmp_path,monkeypatch)
-    peer,run_id,legacy=native_legacy_peer(installed,tmp_path,monkeypatch)
-    result=recovery.recover_native(installed.installation,[peer.id,primary.id],legacy_runs={peer.id:run_id})
+
+    primary, native, original = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
+    peer, run_id, legacy = native_legacy_peer(installed, tmp_path, monkeypatch)
+    result = recovery.recover_native(
+        installed.installation, [peer.id, primary.id], legacy_runs={peer.id: run_id}
+    )
     assert result["outcome"] == "recovered" and native.read_bytes() == original
-    row=fx.read_json(peer.directory / "record.json")
+    row = fx.read_json(peer.directory / "record.json")
     assert row["released_at"] == legacy["released_at"] and row.get("native_drain") is None
-    assert fx.native_completion(peer.directory,row)["status"] == "not_observed"
-    assert fx.native_completion(primary.directory,fx.read_json(primary.directory / "record.json"))["status"] == "unknown"
-    assert recovery.native_recovered(peer.directory,row) and not service.borrowers(installed.installation)
-    plan=fx.read_json(primary.directory / "native-host-recovery/plan.json")
-    assert set(plan["named_scope"]) == {peer.id,primary.id}
+    assert fx.native_completion(peer.directory, row)["status"] == "not_observed"
+    assert (
+        fx.native_completion(primary.directory, fx.read_json(primary.directory / "record.json"))[
+            "status"
+        ]
+        == "unknown"
+    )
+    assert recovery.native_recovered(peer.directory, row) and not service.borrowers(
+        installed.installation
+    )
+    plan = fx.read_json(primary.directory / "native-host-recovery/plan.json")
+    assert set(plan["named_scope"]) == {peer.id, primary.id}
     assert plan["named_scope"][peer.id]["original_record"] == legacy
     assert "not retrospectively qualified" in plan["named_scope"][peer.id]["classification"]
     assert "no prerequest" in plan["legacy_runs"][peer.id]["evidence_scope"]
-    row["child_exit_code"]=-9
-    fx.write_json_atomic(peer.directory / "record.json",row)
-    assert not recovery.native_recovered(primary.directory,fx.read_json(primary.directory / "record.json"))
+    row["child_exit_code"] = -9
+    fx.write_json_atomic(peer.directory / "record.json", row)
+    assert not recovery.native_recovered(
+        primary.directory, fx.read_json(primary.directory / "record.json")
+    )
     assert len(service.borrowers(installed.installation)) == 2
 
 
-@pytest.mark.parametrize("phase",["peer_reference","open"])
-def test_native_joint_resume_retains_common_scope_after_partial_publication(installed,tmp_path,monkeypatch,phase):
+@pytest.mark.parametrize("phase", ["peer_reference", "open"])
+def test_native_joint_resume_retains_common_scope_after_partial_publication(
+    installed, tmp_path, monkeypatch, phase
+):
     import surrealdb_pd02_recovery as recovery
-    primary,native,original=native_mock_recovery_ready(installed,tmp_path,monkeypatch)
-    peer,run_id,legacy=native_legacy_peer(installed,tmp_path,monkeypatch)
-    publish=recovery.durable_json
-    def interrupted_publish(path,value):
-        if phase == "peer_reference" and path == peer.directory / "record.json" and value.get("host_recovery"):
+
+    primary, native, original = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
+    peer, run_id, legacy = native_legacy_peer(installed, tmp_path, monkeypatch)
+    publish = recovery.durable_json
+
+    def interrupted_publish(path, value):
+        if (
+            phase == "peer_reference"
+            and path == peer.directory / "record.json"
+            and value.get("host_recovery")
+        ):
             raise KeyboardInterrupt()
-        return publish(path,value)
-    def interrupted_installer(inst,path,action):
-        if phase == "open" and action == "open-admission": raise KeyboardInterrupt()
-    monkeypatch.setattr(recovery,"durable_json",interrupted_publish)
-    monkeypatch.setattr(service,"_run_installer",interrupted_installer)
+        return publish(path, value)
+
+    def interrupted_installer(inst, path, action):
+        if phase == "open" and action == "open-admission":
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(recovery, "durable_json", interrupted_publish)
+    monkeypatch.setattr(service, "_run_installer", interrupted_installer)
     with pytest.raises(KeyboardInterrupt):
-        recovery.recover_native(installed.installation,[peer.id,primary.id],legacy_runs={peer.id:run_id})
+        recovery.recover_native(
+            installed.installation, [peer.id, primary.id], legacy_runs={peer.id: run_id}
+        )
     assert native.read_bytes() == original
-    marker_path=installed.directory / "maintenance.json"
-    marker=fx.read_json(marker_path)
-    marker["owner"]={**service.ProcessIdentity.of().to_json(),"pid":99999995,"start_ticks":1}
-    fx.write_json_atomic(marker_path,marker)
-    monkeypatch.setattr(recovery,"durable_json",publish)
-    monkeypatch.setattr(service,"_run_installer",lambda *a:None)
-    assert recovery.recover_native(installed.installation,[primary.id,peer.id],legacy_runs={peer.id:run_id})["outcome"] == "recovered"
-    assert native.read_bytes() == original and fx.read_json(peer.directory / "record.json")["released_at"] == legacy["released_at"]
+    marker_path = installed.directory / "maintenance.json"
+    marker = fx.read_json(marker_path)
+    marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999995, "start_ticks": 1}
+    fx.write_json_atomic(marker_path, marker)
+    monkeypatch.setattr(recovery, "durable_json", publish)
+    monkeypatch.setattr(service, "_run_installer", lambda *a: None)
+    assert (
+        recovery.recover_native(
+            installed.installation, [primary.id, peer.id], legacy_runs={peer.id: run_id}
+        )["outcome"]
+        == "recovered"
+    )
+    assert (
+        native.read_bytes() == original
+        and fx.read_json(peer.directory / "record.json")["released_at"] == legacy["released_at"]
+    )
     assert not marker_path.exists()
 
 
-@pytest.mark.parametrize("change",["unnamed","missing_run","receipt","live","cleanup"])
-def test_native_joint_refuses_ineligible_or_unnamed_peer_before_effect(installed,tmp_path,monkeypatch,change):
+@pytest.mark.parametrize("change", ["unnamed", "missing_run", "receipt", "live", "cleanup"])
+def test_native_joint_refuses_ineligible_or_unnamed_peer_before_effect(
+    installed, tmp_path, monkeypatch, change
+):
     import surrealdb_pd02_recovery as recovery
-    primary,_,_=native_mock_recovery_ready(installed,tmp_path,monkeypatch)
-    peer,run_id,row=native_legacy_peer(installed,tmp_path,monkeypatch)
-    selected=[primary.id,peer.id]
-    mapping={peer.id:run_id}
-    if change == "unnamed": selected=[primary.id];mapping={}
-    if change == "missing_run": mapping={}
-    if change == "receipt": service.private_json(peer.directory / "native-drain/unexpected.json",{})
-    if change == "live": row["owner"]=service.ProcessIdentity.of().to_json()
-    if change == "cleanup": row["command_cleanup"]["survivors"]=[{"pid":1}]
-    fx.write_json_atomic(peer.directory / "record.json",row)
-    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("refuse before effects"))
-    with pytest.raises(fx.FixtureBlocked): recovery.recover_native(installed.installation,selected,legacy_runs=mapping)
+
+    primary, _, _ = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
+    peer, run_id, row = native_legacy_peer(installed, tmp_path, monkeypatch)
+    selected = [primary.id, peer.id]
+    mapping = {peer.id: run_id}
+    if change == "unnamed":
+        selected = [primary.id]
+        mapping = {}
+    if change == "missing_run":
+        mapping = {}
+    if change == "receipt":
+        service.private_json(peer.directory / "native-drain/unexpected.json", {})
+    if change == "live":
+        row["owner"] = service.ProcessIdentity.of().to_json()
+    if change == "cleanup":
+        row["command_cleanup"]["survivors"] = [{"pid": 1}]
+    fx.write_json_atomic(peer.directory / "record.json", row)
+    monkeypatch.setattr(service, "_run_installer", lambda *a: pytest.fail("refuse before effects"))
+    with pytest.raises(fx.FixtureBlocked):
+        recovery.recover_native(installed.installation, selected, legacy_runs=mapping)
 
 
 @pytest.fixture
@@ -1776,159 +2423,590 @@ def completed_discard(installed):
     """Local producer acknowledgment fixture; not native execution evidence."""
     import base64
     import hashlib
-    directory=installed.directory/'attachments'/str(uuid.uuid4());directory.mkdir(mode=0o700)
-    for path in (installed.directory, directory.parent):path.chmod(0o700)
-    (directory/'native-drain').mkdir()
-    original={'id':directory.name,'fixture':installed.id,'namespace':service.NAMESPACE,'database':'validation',
-        'released':False,'interrupted':True,'command_cleanup':{'status':'unknown'},
-        'command':{'argv':['original-immutable-command']},
-        'native_drain':{'attachment':directory.name,'directory':str(directory/'native-drain'),
-            'generation':bytes(installed.record['service_generation']).hex()}}
+
+    directory = installed.directory / "attachments" / str(uuid.uuid4())
+    directory.mkdir(mode=0o700)
+    for path in (installed.directory, directory.parent):
+        path.chmod(0o700)
+    (directory / "native-drain").mkdir()
+    original = {
+        "id": directory.name,
+        "fixture": installed.id,
+        "namespace": service.NAMESPACE,
+        "database": "validation",
+        "released": False,
+        "interrupted": True,
+        "command_cleanup": {"status": "unknown"},
+        "command": {"argv": ["original-immutable-command"]},
+        "native_drain": {
+            "attachment": directory.name,
+            "directory": str(directory / "native-drain"),
+            "generation": bytes(installed.record["service_generation"]).hex(),
+        },
+    }
+
     def blob(value):
-        raw=json.dumps(value,sort_keys=True).encode()
-        return {'bytes':base64.b64encode(raw).decode(),'sha256':hashlib.sha256(raw).hexdigest()}
-    plan={'path':'/removed-action/plan.json','sha256':'a'*64}
-    joined={'path':'/removed-action/joined.json','sha256':'b'*64}
-    scope={'installation_id':installed.id,'endpoint':installed.endpoint,'namespace':service.NAMESPACE,
-        'databases':['main','validation'],'original_generation':original['native_drain']['generation'],
-        'generation':list(bytes([3])*32),'target':{'schema_version':6,'schema':'c'*64}}
-    checked={'installation_id':installed.id,'generation':scope['generation'],'target':scope['target'],
-        'databases':scope['databases'],'original_native_outcome':'unknown',
-        'disposition':'explicitly discarded and regenerated','plan':plan,'joined':joined}
-    receipt={'schema':1,'kind':'explicit-scope-disposition','outcome':'discarded-and-regenerated',
-        'local_owner':fx.scope_local_owner(directory),
-        'original_native_outcome':'unknown','scope':scope,
-        'original_attachment':{'id':directory.name,'native_drain':original['native_drain'],
-            'record_identity':fx.scope_record_identity(original),
-            'lifecycle':{key:original[key] for key in fx.SCOPE_LIFECYCLE_FIELDS if key in original}},
-        'original_run':{'id':'owned-original-run','path':'/removed-checkout/build/runs/owned-original-run',
-            'record_identity':'d'*64,'termination':'cancelled','exit':{'code':143},
-            'cleanup':{'status':'confirmed','survivors':[]},'native_outcome':'unknown'},
-        'proofs':{'plan':plan,'joined':{'reference':joined,'journal_sha256':'e'*64,
-            'owner':{'unit':'owned-dedicated.service','invocation':'f'*32,'process':{'pid':123,'start_ticks':42}},
-            'state':{'InvocationID':'f'*32,'MainPID':'0','ActiveState':'inactive','Result':'success',
-                'ExecMainCode':'1','ExecMainStatus':'0'}},
-            'original_removals':{db:blob({'database':db,'removed':True,'join':joined}) for db in scope['databases']},
-            'checked':blob(checked),'complete':blob({**checked,'admission_open':True})}}
-    row={**original,'released':True,'command_cleanup':{'status':'confirmed','survivors':[]}}
-    path=directory/'scope-disposition.json'
+        raw = json.dumps(value, sort_keys=True).encode()
+        return {"bytes": base64.b64encode(raw).decode(), "sha256": hashlib.sha256(raw).hexdigest()}
+
+    plan = {"path": "/removed-action/plan.json", "sha256": "a" * 64}
+    joined = {"path": "/removed-action/joined.json", "sha256": "b" * 64}
+    scope = {
+        "installation_id": installed.id,
+        "endpoint": installed.endpoint,
+        "namespace": service.NAMESPACE,
+        "databases": ["main", "validation"],
+        "original_generation": original["native_drain"]["generation"],
+        "generation": list(bytes([3]) * 32),
+        "target": {"schema_version": 6, "schema": "c" * 64},
+    }
+    checked = {
+        "installation_id": installed.id,
+        "generation": scope["generation"],
+        "target": scope["target"],
+        "databases": scope["databases"],
+        "original_native_outcome": "unknown",
+        "disposition": "explicitly discarded and regenerated",
+        "plan": plan,
+        "joined": joined,
+    }
+    receipt = {
+        "schema": 1,
+        "kind": "explicit-scope-disposition",
+        "outcome": "discarded-and-regenerated",
+        "local_owner": fx.scope_local_owner(directory),
+        "original_native_outcome": "unknown",
+        "scope": scope,
+        "original_attachment": {
+            "id": directory.name,
+            "native_drain": original["native_drain"],
+            "record_identity": fx.scope_record_identity(original),
+            "lifecycle": {
+                key: original[key] for key in fx.SCOPE_LIFECYCLE_FIELDS if key in original
+            },
+        },
+        "original_run": {
+            "id": "owned-original-run",
+            "path": "/removed-checkout/build/runs/owned-original-run",
+            "record_identity": "d" * 64,
+            "termination": "cancelled",
+            "exit": {"code": 143},
+            "cleanup": {"status": "confirmed", "survivors": []},
+            "native_outcome": "unknown",
+        },
+        "proofs": {
+            "plan": plan,
+            "joined": {
+                "reference": joined,
+                "journal_sha256": "e" * 64,
+                "owner": {
+                    "unit": "owned-dedicated.service",
+                    "invocation": "f" * 32,
+                    "process": {"pid": 123, "start_ticks": 42},
+                },
+                "state": {
+                    "InvocationID": "f" * 32,
+                    "MainPID": "0",
+                    "ActiveState": "inactive",
+                    "Result": "success",
+                    "ExecMainCode": "1",
+                    "ExecMainStatus": "0",
+                },
+            },
+            "original_removals": {
+                db: blob({"database": db, "removed": True, "join": joined})
+                for db in scope["databases"]
+            },
+            "checked": blob(checked),
+            "complete": blob({**checked, "admission_open": True}),
+        },
+    }
+    row = {
+        **original,
+        "released": True,
+        "command_cleanup": {"status": "confirmed", "survivors": []},
+    }
+    path = directory / "scope-disposition.json"
+
     def publish():
-        raw=json.dumps(receipt,sort_keys=True).encode()
-        if path.exists():path.chmod(0o600)
-        path.write_bytes(raw);path.chmod(0o400)
-        row['scope_disposition']={'path':str(path),'sha256':hashlib.sha256(raw).hexdigest()}
-        service.private_json(directory/'record.json',row)
+        raw = json.dumps(receipt, sort_keys=True).encode()
+        if path.exists():
+            path.chmod(0o600)
+        path.write_bytes(raw)
+        path.chmod(0o400)
+        row["scope_disposition"] = {"path": str(path), "sha256": hashlib.sha256(raw).hexdigest()}
+        service.private_json(directory / "record.json", row)
+
     publish()
-    return SimpleNamespace(directory=directory,row=row,receipt=receipt,publish=publish,blob=blob,path=path)
+    return SimpleNamespace(
+        directory=directory, row=row, receipt=receipt, publish=publish, blob=blob, path=path
+    )
 
 
-def test_completed_scope_disposition_preserves_unknown_without_action_or_current_source_dependency(completed_discard,monkeypatch):
+def test_completed_scope_disposition_preserves_unknown_without_action_or_current_source_dependency(
+    completed_discard, monkeypatch
+):
     import builtins
-    case=completed_discard
-    importer=builtins.__import__
-    def no_history(name,*args,**kwargs):
-        if name.startswith('surrealdb_'):
-            pytest.fail('completed receipt must not import an action or daemon recovery module')
-        return importer(name,*args,**kwargs)
-    monkeypatch.setattr(builtins,'__import__',no_history)
-    assert fx.completed_scope_disposition(case.directory,case.row)
-    assert not fx.native_protected(case.directory,case.row,{'status':'unknown','owners':[]})
-    assert fx.native_completion(case.directory,case.row)=={'status':'not_observed','owners':[]}
-    assert case.receipt['original_native_outcome']=='unknown'
 
-
-@pytest.mark.parametrize('change',['fixture','native-generation','command','original-identity','final-generation',
-    'unknown','scope','joined-state','removed-peer','checked-target','incomplete','proof-bytes','unreleased','directory-lifetime'])
-def test_completed_disposition_rejects_misbound_record_or_proof_even_with_matching_local_digest(completed_discard,change):
-    import base64
-    case=completed_discard
-    if change=='fixture':case.row['fixture']=str(uuid.uuid4())
-    elif change=='native-generation':case.row['native_drain']={**case.row['native_drain'],'generation':'9'*64}
-    elif change=='command':case.row['command']={'argv':['different-current-owner']}
-    elif change=='original-identity':case.receipt['original_attachment']['record_identity']='9'*64
-    elif change=='final-generation':case.receipt['scope']['generation']=list(bytes([8])*32)
-    elif change=='unknown':case.receipt['original_native_outcome']='confirmed'
-    elif change=='scope':case.receipt['scope']['databases']=['main']
-    elif change=='joined-state':case.receipt['proofs']['joined']['state']['MainPID']='123'
-    elif change=='removed-peer':case.receipt['proofs']['original_removals']['main']=case.blob(
-        {'database':'validation','removed':True,'join':case.receipt['proofs']['joined']['reference']})
-    elif change=='checked-target':
-        value=json.loads(base64.b64decode(case.receipt['proofs']['checked']['bytes']));value['target']['schema']='9'*64
-        case.receipt['proofs']['checked']=case.blob(value)
-    elif change=='incomplete':
-        value=json.loads(base64.b64decode(case.receipt['proofs']['complete']['bytes']));value['admission_open']=False
-        case.receipt['proofs']['complete']=case.blob(value)
-    elif change=='proof-bytes':case.receipt['proofs']['complete']['bytes']=base64.b64encode(b'{}').decode()
-    elif change=='directory-lifetime':case.receipt['local_owner']['inode']+=1
-    else:case.row['released']=False
-    case.publish()
-    assert not fx.completed_scope_disposition(case.directory,case.row)
-    assert fx.native_protected(case.directory,case.row,{'status':'unknown','owners':[]})
-
-
-@pytest.mark.parametrize('change',['path','checksum','writable','symlink'])
-def test_completed_disposition_confines_immutable_local_owned_path(completed_discard,tmp_path,change):
-    case=completed_discard
-    if change=='path':case.row['scope_disposition']['path']=str(tmp_path/'other.json')
-    elif change=='checksum':case.row['scope_disposition']['sha256']='0'*64
-    elif change=='writable':case.path.chmod(0o600)
-    else:
-        target=tmp_path/'receipt-copy.json';target.write_bytes(case.path.read_bytes());target.chmod(0o400)
-        case.path.unlink();case.path.symlink_to(target)
-    assert not fx.completed_scope_disposition(case.directory,case.row)
-
-
-def test_completed_disposition_validates_dedicated_revised_current_scope_removals(completed_discard):
-    import base64
-    case=completed_discard
-    reference={'path':'/retired-oneoff/initialization-revision.json','sha256':'7'*64}
-    generation=list(bytes([5])*32)
-    case.receipt['proofs']['initialization_revisions']=[{'reference':reference,'discarded_generation':generation,
-        'predecessor':case.receipt['proofs']['plan'], 'generation':case.receipt['scope']['generation'],
-        'target':case.receipt['scope']['target'],
-        'removals':{db:case.blob({'database':db,'removed':True,'revision':reference,'discarded_generation':generation})
-            for db in case.receipt['scope']['databases']}}]
-    checked=json.loads(base64.b64decode(case.receipt['proofs']['checked']['bytes']))
-    checked['initialization_revision']=reference
-    case.receipt['proofs']['checked']=case.blob(checked)
-    case.receipt['proofs']['complete']=case.blob({**checked,'admission_open':True})
-    case.publish()
-    assert fx.completed_scope_disposition(case.directory,case.row)
-    case.receipt['proofs']['initialization_revisions'][0]['removals']['main']=case.blob(
-        {'database':'main','removed':True,'revision':reference,'discarded_generation':list(bytes([9])*32)})
-    case.publish()
-    assert not fx.completed_scope_disposition(case.directory,case.row)
-
-
-@pytest.mark.parametrize('change', ['predecessor', 'generation-chain', 'missing-removal', 'latest-reference', 'latest-generation', 'latest-target', 'reordered', 'duplicate'])
-def test_completed_disposition_authenticates_every_initialization_revision(completed_discard, change):
-    import base64
     case = completed_discard
-    revisions = []
-    predecessor = case.receipt['proofs']['plan']
-    generation = [5] * 32
-    for index in range(2):
-        reference = {'path':f'/retired-oneoff/revision-{index + 1}.json', 'sha256':str(index + 6) * 64}
-        following = [6] * 32 if index == 0 else case.receipt['scope']['generation']
-        revisions.append({'reference':reference, 'predecessor':predecessor,
-            'discarded_generation':generation, 'generation':following, 'target':case.receipt['scope']['target'],
-            'removals':{db:case.blob({'database':db, 'removed':True, 'revision':reference,
-                'discarded_generation':generation}) for db in case.receipt['scope']['databases']}})
-        predecessor, generation = reference, following
-    case.receipt['proofs']['initialization_revisions'] = revisions
-    checked = json.loads(base64.b64decode(case.receipt['proofs']['checked']['bytes']))
-    checked['initialization_revision'] = predecessor
-    case.receipt['proofs']['checked'] = case.blob(checked)
-    case.receipt['proofs']['complete'] = case.blob({**checked, 'admission_open':True})
-    case.publish()
+    importer = builtins.__import__
+
+    def no_history(name, *args, **kwargs):
+        if name.startswith("surrealdb_"):
+            pytest.fail("completed receipt must not import an action or daemon recovery module")
+        return importer(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_history)
     assert fx.completed_scope_disposition(case.directory, case.row)
-    if change == 'predecessor': revisions[1]['predecessor'] = case.receipt['proofs']['plan']
-    elif change == 'generation-chain': revisions[1]['discarded_generation'] = [8] * 32
-    elif change == 'missing-removal': del revisions[0]['removals']['main']
-    elif change == 'latest-reference': revisions[1]['reference']['sha256'] = '9' * 64
-    elif change == 'latest-generation': revisions[1]['generation'] = [8] * 32
-    elif change == 'latest-target': revisions[1]['target'] = {'schema_version':6, 'schema':'9' * 64}
-    elif change == 'reordered': revisions.reverse()
-    else: revisions.append(revisions[-1])
+    assert not fx.native_protected(case.directory, case.row, {"status": "unknown", "owners": []})
+    assert fx.native_completion(case.directory, case.row) == {
+        "status": "not_observed",
+        "owners": [],
+    }
+    assert case.receipt["original_native_outcome"] == "unknown"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "fixture",
+        "native-generation",
+        "command",
+        "original-identity",
+        "final-generation",
+        "unknown",
+        "scope",
+        "joined-state",
+        "removed-peer",
+        "checked-target",
+        "incomplete",
+        "proof-bytes",
+        "unreleased",
+        "directory-lifetime",
+    ],
+)
+def test_completed_disposition_rejects_misbound_record_or_proof_even_with_matching_local_digest(
+    completed_discard, change
+):
+    import base64
+
+    case = completed_discard
+    if change == "fixture":
+        case.row["fixture"] = str(uuid.uuid4())
+    elif change == "native-generation":
+        case.row["native_drain"] = {**case.row["native_drain"], "generation": "9" * 64}
+    elif change == "command":
+        case.row["command"] = {"argv": ["different-current-owner"]}
+    elif change == "original-identity":
+        case.receipt["original_attachment"]["record_identity"] = "9" * 64
+    elif change == "final-generation":
+        case.receipt["scope"]["generation"] = list(bytes([8]) * 32)
+    elif change == "unknown":
+        case.receipt["original_native_outcome"] = "confirmed"
+    elif change == "scope":
+        case.receipt["scope"]["databases"] = ["main"]
+    elif change == "joined-state":
+        case.receipt["proofs"]["joined"]["state"]["MainPID"] = "123"
+    elif change == "removed-peer":
+        case.receipt["proofs"]["original_removals"]["main"] = case.blob(
+            {
+                "database": "validation",
+                "removed": True,
+                "join": case.receipt["proofs"]["joined"]["reference"],
+            }
+        )
+    elif change == "checked-target":
+        value = json.loads(base64.b64decode(case.receipt["proofs"]["checked"]["bytes"]))
+        value["target"]["schema"] = "9" * 64
+        case.receipt["proofs"]["checked"] = case.blob(value)
+    elif change == "incomplete":
+        value = json.loads(base64.b64decode(case.receipt["proofs"]["complete"]["bytes"]))
+        value["admission_open"] = False
+        case.receipt["proofs"]["complete"] = case.blob(value)
+    elif change == "proof-bytes":
+        case.receipt["proofs"]["complete"]["bytes"] = base64.b64encode(b"{}").decode()
+    elif change == "directory-lifetime":
+        case.receipt["local_owner"]["inode"] += 1
+    else:
+        case.row["released"] = False
     case.publish()
     assert not fx.completed_scope_disposition(case.directory, case.row)
+    assert fx.native_protected(case.directory, case.row, {"status": "unknown", "owners": []})
+
+
+@pytest.mark.parametrize("change", ["path", "checksum", "writable", "symlink"])
+def test_completed_disposition_confines_immutable_local_owned_path(
+    completed_discard, tmp_path, change
+):
+    case = completed_discard
+    if change == "path":
+        case.row["scope_disposition"]["path"] = str(tmp_path / "other.json")
+    elif change == "checksum":
+        case.row["scope_disposition"]["sha256"] = "0" * 64
+    elif change == "writable":
+        case.path.chmod(0o600)
+    else:
+        target = tmp_path / "receipt-copy.json"
+        target.write_bytes(case.path.read_bytes())
+        target.chmod(0o400)
+        case.path.unlink()
+        case.path.symlink_to(target)
+    assert not fx.completed_scope_disposition(case.directory, case.row)
+
+
+def test_completed_disposition_validates_dedicated_revised_current_scope_removals(
+    completed_discard,
+):
+    import base64
+
+    case = completed_discard
+    reference = {"path": "/retired-oneoff/initialization-revision.json", "sha256": "7" * 64}
+    generation = list(bytes([5]) * 32)
+    case.receipt["proofs"]["initialization_revisions"] = [
+        {
+            "reference": reference,
+            "discarded_generation": generation,
+            "predecessor": case.receipt["proofs"]["plan"],
+            "generation": case.receipt["scope"]["generation"],
+            "target": case.receipt["scope"]["target"],
+            "removals": {
+                db: case.blob(
+                    {
+                        "database": db,
+                        "removed": True,
+                        "revision": reference,
+                        "discarded_generation": generation,
+                    }
+                )
+                for db in case.receipt["scope"]["databases"]
+            },
+        }
+    ]
+    checked = json.loads(base64.b64decode(case.receipt["proofs"]["checked"]["bytes"]))
+    checked["initialization_revision"] = reference
+    case.receipt["proofs"]["checked"] = case.blob(checked)
+    case.receipt["proofs"]["complete"] = case.blob({**checked, "admission_open": True})
+    case.publish()
+    assert fx.completed_scope_disposition(case.directory, case.row)
+    case.receipt["proofs"]["initialization_revisions"][0]["removals"]["main"] = case.blob(
+        {
+            "database": "main",
+            "removed": True,
+            "revision": reference,
+            "discarded_generation": list(bytes([9]) * 32),
+        }
+    )
+    case.publish()
+    assert not fx.completed_scope_disposition(case.directory, case.row)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "predecessor",
+        "generation-chain",
+        "missing-removal",
+        "latest-reference",
+        "latest-generation",
+        "latest-target",
+        "reordered",
+        "duplicate",
+    ],
+)
+def test_completed_disposition_authenticates_every_initialization_revision(
+    completed_discard, change
+):
+    import base64
+
+    case = completed_discard
+    revisions = []
+    predecessor = case.receipt["proofs"]["plan"]
+    generation = [5] * 32
+    for index in range(2):
+        reference = {
+            "path": f"/retired-oneoff/revision-{index + 1}.json",
+            "sha256": str(index + 6) * 64,
+        }
+        following = [6] * 32 if index == 0 else case.receipt["scope"]["generation"]
+        revisions.append(
+            {
+                "reference": reference,
+                "predecessor": predecessor,
+                "discarded_generation": generation,
+                "generation": following,
+                "target": case.receipt["scope"]["target"],
+                "removals": {
+                    db: case.blob(
+                        {
+                            "database": db,
+                            "removed": True,
+                            "revision": reference,
+                            "discarded_generation": generation,
+                        }
+                    )
+                    for db in case.receipt["scope"]["databases"]
+                },
+            }
+        )
+        predecessor, generation = reference, following
+    case.receipt["proofs"]["initialization_revisions"] = revisions
+    checked = json.loads(base64.b64decode(case.receipt["proofs"]["checked"]["bytes"]))
+    checked["initialization_revision"] = predecessor
+    case.receipt["proofs"]["checked"] = case.blob(checked)
+    case.receipt["proofs"]["complete"] = case.blob({**checked, "admission_open": True})
+    case.publish()
+    assert fx.completed_scope_disposition(case.directory, case.row)
+    if change == "predecessor":
+        revisions[1]["predecessor"] = case.receipt["proofs"]["plan"]
+    elif change == "generation-chain":
+        revisions[1]["discarded_generation"] = [8] * 32
+    elif change == "missing-removal":
+        del revisions[0]["removals"]["main"]
+    elif change == "latest-reference":
+        revisions[1]["reference"]["sha256"] = "9" * 64
+    elif change == "latest-generation":
+        revisions[1]["generation"] = [8] * 32
+    elif change == "latest-target":
+        revisions[1]["target"] = {"schema_version": 6, "schema": "9" * 64}
+    elif change == "reordered":
+        revisions.reverse()
+    else:
+        revisions.append(revisions[-1])
+    case.publish()
+    assert not fx.completed_scope_disposition(case.directory, case.row)
+
+
+def typed_failure_diagnostic():
+    return {
+        "schema": 1,
+        "truncated": False,
+        "causes": [
+            {
+                "class": "native",
+                "code": "native_request",
+                "stage": "private storage cleanup",
+                "identities": [
+                    {"kind": "operation", "value": "02" * 32},
+                    {"kind": "request", "value": "03" * 32},
+                ],
+                "issuance": {"generation": "01" * 32, "era": 7},
+                "lifecycle": None,
+                "inspect": "native_request",
+            }
+        ],
+    }
+
+
+def test_native_typed_failure_projection_explains_without_releasing(installed):
+    attachment = fx.Attachment.create(installed)
+    diagnostic = typed_failure_diagnostic()
+    native_receipt(
+        attachment,
+        remote="unknown",
+        failures=[
+            {
+                "step": "private storage cleanup",
+                "error": "presentation only",
+                "diagnostic": diagnostic,
+            }
+        ],
+    )
+    observation = fx.native_completion(
+        attachment.directory, fx.read_json(attachment.directory / "record.json")
+    )
+    assert observation["status"] == "unknown"
+    owner = observation["owners"][0]
+    assert owner["completion"]["committed"][0]["identity"] == "exact-attempt"
+    assert owner["failure_diagnostics"] == [{"status": "typed", "diagnostic": diagnostic}]
+    for value, expected in [
+        (None, "unavailable"),
+        ({"schema": 1, "truncated": False, "causes": []}, "invalid"),
+    ]:
+        owner["completion"]["failures"][0]["diagnostic"] = value
+        assert fx.native_failure_diagnostics(owner) == [{"status": expected, "diagnostic": None}]
+    attachment.release()
+    record = fx.read_json(attachment.directory / "record.json")
+    assert isinstance(record, dict) and not record["released"]
+
+
+def test_actual_native_diagnostic_receipt_through_host(tmp_path):
+    """Run the production Rust signal writer; this does not assert database execution."""
+    import subprocess
+
+    binary = os.environ.get("LCTX_NATIVE_SIGNAL_TEST_BINARY")
+    if not binary:
+        pytest.skip("requires compiled native unit-test binary via LCTX_NATIVE_SIGNAL_TEST_BINARY")
+    directory = tmp_path / "native-drain"
+    directory.mkdir()
+    environment = {
+        **os.environ,
+        "LCTX_DIAGNOSTIC_RECEIPT_CONTROL": "owned",
+        "LCTX_NATIVE_DRAIN_DIRECTORY": str(directory),
+        "LCTX_FIXTURE_ATTACHMENT": "owned-diagnostic-control",
+        "LCTX_SURREAL_GENERATION": "a" * 64,
+    }
+    subprocess.run(
+        [binary, "--exact", "signal::tests::diagnostic_receipt_child", "--ignored"],
+        env=environment,
+        check=True,
+        timeout=30,
+    )
+    binding = {
+        "id": "owned-diagnostic-control",
+        "native_drain": {
+            "directory": str(directory),
+            "attachment": "owned-diagnostic-control",
+            "generation": "a" * 64,
+        },
+    }
+    observed = fx.native_completion(tmp_path, binding)
+    assert observed["status"] == "unknown"
+    (owner,) = observed["owners"]
+    assert owner["completion"]["committed"][0]["identity"] == "exact-operation"
+    assert owner["completion"]["storage"][0]["state"] == "orphan"
+    typed, opaque, truncated = owner["failure_diagnostics"]
+    assert [typed["status"], opaque["status"], truncated["status"]] == ["typed"] * 3
+    (request,) = [c for c in typed["diagnostic"]["causes"] if c["code"] == "native_request"]
+    assert request["identities"][0] == {"kind": "operation", "value": "02" * 32}
+    assert request["identities"][1] == {"kind": "request", "value": "03" * 32}
+    assert request["issuance"] == {"generation": "01" * 32, "era": 7}
+    assert request["inspect"] == "native_request"
+    assert any(
+        c["code"] == "native_attempt" and c["stage"] == "reconcile request"
+        for c in typed["diagnostic"]["causes"]
+    )
+    assert all(
+        not c["identities"] and c["issuance"] is None for c in opaque["diagnostic"]["causes"]
+    )
+    assert opaque["diagnostic"]["causes"][-1]["code"] == "opaque"
+    assert truncated["diagnostic"]["truncated"]
+    assert len(truncated["diagnostic"]["causes"]) == 16
+
+
+def current_campaign_discard_control(installed):
+    """Finite acknowledgement protocol; no daemon/disposal success is simulated as acceptance."""
+    installed.directory.chmod(0o700)
+    (installed.directory / "attachments").chmod(0o700)
+    attachment = fx.Attachment.create(installed)
+    native_path, _ = native_receipt(
+        attachment,
+        remote="unknown",
+        failures=[
+            {
+                "step": "private storage cleanup",
+                "error": "failure",
+                "diagnostic": typed_failure_diagnostic(),
+            }
+        ],
+    )
+    attachment._write_record(
+        None, command_cleanup={"status": "confirmed", "survivors": []}, child_exit_code=0
+    )
+    attachment.release()
+    row = fx.read_json(attachment.directory / "record.json")
+    assert isinstance(row, dict)
+    row["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999999, "start_ticks": 1}
+    fx.write_json_atomic(attachment.directory / "record.json", row)
+    installation = fx.read_json(installed.directory / "installation.json")
+    assert isinstance(installation, dict)
+    installation.update(kind="campaign", purpose=service.LIFECYCLE_PURPOSE)
+    fx.write_json_atomic(installed.directory / "installation.json", installation)
+    disposal = {
+        "schema": 1,
+        "kind": "lifecycle-campaign-disposal",
+        "installation_id": row["fixture"],
+        "generation": row["native_drain"]["generation"],
+        "outcome": "passed",
+        "steps": {"executor-shutdown": "passed", "datastore-disposal": "passed"},
+    }
+    return attachment, native_path, row, disposal
+
+
+def test_current_campaign_disposition_preserves_native_failure_and_releases_host(installed):
+    import storage_owners
+    from storage_lifecycle import Storage
+
+    attachment, path, original, disposal = current_campaign_discard_control(installed)
+    raw = path.read_bytes()
+    assert fx.native_protected(
+        attachment.directory, original, fx.native_completion(attachment.directory, original)
+    )
+    released = fx.acknowledge_campaign_discard(attachment.directory, disposal)
+    assert fx.completed_campaign_disposition(attachment.directory, released)
+    native = fx.native_completion(attachment.directory, released)
+    assert native["status"] == "unknown"
+    assert native["owners"][0]["completion"]["failures"]
+    assert not fx.native_protected(attachment.directory, released, native)
+    assert raw == path.read_bytes()
+    assert released["native_completion"] == original["native_completion"]
+    assert fx.acknowledge_campaign_discard(attachment.directory, disposal) == released
+    assert attachment._storage_id is not None
+    row = Storage().get(attachment._storage_id)
+    assert storage_owners.observe(row)["state"] == "released"
+    assert row["obligations"][f"attachment:{attachment.id}"]["until"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "missing",
+        "shutdown",
+        "datastore",
+        "generation",
+        "fixture",
+        "record",
+        "native",
+        "permissions",
+        "reference",
+    ],
+)
+def test_current_campaign_disposition_refuses_missing_or_changed_correspondence(installed, change):
+    import hashlib
+
+    attachment, _, _original, disposal = current_campaign_discard_control(installed)
+    released = fx.acknowledge_campaign_discard(attachment.directory, disposal)
+    path = attachment.directory / "campaign-disposition.json"
+    if change == "missing":
+        path.unlink()
+    elif change == "permissions":
+        path.chmod(0o644)
+    elif change == "reference":
+        released["campaign_disposition"]["sha256"] = "f" * 64
+    elif change == "record":
+        released["child_exit_code"] = 17
+    elif change == "native":
+        released["native_drain"]["generation"] = "f" * 64
+    else:
+        receipt = json.loads(path.read_bytes())
+        if change in ("shutdown", "datastore"):
+            receipt["disposal"]["steps"][
+                "executor-shutdown" if change == "shutdown" else "datastore-disposal"
+            ] = "unknown"
+        elif change == "generation":
+            receipt["disposal"]["generation"] = "f" * 64
+        else:
+            receipt["disposal"]["installation_id"] = str(uuid.uuid4())
+        path.chmod(0o600)
+        raw = json.dumps(receipt).encode()
+        path.write_bytes(raw)
+        path.chmod(0o400)
+        released["campaign_disposition"]["sha256"] = hashlib.sha256(raw).hexdigest()
+    assert not fx.completed_campaign_disposition(attachment.directory, released)
+    assert fx.native_protected(
+        attachment.directory, released, fx.native_completion(attachment.directory, released)
+    )
+
+
+def test_campaign_acknowledgement_refuses_shared_target_and_incomplete_discard(installed):
+    attachment, _, original, disposal = current_campaign_discard_control(installed)
+    for step in ("executor-shutdown", "datastore-disposal"):
+        bad = {**disposal, "steps": {**disposal["steps"], step: "unknown"}}
+        with pytest.raises(fx.FixtureBlocked, match="incomplete"):
+            fx.acknowledge_campaign_discard(attachment.directory, bad)
+    installation = fx.read_json(installed.directory / "installation.json")
+    assert isinstance(installation, dict)
+    installation["kind"] = "stable"
+    fx.write_json_atomic(installed.directory / "installation.json", installation)
+    with pytest.raises(fx.FixtureBlocked, match="exact lifecycle campaign"):
+        fx.acknowledge_campaign_discard(attachment.directory, disposal)
+    assert fx.read_json(attachment.directory / "record.json") == original

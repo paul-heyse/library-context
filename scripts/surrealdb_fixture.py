@@ -170,8 +170,11 @@ def source_inputs(installation: Installation) -> dict[str, Any]:
     ).stdout
     untracked = _git("ls-files", "--others", "--exclude-standard")
     digest = hashlib.sha256(diff + b"\0" + untracked.encode()).hexdigest()
-    return {"head": _git("rev-parse", "HEAD"), "uncommitted_sha256": digest,
-            "server": _server_identity(installation)}
+    return {
+        "head": _git("rev-parse", "HEAD"),
+        "uncommitted_sha256": digest,
+        "server": _server_identity(installation),
+    }
 
 
 # ---------------------------------------------------------------------------------------------
@@ -206,16 +209,117 @@ def _cleanup_pending(record: Mapping[str, Any] | None) -> bool:
     return _command_observation(record)["status"] == "unknown"
 
 
+def native_failure_diagnostics(owner: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Explain persisted typed causes; no field in this projection authorizes release."""
+    completion = owner.get("completion")
+    failures = completion.get("failures") if isinstance(completion, dict) else None
+    if not isinstance(failures, list):
+        return []
+    result = []
+    for failure in failures:
+        diagnostic = failure.get("diagnostic") if isinstance(failure, dict) else None
+        causes = diagnostic.get("causes") if isinstance(diagnostic, dict) else None
+        valid = (
+            isinstance(diagnostic, dict)
+            and diagnostic.get("schema") == 1
+            and type(diagnostic.get("truncated")) is bool
+            and isinstance(causes, list)
+            and 0 < len(causes) <= 16
+        )
+        if valid:
+            for cause in causes:
+                if not isinstance(cause, dict):
+                    valid = False
+                    break
+                identities, issuance = cause.get("identities"), cause.get("issuance")
+                valid = (
+                    cause.get("class") in {"model", "infrastructure", "native", "opaque"}
+                    and cause.get("code")
+                    in {
+                        "completion",
+                        "context",
+                        "serving",
+                        "resource",
+                        "invalid",
+                        "limit",
+                        "frontier",
+                        "schema",
+                        "identity",
+                        "conflict",
+                        "codec",
+                        "transport",
+                        "unconfirmed",
+                        "refused",
+                        "contention",
+                        "state",
+                        "contract",
+                        "io",
+                        "exhausted",
+                        "native_request",
+                        "native_attempt",
+                        "native_lifecycle",
+                        "opaque",
+                    }
+                    and isinstance(cause.get("stage"), str)
+                    and len(cause["stage"].encode()) <= 256
+                    and isinstance(identities, list)
+                    and len(identities) <= 2
+                    and all(
+                        isinstance(identity, dict)
+                        and identity.get("kind") in {"operation", "request", "attempt", "lifecycle"}
+                        and isinstance(identity.get("value"), str)
+                        and re.fullmatch("[a-f0-9]{64}", identity["value"])
+                        for identity in identities
+                    )
+                    and (
+                        issuance is None
+                        or (
+                            isinstance(issuance, dict)
+                            and isinstance(issuance.get("generation"), str)
+                            and re.fullmatch("[a-f0-9]{64}", issuance["generation"])
+                            and type(issuance.get("era")) is int
+                            and issuance["era"] > 0
+                        )
+                    )
+                    and cause.get("lifecycle")
+                    in {
+                        None,
+                        "reader_pin",
+                        "backup_hold",
+                        "retirement_invocation",
+                        "retirement_successor",
+                        "cleanup_obligation",
+                        "history_invocation",
+                    }
+                    and cause.get("inspect")
+                    in {None, "native_request", "native_attempt", "native_lifecycle"}
+                )
+                if not valid:
+                    break
+        # Old/missing diagnostic fields stay unavailable, never a successful outcome.
+        result.append(
+            {
+                "status": "typed" if valid else "unavailable" if diagnostic is None else "invalid",
+                "diagnostic": diagnostic if valid else None,
+            }
+        )
+    return result
+
+
 def native_completion(directory: Path, record: Mapping[str, Any] | None) -> dict[str, Any]:
     """Observe actual Rust owner receipts, separately from child/process cleanup."""
     binding = (record or {}).get("native_drain")
     if binding is None:
         return {"status": "not_observed", "owners": []}
     root = directory / "native-drain"
-    if (not isinstance(binding, dict) or binding.get("directory") != str(root)
-            or not re.fullmatch("[a-f0-9]{64}", binding.get("generation", ""))
-            or not root.is_dir() or root.is_symlink()
-            or binding.get("attachment") != (record or {}).get("id")):
+    if (
+        not isinstance(binding, dict)
+        or binding.get("directory") != str(root)
+        or not re.fullmatch("[a-f0-9]{64}", binding.get("generation", ""))
+        or not root.is_dir()
+        or root.is_symlink()
+        or binding.get("attachment") != (record or {}).get("id")
+    ):
         return {"status": "unknown", "reason": "native owner binding differs", "owners": []}
     owners = []
     status = "confirmed"
@@ -223,29 +327,47 @@ def native_completion(directory: Path, record: Mapping[str, Any] | None) -> dict
         for path in sorted(root.iterdir()):
             # An interrupted atomic publication or malformed producer is unknown.
             row = read_json(path) if path.is_file() and not path.is_symlink() else None
-            if (not isinstance(row, dict) or row.get("schema") != 1
-                    or row.get("kind") != "native-process-owner"
-                    or row.get("attachment") != binding["attachment"]
-                    or row.get("generation") != binding.get("generation")
-                    or not isinstance(row.get("owner"), str) or not row["owner"]
-                    or not re.fullmatch(r"[1-9][0-9]*-[0-9]+-[0-9]+\.json", path.name)
-                    or row.get("process") != {"pid": int(path.name.split("-")[0]),
-                                              "start_ticks": int(path.name.split("-")[1])}
-                    or type(row.get("registration")) is not int
-                    or row["registration"] != int(path.stem.split("-")[2])):
-                return {"status": "unknown", "reason": "native owner receipt differs", "owners": owners}
-            owners.append({"path": str(path), **row})
+            if (
+                not isinstance(row, dict)
+                or row.get("schema") != 1
+                or row.get("kind") != "native-process-owner"
+                or row.get("attachment") != binding["attachment"]
+                or row.get("generation") != binding.get("generation")
+                or not isinstance(row.get("owner"), str)
+                or not row["owner"]
+                or not re.fullmatch(r"[1-9][0-9]*-[0-9]+-[0-9]+\.json", path.name)
+                or row.get("process")
+                != {
+                    "pid": int(path.name.split("-")[0]),
+                    "start_ticks": int(path.name.split("-")[1]),
+                }
+                or type(row.get("registration")) is not int
+                or row["registration"] != int(path.stem.split("-")[2])
+            ):
+                return {
+                    "status": "unknown",
+                    "reason": "native owner receipt differs",
+                    "owners": owners,
+                }
+            owners.append(
+                {"path": str(path), **row, "failure_diagnostics": native_failure_diagnostics(row)}
+            )
             completion = row.get("completion")
-            if (row.get("state") != "complete" or not isinstance(completion, dict)
-                    or completion.get("local") != "terminal"
-                    or completion.get("remote") != "confirmed"
-                    or completion.get("failures") != []
-                    or not isinstance(completion.get("committed"), list)
-                    or not isinstance(completion.get("storage"), list)
-                    or any(not isinstance(storage, dict) or storage.get("state") != "removed"
-                           for storage in completion["storage"])):
+            if (
+                row.get("state") != "complete"
+                or not isinstance(completion, dict)
+                or completion.get("local") != "terminal"
+                or completion.get("remote") != "confirmed"
+                or completion.get("failures") != []
+                or not isinstance(completion.get("committed"), list)
+                or not isinstance(completion.get("storage"), list)
+                or any(
+                    not isinstance(storage, dict) or storage.get("state") != "removed"
+                    for storage in completion["storage"]
+                )
+            ):
                 status = "unknown"
-    except (OSError, ValueError, TypeError, KeyError):
+    except OSError, ValueError, TypeError, KeyError:
         return {"status": "unknown", "reason": "native owner receipt unavailable", "owners": owners}
     if not owners:
         status = "not_observed"
@@ -254,12 +376,15 @@ def native_completion(directory: Path, record: Mapping[str, Any] | None) -> dict
 
 def scope_record_identity(value: Mapping[str, Any]) -> str:
     """Identity of a receipt snapshot, not a portable native authority."""
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def scope_local_owner(directory: Path) -> dict[str, int]:
     """Bind this acknowledgment to its local attachment directory lifetime."""
     from storage_lifecycle import physical
+
     for path in (directory, directory.parent, directory.parent.parent):
         info = path.stat()
         if info.st_uid != os.getuid() or info.st_mode & 0o022:
@@ -282,14 +407,20 @@ def completed_scope_disposition(directory: Path, record: Mapping[str, Any] | Non
         if not isinstance(record, dict) or record.get("released") is not True:
             return False
         path = directory / "scope-disposition.json"
-        if (directory.name != record["id"] or directory.parent.name != "attachments"
-                or any(p.is_symlink() for p in (path, *path.parents))):
+        if (
+            directory.name != record["id"]
+            or directory.parent.name != "attachments"
+            or any(p.is_symlink() for p in (path, *path.parents))
+        ):
             return False
         fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
         try:
             before = os.fstat(fd)
-            if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
-                    or stat.S_IMODE(before.st_mode) != 0o400):
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_uid != os.getuid()
+                or stat.S_IMODE(before.st_mode) != 0o400
+            ):
                 return False
             with os.fdopen(fd, "rb", closefd=False) as stream:
                 raw = stream.read()
@@ -297,75 +428,126 @@ def completed_scope_disposition(directory: Path, record: Mapping[str, Any] | Non
                 return False
         finally:
             os.close(fd)
-        if record.get("scope_disposition") != {"path": str(path), "sha256": hashlib.sha256(raw).hexdigest()}:
+        if record.get("scope_disposition") != {
+            "path": str(path),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }:
             return False
         receipt = json.loads(raw)
         if receipt["local_owner"] != scope_local_owner(directory):
             return False
         scope, original = receipt["scope"], receipt["original_attachment"]
-        hexadecimal = lambda value: isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
-        generation = lambda value: (isinstance(value, list) and len(value) == 32
-            and all(type(x) is int and 0 <= x <= 255 for x in value))
+        hexadecimal = lambda value: (
+            isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+        )
+        generation = lambda value: (
+            isinstance(value, list)
+            and len(value) == 32
+            and all(type(x) is int and 0 <= x <= 255 for x in value)
+        )
         databases = scope["databases"]
-        if (receipt.get("schema") != 1 or receipt.get("kind") != "explicit-scope-disposition"
-                or receipt.get("outcome") != "discarded-and-regenerated"
-                or receipt.get("original_native_outcome") != "unknown"
-                or scope["installation_id"] != record["fixture"]
-                or scope["namespace"] != record["namespace"]
-                or not isinstance(scope["endpoint"], str) or not scope["endpoint"]
-                or not isinstance(databases, list) or not databases or len(set(databases)) != len(databases)
-                or any(_identifier(db) != db for db in databases) or record["database"] not in databases
-                or original["id"] != record["id"] or original["native_drain"] != record["native_drain"]
-                or original["native_drain"]["attachment"] != record["id"]
-                or original["native_drain"]["directory"] != str(directory / "native-drain")
-                or not hexadecimal(scope["original_generation"])
-                or scope["original_generation"] != original["native_drain"]["generation"]
-                or not generation(scope["generation"])
-                or bytes(scope["generation"]).hex() == scope["original_generation"]
-                or type(scope["target"]["schema_version"]) is not int or scope["target"]["schema_version"] <= 0
-                or not hexadecimal(scope["target"]["schema"])
-                or record.get("command_cleanup") != {"status": "confirmed", "survivors": []}):
+        if (
+            receipt.get("schema") != 1
+            or receipt.get("kind") != "explicit-scope-disposition"
+            or receipt.get("outcome") != "discarded-and-regenerated"
+            or receipt.get("original_native_outcome") != "unknown"
+            or scope["installation_id"] != record["fixture"]
+            or scope["namespace"] != record["namespace"]
+            or not isinstance(scope["endpoint"], str)
+            or not scope["endpoint"]
+            or not isinstance(databases, list)
+            or not databases
+            or len(set(databases)) != len(databases)
+            or any(_identifier(db) != db for db in databases)
+            or record["database"] not in databases
+            or original["id"] != record["id"]
+            or original["native_drain"] != record["native_drain"]
+            or original["native_drain"]["attachment"] != record["id"]
+            or original["native_drain"]["directory"] != str(directory / "native-drain")
+            or not hexadecimal(scope["original_generation"])
+            or scope["original_generation"] != original["native_drain"]["generation"]
+            or not generation(scope["generation"])
+            or bytes(scope["generation"]).hex() == scope["original_generation"]
+            or type(scope["target"]["schema_version"]) is not int
+            or scope["target"]["schema_version"] <= 0
+            or not hexadecimal(scope["target"]["schema"])
+            or record.get("command_cleanup") != {"status": "confirmed", "survivors": []}
+        ):
             return False
-        reconstructed = {key: value for key, value in record.items()
-            if key not in (*SCOPE_LIFECYCLE_FIELDS, "scope_disposition")}
-        if (set(original["lifecycle"]) - set(SCOPE_LIFECYCLE_FIELDS)
-                or original["lifecycle"].get("released") is not False):
+        reconstructed = {
+            key: value
+            for key, value in record.items()
+            if key not in (*SCOPE_LIFECYCLE_FIELDS, "scope_disposition")
+        }
+        if (
+            set(original["lifecycle"]) - set(SCOPE_LIFECYCLE_FIELDS)
+            or original["lifecycle"].get("released") is not False
+        ):
             return False
         reconstructed.update(original["lifecycle"])
         if scope_record_identity(reconstructed) != original["record_identity"]:
             return False
         run = receipt["original_run"]
-        if (not hexadecimal(run["record_identity"]) or not isinstance(run["id"], str)
-                or Path(run["path"]).name != run["id"] or run["native_outcome"] != "unknown"
-                or run["termination"] not in {"completed", "cancelled", "interrupted"}
-                or not isinstance(run["exit"], dict) or len(run["exit"]) != 1
-                or not (type(run["exit"].get("code")) is int or type(run["exit"].get("signal")) is int)
-                or run["cleanup"]["status"] != "confirmed" or run["cleanup"]["survivors"] != []):
+        if (
+            not hexadecimal(run["record_identity"])
+            or not isinstance(run["id"], str)
+            or Path(run["path"]).name != run["id"]
+            or run["native_outcome"] != "unknown"
+            or run["termination"] not in {"completed", "cancelled", "interrupted"}
+            or not isinstance(run["exit"], dict)
+            or len(run["exit"]) != 1
+            or not (type(run["exit"].get("code")) is int or type(run["exit"].get("signal")) is int)
+            or run["cleanup"]["status"] != "confirmed"
+            or run["cleanup"]["survivors"] != []
+        ):
             return False
         proof = receipt["proofs"]
+
         def decoded(blob):
             data = base64.b64decode(blob["bytes"], validate=True)
             if hashlib.sha256(data).hexdigest() != blob["sha256"]:
                 raise ValueError("scope disposition proof digest changed")
             return json.loads(data)
+
         joined = proof["joined"]
         state, owner = joined["state"], joined["owner"]
-        if (not hexadecimal(joined["reference"]["sha256"]) or not hexadecimal(joined["journal_sha256"])
-                or state.get("InvocationID") != owner["invocation"]
-                or not isinstance(owner["unit"], str) or not owner["unit"]
-                or type(owner["process"]["pid"]) is not int or owner["process"]["pid"] <= 0
-                or any(state.get(key) != value for key, value in
-                    {"MainPID": "0", "ActiveState": "inactive", "Result": "success",
-                     "ExecMainCode": "1", "ExecMainStatus": "0"}.items())):
+        if (
+            not hexadecimal(joined["reference"]["sha256"])
+            or not hexadecimal(joined["journal_sha256"])
+            or state.get("InvocationID") != owner["invocation"]
+            or not isinstance(owner["unit"], str)
+            or not owner["unit"]
+            or type(owner["process"]["pid"]) is not int
+            or owner["process"]["pid"] <= 0
+            or any(
+                state.get(key) != value
+                for key, value in {
+                    "MainPID": "0",
+                    "ActiveState": "inactive",
+                    "Result": "success",
+                    "ExecMainCode": "1",
+                    "ExecMainStatus": "0",
+                }.items()
+            )
+        ):
             return False
         removals = proof["original_removals"]
-        if set(removals) != set(databases) or any(decoded(removals[db]) !=
-                {"database": db, "removed": True, "join": joined["reference"]} for db in databases):
+        if set(removals) != set(databases) or any(
+            decoded(removals[db]) != {"database": db, "removed": True, "join": joined["reference"]}
+            for db in databases
+        ):
             return False
         checked, complete = decoded(proof["checked"]), decoded(proof["complete"])
-        expected = {"installation_id": scope["installation_id"], "generation": scope["generation"],
-            "target": scope["target"], "databases": databases, "original_native_outcome": "unknown",
-            "disposition": "explicitly discarded and regenerated", "plan": proof["plan"], "joined": joined["reference"]}
+        expected = {
+            "installation_id": scope["installation_id"],
+            "generation": scope["generation"],
+            "target": scope["target"],
+            "databases": databases,
+            "original_native_outcome": "unknown",
+            "disposition": "explicitly discarded and regenerated",
+            "plan": proof["plan"],
+            "joined": joined["reference"],
+        }
         if "initialization_revision" in proof:
             return False
         revisions = proof.get("initialization_revisions", [])
@@ -374,46 +556,276 @@ def completed_scope_disposition(directory: Path, record: Mapping[str, Any] | Non
         predecessor, previous_generation = proof["plan"], None
         seen = set()
         for revision in revisions:
-            if (set(revision) != {"reference", "predecessor", "discarded_generation", "generation", "target", "removals"}
-                    or revision["predecessor"] != predecessor
-                    or set(revision["reference"]) != {"path", "sha256"}
-                    or not isinstance(revision["reference"]["path"], str)
-                    or not hexadecimal(revision["reference"]["sha256"])
-                    or revision["reference"]["sha256"] in seen
-                    or not generation(revision["discarded_generation"])
-                    or not generation(revision["generation"])
-                    or revision["generation"] == revision["discarded_generation"]
-                    or (previous_generation is not None and revision["discarded_generation"] != previous_generation)
-                    or set(revision["removals"]) != set(databases)
-                    or any(decoded(revision["removals"][db]) !=
-                        {"database": db, "removed": True, "revision": revision["reference"],
-                         "discarded_generation": revision["discarded_generation"]} for db in databases)):
+            if (
+                set(revision)
+                != {
+                    "reference",
+                    "predecessor",
+                    "discarded_generation",
+                    "generation",
+                    "target",
+                    "removals",
+                }
+                or revision["predecessor"] != predecessor
+                or set(revision["reference"]) != {"path", "sha256"}
+                or not isinstance(revision["reference"]["path"], str)
+                or not hexadecimal(revision["reference"]["sha256"])
+                or revision["reference"]["sha256"] in seen
+                or not generation(revision["discarded_generation"])
+                or not generation(revision["generation"])
+                or revision["generation"] == revision["discarded_generation"]
+                or (
+                    previous_generation is not None
+                    and revision["discarded_generation"] != previous_generation
+                )
+                or set(revision["removals"]) != set(databases)
+                or any(
+                    decoded(revision["removals"][db])
+                    != {
+                        "database": db,
+                        "removed": True,
+                        "revision": revision["reference"],
+                        "discarded_generation": revision["discarded_generation"],
+                    }
+                    for db in databases
+                )
+            ):
                 return False
             seen.add(revision["reference"]["sha256"])
             predecessor, previous_generation = revision["reference"], revision["generation"]
         if revisions:
             expected["initialization_revision"] = predecessor
-            if revisions[-1]["generation"] != scope["generation"] or revisions[-1]["target"] != scope["target"]:
+            if (
+                revisions[-1]["generation"] != scope["generation"]
+                or revisions[-1]["target"] != scope["target"]
+            ):
                 return False
-        return (hexadecimal(proof["plan"]["sha256"]) and checked == expected
-            and complete == {**checked, "admission_open": True})
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return (
+            hexadecimal(proof["plan"]["sha256"])
+            and checked == expected
+            and complete == {**checked, "admission_open": True}
+        )
+    except OSError, ValueError, KeyError, TypeError, AttributeError:
         return False
 
 
-def native_protected(directory: Path, record: Mapping[str, Any] | None, native: Mapping[str, Any]) -> bool:
+CAMPAIGN_RELEASE_FIELDS = ("released", "released_at", "campaign_disposition")
+
+
+def completed_campaign_disposition(directory: Path, record: Mapping[str, Any] | None) -> bool:
+    """Accept the current owned target's discard, without rewriting native finality.
+
+    The service owner produces this local acknowledgement only after authenticated
+    whole-executor shutdown and datastore disposal. This reader has no effects.
+    """
+    try:
+        if (
+            not isinstance(record, dict)
+            or record.get("released") is not True
+            or record.get("command_cleanup") != {"status": "confirmed", "survivors": []}
+        ):
+            return False
+        path = directory / "campaign-disposition.json"
+        if (
+            directory.name != record["id"]
+            or directory.parent.name != "attachments"
+            or any(p.is_symlink() for p in (path, *path.parents))
+        ):
+            return False
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            before = os.fstat(fd)
+            if (
+                not stat.S_ISREG(before.st_mode)
+                or before.st_uid != os.getuid()
+                or stat.S_IMODE(before.st_mode) not in (0o400, 0o600)
+            ):
+                return False
+            with os.fdopen(fd, "rb", closefd=False) as stream:
+                raw = stream.read()
+            if service.executable_identity(before) != service.executable_identity(os.fstat(fd)):
+                return False
+        finally:
+            os.close(fd)
+        if record.get("campaign_disposition") != {
+            "path": str(path),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }:
+            return False
+        receipt = json.loads(raw)
+        scope, original, disposal = (
+            receipt["scope"],
+            receipt["original_attachment"],
+            receipt["disposal"],
+        )
+        native = record["native_drain"]
+        if (
+            receipt.get("schema") != 1
+            or receipt.get("kind") != "lifecycle-campaign-attachment-disposition"
+            or receipt.get("outcome") != "discarded"
+            or receipt.get("local_owner") != scope_local_owner(directory)
+            or scope
+            != {
+                "installation_id": record["fixture"],
+                "attachment": record["id"],
+                "generation": native["generation"],
+            }
+            or not isinstance(native["generation"], str)
+            or not re.fullmatch("[a-f0-9]{64}", native["generation"])
+            or native["attachment"] != record["id"]
+            or native["directory"] != str(directory / "native-drain")
+            or original["native_drain"] != native
+            or disposal.get("schema") != 1
+            or disposal.get("kind") != "lifecycle-campaign-disposal"
+            or disposal.get("installation_id") != record["fixture"]
+            or disposal.get("generation") != native["generation"]
+            or disposal.get("outcome") != "passed"
+            or disposal.get("steps", {}).get("executor-shutdown") != "passed"
+            or disposal.get("steps", {}).get("datastore-disposal") != "passed"
+        ):
+            return False
+        lifecycle = original["lifecycle"]
+        if set(lifecycle) - {"released", "released_at"} or lifecycle.get("released") is not False:
+            return False
+        reconstructed = {
+            key: value for key, value in record.items() if key not in CAMPAIGN_RELEASE_FIELDS
+        }
+        reconstructed.update(lifecycle)
+        return scope_record_identity(reconstructed) == original["record_identity"]
+    except OSError, ValueError, KeyError, TypeError, AttributeError:
+        return False
+
+
+def acknowledge_campaign_discard(directory: Path, disposal: Mapping[str, Any]) -> dict[str, Any]:
+    """Called by the service disposer under its exclusive target admission, after discard.
+
+    Publish one local attachment acknowledgement and release its declared host
+    obligation. Native receipts are retained verbatim with their original outcome.
+    """
+    if (
+        not directory.is_absolute()
+        or directory.parent.name != "attachments"
+        or any(path.is_symlink() for path in (directory, *directory.parents))
+    ):
+        raise FixtureBlocked("identity", "campaign attachment must have an exact physical path")
+    installation = read_json(directory.parent.parent / "installation.json")
+    row = read_json(directory / "record.json")
+    if (
+        not isinstance(installation, dict)
+        or not isinstance(row, dict)
+        or installation.get("kind") != "campaign"
+        or installation.get("purpose") != service.LIFECYCLE_PURPOSE
+        or directory.name != row.get("id")
+        or installation.get("installation_id") != row.get("fixture")
+        or bytes(installation.get("service_generation", [])).hex()
+        != row.get("native_drain", {}).get("generation")
+    ):
+        raise FixtureBlocked(
+            "identity", "discard acknowledgement requires the exact lifecycle campaign"
+        )
+    if owner_alive(row.get("owner"), directory / "owner.lock"):
+        raise FixtureBlocked("ownership", "campaign attachment still has a live owner")
+    lock = try_hold_lock(directory / "owner.lock")
+    if lock is None:
+        raise FixtureBlocked("ownership", "campaign attachment acquired a live owner")
+    try:
+        if read_json(directory / "record.json") != row:
+            raise FixtureBlocked("identity", "campaign attachment changed before acknowledgement")
+        if completed_campaign_disposition(directory, row):
+            _complete_attachment_obligations(
+                directory, "confirmed whole campaign discard", owner_lease=lock
+            )
+            return row
+        if (
+            row.get("released") is not False
+            or row.get("command_cleanup") != {"status": "confirmed", "survivors": []}
+            or disposal.get("schema") != 1
+            or disposal.get("kind") != "lifecycle-campaign-disposal"
+            or disposal.get("installation_id") != row["fixture"]
+            or disposal.get("generation") != row["native_drain"]["generation"]
+            or disposal.get("outcome") != "passed"
+            or disposal.get("steps", {}).get("executor-shutdown") != "passed"
+            or disposal.get("steps", {}).get("datastore-disposal") != "passed"
+        ):
+            raise FixtureBlocked(
+                "disposal", "campaign shutdown/discard or local command cleanup is incomplete"
+            )
+        receipt = {
+            "schema": 1,
+            "kind": "lifecycle-campaign-attachment-disposition",
+            "outcome": "discarded",
+            "local_owner": scope_local_owner(directory),
+            "scope": {
+                "installation_id": row["fixture"],
+                "attachment": row["id"],
+                "generation": row["native_drain"]["generation"],
+            },
+            "original_attachment": {
+                "record_identity": scope_record_identity(row),
+                "lifecycle": {key: row[key] for key in ("released", "released_at") if key in row},
+                "native_drain": row["native_drain"],
+            },
+            "disposal": dict(disposal),
+        }
+        raw = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
+        path = directory / "campaign-disposition.json"
+        try:
+            fd = os.open(
+                path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600
+            )
+        except FileExistsError:
+            if path.is_symlink() or path.read_bytes() != raw:
+                raise FixtureBlocked(
+                    "identity", "campaign attachment disposition already differs"
+                ) from None
+        else:
+            with os.fdopen(fd, "wb") as stream:
+                stream.write(raw)
+                stream.flush()
+                os.fchmod(stream.fileno(), 0o400)
+                os.fsync(stream.fileno())
+            parent = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            try:
+                os.fsync(parent)
+            finally:
+                os.close(parent)
+        candidate = {
+            **row,
+            "released": True,
+            "released_at": now(),
+            "campaign_disposition": {"path": str(path), "sha256": hashlib.sha256(raw).hexdigest()},
+        }
+        if not completed_campaign_disposition(directory, candidate):
+            raise FixtureBlocked("identity", "campaign attachment disposition validation failed")
+        write_json_atomic(directory / "record.json", candidate)
+        _complete_attachment_obligations(
+            directory, "confirmed whole campaign discard", owner_lease=lock
+        )
+        return candidate
+    finally:
+        os.close(lock)
+
+
+def native_protected(
+    directory: Path, record: Mapping[str, Any] | None, native: Mapping[str, Any]
+) -> bool:
     if not _native_pending(record, native):
         return False
-    if completed_scope_disposition(directory, record):
+    if completed_campaign_disposition(directory, record) or completed_scope_disposition(
+        directory, record
+    ):
         return False
     from surrealdb_pd02_recovery import recovered
+
     return not recovered(directory, record)
 
 
 def _native_pending(record: Mapping[str, Any] | None, native: Mapping[str, Any]) -> bool:
     code = (record or {}).get("child_exit_code")
-    return native["status"] == "unknown" or (native["status"] == "not_observed"
-        and (bool((record or {}).get("interrupted")) or isinstance(code, int) and code < 0))
+    return native["status"] == "unknown" or (
+        native["status"] == "not_observed"
+        and (bool((record or {}).get("interrupted")) or (isinstance(code, int) and code < 0))
+    )
 
 
 def _recover_attachment(path: Path, record: dict[str, Any]) -> dict[str, Any]:
@@ -705,8 +1117,13 @@ class Attachment:
                 "server": _server_identity(server.installation),
             }
             attachment = cls(
-                server, attachment_id, directory, config, _lock=lock, _borrow=ownership,
-                _generation=generation
+                server,
+                attachment_id,
+                directory,
+                config,
+                _lock=lock,
+                _borrow=ownership,
+                _generation=generation,
             )
             if maintenance_env:
                 attachment.extra_env["LCTX_SURREAL_MAINTENANCE_TOKEN"] = maintenance_env[
@@ -717,10 +1134,16 @@ class Attachment:
                 attachment.compiler_config_path,
                 {**cfg, "selection": str(directory / "scratch/selected.json")},
             )
-            attachment._write_record(None, released=False, maintenance=maintenance,
-                native_drain={"directory": str(directory / "native-drain"),
-                              "attachment": attachment_id,
-                              "generation": bytes(server.record["service_generation"]).hex()})
+            attachment._write_record(
+                None,
+                released=False,
+                maintenance=maintenance,
+                native_drain={
+                    "directory": str(directory / "native-drain"),
+                    "attachment": attachment_id,
+                    "generation": bytes(server.record["service_generation"]).hex(),
+                },
+            )
             attachment._storage_admission = storage
             attachment._storage_id = storage_owners.enroll(
                 directory,
@@ -939,134 +1362,243 @@ def retire_serving(name: str) -> dict[str, Any]:
     """
     import hashlib
     import secrets
+
     from storage_lifecycle import admission, durable_json, fsync_directory
 
     installation = Installation.load()
     if installation.record.get("kind") != "campaign":
-        raise FixtureBlocked("scope", "retained retirement requires the explicitly selected campaign")
+        raise FixtureBlocked(
+            "scope", "retained retirement requires the explicitly selected campaign"
+        )
     directory = installation.directory / "serving" / _identifier(name)
     with admission([directory, installation.runtime_path("validation")]):
         if not directory.is_dir() or directory.is_symlink():
             raise FixtureBlocked("serving", "retained output is unavailable")
         preflight = json.loads(_serving_retirement_bytes(directory / "identity.json"))
-        if preflight.get("configuration", {}).get("selection") != str((directory / "viewer.json").with_suffix(".selected.json")):
-            raise FixtureBlocked("identity", "retained retirement requires the producer's exact selection path")
+        if preflight.get("configuration", {}).get("selection") != str(
+            (directory / "viewer.json").with_suffix(".selected.json")
+        ):
+            raise FixtureBlocked(
+                "identity", "retained retirement requires the producer's exact selection path"
+            )
         lock = try_hold_lock(directory / "retirement.lock")
         if lock is None:
             raise FixtureBlocked("ownership", "retained retirement already has a live owner")
         try:
-            plan_path, native_path, retired_path = (directory / filename for filename in
-                ("retirement-plan.json", "native-retirement.json", "retired.json"))
+            plan_path, native_path, retired_path = (
+                directory / filename
+                for filename in ("retirement-plan.json", "native-retirement.json", "retired.json")
+            )
             identity_path = directory / "identity.json"
             identity_bytes = _serving_retirement_bytes(identity_path)
             identity = json.loads(identity_bytes)
             viewer_path = directory / "viewer.json"
             selection = Path(identity["configuration"]["selection"])
             handle = identity["content"]["handle"]
-            if (identity.get("fixture") != installation.id or identity.get("name") != name
-                    or identity["configuration"]["path"] != str(viewer_path)
-                    or selection != viewer_path.with_suffix(".selected.json")
-                    or handle.get("database") != {"namespace": service.NAMESPACE, "database": "validation"}
-                    or handle.get("service_generation") != bytes(installation.record["service_generation"]).hex()):
-                raise FixtureBlocked("identity", "retained retirement is outside its exact validation scope")
+            if (
+                identity.get("fixture") != installation.id
+                or identity.get("name") != name
+                or identity["configuration"]["path"] != str(viewer_path)
+                or selection != viewer_path.with_suffix(".selected.json")
+                or handle.get("database")
+                != {"namespace": service.NAMESPACE, "database": "validation"}
+                or handle.get("service_generation")
+                != bytes(installation.record["service_generation"]).hex()
+            ):
+                raise FixtureBlocked(
+                    "identity", "retained retirement is outside its exact validation scope"
+                )
             runtime_path = directory / "retirement-runtime.json"
             handle_path = directory / "retirement-handle.json"
             runtime = {**installation.runtime("validation"), "selection": str(selection)}
             runtime_bytes = (json.dumps(runtime, sort_keys=True, indent=2) + "\n").encode()
-            expected = {"schema": 1, "fixture": installation.id, "name": name,
+            expected = {
+                "schema": 1,
+                "fixture": installation.id,
+                "name": name,
                 "identity_sha256": hashlib.sha256(identity_bytes).hexdigest(),
                 "viewer_sha256": identity["configuration"]["sha256"],
-                "selection": str(selection), "selection_sha256": identity["configuration"]["selection_sha256"],
-                "handle": handle, "runtime_sha256": hashlib.sha256(runtime_bytes).hexdigest()}
+                "selection": str(selection),
+                "selection_sha256": identity["configuration"]["selection_sha256"],
+                "handle": handle,
+                "runtime_sha256": hashlib.sha256(runtime_bytes).hexdigest(),
+            }
             if plan_path.exists():
                 plan = json.loads(_serving_retirement_bytes(plan_path))
                 if {key: value for key, value in plan.items() if key != "job"} != expected:
                     raise FixtureBlocked("identity", "retained retirement checkpoint changed")
-                if not isinstance(plan.get("job"), str) or not re.fullmatch("[a-f0-9]{64}", plan["job"]):
+                if not isinstance(plan.get("job"), str) or not re.fullmatch(
+                    "[a-f0-9]{64}", plan["job"]
+                ):
                     raise FixtureBlocked("identity", "retained retirement job is unavailable")
             else:
                 viewer_bytes = _serving_retirement_bytes(viewer_path)
                 viewer = json.loads(viewer_bytes)
-                if (hashlib.sha256(viewer_bytes).hexdigest() != expected["viewer_sha256"]
-                        or viewer.get("selection") != str(selection)
-                        or viewer.get("endpoint") != installation.grpc_endpoint
-                        or hashlib.sha256(_serving_retirement_bytes(selection)).hexdigest() != expected["selection_sha256"]
-                        or json.loads(_serving_retirement_bytes(selection)) != handle):
-                    raise FixtureBlocked("identity", "retained viewer or exact selected handle changed")
+                if (
+                    hashlib.sha256(viewer_bytes).hexdigest() != expected["viewer_sha256"]
+                    or viewer.get("selection") != str(selection)
+                    or viewer.get("endpoint") != installation.grpc_endpoint
+                    or hashlib.sha256(_serving_retirement_bytes(selection)).hexdigest()
+                    != expected["selection_sha256"]
+                    or json.loads(_serving_retirement_bytes(selection)) != handle
+                ):
+                    raise FixtureBlocked(
+                        "identity", "retained viewer or exact selected handle changed"
+                    )
                 plan = {**expected, "job": secrets.token_hex(32)}
                 durable_json(plan_path, plan)
             plan_sha256 = file_sha256(plan_path)
             if retired_path.exists():
                 retired = json.loads(_serving_retirement_bytes(retired_path))
-                if (retired.get("outcome") != "retired" or retired.get("plan_sha256") != plan_sha256
-                        or retired.get("native_sha256") != file_sha256(native_path)
-                        or viewer_path.exists() or selection.exists() or runtime_path.exists() or handle_path.exists()):
+                if (
+                    retired.get("outcome") != "retired"
+                    or retired.get("plan_sha256") != plan_sha256
+                    or retired.get("native_sha256") != file_sha256(native_path)
+                    or viewer_path.exists()
+                    or selection.exists()
+                    or runtime_path.exists()
+                    or handle_path.exists()
+                ):
                     raise FixtureBlocked("identity", "completed retained retirement changed")
                 if (installation.directory / "maintenance.json").exists():
-                    raise FixtureBlocked("maintenance", "retained retirement needs explicit maintenance recovery")
+                    raise FixtureBlocked(
+                        "maintenance", "retained retirement needs explicit maintenance recovery"
+                    )
                 return retired
 
             with service.maintenance(installation, native_clients=True) as maintenance_env:
                 if not native_path.exists():
                     viewer_bytes = _serving_retirement_bytes(viewer_path)
                     if hashlib.sha256(viewer_bytes).hexdigest() != expected["viewer_sha256"]:
-                        raise FixtureBlocked("identity", "retained viewer changed before retirement")
+                        raise FixtureBlocked(
+                            "identity", "retained viewer changed before retirement"
+                        )
                     if selection.exists() and (
-                            hashlib.sha256(_serving_retirement_bytes(selection)).hexdigest() != expected["selection_sha256"]
-                            or json.loads(_serving_retirement_bytes(selection)) != handle):
-                        raise FixtureBlocked("identity", "retained selected handle changed before retirement")
+                        hashlib.sha256(_serving_retirement_bytes(selection)).hexdigest()
+                        != expected["selection_sha256"]
+                        or json.loads(_serving_retirement_bytes(selection)) != handle
+                    ):
+                        raise FixtureBlocked(
+                            "identity", "retained selected handle changed before retirement"
+                        )
                     # Private runtime copies exist only while this exact owner needs them.
                     durable_json(runtime_path, runtime)
                     durable_json(handle_path, handle)
-                    attachment = Attachment.create(Server(installation), maintenance_env=maintenance_env)
+                    attachment = Attachment.create(
+                        Server(installation), maintenance_env=maintenance_env
+                    )
                     with admission([attachment.directory]):
                         output_path = directory / ("retirement-output-" + attachment.id + ".json")
-                        command = [installation.record["installer"], "snapshot", "--runtime-config", str(runtime_path),
-                            "retire", str(handle_path), "--readers-stopped", "--clear-selection", "--job", plan["job"]]
-                        durable_json(directory / "retirement-attempt.json", {"plan_sha256": plan_sha256,
-                            "attachment": attachment.id, "output": str(output_path), "command": command})
+                        command = [
+                            installation.record["installer"],
+                            "snapshot",
+                            "--runtime-config",
+                            str(runtime_path),
+                            "retire",
+                            str(handle_path),
+                            "--readers-stopped",
+                            "--clear-selection",
+                            "--job",
+                            plan["job"],
+                        ]
+                        durable_json(
+                            directory / "retirement-attempt.json",
+                            {
+                                "plan_sha256": plan_sha256,
+                                "attachment": attachment.id,
+                                "output": str(output_path),
+                                "command": command,
+                            },
+                        )
                         try:
-                            descriptor = os.open(output_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                            descriptor = os.open(
+                                output_path,
+                                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                                0o600,
+                            )
                             with os.fdopen(descriptor, "wb") as output:
-                                proof = {key: maintenance_env[key] for key in (
-                                    "LCTX_SURREAL_SERVICE_CONFIG", "LCTX_SURREAL_MAINTENANCE_TOKEN", "LCTX_SURREAL_INSTALLER_CONFIG")}
-                                code = run_attached(attachment, command, child_env=proof, stdout=output)
+                                proof = {
+                                    key: maintenance_env[key]
+                                    for key in (
+                                        "LCTX_SURREAL_SERVICE_CONFIG",
+                                        "LCTX_SURREAL_MAINTENANCE_TOKEN",
+                                        "LCTX_SURREAL_INSTALLER_CONFIG",
+                                    )
+                                }
+                                code = run_attached(
+                                    attachment, command, child_env=proof, stdout=output
+                                )
                                 output.flush()
                                 os.fsync(output.fileno())
                         finally:
                             attachment.release()
                         row = read_json(attachment.directory / "record.json")
                         native = native_completion(attachment.directory, row)
-                        if code or row.get("released") is not True or native.get("status") != "confirmed":
-                            raise FixtureFailed("retirement", "native retirement or actual owner finality remains unresolved")
+                        if (
+                            code
+                            or row.get("released") is not True
+                            or native.get("status") != "confirmed"
+                        ):
+                            raise FixtureFailed(
+                                "retirement",
+                                "native retirement or actual owner finality remains unresolved",
+                            )
                         progress = json.loads(_serving_retirement_bytes(output_path))
-                        if (set(progress) != {"identity", "retired", "examined", "remaining", "retained"}
-                                or progress["identity"] != plan["job"] or progress["remaining"] != []
-                                or type(progress["retired"]) is not int or progress["retired"] <= 0
-                                or type(progress["examined"]) is not int or progress["examined"] < 0
-                                or not isinstance(progress["retained"], list)
-                                or any(not isinstance(item, str) for item in progress["retained"])):
-                            raise FixtureFailed("retirement", "native retirement did not acknowledge this completed job")
-                        durable_json(native_path, {"plan_sha256": plan_sha256, "progress": progress,
-                            "attachment": attachment.id, "command_cleanup": row["command_cleanup"],
-                            "native_completion": native})
+                        if (
+                            set(progress)
+                            != {"identity", "retired", "examined", "remaining", "retained"}
+                            or progress["identity"] != plan["job"]
+                            or progress["remaining"] != []
+                            or type(progress["retired"]) is not int
+                            or progress["retired"] <= 0
+                            or type(progress["examined"]) is not int
+                            or progress["examined"] < 0
+                            or not isinstance(progress["retained"], list)
+                            or any(not isinstance(item, str) for item in progress["retained"])
+                        ):
+                            raise FixtureFailed(
+                                "retirement",
+                                "native retirement did not acknowledge this completed job",
+                            )
+                        durable_json(
+                            native_path,
+                            {
+                                "plan_sha256": plan_sha256,
+                                "progress": progress,
+                                "attachment": attachment.id,
+                                "command_cleanup": row["command_cleanup"],
+                                "native_completion": native,
+                            },
+                        )
                 native = json.loads(_serving_retirement_bytes(native_path))
-                if (native.get("plan_sha256") != plan_sha256 or native["progress"]["identity"] != plan["job"]
-                        or native["progress"]["remaining"] != []
-                        or native["native_completion"].get("status") != "confirmed"
-                        or native["command_cleanup"].get("status") != "confirmed"
-                        or native["command_cleanup"].get("survivors")):
+                if (
+                    native.get("plan_sha256") != plan_sha256
+                    or native["progress"]["identity"] != plan["job"]
+                    or native["progress"]["remaining"] != []
+                    or native["native_completion"].get("status") != "confirmed"
+                    or native["command_cleanup"].get("status") != "confirmed"
+                    or native["command_cleanup"].get("survivors")
+                ):
                     raise FixtureBlocked("identity", "native retained retirement receipt changed")
                 if selection.exists():
-                    raise FixtureBlocked("identity", "retained selection reappeared; no other pointer is removed")
-                for path, digest in ((viewer_path, expected["viewer_sha256"]), (runtime_path, expected["runtime_sha256"])):
+                    raise FixtureBlocked(
+                        "identity", "retained selection reappeared; no other pointer is removed"
+                    )
+                for path, digest in (
+                    (viewer_path, expected["viewer_sha256"]),
+                    (runtime_path, expected["runtime_sha256"]),
+                ):
                     if path.exists():
                         if hashlib.sha256(_serving_retirement_bytes(path)).hexdigest() != digest:
-                            raise FixtureBlocked("identity", "retained runtime changed before host release")
+                            raise FixtureBlocked(
+                                "identity", "retained runtime changed before host release"
+                            )
                         path.unlink()
                 if handle_path.exists():
                     if json.loads(_serving_retirement_bytes(handle_path)) != handle:
-                        raise FixtureBlocked("identity", "retained handle copy changed before host release")
+                        raise FixtureBlocked(
+                            "identity", "retained handle copy changed before host release"
+                        )
                     handle_path.unlink()
                 fsync_directory(directory)
                 producer_id = identity.get("producing_run", {}).get("attachment")
@@ -1074,13 +1606,31 @@ def retire_serving(name: str) -> dict[str, Any]:
                     producer_directory = installation.directory / "attachments" / producer_id
                     producer = read_json(producer_directory / "record.json")
                     if isinstance(producer, dict):
-                        if (producer.get("fixture") != installation.id or producer.get("released") is not True
-                                or native_protected(producer_directory, producer, native_completion(producer_directory, producer))):
-                            raise FixtureBlocked("ownership", "retained producer local ownership remains unresolved")
-                        _complete_attachment_obligations(producer_directory, "exact retained native publication retired")
-                retired = {"outcome": "retired", "name": name, "fixture": installation.id,
-                    "plan_sha256": plan_sha256, "native_sha256": file_sha256(native_path),
-                    "job": plan["job"], "publication": handle["publication"], "retired_at": now()}
+                        if (
+                            producer.get("fixture") != installation.id
+                            or producer.get("released") is not True
+                            or native_protected(
+                                producer_directory,
+                                producer,
+                                native_completion(producer_directory, producer),
+                            )
+                        ):
+                            raise FixtureBlocked(
+                                "ownership", "retained producer local ownership remains unresolved"
+                            )
+                        _complete_attachment_obligations(
+                            producer_directory, "exact retained native publication retired"
+                        )
+                retired = {
+                    "outcome": "retired",
+                    "name": name,
+                    "fixture": installation.id,
+                    "plan_sha256": plan_sha256,
+                    "native_sha256": file_sha256(native_path),
+                    "job": plan["job"],
+                    "publication": handle["publication"],
+                    "retired_at": now(),
+                }
                 durable_json(retired_path, retired)
             return retired
         finally:
@@ -1219,9 +1769,12 @@ def _recover_local(installation: Installation, directory: Path) -> None:
             raise FixtureFailed("cleanup", "command cleanup is unresolved")
         native = native_completion(directory, row)
         if native_protected(directory, row, native):
-            raise FixtureFailed("native", "native completion remains unknown; process cleanup cannot release it; "
+            raise FixtureFailed(
+                "native",
+                "native completion remains unknown; process cleanup cannot release it; "
                 f"explicit service recovery: just service maintenance --recover-attachment {directory.name} "
-                f"(PD02) or --recover-native-attachment {directory.name} (Started native store/workspace owners)")
+                f"(PD02) or --recover-native-attachment {directory.name} (Started native store/workspace owners)",
+            )
         # Local drainage is separate from native effects. The service manager invokes the
         # native installation drain before disruptive work and before reopening admission.
         write_json_atomic(
@@ -1253,22 +1806,31 @@ def recover(attachment_id: str) -> None:
         _complete_attachment_obligations(directory, "confirmed local attachment recovery")
 
 
-def _complete_attachment_obligations(directory: Path, reason: str, *, owner_lease: int | None = None) -> None:
+def _complete_attachment_obligations(
+    directory: Path, reason: str, *, owner_lease: int | None = None
+) -> None:
     # Only declared local attachment obligations; never persisted native content.
     import storage_owners
     from storage_lifecycle import Storage
+
     for row in Storage().records():
         if row.get("retired_at") or row.get("owner", {}).get("kind") != "attachment":
             continue
         if row["owner"].get("path") != str(directory.resolve()):
             continue
-        guard = (storage_owners.owner_guard(row, attachment_lease=owner_lease)
-            if owner_lease is not None else contextlib.nullcontext())
+        guard = (
+            storage_owners.owner_guard(row, attachment_lease=owner_lease)
+            if owner_lease is not None
+            else contextlib.nullcontext()
+        )
         with guard:
             for consumer, obligation in row["obligations"].items():
                 if obligation.get("temporary_days") is not None:
                     if not storage_owners.complete(row["id"], consumer, reason=reason):
-                        raise FixtureFailed("storage", "declared attachment obligation completion remains unresolved")
+                        raise FixtureFailed(
+                            "storage",
+                            "declared attachment obligation completion remains unresolved",
+                        )
 
 
 class _Interrupted(Exception):
@@ -1340,7 +1902,9 @@ def run_attached(
             intent, command_cleanup={"status": "unknown", "reason": "launch pending"}
         )
         try:
-            child = spawn_group(command, death_signal=signal.SIGTERM, env=env, cwd=cwd, stdout=stdout)
+            child = spawn_group(
+                command, death_signal=signal.SIGTERM, env=env, cwd=cwd, stdout=stdout
+            )
         except OSError as error:
             attachment._command_cleanup = {"status": "confirmed", "survivors": []}
             attachment._write_record(
@@ -1390,7 +1954,9 @@ def run_attached(
                 "child_exit_code": code if code is not None else guard.returncode,
             }
             if directory is not None:
-                updates["native_completion"] = native_completion(directory, read_json(directory / "record.json"))
+                updates["native_completion"] = native_completion(
+                    directory, read_json(directory / "record.json")
+                )
             if (
                 guard.cleanup["status"] != "confirmed"
                 and "start_ticks" not in command_record["leader"]
@@ -1416,8 +1982,11 @@ def run_attached(
             report(f"fixture: command cleanup {guard.cleanup['status']}")
             return code or 1
         if directory is not None and _native_pending(
-                read_json(directory / "record.json"), updates["native_completion"]):
-            report("fixture: native completion unknown; attachment retained independently of child exit")
+            read_json(directory / "record.json"), updates["native_completion"]
+        ):
+            report(
+                "fixture: native completion unknown; attachment retained independently of child exit"
+            )
             return code or 1
         assert code is not None
         return code
@@ -1501,8 +2070,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="ATTEMPT",
         help="recover a dead owner's exact command group; never delete DB data",
     )
-    action.add_argument("--retire-serving", metavar="NAME",
-                        help="retire only this named campaign validation publication after joined quiescence")
+    action.add_argument(
+        "--retire-serving",
+        metavar="NAME",
+        help="retire only this named campaign validation publication after joined quiescence",
+    )
     parser.add_argument("--json", action="store_true")
     parser.add_argument(
         "--requires",

@@ -8,21 +8,26 @@ import io
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
+import time
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 import surrealdb_service as service
-from surrealdb_service import _run_installer, verify_binary as verify_official_binary
+from surrealdb_service import _run_installer
+from surrealdb_service import verify_binary as verify_official_binary
 
 DAEMON_CHECK = service.Installation.check_daemon
 INSTALLATION_CHECK = service.Installation.check
 OWNED_START = service._start_owned
+DISPOSAL_INSTALLER_RUN = service._run_disposal_installer
 
 
 @pytest.fixture
@@ -33,19 +38,32 @@ def installer_handoff_ready(recoverable, tmp_path, monkeypatch):
     old = Path(installation.record["installer"])
     old.chmod(0o700)
     original = storage_service.prepare(installation.directory, old)
-    installation.record.update(installer=original["path"], installer_generation=original,
-                               native_schema_version=6)
+    installation.record.update(
+        installer=original["path"], installer_generation=original, native_schema_version=6
+    )
     service.private_json(installation.directory / "installation.json", installation.record)
     candidate = tmp_path / "replacement-lctx"
     candidate.write_bytes(b"current fixed installer")
     candidate.chmod(0o700)
-    state = {"failure": None, "ignore_close": None, "markers": {
-        db: {"generation": bytes(installation.record["service_generation"]).hex(),
-             "schema": "a" * 64, "schema_version": 6, "admission_open": True}
-        for db in service.DATABASES}}
+    state = {
+        "failure": None,
+        "ignore_close": None,
+        "markers": {
+            db: {
+                "generation": bytes(installation.record["service_generation"]).hex(),
+                "schema": "a" * 64,
+                "schema_version": 6,
+                "admission_open": True,
+            }
+            for db in service.DATABASES
+        },
+    }
     monkeypatch.setattr(service.Installation, "check_daemon", lambda inst: None)
-    monkeypatch.setattr(service, "sql", lambda inst, query, *, cfg:
-        [{"result": [dict(state["markers"][cfg["database"]])]}])
+    monkeypatch.setattr(
+        service,
+        "sql",
+        lambda inst, query, *, cfg: [{"result": [dict(state["markers"][cfg["database"]])]}],
+    )
 
     def cli(inst, generation, database, action, token):
         assert service.lock_held(inst.directory / "admission.lock")
@@ -56,14 +74,20 @@ def installer_handoff_ready(recoverable, tmp_path, monkeypatch):
         if action == "schema":
             return {"schema": "a" * 64, "schema_version": 6}
         marker = json.loads((inst.directory / "maintenance.json").read_text())
-        assert token == marker["token"] and service.maintenance_owned(inst, {"LCTX_SURREAL_MAINTENANCE_TOKEN": token})
+        assert token == marker["token"] and service.maintenance_owned(
+            inst, {"LCTX_SURREAL_MAINTENANCE_TOKEN": token}
+        )
         if state["failure"] == (database, action):
             raise service.FixtureFailed("installer", "controlled second scope failure")
         if action == "close-admission" and state["ignore_close"] != database:
             state["markers"][database]["admission_open"] = False
         if action == "open-admission":
             state["markers"][database]["admission_open"] = True
-        return {"ready": action in {"open-admission", "check"}, "namespace": service.NAMESPACE, "database": database}
+        return {
+            "ready": action in {"open-admission", "check"},
+            "namespace": service.NAMESPACE,
+            "database": database,
+        }
 
     monkeypatch.setattr(service, "_installer_handoff_cli", cli)
     return installation, candidate, actions, state
@@ -76,27 +100,38 @@ def _ended_installer_handoff_owner(installation):
     service.private_json(path, marker)
 
 
-def test_installer_handoff_changes_only_executable_fields_after_both_checks(installer_handoff_ready):
+def test_installer_handoff_changes_only_executable_fields_after_both_checks(
+    installer_handoff_ready,
+):
     installation, candidate, actions, state = installer_handoff_ready
     before = json.loads(json.dumps(installation.record))
     protected = {path: path.read_bytes() for path in installation.directory.glob("*-*.json")}
     result = service.handoff_installer(installation, candidate)
     assert result["outcome"] == "passed"
-    assert {key for key in before if before[key] != installation.record[key]} == {"installer", "installer_generation"}
-    assert json.loads((installation.directory / "installation.json").read_text()) == installation.record
+    assert {key for key in before if before[key] != installation.record[key]} == {
+        "installer",
+        "installer_generation",
+    }
+    assert (
+        json.loads((installation.directory / "installation.json").read_text())
+        == installation.record
+    )
     assert all(path.read_bytes() == raw for path, raw in protected.items())
     assert all(value["admission_open"] for value in state["markers"].values())
     assert actions.index(("validation", "check")) < actions.index(("main", "open-admission"))
     assert not (installation.directory / "maintenance.json").exists()
     journal = next((installation.directory / "installer-handoffs").glob("*/plan.json"))
     import base64
+
     plan = json.loads(journal.read_text())
     assert json.loads(base64.b64decode(plan["previous_bytes"])) == before
     assert json.loads(base64.b64decode(plan["successor_bytes"])) == installation.record
     assert (journal.parent / "receipt.json").exists()
 
 
-def test_installer_handoff_second_schema_mismatch_has_no_pointer_or_native_effect(installer_handoff_ready):
+def test_installer_handoff_second_schema_mismatch_has_no_pointer_or_native_effect(
+    installer_handoff_ready,
+):
     installation, candidate, actions, state = installer_handoff_ready
     before = (installation.directory / "installation.json").read_bytes()
     state["markers"]["validation"]["schema"] = "b" * 64
@@ -107,7 +142,9 @@ def test_installer_handoff_second_schema_mismatch_has_no_pointer_or_native_effec
     assert not (installation.directory / "maintenance.json").exists()
 
 
-def test_installer_handoff_second_drain_failure_keeps_exact_old_pointer_and_both_closed(installer_handoff_ready):
+def test_installer_handoff_second_drain_failure_keeps_exact_old_pointer_and_both_closed(
+    installer_handoff_ready,
+):
     installation, candidate, actions, state = installer_handoff_ready
     before = (installation.directory / "installation.json").read_bytes()
     state["failure"] = ("validation", "drain")
@@ -118,6 +155,7 @@ def test_installer_handoff_second_drain_failure_keeps_exact_old_pointer_and_both
     assert not any(action == "open-admission" for _, action in actions)
     assert (installation.directory / "maintenance.json").exists()
     import storage_service
+
     dependencies = storage_service.dependencies(installation)["dependencies"]
     assert sum(row["role"] == "unresolved-installer-handoff" for row in dependencies) == 2
 
@@ -143,18 +181,25 @@ def test_installer_handoff_ordinary_readiness_refusal_closes_both_and_retains_jo
     monkeypatch.setattr(service.Installation, "check", INSTALLATION_CHECK)
     with pytest.raises(service.FixtureBlocked, match="ordinary credential refusal"):
         service.handoff_installer(installation, candidate)
-    assert ordinary_reads == list(service.DATABASES[: service.DATABASES.index(refused_database) + 1])
+    assert ordinary_reads == list(
+        service.DATABASES[: service.DATABASES.index(refused_database) + 1]
+    )
     assert ("validation", "open-admission") in actions
     assert not any(value["admission_open"] for value in state["markers"].values())
     assert (installation.directory / "maintenance.json").exists()
     journal = next((installation.directory / "installer-handoffs").glob("*/plan.json"))
     assert (journal.parent / "checked.json").exists()
     assert not (journal.parent / "receipt.json").exists()
-    assert json.loads((installation.directory / "installation.json").read_bytes()) == installation.record
+    assert (
+        json.loads((installation.directory / "installation.json").read_bytes())
+        == installation.record
+    )
 
 
 @pytest.mark.parametrize("after_publication", [False, True])
-def test_installer_handoff_exact_resume_before_and_after_pointer_publication(installer_handoff_ready, monkeypatch, after_publication):
+def test_installer_handoff_exact_resume_before_and_after_pointer_publication(
+    installer_handoff_ready, monkeypatch, after_publication
+):
     installation, candidate, actions, state = installer_handoff_ready
     previous = (installation.directory / "installation.json").read_bytes()
     write = service._write_private
@@ -167,19 +212,26 @@ def test_installer_handoff_exact_resume_before_and_after_pointer_publication(ins
     monkeypatch.setattr(service, "_write_private", interrupt)
     with pytest.raises(KeyboardInterrupt):
         service.handoff_installer(installation, candidate)
-    assert ((installation.directory / "installation.json").read_bytes() != previous) == after_publication
+    assert (
+        (installation.directory / "installation.json").read_bytes() != previous
+    ) == after_publication
     assert not any(value["admission_open"] for value in state["markers"].values())
     journal = next((installation.directory / "installer-handoffs").glob("*/plan.json"))
     exact_plan = journal.read_bytes()
     _ended_installer_handoff_owner(installation)
     monkeypatch.setattr(service, "_write_private", write)
-    installation = service.Installation(installation.directory, json.loads((installation.directory / "installation.json").read_text()))
+    installation = service.Installation(
+        installation.directory,
+        json.loads((installation.directory / "installation.json").read_text()),
+    )
     assert service.handoff_installer(installation, candidate)["outcome"] == "passed"
     assert journal.read_bytes() == exact_plan
     assert all(row["admission_open"] for row in state["markers"].values())
 
 
-def test_installer_handoff_refuses_unacknowledged_close_without_normalizing_open_marker(installer_handoff_ready):
+def test_installer_handoff_refuses_unacknowledged_close_without_normalizing_open_marker(
+    installer_handoff_ready,
+):
     installation, candidate, _, state = installer_handoff_ready
     before = (installation.directory / "installation.json").read_bytes()
     state["ignore_close"] = "validation"
@@ -190,7 +242,9 @@ def test_installer_handoff_refuses_unacknowledged_close_without_normalizing_open
     assert (installation.directory / "maintenance.json").exists()
 
 
-def test_installer_handoff_resume_uses_exact_owned_candidate_after_checkout_source_disappears(installer_handoff_ready):
+def test_installer_handoff_resume_uses_exact_owned_candidate_after_checkout_source_disappears(
+    installer_handoff_ready,
+):
     installation, candidate, _, state = installer_handoff_ready
     state["failure"] = ("validation", "drain")
     with pytest.raises(service.FixtureFailed):
@@ -223,7 +277,9 @@ def test_installer_handoff_resume_refuses_changed_checkpoint(installer_handoff_r
     if change == "candidate":
         candidate.write_bytes(b"different candidate at same path")
     elif change == "descriptor":
-        service.private_json(installation.directory / "installation.json", {**installation.record, "foreign": True})
+        service.private_json(
+            installation.directory / "installation.json", {**installation.record, "foreign": True}
+        )
     else:
         path = installation.runtime_path("validation", installer=True)
         service.private_json(path, {**json.loads(path.read_text()), "foreign": True})
@@ -238,7 +294,9 @@ def test_installer_handoff_resume_refuses_changed_checkpoint(installer_handoff_r
 
 
 @pytest.mark.parametrize("owner", ["live", "specialized", "foreign", "borrower"])
-def test_installer_handoff_refuses_existing_owner_before_candidate_effects(installer_handoff_ready, owner, monkeypatch):
+def test_installer_handoff_refuses_existing_owner_before_candidate_effects(
+    installer_handoff_ready, owner, monkeypatch
+):
     installation, candidate, actions, _ = installer_handoff_ready
     identity = service.ProcessIdentity.of().to_json()
     if owner == "borrower":
@@ -248,9 +306,16 @@ def test_installer_handoff_refuses_existing_owner_before_candidate_effects(insta
             identity["start_ticks"] += 1
         if owner == "foreign":
             identity["pid_namespace"] += 1
-        service.private_json(installation.directory / "maintenance.json", {
-            "owner": identity, "operation": "native named attachment recovery" if owner == "specialized" else service.INSTALLER_HANDOFF_OPERATION,
-            "installer_handoff": {"operation": "a" * 64}})
+        service.private_json(
+            installation.directory / "maintenance.json",
+            {
+                "owner": identity,
+                "operation": "native named attachment recovery"
+                if owner == "specialized"
+                else service.INSTALLER_HANDOFF_OPERATION,
+                "installer_handoff": {"operation": "a" * 64},
+            },
+        )
     with pytest.raises(service.FixtureBlocked, match="owner|borrowers"):
         service.handoff_installer(installation, candidate)
     assert actions == []
@@ -266,28 +331,35 @@ def test_installer_handoff_refuses_held_real_host_lock(installer_handoff_ready, 
     assert actions == []
 
 
-def test_installer_handoff_cli_executes_verified_fd_and_checks_exact_acknowledgement(recoverable, tmp_path, monkeypatch):
+def test_installer_handoff_cli_executes_verified_fd_and_checks_exact_acknowledgement(
+    recoverable, tmp_path, monkeypatch
+):
     import storage_service
 
     installation, _, _ = recoverable
     source = tmp_path / "finite-metadata-cli"
-    source.write_text("#!/bin/sh\nprintf '%s\\n' '{\"schema_version\":6,\"schema\":\"" + "a" * 64 + "\"}'\n")
+    source.write_text(
+        '#!/bin/sh\nprintf \'%s\\n\' \'{"schema_version":6,"schema":"' + "a" * 64 + "\"}'\n"
+    )
     source.chmod(0o700)
     candidate = storage_service.prepare(installation.directory, source)
     invoke = subprocess.run
     calls = []
 
     def observed(args, **kwargs):
-        descriptor, = kwargs["pass_fds"]
+        (descriptor,) = kwargs["pass_fds"]
         assert args[0] == f"/proc/self/fd/{descriptor}"
-        assert service.executable_identity(os.fstat(descriptor)) == service.executable_identity(Path(candidate["path"]).stat())
+        assert service.executable_identity(os.fstat(descriptor)) == service.executable_identity(
+            Path(candidate["path"]).stat()
+        )
         assert kwargs["env"]["LCTX_SURREAL_MAINTENANCE_TOKEN"] == "actual-token"
         calls.append(args[-1])
         return invoke(args, **kwargs)
 
     monkeypatch.setattr(service.subprocess, "run", observed)
-    assert service._installer_handoff_cli(installation, candidate, "main", "schema", "actual-token") == {
-        "schema_version": 6, "schema": "a" * 64}
+    assert service._installer_handoff_cli(
+        installation, candidate, "main", "schema", "actual-token"
+    ) == {"schema_version": 6, "schema": "a" * 64}
     with pytest.raises(service.FixtureBlocked, match="acknowledgement differs"):
         service._installer_handoff_cli(installation, candidate, "main", "drain", "actual-token")
     assert calls == ["schema", "drain"]
@@ -332,66 +404,91 @@ def observe_cli(self, *args, **kwargs):
 argparse.ArgumentParser.parse_args = observe_cli
 runpy.run_path(sys.argv[1], run_name='__main__')
 """
-    result = subprocess.run([sys.executable,"-c",code,str(Path(service.__file__).resolve())],
-        cwd=service.ROOT,capture_output=True,text=True,check=False)
+    result = subprocess.run(
+        [sys.executable, "-c", code, str(Path(service.__file__).resolve())],
+        cwd=service.ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert result.returncode == 0, result.stderr
     assert "canonical CLI/helper owner; transient readiness retried" in result.stdout
 
 
-def test_owned_start_rechecks_same_generation_without_restarting_or_extending_deadline(recoverable,monkeypatch):
-    installation,_archive,_actions=recoverable
-    original=json.loads(json.dumps(installation.record))
-    calls=[]
-    checks=0
-    def check(current,**kwargs):
+def test_owned_start_rechecks_same_generation_without_restarting_or_extending_deadline(
+    recoverable, monkeypatch
+):
+    installation, _archive, _actions = recoverable
+    original = json.loads(json.dumps(installation.record))
+    calls = []
+    checks = 0
+
+    def check(current, **kwargs):
         nonlocal checks
-        checks+=1
-        assert current.record == original and kwargs == {"allow_maintenance":True}
+        checks += 1
+        assert current.record == original and kwargs == {"allow_maintenance": True}
         if checks < 3:
-            raise service.FixtureBlocked("readiness","same successor not ready yet")
-        return {"outcome":"passed"}
-    monkeypatch.setattr(service.Installation,"check",check)
-    monkeypatch.setattr(service,"systemctl",lambda *args:calls.append(args) or SimpleNamespace(returncode=0))
-    sleeps=[]
-    monkeypatch.setattr(service.time,"sleep",lambda delay:sleeps.append(delay))
+            raise service.FixtureBlocked("readiness", "same successor not ready yet")
+        return {"outcome": "passed"}
+
+    monkeypatch.setattr(service.Installation, "check", check)
+    monkeypatch.setattr(
+        service, "systemctl", lambda *args: calls.append(args) or SimpleNamespace(returncode=0)
+    )
+    sleeps = []
+    monkeypatch.setattr(service.time, "sleep", lambda delay: sleeps.append(delay))
     OWNED_START(installation)
-    assert calls == [("start",installation.unit)] and sleeps == [0.1,0.1]
+    assert calls == [("start", installation.unit)] and sleeps == [0.1, 0.1]
     assert checks == 3 and service.READY_TIMEOUT == 40.0
-    refusal=service.FixtureBlocked("identity","successor executable differs")
-    monkeypatch.setattr(service.Installation,"check",lambda *a,**kw:(_ for _ in ()).throw(refusal))
-    times=iter([100.0,139.0,140.0])
-    monkeypatch.setattr(service.time,"monotonic",lambda:next(times))
+    refusal = service.FixtureBlocked("identity", "successor executable differs")
+    monkeypatch.setattr(
+        service.Installation, "check", lambda *a, **kw: (_ for _ in ()).throw(refusal)
+    )
+    times = iter([100.0, 139.0, 140.0])
+    monkeypatch.setattr(service.time, "monotonic", lambda: next(times))
     with pytest.raises(service.FixtureBlocked) as caught:
         OWNED_START(installation)
-    assert caught.value is refusal and sleeps == [0.1,0.1,0.1]
-    assert calls == [("start",installation.unit),("start",installation.unit)]
+    assert caught.value is refusal and sleeps == [0.1, 0.1, 0.1]
+    assert calls == [("start", installation.unit), ("start", installation.unit)]
 
 
 def assert_borrow_protected(path):
-    with path.open("rb") as lock:
-        with pytest.raises(BlockingIOError):
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with path.open("rb") as lock, pytest.raises(BlockingIOError):
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def test_borrow_protects_before_proof_and_reuses_one_checked_generation(recoverable, monkeypatch):
     installation, _archive, _actions = recoverable
     proofs, queries = [], []
     monkeypatch.setattr(service.Installation, "check", INSTALLATION_CHECK)
+
     def daemon(current):
         assert_borrow_protected(current.directory / "admission.lock")
         assert_borrow_protected(current.directory / "borrowers.lock")
         proofs.append(current.id)
+
     monkeypatch.setattr(service.Installation, "check_daemon", daemon)
+
     def sql(current, statement, *, cfg):
         queries.append(cfg["database"])
-        return [{"result": [{"generation": bytes(current.record["service_generation"]).hex(),
-                             "schema_version": 3}]}]
+        return [
+            {
+                "result": [
+                    {
+                        "generation": bytes(current.record["service_generation"]).hex(),
+                        "schema_version": 3,
+                    }
+                ]
+            }
+        ]
+
     monkeypatch.setattr(service, "sql", sql)
     with service.borrow(installation) as checked:
         first = checked.readiness
         for _ in range(3):
-            loaded = service.Installation.load({"LCTX_SURREAL_SERVICE_CONFIG":
-                str(installation.directory / "installation.json")})
+            loaded = service.Installation.load(
+                {"LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json")}
+            )
             assert loaded.check() == first
             assert checked.server_identity(loaded)["binary_sha256"] == service.BINARY_SHA256
         assert proofs == [installation.id] and queries == list(service.DATABASES)
@@ -418,9 +515,13 @@ def test_checked_generation_refuses_changed_premises(recoverable, monkeypatch, c
 
 def test_failed_borrow_releases_locks_and_preserves_readiness_repair(recoverable, monkeypatch):
     installation, _archive, _actions = recoverable
+
     def refuse(self, **kw):
         assert_borrow_protected(self.directory / "borrowers.lock")
-        raise service.FixtureBlocked("schema", "exact schema mismatch", "just service maintenance --check")
+        raise service.FixtureBlocked(
+            "schema", "exact schema mismatch", "just service maintenance --check"
+        )
+
     monkeypatch.setattr(service.Installation, "check", refuse)
     with pytest.raises(service.FixtureBlocked) as error, service.borrow(installation):
         pytest.fail("failed check cannot yield a witness")
@@ -430,16 +531,26 @@ def test_failed_borrow_releases_locks_and_preserves_readiness_repair(recoverable
 
 
 @pytest.mark.parametrize("change", ["daemon", "executable", "owner"])
-def test_checked_generation_rejects_process_executable_or_process_handoff(recoverable, monkeypatch, change):
+def test_checked_generation_rejects_process_executable_or_process_handoff(
+    recoverable, monkeypatch, change
+):
     installation, _archive, _actions = recoverable
     binary = Path(installation.record["binary"]["path"])
     actual_stat = Path.stat
-    monkeypatch.setattr(Path, "stat", lambda path, *a, **kw:
-        actual_stat(binary, *a, **kw) if str(path) == "/proc/1234/exe"
-        else actual_stat(path, *a, **kw))
+    monkeypatch.setattr(
+        Path,
+        "stat",
+        lambda path, *a, **kw: (
+            actual_stat(binary, *a, **kw)
+            if str(path) == "/proc/1234/exe"
+            else actual_stat(path, *a, **kw)
+        ),
+    )
     alive = True
-    installation._daemon_identity = (SimpleNamespace(pid=1234, alive=lambda: alive),
-                                    service.executable_identity(binary.stat()))
+    installation._daemon_identity = (
+        SimpleNamespace(pid=1234, alive=lambda: alive),
+        service.executable_identity(binary.stat()),
+    )
     with service.borrow(installation) as checked:
         checked.validate(installation)
         if change == "daemon":
@@ -660,7 +771,9 @@ def test_maintenance_command_retains_attachment_scope_over_inherited_configs(
     recoverable, monkeypatch
 ):
     installation, _archive, actions = recoverable
-    monkeypatch.setattr(service, "verify_binary", lambda env: Path(installation.record["binary"]["path"]))
+    monkeypatch.setattr(
+        service, "verify_binary", lambda env: Path(installation.record["binary"]["path"])
+    )
     monkeypatch.setenv(
         "LCTX_SURREAL_SERVICE_CONFIG", str(installation.directory / "installation.json")
     )
@@ -1303,83 +1416,22 @@ def test_recovery_preserves_absent_external_selection_and_refuses_symlink_alias(
         service.backup_service(installation, alias / "recursive.tar")
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def owned_server_descriptor(directory, scratch, suffix=""):
     import surrealdb_server as server
     from storage_service import prepare_server
+
     selected = server.recipe(cpu_count=7)
-    provenance = server.build_provenance(directory, selected,
+    provenance = server.build_provenance(
+        directory,
+        selected,
         "rustc 1.99.0-nightly\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu",
-        "cargo 1.99.0-nightly", cache_record_sha256="a" * 64)
+        "cargo 1.99.0-nightly",
+        cache_record_sha256="a" * 64,
+    )
     executable = scratch / ("fake-reviewed-server" + suffix)
-    executable.write_text("#!/bin/sh\n# " + suffix + "\nprintf '" + selected["pin"]["cli_version"] + "\\n'\n")
+    executable.write_text(
+        "#!/bin/sh\n# " + suffix + "\nprintf '" + selected["pin"]["cli_version"] + "\\n'\n"
+    )
     executable.chmod(0o700)
     return prepare_server(directory, executable, provenance)
 
@@ -1392,36 +1444,58 @@ def server_handoff_ready(recoverable, tmp_path, monkeypatch):
     service._unit_path().write_text(service.unit_text(installation.directory, previous, 29999))
     monkeypatch.setattr(service, "verify_binary", lambda *args, **kw: previous)
     monkeypatch.setattr(service.Installation, "check_daemon", lambda inst: None)
-    state={"drift":None,"markers":{db:{"generation":bytes(installation.record["service_generation"]).hex(),
-        "schema":"a"*64,"schema_version":3,"admission_open":False} for db in service.DATABASES}}
+    state = {
+        "drift": None,
+        "markers": {
+            db: {
+                "generation": bytes(installation.record["service_generation"]).hex(),
+                "schema": "a" * 64,
+                "schema_version": 3,
+                "admission_open": False,
+            }
+            for db in service.DATABASES
+        },
+    }
+
     def start(inst):
         actions.append("owned-server-start")
         if state["drift"]:
-            field,value=state["drift"];state["markers"]["validation"][field]=value
+            field, value = state["drift"]
+            state["markers"]["validation"][field] = value
+
     monkeypatch.setattr(service, "_owned_daemon_start", start)
-    monkeypatch.setattr(service, "_stopped_attachment_commands", lambda inst: actions.append("attachments-drained"))
-    monkeypatch.setattr(service, "systemctl", lambda *args: actions.append(args[0]) or subprocess.CompletedProcess(args, 0))
-    monkeypatch.setattr(service, "sql", lambda inst, statement, *, cfg:
-        [{"status":"OK","result":[dict(state["markers"][cfg["database"]])]}])
+    monkeypatch.setattr(
+        service, "_stopped_attachment_commands", lambda inst: actions.append("attachments-drained")
+    )
+    monkeypatch.setattr(
+        service,
+        "systemctl",
+        lambda *args: actions.append(args[0]) or subprocess.CompletedProcess(args, 0),
+    )
+    monkeypatch.setattr(
+        service,
+        "sql",
+        lambda inst, statement, *, cfg: [
+            {"status": "OK", "result": [dict(state["markers"][cfg["database"]])]}
+        ],
+    )
     return installation, generation, actions, state, None, b"", None
 
 
-
-
-
-
-
-
-@pytest.mark.parametrize("field,value", [("generation", "d" * 64), ("admission_open", True), ("schema", "d" * 64)])
-def test_server_handoff_refuses_changed_scope_after_restart_and_preserves_journal(server_handoff_ready, field, value):
+@pytest.mark.parametrize(
+    "field,value", [("generation", "d" * 64), ("admission_open", True), ("schema", "d" * 64)]
+)
+def test_server_handoff_refuses_changed_scope_after_restart_and_preserves_journal(
+    server_handoff_ready, field, value
+):
     installation, generation, actions, state, journal, original_bytes, _ = server_handoff_ready
-    state["drift"] = (field,value)
+    state["drift"] = (field, value)
     with pytest.raises(service.FixtureBlocked, match="scope identity or closed admission"):
         service.handoff_server(installation, Path(generation["descriptor_path"]))
     marker = json.loads((installation.directory / "maintenance.json").read_text())
     assert marker["server_handoff"]["phase"] == "installed"
     assert "owned-server-start" in actions and "open-admission" not in actions
-    plan=json.loads(Path(marker["server_handoff"]["journal"]).read_text())
+    plan = json.loads(Path(marker["server_handoff"]["journal"]).read_text())
     assert plan["scopes"]["validation"][field] != value
 
 
@@ -1435,14 +1509,15 @@ def test_server_handoff_refuses_live_owner_and_held_locks_before_stop(server_han
     finally:
         os.close(held)
     assert "stop" not in actions
-    assert not (installation.directory/"maintenance.json").exists()
-    marker = {"operation":service.SERVER_HANDOFF_OPERATION,"owner":service.ProcessIdentity.of().to_json()}
+    assert not (installation.directory / "maintenance.json").exists()
+    marker = {
+        "operation": service.SERVER_HANDOFF_OPERATION,
+        "owner": service.ProcessIdentity.of().to_json(),
+    }
     service.private_json(installation.directory / "maintenance.json", marker)
     with pytest.raises(service.FixtureBlocked, match="dead exact maintenance owner"):
         service.handoff_server(installation, Path(generation["descriptor_path"]))
     assert "stop" not in actions
-
-
 
 
 @pytest.mark.parametrize("flag", ["--recover", "--restart", "--check"])
@@ -1452,41 +1527,58 @@ def test_server_handoff_cli_is_mutually_exclusive(flag):
         service.main(args)
 
 
-def test_server_handoff_durably_links_plan_and_unit_before_pointer_start(server_handoff_ready, monkeypatch):
+def test_server_handoff_durably_links_plan_and_unit_before_pointer_start(
+    server_handoff_ready, monkeypatch
+):
     import storage_lifecycle
+
     installation, generation, actions, state, journal, original_bytes, _ = server_handoff_ready
     trace = []
     durable = storage_lifecycle.durable_json
     fsync = storage_lifecycle.fsync_directory
     private = service._write_private
     start = service._owned_daemon_start
+
     def written(path, row):
         result = durable(path, row)
         trace.append(("durable", Path(path)))
         return result
+
     def flushed(path):
         fsync(path)
         trace.append(("fsync", Path(path)))
+
     def unit(path, content):
         private(path, content)
         trace.append(("unit", Path(path)))
+
     monkeypatch.setattr(storage_lifecycle, "durable_json", written)
     monkeypatch.setattr(storage_lifecycle, "fsync_directory", flushed)
     monkeypatch.setattr(service, "_write_private", unit)
-    monkeypatch.setattr(service, "_owned_daemon_start", lambda inst: trace.append(("start", None)) or start(inst))
+    monkeypatch.setattr(
+        service, "_owned_daemon_start", lambda inst: trace.append(("start", None)) or start(inst)
+    )
     service.handoff_server(installation, Path(generation["descriptor_path"]))
     plan = Path(installation.record["server_handoff"]["journal"])
     marker = trace.index(("durable", installation.directory / "maintenance.json"))
     plan_position = trace.index(("durable", plan))
     for path in (plan.parent, plan.parent.parent, installation.directory):
         assert ("fsync", path) in trace[plan_position:marker]
-    assert trace.index(("unit", service._unit_path())) < trace.index(("durable", installation.directory / "installation.json")) < trace.index(("start", None))
+    assert (
+        trace.index(("unit", service._unit_path()))
+        < trace.index(("durable", installation.directory / "installation.json"))
+        < trace.index(("start", None))
+    )
 
 
-def test_owned_patched_binary_is_descriptor_bound_without_weakening_official_pin(server_handoff_ready):
+def test_owned_patched_binary_is_descriptor_bound_without_weakening_official_pin(
+    server_handoff_ready,
+):
     installation, generation, actions, state, journal, original_bytes, _ = server_handoff_ready
     service.handoff_server(installation, Path(generation["descriptor_path"]))
-    assert service._descriptor(installation.directory)["binary"] == service._generation_binary(generation)
+    assert service._descriptor(installation.directory)["binary"] == service._generation_binary(
+        generation
+    )
     assert service._installed_binary(installation) == Path(generation["path"])
     with pytest.raises(service.FixtureBlocked, match="sha256"):
         verify_official_binary({"LCTX_SURREAL_BIN": generation["path"]}, runner=pytest.fail)
@@ -1495,76 +1587,140 @@ def test_owned_patched_binary_is_descriptor_bound_without_weakening_official_pin
         service._installed_binary(installation)
 
 
-def test_check_daemon_checks_patched_actual_http_version_after_exact_executable(server_handoff_ready, monkeypatch):
+def test_check_daemon_checks_patched_actual_http_version_after_exact_executable(
+    server_handoff_ready, monkeypatch
+):
     installation, generation, actions, state, journal, original_bytes, _ = server_handoff_ready
-    monkeypatch.setattr(service.Installation,"check_daemon",DAEMON_CHECK)
+    monkeypatch.setattr(service.Installation, "check_daemon", DAEMON_CHECK)
     installation.record["binary"] = service._generation_binary(generation)
     binary = Path(generation["path"])
     monkeypatch.setattr(service, "_installed_binary", lambda inst: binary)
-    monkeypatch.setattr(service, "unit_properties", lambda *args: {"ActiveState": "active", "MainPID": "1234"})
+    monkeypatch.setattr(
+        service, "unit_properties", lambda *args: {"ActiveState": "active", "MainPID": "1234"}
+    )
     resolve = Path.resolve
     read_bytes = Path.read_bytes
+
     def resolved(path, *args, **kw):
         return binary if str(path) == "/proc/1234/exe" else resolve(path, *args, **kw)
+
     def bytes_for(path):
         if str(path) == "/proc/1234/cmdline":
-            return ("surreal\0--log=warn\0rocksdb://" + str(installation.directory / "data/store") + "\0" + installation.endpoint.removeprefix("http://") + "\0").encode()
+            return (
+                "surreal\0--log=warn\0rocksdb://"
+                + str(installation.directory / "data/store")
+                + "\0"
+                + installation.endpoint.removeprefix("http://")
+                + "\0"
+            ).encode()
         if str(path) == "/proc/1234/environ":
-            return b"\0".join((key + "=" + value).encode() for key, value in service.SERVER_SETTINGS.items())
+            return b"\0".join(
+                (key + "=" + value).encode() for key, value in service.SERVER_SETTINGS.items()
+            )
         return read_bytes(path)
+
     monkeypatch.setattr(Path, "resolve", resolved)
     monkeypatch.setattr(Path, "read_bytes", bytes_for)
     actual_stat = Path.stat
-    monkeypatch.setattr(Path, "stat", lambda path, *a, **kw:
-                        actual_stat(binary, *a, **kw) if str(path) == "/proc/1234/exe"
-                        else actual_stat(path, *a, **kw))
-    monkeypatch.setattr(service.ProcessIdentity, "of", lambda pid=None: SimpleNamespace(pid=1234, alive=lambda: True))
+    monkeypatch.setattr(
+        Path,
+        "stat",
+        lambda path, *a, **kw: (
+            actual_stat(binary, *a, **kw)
+            if str(path) == "/proc/1234/exe"
+            else actual_stat(path, *a, **kw)
+        ),
+    )
+    monkeypatch.setattr(
+        service.ProcessIdentity,
+        "of",
+        lambda pid=None: SimpleNamespace(pid=1234, alive=lambda: True),
+    )
     reported = service.VERSION
-    monkeypatch.setattr(service, "local_urlopen", lambda *args, **kw:
-        contextlib.nullcontext(SimpleNamespace(status=200, read=lambda: reported.encode())))
+    monkeypatch.setattr(
+        service,
+        "local_urlopen",
+        lambda *args, **kw: contextlib.nullcontext(
+            SimpleNamespace(status=200, read=lambda: reported.encode())
+        ),
+    )
     with pytest.raises(service.FixtureBlocked, match="server version differs"):
         installation.check_daemon()
     reported = generation["http_version"]
     installation.check_daemon()
 
 
-def test_standalone_server_handoff_reopens_only_after_both_unchanged_scopes(recoverable, tmp_path, monkeypatch):
+def test_standalone_server_handoff_reopens_only_after_both_unchanged_scopes(
+    recoverable, tmp_path, monkeypatch
+):
     installation, _, actions = recoverable
     generation = owned_server_descriptor(installation.directory, tmp_path)
     previous = Path(installation.record["binary"]["path"])
     service._unit_path().write_text(service.unit_text(installation.directory, previous, 29999))
     monkeypatch.setattr(service, "verify_binary", lambda *a, **kw: previous)
-    monkeypatch.setattr(service.Installation, "check_daemon", lambda inst: actions.append("daemon-ready"))
-    monkeypatch.setattr(service, "_owned_daemon_start", lambda inst: actions.append("owned-server-start"))
-    monkeypatch.setattr(service, "_stopped_attachment_commands", lambda inst: actions.append("attachments-drained"))
-    monkeypatch.setattr(service, "systemctl", lambda *args: actions.append(args[0]) or subprocess.CompletedProcess(args, 0))
+    monkeypatch.setattr(
+        service.Installation, "check_daemon", lambda inst: actions.append("daemon-ready")
+    )
+    monkeypatch.setattr(
+        service, "_owned_daemon_start", lambda inst: actions.append("owned-server-start")
+    )
+    monkeypatch.setattr(
+        service, "_stopped_attachment_commands", lambda inst: actions.append("attachments-drained")
+    )
+    monkeypatch.setattr(
+        service,
+        "systemctl",
+        lambda *args: actions.append(args[0]) or subprocess.CompletedProcess(args, 0),
+    )
     admitted = True
+
     def installer(inst, exe, action):
         nonlocal admitted
         actions.append(action)
         if action in ("close-admission", "open-admission"):
             admitted = action == "open-admission"
+
     def scopes(inst, statement, *, cfg):
         assert statement.startswith("SELECT generation,schema,schema_version,admission_open")
         actions.append(("scope", cfg["database"], admitted))
-        return [{"status": "OK", "result": [{"generation": bytes(inst.record["service_generation"]).hex(),
-            "schema": "a" * 64, "schema_version": 3, "admission_open": admitted}]}]
+        return [
+            {
+                "status": "OK",
+                "result": [
+                    {
+                        "generation": bytes(inst.record["service_generation"]).hex(),
+                        "schema": "a" * 64,
+                        "schema_version": 3,
+                        "admission_open": admitted,
+                    }
+                ],
+            }
+        ]
+
     monkeypatch.setattr(service, "_run_installer", installer)
     monkeypatch.setattr(service, "sql", scopes)
     result = service.handoff_server(installation, Path(generation["descriptor_path"]))
     assert result["admission_open"]
-    assert actions.index("close-admission") < actions.index("stop") < actions.index("owned-server-start")
+    assert (
+        actions.index("close-admission")
+        < actions.index("stop")
+        < actions.index("owned-server-start")
+    )
     assert actions.index(("scope", "main", False)) < actions.index("open-admission")
     assert actions.index(("scope", "validation", False)) < actions.index("open-admission")
     assert not (installation.directory / "maintenance.json").exists()
 
 
-def test_patched_server_cold_archive_restores_without_source_or_build_checkout(recoverable, tmp_path):
+def test_patched_server_cold_archive_restores_without_source_or_build_checkout(
+    recoverable, tmp_path
+):
     installation, archive, actions = recoverable
     generation = owned_server_descriptor(installation.directory, tmp_path)
     installation.record["binary"] = service._generation_binary(generation)
     service.private_json(installation.directory / "installation.json", installation.record)
-    service._unit_path().write_text(service.unit_text(installation.directory, Path(generation["path"]), 29999))
+    service._unit_path().write_text(
+        service.unit_text(installation.directory, Path(generation["path"]), 29999)
+    )
     assert not Path(generation["provenance"]["source_path"]).exists()
     assert not Path(generation["provenance"]["build_path"]).exists()
     assert not Path(generation["provenance"]["cache_lineage"]["path"]).exists()
@@ -1575,7 +1731,9 @@ def test_patched_server_cold_archive_restores_without_source_or_build_checkout(r
     with tarfile.open(archive, "r:") as contents:
         descriptor = json.load(contents.extractfile("assets/server-generation.json"))
         assert descriptor == generation
-        assert contents.extractfile("assets/surreal").read() == Path(generation["path"]).read_bytes()
+        assert (
+            contents.extractfile("assets/surreal").read() == Path(generation["path"]).read_bytes()
+        )
         assert not any("server-build" in name for name in contents.getnames())
     assert service.restore_service(installation, archive)["outcome"] == "passed"
     (installation.directory / "data/store/MANIFEST").write_text("changed-cold-data")
@@ -1599,7 +1757,8 @@ def test_patched_server_archive_refuses_changed_provenance_before_stop(recoverab
     metadata = json.loads(payload["recovery.json"])
     metadata["files"]["assets/server-generation.json"].update(
         sha256=service.hashlib.sha256(payload["assets/server-generation.json"]).hexdigest(),
-        size=len(payload["assets/server-generation.json"]))
+        size=len(payload["assets/server-generation.json"]),
+    )
     payload["recovery.json"] = json.dumps(metadata).encode()
     with tarfile.open(archive, "w:") as contents:
         for name, data in payload.items():
@@ -1612,30 +1771,40 @@ def test_patched_server_archive_refuses_changed_provenance_before_stop(recoverab
     assert "stop" not in actions
 
 
-def test_patched_server_status_names_owned_generation_and_retained_dependencies(server_handoff_ready, monkeypatch, capfd):
+def test_patched_server_status_names_owned_generation_and_retained_dependencies(
+    server_handoff_ready, monkeypatch, capfd
+):
     installation, generation, actions, state, journal, original_bytes, _ = server_handoff_ready
     service.handoff_server(installation, Path(generation["descriptor_path"]))
-    monkeypatch.setenv("LCTX_SURREAL_SERVICE_CONFIG", str(installation.directory / "installation.json"))
+    monkeypatch.setenv(
+        "LCTX_SURREAL_SERVICE_CONFIG", str(installation.directory / "installation.json")
+    )
     monkeypatch.setattr(service, "unit_properties", lambda *args: {"ActiveState": "active"})
     assert service.main(["status"]) == 0
     result = json.loads(capfd.readouterr().out)
     assert result["server"]["generation"] == generation["identity"]
     assert result["server"]["version"] == generation["http_version"]
-    assert generation["provenance"]["build_path"] in {row["path"] for row in result["storage"]["dependencies"]}
+    assert generation["provenance"]["build_path"] in {
+        row["path"] for row in result["storage"]["dependencies"]
+    }
 
 
 def retained_handoff_chain_after_native_rebuild(server_handoff_ready, tmp_path):
     installation, first, actions, state, *_ = server_handoff_ready
+
     def rebuild_native_generation(value):
         installation.record["service_generation"] = [value] * 32
         for database in service.DATABASES:
-            state["markers"][database]["generation"] = bytes(installation.record["service_generation"]).hex()
+            state["markers"][database]["generation"] = bytes(
+                installation.record["service_generation"]
+            ).hex()
             for installer in (False, True):
                 path = installation.runtime_path(database, installer=installer)
                 config = json.loads(path.read_text())
                 config["service_generation"] = installation.record["service_generation"]
                 service.private_json(path, config)
         service.private_json(installation.directory / "installation.json", installation.record)
+
     service.handoff_server(installation, Path(first["descriptor_path"]))
     first_reference = dict(installation.record["server_handoff"])
     first_path = Path(first_reference["journal"])
@@ -1646,30 +1815,42 @@ def retained_handoff_chain_after_native_rebuild(server_handoff_ready, tmp_path):
     second_path = Path(installation.record["server_handoff"]["journal"])
     second_bytes = second_path.read_bytes()
     rebuild_native_generation(83)
-    return installation, first, second, {first_path:first_bytes, second_path:second_bytes}
+    return installation, first, second, {first_path: first_bytes, second_path: second_bytes}
 
 
-def test_retained_server_handoff_chain_survives_native_generation_rebuild(server_handoff_ready, tmp_path, monkeypatch, capfd):
+def test_retained_server_handoff_chain_survives_native_generation_rebuild(
+    server_handoff_ready, tmp_path, monkeypatch, capfd
+):
     from storage_service import dependencies
-    installation, first, second, originals = retained_handoff_chain_after_native_rebuild(server_handoff_ready,tmp_path)
+
+    installation, first, second, originals = retained_handoff_chain_after_native_rebuild(
+        server_handoff_ready, tmp_path
+    )
     descriptor = (installation.directory / "installation.json").read_bytes()
     paths = {item["path"] for item in dependencies(installation)["dependencies"]}
     assert {str(path.parent) for path in originals} <= paths
     assert {first["path"], second["path"]} <= paths
-    monkeypatch.setenv("LCTX_SURREAL_SERVICE_CONFIG", str(installation.directory / "installation.json"))
+    monkeypatch.setenv(
+        "LCTX_SURREAL_SERVICE_CONFIG", str(installation.directory / "installation.json")
+    )
     monkeypatch.setattr(service, "unit_properties", lambda *args: {"ActiveState": "active"})
     assert service.main(["status"]) == 0
     result = json.loads(capfd.readouterr().out)
     assert result["server"]["generation"] == second["identity"]
     assert {item["path"] for item in result["storage"]["dependencies"]} == paths
     assert (installation.directory / "installation.json").read_bytes() == descriptor
-    assert {path:path.read_bytes() for path in originals} == originals
+    assert {path: path.read_bytes() for path in originals} == originals
 
 
 @pytest.mark.parametrize("change", ["current_binary", "previous_binary", "installation", "digest"])
-def test_retained_server_handoff_chain_refuses_physical_or_journal_substitution(server_handoff_ready,tmp_path,change):
+def test_retained_server_handoff_chain_refuses_physical_or_journal_substitution(
+    server_handoff_ready, tmp_path, change
+):
     from storage_service import dependencies
-    installation, first, second, originals = retained_handoff_chain_after_native_rebuild(server_handoff_ready,tmp_path)
+
+    installation, first, second, originals = retained_handoff_chain_after_native_rebuild(
+        server_handoff_ready, tmp_path
+    )
     reference = installation.record["server_handoff"]
     journal = Path(reference["journal"])
     plan = json.loads(journal.read_text())
@@ -1678,7 +1859,8 @@ def test_retained_server_handoff_chain_refuses_physical_or_journal_substitution(
     elif change == "digest":
         reference["journal_sha256"] = "0" * 64
     else:
-        if change == "installation": plan["installation_id"] = str(uuid.uuid4())
+        if change == "installation":
+            plan["installation_id"] = str(uuid.uuid4())
         else:
             predecessor = json.loads(Path(plan["previous_handoff"]["journal"]).read_text())
             plan["previous_binary"] = predecessor["previous_binary"]
@@ -1690,6 +1872,7 @@ def test_retained_server_handoff_chain_refuses_physical_or_journal_substitution(
 
 def test_active_server_handoff_resume_refuses_native_generation_rebuild(server_handoff_ready):
     from storage_service import dependencies
+
     installation, generation, actions, state, *_ = server_handoff_ready
     state["drift"] = ("schema", "d" * 64)
     with pytest.raises(service.FixtureBlocked, match="scope identity"):
@@ -1698,7 +1881,7 @@ def test_active_server_handoff_resume_refuses_native_generation_rebuild(server_h
     marker = json.loads(marker_path.read_text())
     journal = Path(marker["server_handoff"]["journal"])
     original = journal.read_bytes()
-    marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid":99999997, "start_ticks":1}
+    marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999997, "start_ticks": 1}
     service.private_json(marker_path, marker)
     installation.record["service_generation"] = [84] * 32
     before = list(actions)
@@ -1710,57 +1893,9 @@ def test_active_server_handoff_resume_refuses_native_generation_rebuild(server_h
     assert json.loads(marker_path.read_text()) == marker
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def test_failed_install_metadata_can_retry_corrected_candidate_before_owned_directories(tmp_path, monkeypatch):
+def test_failed_install_metadata_can_retry_corrected_candidate_before_owned_directories(
+    tmp_path, monkeypatch
+):
     import storage_service
 
     root = tmp_path / "installation"
@@ -1770,10 +1905,15 @@ def test_failed_install_metadata_can_retry_corrected_candidate_before_owned_dire
     monkeypatch.setattr(service, "verify_binary", lambda env: candidate)
     monkeypatch.setattr(service, "systemd_available", lambda **kw: None)
     monkeypatch.setattr(service, "unit_properties", lambda *a: {"LoadState": "not-found"})
-    monkeypatch.setattr(service, "_unit_path", lambda unit_name=service.UNIT: tmp_path / "service-unit")
+    monkeypatch.setattr(
+        service, "_unit_path", lambda unit_name=service.UNIT: tmp_path / "service-unit"
+    )
     monkeypatch.setattr(service, "_available_port", lambda: 29000)
-    monkeypatch.setattr(storage_service, "prepare", lambda directory, source: {
-        "path": str(source), "sha256": service.file_sha256(source)})
+    monkeypatch.setattr(
+        storage_service,
+        "prepare",
+        lambda directory, source: {"path": str(source), "sha256": service.file_sha256(source)},
+    )
     valid = False
 
     def metadata(*args, **kwargs):
@@ -1782,7 +1922,9 @@ def test_failed_install_metadata_can_retry_corrected_candidate_before_owned_dire
         return {"schema_version": 6, "schema": "b" * 64}
 
     monkeypatch.setattr(service, "_installer_cli", metadata)
-    monkeypatch.setattr(service, "systemctl", lambda *a: subprocess.CompletedProcess(a, 1, "", "test stop"))
+    monkeypatch.setattr(
+        service, "systemctl", lambda *a: subprocess.CompletedProcess(a, 1, "", "test stop")
+    )
     env = {"LCTX_SURREAL_SERVICE_CONFIG": str(root / "installation.json")}
     with pytest.raises(service.FixtureBlocked, match="unsupported candidate metadata"):
         service.install(candidate, env=env)
@@ -1834,11 +1976,14 @@ def test_owned_http_bypasses_proxies_and_refuses_redirected_credentials(monkeypa
         def log_message(self, *args):
             pass
 
-    servers = [http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
-               for handler in (Target, Proxy)]
+    servers = [
+        http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler) for handler in (Target, Proxy)
+    ]
     target_url, proxy_url = [f"http://127.0.0.1:{server.server_port}" for server in servers]
-    threads = [threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
-               for server in servers]
+    threads = [
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
+        for server in servers
+    ]
     for thread in threads:
         thread.start()
     try:
@@ -1847,12 +1992,19 @@ def test_owned_http_bypasses_proxies_and_refuses_redirected_credentials(monkeypa
                 monkeypatch.delenv(name)
         monkeypatch.setenv("http_proxy", proxy_url)
         monkeypatch.setenv("NO_PROXY", "")
-        cfg = {"username": "synthetic-user", "password": "synthetic-password",
-               "database": "validation", "authentication": "database"}
+        cfg = {
+            "username": "synthetic-user",
+            "password": "synthetic-password",
+            "database": "validation",
+            "authentication": "database",
+        }
         rows = service.sql(SimpleNamespace(endpoint=target_url), "RETURN 1;", cfg=cfg)
         assert rows == [{"status": "OK", "result": 1}]
-        request = urllib.request.Request(target_url + "/redirect", data=b"synthetic admin SQL",
-                                         headers={"Authorization": "Basic synthetic-only"})
+        request = urllib.request.Request(
+            target_url + "/redirect",
+            data=b"synthetic admin SQL",
+            headers={"Authorization": "Basic synthetic-only"},
+        )
         with pytest.raises(urllib.error.HTTPError) as refused:
             service.local_urlopen(request, timeout=2)
         assert refused.value.code == 302
@@ -1868,11 +2020,19 @@ def test_owned_http_bypasses_proxies_and_refuses_redirected_credentials(monkeypa
             thread.join()
 
 
-@pytest.mark.parametrize("url", ["https://127.0.0.1:8000/sql", "http://example.com:8000/sql",
-                                  "http://user:secret@127.0.0.1:8000/sql", "http://127.0.0.1/sql"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://127.0.0.1:8000/sql",
+        "http://example.com:8000/sql",
+        "http://user:secret@127.0.0.1:8000/sql",
+        "http://127.0.0.1/sql",
+    ],
+)
 def test_owned_http_refuses_foreign_or_credential_bearing_endpoints(url, monkeypatch):
     def unexpected(*args):
         pytest.fail("invalid owned endpoint must fail before opening a transport")
+
     monkeypatch.setattr(service.urllib.request, "build_opener", unexpected)
     with pytest.raises(ValueError, match="local HTTP endpoint"):
         service.local_urlopen(url, timeout=2)
@@ -1884,8 +2044,14 @@ def test_campaign_requires_explicit_nonstable_state_before_any_effect(tmp_path, 
         service.install(tmp_path / "lctx", env={"HOME": str(tmp_path)}, campaign=True)
     stable = service.state_root({"HOME": str(tmp_path)})
     with pytest.raises(service.FixtureBlocked, match="explicit separate"):
-        service.install(tmp_path / "lctx", env={"HOME": str(tmp_path),
-            "LCTX_SURREAL_SERVICE_CONFIG": str(stable / "installation.json")}, campaign=True)
+        service.install(
+            tmp_path / "lctx",
+            env={
+                "HOME": str(tmp_path),
+                "LCTX_SURREAL_SERVICE_CONFIG": str(stable / "installation.json"),
+            },
+            campaign=True,
+        )
     assert not stable.exists()
 
 
@@ -1895,14 +2061,18 @@ def test_campaign_descriptor_unit_is_derived_and_cannot_alias_stable(recoverable
     record["unit"] = service.installation_unit(record)
     assert record["unit"] == f"library-context-surrealdb-campaign-{installation.id}.service"
     service.private_json(installation.directory / "installation.json", record)
-    loaded = service.Installation.load({"LCTX_SURREAL_SERVICE_CONFIG":
-        str(installation.directory / "installation.json")})
+    loaded = service.Installation.load(
+        {"LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json")}
+    )
     assert loaded.unit != service.UNIT
     for invalid in (service.UNIT, "other.service", "../escape.service"):
-        service.private_json(installation.directory / "installation.json", {**record, "unit": invalid})
+        service.private_json(
+            installation.directory / "installation.json", {**record, "unit": invalid}
+        )
         with pytest.raises(service.FixtureBlocked, match="incompatible"):
-            service.Installation.load({"LCTX_SURREAL_SERVICE_CONFIG":
-                str(installation.directory / "installation.json")})
+            service.Installation.load(
+                {"LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json")}
+            )
 
 
 def test_campaign_start_and_recovery_assets_use_only_its_unit(recoverable, monkeypatch):
@@ -1910,10 +2080,18 @@ def test_campaign_start_and_recovery_assets_use_only_its_unit(recoverable, monke
     installation.record.update(kind="campaign")
     installation.record["unit"] = service.installation_unit(installation.record)
     calls = []
-    monkeypatch.setattr(service, "systemctl", lambda *args, **kw:
-        calls.append(args) or subprocess.CompletedProcess(args, 0))
-    monkeypatch.setattr(service, "unit_properties", lambda unit, *names:
-        calls.append(("show", unit)) or {"ActiveState": "inactive", "MainPID": "0"})
+    monkeypatch.setattr(
+        service,
+        "systemctl",
+        lambda *args, **kw: calls.append(args) or subprocess.CompletedProcess(args, 0),
+    )
+    monkeypatch.setattr(
+        service,
+        "unit_properties",
+        lambda unit, *names: (
+            calls.append(("show", unit)) or {"ActiveState": "inactive", "MainPID": "0"}
+        ),
+    )
     # The low-level start helper is independent of schema migration readiness.
     monkeypatch.setattr(service.Installation, "check_daemon", lambda self: None)
     service._owned_daemon_start(installation)
@@ -1921,8 +2099,9 @@ def test_campaign_start_and_recovery_assets_use_only_its_unit(recoverable, monke
     campaign_unit = installation.directory.parent / "campaign-unit"
     campaign_unit.write_text("campaign")
     observed = []
-    monkeypatch.setattr(service, "_unit_path", lambda unit=service.UNIT:
-        observed.append(unit) or campaign_unit)
+    monkeypatch.setattr(
+        service, "_unit_path", lambda unit=service.UNIT: observed.append(unit) or campaign_unit
+    )
     assert service._recovery_sources(installation)["assets/service-unit"] == campaign_unit
     assert observed == [installation.unit]
 
@@ -1932,21 +2111,34 @@ def test_campaign_stop_confirms_only_its_owned_unit(tmp_path, monkeypatch):
     record["unit"] = service.installation_unit(record)
     installation = service.Installation(tmp_path, record)
     calls = []
-    monkeypatch.setattr(service, "systemctl", lambda *args, **kw:
-        calls.append(args) or subprocess.CompletedProcess(args, 0))
-    monkeypatch.setattr(service, "unit_properties", lambda unit, *names:
-        calls.append(("show", unit)) or {"ActiveState": "inactive", "MainPID": "0"})
+    monkeypatch.setattr(
+        service,
+        "systemctl",
+        lambda *args, **kw: calls.append(args) or subprocess.CompletedProcess(args, 0),
+    )
+    monkeypatch.setattr(
+        service,
+        "unit_properties",
+        lambda unit, *names: (
+            calls.append(("show", unit)) or {"ActiveState": "inactive", "MainPID": "0"}
+        ),
+    )
     service._stop_owned(installation)
     assert calls == [("stop", installation.unit), ("show", installation.unit)]
 
 
-def test_backup_hashes_exact_final_archive_and_copied_assets_without_rereads(recoverable, monkeypatch):
+def test_backup_hashes_exact_final_archive_and_copied_assets_without_rereads(
+    recoverable, monkeypatch
+):
     import hashlib
+
     installation, archive, _actions = recoverable
     original_digest = service.file_sha256
     # Backup may verify identity through other owners, but cannot prehash tar assets
     # or reread its finished archive to compute the pointer.
-    monkeypatch.setattr(service, "file_sha256", lambda path: pytest.fail(f"unneeded prehash/reread: {path}"))
+    monkeypatch.setattr(
+        service, "file_sha256", lambda path: pytest.fail(f"unneeded prehash/reread: {path}")
+    )
     result = service.backup_service(installation, archive)
     data = archive.read_bytes()
     assert result["recovery"]["sha256"] == hashlib.sha256(data).hexdigest()
@@ -1963,9 +2155,11 @@ def test_backup_hashes_exact_final_archive_and_copied_assets_without_rereads(rec
 
 def test_archive_hash_writer_counts_short_writes_and_refuses_nonprogress():
     import hashlib
+
     class Short(io.BytesIO):
         def write(self, data):
             return super().write(data[:37])
+
     output = Short()
     writer = service._ArchiveHashWriter(output)
     body = bytes(range(256)) * 101
@@ -1981,34 +2175,50 @@ def test_archive_hash_writer_counts_short_writes_and_refuses_nonprogress():
             service._ArchiveHashWriter(broken).write(b"short")
 
 
-@pytest.mark.parametrize("fault", ["asset", "write", "finalize", "flush", "file-fsync", "directory-fsync"])
-def test_backup_fault_never_publishes_prefix_digest_and_restarts_owned_service(recoverable, monkeypatch, fault):
+@pytest.mark.parametrize(
+    "fault", ["asset", "write", "finalize", "flush", "file-fsync", "directory-fsync"]
+)
+def test_backup_fault_never_publishes_prefix_digest_and_restarts_owned_service(
+    recoverable, monkeypatch, fault
+):
     installation, archive, actions = recoverable
     if fault == "asset":
         original = service._AssetHashReader.read
+
         def short(self, count=-1):
             return original(self, min(count, 1)) if count > 1 else original(self, count)
+
         monkeypatch.setattr(service._AssetHashReader, "read", short)
     elif fault == "write":
-        monkeypatch.setattr(service._ArchiveHashWriter, "write", lambda self, data:
-            (_ for _ in ()).throw(OSError("write failure")))
+        monkeypatch.setattr(
+            service._ArchiveHashWriter,
+            "write",
+            lambda self, data: (_ for _ in ()).throw(OSError("write failure")),
+        )
     elif fault == "finalize":
         original = tarfile.TarFile.close
+
         def close(self):
             original(self)
             if self.mode == "w":
                 raise OSError("finalization failure")
+
         monkeypatch.setattr(tarfile.TarFile, "close", close)
     elif fault == "flush":
-        monkeypatch.setattr(service._ArchiveHashWriter, "flush", lambda self:
-            (_ for _ in ()).throw(OSError("flush failure")))
+        monkeypatch.setattr(
+            service._ArchiveHashWriter,
+            "flush",
+            lambda self: (_ for _ in ()).throw(OSError("flush failure")),
+        )
     else:
         original = os.fsync
+
         def fsync(fd):
             target = Path(f"/proc/self/fd/{fd}").resolve()
             if target == (archive if fault == "file-fsync" else archive.parent):
                 raise OSError("durability failure")
             original(fd)
+
         monkeypatch.setattr(os, "fsync", fsync)
     with pytest.raises((OSError, service.FixtureBlocked)):
         service.backup_service(installation, archive)
@@ -2023,6 +2233,7 @@ def test_backup_refuses_copy_time_asset_or_shape_change(recoverable, monkeypatch
     installation, archive, actions = recoverable
     original = service._AssetHashReader.read
     changed = False
+
     def read(self, count=-1):
         nonlocal changed
         body = original(self, count)
@@ -2039,8 +2250,604 @@ def test_backup_refuses_copy_time_asset_or_shape_change(recoverable, monkeypatch
             else:
                 (installation.directory / "new-empty-directory").mkdir()
         return body
+
     monkeypatch.setattr(service._AssetHashReader, "read", read)
     with pytest.raises(service.FixtureBlocked, match="changed"):
         service.backup_service(installation, archive)
     assert "recovery" not in installation.record
     assert "start" in actions and "open-admission" not in actions
+
+
+@pytest.fixture
+def lifecycle_campaign_ready(recoverable, monkeypatch, tmp_path):
+    """Finite service-owner effects; this fixture starts no daemon."""
+    from storage_lifecycle import Storage
+
+    installation, _, actions = recoverable
+    monkeypatch.setenv("LCTX_STORAGE_STATE", str(tmp_path / "lifecycle-storage"))
+    installation.record.update(
+        kind="campaign",
+        purpose=service.LIFECYCLE_PURPOSE,
+        capabilities=list(service.DEVELOPMENT_CAPABILITIES),
+    )
+    installation.record["unit"] = service.installation_unit(installation.record)
+    from storage_service import prepare
+
+    candidate = Path(installation.record["installer"])
+    candidate.chmod(0o700)
+    generation = prepare(installation.directory, candidate)
+    installation.record.update(installer=generation["path"], installer_generation=generation)
+    service._unit_path(installation.unit).write_text(
+        service.unit_text(
+            installation.directory,
+            Path(installation.record["binary"]["path"]),
+            29999,
+            development=True,
+        )
+    )
+    installation.record["campaign_storage"] = {
+        "consumer": "lifecycle-campaign:" + installation.id,
+        "content": "content-object",
+        "server": "server-object",
+    }
+    service.private_json(installation.directory / "installation.json", installation.record)
+    monkeypatch.setattr(
+        service.Installation, "check_daemon", lambda inst: actions.append("daemon-check")
+    )
+    monkeypatch.setattr(
+        service,
+        "unit_properties",
+        lambda *args: (
+            {"ActiveState": "inactive", "MainPID": "0"}
+            if any(action in ("stop", "confirmed-stop") for action in actions)
+            else {"ActiveState": "active", "MainPID": "123"}
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "sql",
+        lambda inst, sql, *, cfg: [
+            {
+                "result": {"namespaces": {service.NAMESPACE: "owned"}}
+                if sql == "INFO FOR ROOT"
+                else {"databases": {"validation": "owned", "random_beta_suite": "owned"}}
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        service,
+        "systemctl",
+        lambda *args, **kw: actions.append(tuple(args)) or subprocess.CompletedProcess(args, 0),
+    )
+    monkeypatch.setattr(
+        Storage,
+        "release",
+        lambda self, object_id, consumer, reason: actions.append(
+            ("storage-release", object_id, consumer)
+        ),
+    )
+
+    def logical(inst, action, receipt):
+        service._run_installer(inst, Path(inst.record["installer"]), action)
+        return {"outcome": "passed", "local_drained": True, "interrupted": False}
+
+    monkeypatch.setattr(service, "_run_disposal_installer", logical)
+    return installation, actions
+
+
+def disposal_probe_installer(installation, tmp_path, body):
+    """A finite host-process control, with no native service or SDK execution."""
+    from storage_service import prepare
+
+    executable = tmp_path / "finite-disposal-installer"
+    executable.write_text("#!" + sys.executable + "\n" + body)
+    executable.chmod(0o700)
+    generation = prepare(installation.directory, executable)
+    installation.record.update(installer=generation["path"], installer_generation=generation)
+    service.private_json(installation.directory / "installation.json", installation.record)
+
+
+def test_campaign_disposal_logical_deadline_drains_children_then_discards_exact_executor(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
+    import runs
+
+    installation, actions = lifecycle_campaign_ready
+    monkeypatch.setattr(service, "_run_disposal_installer", DISPOSAL_INSTALLER_RUN)
+    monkeypatch.setattr(service, "DISPOSAL_LOGICAL_TIMEOUT", 1.0)
+    monkeypatch.setenv("LCTX_RUNS_ROOT", str(tmp_path / "logical-runs"))
+    disposal_probe_installer(
+        installation,
+        tmp_path,
+        """import os, signal, sys
+from pathlib import Path
+runtime = Path(sys.argv[sys.argv.index("--runtime-config") + 1])
+assert os.environ["LCTX_SURREAL_SERVICE_CONFIG"] == str(runtime.parent / "installation.json")
+if Path(sys.argv[sys.argv.index("--runtime-config") + 1]).name.startswith("main-"):
+    sys.exit(0)
+os.fork()
+while True: signal.pause()
+""",
+    )
+    receipt = service.dispose_campaign(installation, installation.id)
+    assert receipt["outcome"] == "passed" and receipt["steps"]["executor-shutdown"] == "passed"
+    assert receipt["steps"]["close-admission"] == "failed" and receipt["steps"]["drain"] == "failed"
+    timed_out = [row for row in receipt["logical_commands"] if row.get("stopped") == "deadline"]
+    assert len(timed_out) == 2
+    for row in timed_out:
+        record = runs.load_record(Path(row["run_path"]))
+        assert record is not None and record["exit"]["signal"] in {signal.SIGTERM, signal.SIGKILL}
+        assert row["outcome"] == "failed" and row["child_cleanup"]["status"] == "confirmed"
+        assert not runs.cleanup_protected(record)
+    assert "stop" in actions and not (installation.directory / "data").exists()
+
+
+def test_campaign_disposal_unconfirmed_logical_cleanup_blocks_then_replays_same_failed_attempt(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
+    import runs
+
+    installation, actions = lifecycle_campaign_ready
+    monkeypatch.setattr(service, "_run_disposal_installer", DISPOSAL_INSTALLER_RUN)
+    monkeypatch.setenv("LCTX_RUNS_ROOT", str(tmp_path / "logical-runs"))
+    disposal_probe_installer(installation, tmp_path, "raise SystemExit(0)\n")
+    original_guard = runs.SpawnGuard
+
+    class UnconfirmedGuard(original_guard):
+        def __exit__(self, *args):
+            super().__exit__(*args)
+            # The real group is drained; this control withholds that evidence from
+            # the consumer to establish fail-closed behavior without leaked workers.
+            self.cleanup = {"status": "unknown"}
+
+    monkeypatch.setattr(runs, "SpawnGuard", UnconfirmedGuard)
+    with pytest.raises(service.FixtureBlocked, match="local cleanup remains unresolved"):
+        service.dispose_campaign(installation, installation.id)
+    assert "stop" not in actions and (installation.directory / "data").exists()
+    partial = service.read_json(installation.directory / "disposal.json")
+    assert isinstance(partial, dict)
+    assert partial["steps"]["close-admission"] == "failed"
+    assert len(partial["logical_commands"]) == 1
+    first = partial["logical_commands"][0]["run_path"]
+    monkeypatch.setattr(runs, "SpawnGuard", original_guard)
+    receipt = service.dispose_campaign(installation, installation.id)
+    assert receipt["steps"]["close-admission"] == "failed", (
+        "recovery never promotes the logical failure"
+    )
+    assert receipt["steps"]["executor-shutdown"] == "passed"
+    assert [
+        row["run_path"] for row in receipt["logical_commands"] if row["action"] == "close-admission"
+    ] == [first]
+    assert receipt["logical_commands"][0]["child_cleanup"]["status"] == "confirmed"
+
+
+def test_campaign_disposal_sigterm_drains_child_and_requires_explicit_resume(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
+    import runs
+
+    installation, actions = lifecycle_campaign_ready
+    monkeypatch.setattr(service, "_run_disposal_installer", DISPOSAL_INSTALLER_RUN)
+    monkeypatch.setenv("LCTX_RUNS_ROOT", str(tmp_path / "logical-runs"))
+    disposal_probe_installer(installation, tmp_path, "import signal\nwhile True: signal.pause()\n")
+    child = os.fork()
+    if child == 0:
+        try:
+            with pytest.raises(service.FixtureBlocked, match="cancelled; explicit retry"):
+                service.dispose_campaign(installation, installation.id)
+            assert "stop" not in actions and (installation.directory / "data").exists()
+        except BaseException:
+            import traceback
+
+            traceback.print_exc()
+            os._exit(1)
+        os._exit(0)
+    deadline = time.monotonic() + 10.0
+    reaped = False
+    try:
+        while True:
+            receipt = service.read_json(installation.directory / "disposal.json")
+            commands = (receipt or {}).get("logical_commands", [])
+            record = runs.load_record(Path(commands[0]["run_path"])) if commands else None
+            if record and record.get("child"):
+                break
+            if time.monotonic() >= deadline:
+                pytest.fail("finite disposal child did not launch")
+            time.sleep(0.02)
+        os.kill(child, signal.SIGTERM)
+        status = os.waitpid(child, 0)[1]
+        reaped = True
+        assert status == 0
+    finally:
+        if not reaped:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(child, signal.SIGKILL)
+            os.waitpid(child, 0)
+    receipt = service.read_json(installation.directory / "disposal.json")
+    assert isinstance(receipt, dict) and receipt["steps"]["close-admission"] == "failed"
+    (command,) = receipt["logical_commands"]
+    assert command["stopped"] == "cancelled" and command["child_cleanup"]["status"] == "confirmed"
+    assert "executor-shutdown" not in receipt["steps"]
+
+
+def test_campaign_disposal_inactive_retry_preserves_recorded_logical_outcomes(
+    lifecycle_campaign_ready, monkeypatch
+):
+    installation, _ = lifecycle_campaign_ready
+    receipt = {
+        "schema": 1,
+        "kind": "lifecycle-campaign-disposal",
+        "installation_id": installation.id,
+        "generation": bytes(installation.record["service_generation"]).hex(),
+        "workers": [],
+        "outcome": "unknown",
+        "steps": {"close-admission": "failed", "drain": "passed"},
+    }
+    service.private_json(installation.directory / "disposal.json", receipt)
+    monkeypatch.setattr(
+        service, "unit_properties", lambda *args: {"ActiveState": "inactive", "MainPID": "0"}
+    )
+    result = service.dispose_campaign(installation, installation.id)
+    assert result["outcome"] == "passed"
+    assert result["steps"]["close-admission"] == "failed" and result["steps"]["drain"] == "passed"
+
+
+@pytest.mark.parametrize("cancellation", ["signal", "cancel_file"])
+def test_campaign_disposal_honors_current_cancellation_when_child_already_exited(
+    lifecycle_campaign_ready, tmp_path, monkeypatch, cancellation
+):
+    import harness
+    import runs
+
+    installation, actions = lifecycle_campaign_ready
+    monkeypatch.setattr(service, "_run_disposal_installer", DISPOSAL_INSTALLER_RUN)
+    monkeypatch.setenv("LCTX_RUNS_ROOT", str(tmp_path / "logical-runs"))
+    disposal_probe_installer(installation, tmp_path, "raise SystemExit(0)\n")
+    owners = []
+    original_init, original_observe = runs.Owner.__init__, harness.observe_exit
+
+    def capture_owner(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        owners.append(self)
+
+    injected = False
+
+    def observe_with_current_cancellation(child):
+        nonlocal injected
+        code = original_observe(child)
+        if code == 0 and not injected:
+            injected = True
+            owner = owners[-1]
+            if cancellation == "signal":
+                owner.received = signal.SIGTERM
+            else:
+                service.private_json(owner.dir / runs.CANCEL, {"requested": runs.now()})
+        return code
+
+    monkeypatch.setattr(runs.Owner, "__init__", capture_owner)
+    monkeypatch.setattr(harness, "observe_exit", observe_with_current_cancellation)
+    with pytest.raises(service.FixtureBlocked, match="cancelled; explicit retry"):
+        service.dispose_campaign(installation, installation.id)
+    assert injected and "stop" not in actions and (installation.directory / "data").exists()
+    receipt = service.read_json(installation.directory / "disposal.json")
+    assert isinstance(receipt, dict) and receipt["steps"]["close-admission"] == "failed"
+    (command,) = receipt["logical_commands"]
+    record = runs.load_record(Path(command["run_path"]))
+    assert record is not None and record["exit"] == {"code": 0}
+    assert command["interrupted"] and command["child_cleanup"]["status"] == "confirmed"
+
+
+@pytest.mark.parametrize("change", ["id", "purpose", "kind"])
+def test_lifecycle_campaign_refuses_wrong_target_before_effect(
+    lifecycle_campaign_ready, monkeypatch, change
+):
+    installation, actions = lifecycle_campaign_ready
+    identity = installation.id
+    if change == "id":
+        identity = str(uuid.uuid4())
+    else:
+        installation.record[change] = "foreign"
+    before = (installation.directory / "data/store/MANIFEST").read_bytes()
+    with pytest.raises(service.FixtureBlocked, match="exact owned lifecycle campaign"):
+        service.dispose_campaign(installation, identity)
+    assert actions == []
+    assert (installation.directory / "data/store/MANIFEST").read_bytes() == before
+
+
+def test_lifecycle_campaign_stop_failure_preserves_then_retry_discards_exact_target(
+    lifecycle_campaign_ready, monkeypatch
+):
+    installation, actions = lifecycle_campaign_ready
+
+    def refuse_stop(inst):
+        actions.append("refused-stop")
+        raise service.FixtureBlocked("drainage", "controlled stop refusal")
+
+    monkeypatch.setattr(service, "_stop_owned", refuse_stop)
+    with pytest.raises(service.FixtureBlocked, match="stop refusal"):
+        service.dispose_campaign(installation, installation.id)
+    assert (installation.directory / "data/store/MANIFEST").read_text() == "cold-owned-data"
+    assert (installation.directory / "maintenance.json").is_file()
+    assert not any(
+        isinstance(action, tuple) and action[0] == "storage-release" for action in actions
+    )
+    original = service.read_json(installation.directory / "disposal.json")
+    assert isinstance(original, dict)
+    assert original["outcome"] == "unknown"
+    assert original["steps"].get("executor-shutdown") != "passed"
+    monkeypatch.setattr(service, "_stop_owned", lambda inst: actions.append("confirmed-stop"))
+    receipt = service.dispose_campaign(installation, installation.id)
+    assert receipt["outcome"] == "passed"
+    assert receipt["steps"]["executor-shutdown"] == "passed"
+    assert receipt["steps"]["datastore-disposal"] == "passed"
+    assert receipt["inventory"]["databases"][service.NAMESPACE] == [
+        "random_beta_suite",
+        "validation",
+    ]
+    assert not (installation.directory / "data").exists()
+    assert not (installation.directory / "maintenance.json").exists()
+    assert not (installation.directory / "server.env").exists()
+    assert not Path(installation.record["installer"]).exists()
+    assert not service._unit_path(installation.unit).exists()
+    release = [
+        action for action in actions if isinstance(action, tuple) and action[0] == "storage-release"
+    ]
+    assert len(release) == 2
+    assert actions.index("confirmed-stop") < actions.index(release[0])
+    current = service.Installation.load(
+        {"LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json")},
+        ready=False,
+    )
+    assert current.record["phase"] == "disposed"
+    count = len(actions)
+    assert service.dispose_campaign(current, current.id) == receipt
+    assert len(actions) == count, "completed disposal must not repeat effects"
+
+
+def test_lifecycle_campaign_sql_observes_each_requested_namespace(monkeypatch, tmp_path):
+    observed = []
+
+    def respond(request, **kwargs):
+        observed.append(request.get_header("Surreal-ns"))
+        return io.BytesIO(b'[{"status":"OK","result":{"databases":{}}}]')
+
+    monkeypatch.setattr(service, "local_urlopen", respond)
+    installation = service.Installation(tmp_path, {"endpoint": "http://127.0.0.1:29999"})
+    cfg = {
+        "username": "root",
+        "password": "private",
+        "authentication": "root",
+        "database": "validation",
+    }
+    for namespace in (service.NAMESPACE, "owned_beta_suite_namespace"):
+        service.sql(installation, "INFO FOR NS", cfg={**cfg, "namespace": namespace})
+    assert observed == [service.NAMESPACE, "owned_beta_suite_namespace"]
+
+
+def test_lifecycle_campaign_inventory_retains_distinct_suite_databases(
+    lifecycle_campaign_ready, monkeypatch
+):
+    installation, _ = lifecycle_campaign_ready
+    inventory = {
+        service.NAMESPACE: {"validation": "owned"},
+        "owned_beta_suite_namespace": {"owned_beta_suite_database": "owned"},
+    }
+
+    def query(inst, statement, *, cfg):
+        return [
+            {
+                "result": {"namespaces": dict.fromkeys(inventory, "owned")}
+                if statement == "INFO FOR ROOT"
+                else {"databases": inventory[cfg["namespace"]]}
+            }
+        ]
+
+    monkeypatch.setattr(service, "sql", query)
+    receipt = service.dispose_campaign(installation, installation.id)
+    assert receipt["inventory"]["databases"] == {
+        namespace: sorted(databases) for namespace, databases in inventory.items()
+    }
+
+
+def test_lifecycle_campaign_unknown_native_drain_does_not_replace_executor_discard(
+    lifecycle_campaign_ready, monkeypatch
+):
+    installation, actions = lifecycle_campaign_ready
+
+    def drain(inst, exe, action="init"):
+        actions.append(action)
+        if action == "drain":
+            raise service.FixtureBlocked("native", "controlled unresolved native drain")
+
+    monkeypatch.setattr(service, "_run_installer", drain)
+    receipt = service.dispose_campaign(installation, installation.id)
+    assert receipt["outcome"] == "passed"
+    assert receipt["steps"]["executor-shutdown"] == "passed"
+    assert receipt["steps"]["datastore-disposal"] == "passed"
+    assert not (installation.directory / "data").exists()
+    assert "drain" in actions and "stop" in actions
+
+
+@pytest.mark.parametrize("changed_unit", [False, True])
+def test_lifecycle_campaign_already_inactive_requires_exact_unit_before_discard(
+    lifecycle_campaign_ready, monkeypatch, changed_unit
+):
+    installation, actions = lifecycle_campaign_ready
+    installation.record["capabilities"] = list(service.DEVELOPMENT_CAPABILITIES)
+    service.private_json(installation.directory / "installation.json", installation.record)
+    binary = Path(installation.record["binary"]["path"])
+    monkeypatch.setattr(service, "_installed_binary", lambda inst: binary)
+    unit = service._unit_path(installation.unit)
+    unit.write_text(
+        service.unit_text(installation.directory, binary, 29999, development=True)
+        + ("# external replacement\n" if changed_unit else "")
+    )
+
+    def inactive(inst):
+        raise service.FixtureBlocked("readiness", "owned daemon is inactive")
+
+    monkeypatch.setattr(service.Installation, "check_daemon", inactive)
+    monkeypatch.setattr(
+        service, "unit_properties", lambda *args: {"ActiveState": "inactive", "MainPID": "0"}
+    )
+    monkeypatch.setattr(
+        service,
+        "sql",
+        lambda *args, **kwargs: pytest.fail("inactive executor cannot answer inventory"),
+    )
+    if changed_unit:
+        with pytest.raises(service.FixtureBlocked, match="unit differs"):
+            service.dispose_campaign(installation, installation.id)
+        assert "stop" not in actions
+        assert (installation.directory / "data/store/MANIFEST").is_file()
+    else:
+        receipt = service.dispose_campaign(installation, installation.id)
+        assert receipt["steps"]["executor-shutdown"] == "passed"
+        assert receipt["steps"]["drain"] == "not_run"
+        assert receipt["inventory"]["status"] == "not_run"
+        assert not (installation.directory / "data").exists()
+
+
+@pytest.mark.parametrize("change", ["generation", "schema", "kind", "steps", "unit"])
+def test_lifecycle_campaign_resume_checkpoint_cannot_authorize_another_executor(
+    lifecycle_campaign_ready, change
+):
+    installation, actions = lifecycle_campaign_ready
+    receipt: dict[str, Any] = {
+        "schema": 1,
+        "kind": "lifecycle-campaign-disposal",
+        "installation_id": installation.id,
+        "generation": bytes(installation.record["service_generation"]).hex(),
+        "workers": [],
+        "outcome": "unknown",
+        "steps": {"executor-shutdown": "passed"},
+    }
+    if change == "unit":
+        service._unit_path(installation.unit).write_text("an externally replaced unit")
+    elif change == "steps":
+        receipt["steps"] = {"executor-shutdown": {"invented": "passed"}}
+    else:
+        receipt[change] = "foreign"
+    service.private_json(installation.directory / "disposal.json", receipt)
+    with pytest.raises(service.FixtureBlocked, match=r"disposal receipt|unit differs"):
+        service.dispose_campaign(installation, installation.id)
+    assert "stop" not in actions
+    assert (installation.directory / "data/store/MANIFEST").is_file()
+
+
+def test_lifecycle_install_retains_purpose_consumer_before_failed_enable(tmp_path, monkeypatch):
+    import storage_service
+    from storage_lifecycle import Storage
+
+    monkeypatch.setenv("LCTX_STORAGE_STATE", str(tmp_path / "storage"))
+    root = tmp_path / "new-campaign"
+    candidate = tmp_path / "lctx"
+    candidate.write_bytes(b"finite installer input")
+    candidate.chmod(0o700)
+    monkeypatch.setattr(service, "verify_binary", lambda env: candidate)
+    monkeypatch.setattr(service, "systemd_available", lambda **kw: None)
+    monkeypatch.setattr(service, "unit_properties", lambda *a: {"LoadState": "not-found"})
+    monkeypatch.setattr(service, "_unit_path", lambda unit_name=service.UNIT: tmp_path / "unit")
+    monkeypatch.setattr(service, "_available_port", lambda: 29000)
+    monkeypatch.setattr(
+        storage_service,
+        "prepare",
+        lambda directory, source: {"path": str(source), "sha256": service.file_sha256(source)},
+    )
+    monkeypatch.setattr(
+        service, "_installer_cli", lambda *a, **kw: {"schema_version": 6, "schema": "b" * 64}
+    )
+    enables = []
+
+    def systemctl(*args):
+        if args[0] == "enable":
+            record = service.read_json(root / "installation.json")
+            assert isinstance(record, dict)
+            assert record["phase"] == "installing"
+            assert record["purpose"] == service.LIFECYCLE_PURPOSE
+            assert record["capabilities"] == list(service.DEVELOPMENT_CAPABILITIES)
+            consumer = "lifecycle-campaign:" + record["installation_id"]
+            assert record["campaign_storage"]["consumer"] == consumer
+            storage = Storage().get(record["campaign_storage"]["content"])
+            assert storage["owner"] == {"kind": "native", "path": str(root)}
+            assert consumer in storage["obligations"], "storage admission must precede enable/start"
+            enables.append(record["installation_id"])
+            return subprocess.CompletedProcess(args, 1)
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(service, "systemctl", systemctl)
+    env = {"LCTX_SURREAL_SERVICE_CONFIG": str(root / "installation.json")}
+    for _ in range(2):
+        with pytest.raises(service.FixtureBlocked, match="owned service launch failed"):
+            service.install(candidate, env=env, campaign=True, purpose=service.LIFECYCLE_PURPOSE)
+        record = service.read_json(root / "installation.json")
+        assert isinstance(record, dict)
+        assert (root / "data").is_dir()
+        assert record["phase"] == "installing"
+        assert (
+            record["campaign_storage"]["consumer"]
+            == "lifecycle-campaign:" + record["installation_id"]
+        )
+    assert enables[0] == enables[1], "retry must retain exact target identity"
+
+
+def test_borrowed_server_preserves_original_provenance_and_refuses_wrong_owner(
+    tmp_path, monkeypatch, capfd
+):
+    from test_surrealdb_server import provenance
+
+    import surrealdb_server
+    from storage_service import dependencies
+
+    origin, campaign = tmp_path / "original-service", tmp_path / "campaign"
+    # This is a finite provenance-correspondence control, not evidence of a server build.
+    generation = {
+        "path": str(origin / "server"),
+        "sha256": "a" * 64,
+        "http_version": service.VERSION,
+        "descriptor_path": str(origin / "record.json"),
+        "provenance": provenance(origin),
+    }
+    monkeypatch.setattr(surrealdb_server, "validate_descriptor", lambda path: generation)
+    assert (
+        service._owned_server_generation(origin, Path(generation["descriptor_path"])) is generation
+    )
+    with pytest.raises(service.FixtureBlocked, match="provenance"):
+        service._owned_server_generation(campaign, Path(generation["descriptor_path"]))
+    record = {
+        "kind": "campaign",
+        "purpose": service.LIFECYCLE_PURPOSE,
+        "installation_id": str(uuid.uuid4()),
+        "phase": "ready",
+        "installer": str(campaign / "lctx"),
+        "binary_origin": str(origin),
+        "binary": service._generation_binary(generation),
+    }
+    record["unit"] = service.installation_unit(record)
+    installation = service.Installation(campaign, record)
+    original = json.loads(json.dumps(generation))
+    assert service._installed_binary(installation) == Path(generation["path"])
+    expected = surrealdb_server.dependencies(generation)
+    observed = dependencies(installation)["dependencies"]
+    assert all(item in observed for item in expected), (
+        "borrowing retains original executable and warm dependencies"
+    )
+    monkeypatch.setattr(service.Installation, "load", lambda **kwargs: installation)
+    monkeypatch.setattr(service, "unit_properties", lambda *args: {"ActiveState": "active"})
+    monkeypatch.setattr(service, "borrowers", lambda inst: [])
+    monkeypatch.setattr(service, "development_workers", lambda inst: [])
+    assert service.main(["status"]) == 0
+    assert json.loads(capfd.readouterr().out)["storage"]["dependencies"] == observed
+    assert generation == original, (
+        "borrowing must not rewrite original provenance as a campaign build"
+    )
+    installation.record["binary_origin"] = str(campaign)
+    with pytest.raises(service.FixtureBlocked, match="provenance"):
+        service._installed_binary(installation)
+    with pytest.raises(service.StorageBlocked, match="provenance"):
+        dependencies(installation)
+    installation.record.update(kind="stable", binary_origin=str(origin))
+    with pytest.raises(service.FixtureBlocked, match="not a lifecycle campaign"):
+        service._installed_binary(installation)
+    with pytest.raises(service.FixtureBlocked, match="not a lifecycle campaign"):
+        dependencies(installation)

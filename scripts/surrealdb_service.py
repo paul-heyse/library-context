@@ -51,8 +51,24 @@ SERVER_SETTINGS = {
     "SURREAL_GRPC_MAX_MESSAGE_SIZE": "128MiB",
     "SURREAL_EXPORT_BATCH_SIZE": str(EXPORT_BATCH_SIZE),
 }
+LIFECYCLE_PURPOSE = "surrealdb-lifecycle"
+# A remote client cannot enlarge this server-side ceiling. No outbound network,
+# scripting, guests or experimental feature is enabled by the beta connector.
+DEVELOPMENT_CAPABILITIES = [
+    "--deny-all",
+    "--allow-funcs",
+    "--allow-rpc",
+    "--allow-http",
+    "--allow-arbitrary-query",
+    "system,record",
+    "--deny-net",
+]
 EXIT_BLOCKED = 75
 READY_TIMEOUT = 40.0
+# Best-effort logical cleanup shares the existing host readiness bound. Exact
+# executor drainage/discard, rather than unbounded logical retries, settles this
+# explicitly disposable target. This is no performance or throughput threshold.
+DISPOSAL_LOGICAL_TIMEOUT = READY_TIMEOUT
 INSTALL_REPAIR = "just service install --installer target/release/lctx"
 VERSION = "surrealdb-3.3.0"
 CLI_VERSION = "3.3.0 for linux on x86_64"
@@ -116,23 +132,43 @@ def file_sha256(path: Path) -> str:
 
 def _owned_server_generation(directory: Path, descriptor: Path) -> dict:
     import surrealdb_server
+
     try:
         generation = surrealdb_server.validate_descriptor(descriptor)
         surrealdb_server.validate_provenance(generation["provenance"], directory=directory)
         return generation
     except StorageBlocked as error:
-        raise FixtureBlocked("binary", "owned server generation cannot be verified: " + str(error)) from None
+        raise FixtureBlocked(
+            "binary", "owned server generation cannot be verified: " + str(error)
+        ) from None
 
 
 def _generation_binary(generation: Mapping[str, Any]) -> dict:
-    return {"path": generation["path"], "sha256": generation["sha256"],
-            "version": generation["http_version"], "generation": dict(generation)}
+    return {
+        "path": generation["path"],
+        "sha256": generation["sha256"],
+        "version": generation["http_version"],
+        "generation": dict(generation),
+    }
+
+
+def _server_binary_origin(installation: Installation) -> Path:
+    """The executable's original owner remains authoritative when a campaign borrows it."""
+    if installation.record.get("binary_origin") is not None:
+        if (
+            installation.record.get("kind") != "campaign"
+            or installation.record.get("purpose") != LIFECYCLE_PURPOSE
+        ):
+            raise FixtureBlocked("identity", "borrowed executable is not a lifecycle campaign")
+        return Path(installation.record["binary_origin"])
+    return installation.directory
 
 
 def _installed_binary(installation: Installation) -> Path:
     binary = installation.record["binary"]
     if generation := binary.get("generation"):
-        actual = _owned_server_generation(installation.directory, Path(generation["descriptor_path"]))
+        origin = _server_binary_origin(installation)
+        actual = _owned_server_generation(origin, Path(generation["descriptor_path"]))
         if binary != _generation_binary(actual):
             raise FixtureBlocked("identity", "installed server differs from its owned generation")
         return Path(actual["path"])
@@ -265,7 +301,7 @@ def installation_unit(record: Mapping[str, Any]) -> str:
     if kind == "campaign":
         try:
             identity = str(uuid.UUID(record["installation_id"]))
-        except (KeyError, ValueError, TypeError, AttributeError):
+        except KeyError, ValueError, TypeError, AttributeError:
             raise FixtureBlocked("identity", "campaign installation ID is invalid") from None
         return f"library-context-surrealdb-campaign-{identity}.service"
     raise FixtureBlocked("identity", "installation kind is incompatible")
@@ -309,8 +345,10 @@ def _descriptor(root: Path) -> dict[str, Any]:
             "installation descriptor is incompatible",
             "just service maintenance --check",
         )
-    if (value.get("server_log_filter", "warn") not in {"warn", "warn,surrealdb::net=info"}
-            or value.get("server_log_filter", "warn") != "warn" and value.get("kind", "stable") != "campaign"):
+    if value.get("server_log_filter", "warn") not in {"warn", "warn,surrealdb::net=info"} or (
+        value.get("server_log_filter", "warn") != "warn"
+        and value.get("kind", "stable") != "campaign"
+    ):
         raise FixtureBlocked("identity", "owned server log filter is incompatible")
     generation = value.get("service_generation")
     if (
@@ -405,7 +443,9 @@ class Installation:
         try:
             selected_before = executable_identity(Path(self.record["binary"]["path"]).stat())
         except OSError:
-            raise FixtureBlocked("binary", "installed executable is unavailable", BINARY_REPAIR) from None
+            raise FixtureBlocked(
+                "binary", "installed executable is unavailable", BINARY_REPAIR
+            ) from None
         binary = _installed_binary(self)
         state = unit_properties(self.unit, "ActiveState", "Result", "MainPID", "ExecStart")
         if state.get("ActiveState") != "active":
@@ -441,6 +481,30 @@ class Installation:
                 raise FixtureBlocked(
                     "identity", "running service storage/endpoint differs from installation"
                 )
+            if self.record.get("purpose") == LIFECYCLE_PURPOSE:
+                expected = [
+                    str(binary),
+                    "start",
+                    "--no-banner",
+                    expected_log.decode(),
+                    "--bind",
+                    expected_bind.decode(),
+                    "--query-timeout",
+                    "20s",
+                    "--transaction-timeout",
+                    "10s",
+                    *DEVELOPMENT_CAPABILITIES,
+                    "--temporary-directory",
+                    str(self.directory / "tmp"),
+                    expected_store.decode(),
+                ]
+                if (
+                    self.record.get("capabilities") != DEVELOPMENT_CAPABILITIES
+                    or [v.decode() for v in argv if v] != expected
+                ):
+                    raise FixtureBlocked(
+                        "identity", "development server capability ceiling differs"
+                    )
             with local_urlopen(self.endpoint + "/ready", timeout=2) as response:
                 if response.status != 200:
                     raise ValueError("not ready")
@@ -449,8 +513,11 @@ class Installation:
                     raise FixtureBlocked("identity", "running server version differs from pin")
             executable = Path(f"/proc/{process.pid}/exe").stat()
             selected = binary.stat()
-            if (not process.alive() or selected_before != executable_identity(selected)
-                or executable_identity(executable) != executable_identity(selected)):
+            if (
+                not process.alive()
+                or selected_before != executable_identity(selected)
+                or executable_identity(executable) != executable_identity(selected)
+            ):
                 raise FixtureBlocked("identity", "running executable generation changed")
             self._daemon_identity = (process, executable_identity(executable))
         except OSError, ValueError, KeyError:
@@ -485,7 +552,10 @@ class Installation:
                 ) from None
             marker = rows[0].get("result")
             if marker != [
-                {"generation": bytes(self.record["service_generation"]).hex(), "schema_version": self.record.get("native_schema_version", 3)}
+                {
+                    "generation": bytes(self.record["service_generation"]).hex(),
+                    "schema_version": self.record.get("native_schema_version", 3),
+                }
             ]:
                 raise FixtureBlocked(
                     "schema",
@@ -515,9 +585,13 @@ def local_urlopen(request: str | urllib.request.Request, *, timeout: float):
     """Contact the owned loopback HTTP service directly, independent of proxy env."""
     url = request.full_url if isinstance(request, urllib.request.Request) else request
     endpoint = urllib.parse.urlsplit(url)
-    if (endpoint.scheme != "http" or endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
-            or endpoint.username is not None or endpoint.password is not None
-            or endpoint.port is None):
+    if (
+        endpoint.scheme != "http"
+        or endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
+        or endpoint.username is not None
+        or endpoint.password is not None
+        or endpoint.port is None
+    ):
         raise ValueError("owned service requires a local HTTP endpoint")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoLocalRedirect())
     try:
@@ -536,14 +610,16 @@ def sql(
         "Authorization": "Basic " + base64.b64encode(credentials).decode(),
         "Accept": "application/json",
         "Content-Type": "text/plain",
-        "Surreal-NS": NAMESPACE,
+        "Surreal-NS": cfg.get("namespace", NAMESPACE),
     }
     if cfg.get("database") is not None:
         headers["Surreal-DB"] = cfg["database"]
     elif cfg.get("authentication") != "root":
         raise FixtureBlocked("identity", "namespace administration requires root authority")
     if cfg.get("authentication") == "database":
-        headers.update({"Surreal-Auth-NS": NAMESPACE, "Surreal-Auth-DB": cfg["database"]})
+        headers.update(
+            {"Surreal-Auth-NS": cfg.get("namespace", NAMESPACE), "Surreal-Auth-DB": cfg["database"]}
+        )
     request = urllib.request.Request(
         installation.endpoint + "/sql", data=statement.encode(), headers=headers
     )
@@ -559,7 +635,9 @@ def sql(
         ) from None
 
 
-def unit_text(root: Path, binary: Path, port: int, *, log_filter: str = "warn") -> str:
+def unit_text(
+    root: Path, binary: Path, port: int, *, log_filter: str = "warn", development: bool = False
+) -> str:
     if "\n" in str(root) or "\r" in str(root):
         raise FixtureBlocked("configuration", "service state path cannot contain line separators")
 
@@ -579,6 +657,7 @@ def unit_text(root: Path, binary: Path, port: int, *, log_filter: str = "warn") 
         "20s",
         "--transaction-timeout",
         "10s",
+        *(DEVELOPMENT_CAPABILITIES if development else []),
         "--temporary-directory",
         root / "tmp",
         f"rocksdb://{root / 'data/store'}",
@@ -622,16 +701,15 @@ def _run_installer(installation: Installation, installer: Path, action: str = "i
         path = installation.runtime_path(db, installer=privileged)
         args = [str(installer), "store", "--runtime-config", str(path), action]
         environment = {
-                **os.environ,
-                "LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json"),
-            }
+            **os.environ,
+            "LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json"),
+        }
         result = subprocess.run(args, env=environment, check=False)
         returncode = result.returncode
         if returncode:
             raise FixtureFailed(
                 "schema",
-                f"native {action} failed for {db} (exit {returncode}); "
-                "installation remains closed",
+                f"native {action} failed for {db} (exit {returncode}); installation remains closed",
             )
 
 
@@ -690,29 +768,72 @@ def _native_identity_argument(value: str) -> str:
 
 
 def install(
-    installer: Path, *, env: Mapping[str, str] | None = None, campaign: bool = False
+    installer: Path,
+    *,
+    env: Mapping[str, str] | None = None,
+    campaign: bool = False,
+    purpose: str | None = None,
+    server_generation: Path | None = None,
 ) -> Installation:
     env = os.environ if env is None else env
     root = state_root(env).resolve()
+    if purpose not in (None, LIFECYCLE_PURPOSE) or (
+        (purpose or server_generation) and not campaign
+    ):
+        raise FixtureBlocked(
+            "ownership", "development purpose/server binding requires an owned campaign"
+        )
+    if server_generation and purpose != LIFECYCLE_PURPOSE:
+        raise FixtureBlocked("ownership", "borrowed server generation requires lifecycle purpose")
     if campaign:
-        if not env.get("LCTX_SURREAL_SERVICE_CONFIG") or root == state_root({
-            k: v for k, v in env.items() if k != "LCTX_SURREAL_SERVICE_CONFIG"
-        }).resolve():
-            raise FixtureBlocked("ownership", "campaign installation requires an explicit separate service configuration")
-    from storage_lifecycle import Storage, admission
+        if (
+            not env.get("LCTX_SURREAL_SERVICE_CONFIG")
+            or root
+            == state_root(
+                {k: v for k, v in env.items() if k != "LCTX_SURREAL_SERVICE_CONFIG"}
+            ).resolve()
+        ):
+            raise FixtureBlocked(
+                "ownership",
+                "campaign installation requires an explicit separate service configuration",
+            )
+    from storage_lifecycle import admission
     from storage_service import tools_root
 
     with admission([root, tools_root(root), installer]):
-        installation = _install(installer, env=env, campaign=campaign)
-        if campaign:
-            Storage().publish(root, "native-content", {"kind": "native", "path": str(root)},
-                              "efficiency-campaign:" + installation.id, requires="raw-replay")
-        return installation
+        return _install(
+            installer,
+            env=env,
+            campaign=campaign,
+            purpose=purpose,
+            server_generation=server_generation,
+        )
 
 
-def _install(installer: Path, *, env: Mapping[str, str], campaign: bool) -> Installation:
+def _install(
+    installer: Path,
+    *,
+    env: Mapping[str, str],
+    campaign: bool,
+    purpose: str | None = None,
+    server_generation: Path | None = None,
+) -> Installation:
     root = state_root(env).resolve()
-    binary = verify_binary(env)
+    generation = None
+    if server_generation:
+        import surrealdb_server
+
+        try:
+            generation = surrealdb_server.validate_descriptor(server_generation)
+            binary_origin = Path(generation["provenance"]["service_directory"])
+            generation = _owned_server_generation(binary_origin, server_generation)
+        except (KeyError, StorageBlocked) as error:
+            raise FixtureBlocked(
+                "binary", "campaign server generation cannot be verified"
+            ) from error
+        binary = Path(generation["path"])
+    else:
+        binary = verify_binary(env)
     if missing := systemd_available(env=env):
         raise FixtureBlocked("systemd", missing, SYSTEMD_REPAIR)
     if not installer.is_file() or not os.access(installer, os.X_OK):
@@ -729,7 +850,15 @@ def _install(installer: Path, *, env: Mapping[str, str], campaign: bool) -> Inst
         if (root / "installation.json").exists():
             installation = Installation.load(env, ready=False)
             if (installation.record.get("kind", "stable") == "campaign") != campaign:
-                raise FixtureBlocked("ownership", "install mode differs from the existing installation")
+                raise FixtureBlocked(
+                    "ownership", "install mode differs from the existing installation"
+                )
+            if installation.record.get("purpose") != purpose:
+                raise FixtureBlocked(
+                    "ownership", "install purpose differs from the existing installation"
+                )
+            if generation and installation.record["binary"] != _generation_binary(generation):
+                raise FixtureBlocked("identity", "campaign executable generation changed")
             if installation.record["phase"] == "ready":
                 installation.check()
                 return installation
@@ -746,7 +875,7 @@ def _install(installer: Path, *, env: Mapping[str, str], campaign: bool) -> Inst
                 raise FixtureBlocked(
                     "ownership", "owned unit exists without this installation; refusing adoption"
                 )
-            generation = list(secrets.token_bytes(32))
+            service_generation = list(secrets.token_bytes(32))
             port = _available_port()
             from storage_service import prepare
 
@@ -757,7 +886,7 @@ def _install(installer: Path, *, env: Mapping[str, str], campaign: bool) -> Inst
                 "installation_id": installation_id,
                 "kind": kind,
                 "phase": "installing",
-                "service_generation": generation,
+                "service_generation": service_generation,
                 "unit": unit_name,
                 "state_root": str(root),
                 "endpoint": f"http://127.0.0.1:{port}",
@@ -773,6 +902,12 @@ def _install(installer: Path, *, env: Mapping[str, str], campaign: bool) -> Inst
                 "installer": str(installer.resolve()),
                 "installer_generation": installer_generation,
             }
+            if purpose:
+                record["purpose"] = purpose
+                record["capabilities"] = list(DEVELOPMENT_CAPABILITIES)
+            if generation:
+                record["binary"] = _generation_binary(generation)
+                record["binary_origin"] = str(Path(generation["provenance"]["service_directory"]))
             installation = Installation(root, record)
             declared = _installer_cli(installation, installer_generation, "main", "schema")
             _current_schema(declared)
@@ -802,7 +937,7 @@ def _install(installer: Path, *, env: Mapping[str, str], campaign: bool) -> Inst
                     "namespace": NAMESPACE,
                     "database": db,
                     "cache_database": db,
-                    "service_generation": generation,
+                    "service_generation": service_generation,
                     "authentication": "database",
                     "selection": str(root / f"{db}-selected.json"),
                 }
@@ -813,19 +948,42 @@ def _install(installer: Path, *, env: Mapping[str, str], campaign: bool) -> Inst
                 )
             unit = _unit_path(installation.unit)
             unit.parent.mkdir(parents=True, exist_ok=True)
-            unit.write_text(unit_text(root, binary, port))
+            unit.write_text(unit_text(root, binary, port, development=purpose == LIFECYCLE_PURPOSE))
             result = systemctl("daemon-reload")
             if result.returncode:
                 raise FixtureBlocked("systemd", "daemon-reload failed", SYSTEMD_REPAIR)
+        if campaign:
+            # This durable record precedes enable/start, including failed installation.
+            from storage_lifecycle import Storage
+
+            consumer = (
+                "lifecycle-campaign:" if purpose else "efficiency-campaign:"
+            ) + installation.id
+            storage = installation.record.setdefault("campaign_storage", {})
+            storage["consumer"] = consumer
+            storage["content"] = Storage().publish(
+                root,
+                "native-content",
+                {"kind": "native", "path": str(root)},
+                consumer,
+                requires="immediate-use" if purpose else "raw-replay",
+            )
+            if generation:
+                executable_root = Path(generation["descriptor_path"]).parent
+                storage["server"] = Storage().publish(
+                    executable_root,
+                    "native-content",
+                    {"kind": "native", "path": str(executable_root)},
+                    consumer,
+                )
+            private_json(root / "installation.json", installation.record)
         result = systemctl("enable", "--now", installation.unit)
         if result.returncode:
             raise FixtureBlocked("launch", "owned service launch failed", "just service status")
         deadline = time.monotonic() + READY_TIMEOUT
         while True:
             try:
-                with local_urlopen(
-                    installation.endpoint + "/ready", timeout=1
-                ) as response:
+                with local_urlopen(installation.endpoint + "/ready", timeout=1) as response:
                     if response.status == 200:
                         break
             except OSError, ValueError:
@@ -871,10 +1029,619 @@ def borrowers(installation: Installation) -> list[dict[str, Any]]:
             found.append({"id": path.parent.name, "state": "unknown", "protected": True})
         else:
             import surrealdb_fixture
+
             native = surrealdb_fixture.native_completion(path.parent, row)
-            if row.get("released") is not True or surrealdb_fixture.native_protected(path.parent, row, native):
+            if row.get("released") is not True or surrealdb_fixture.native_protected(
+                path.parent, row, native
+            ):
                 found.append({**row, "protected": True})
     return found
+
+
+def lifecycle_campaign(installation: Installation, identity: str) -> None:
+    """An explicit target identity authorizes only this disposable owner boundary."""
+    if (
+        installation.id != identity
+        or installation.record.get("kind") != "campaign"
+        or installation.record.get("purpose") != LIFECYCLE_PURPOSE
+    ):
+        raise FixtureBlocked("ownership", "target is not the exact owned lifecycle campaign")
+    if any(path.is_symlink() for path in (installation.directory, *installation.directory.parents)):
+        raise FixtureBlocked("ownership", "campaign state must have a physical path")
+
+
+def development_workers(installation: Installation) -> list[dict[str, Any]]:
+    """Inspect actual run owners; no beta report is needed to find a worker."""
+    import runs
+
+    result = []
+    for path in sorted((installation.directory / "development").glob("*/record.json")):
+        row = read_json(path)
+        if (
+            not isinstance(row, dict)
+            or row.get("installation_id") != installation.id
+            or row.get("server_generation")
+            != bytes(installation.record["service_generation"]).hex()
+            or not isinstance(row.get("run_path"), str)
+        ):
+            raise FixtureBlocked("ownership", "development worker inventory is incomplete")
+        run_path = Path(row["run_path"])
+        run = runs.load_record(run_path)
+        cleanup = runs.cleanup_of(run)
+        pending = run is None or runs.owner_alive(run_path, run) or runs.cleanup_protected(run)
+        result.append(
+            {
+                "id": path.parent.name,
+                "run": run_path.name,
+                "pending": pending,
+                "cleanup": cleanup,
+                "report": row.get("report"),
+                "outcome": row.get("outcome", "unknown"),
+            }
+        )
+    return result
+
+
+def _campaign_executor(installation: Installation, *, allow_removed_unit: bool = False) -> bool:
+    """Authenticate the current executor independently of a disposal checkpoint."""
+    unit = _unit_path(installation.unit)
+    state = unit_properties(installation.unit, "ActiveState", "MainPID")
+    active = state.get("ActiveState") == "active"
+    if not active and (
+        state.get("ActiveState") not in {"inactive", "failed"} or state.get("MainPID") != "0"
+    ):
+        raise FixtureBlocked("identity", "campaign executor state is not authenticated")
+    if allow_removed_unit and not unit.exists() and not unit.is_symlink() and not active:
+        return False
+    port = urllib.parse.urlsplit(installation.endpoint).port
+    if port is None:
+        raise FixtureBlocked("identity", "campaign endpoint has no explicit port")
+    expected = unit_text(
+        installation.directory,
+        Path(installation.record["binary"]["path"]),
+        port,
+        log_filter=installation.record.get("server_log_filter", "warn"),
+        development=True,
+    )
+    if (
+        unit.is_symlink()
+        or installation.record.get("capabilities") != DEVELOPMENT_CAPABILITIES
+        or unit.read_text() != expected
+    ):
+        raise FixtureBlocked("identity", "campaign unit differs from its owned definition")
+    if active:
+        installation.check_daemon()
+    return active
+
+
+def _campaign_disposal_receipt(installation: Installation, receipt: Any) -> None:
+    if not isinstance(receipt, dict):
+        raise FixtureBlocked("identity", "campaign disposal receipt is invalid")
+    steps = receipt.get("steps")
+    if (
+        receipt.get("schema") != 1
+        or receipt.get("kind") != "lifecycle-campaign-disposal"
+        or receipt.get("installation_id") != installation.id
+        or receipt.get("generation") != bytes(installation.record["service_generation"]).hex()
+        or receipt.get("outcome") not in ("unknown", "passed")
+        or not isinstance(receipt.get("workers"), list)
+        or not isinstance(steps, dict)
+        or not isinstance(receipt.get("logical_commands", []), list)
+        or set(steps)
+        - {
+            "close-admission",
+            "drain",
+            "executor-shutdown",
+            "datastore-disposal",
+            "attachment-release",
+            "storage-release",
+            "credential-removal",
+            "unit-removal",
+            "installer-removal",
+        }
+        or any(value not in ("passed", "failed", "not_run") for value in steps.values())
+        or (
+            steps.get("datastore-disposal") == "passed"
+            and steps.get("executor-shutdown") != "passed"
+        )
+        or (
+            receipt.get("outcome") == "passed"
+            and any(
+                steps.get(key) != "passed" for key in ("executor-shutdown", "datastore-disposal")
+            )
+        )
+    ):
+        raise FixtureBlocked("identity", "campaign disposal receipt scope or steps differ")
+
+
+def _disposal_installer_args(installation: Installation, database: str, action: str) -> list[str]:
+    # The existing run owner inherits the environment. Issue the exact campaign
+    # selector to this child only, preserving ordinary installer's target binding.
+    return [
+        "/usr/bin/env",
+        "LCTX_SURREAL_SERVICE_CONFIG=" + str(installation.directory / "installation.json"),
+        installation.record["installer"],
+        "store",
+        "--runtime-config",
+        str(installation.runtime_path(database, installer=True)),
+        action,
+    ]
+
+
+def _disposal_command_record(
+    installation: Installation, command: Mapping[str, Any]
+) -> tuple[Path, dict]:
+    """Authenticate a referenced existing run before observing or recovering it."""
+    import runs
+
+    try:
+        run_path = Path(command["run_path"])
+        database, action = command["database"], command["action"]
+        if (
+            command.get("installation_id") != installation.id
+            or command.get("generation") != bytes(installation.record["service_generation"]).hex()
+            or database not in DATABASES
+            or action not in {"close-admission", "drain"}
+            or not run_path.is_absolute()
+            or ".." in run_path.parts
+            or any(path.is_symlink() for path in (run_path, *run_path.parents))
+            or not run_path.is_dir()
+            or run_path.stat().st_uid != os.getuid()
+        ):
+            raise ValueError
+        path = run_path / runs.RECORD
+        if path.is_symlink() or path.stat().st_uid != os.getuid() or path.stat().st_mode & 0o077:
+            raise ValueError
+        record = runs.load_record(run_path)
+        expected_args = _disposal_installer_args(installation, database, action)
+        if (
+            not isinstance(record, dict)
+            or record.get("id") != run_path.name
+            or record.get("owner") != command.get("owner")
+            or record.get("argv") != expected_args
+            or record.get("cwd") != str(ROOT)
+            or record.get("label") != f"lifecycle-disposal-{action}-{database}"
+        ):
+            raise ValueError
+        ProcessIdentity.from_json(record["owner"])
+        reference = command["storage"]
+        from storage_lifecycle import Storage
+
+        storage = Storage()
+        owned = storage.get(reference["receipt"])
+        from storage_lifecycle import physical
+
+        if (
+            reference.get("consumer") != f"lifecycle-disposal:{installation.id}:{run_path.name}"
+            or owned.get("owner") != {"kind": "run", "path": str(run_path)}
+            or owned.get("path") != str(run_path)
+            or owned.get("category") != "run-receipt"
+            or owned.get("identity") != physical(run_path)
+            or reference["consumer"] not in owned.get("obligations", {})
+        ):
+            raise ValueError
+        return run_path, record
+    except OSError, KeyError, TypeError, ValueError, StorageBlocked:
+        raise FixtureBlocked(
+            "ownership", "disposal logical command run identity is unavailable or differs"
+        ) from None
+
+
+def _recover_disposal_commands(installation: Installation, receipt: dict) -> None:
+    """Replay only exact existing run owners; unresolved local children forbid discard."""
+    import runs
+
+    for command in receipt.get("logical_commands", []):
+        run_path, record = _disposal_command_record(installation, command)
+        if runs.owner_alive(run_path, record):
+            raise FixtureBlocked("drainage", "disposal logical command has a live owner")
+        if runs.cleanup_protected(record):
+            runs.cancel(run_path)
+            record = runs.load_record(run_path)
+        if record is None or runs.cleanup_protected(record):
+            raise FixtureBlocked(
+                "drainage", "disposal logical command local cleanup remains unresolved"
+            )
+        command["child_cleanup"] = runs.cleanup_of(record)
+        if command.get("outcome") != "passed":
+            receipt["steps"][command["action"]] = "failed"
+
+
+def _run_disposal_installer(
+    installation: Installation, action: str, receipt: dict
+) -> dict[str, Any]:
+    """A finite logical attempt owned by ordinary runs, without changing installer semantics."""
+    import runs
+    from harness import observe_exit
+    from storage_lifecycle import Storage, admission
+
+    if action not in {"close-admission", "drain"}:
+        raise FixtureBlocked("ownership", "unsupported disposable logical operation")
+    installer = Path(installation.record["installer"])
+    generation = installation.record.get("installer_generation", {})
+    if (
+        generation.get("path") != str(installer)
+        or any(path.is_symlink() for path in (installer, *installer.parents))
+        or not installer.is_file()
+        or installer.stat().st_uid != os.getuid()
+        or file_sha256(installer) != generation.get("sha256")
+        or not os.access(installer, os.X_OK)
+    ):
+        raise FixtureBlocked("identity", "disposal installer generation differs")
+    # Check both scopes before any logical mutation, matching ordinary installer use.
+    for database in DATABASES:
+        installation.runtime(database, installer=True)
+    deadline = time.monotonic() + DISPOSAL_LOGICAL_TIMEOUT
+    for database in DATABASES:
+
+        class BoundedOwner(runs.Owner):
+            def _own(self, child: subprocess.Popen) -> int:
+                while True:
+                    if (code := observe_exit(child)) is not None:
+                        return code
+                    stopped = self.received is not None or (self.dir / runs.CANCEL).exists()
+                    if stopped or time.monotonic() >= deadline:
+                        self.record.update(
+                            phase="stopping",
+                            termination="interrupted",
+                            disposal_stop="cancelled" if stopped else "deadline",
+                        )
+                        self.write()
+                        # Existing Owner catches this only after its SpawnGuard drains
+                        # the still-waitable child group and records actual exit/cleanup.
+                        if stopped:
+                            raise InterruptedError("disposal logical command cancelled")
+                        raise TimeoutError("disposal logical command deadline")
+                    if self._fold_progress():
+                        self.write()
+                    time.sleep(runs.POLL)
+
+        run_path = runs.new_run_dir()
+        with admission([run_path]):
+            args = _disposal_installer_args(installation, database, action)
+            owner = BoundedOwner(
+                run_path,
+                args,
+                label=f"lifecycle-disposal-{action}-{database}",
+                cwd=str(ROOT),
+                mode="foreground",
+                stream=True,
+            )
+            owner.write()
+            consumer = f"lifecycle-disposal:{installation.id}:{run_path.name}"
+            content = Storage().publish(
+                run_path,
+                "run-receipt",
+                {"kind": "run", "path": str(run_path)},
+                consumer,
+                managed=True,
+            )
+            command = {
+                "installation_id": installation.id,
+                "generation": bytes(installation.record["service_generation"]).hex(),
+                "action": action,
+                "database": database,
+                "run_path": str(run_path),
+                "owner": owner.record["owner"],
+                "outcome": "unknown",
+                "child_cleanup": {"status": "unknown"},
+                "storage": {"receipt": content, "consumer": consumer},
+            }
+            receipt.setdefault("logical_commands", []).append(command)
+            private_json(installation.directory / "disposal.json", receipt)
+            code = owner.run()
+            record = runs.load_record(run_path)
+            cleanup = runs.cleanup_of(record)
+            stop = (record or {}).get("disposal_stop")
+            # Natural child exit may win the polling race with a signal or cancel
+            # request. Preserve its real exit/cleanup while honoring current stop.
+            interrupted = (
+                owner.received is not None
+                or (run_path / runs.CANCEL).exists()
+                or stop == "cancelled"
+            )
+            if interrupted and stop is None:
+                stop = "cancelled"
+            command.update(
+                outcome="passed"
+                if code == 0
+                and stop is None
+                and not interrupted
+                and not runs.cleanup_protected(record or {})
+                else "failed",
+                command_exit=code,
+                child_cleanup=cleanup,
+                stopped=stop,
+                interrupted=interrupted,
+            )
+            private_json(installation.directory / "disposal.json", receipt)
+            if record is None or runs.cleanup_protected(record):
+                return {
+                    "outcome": "failed",
+                    "child_cleanup": cleanup,
+                    "local_drained": False,
+                    "interrupted": interrupted,
+                }
+            if command["outcome"] != "passed":
+                return {
+                    "outcome": "failed",
+                    "child_cleanup": cleanup,
+                    "local_drained": True,
+                    "interrupted": interrupted,
+                }
+    return {
+        "outcome": "passed",
+        "child_cleanup": {"status": "confirmed", "survivors": []},
+        "local_drained": True,
+        "interrupted": False,
+    }
+
+
+def dispose_campaign(installation: Installation, identity: str) -> dict[str, Any]:
+    """Drain and discard one explicitly owned target, retaining only current disposition."""
+    lifecycle_campaign(installation, identity)
+    from storage_lifecycle import Storage, admission
+    from storage_service import tools_root
+
+    root = installation.directory
+    storage = installation.record.get("campaign_storage")
+    if not isinstance(storage, dict) or storage.get("consumer") != "lifecycle-campaign:" + identity:
+        raise FixtureBlocked("ownership", "campaign prelaunch storage owner is missing")
+    from harness import try_hold_lock
+
+    with admission([root, tools_root(root)]), contextlib.ExitStack() as stack:
+        for name in ("admission.lock", "borrowers.lock"):
+            fd = try_hold_lock(root / name)
+            if fd is None:
+                raise FixtureBlocked("drainage", "campaign has a live admission/borrower owner")
+            stack.callback(os.close, fd)
+        # Reload under exclusion; a stale Python object cannot dispose a replacement.
+        current = Installation.load(
+            {"LCTX_SURREAL_SERVICE_CONFIG": str(root / "installation.json")}, ready=False
+        )
+        if current.record != installation.record:
+            raise FixtureBlocked("identity", "campaign changed before disposal")
+        receipt_path = root / "disposal.json"
+        receipt = read_json(receipt_path)
+        if receipt is not None:
+            if receipt_path.is_symlink():
+                raise FixtureBlocked("identity", "campaign disposal receipt cannot be a symlink")
+            _campaign_disposal_receipt(current, receipt)
+        if current.record.get("phase") == "disposed":
+            if not receipt or receipt.get("outcome") != "passed":
+                raise FixtureBlocked("disposal", "campaign disposition is incomplete")
+            return receipt
+        previous = read_json(root / "maintenance.json")
+        if previous and (
+            previous.get("operation") != "dispose-campaign"
+            or previous.get("installation_id") != identity
+            or receipt is None
+        ):
+            raise FixtureBlocked("maintenance", "campaign has an unresolved maintenance owner")
+        # Both exclusive owner locks are held here. A retained process identity
+        # alone cannot make a completed or interrupted operation live again.
+        workers = development_workers(current)
+        if any(worker["pending"] for worker in workers):
+            raise FixtureBlocked(
+                "drainage",
+                "development worker cleanup remains unresolved; inspect just runs status",
+            )
+        pending = borrowers(current)
+        import surrealdb_fixture
+
+        for row in pending:
+            directory = root / "attachments" / str(row.get("id", ""))
+            try:
+                ProcessIdentity.from_json(row["owner"])
+            except KeyError, TypeError, ValueError:
+                raise FixtureBlocked(
+                    "ownership", "native attachment owner identity is incomplete"
+                ) from None
+            native = row.get("native_drain")
+            if (
+                directory.parent != root / "attachments"
+                or row.get("fixture") != identity
+                or not isinstance(native, dict)
+                or native.get("generation") != bytes(current.record["service_generation"]).hex()
+                or native.get("attachment") != row.get("id")
+                or native.get("directory") != str(directory / "native-drain")
+                or row.get("command_cleanup") != {"status": "confirmed", "survivors": []}
+                or surrealdb_fixture.owner_alive(row.get("owner"), directory / "owner.lock")
+            ):
+                raise FixtureBlocked(
+                    "drainage",
+                    "native attachment local cleanup remains unresolved; "
+                    "inspect just fixture --list",
+                )
+            lease = try_hold_lock(directory / "owner.lock")
+            if lease is None:
+                raise FixtureBlocked("drainage", "native attachment has a live owner")
+            os.close(lease)
+        _coordination_identity(current)
+        receipt = receipt or {
+            "schema": 1,
+            "kind": "lifecycle-campaign-disposal",
+            "installation_id": identity,
+            "generation": bytes(current.record["service_generation"]).hex(),
+            "workers": workers,
+            "outcome": "unknown",
+            "steps": {},
+        }
+        private_json(receipt_path, receipt)
+        marker = {
+            "operation": "dispose-campaign",
+            "owner": ProcessIdentity.of().to_json(),
+            "installation_id": identity,
+            "token": secrets.token_urlsafe(32),
+        }
+        private_json(root / "maintenance.json", marker)
+        try:
+            _recover_disposal_commands(current, receipt)
+            private_json(receipt_path, receipt)
+            if (
+                current.record.get("phase") == "ready"
+                and receipt["steps"].get("executor-shutdown") != "passed"
+            ):
+                available = _campaign_executor(current)
+                if available:
+                    cfg = current.runtime("validation", installer=True)
+                    root_inventory = sql(current, "INFO FOR ROOT", cfg=cfg)[0]["result"]
+                    namespaces = root_inventory.get("namespaces", {})
+                    receipt["inventory"] = {"namespace_names": sorted(namespaces), "databases": {}}
+                    for namespace in sorted(namespaces):
+                        info = sql(
+                            current,
+                            "INFO FOR NS",
+                            cfg={**cfg, "namespace": namespace, "database": None},
+                        )[0]["result"]
+                        receipt["inventory"]["databases"][namespace] = sorted(
+                            info.get("databases", {})
+                        )
+                    for operation in ("close-admission", "drain"):
+                        if receipt["steps"].get(operation) in {"passed", "failed"}:
+                            continue
+                        try:
+                            logical = _run_disposal_installer(current, operation, receipt)
+                            receipt["steps"][operation] = logical["outcome"]
+                        except (FixtureBlocked, FixtureFailed) as error:
+                            # Checked whole-service shutdown settles abandoned native
+                            # state, without relabeling a failed drain as successful.
+                            receipt["steps"][operation] = "failed"
+                            receipt.setdefault("errors", {})[operation] = type(error).__name__
+                            logical = {"local_drained": True, "interrupted": False}
+                        private_json(receipt_path, receipt)
+                        if not logical["local_drained"]:
+                            raise FixtureBlocked(
+                                "drainage",
+                                "disposal logical command local cleanup remains unresolved",
+                            )
+                        if logical["interrupted"]:
+                            raise FixtureBlocked(
+                                "interrupted",
+                                "disposal logical command cancelled; explicit retry required",
+                            )
+                else:
+                    receipt["inventory"] = {
+                        "status": "not_run",
+                        "reason": "exact owned executor already inactive",
+                    }
+                    for operation in ("close-admission", "drain"):
+                        receipt["steps"].setdefault(operation, "not_run")
+                private_json(receipt_path, receipt)
+            # A checkpoint never authorizes stopping a replacement executor.
+            _recover_disposal_commands(current, receipt)
+            private_json(receipt_path, receipt)
+            removed_unit = (
+                not _unit_path(current.unit).exists()
+                and receipt["steps"].get("executor-shutdown") == "passed"
+            )
+            _campaign_executor(current, allow_removed_unit=removed_unit)
+            if not removed_unit:
+                _stop_owned(current)
+            receipt["steps"]["executor-shutdown"] = "passed"
+            private_json(receipt_path, receipt)
+            if _unit_path(current.unit).exists() and systemctl("disable", current.unit).returncode:
+                raise FixtureBlocked("disposal", "owned campaign could not be disabled")
+            # Only the owned daemon's datastore is disposable; executable generations
+            # have independent owners and are released through their own consumers.
+            for name in ("data", "tmp", "product-leases", "serving"):
+                path = root / name
+                if path.is_symlink():
+                    raise FixtureBlocked("ownership", "campaign disposable path is a symlink")
+                if path.exists():
+                    shutil.rmtree(path)
+            receipt["steps"]["datastore-disposal"] = "passed"
+            # This outcome concerns the whole target. Original request finality is
+            # preserved separately in each attachment's immutable acknowledgement.
+            receipt["outcome"] = "passed"
+            private_json(receipt_path, receipt)
+            for row in pending:
+                surrealdb_fixture.acknowledge_campaign_discard(
+                    root / "attachments" / row["id"], receipt
+                )
+            receipt["steps"]["attachment-release"] = "passed"
+            private_json(receipt_path, receipt)
+            # This immutable installer was copied solely for this campaign. Its
+            # subprocesses have returned and all campaign executors are excluded.
+            generation = current.record.get("installer_generation", {})
+            installer = Path(current.record["installer"])
+            expected_installer = (
+                tools_root(root) / "lctx" / str(generation.get("sha256", "")) / "lctx"
+            )
+            if generation.get("path") != str(installer) or installer != expected_installer:
+                raise FixtureBlocked(
+                    "identity", "campaign installer is not its private owned generation"
+                )
+            if any(path.is_symlink() for path in (installer, *installer.parents)):
+                raise FixtureBlocked(
+                    "identity", "campaign installer generation must have a physical path"
+                )
+            if installer.parent.exists():
+                if (
+                    set(installer.parent.iterdir()) != {installer}
+                    or not installer.is_file()
+                    or file_sha256(installer) != generation["sha256"]
+                ):
+                    raise FixtureBlocked(
+                        "identity", "campaign installer generation differs before retirement"
+                    )
+                installer.unlink()
+                installer.parent.rmdir()
+            receipt["steps"]["installer-removal"] = "passed"
+            private_json(receipt_path, receipt)
+            unit = _unit_path(current.unit)
+            if unit.exists():
+                # Reauthenticate immediately before retiring the current unit file.
+                if _campaign_executor(current):
+                    raise FixtureBlocked(
+                        "disposal", "campaign executor restarted before unit retirement"
+                    )
+                unit.unlink()
+            if systemctl("daemon-reload").returncode:
+                raise FixtureBlocked("disposal", "campaign unit retirement reload failed")
+            receipt["steps"]["unit-removal"] = "passed"
+            private_json(receipt_path, receipt)
+            for key in ("server", "content"):
+                if storage.get(key):
+                    Storage().release(
+                        storage[key], storage["consumer"], "checked whole campaign disposal"
+                    )
+            for command in receipt.get("logical_commands", []):
+                _disposal_command_record(current, command)
+                reference = command["storage"]
+                Storage().release(
+                    reference["receipt"], reference["consumer"], "checked whole campaign disposal"
+                )
+            receipt["steps"]["storage-release"] = "passed"
+            receipt["outcome"] = "passed"
+            private_json(receipt_path, receipt)
+            # Credentials have no surviving consumer after confirmed target disposal.
+            # Interrupted beta workers may have issued a token into their exact owned
+            # input project. Child drainage alone does not erase that local copy.
+            from surrealdb_development import restore_campaign_token_inputs
+
+            restore_campaign_token_inputs(current)
+            for path in [
+                root / "server.env",
+                *(
+                    root / f"{db}-{kind}.json"
+                    for db in DATABASES
+                    for kind in ("runtime", "installer")
+                ),
+            ]:
+                path.unlink(missing_ok=True)
+            receipt["steps"]["credential-removal"] = "passed"
+            private_json(receipt_path, receipt)
+            (root / "maintenance.json").unlink()
+            # Publish the idempotent terminal phase only after every owned cleanup
+            # step. An interruption before this point resumes from the receipt.
+            current.record["phase"] = "disposed"
+            private_json(root / "installation.json", current.record)
+            return receipt
+        except BaseException:
+            # Keep exact scope, completed steps and closed admission for explicit recovery.
+            private_json(receipt_path, receipt)
+            raise
 
 
 def executable_identity(info: os.stat_result) -> tuple[int, ...]:
@@ -885,8 +1652,14 @@ _checked_generations = contextvars.ContextVar("checked_service_generations", def
 
 
 def checked_generation(installation: Installation) -> CheckedServiceGeneration | None:
-    return next((checked for checked in reversed(_checked_generations.get())
-                 if checked.installation.directory == installation.directory), None)
+    return next(
+        (
+            checked
+            for checked in reversed(_checked_generations.get())
+            if checked.installation.directory == installation.directory
+        ),
+        None,
+    )
 
 
 @dataclass
@@ -911,21 +1684,30 @@ class CheckedServiceGeneration:
     def validate(self, installation: Installation) -> None:
         try:
             os.fstat(self.lease)
-            if (not self.active or self.owner_pid != os.getpid()
+            if (
+                not self.active
+                or self.owner_pid != os.getpid()
                 or installation.record != self.descriptor
                 or read_json(installation.directory / "installation.json") != self.descriptor
                 or (installation.directory / "maintenance.json").exists()
-                or any(path.read_bytes() != value for path, value in self.runtime_bytes.items())):
+                or any(path.read_bytes() != value for path, value in self.runtime_bytes.items())
+            ):
                 raise ValueError("generation or admission changed")
             if self.daemon is not None:
                 process, executable = self.daemon
-                if (not process.alive()
+                if (
+                    not process.alive()
                     or executable_identity(Path(f"/proc/{process.pid}/exe").stat()) != executable
-                    or executable_identity(Path(self.descriptor["binary"]["path"]).stat()) != executable):
+                    or executable_identity(Path(self.descriptor["binary"]["path"]).stat())
+                    != executable
+                ):
                     raise ValueError("daemon or executable changed")
         except OSError, ValueError:
-            raise FixtureBlocked("identity", "checked service generation is no longer protected",
-                                 "just service status; acquire a new fixture borrow") from None
+            raise FixtureBlocked(
+                "identity",
+                "checked service generation is no longer protected",
+                "just service status; acquire a new fixture borrow",
+            ) from None
 
     def server_identity(self, installation: Installation) -> dict[str, str]:
         self.validate(installation)
@@ -956,9 +1738,17 @@ def borrow(installation: Installation) -> Iterator[CheckedServiceGeneration | No
         # Both admission and replacement protection precede executable/admin proof.
         readiness = installation.check()
         checked = CheckedServiceGeneration(
-            installation, readiness, use, copy.deepcopy(installation.record),
-            {installation.runtime_path(db): installation.runtime_path(db).read_bytes()
-             for db in DATABASES}, getattr(installation, "_daemon_identity", None), os.getpid())
+            installation,
+            readiness,
+            use,
+            copy.deepcopy(installation.record),
+            {
+                installation.runtime_path(db): installation.runtime_path(db).read_bytes()
+                for db in DATABASES
+            },
+            getattr(installation, "_daemon_identity", None),
+            os.getpid(),
+        )
         checked.validate(installation)
     except BaseException:
         if use is not None:
@@ -1135,7 +1925,8 @@ def _schema_identities(installation: Installation) -> dict[str, Any]:
             not isinstance(marker, list)
             or len(marker) != 1
             or marker[0].get("generation") != bytes(installation.record["service_generation"]).hex()
-            or marker[0].get("schema_version") != installation.record.get("native_schema_version", 3)
+            or marker[0].get("schema_version")
+            != installation.record.get("native_schema_version", 3)
             or not re.fullmatch(r"[0-9a-f]{64}", marker[0].get("schema", ""))
         ):
             raise FixtureBlocked("recovery", "native schema identity is unavailable")
@@ -1231,7 +2022,12 @@ def _bootstrap_owned(installation: Installation) -> None:
         installation.runtime(database, installer=True)
     binary = _installed_binary(installation)
     port = int(installation.endpoint.rsplit(":", 1)[1])
-    if _unit_path(installation.unit).read_text() != unit_text(installation.directory, binary, port, log_filter=installation.record.get("server_log_filter", "warn")):
+    if _unit_path(installation.unit).read_text() != unit_text(
+        installation.directory,
+        binary,
+        port,
+        log_filter=installation.record.get("server_log_filter", "warn"),
+    ):
         raise FixtureBlocked("identity", "dead service unit differs from installation")
     _stop_owned(installation)
     _start_owned(installation)
@@ -1337,7 +2133,9 @@ def _recovery_sources(installation: Installation) -> dict[str, Path]:
             )
         sources["assets/" + name] = path
     if generation := installation.record["binary"].get("generation"):
-        actual = _owned_server_generation(installation.directory, Path(generation["descriptor_path"]))
+        actual = _owned_server_generation(
+            installation.directory, Path(generation["descriptor_path"])
+        )
         if actual != generation:
             raise FixtureBlocked("identity", "recovery server provenance differs from installation")
         sources["assets/server-generation.json"] = Path(generation["descriptor_path"])
@@ -1390,6 +2188,7 @@ def _recovery_pointer(
 
 class _ArchiveHashWriter:
     """Non-seeking tar sink: hash exactly the bytes the underlying writer accepts."""
+
     def __init__(self, stream):
         self.stream, self.digest, self.count = stream, hashlib.sha256(), 0
 
@@ -1423,8 +2222,16 @@ class _AssetHashReader:
 
 
 def _asset_identity(info):
-    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns,
-            info.st_ctime_ns, info.st_mode, info.st_uid, info.st_gid)
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+        info.st_mode,
+        info.st_uid,
+        info.st_gid,
+    )
 
 
 def _archive_asset(tar, name: str, path: Path) -> tuple[dict, tuple]:
@@ -1439,11 +2246,17 @@ def _archive_asset(tar, name: str, path: Path) -> tuple[dict, tuple]:
         header.uid, header.gid, header.mtime = info.st_uid, info.st_gid, info.st_mtime
         reader = _AssetHashReader(source)
         tar.addfile(header, reader)
-        if (reader.count != info.st_size or _asset_identity(os.fstat(source.fileno())) != identity
-                or _asset_identity(path.lstat()) != identity):
+        if (
+            reader.count != info.st_size
+            or _asset_identity(os.fstat(source.fileno())) != identity
+            or _asset_identity(path.lstat()) != identity
+        ):
             raise FixtureBlocked("recovery", "recovery asset changed during copy")
-        return {"sha256": reader.digest.hexdigest(), "size": reader.count,
-                "mode": stat.S_IMODE(info.st_mode)}, identity
+        return {
+            "sha256": reader.digest.hexdigest(),
+            "size": reader.count,
+            "mode": stat.S_IMODE(info.st_mode),
+        }, identity
 
 
 def _backup_shape(installation: Installation) -> tuple[list[str], list[dict]]:
@@ -1457,14 +2270,17 @@ def _backup_shape(installation: Installation) -> tuple[list[str], list[dict]]:
     external = _external_recovery_assets(installation)
     for asset in external:
         path = Path(asset["path"])
-        asset["directories"] = (["."] + sorted(
-            p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_dir()
-        )) if asset["directory"] else []
+        asset["directories"] = (
+            (["."] + sorted(p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_dir()))
+            if asset["directory"]
+            else []
+        )
     return directories, external
 
 
 def backup_service(installation: Installation, archive: Path) -> dict[str, Any]:
     from storage_lifecycle import admission
+
     with admission([installation.directory, archive.expanduser().absolute()]):
         return _backup_service(installation, archive)
 
@@ -1497,16 +2313,22 @@ def _backup_service(installation: Installation, archive: Path) -> dict[str, Any]
                 "external_assets": external_assets,
                 "directories": directories,
             }
-            fd = os.open(archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+            fd = os.open(
+                archive, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600
+            )
             with os.fdopen(fd, "wb") as stream:
                 writer = _ArchiveHashWriter(stream)
                 with tarfile.open(fileobj=writer, mode="w|", dereference=True) as tar:
                     for name, path in sources.items():
                         inventory[name], copied[name] = _archive_asset(tar, name, path)
-                    if (_recovery_sources(installation) != sources
-                            or _backup_shape(installation) != (directories, external_assets) or any(
+                    if (
+                        _recovery_sources(installation) != sources
+                        or _backup_shape(installation) != (directories, external_assets)
+                        or any(
                             _asset_identity(path.lstat()) != copied[name]
-                            for name, path in sources.items())):
+                            for name, path in sources.items()
+                        )
+                    ):
                         raise FixtureBlocked("recovery", "recovery closure changed during copy")
                     descriptor = json.dumps(metadata, sort_keys=True).encode()
                     header = tarfile.TarInfo("recovery.json")
@@ -1524,6 +2346,7 @@ def _backup_service(installation: Installation, archive: Path) -> dict[str, Any]
             digest = writer.digest.hexdigest()
             pointer = _recovery_pointer(installation, archive, digest, metadata)
             from storage_lifecycle import durable_json
+
             successor = {**installation.record, "recovery": pointer}
             durable_json(installation.directory / "installation.json", successor)
             installation.record = successor
@@ -1675,25 +2498,41 @@ def _stage_recovery(installation: Installation, archive: Path, stage: Path) -> d
             raise FixtureBlocked(
                 "identity", f"current {name} differs from protected recovery asset"
             )
-    expected_binary = (installation.record["binary"]["sha256"]
-                       if installation.record["binary"].get("generation") else BINARY_SHA256)
+    expected_binary = (
+        installation.record["binary"]["sha256"]
+        if installation.record["binary"].get("generation")
+        else BINARY_SHA256
+    )
     if file_sha256(stage / "assets/surreal") != expected_binary:
         raise FixtureBlocked("identity", "backup service binary differs from the pinned release")
     if generation := installation.record["binary"].get("generation"):
         import surrealdb_server
+
         archived_generation = read_json(stage / "assets/server-generation.json")
         if archived_generation != generation:
-            raise FixtureBlocked("identity", "backup server generation provenance differs from installation")
+            raise FixtureBlocked(
+                "identity", "backup server generation provenance differs from installation"
+            )
         try:
             # Source/build paths are provenance and warm references, never a cold-restore
             # prerequisite. The archive owns the descriptor and exact executable bytes.
-            surrealdb_server.validate_provenance(archived_generation["provenance"], directory=installation.directory)
+            surrealdb_server.validate_provenance(
+                archived_generation["provenance"], directory=installation.directory
+            )
         except StorageBlocked as error:
-            raise FixtureBlocked("identity", "backup server provenance cannot be verified") from error
-        if (file_sha256(stage / "assets/server-generation.json") != inventory.get("assets/server-generation.json", {}).get("sha256")
-                or (stage / "assets/surreal").stat().st_size != generation["size"]
-                or _owned_server_generation(installation.directory, Path(generation["descriptor_path"])) != generation):
-            raise FixtureBlocked("identity", "backup server executable or provenance identity differs")
+            raise FixtureBlocked(
+                "identity", "backup server provenance cannot be verified"
+            ) from error
+        if (
+            file_sha256(stage / "assets/server-generation.json")
+            != inventory.get("assets/server-generation.json", {}).get("sha256")
+            or (stage / "assets/surreal").stat().st_size != generation["size"]
+            or _owned_server_generation(installation.directory, Path(generation["descriptor_path"]))
+            != generation
+        ):
+            raise FixtureBlocked(
+                "identity", "backup server executable or provenance identity differs"
+            )
     archived = Installation(
         stage / "state", json.loads((stage / "state/installation.json").read_text())
     )
@@ -1879,29 +2718,61 @@ def _retire_recovery_predecessors(installation: Installation, marker: Mapping[st
             path.unlink()
 
 
-
-def _installer_cli(installation: Installation, candidate: Mapping[str, Any], database: str,
-                   action: str, *, config: Path | None = None, keep_closed: bool = False) -> dict:
+def _installer_cli(
+    installation: Installation,
+    candidate: Mapping[str, Any],
+    database: str,
+    action: str,
+    *,
+    config: Path | None = None,
+    keep_closed: bool = False,
+) -> dict:
     executable = Path(candidate["path"])
-    if (any(path.is_symlink() for path in (executable, *executable.parents))
-            or not executable.is_file() or executable.stat().st_uid != os.getuid()
-            or file_sha256(executable) != candidate["sha256"] or not os.access(executable, os.X_OK)):
+    if (
+        any(path.is_symlink() for path in (executable, *executable.parents))
+        or not executable.is_file()
+        or executable.stat().st_uid != os.getuid()
+        or file_sha256(executable) != candidate["sha256"]
+        or not os.access(executable, os.X_OK)
+    ):
         raise FixtureBlocked("identity", "installer executable generation changed")
-    if database not in DATABASES or action not in {"schema", "init", "check", "close-admission", "drain", "open-admission"}:
+    if database not in DATABASES or action not in {
+        "schema",
+        "init",
+        "check",
+        "close-admission",
+        "drain",
+        "open-admission",
+    }:
         raise FixtureBlocked("identity", "unsupported owned installer operation")
-    args = [str(executable), "store", "--runtime-config",
-            str(config or installation.runtime_path(database, installer=True)), action]
+    args = [
+        str(executable),
+        "store",
+        "--runtime-config",
+        str(config or installation.runtime_path(database, installer=True)),
+        action,
+    ]
     if keep_closed:
         if action != "init":
             raise FixtureBlocked("identity", "closed initialization flag requires init")
         args.append("--keep-closed")
-    result = subprocess.run(args, env={**os.environ, "LCTX_SURREAL_SERVICE_CONFIG":
-        str(installation.directory / "installation.json")}, capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        args,
+        env={
+            **os.environ,
+            "LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     if result.returncode:
-        raise FixtureFailed("installer", f"native {action} failed for {database} (exit {result.returncode})")
+        raise FixtureFailed(
+            "installer", f"native {action} failed for {database} (exit {result.returncode})"
+        )
     try:
         value = json.loads(result.stdout)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         raise FixtureBlocked("schema", "installer returned no structured result") from None
     if not isinstance(value, dict):
         raise FixtureBlocked("schema", "installer returned no structured result")
@@ -1909,8 +2780,11 @@ def _installer_cli(installation: Installation, candidate: Mapping[str, Any], dat
 
 
 def _current_schema(value: Mapping[str, Any]) -> None:
-    if (value.get("schema_version") != 6 or not isinstance(value.get("schema"), str)
-            or not re.fullmatch(r"[0-9a-f]{64}", value["schema"])):
+    if (
+        value.get("schema_version") != 6
+        or not isinstance(value.get("schema"), str)
+        or not re.fullmatch(r"[0-9a-f]{64}", value["schema"])
+    ):
         raise FixtureBlocked("schema", "installer must declare the current native format6 schema")
 
 
@@ -1931,6 +2805,7 @@ def _owned_daemon_start(installation: Installation) -> None:
 
 def _write_private(path: Path, content: str) -> None:
     from storage_lifecycle import fsync_directory
+
     temporary = path.with_name("." + path.name + "." + uuid.uuid4().hex)
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
@@ -1957,20 +2832,28 @@ def _installer_handoff_bytes(path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _installer_handoff_plan(installation: Installation, reference: Mapping[str, Any]) -> tuple[Path, dict]:
+def _installer_handoff_plan(
+    installation: Installation, reference: Mapping[str, Any]
+) -> tuple[Path, dict]:
     operation = reference.get("operation", "")
     if not isinstance(operation, str) or not re.fullmatch("[a-f0-9]{64}", operation):
         raise FixtureBlocked("identity", "installer handoff operation is unavailable")
     path = installation.directory / "installer-handoffs" / operation / "plan.json"
     raw = _installer_handoff_bytes(path)
-    if reference.get("journal") != str(path) or hashlib.sha256(raw).hexdigest() != reference.get("journal_sha256"):
+    if reference.get("journal") != str(path) or hashlib.sha256(raw).hexdigest() != reference.get(
+        "journal_sha256"
+    ):
         raise FixtureBlocked("identity", "immutable installer handoff journal changed")
     plan = json.loads(raw)
     if plan.get("operation") != operation or plan.get("installation_id") != installation.id:
         raise FixtureBlocked("identity", "installer handoff belongs to another installation")
     previous = json.loads(base64.b64decode(plan["previous_bytes"], validate=True))
     successor = json.loads(base64.b64decode(plan["successor_bytes"], validate=True))
-    if successor != {**previous, "installer": plan["candidate"]["path"], "installer_generation": plan["candidate"]}:
+    if successor != {
+        **previous,
+        "installer": plan["candidate"]["path"],
+        "installer_generation": plan["candidate"],
+    }:
         raise FixtureBlocked("identity", "installer handoff changes more than executable identity")
     return path, plan
 
@@ -1979,25 +2862,31 @@ def _installer_scope_markers(installation: Installation) -> dict:
     """Observe real admission state; never normalize an open acknowledgement to closed."""
     result = {}
     for database in DATABASES:
-        rows = sql(installation,
+        rows = sql(
+            installation,
             "SELECT generation,schema,schema_version,admission_open FROM native_installation:current;",
-            cfg=installation.runtime(database, installer=True))
+            cfg=installation.runtime(database, installer=True),
+        )
         values = rows[0].get("result") if len(rows) == 1 else None
         if not isinstance(values, list) or len(values) != 1 or not isinstance(values[0], dict):
             raise FixtureBlocked("schema", "installer handoff native marker is unavailable")
         marker = values[0]
-        if (set(marker) != {"generation", "schema", "schema_version", "admission_open"}
-                or marker["generation"] != bytes(installation.record["service_generation"]).hex()
-                or marker["schema_version"] != installation.record.get("native_schema_version", 3)
-                or not isinstance(marker["schema"], str) or not re.fullmatch("[a-f0-9]{64}", marker["schema"])
-                or type(marker["admission_open"]) is not bool):
+        if (
+            set(marker) != {"generation", "schema", "schema_version", "admission_open"}
+            or marker["generation"] != bytes(installation.record["service_generation"]).hex()
+            or marker["schema_version"] != installation.record.get("native_schema_version", 3)
+            or not isinstance(marker["schema"], str)
+            or not re.fullmatch("[a-f0-9]{64}", marker["schema"])
+            or type(marker["admission_open"]) is not bool
+        ):
             raise FixtureBlocked("schema", "installer handoff native generation or schema differs")
         result[database] = dict(marker)
     return result
 
 
-def _installer_handoff_cli(installation: Installation, candidate: Mapping[str, Any], database: str,
-                           action: str, token: str) -> dict:
+def _installer_handoff_cli(
+    installation: Installation, candidate: Mapping[str, Any], database: str, action: str, token: str
+) -> dict:
     """Execute only the immutable, fully checked candidate inode for this handoff."""
     path = Path(candidate["path"])
     if any(part.is_symlink() for part in (path, *path.parents)):
@@ -2006,39 +2895,78 @@ def _installer_handoff_cli(installation: Installation, candidate: Mapping[str, A
     try:
         info = os.fstat(descriptor)
         identity = executable_identity(info)
-        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
-                or stat.S_IMODE(info.st_mode) != 0o500 or info.st_size != candidate["size"]):
-            raise FixtureBlocked("identity", "installer candidate is not an immutable owned executable")
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o500
+            or info.st_size != candidate["size"]
+        ):
+            raise FixtureBlocked(
+                "identity", "installer candidate is not an immutable owned executable"
+            )
         with os.fdopen(os.dup(descriptor), "rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
         if digest != candidate["sha256"] or executable_identity(path.stat()) != identity:
             raise FixtureBlocked("identity", "installer candidate bytes changed")
-        if database not in DATABASES or action not in {"schema", "close-admission", "drain", "check", "open-admission"}:
+        if database not in DATABASES or action not in {
+            "schema",
+            "close-admission",
+            "drain",
+            "check",
+            "open-admission",
+        }:
             raise FixtureBlocked("identity", "unsupported installer handoff operation")
-        result = subprocess.run([f"/proc/self/fd/{descriptor}", "store", "--runtime-config",
-            str(installation.runtime_path(database, installer=True)), action],
-            pass_fds=(descriptor,), capture_output=True, check=False, env={**os.environ,
+        result = subprocess.run(
+            [
+                f"/proc/self/fd/{descriptor}",
+                "store",
+                "--runtime-config",
+                str(installation.runtime_path(database, installer=True)),
+                action,
+            ],
+            pass_fds=(descriptor,),
+            capture_output=True,
+            check=False,
+            env={
+                **os.environ,
                 "LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json"),
-                "LCTX_SURREAL_INSTALLER_CONFIG": str(installation.runtime_path(database, installer=True)),
-                "LCTX_SURREAL_MAINTENANCE_TOKEN": token})
-        if (executable_identity(path.stat()) != identity or executable_identity(os.fstat(descriptor)) != identity
-                or file_sha256(path) != candidate["sha256"]):
+                "LCTX_SURREAL_INSTALLER_CONFIG": str(
+                    installation.runtime_path(database, installer=True)
+                ),
+                "LCTX_SURREAL_MAINTENANCE_TOKEN": token,
+            },
+        )
+        if (
+            executable_identity(path.stat()) != identity
+            or executable_identity(os.fstat(descriptor)) != identity
+            or file_sha256(path) != candidate["sha256"]
+        ):
             raise FixtureBlocked("identity", "installer candidate changed during execution")
         if result.returncode:
-            raise FixtureFailed("installer", f"candidate {action} failed for {database}; admission stays closed")
+            raise FixtureFailed(
+                "installer", f"candidate {action} failed for {database}; admission stays closed"
+            )
         if len(result.stdout) > 4096:
             raise FixtureBlocked("schema", "candidate installer response exceeds bound")
         try:
             value = json.loads(result.stdout)
-        except (ValueError, TypeError):
-            raise FixtureBlocked("schema", "candidate installer response is not structured") from None
+        except ValueError, TypeError:
+            raise FixtureBlocked(
+                "schema", "candidate installer response is not structured"
+            ) from None
         if action == "schema":
             if not isinstance(value, dict):
-                raise FixtureBlocked("schema", "candidate installer response is not a schema object")
+                raise FixtureBlocked(
+                    "schema", "candidate installer response is not a schema object"
+                )
             _current_schema(value)
             if set(value) != {"schema", "schema_version"}:
                 raise FixtureBlocked("schema", "candidate schema response differs")
-        elif value != {"ready": action in {"check", "open-admission"}, "namespace": NAMESPACE, "database": database}:
+        elif value != {
+            "ready": action in {"check", "open-admission"},
+            "namespace": NAMESPACE,
+            "database": database,
+        }:
             raise FixtureBlocked("schema", "candidate installer acknowledgement differs")
         return value
     finally:
@@ -2052,9 +2980,18 @@ def handoff_installer(installation: Installation, source: Path) -> dict:
 
     source = source.absolute()
     root = installation.directory
-    if any(key in os.environ for key in ("LCTX_NATIVE_DRAIN_DIRECTORY", "LCTX_FIXTURE_ATTACHMENT",
-                                         "LCTX_SURREAL_GENERATION", "LCTX_SIGNAL_CONTROL_MODE")):
-        raise FixtureBlocked("ownership", "installer handoff refuses inherited native owner bindings")
+    if any(
+        key in os.environ
+        for key in (
+            "LCTX_NATIVE_DRAIN_DIRECTORY",
+            "LCTX_FIXTURE_ATTACHMENT",
+            "LCTX_SURREAL_GENERATION",
+            "LCTX_SIGNAL_CONTROL_MODE",
+        )
+    ):
+        raise FixtureBlocked(
+            "ownership", "installer handoff refuses inherited native owner bindings"
+        )
     with admission([root, source, tools_root(root)]):
         gate = os.open(root / "admission.lock", os.O_RDWR | os.O_CLOEXEC)
         use = None
@@ -2063,35 +3000,54 @@ def handoff_installer(installation: Installation, source: Path) -> dict:
             try:
                 fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise FixtureBlocked("ownership", "another owner holds installer handoff admission") from None
+                raise FixtureBlocked(
+                    "ownership", "another owner holds installer handoff admission"
+                ) from None
             marker = read_json(marker_path)
             if marker:
                 owner = ProcessIdentity.from_json(marker["owner"])
-                if (marker.get("operation") != INSTALLER_HANDOFF_OPERATION
-                        or owner.foreign() or owner.alive() or not marker.get("installer_handoff")):
-                    raise FixtureBlocked("ownership", "resume only the dead exact installer handoff owner")
+                if (
+                    marker.get("operation") != INSTALLER_HANDOFF_OPERATION
+                    or owner.foreign()
+                    or owner.alive()
+                    or not marker.get("installer_handoff")
+                ):
+                    raise FixtureBlocked(
+                        "ownership", "resume only the dead exact installer handoff owner"
+                    )
             if borrowers(installation):
-                raise FixtureBlocked("drainage", "installer handoff requires resolved host borrowers")
+                raise FixtureBlocked(
+                    "drainage", "installer handoff requires resolved host borrowers"
+                )
             use = os.open(root / "borrowers.lock", os.O_RDWR | os.O_CLOEXEC)
             try:
                 fcntl.flock(use, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise FixtureBlocked("drainage", "installer handoff borrower lease remains held") from None
+                raise FixtureBlocked(
+                    "drainage", "installer handoff borrower lease remains held"
+                ) from None
             _stopped_attachment_commands(installation)
             installation.check_daemon()
             candidate = prepare(root, source)
             token = secrets.token_urlsafe(32)
             descriptor_path = root / "installation.json"
             if json.loads(_installer_handoff_bytes(descriptor_path)) != installation.record:
-                raise FixtureBlocked("identity", "installer handoff descriptor differs from its loaded owner")
+                raise FixtureBlocked(
+                    "identity", "installer handoff descriptor differs from its loaded owner"
+                )
             if marker:
                 journal, plan = _installer_handoff_plan(installation, marker["installer_handoff"])
                 if plan["candidate"] != candidate:
-                    raise FixtureBlocked("identity", "resume requires the exact checkpointed installer candidate")
+                    raise FixtureBlocked(
+                        "identity", "resume requires the exact checkpointed installer candidate"
+                    )
                 if _installer_handoff_bytes(descriptor_path) not in (
-                        base64.b64decode(plan["previous_bytes"], validate=True),
-                        base64.b64decode(plan["successor_bytes"], validate=True)):
-                    raise FixtureBlocked("identity", "resume requires the exact previous or successor descriptor")
+                    base64.b64decode(plan["previous_bytes"], validate=True),
+                    base64.b64decode(plan["successor_bytes"], validate=True),
+                ):
+                    raise FixtureBlocked(
+                        "identity", "resume requires the exact previous or successor descriptor"
+                    )
             else:
                 previous_bytes = _installer_handoff_bytes(descriptor_path)
                 if json.loads(previous_bytes) != installation.record:
@@ -2100,64 +3056,106 @@ def handoff_installer(installation: Installation, source: Path) -> dict:
                     raise FixtureBlocked("identity", "installer candidate is already installed")
                 scopes = _installer_scope_markers(installation)
                 declared = _installer_handoff_cli(installation, candidate, "main", "schema", token)
-                if any({key: value[key] for key in ("schema", "schema_version")} != declared for value in scopes.values()):
-                    raise FixtureBlocked("schema", "candidate schema differs from an installed native scope")
-                successor = {**installation.record, "installer": candidate["path"], "installer_generation": candidate}
+                if any(
+                    {key: value[key] for key in ("schema", "schema_version")} != declared
+                    for value in scopes.values()
+                ):
+                    raise FixtureBlocked(
+                        "schema", "candidate schema differs from an installed native scope"
+                    )
+                successor = {
+                    **installation.record,
+                    "installer": candidate["path"],
+                    "installer_generation": candidate,
+                }
                 successor_bytes = (json.dumps(successor, sort_keys=True, indent=2) + "\n").encode()
                 operation = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
                 private_directory(root / "installer-handoffs")
                 directory = root / "installer-handoffs" / operation
                 directory.mkdir(parents=True, mode=0o700)
-                plan = {"schema": 1, "operation": operation, "installation_id": installation.id,
-                    "source": str(source), "candidate": candidate,
+                plan = {
+                    "schema": 1,
+                    "operation": operation,
+                    "installation_id": installation.id,
+                    "source": str(source),
+                    "candidate": candidate,
                     "previous_bytes": base64.b64encode(previous_bytes).decode(),
-                    "successor_bytes": base64.b64encode(successor_bytes).decode(), "scopes": scopes,
-                    "configs": {str(installation.runtime_path(db, installer=privileged)):
-                        file_sha256(installation.runtime_path(db, installer=privileged))
-                        for db in DATABASES for privileged in (False, True)},
-                    "unit_sha256": file_sha256(_unit_path(installation.unit))}
+                    "successor_bytes": base64.b64encode(successor_bytes).decode(),
+                    "scopes": scopes,
+                    "configs": {
+                        str(installation.runtime_path(db, installer=privileged)): file_sha256(
+                            installation.runtime_path(db, installer=privileged)
+                        )
+                        for db in DATABASES
+                        for privileged in (False, True)
+                    },
+                    "unit_sha256": file_sha256(_unit_path(installation.unit)),
+                }
                 journal = directory / "plan.json"
                 durable_json(journal, plan)
                 journal.chmod(0o400)
                 for path in (directory, directory.parent, root):
                     fsync_directory(path)
-                marker = {"operation": INSTALLER_HANDOFF_OPERATION,
-                    "installer_handoff": {"operation": operation, "journal": str(journal),
-                        "journal_sha256": file_sha256(journal)}}
+                marker = {
+                    "operation": INSTALLER_HANDOFF_OPERATION,
+                    "installer_handoff": {
+                        "operation": operation,
+                        "journal": str(journal),
+                        "journal_sha256": file_sha256(journal),
+                    },
+                }
             marker.update(owner=ProcessIdentity.of().to_json(), token=token)
             durable_json(marker_path, marker)
             marker_bytes = _installer_handoff_bytes(marker_path)
 
             def verify(*, closed: bool | None = None) -> dict:
-                if (_installer_handoff_bytes(marker_path) != marker_bytes
-                        or _installer_handoff_bytes(descriptor_path) not in (
-                            base64.b64decode(plan["previous_bytes"], validate=True),
-                            base64.b64decode(plan["successor_bytes"], validate=True))
-                        or _installer_handoff_plan(installation, marker["installer_handoff"])[1] != plan
-                        or file_sha256(_unit_path(installation.unit)) != plan["unit_sha256"]
-                        or any(file_sha256(Path(path)) != digest for path, digest in plan["configs"].items())
-                        or file_sha256(Path(candidate["path"])) != candidate["sha256"]):
-                    raise FixtureBlocked("identity", "installer handoff checkpoint or executable changed")
+                if (
+                    _installer_handoff_bytes(marker_path) != marker_bytes
+                    or _installer_handoff_bytes(descriptor_path)
+                    not in (
+                        base64.b64decode(plan["previous_bytes"], validate=True),
+                        base64.b64decode(plan["successor_bytes"], validate=True),
+                    )
+                    or _installer_handoff_plan(installation, marker["installer_handoff"])[1] != plan
+                    or file_sha256(_unit_path(installation.unit)) != plan["unit_sha256"]
+                    or any(
+                        file_sha256(Path(path)) != digest
+                        for path, digest in plan["configs"].items()
+                    )
+                    or file_sha256(Path(candidate["path"])) != candidate["sha256"]
+                ):
+                    raise FixtureBlocked(
+                        "identity", "installer handoff checkpoint or executable changed"
+                    )
                 installation.check_daemon()
                 for database in DATABASES:
                     installation.runtime(database, installer=True)
                     installation.runtime(database)
                 actual = _installer_scope_markers(installation)
                 for database, value in actual.items():
-                    if ({key: value[key] for key in ("generation", "schema", "schema_version")}
-                            != {key: plan["scopes"][database][key] for key in ("generation", "schema", "schema_version")}
-                            or closed is not None and value["admission_open"] is closed):
-                        raise FixtureBlocked("schema", "installer handoff native scope or admission acknowledgement differs")
+                    if {key: value[key] for key in ("generation", "schema", "schema_version")} != {
+                        key: plan["scopes"][database][key]
+                        for key in ("generation", "schema", "schema_version")
+                    } or (closed is not None and value["admission_open"] is closed):
+                        raise FixtureBlocked(
+                            "schema",
+                            "installer handoff native scope or admission acknowledgement differs",
+                        )
                 return actual
 
             try:
                 verify()
                 declared = _installer_handoff_cli(installation, candidate, "main", "schema", token)
-                if any({key: value[key] for key in ("schema", "schema_version")} != declared for value in plan["scopes"].values()):
+                if any(
+                    {key: value[key] for key in ("schema", "schema_version")} != declared
+                    for value in plan["scopes"].values()
+                ):
                     raise FixtureBlocked("schema", "checkpointed candidate schema differs")
                 for database in DATABASES:
                     verify()
-                    _installer_handoff_cli(installation, candidate, database, "close-admission", token)
+                    _installer_handoff_cli(
+                        installation, candidate, database, "close-admission", token
+                    )
                 verify(closed=True)
                 for database in DATABASES:
                     verify(closed=True)
@@ -2165,23 +3163,47 @@ def handoff_installer(installation: Installation, source: Path) -> dict:
                     verify(closed=True)
                     _installer_handoff_cli(installation, candidate, database, "check", token)
                     verify(closed=True)
-                checked = {"candidate": candidate, "scopes": verify(closed=True), "plan_sha256": file_sha256(journal)}
+                checked = {
+                    "candidate": candidate,
+                    "scopes": verify(closed=True),
+                    "plan_sha256": file_sha256(journal),
+                }
                 durable_json(journal.parent / "checked.json", checked)
-                _write_private(descriptor_path, base64.b64decode(plan["successor_bytes"], validate=True).decode())
-                installation.record = json.loads(base64.b64decode(plan["successor_bytes"], validate=True))
+                _write_private(
+                    descriptor_path,
+                    base64.b64decode(plan["successor_bytes"], validate=True).decode(),
+                )
+                installation.record = json.loads(
+                    base64.b64decode(plan["successor_bytes"], validate=True)
+                )
                 verify(closed=True)
                 for database in DATABASES:
                     verify()
-                    _installer_handoff_cli(installation, candidate, database, "open-admission", token)
+                    _installer_handoff_cli(
+                        installation, candidate, database, "open-admission", token
+                    )
                 final = verify(closed=False)
                 installation.check(allow_maintenance=True)
                 final = verify(closed=False)
-                durable_json(journal.parent / "receipt.json", {"outcome": "passed", "operation": plan["operation"],
-                    "plan_sha256": file_sha256(journal), "candidate": candidate, "scopes": final})
+                durable_json(
+                    journal.parent / "receipt.json",
+                    {
+                        "outcome": "passed",
+                        "operation": plan["operation"],
+                        "plan_sha256": file_sha256(journal),
+                        "candidate": candidate,
+                        "scopes": final,
+                    },
+                )
                 marker_path.unlink()
                 fsync_directory(root)
-                return {"outcome": "passed", "installation_id": installation.id,
-                    "installer_handoff": plan["operation"], "installer": candidate, "admission_open": True}
+                return {
+                    "outcome": "passed",
+                    "installation_id": installation.id,
+                    "installer_handoff": plan["operation"],
+                    "installer": candidate,
+                    "admission_open": True,
+                }
             except BaseException:
                 # A failed open on either scope must not leave a partially reopened successor.
                 for database in DATABASES:
@@ -2189,7 +3211,9 @@ def handoff_installer(installation: Installation, source: Path) -> dict:
                         # Never follow a changed config/descriptor/daemon during failure
                         # cleanup. The host marker itself continues to block borrowers.
                         verify()
-                        _installer_handoff_cli(installation, candidate, database, "close-admission", token)
+                        _installer_handoff_cli(
+                            installation, candidate, database, "close-admission", token
+                        )
                 raise
         finally:
             if use is not None:
@@ -2197,43 +3221,67 @@ def handoff_installer(installation: Installation, source: Path) -> dict:
             os.close(gate)
 
 
-def _server_handoff_plan(installation: Installation, reference: Mapping[str, Any]) -> tuple[Path, dict]:
+def _server_handoff_plan(
+    installation: Installation, reference: Mapping[str, Any]
+) -> tuple[Path, dict]:
     operation = reference.get("operation", "")
     if not isinstance(operation, str) or not re.fullmatch(r"[0-9a-f]{64}", operation):
         raise FixtureBlocked("identity", "server handoff operation is unavailable")
     journal = installation.directory / "server-handoffs" / operation / "plan.json"
     try:
-        if (reference.get("journal") != str(journal)
-                or any(path.is_symlink() for path in (journal, *journal.parents))
-                or journal.stat().st_uid != os.getuid() or journal.stat().st_mode & 0o077
-                or journal.parent.stat().st_uid != os.getuid() or journal.parent.stat().st_mode & 0o077
-                or file_sha256(journal) != reference.get("journal_sha256")):
+        if (
+            reference.get("journal") != str(journal)
+            or any(path.is_symlink() for path in (journal, *journal.parents))
+            or journal.stat().st_uid != os.getuid()
+            or journal.stat().st_mode & 0o077
+            or journal.parent.stat().st_uid != os.getuid()
+            or journal.parent.stat().st_mode & 0o077
+            or file_sha256(journal) != reference.get("journal_sha256")
+        ):
             raise FixtureBlocked("identity", "immutable server handoff journal changed")
         plan = read_json(journal)
         if plan.get("operation") != operation or plan.get("installation_id") != installation.id:
             raise FixtureBlocked("identity", "server handoff differs from its installation")
         return journal, plan
-    except (OSError, TypeError, AttributeError, ValueError):
-        raise FixtureBlocked("identity", "immutable server handoff journal is unavailable") from None
+    except OSError, TypeError, AttributeError, ValueError:
+        raise FixtureBlocked(
+            "identity", "immutable server handoff journal is unavailable"
+        ) from None
 
 
 def _server_handoff_dependencies(installation: Installation) -> list[dict]:
     """Storage references cover both generations and every retained immutable handoff."""
     import surrealdb_server
+
     result = []
+
     def binary_assets(binary):
         if isinstance(binary, dict) and isinstance(binary.get("path"), str):
             result.append({"path": binary["path"], "role": "service-server-executable"})
             if generation := binary.get("generation"):
-                surrealdb_server.validate_provenance(generation["provenance"], directory=installation.directory)
+                surrealdb_server.validate_provenance(
+                    generation["provenance"], directory=_server_binary_origin(installation)
+                )
                 result.extend(surrealdb_server.dependencies(generation))
+
     binary_assets(installation.record.get("binary"))
     marker = read_json(installation.directory / "maintenance.json")
-    references = [(installation.record.get("server_handoff"), installation.record.get("binary"), False, frozenset())]
+    references = [
+        (
+            installation.record.get("server_handoff"),
+            installation.record.get("binary"),
+            False,
+            frozenset(),
+        )
+    ]
     if isinstance(marker, dict) and marker.get("server_handoff"):
         if marker.get("operation") != SERVER_HANDOFF_OPERATION:
-            raise FixtureBlocked("identity", "active server handoff has a different maintenance owner")
-        references.append((marker["server_handoff"], installation.record.get("binary"), True, frozenset()))
+            raise FixtureBlocked(
+                "identity", "active server handoff has a different maintenance owner"
+            )
+        references.append(
+            (marker["server_handoff"], installation.record.get("binary"), True, frozenset())
+        )
     seen = set()
     while references:
         reference, expected_binary, active, ancestors = references.pop()
@@ -2244,7 +3292,9 @@ def _server_handoff_dependencies(installation: Installation) -> list[dict]:
         # Retained executable provenance survives rebuilding native databases. Each
         # link still names the exact binary installed by that handoff, while a live
         # handoff may be on either side of its checkpointed physical replacement.
-        matches_binary = expected_binary == successor or active and expected_binary == plan["previous_binary"]
+        matches_binary = expected_binary == successor or (
+            active and expected_binary == plan["previous_binary"]
+        )
         if not matches_binary:
             raise FixtureBlocked("identity", "server handoff executable chain differs")
         if active and plan.get("service_generation") != installation.record["service_generation"]:
@@ -2257,41 +3307,61 @@ def _server_handoff_dependencies(installation: Installation) -> list[dict]:
         result.append({"path": str(journal.parent), "role": "server-handoff-private-assets"})
         binary_assets(plan["previous_binary"])
         binary_assets(_generation_binary(plan["generation"]))
-        references.append((plan.get("previous_handoff"), plan["previous_binary"], False,
-                           ancestors | {plan["operation"]}))
+        references.append(
+            (
+                plan.get("previous_handoff"),
+                plan["previous_binary"],
+                False,
+                ancestors | {plan["operation"]},
+            )
+        )
     return result
 
 
-def _server_scope_markers(installation: Installation, expected: Mapping[str, Any] | None = None) -> dict:
+def _server_scope_markers(
+    installation: Installation, expected: Mapping[str, Any] | None = None
+) -> dict:
     markers = {}
     generation = bytes(installation.record["service_generation"]).hex()
     for db in DATABASES:
-        rows = sql(installation,
+        rows = sql(
+            installation,
             "SELECT generation,schema,schema_version,admission_open FROM native_installation:current;",
-            cfg=installation.runtime(db, installer=True))
+            cfg=installation.runtime(db, installer=True),
+        )
         values = rows[0].get("result") if len(rows) == 1 else None
         if not isinstance(values, list) or len(values) != 1 or not isinstance(values[0], dict):
             raise FixtureBlocked("schema", "server handoff native scope marker is unavailable")
         marker = values[0]
-        if (marker.get("generation") != generation
-                or not isinstance(marker.get("schema"), str)
-                or not re.fullmatch(r"[0-9a-f]{64}", marker["schema"])
-                or type(marker.get("admission_open")) is not bool
-                or (expected is None and marker.get("schema_version") != installation.record.get("native_schema_version", 3))
-                or (expected is not None and marker != expected[db])):
-            raise FixtureBlocked("schema", "server handoff native scope identity or closed admission differs")
+        if (
+            marker.get("generation") != generation
+            or not isinstance(marker.get("schema"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", marker["schema"])
+            or type(marker.get("admission_open")) is not bool
+            or (
+                expected is None
+                and marker.get("schema_version")
+                != installation.record.get("native_schema_version", 3)
+            )
+            or (expected is not None and marker != expected[db])
+        ):
+            raise FixtureBlocked(
+                "schema", "server handoff native scope identity or closed admission differs"
+            )
         markers[db] = {**marker, "admission_open": False}
     return markers
 
 
 def prepare_grpc_recovery(installation: Installation) -> dict:
     from surrealdb_pd02_recovery import prepare_logs
+
     return prepare_logs(installation)
 
 
 def handoff_server(installation: Installation, descriptor: Path) -> dict:
     """Explicitly switch one proven server generation without migrating native state."""
     from storage_lifecycle import admission, durable_json, fsync_directory
+
     descriptor = descriptor.absolute()
     with admission([installation.directory, descriptor.parent]):
         generation = _owned_server_generation(installation.directory, descriptor)
@@ -2302,69 +3372,120 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
             try:
                 fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise FixtureBlocked("ownership", "another owner holds server handoff admission") from None
+                raise FixtureBlocked(
+                    "ownership", "another owner holds server handoff admission"
+                ) from None
             marker = read_json(marker_path)
-            if marker and (marker.get("operation") != SERVER_HANDOFF_OPERATION
-                           or ProcessIdentity.from_json(marker["owner"]).alive()):
-                raise FixtureBlocked("ownership", "server handoff requires its dead exact maintenance owner")
+            if marker and (
+                marker.get("operation") != SERVER_HANDOFF_OPERATION
+                or ProcessIdentity.from_json(marker["owner"]).alive()
+            ):
+                raise FixtureBlocked(
+                    "ownership", "server handoff requires its dead exact maintenance owner"
+                )
             if borrowers(installation):
                 raise FixtureBlocked("drainage", "server handoff requires resolved host borrowers")
             use = os.open(installation.directory / "borrowers.lock", os.O_RDWR | os.O_CLOEXEC)
             try:
                 fcntl.flock(use, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise FixtureBlocked("drainage", "a server handoff borrower lease remains held") from None
+                raise FixtureBlocked(
+                    "drainage", "a server handoff borrower lease remains held"
+                ) from None
             resumed = bool(marker and marker.get("server_handoff"))
             port = int(installation.endpoint.rsplit(":", 1)[1])
             if resumed:
                 journal, plan = _server_handoff_plan(installation, marker["server_handoff"])
                 if plan.get("service_generation") != installation.record["service_generation"]:
-                    raise FixtureBlocked("identity", "resume requires the exact checkpointed native generation")
+                    raise FixtureBlocked(
+                        "identity", "resume requires the exact checkpointed native generation"
+                    )
                 if generation != plan["generation"]:
-                    raise FixtureBlocked("identity", "resume requires the exact checkpointed server generation")
+                    raise FixtureBlocked(
+                        "identity", "resume requires the exact checkpointed server generation"
+                    )
             else:
                 previous = dict(installation.record["binary"])
                 previous_path = _installed_binary(installation)
                 if previous == _generation_binary(generation):
                     raise FixtureBlocked("identity", "server generation is already installed")
-                expected_unit = unit_text(installation.directory, previous_path, port, log_filter=installation.record.get("server_log_filter", "warn"))
+                expected_unit = unit_text(
+                    installation.directory,
+                    previous_path,
+                    port,
+                    log_filter=installation.record.get("server_log_filter", "warn"),
+                )
                 if _unit_path(installation.unit).read_text() != expected_unit:
-                    raise FixtureBlocked("identity", "owned service unit differs before server handoff")
+                    raise FixtureBlocked(
+                        "identity", "owned service unit differs before server handoff"
+                    )
                 installation.check_daemon()
                 scopes = _server_scope_markers(installation)
                 operation = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
                 directory = installation.directory / "server-handoffs" / operation
                 directory.mkdir(parents=True, mode=0o700)
-                plan = {"schema": 1, "operation": operation, "installation_id": installation.id,
+                plan = {
+                    "schema": 1,
+                    "operation": operation,
+                    "installation_id": installation.id,
                     "service_generation": installation.record["service_generation"],
-                    "previous_binary": previous, "generation": generation,
-                    "previous_unit": expected_unit, "successor_unit": unit_text(installation.directory, Path(generation["path"]), port, log_filter=installation.record.get("server_log_filter", "warn")),
+                    "previous_binary": previous,
+                    "generation": generation,
+                    "previous_unit": expected_unit,
+                    "successor_unit": unit_text(
+                        installation.directory,
+                        Path(generation["path"]),
+                        port,
+                        log_filter=installation.record.get("server_log_filter", "warn"),
+                    ),
                     "previous_handoff": installation.record.get("server_handoff"),
-                    "scopes": scopes}
+                    "scopes": scopes,
+                }
                 journal = directory / "plan.json"
                 durable_json(journal, plan)
                 for path in (directory, directory.parent, installation.directory):
                     fsync_directory(path)
                 marker = marker or {"operation": SERVER_HANDOFF_OPERATION}
-                marker["server_handoff"] = {"operation": operation, "journal": str(journal),
-                    "journal_sha256": file_sha256(journal), "phase": "prepared"}
+                marker["server_handoff"] = {
+                    "operation": operation,
+                    "journal": str(journal),
+                    "journal_sha256": file_sha256(journal),
+                    "phase": "prepared",
+                }
             marker.update(owner=ProcessIdentity.of().to_json(), token=secrets.token_urlsafe(32))
             durable_json(marker_path, marker)
-            if installation.record["binary"] not in (plan["previous_binary"], _generation_binary(generation)):
+            if installation.record["binary"] not in (
+                plan["previous_binary"],
+                _generation_binary(generation),
+            ):
                 raise FixtureBlocked("identity", "server handoff installed generation changed")
-            if _unit_path(installation.unit).read_text() not in (plan["previous_unit"], plan["successor_unit"]):
-                raise FixtureBlocked("identity", "server handoff unit changed outside its exact journal")
+            if _unit_path(installation.unit).read_text() not in (
+                plan["previous_unit"],
+                plan["successor_unit"],
+            ):
+                raise FixtureBlocked(
+                    "identity", "server handoff unit changed outside its exact journal"
+                )
             _stopped_attachment_commands(installation)
             if not resumed:
-                _run_installer(installation, Path(installation.record["installer"]), "close-admission")
+                _run_installer(
+                    installation, Path(installation.record["installer"]), "close-admission"
+                )
                 _run_installer(installation, Path(installation.record["installer"]), "drain")
             # This also confirms a core-dumped daemon has no surviving descendants.
             _stop_owned(installation)
             _write_private(_unit_path(installation.unit), plan["successor_unit"])
             if systemctl("daemon-reload").returncode:
-                raise FixtureBlocked("systemd", "server handoff daemon-reload failed; admission stays closed")
-            reference = {key: marker["server_handoff"][key] for key in ("operation", "journal", "journal_sha256")}
-            installation.record.update(binary=_generation_binary(generation), server_handoff=reference)
+                raise FixtureBlocked(
+                    "systemd", "server handoff daemon-reload failed; admission stays closed"
+                )
+            reference = {
+                key: marker["server_handoff"][key]
+                for key in ("operation", "journal", "journal_sha256")
+            }
+            installation.record.update(
+                binary=_generation_binary(generation), server_handoff=reference
+            )
             durable_json(installation.directory / "installation.json", installation.record)
             marker["server_handoff"]["phase"] = "installed"
             durable_json(marker_path, marker)
@@ -2375,17 +3496,25 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
             durable_json(journal.parent / "checked.json", checked)
             installation.check(allow_maintenance=True)
             try:
-                _run_installer(installation, Path(installation.record["installer"]), "open-admission")
+                _run_installer(
+                    installation, Path(installation.record["installer"]), "open-admission"
+                )
             except BaseException:
                 with contextlib.suppress(Exception):
-                    _run_installer(installation, Path(installation.record["installer"]), "close-admission")
+                    _run_installer(
+                        installation, Path(installation.record["installer"]), "close-admission"
+                    )
                 raise
             marker_path.unlink()
             fsync_directory(installation.directory)
-            return {"outcome": "passed", "installation_id": installation.id,
+            return {
+                "outcome": "passed",
+                "installation_id": installation.id,
                 "service_generation": installation.record["service_generation"],
-                "server_generation": generation["identity"], "server_handoff": plan["operation"],
-                "admission_open": True}
+                "server_generation": generation["identity"],
+                "server_handoff": plan["operation"],
+                "admission_open": True,
+            }
         finally:
             if use is not None:
                 os.close(use)
@@ -2398,9 +3527,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     install_parser = commands.add_parser(
         "install", help="explicitly install stable service and native schemas"
     )
-    install_parser.add_argument("--campaign", action="store_true",
-                                help="install an isolated checked campaign unit at an explicit LCTX_SURREAL_SERVICE_CONFIG")
+    install_parser.add_argument(
+        "--campaign",
+        action="store_true",
+        help="install an isolated checked campaign unit at an explicit LCTX_SURREAL_SERVICE_CONFIG",
+    )
     install_parser.add_argument("--installer", type=Path, default=ROOT / "target/release/lctx")
+    install_parser.add_argument(
+        "--purpose",
+        choices=[LIFECYCLE_PURPOSE],
+        help="register lifecycle purpose/consumer before owned campaign launch",
+    )
+    install_parser.add_argument(
+        "--server-generation",
+        type=Path,
+        help="borrow this exact immutable patched generation for a lifecycle campaign",
+    )
+    dispose_parser = commands.add_parser(
+        "dispose-campaign", help="checked whole owned lifecycle target disposal"
+    )
+    dispose_parser.add_argument("installation_id")
     commands.add_parser("check", help="read-only compatibility and native readiness")
     commands.add_parser("status", help="read-only ownership, state and maintenance observation")
     backup_parser = commands.add_parser(
@@ -2418,14 +3564,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         "maintenance", help="close admission, drain borrowers and run selected operation"
     )
     operations = maintenance_parser.add_mutually_exclusive_group()
-    operations.add_argument("--recover-attachment", metavar="ID",
-        help="explicit named PD02 unknown recovery with exact joined server invocation")
-    operations.add_argument("--recover-native-attachment", metavar="ID", action="append",
-        help="campaign-only Started native owner recovery with source-correlated registered shutdown join")
-    maintenance_parser.add_argument("--legacy-attachment-run", metavar="ID=RUN", action="append", default=[],
-        help="preserve the explicitly named historical local-release peer's original ended-run evidence")
-    operations.add_argument("--prepare-grpc-recovery", action="store_true",
-        help="explicit campaign-only positive shutdown-log preparation; requires resolved borrowers")
+    operations.add_argument(
+        "--recover-attachment",
+        metavar="ID",
+        help="explicit named PD02 unknown recovery with exact joined server invocation",
+    )
+    operations.add_argument(
+        "--recover-native-attachment",
+        metavar="ID",
+        action="append",
+        help="campaign-only Started native owner recovery with source-correlated registered shutdown join",
+    )
+    maintenance_parser.add_argument(
+        "--legacy-attachment-run",
+        metavar="ID=RUN",
+        action="append",
+        default=[],
+        help="preserve the explicitly named historical local-release peer's original ended-run evidence",
+    )
+    operations.add_argument(
+        "--prepare-grpc-recovery",
+        action="store_true",
+        help="explicit campaign-only positive shutdown-log preparation; requires resolved borrowers",
+    )
     operations.add_argument("--restart", action="store_true")
     operations.add_argument("--check", action="store_true")
     operations.add_argument(
@@ -2438,10 +3599,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="transfer the exact maintenance executable out of its supplying checkout",
     )
-    operations.add_argument("--handoff-installer", type=Path,
-                            help="explicitly replace the maintenance executable for unchanged installed native schemas")
-    operations.add_argument("--server-generation", type=Path,
-                            help="explicitly hand off the owned server to a reviewed immutable descriptor")
+    operations.add_argument(
+        "--handoff-installer",
+        type=Path,
+        help="explicitly replace the maintenance executable for unchanged installed native schemas",
+    )
+    operations.add_argument(
+        "--server-generation",
+        type=Path,
+        help="explicitly hand off the owned server to a reviewed immutable descriptor",
+    )
     maintenance_parser.add_argument(
         "--reconcile-database",
         choices=DATABASES,
@@ -2480,7 +3647,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if (
             (reconcile and (not args.recover or not args.reconcile_database))
             or (args.reconcile_database and not reconcile)
-            or ((args.recover or args.server_generation or args.handoff_installer or args.recover_attachment or args.recover_native_attachment or args.prepare_grpc_recovery) and args.command)
+            or (
+                (
+                    args.recover
+                    or args.server_generation
+                    or args.handoff_installer
+                    or args.recover_attachment
+                    or args.recover_native_attachment
+                    or args.prepare_grpc_recovery
+                )
+                and args.command
+            )
         ):
             parser.error(
                 "named reader reconciliation requires --recover, --reconcile-database "
@@ -2492,13 +3669,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("named reconciliation identities must be distinct")
     if args.action == "maintenance" and args.native_clients:
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
-        if not command or args.restart or args.check or args.recover or args.stabilize_installer or args.handoff_installer or args.server_generation or args.recover_attachment or args.recover_native_attachment or args.prepare_grpc_recovery:
+        if (
+            not command
+            or args.restart
+            or args.check
+            or args.recover
+            or args.stabilize_installer
+            or args.handoff_installer
+            or args.server_generation
+            or args.recover_attachment
+            or args.recover_native_attachment
+            or args.prepare_grpc_recovery
+        ):
             parser.error("--native-clients requires only an explicit command after --")
     try:
         if args.action == "install":
-            value = install(args.installer.resolve(), campaign=args.campaign).check()
+            value = install(
+                args.installer.resolve(),
+                campaign=args.campaign,
+                purpose=args.purpose,
+                server_generation=args.server_generation,
+            ).check()
         else:
-            installation = Installation.load(ready=args.action != "status")
+            installation = Installation.load(
+                ready=args.action not in {"status", "dispose-campaign"}
+            )
             if args.action == "status":
                 marker = read_json(installation.directory / "maintenance.json")
                 value = {
@@ -2507,11 +3702,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "unit": installation.unit,
                     "state": unit_properties(installation.unit, "ActiveState", "Result"),
                     "maintenance": (installation.directory / "maintenance.json").exists(),
-                    "server": {"path": installation.record["binary"]["path"],
+                    "server": {
+                        "path": installation.record["binary"]["path"],
                         "sha256": installation.record["binary"]["sha256"],
                         "version": installation.record["binary"]["version"],
-                        "generation": installation.record["binary"].get("generation", {}).get("identity")},
-                    "server_handoff": marker.get("server_handoff") if isinstance(marker, dict) else None,
+                        "generation": installation.record["binary"]
+                        .get("generation", {})
+                        .get("identity"),
+                    },
+                    "server_handoff": marker.get("server_handoff")
+                    if isinstance(marker, dict)
+                    else None,
                     "protected_repair_assets": marker.get("recovery")
                     if isinstance(marker, dict)
                     else None,
@@ -2523,6 +3724,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 from storage_service import dependencies
 
                 value["storage"] = dependencies(installation)
+                if installation.record.get("purpose") == LIFECYCLE_PURPOSE:
+                    value["purpose"] = LIFECYCLE_PURPOSE
+                    value["development_workers"] = development_workers(installation)
+                    value["disposal"] = read_json(installation.directory / "disposal.json")
+                    value["native_inspection"] = {
+                        "status": "not_inspected",
+                        "reason": "host status grants no database admission",
+                        "route": "docs/surrealdb.md#maintenance-diagnostics",
+                    }
+                    value["observed_at"] = time.time()
+            elif args.action == "dispose-campaign":
+                value = dispose_campaign(installation, args.installation_id)
             elif args.action == "check":
                 value = installation.check()
             elif args.action == "backup":
@@ -2533,26 +3746,43 @@ def main(argv: Sequence[str] | None = None) -> int:
                 command = args.command[1:] if args.command[:1] == ["--"] else args.command
                 if args.recover_attachment:
                     from surrealdb_pd02_recovery import recover
+
                     print(json.dumps(recover(installation, args.recover_attachment), indent=2))
                     return 0
                 if args.recover_native_attachment:
                     from surrealdb_pd02_recovery import recover_native
-                    mappings={}
+
+                    mappings = {}
                     for value in args.legacy_attachment_run:
-                        identity,separator,run=value.partition("=")
+                        identity, separator, run = value.partition("=")
                         if not separator or identity in mappings:
-                            parser.error("--legacy-attachment-run requires distinct ID=RUN mappings")
-                        mappings[identity]=run
-                    print(json.dumps(recover_native(installation, args.recover_native_attachment,legacy_runs=mappings), indent=2))
+                            parser.error(
+                                "--legacy-attachment-run requires distinct ID=RUN mappings"
+                            )
+                        mappings[identity] = run
+                    print(
+                        json.dumps(
+                            recover_native(
+                                installation, args.recover_native_attachment, legacy_runs=mappings
+                            ),
+                            indent=2,
+                        )
+                    )
                     return 0
                 if args.prepare_grpc_recovery:
                     print(json.dumps(prepare_grpc_recovery(installation), indent=2))
                     return 0
                 if args.server_generation:
-                    print(json.dumps(handoff_server(installation, args.server_generation), indent=2))
+                    print(
+                        json.dumps(handoff_server(installation, args.server_generation), indent=2)
+                    )
                     return 0
                 if args.handoff_installer:
-                    print(json.dumps(handoff_installer(installation, args.handoff_installer), indent=2))
+                    print(
+                        json.dumps(
+                            handoff_installer(installation, args.handoff_installer), indent=2
+                        )
+                    )
                     return 0
                 if args.recover:
                     gate = hold_lock(installation.directory / "admission.lock")
@@ -2560,12 +3790,30 @@ def main(argv: Sequence[str] | None = None) -> int:
                     native_started = False
                     try:
                         row = read_json(installation.directory / "maintenance.json")
-                        if row and row.get("operation") in {"PD02 named attachment recovery", "PD02 campaign log preparation", "native named attachment recovery"}:
-                            raise FixtureBlocked("maintenance", "resume the exact named PD02 maintenance operation")
-                        if row and (row.get("server_handoff") or row.get("operation") == SERVER_HANDOFF_OPERATION):
-                            raise FixtureBlocked("maintenance", "incomplete server handoff requires the exact --server-generation descriptor")
-                        if row and (row.get("installer_handoff") or row.get("operation") == INSTALLER_HANDOFF_OPERATION):
-                            raise FixtureBlocked("maintenance", "incomplete installer handoff requires the exact --handoff-installer candidate")
+                        if row and row.get("operation") in {
+                            "PD02 named attachment recovery",
+                            "PD02 campaign log preparation",
+                            "native named attachment recovery",
+                        }:
+                            raise FixtureBlocked(
+                                "maintenance", "resume the exact named PD02 maintenance operation"
+                            )
+                        if row and (
+                            row.get("server_handoff")
+                            or row.get("operation") == SERVER_HANDOFF_OPERATION
+                        ):
+                            raise FixtureBlocked(
+                                "maintenance",
+                                "incomplete server handoff requires the exact --server-generation descriptor",
+                            )
+                        if row and (
+                            row.get("installer_handoff")
+                            or row.get("operation") == INSTALLER_HANDOFF_OPERATION
+                        ):
+                            raise FixtureBlocked(
+                                "maintenance",
+                                "incomplete installer handoff requires the exact --handoff-installer candidate",
+                            )
                         if row and ProcessIdentity.from_json(row["owner"]).alive():
                             raise FixtureBlocked("ownership", "maintenance owner is still alive")
                         if borrowers(installation):
