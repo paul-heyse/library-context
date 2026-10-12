@@ -95,6 +95,23 @@ def test_actual_service_survival_runner_requires_explicit_execution(monkeypatch)
     assert survival.qualify(Path("unused-handle.json"), "entity")["outcome"] == "not_run"
 
 
+def test_dependency_observation_without_maintenance_preserves_current_installer(tmp_path):
+    root = tmp_path / "service"
+    root.mkdir()
+    selected = assets.tools_root(root) / "lctx" / ("a" * 64) / "lctx"
+    installation = SimpleNamespace(directory=root, id="owned", record={
+        "installer": str(selected), "installer_generation": {"path": str(selected), "sha256": "a" * 64}
+    })
+    observed = assets.dependencies(installation)
+    assert observed["stable_installer"]
+    assert observed["dependencies"] == [{
+        "path": str(selected), "sha256": "a" * 64, "role": "maintenance-executable"
+    }]
+    (root / "maintenance.json").write_text("{")
+    with pytest.raises(json.JSONDecodeError):
+        assets.dependencies(installation)
+
+
 def test_service_survival_witness_is_complete_nonempty_and_preserves_duplicates():
     import qualify_storage_service_survival as survival
 

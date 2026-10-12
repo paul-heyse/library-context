@@ -193,7 +193,10 @@ def dependencies(installation) -> dict:
     from surrealdb_service import _server_handoff_dependencies
 
     result.extend(_server_handoff_dependencies(installation))
-    active = read_json(installation.directory / "maintenance.json")
+    try:
+        active = read_json(installation.directory / "maintenance.json")
+    except FileNotFoundError:
+        active = None
     if isinstance(active, dict) and active.get("installer_handoff"):
         from surrealdb_service import INSTALLER_HANDOFF_OPERATION, _installer_handoff_plan
 
