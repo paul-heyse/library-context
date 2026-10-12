@@ -2,11 +2,7 @@
 _Updated 2026-10-12 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
 **Current scope: SA0–SA9 implemented / focused-Tested; assurance paused by operator,2026-10-11.**
-The [architecture companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
-owns scope; [coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
-owns sole dispositions and exact receipts. Shared SA9/HS11/UP9/NE9/GK7/GR6/PC6/PJ5/CU6 acceptance
-remains open. ADR-0146's checked recovery and format3→4→5 transitions completed; installed
-format5/eec4, immutable0dcc maintenance executable and patched server405f6c02 remain preserved.
+The [architecture companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) owns scope; [coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns sole dispositions and exact receipts. Shared SA9/HS11/UP9/NE9/GK7/GR6/PC6/PJ5/CU6 acceptance remains open. ADR-0146's checked recovery and format3→4→5 transitions completed; installed format5/eec4, immutable0dcc maintenance executable and patched server405f6c02 remain preserved.
 No migration is replayed. Atomic progress, operation-valid catalog preparation, selected access,
 nomination, hydration and retirement registration are implemented/source-accepted.
 
@@ -53,6 +49,11 @@ transport cancellation/finality, cache/budget and publication/serving obligation
 SDK3.3.0 has the narrow vendored gRPC physical-terminal backport; patched gRPC remains initial.
 No dependency version or public artifact schema changed in this increment; [pins](docs/pins.md) owns holds.
 PSE-arrow and operator stores remain unchanged.
+
+**SurrealDB lifecycle target review,2026-10-12: Revise (Interface-checked).**
+[Principal review](docs/design_review/reviews/design_review_surrealdb-lifecycle-target_2026-10-12.md) owns F01–F05/RC01–RC06 pending plan creation.
+SurrealKit1.0.0-beta.1/Rust integration is the selected Proposed tooling target; no dependency/service change.
+Source/library investigation only; product tests/probes not_run. Next: reconcile into implementation planning.
 
 **Storage lifecycle implemented / focused-Tested; automation off.**
 [ADR-0144](docs/adr/0144-managed-storage-lifetimes.md) and
@@ -116,5 +117,4 @@ current history evidence/controls, and finish D03 defaults. Ordinary default rem
 No full-suite, quality campaign, real-library/Qwen/gold/heldout, operator adoption, activation or push.
 Shared paused/operator state, recovery evidence, unrelated work and warm caches remain protected.
 Auxiliary revisions remain on archive branches; [paused coordinator §9.2](docs/plans/persisted-graph-execution-plan_2026-10-07.md#92-operator-stop-and-worktree-preservation2026-10-11)
-owns their exact commits and removal receipts. Native controls use logical validation scopes;
-disruptive controls use explicit maintenance ownership.
+owns their exact commits and removal receipts. Native controls use logical validation scopes; disruptive controls use explicit maintenance ownership.
