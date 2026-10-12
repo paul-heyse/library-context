@@ -169,6 +169,11 @@ merely to repeat that outcome. Mixed or partial scopes retain their distinctions
 are different from domain-total non-request. The model owns scoped answers without inferring them
 from missing rows.
 
+The contribution is physically Complete when those exact declarations and every declared empty output
+have been produced. Semantic NotRequested belongs to the independently admitted compact domains.
+Reuse follows the ordinary complete-candidate protection/admission route and preserves those semantic
+answers; it does not require contribution outcome4. Embedding retains its separate Fresh/cache policy.
+
 Migrate frontier enumeration/coverage premises, `FrontierCheck.finish` scoped-set reconstruction,
 compilation publication assessments and scoped serving availability together. Prepare expected inputs
 once per compile using indexed inputs/profile/method extensions. This is invocation-local preparation,
@@ -306,14 +311,15 @@ Eligibility is a total operation returning `Hit`, `Miss(reason)` or `Corrupt(err
 |---|---|
 | Complete with equal full request, exact complete declared inventory and valid admission | Hit after C03 protection/admission |
 | Complete with an explicitly empty declared relation | Eligible; retain the empty descriptor |
-| Explicit NotRequested, equal exact domain/request, declared whole output uniformly unrequested | Eligible only through the model's explicit NotRequested contract |
+| Complete compact output with explicit semantic NotRequested, equal exact domain/request and declared whole output uniformly unrequested | Eligible only after the model's exact compact-owner/domain validation and C03 protection/admission |
 | NotRequested with any currently requested family, missing domain or mixed/partial scope | Miss; never synthesize complete coverage |
 | Partial, Unavailable, Failed, abandoned, poisoned, resource-truncated or unfinished | Miss; no initial partial-reuse policy |
 | Equal key but inconsistent bytes/output inventory or admission evidence | Corrupt; do not silently treat corruption as ordinary key ineligibility |
 
 A stage-level NotRequested value does not bypass current `admission::reconcile`, which rejects it.
-The future compact contract and its validator must be introduced together before such a hit is
-admitted. Retain whole-provider grain; independent per-file incremental analyzer sessions are rejected
+Compact declaration production completes physically; its model-owned semantic NotRequested proof
+is independently reconstructed before reuse. Stage outcome4 alone remains ineligible. Retain
+whole-provider grain; independent per-file incremental analyzer sessions are rejected
 for this track because import cycles, module lookup and inherited facts require wider correspondence.
 
 **Controls:** real native providers on owned deterministic fixtures, full typed populations/outcomes,

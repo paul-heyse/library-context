@@ -1,5 +1,4 @@
 # Status
-
 _Updated 2026-10-12 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
 **Current scope: SA0–SA9 implemented / focused-Tested; assurance paused by operator,2026-10-11.**
@@ -90,30 +89,32 @@ Test-review process skills and flexible report guidance are Implemented2026-10-1
 Their validation, agent lint, scoped Ruff/Pyrefly, ADR lint and docs check passed397 pages/zero link errors.
 An independent read-only exercise found no concrete guidance issue. Those checks did not qualify product behavior.
 
-**Reconciled efficiency track: implementation in progress, 2026-10-12.**
+**Reconciled efficiency track: paused at operator-requested closeout, 2026-10-12.**
 [Efficiency coordinator §4](docs/plans/efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint)
-owns current receipts, failures and remaining scope. ADR-0161 applies the operator's design-phase
-cutover: migrate useful views to current realizations or explicitly regenerate pinned inputs; retain
-no legacy runtime code/data. Historical fixtures and benchmarks are not acceptance prerequisites.
-Historical converters/readers and preserved-assurance paths are removed. Current seven-crate test
-compilation passed (`104943…c2639e`); release CLI/evaluator build passed (`130911…a3dcf7`), cleanup confirmed.
-Current campaign regeneration passed (`131431…4f6e67`): main/validation initialized and checked,
-admission open, immutable revision/removal receipts and the original Unknown preserved. One-off
-regeneration tooling is retired; its generic completed receipt remains valid. Focused host controls
-passed35 (`131755…138c17`). Ordinary native contract controls are running (`131447…fd38de`).
-Actual native, compiler, publication and serving controls remain pending. Shared paused/operator state
-is unchanged. Compact model controls passed14 in release and ordinary O2 test; selected ownership passed22.
-Binding-slot retirement, durable-premise reuse and independent session finalizers are source-integrated and reviewed; their native controls remain pending. Ordinary finite
-analysis controls passed23; HTTP client contract controls passed7 (two live-service legs not_run). Actual native,
-analysis/serving/profile and X01/X02 acceptance remain open; whole-output NotRequested reuse stays off.
-The numerical finite reference passed; actual cohort failed for absent serving configuration and awaits
-current fixture production. No full-suite, quality campaign, real-library pilot or operator adoption ran.
-**Preservation and boundaries:** all four auxiliary revisions are committed on `archive/*-2026-10-11`
-branches; [coordinator §9.2](docs/plans/persisted-graph-execution-plan_2026-10-07.md#92-operator-stop-and-worktree-preservation2026-10-11)
-owns exact commits, evidence handoff and checkout-removal outcomes. Preserve qualified recovery
-bundles, operator references, shared Cargo/native caches and profiling/benchmark captures.
-No operator adoption/configuration/client registration, protected gold/heldout, Qwen, real FastMCP/Q1
-pilot, wheels, activation or push. No storage collection follows from test success.
-Commands retain normal compiler/test parallelism, stacks and native/request deadlines. Existing
-test deadlines remain unchanged; the new compound Catalog control has its explicit900s allowance. Native tests use
-logical validation scopes; disruptive controls follow the explicit maintenance owner.
+owns exact receipts, unresolved failures and resumption order. Source is integrated on main;
+auxiliary-worktree/evidence disposition is recorded there. This is partial implementation, not completion.
+ADR-0161 requires current view migration/regeneration without legacy runtime code/data or historical
+fixture/benchmark prerequisites. Completed one-off producers and obsolete source5 checkout are retired.
+Current campaign regeneration passed (`131431…4f6e67`); original interrupted Unknown remains unchanged.
+ADR-0163 actual checked installer handoff passed (`162328…0efd83`); immutable4f0821bc… is current.
+Native generation/schema are unchanged. Obsolete installer retirement is blocked by unavailable actual
+process-executable observation; its owner remains protected. Exactad992027 recovery passed after7-pin
+reconciliation (`162229…73f6f3`, `162301…f25799`), preserving original proof bytes and Unknown.
+Creation/member/durable controls passed7 (`163252…76d9cb`). Retained-retirement host controls passed14
+(`164218…c10f33`). Current numerical replay builds and host controls passed; actual cohort remains not_run.
+Final affected run (`163837…ac22b6`) failed100:6 passed,3 failed,14 timed out; host cleanup confirmed
+16:49:33UTC/no survivors. The passes include actual named retirement and two selection durability/
+cancellation controls plus three occurrence/fulltext/BM25 cases; enclosing functional scope remains open.
+Original completion guard churn and obsolete logical membership discovery need protected production
+corrections. Timeout causes remain unresolved; normal parallelism, stacks and deadlines are unchanged.
+Attachment9938df36-38ee-4bdc-8c7e-75d229dd4099 retains native Unknown. Named recovery
+(`165029…634eef`) joined/replaced its exact daemon but failed validation drain on live readers/backup
+holds; host cleanup confirmed16:50:54UTC/no survivors. Dedicated campaign remains closed in maintenance.
+Resume exact current pin/hold reconciliation and the same recovery journal before borrowing. Then repair
+N10/S04, rerun affected failures, finish retained S01 numerical/retirement and ANN DDL cutover, qualify
+current history evidence/controls, and finish D03 defaults. Ordinary default remains release; X01/X02 open.
+No full-suite, quality campaign, real-library/Qwen/gold/heldout, operator adoption, activation or push.
+Shared paused/operator state, recovery evidence, unrelated work and warm caches remain protected.
+Auxiliary revisions remain on archive branches; [paused coordinator §9.2](docs/plans/persisted-graph-execution-plan_2026-10-07.md#92-operator-stop-and-worktree-preservation2026-10-11)
+owns their exact commits and removal receipts. Native controls use logical validation scopes;
+disruptive controls use explicit maintenance ownership.

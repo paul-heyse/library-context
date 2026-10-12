@@ -9,7 +9,7 @@ All product findings remain **Planned**. Design choices are Proposed until the a
 owner/ADR is updated at implementation; finite design checks do not establish product acceptance.
 
 Decision evidence: [native mechanisms](../design_review/evidence/2026-10-11_efficiency-design-decisions/native.md),
-[finite probes and raw result](../design_review/evidence/2026-10-11_efficiency-design-decisions/native/finite-results.json).
+[finite probes and raw result](../design_review/evidence/2026-10-11_efficiency-design-decisions/raw/native-finite-results.json).
 
 Sources: original O-F01–O-F15/O-F17; audit A-F01–A-F06/A-F18/A-F19 and
 [native evidence](../design_review/evidence/2026-10-11_efficiency-alignment-audit/native-contracts.md).
@@ -359,6 +359,16 @@ eligible terminal attempts compact. No sweep or collection is authorized by auth
 
 <a id="N10"></a>
 ### N10 — Share original bytes beneath artifact identity
+
+**Open implementation correction, 2026-10-12:** completion currently captures the blob's general
+guard revision around its complete chunk/hash/EOF audit. Equal concurrent piece/header replays also
+advance that revision, so the protected set needs a more precise mutation witness. Preserve active
+incarnation, tombstone, exact layout/header/holds and complete byte validation; do not drop the guard
+or retry with refreshed observations. Investigate every chunk insertion/removal path before choosing
+an insertion-only per-blob predicate using the existing native predicate owner. Required revealing
+controls: equal peer replay/completion succeeds, an intervening extra/changed piece refuses, and stale
+incarnation/tombstone refuses. This is a proposed correction, not a verified diagnosis of which guard
+field changed in the actual failures. The coordinator §4 owns their receipts and current disposition.
 
 **Mechanism selected, Proposed, 2026-10-11.** `OriginalBlob/v1` header carries full-content hash,
 length/format and earned completion; bounded chunks use `H(blob, offset)`. Revision/path-scoped

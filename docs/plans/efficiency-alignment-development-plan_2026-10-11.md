@@ -128,6 +128,16 @@ release remains selectable, and affected controls pass. Artifact reuse is suppor
 dependency configuration; faster elapsed time remains unmeasured. This package has no dependency on
 completion of an existing plan and does not claim that plan's findings closed.
 
+**Remaining coherent switch:** after affected functional qualification passes, change
+`verify.DEFAULT_CARGO_PROFILE` to `test`, migrate its implicit-profile expectations, remove the unused
+`local-test-candidate` Cargo stanza and update Cargo's release comment plus README, AGENTS and DESIGN
+profile wording. Preserve recorded profile forwarding and historical missing-profile fallback to
+release; an explicitly unavailable profile must refuse. Qualifier, production/oracle, native extension
+and service installer release selections remain explicit. Focused host controls cover qualifier/rerun
+guards, evaluator artifact paths, exact recorded dependencies and direct Cargo versus Nextest profiles.
+The temporary draft patch is retired at operator-requested closeout; these owning contracts retain its
+pending work. No default switch or build-cache deletion is implied by preparation.
+
 <a id="D04"></a>
 ### D04 — Carry service identity through one protected fixture generation
 

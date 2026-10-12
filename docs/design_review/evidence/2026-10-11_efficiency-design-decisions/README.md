@@ -139,4 +139,8 @@ survivors (`0acd2e`, `fe9f43`, `4fd098`); the failed setup retains its original 
 The exact `citation:efficiency-design-decisions` obligations on the completed engine and gRPC
 campaign outputs were released after those checks. This evidence consumer needs the canonical raw files and probe
 source, not the old executable copies or runtime stores. Their filesystem disposal and worktree
-removal still belong to the existing storage/worktree owners and must recheck live holders.
+removal belong to the existing storage/worktree owners and recheck live holders. Those owners
+subsequently retired the two exact completed outputs; authenticated failed-setup disposal retains
+its original failure and separate receipt in run `20261011T130336.743Z-0acd2e`.
+Clean nonforce worktree removal passed in `20261012T165546.314Z-8c3a30` with confirmed cleanup
+and no survivors. The original commands and evidence remain attributable; no replay is required.

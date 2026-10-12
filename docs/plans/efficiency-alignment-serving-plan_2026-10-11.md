@@ -42,6 +42,14 @@ Add comparison to the actual served candidate output, with independent expected 
 Production exact SQL cannot be its own oracle. Migrate report vocabulary and controls that currently
 require `native_ann` together with the reference implementation.
 
+The current private replay example observes the protected selected cohort, full F32 values/projections
+and actual candidate/rescore kernels; the Python consumer independently computes F64 scores and ties.
+Selected-occurrence eligibility remains a declared common-mode limit, requiring the separate native
+foreign-cohort inclusion/exclusion control. Run a fresh retained-serving producer and this consumer
+before removing ANN DDL. Afterwards use `just fixture --retire-serving NAME` with the current checked
+CLI: exact producer selection, durable job identity, native terminal acknowledgement and producer
+obligation release are all required. Host controls alone do not establish native retirement acceptance.
+
 Then retire unused ANN DDL from materialization, update realization/index identity and restore controls.
 Do not remove model/provider analytics neighbor APIs: their exact method contracts are separate. A
 scoped consumer search supports this migration; it is not proof that every external consumer is absent.
@@ -94,6 +102,13 @@ a released pin cannot lend live authority to another request.
 
 <a id="S04"></a>
 ### S04 — Page from compact ordered state and hydrate the page once
+
+Current member discovery must use earned exact realization/alias membership, through the protected
+selected-payload path or an equivalent earned physical binding. Four `selection::members` queries
+still use obsolete `compiler_view_member.view` predicates with logical view IDs; current rows are keyed
+by `realization`. Migrate those production consumers rather than fabricating legacy fixture rows.
+Preserve the revealing 260-member, foreign-member exclusion, deterministic order and accounting
+assertions. The coordinator §4 records the actual empty-result failure; this correction remains open.
 
 **Sources:** O-F35; A-F08. Consume S03's validated domain and ordered compact IDs. Continuations use
 that exact context; fetch rich payload only for the page the caller requests. Avoid rediscovering or
