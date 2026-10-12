@@ -174,26 +174,6 @@ def dependencies(installation) -> dict:
         for key in ("previous", "replacement"):
             if isinstance(transfer.get(key), str):
                 result.append({"path": transfer[key], "role": "unresolved-installer-transfer"})
-    regeneration = row.get("campaign_regeneration")
-    try:
-        maintenance = read_json(installation.directory / "maintenance.json")
-    except FileNotFoundError:
-        maintenance = None
-    pending_regeneration = (maintenance.get("regeneration") if isinstance(maintenance, dict)
-        and maintenance.get("operation") == "design campaign regeneration" else None)
-    if regeneration or pending_regeneration:
-        from surrealdb_campaign import evidence, read_immutable
-        reference = pending_regeneration or regeneration
-        plan_path = Path(reference["path"])
-        if (evidence(plan_path) != reference
-                or plan_path.parent.parent != installation.directory / "campaign-regeneration"):
-            raise Blocked("campaign regeneration disposition changed")
-        result.append({"path": str(plan_path.parent), "role": "campaign-regeneration-disposition"})
-        if pending_regeneration:
-            plan = read_immutable(plan_path)
-            result.append({"path": plan["candidate"]["path"], "role": "campaign-regeneration-installer"})
-            result.extend({"path": source["path"], "role": "pending-campaign-disposition-evidence"}
-                for source in plan["original"]["sources"])
     from surrealdb_service import _server_handoff_dependencies
 
     result.extend(_server_handoff_dependencies(installation))

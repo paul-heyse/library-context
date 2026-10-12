@@ -112,7 +112,6 @@ def spawn_group(
     stderr: Any = None,
     stdin: Any = None,
     death_signal: int | None = None,
-    pass_fds: Sequence[int] = (),
 ) -> subprocess.Popen:
     """Start argv as the leader of a new session, so its process group id is its pid. With
     `death_signal`, the leader also receives that signal when its owner dies."""
@@ -125,7 +124,6 @@ def spawn_group(
         stderr=stderr,
         start_new_session=True,
         preexec_fn=None if death_signal is None else _death_signal(death_signal, os.getpid()),
-        pass_fds=tuple(pass_fds),
     )
 
 

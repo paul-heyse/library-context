@@ -2173,11 +2173,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="transfer the exact maintenance executable out of its supplying checkout",
     )
-    operations.add_argument("--regenerate-campaign", action="store_true",
-        help="explicitly discard the named drained design campaign and rebuild current schemas")
-    maintenance_parser.add_argument("--installer", type=Path)
-    maintenance_parser.add_argument("--discard-attachment")
-    maintenance_parser.add_argument("--discard-run", type=Path)
     operations.add_argument("--server-generation", type=Path,
                             help="explicitly hand off the owned server to a reviewed immutable descriptor")
     maintenance_parser.add_argument(
@@ -2213,16 +2208,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.reconcile_pin or args.reconcile_backup_hold
     )
     if args.action == "maintenance":
-        regeneration_args = (args.installer, args.discard_attachment, args.discard_run)
-        if args.regenerate_campaign != all(value is not None for value in regeneration_args) or (
-                not args.regenerate_campaign and any(value is not None for value in regeneration_args)):
-            parser.error("--regenerate-campaign requires --installer, --discard-attachment and --discard-run together")
         if args.legacy_attachment_run and not args.recover_native_attachment:
             parser.error("--legacy-attachment-run requires --recover-native-attachment")
         if (
             (reconcile and (not args.recover or not args.reconcile_database))
             or (args.reconcile_database and not reconcile)
-            or ((args.recover or args.regenerate_campaign or args.server_generation or args.recover_attachment or args.recover_native_attachment or args.prepare_grpc_recovery) and args.command)
+            or ((args.recover or args.server_generation or args.recover_attachment or args.recover_native_attachment or args.prepare_grpc_recovery) and args.command)
         ):
             parser.error(
                 "named reader reconciliation requires --recover, --reconcile-database "
@@ -2240,7 +2231,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.action == "install":
             value = install(args.installer.resolve(), campaign=args.campaign).check()
         else:
-            installation = Installation.load(ready=args.action != "status" and not (args.action == "maintenance" and args.regenerate_campaign))
+            installation = Installation.load(ready=args.action != "status")
             if args.action == "status":
                 marker = read_json(installation.directory / "maintenance.json")
                 value = {
@@ -2273,10 +2264,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 value = restore_service(installation, args.archive, apply=args.apply)
             else:
                 command = args.command[1:] if args.command[:1] == ["--"] else args.command
-                if args.regenerate_campaign:
-                    from surrealdb_campaign import regenerate
-                    print(json.dumps(regenerate(installation, args.installer, args.discard_attachment, args.discard_run), indent=2))
-                    return 0
                 if args.recover_attachment:
                     from surrealdb_pd02_recovery import recover
                     print(json.dumps(recover(installation, args.recover_attachment), indent=2))
@@ -2307,8 +2294,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                             raise FixtureBlocked("maintenance", "resume the exact named PD02 maintenance operation")
                         if row and (row.get("server_handoff") or row.get("operation") == SERVER_HANDOFF_OPERATION):
                             raise FixtureBlocked("maintenance", "incomplete server handoff requires the exact --server-generation descriptor")
-                        if row and row.get("operation") == "design campaign regeneration":
-                            raise FixtureBlocked("maintenance", "resume the exact --regenerate-campaign disposition")
                         if row and ProcessIdentity.from_json(row["owner"]).alive():
                             raise FixtureBlocked("ownership", "maintenance owner is still alive")
                         if borrowers(installation):

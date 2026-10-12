@@ -19,6 +19,7 @@ import os
 import re
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -251,11 +252,159 @@ def native_completion(directory: Path, record: Mapping[str, Any] | None) -> dict
     return {"status": status, "owners": owners}
 
 
+def scope_record_identity(value: Mapping[str, Any]) -> str:
+    """Identity of a receipt snapshot, not a portable native authority."""
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def scope_local_owner(directory: Path) -> dict[str, int]:
+    """Bind this acknowledgment to its local attachment directory lifetime."""
+    from storage_lifecycle import physical
+    for path in (directory, directory.parent, directory.parent.parent):
+        info = path.stat()
+        if info.st_uid != os.getuid() or info.st_mode & 0o022:
+            raise ValueError("scope receipt owner directory is not private")
+    return {**physical(directory), "uid": directory.stat().st_uid}
+
+
+SCOPE_LIFECYCLE_FIELDS = ("released", "released_at", "command_cleanup", "recovered_local_cleanup")
+
+
+def completed_scope_disposition(directory: Path, record: Mapping[str, Any] | None) -> bool:
+    """Consume this local owner's completed discard; original native finality stays unknown.
+
+    The maintenance producer acknowledged the dated proofs before publication. This
+    reader checks immutable local bytes and correspondence, never old sources or
+    current server implementation fingerprints. Same-UID malicious rewrites are
+    outside this receipt owner's filesystem trust boundary.
+    """
+    try:
+        if not isinstance(record, dict) or record.get("released") is not True:
+            return False
+        path = directory / "scope-disposition.json"
+        if (directory.name != record["id"] or directory.parent.name != "attachments"
+                or any(p.is_symlink() for p in (path, *path.parents))):
+            return False
+        fd = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        try:
+            before = os.fstat(fd)
+            if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
+                    or stat.S_IMODE(before.st_mode) != 0o400):
+                return False
+            with os.fdopen(fd, "rb", closefd=False) as stream:
+                raw = stream.read()
+            if service.executable_identity(before) != service.executable_identity(os.fstat(fd)):
+                return False
+        finally:
+            os.close(fd)
+        if record.get("scope_disposition") != {"path": str(path), "sha256": hashlib.sha256(raw).hexdigest()}:
+            return False
+        receipt = json.loads(raw)
+        if receipt["local_owner"] != scope_local_owner(directory):
+            return False
+        scope, original = receipt["scope"], receipt["original_attachment"]
+        hexadecimal = lambda value: isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+        generation = lambda value: (isinstance(value, list) and len(value) == 32
+            and all(type(x) is int and 0 <= x <= 255 for x in value))
+        databases = scope["databases"]
+        if (receipt.get("schema") != 1 or receipt.get("kind") != "explicit-scope-disposition"
+                or receipt.get("outcome") != "discarded-and-regenerated"
+                or receipt.get("original_native_outcome") != "unknown"
+                or scope["installation_id"] != record["fixture"]
+                or scope["namespace"] != record["namespace"]
+                or not isinstance(scope["endpoint"], str) or not scope["endpoint"]
+                or not isinstance(databases, list) or not databases or len(set(databases)) != len(databases)
+                or any(_identifier(db) != db for db in databases) or record["database"] not in databases
+                or original["id"] != record["id"] or original["native_drain"] != record["native_drain"]
+                or original["native_drain"]["attachment"] != record["id"]
+                or original["native_drain"]["directory"] != str(directory / "native-drain")
+                or not hexadecimal(scope["original_generation"])
+                or scope["original_generation"] != original["native_drain"]["generation"]
+                or not generation(scope["generation"])
+                or bytes(scope["generation"]).hex() == scope["original_generation"]
+                or type(scope["target"]["schema_version"]) is not int or scope["target"]["schema_version"] <= 0
+                or not hexadecimal(scope["target"]["schema"])
+                or record.get("command_cleanup") != {"status": "confirmed", "survivors": []}):
+            return False
+        reconstructed = {key: value for key, value in record.items()
+            if key not in (*SCOPE_LIFECYCLE_FIELDS, "scope_disposition")}
+        if (set(original["lifecycle"]) - set(SCOPE_LIFECYCLE_FIELDS)
+                or original["lifecycle"].get("released") is not False):
+            return False
+        reconstructed.update(original["lifecycle"])
+        if scope_record_identity(reconstructed) != original["record_identity"]:
+            return False
+        run = receipt["original_run"]
+        if (not hexadecimal(run["record_identity"]) or not isinstance(run["id"], str)
+                or Path(run["path"]).name != run["id"] or run["native_outcome"] != "unknown"
+                or run["termination"] not in {"completed", "cancelled", "interrupted"}
+                or not isinstance(run["exit"], dict) or len(run["exit"]) != 1
+                or not (type(run["exit"].get("code")) is int or type(run["exit"].get("signal")) is int)
+                or run["cleanup"]["status"] != "confirmed" or run["cleanup"]["survivors"] != []):
+            return False
+        proof = receipt["proofs"]
+        def decoded(blob):
+            data = base64.b64decode(blob["bytes"], validate=True)
+            if hashlib.sha256(data).hexdigest() != blob["sha256"]:
+                raise ValueError("scope disposition proof digest changed")
+            return json.loads(data)
+        joined = proof["joined"]
+        state, owner = joined["state"], joined["owner"]
+        if (not hexadecimal(joined["reference"]["sha256"]) or not hexadecimal(joined["journal_sha256"])
+                or state.get("InvocationID") != owner["invocation"]
+                or not isinstance(owner["unit"], str) or not owner["unit"]
+                or type(owner["process"]["pid"]) is not int or owner["process"]["pid"] <= 0
+                or any(state.get(key) != value for key, value in
+                    {"MainPID": "0", "ActiveState": "inactive", "Result": "success",
+                     "ExecMainCode": "1", "ExecMainStatus": "0"}.items())):
+            return False
+        removals = proof["original_removals"]
+        if set(removals) != set(databases) or any(decoded(removals[db]) !=
+                {"database": db, "removed": True, "join": joined["reference"]} for db in databases):
+            return False
+        checked, complete = decoded(proof["checked"]), decoded(proof["complete"])
+        expected = {"installation_id": scope["installation_id"], "generation": scope["generation"],
+            "target": scope["target"], "databases": databases, "original_native_outcome": "unknown",
+            "disposition": "explicitly discarded and regenerated", "plan": proof["plan"], "joined": joined["reference"]}
+        if "initialization_revision" in proof:
+            return False
+        revisions = proof.get("initialization_revisions", [])
+        if not isinstance(revisions, list):
+            return False
+        predecessor, previous_generation = proof["plan"], None
+        seen = set()
+        for revision in revisions:
+            if (set(revision) != {"reference", "predecessor", "discarded_generation", "generation", "target", "removals"}
+                    or revision["predecessor"] != predecessor
+                    or set(revision["reference"]) != {"path", "sha256"}
+                    or not isinstance(revision["reference"]["path"], str)
+                    or not hexadecimal(revision["reference"]["sha256"])
+                    or revision["reference"]["sha256"] in seen
+                    or not generation(revision["discarded_generation"])
+                    or not generation(revision["generation"])
+                    or revision["generation"] == revision["discarded_generation"]
+                    or (previous_generation is not None and revision["discarded_generation"] != previous_generation)
+                    or set(revision["removals"]) != set(databases)
+                    or any(decoded(revision["removals"][db]) !=
+                        {"database": db, "removed": True, "revision": revision["reference"],
+                         "discarded_generation": revision["discarded_generation"]} for db in databases)):
+                return False
+            seen.add(revision["reference"]["sha256"])
+            predecessor, previous_generation = revision["reference"], revision["generation"]
+        if revisions:
+            expected["initialization_revision"] = predecessor
+            if revisions[-1]["generation"] != scope["generation"] or revisions[-1]["target"] != scope["target"]:
+                return False
+        return (hexadecimal(proof["plan"]["sha256"]) and checked == expected
+            and complete == {**checked, "admission_open": True})
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return False
+
+
 def native_protected(directory: Path, record: Mapping[str, Any] | None, native: Mapping[str, Any]) -> bool:
     if not _native_pending(record, native):
         return False
-    from surrealdb_campaign import discarded
-    if discarded(directory, record or {}):
+    if completed_scope_disposition(directory, record):
         return False
     from surrealdb_pd02_recovery import recovered
     return not recovered(directory, record)

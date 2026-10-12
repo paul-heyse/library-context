@@ -1167,7 +1167,7 @@ def test_server_handoff_refuses_live_owner_and_held_locks_before_stop(server_han
 
 
 
-@pytest.mark.parametrize("flag", ["--recover", "--restart", "--check", "--regenerate-campaign"])
+@pytest.mark.parametrize("flag", ["--recover", "--restart", "--check"])
 def test_server_handoff_cli_is_mutually_exclusive(flag):
     args = ["maintenance", "--server-generation", "/descriptor", flag]
     with pytest.raises(SystemExit):

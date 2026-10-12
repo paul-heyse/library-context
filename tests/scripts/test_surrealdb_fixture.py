@@ -1389,3 +1389,166 @@ def test_native_joint_refuses_ineligible_or_unnamed_peer_before_effect(installed
     fx.write_json_atomic(peer.directory / "record.json",row)
     monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("refuse before effects"))
     with pytest.raises(fx.FixtureBlocked): recovery.recover_native(installed.installation,selected,legacy_runs=mapping)
+
+
+@pytest.fixture
+def completed_discard(installed):
+    """Local producer acknowledgment fixture; not native execution evidence."""
+    import base64
+    import hashlib
+    directory=installed.directory/'attachments'/str(uuid.uuid4());directory.mkdir(mode=0o700)
+    for path in (installed.directory, directory.parent):path.chmod(0o700)
+    (directory/'native-drain').mkdir()
+    original={'id':directory.name,'fixture':installed.id,'namespace':service.NAMESPACE,'database':'validation',
+        'released':False,'interrupted':True,'command_cleanup':{'status':'unknown'},
+        'command':{'argv':['original-immutable-command']},
+        'native_drain':{'attachment':directory.name,'directory':str(directory/'native-drain'),
+            'generation':bytes(installed.record['service_generation']).hex()}}
+    def blob(value):
+        raw=json.dumps(value,sort_keys=True).encode()
+        return {'bytes':base64.b64encode(raw).decode(),'sha256':hashlib.sha256(raw).hexdigest()}
+    plan={'path':'/removed-action/plan.json','sha256':'a'*64}
+    joined={'path':'/removed-action/joined.json','sha256':'b'*64}
+    scope={'installation_id':installed.id,'endpoint':installed.endpoint,'namespace':service.NAMESPACE,
+        'databases':['main','validation'],'original_generation':original['native_drain']['generation'],
+        'generation':list(bytes([3])*32),'target':{'schema_version':6,'schema':'c'*64}}
+    checked={'installation_id':installed.id,'generation':scope['generation'],'target':scope['target'],
+        'databases':scope['databases'],'original_native_outcome':'unknown',
+        'disposition':'explicitly discarded and regenerated','plan':plan,'joined':joined}
+    receipt={'schema':1,'kind':'explicit-scope-disposition','outcome':'discarded-and-regenerated',
+        'local_owner':fx.scope_local_owner(directory),
+        'original_native_outcome':'unknown','scope':scope,
+        'original_attachment':{'id':directory.name,'native_drain':original['native_drain'],
+            'record_identity':fx.scope_record_identity(original),
+            'lifecycle':{key:original[key] for key in fx.SCOPE_LIFECYCLE_FIELDS if key in original}},
+        'original_run':{'id':'owned-original-run','path':'/removed-checkout/build/runs/owned-original-run',
+            'record_identity':'d'*64,'termination':'cancelled','exit':{'code':143},
+            'cleanup':{'status':'confirmed','survivors':[]},'native_outcome':'unknown'},
+        'proofs':{'plan':plan,'joined':{'reference':joined,'journal_sha256':'e'*64,
+            'owner':{'unit':'owned-dedicated.service','invocation':'f'*32,'process':{'pid':123,'start_ticks':42}},
+            'state':{'InvocationID':'f'*32,'MainPID':'0','ActiveState':'inactive','Result':'success',
+                'ExecMainCode':'1','ExecMainStatus':'0'}},
+            'original_removals':{db:blob({'database':db,'removed':True,'join':joined}) for db in scope['databases']},
+            'checked':blob(checked),'complete':blob({**checked,'admission_open':True})}}
+    row={**original,'released':True,'command_cleanup':{'status':'confirmed','survivors':[]}}
+    path=directory/'scope-disposition.json'
+    def publish():
+        raw=json.dumps(receipt,sort_keys=True).encode()
+        if path.exists():path.chmod(0o600)
+        path.write_bytes(raw);path.chmod(0o400)
+        row['scope_disposition']={'path':str(path),'sha256':hashlib.sha256(raw).hexdigest()}
+        service.private_json(directory/'record.json',row)
+    publish()
+    return SimpleNamespace(directory=directory,row=row,receipt=receipt,publish=publish,blob=blob,path=path)
+
+
+def test_completed_scope_disposition_preserves_unknown_without_action_or_current_source_dependency(completed_discard,monkeypatch):
+    import builtins
+    case=completed_discard
+    importer=builtins.__import__
+    def no_history(name,*args,**kwargs):
+        if name.startswith('surrealdb_'):
+            pytest.fail('completed receipt must not import an action or daemon recovery module')
+        return importer(name,*args,**kwargs)
+    monkeypatch.setattr(builtins,'__import__',no_history)
+    assert fx.completed_scope_disposition(case.directory,case.row)
+    assert not fx.native_protected(case.directory,case.row,{'status':'unknown','owners':[]})
+    assert fx.native_completion(case.directory,case.row)=={'status':'not_observed','owners':[]}
+    assert case.receipt['original_native_outcome']=='unknown'
+
+
+@pytest.mark.parametrize('change',['fixture','native-generation','command','original-identity','final-generation',
+    'unknown','scope','joined-state','removed-peer','checked-target','incomplete','proof-bytes','unreleased','directory-lifetime'])
+def test_completed_disposition_rejects_misbound_record_or_proof_even_with_matching_local_digest(completed_discard,change):
+    import base64
+    case=completed_discard
+    if change=='fixture':case.row['fixture']=str(uuid.uuid4())
+    elif change=='native-generation':case.row['native_drain']={**case.row['native_drain'],'generation':'9'*64}
+    elif change=='command':case.row['command']={'argv':['different-current-owner']}
+    elif change=='original-identity':case.receipt['original_attachment']['record_identity']='9'*64
+    elif change=='final-generation':case.receipt['scope']['generation']=list(bytes([8])*32)
+    elif change=='unknown':case.receipt['original_native_outcome']='confirmed'
+    elif change=='scope':case.receipt['scope']['databases']=['main']
+    elif change=='joined-state':case.receipt['proofs']['joined']['state']['MainPID']='123'
+    elif change=='removed-peer':case.receipt['proofs']['original_removals']['main']=case.blob(
+        {'database':'validation','removed':True,'join':case.receipt['proofs']['joined']['reference']})
+    elif change=='checked-target':
+        value=json.loads(base64.b64decode(case.receipt['proofs']['checked']['bytes']));value['target']['schema']='9'*64
+        case.receipt['proofs']['checked']=case.blob(value)
+    elif change=='incomplete':
+        value=json.loads(base64.b64decode(case.receipt['proofs']['complete']['bytes']));value['admission_open']=False
+        case.receipt['proofs']['complete']=case.blob(value)
+    elif change=='proof-bytes':case.receipt['proofs']['complete']['bytes']=base64.b64encode(b'{}').decode()
+    elif change=='directory-lifetime':case.receipt['local_owner']['inode']+=1
+    else:case.row['released']=False
+    case.publish()
+    assert not fx.completed_scope_disposition(case.directory,case.row)
+    assert fx.native_protected(case.directory,case.row,{'status':'unknown','owners':[]})
+
+
+@pytest.mark.parametrize('change',['path','checksum','writable','symlink'])
+def test_completed_disposition_confines_immutable_local_owned_path(completed_discard,tmp_path,change):
+    case=completed_discard
+    if change=='path':case.row['scope_disposition']['path']=str(tmp_path/'other.json')
+    elif change=='checksum':case.row['scope_disposition']['sha256']='0'*64
+    elif change=='writable':case.path.chmod(0o600)
+    else:
+        target=tmp_path/'receipt-copy.json';target.write_bytes(case.path.read_bytes());target.chmod(0o400)
+        case.path.unlink();case.path.symlink_to(target)
+    assert not fx.completed_scope_disposition(case.directory,case.row)
+
+
+def test_completed_disposition_validates_dedicated_revised_current_scope_removals(completed_discard):
+    import base64
+    case=completed_discard
+    reference={'path':'/retired-oneoff/initialization-revision.json','sha256':'7'*64}
+    generation=list(bytes([5])*32)
+    case.receipt['proofs']['initialization_revisions']=[{'reference':reference,'discarded_generation':generation,
+        'predecessor':case.receipt['proofs']['plan'], 'generation':case.receipt['scope']['generation'],
+        'target':case.receipt['scope']['target'],
+        'removals':{db:case.blob({'database':db,'removed':True,'revision':reference,'discarded_generation':generation})
+            for db in case.receipt['scope']['databases']}}]
+    checked=json.loads(base64.b64decode(case.receipt['proofs']['checked']['bytes']))
+    checked['initialization_revision']=reference
+    case.receipt['proofs']['checked']=case.blob(checked)
+    case.receipt['proofs']['complete']=case.blob({**checked,'admission_open':True})
+    case.publish()
+    assert fx.completed_scope_disposition(case.directory,case.row)
+    case.receipt['proofs']['initialization_revisions'][0]['removals']['main']=case.blob(
+        {'database':'main','removed':True,'revision':reference,'discarded_generation':list(bytes([9])*32)})
+    case.publish()
+    assert not fx.completed_scope_disposition(case.directory,case.row)
+
+
+@pytest.mark.parametrize('change', ['predecessor', 'generation-chain', 'missing-removal', 'latest-reference', 'latest-generation', 'latest-target', 'reordered', 'duplicate'])
+def test_completed_disposition_authenticates_every_initialization_revision(completed_discard, change):
+    import base64
+    case = completed_discard
+    revisions = []
+    predecessor = case.receipt['proofs']['plan']
+    generation = [5] * 32
+    for index in range(2):
+        reference = {'path':f'/retired-oneoff/revision-{index + 1}.json', 'sha256':str(index + 6) * 64}
+        following = [6] * 32 if index == 0 else case.receipt['scope']['generation']
+        revisions.append({'reference':reference, 'predecessor':predecessor,
+            'discarded_generation':generation, 'generation':following, 'target':case.receipt['scope']['target'],
+            'removals':{db:case.blob({'database':db, 'removed':True, 'revision':reference,
+                'discarded_generation':generation}) for db in case.receipt['scope']['databases']}})
+        predecessor, generation = reference, following
+    case.receipt['proofs']['initialization_revisions'] = revisions
+    checked = json.loads(base64.b64decode(case.receipt['proofs']['checked']['bytes']))
+    checked['initialization_revision'] = predecessor
+    case.receipt['proofs']['checked'] = case.blob(checked)
+    case.receipt['proofs']['complete'] = case.blob({**checked, 'admission_open':True})
+    case.publish()
+    assert fx.completed_scope_disposition(case.directory, case.row)
+    if change == 'predecessor': revisions[1]['predecessor'] = case.receipt['proofs']['plan']
+    elif change == 'generation-chain': revisions[1]['discarded_generation'] = [8] * 32
+    elif change == 'missing-removal': del revisions[0]['removals']['main']
+    elif change == 'latest-reference': revisions[1]['reference']['sha256'] = '9' * 64
+    elif change == 'latest-generation': revisions[1]['generation'] = [8] * 32
+    elif change == 'latest-target': revisions[1]['target'] = {'schema_version':6, 'schema':'9' * 64}
+    elif change == 'reordered': revisions.reverse()
+    else: revisions.append(revisions[-1])
+    case.publish()
+    assert not fx.completed_scope_disposition(case.directory, case.row)

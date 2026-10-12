@@ -70,7 +70,9 @@ def test_sanitized_observation_keeps_unresolved_transfer_dependencies(tmp_path):
     root = tmp_path / "service"
     root.mkdir(mode=0o700)
     installation = SimpleNamespace(
-        directory=root, id="owned", record={"installer": "/checkout/lctx", "password": "private"}
+        directory=root, id="owned", record={"installer": "/checkout/lctx", "password": "private",
+            "campaign_regeneration": {"path": "/retired-producer/plan.json", "sha256": "a" * 64},
+            "initialization_revision": {"path": "/retired-producer/revision.json", "sha256": "b" * 64}}
     )
     durable_json(
         root / "installer-transfer.json",
@@ -79,6 +81,7 @@ def test_sanitized_observation_keeps_unresolved_transfer_dependencies(tmp_path):
     row = assets.dependencies(installation)
     assert {item["path"] for item in row["dependencies"]} == {"/checkout/lctx", "/stable/lctx"}
     assert "private" not in json.dumps(row)
+    assert "retired-producer" not in json.dumps(row), "completed producer pointers create no live source dependency"
     assert not row["stable_installer"]
 
 
