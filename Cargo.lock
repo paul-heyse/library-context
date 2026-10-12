@@ -7948,8 +7948,6 @@ dependencies = [
 [[package]]
 name = "surrealdb-rpc"
 version = "3.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e6d64c1a7783562566122795d56da73f83647fc7229f944b0558817bbe897b0"
 dependencies = [
  "anyhow",
  "humantime",

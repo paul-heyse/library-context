@@ -32,6 +32,7 @@ pub enum RecordSelection {
 }
 #[derive(Clone)]
 pub struct NativeReader<Context = SnapshotHandle> {
+    operations: Arc<std::sync::Mutex<QueryOperations>>,
     client: Arc<Surreal<Client>>,
     handle: Context,
     derivation: Option<lctx_model::domain::ContentHash>,
@@ -96,6 +97,466 @@ struct ReaderScope {
         )>,
     >,
 }
+#[derive(Default)]
+struct QueryOperations {
+    active: usize,
+    drains: Vec<futures::future::Shared<futures::future::BoxFuture<'static, Result<(), Arc<ModelError>>>>>,
+    closed: bool,
+    // Abandoned delivery has a reader-owned terminal receipt, rather than a log-only result.
+    abandoned: Vec<Result<(), Arc<ModelError>>>,
+}
+struct QueryLease {
+    operations: Arc<std::sync::Mutex<QueryOperations>>,
+    _client: Arc<Surreal<Client>>,
+    scope: Option<Arc<ReaderScope>>,
+    finished: bool,
+    confirmed: bool,
+}
+impl QueryLease {
+    fn admit(
+        operations: Arc<std::sync::Mutex<QueryOperations>>,
+        client: Arc<Surreal<Client>>,
+        scope: Option<Arc<ReaderScope>>,
+    ) -> Result<Self, ModelError> {
+        {
+            let mut state = operations.lock().map_err(|_| ModelError::Conflict("native query operation owner"))?;
+            if state.closed { return Err(ModelError::Conflict("native reader closed")); }
+            state.active += 1;
+        }
+        Ok(Self { operations, _client: client, scope, finished: false, confirmed: false })
+    }
+    fn finish(&mut self, outcome: &Result<(), Arc<ModelError>>, abandoned: bool) {
+        if outcome.as_ref().is_err_and(|error| !error.permits_storage_cleanup()) {
+            if let Some(pin) = self.scope.as_ref().and_then(|scope| scope._pin.as_ref()) { pin.retain_unknown(); }
+        }
+        if let Ok(mut state) = self.operations.lock() {
+            if abandoned || outcome.as_ref().is_err_and(|error| !error.permits_storage_cleanup()) { state.abandoned.push(outcome.clone()); }
+            state.active -= 1;
+        }
+        self.finished = true;
+    }
+}
+impl Drop for QueryLease {
+    fn drop(&mut self) {
+        if self.finished { return; }
+        if self.confirmed { self.finish(&Ok(()), false); return; }
+        if let Some(pin) = self.scope.as_ref().and_then(|scope| scope._pin.as_ref()) { pin.retain_unknown(); }
+        // Runtime shutdown/panic cannot establish execution finality. Preserve the actual
+        // session and a sticky unknown receipt; no local EOF is manufactured.
+        std::mem::forget(self._client.clone());
+        if let Ok(mut state) = self.operations.lock() {
+            state.active -= 1;
+            state.abandoned.push(Err(Arc::new(ModelError::infrastructure(
+                lctx_model::domain::Infrastructure::Unconfirmed, "native query lost drain owner",
+            ))));
+        }
+    }
+}
+/// Visible native payload and container slots. This is the admitted representation,
+/// not allocator RSS: BTree allocator metadata, shared backing buffers and compiled regex
+/// internals are owned by the SDK, as are transport queues before delivery. All value kinds
+/// contribute their visible payload; no silent dynamic-kind fallback or guessed row maximum.
+fn native_query_payload_bytes(value: &Value) -> usize {
+    use surrealdb::types::{Geometry, RecordIdKey};
+    use std::ops::Bound;
+    fn sum(values: impl Iterator<Item = usize>) -> usize { values.fold(0, usize::saturating_add) }
+    fn bound(value: &Bound<Value>) -> usize {
+        match value { Bound::Included(value) | Bound::Excluded(value) => native_query_payload_bytes(value), Bound::Unbounded => 0 }
+    }
+    fn key(value: &RecordIdKey) -> usize {
+        std::mem::size_of::<RecordIdKey>().saturating_add(match value {
+            RecordIdKey::Number(_) | RecordIdKey::Uuid(_) => 0,
+            RecordIdKey::String(value) => value.capacity(),
+            RecordIdKey::Array(values) => sum(values.iter().map(native_query_payload_bytes)).saturating_add((values.capacity()-values.len()).saturating_mul(std::mem::size_of::<Value>())),
+            RecordIdKey::Object(values) => sum(values.iter().map(|(name, value)| name.capacity().saturating_add(std::mem::size_of::<String>()).saturating_add(native_query_payload_bytes(value)))),
+            RecordIdKey::Range(range) => std::mem::size_of_val(range.as_ref()).saturating_add(sum([&range.start, &range.end].into_iter().map(|value| match value {
+                Bound::Included(value) | Bound::Excluded(value) => key(value), Bound::Unbounded => 0,
+            }))),
+        })
+    }
+    fn slots<T>(values: &Vec<T>) -> usize { values.capacity().saturating_mul(std::mem::size_of::<T>()) }
+    // Geometry containers expose their storage through the pinned public geo fields.
+    fn geometry(value: &Geometry) -> usize {
+        match value {
+            Geometry::Point(_) => 0,
+            Geometry::Line(value) => slots(&value.0),
+            Geometry::Polygon(value) => slots(&value.exterior().0)
+                .saturating_add(std::mem::size_of_val(value.interiors()))
+                .saturating_add(sum(value.interiors().iter().map(|line| slots(&line.0)))),
+            Geometry::MultiPoint(value) => slots(&value.0),
+            Geometry::MultiLine(value) => slots(&value.0).saturating_add(sum(value.0.iter().map(|line| slots(&line.0)))),
+            Geometry::MultiPolygon(value) => slots(&value.0).saturating_add(sum(value.0.iter().map(|polygon|
+                slots(&polygon.exterior().0).saturating_add(std::mem::size_of_val(polygon.interiors()))
+                    .saturating_add(sum(polygon.interiors().iter().map(|line| slots(&line.0))))))),
+            Geometry::Collection(values) => slots(values).saturating_add(sum(values.iter().map(geometry))),
+        }
+    }
+    std::mem::size_of::<Value>().saturating_add(match value {
+        Value::None | Value::Null | Value::Bool(_) | Value::Number(_) | Value::Duration(_) | Value::Datetime(_) | Value::Uuid(_) => 0,
+        Value::String(value) => value.capacity(),
+        Value::Bytes(value) => value.len(),
+        Value::Array(values) => sum(values.iter().map(native_query_payload_bytes))
+            .saturating_add((values.capacity() - values.len()).saturating_mul(std::mem::size_of::<Value>())),
+        Value::Object(values) => sum(values.iter().map(|(name, value)| name.capacity().saturating_add(std::mem::size_of::<String>()).saturating_add(native_query_payload_bytes(value)))),
+        Value::Set(values) => sum(values.iter().map(native_query_payload_bytes)),
+        Value::Table(value) => value.capacity(),
+        Value::RecordId(value) => value.table.capacity().saturating_add(key(&value.key)),
+        Value::File(value) => value.bucket.capacity().saturating_add(value.key.capacity()),
+        Value::Range(value) => std::mem::size_of_val(value.as_ref()).saturating_add(bound(&value.start)).saturating_add(bound(&value.end)),
+        Value::Regex(value) => value.as_str().len(),
+        Value::Geometry(value) => geometry(value),
+    })
+}
+struct ChargedNativeValue {
+    value: Option<Value>,
+    _charge: Box<dyn lctx_model::domain::resources::Reservation>,
+    _lease: QueryLease,
+}
+impl ChargedNativeValue {
+    fn take_value(&mut self) -> Value { self.value.take().expect("native value decoded once") }
+}
+enum NativeValueShape {
+    Unset,
+    Rows(Vec<Value>),
+    Single(Value),
+}
+struct AcceptedValue {
+    stream: futures::stream::BoxStream<'static, surrealdb::Result<surrealdb::method::BatchItem>>,
+    lease: QueryLease,
+    budget: lctx_model::domain::resources::ResourceBudget,
+    charge: Box<dyn lctx_model::domain::resources::Reservation>,
+    statements: usize,
+    selected: usize,
+    ended: usize,
+    // Shape is checked for every statement, even an ignored preparation statement.
+    statement_shape: u8,
+    abandoned_delivery: bool,
+    value: NativeValueShape,
+    payload_bytes: usize,
+    primary: Option<ModelError>,
+    completion: lctx_model::domain::completion::Completion,
+    exhausted: bool,
+}
+impl AcceptedValue {
+    fn fail(&mut self, error: ModelError) {
+        if self.primary.is_none() { self.primary = Some(error); }
+        else { self.completion.step("native exact query late failure", Err(error)); }
+    }
+    fn ingest(&mut self, item: surrealdb::Result<surrealdb::method::BatchItem>) -> Result<(), ModelError> {
+        use surrealdb::method::BatchItem;
+        let item = item.map_err(|error| unconfirmed_stream(sdk_error(error)))?;
+        let index = item.index();
+        let valid = index == self.ended && index < self.statements;
+        // Consume errors even on malformed terminals, so shape/order refusal does not hide
+        // a statement's own typed failure.
+        if let BatchItem::Finished { query_type, error, .. } = item {
+            if !valid { self.fail(unconfirmed_stream(ModelError::Schema("native exact query terminal order"))); }
+            else { self.ended += 1; self.statement_shape = 0; }
+            if query_type != surrealdb::method::BatchQueryType::Other {
+                self.fail(ModelError::Schema("native finite query subscription statement"));
+            }
+            if let Some(error) = error { self.fail(sdk_error(error)); }
+            return Ok(());
+        }
+        if !valid { return Err(unconfirmed_stream(ModelError::Schema("native exact query payload order"))); }
+        let shape = match &item { BatchItem::Rows { .. } => 1, BatchItem::Value { .. } | BatchItem::EmptyValue { .. } => 2, BatchItem::Finished { .. } => unreachable!() };
+        if self.statement_shape != 0 && (self.statement_shape != shape || shape == 2) {
+            return Err(unconfirmed_stream(ModelError::Schema("native exact query mixed/repeated value shape")));
+        }
+        self.statement_shape = shape;
+        if index != self.selected || self.primary.is_some() || self.abandoned_delivery { return Ok(()); }
+        match item {
+            BatchItem::Rows { values, .. } => {
+                // Charge the delivered batch before admitting it to retained accumulation.
+                // This does not charge SDK/tonic allocations before delivery.
+                let bytes = values.iter().map(native_query_payload_bytes).fold(0usize, usize::saturating_add);
+                let slots = values.capacity().saturating_mul(std::mem::size_of::<Value>());
+                let _ingress = self.budget.reserve("native exact query delivered batch", bytes.saturating_add(slots))?;
+                if matches!(self.value, NativeValueShape::Unset) { self.value = NativeValueShape::Rows(Vec::new()); }
+                let NativeValueShape::Rows(rows) = &mut self.value else { return Err(ModelError::Schema("native exact query result shape")); };
+                let count = rows.len().checked_add(values.len()).ok_or(ModelError::Schema("native exact query result overflow"))?;
+                let capacity = if count > rows.capacity() { count.max(rows.capacity().saturating_mul(2)) } else { rows.capacity() };
+                // Amortized vector growth is an explicit charged allocation, not a guessed
+                // query allowance. Per-value inline slots also cover the final Array
+                // conversion's possible second vector; arbitrary T decoding is caller-owned.
+                let target = self.payload_bytes.saturating_add(bytes).saturating_add(capacity.saturating_mul(std::mem::size_of::<Value>())).saturating_add(std::mem::size_of::<Value>());
+                self.charge.try_resize(target)?;
+                // Construct the planned capacity under reservation. Old and new
+                // vector allocations coexist and are independently charged during growth.
+                if count > rows.capacity() {
+                    let _old = self.budget.reserve("native exact query vector relocation", rows.capacity().saturating_mul(std::mem::size_of::<Value>()))?;
+                    let mut replacement = Vec::with_capacity(capacity);
+                    self.charge.try_resize(self.payload_bytes.saturating_add(bytes).saturating_add(replacement.capacity().saturating_mul(std::mem::size_of::<Value>())).saturating_add(std::mem::size_of::<Value>()))?;
+                    replacement.append(rows);
+                    *rows = replacement;
+                }
+                rows.extend(values);
+                self.payload_bytes = self.payload_bytes.saturating_add(bytes);
+            }
+            BatchItem::Value { value, .. } => {
+                let bytes = native_query_payload_bytes(&value);
+                self.charge.try_resize(bytes)?;
+                self.value = NativeValueShape::Single(value);
+                self.payload_bytes = bytes;
+            }
+            BatchItem::EmptyValue { .. } => { self.value = NativeValueShape::Single(Value::None); }
+            BatchItem::Finished { .. } => unreachable!(),
+        }
+        Ok(())
+    }
+    async fn drain(&mut self, flag: Option<Arc<std::sync::atomic::AtomicBool>>) {
+        let mut cancelled = false;
+        while let Some(item) = self.stream.next().await {
+            if !cancelled {
+                if let Err(error) = crate::prepared::check_read_cancellation(flag.as_ref()) {
+                    self.fail(error); cancelled = true;
+                }
+            }
+            if let Err(error) = self.ingest(item) { self.fail(error); }
+        }
+        if !cancelled { if let Err(error) = crate::prepared::check_read_cancellation(flag.as_ref()) { self.fail(error); } }
+        self.exhausted = true;
+        if self.ended != self.statements {
+            self.fail(ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed, "native exact query missing terminal"));
+        }
+    }
+    fn outcome(&mut self) -> Result<(), Arc<ModelError>> {
+        let result = self.primary.take().map_or(Ok(()), Err);
+        lctx_model::domain::completion::complete(result, std::mem::take(&mut self.completion)).map_err(Arc::new)
+    }
+}
+struct NativeValueOwner { accepted: Option<AcceptedValue> }
+impl NativeValueOwner {
+    fn new(
+        stream: impl futures::Stream<Item = surrealdb::Result<surrealdb::method::BatchItem>> + Send + 'static,
+        statements: usize, selected: usize,
+        budget: lctx_model::domain::resources::ResourceBudget,
+        charge: Box<dyn lctx_model::domain::resources::Reservation>, lease: QueryLease,
+    ) -> Self {
+        Self { accepted: Some(AcceptedValue { stream: stream.boxed(), lease, budget, charge, statements, selected, ended: 0, statement_shape: 0,
+            abandoned_delivery: false, value: NativeValueShape::Unset, payload_bytes: 0, primary: None, completion: Default::default(), exhausted: false }) }
+    }
+    async fn collect(&mut self, flag: Option<Arc<std::sync::atomic::AtomicBool>>) -> Result<ChargedNativeValue, ModelError> {
+        let accepted = self.accepted.as_mut().expect("accepted query owner");
+        accepted.drain(flag).await;
+        let outcome = accepted.outcome();
+        if outcome.is_err() { accepted.lease.finish(&outcome, false); }
+        else { accepted.lease.confirmed = true; }
+        let accepted = self.accepted.take().expect("accepted query owner");
+        outcome.map_err(ModelError::SharedCause)?;
+        let value = match accepted.value {
+            NativeValueShape::Single(value) => value,
+            NativeValueShape::Rows(rows) => Value::Array(surrealdb::types::Array::from(rows)),
+            NativeValueShape::Unset => Value::Array(surrealdb::types::Array::new()),
+        };
+        Ok(ChargedNativeValue { value: Some(value), _charge: accepted.charge, _lease: accepted.lease })
+    }
+}
+impl Drop for NativeValueOwner {
+    fn drop(&mut self) {
+        let Some(mut accepted) = self.accepted.take() else { return; };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            if let Some(pin) = accepted.lease.scope.as_ref().and_then(|scope| scope._pin.as_ref()) { pin.retain_unknown(); }
+            // Preserve the actual stream/session/charge when no executor can drain it.
+            std::mem::forget(accepted);
+            return;
+        };
+        // No consumer can observe further selected values. Preserve retained state and its
+        // charge through terminality, but don't accumulate new output merely to discard it.
+        accepted.abandoned_delivery = true;
+        let operations = accepted.lease.operations.clone();
+        let task = runtime.spawn(async move {
+            accepted.drain(None).await;
+            let outcome = accepted.outcome();
+            accepted.lease.finish(&outcome, true);
+        });
+        let task = async move {
+            task.await.map_err(|error| Arc::new(ModelError::infrastructure(
+                lctx_model::domain::Infrastructure::Unconfirmed, format!("native query drain task: {error}"),
+            )))
+        }.boxed().shared();
+        if let Ok(mut state) = operations.lock() { state.drains.push(task); }
+    }
+}
+#[cfg(test)]
+mod query_wire_controls;
+
+#[cfg(test)]
+mod accepted_query_controls {
+    use super::*;
+    use surrealdb::method::{BatchItem, BatchQueryType};
+    use lctx_model::domain::resources::ResourceBudget;
+
+    fn terminal(index: usize, error: Option<surrealdb::Error>) -> surrealdb::Result<BatchItem> {
+        Ok(BatchItem::Finished { index, time: Default::default(), query_type: BatchQueryType::Other, error })
+    }
+    fn owner(
+        reader: &NativeReader<()>,
+        stream: impl futures::Stream<Item = surrealdb::Result<BatchItem>> + Send + 'static,
+        statements: usize, selected: usize,
+    ) -> NativeValueOwner {
+        let budget = reader.scratch_budget().unwrap();
+        let charge = budget.reserve("accepted query control", std::mem::size_of::<Value>()).unwrap();
+        NativeValueOwner::new(stream, statements, selected, budget, charge,
+            QueryLease::admit(reader.operations.clone(), reader.client.clone(), reader.scope.clone()).unwrap())
+    }
+    fn reader(budget: &ResourceBudget) -> NativeReader<()> {
+        NativeReader::private(Arc::new(Surreal::<Client>::init())).with_budget(budget)
+    }
+    #[tokio::test]
+    async fn exact_batch_shapes_and_non_none_preparation_match_buffered_values() {
+        let budget = ResourceBudget::fixed(1024 * 1024).unwrap();
+        let reader = reader(&budget);
+        let values = vec![Value::None, Value::Null, 7i64.into_value(),
+            surrealdb::types::object! { a: 1i64 }.into_value(),
+            vec![Value::Array(vec![Value::None, Value::Null].into())].into_value(),
+            RecordId::new("test", "key").into_value(), Bytes::from(vec![0u8, 255]).into_value()];
+        for expected in values {
+            let input = futures::stream::iter(vec![
+                Ok(BatchItem::Value { index: 0, value: 19i64.into_value() }), terminal(0, None),
+                Ok(BatchItem::Value { index: 1, value: expected.clone() }), terminal(1, None),
+            ]);
+            let mut query = owner(&reader, input, 2, 1);
+            let result = query.collect(None).await.unwrap();
+            assert_eq!(result.value.as_ref(), Some(&expected));
+            assert!(budget.reserved() > 0, "reservation survives exact value conversion boundary");
+            assert_eq!(reader.operations.lock().unwrap().active, 1);
+            assert!(reader.close().await.is_err(), "close waits for final conversion ownership");
+            drop(result);
+            assert_eq!(budget.reserved(), 0);
+        }
+        for (item, expected) in [
+            (BatchItem::EmptyValue { index: 0 }, Value::None),
+            (BatchItem::Rows { index: 0, values: vec![] }, Value::Array(Default::default())),
+            (BatchItem::Rows { index: 0, values: vec![7i64.into_value()] }, vec![7i64].into_value()),
+        ] {
+            let mut query = owner(&reader, futures::stream::iter(vec![Ok(item), terminal(0, None)]), 1, 0);
+            assert_eq!(query.collect(None).await.unwrap().take_value(), expected);
+        }
+        reader.close().await.unwrap();
+    }
+    #[tokio::test]
+    async fn primary_statement_and_late_transport_failures_are_composed() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let reader = reader(&budget);
+        let mut query = owner(&reader, futures::stream::iter(vec![
+            terminal(0, Some(surrealdb::Error::internal("first statement".into()))),
+            terminal(1, Some(surrealdb::Error::internal("second statement".into()))),
+            Err(surrealdb::Error::internal("late physical EOF failure".into())),
+        ]), 2, 1);
+        let error = query.collect(None).await.err().unwrap();
+        let text = error.to_string();
+        assert!(text.contains("first statement") && text.contains("second statement") && text.contains("late physical EOF failure"));
+        assert!(!error.permits_storage_cleanup());
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn refused_growth_keeps_charge_until_drain_and_preserves_late_failure() {
+        let budget = ResourceBudget::fixed(512).unwrap();
+        let reader = reader(&budget);
+        let mut query = owner(&reader, futures::stream::iter(vec![
+            Ok(BatchItem::Rows { index: 0, values: vec!["x".repeat(2048).into_value()] }),
+            terminal(0, Some(surrealdb::Error::internal("late refusal terminal".into()))),
+        ]), 1, 0);
+        let error = query.collect(None).await.err().unwrap().to_string();
+        assert!(error.contains("memory") || error.contains("resource"));
+        assert!(error.contains("late refusal terminal"));
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn private_drop_before_first_batch_retains_session_and_terminal_receipt() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let reader = reader(&budget);
+        let (sender, receiver) = futures::channel::mpsc::unbounded();
+        let query = owner(&reader, receiver, 1, 0);
+        let original_count = Arc::strong_count(&reader.client);
+        drop(query);
+        assert_eq!(reader.operations.lock().unwrap().active, 1);
+        assert_eq!(Arc::strong_count(&reader.client), original_count);
+        assert!(budget.reserved() > 0);
+        sender.unbounded_send(terminal(0, Some(surrealdb::Error::internal("abandoned terminal".into())))).unwrap();
+        sender.unbounded_send(Err(surrealdb::Error::internal("abandoned late transport".into()))).unwrap();
+        drop(sender);
+        let error = reader.close().await.unwrap_err().to_string();
+        assert!(error.contains("abandoned terminal") && error.contains("abandoned late transport"));
+        assert_eq!(reader.operations.lock().unwrap().active, 0);
+        assert!(!reader.operations.lock().unwrap().closed, "unknown execution retains its owner");
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn confirmed_abandoned_statement_failure_closes_scoped_reader_and_preserves_error() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let mut reader = NativeReader::for_views(Arc::new(Surreal::init()), vec![]).with_budget(&budget);
+        Arc::get_mut(reader.scope.as_mut().unwrap()).unwrap()._pin = Some(crate::control::ReaderPin::test_detached(true));
+        let query = owner(&reader, futures::stream::iter(vec![terminal(0,
+            Some(surrealdb::Error::internal("confirmed abandoned statement".into())))]), 1, 0);
+        drop(query);
+        let error = reader.close().await.unwrap_err();
+        assert!(error.to_string().contains("confirmed abandoned statement"));
+        assert!(error.permits_storage_cleanup());
+        assert!(reader.operations.lock().unwrap().closed);
+        assert!(reader.check_read_admission().is_err());
+        assert_eq!(budget.reserved(), 0);
+        assert!(reader.close().await.unwrap_err().to_string().contains("confirmed abandoned statement"), "terminal failure remains observable");
+    }
+    #[tokio::test]
+    async fn interrupted_close_retains_drop_drain_join_through_late_physical_error() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let reader = reader(&budget);
+        let (sender, receiver) = futures::channel::mpsc::unbounded();
+        let mut query = owner(&reader, receiver, 1, 0);
+        sender.unbounded_send(terminal(0, None)).unwrap();
+        let mut delivery = Box::pin(query.collect(None));
+        assert!(futures::poll!(delivery.as_mut()).is_pending());
+        drop(delivery);
+        assert_eq!(query.accepted.as_ref().unwrap().ended, 1);
+        drop(query);
+        let mut closing = Box::pin(reader.close());
+        assert!(futures::poll!(closing.as_mut()).is_pending());
+        drop(closing);
+        assert_eq!(reader.operations.lock().unwrap().drains.len(), 1);
+        sender.unbounded_send(Err(surrealdb::Error::internal("physical failure after logical terminal".into()))).unwrap();
+        drop(sender);
+        let error = reader.close().await.unwrap_err();
+        assert!(error.to_string().contains("physical failure after logical terminal"));
+        assert!(!error.permits_storage_cleanup());
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn cancelled_healthy_query_drains_and_healthy_abandonment_keeps_success_receipt() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let reader = reader(&budget);
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let mut query = owner(&reader, futures::stream::iter(vec![terminal(0, None)]), 1, 0);
+        let error = query.collect(Some(flag.clone())).await.err().unwrap();
+        assert!(error.to_string().contains("cancelled"));
+        assert!(error.permits_storage_cleanup());
+        let query = owner(&reader, futures::stream::iter(vec![
+            Ok(BatchItem::Rows { index: 0, values: vec!["unconsumed".repeat(8192).into_value()] }), terminal(0, None),
+        ]), 1, 0);
+        drop(query);
+        reader.close().await.unwrap();
+        assert_eq!(reader.operations.lock().unwrap().abandoned.len(), 1);
+        assert!(reader.operations.lock().unwrap().abandoned[0].is_ok());
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn malformed_inventory_and_physical_eof_cannot_accept_output() {
+        for input in [
+            vec![terminal(0, None)],
+            vec![terminal(1, None), terminal(0, None)],
+            vec![terminal(0, None), terminal(1, None), terminal(2, None)],
+            vec![Ok(BatchItem::Value { index: 1, value: Value::Null }), terminal(0, None), terminal(1, None)],
+            vec![Ok(BatchItem::Value { index: 0, value: Value::Null }), Ok(BatchItem::Rows { index: 0, values: vec![] }), terminal(0, None), terminal(1, None)],
+        ] {
+            let budget = ResourceBudget::fixed(4096).unwrap();
+            let reader = reader(&budget);
+            let mut query = owner(&reader, futures::stream::iter(input), 2, 1);
+            let error = query.collect(None).await.err().unwrap();
+            assert!(!error.permits_storage_cleanup());
+        }
+    }
+}
 struct SelectionLease {
     scope: Arc<ReaderScope>,
     confirmed: bool,
@@ -112,6 +573,7 @@ impl Drop for SelectionLease {
 impl<Context> NativeReader<Context> {
     pub fn transport_reader(&self) -> NativeReader<()> {
         NativeReader {
+            operations: self.operations.clone(),
             client: self.client.clone(),
             handle: (),
             derivation: self.derivation,
@@ -174,24 +636,60 @@ impl<Context> NativeReader<Context> {
         self.ensure_scope_live()?;rows.scope=self.scope.clone();Ok(rows)
     }
     pub fn check_read_admission(&self) -> Result<(), ModelError> {
+        if self.operations.lock().map_err(|_| ModelError::Conflict("native query operation owner"))?.closed {
+            return Err(ModelError::Conflict("native reader closed"));
+        }
         crate::prepared::check_read_cancellation(self.cancellation.as_ref())
     }
     /// The owner drains reader clones and streams before explicit session invalidation.
     pub async fn close(&self) -> Result<(), ModelError> {
+        let drains = self.operations.lock().map_err(|_| ModelError::Conflict("native query operation owner"))?.drains.clone();
+        let mut join_errors = Vec::new();
+        for task in &drains {
+            if let Err(error) = task.clone().await { self.retain_unknown(); join_errors.push(Err(error)); }
+        }
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        {
+            let mut operations = self.operations.lock().map_err(|_| ModelError::Conflict("native query operation owner"))?;
+            // Concurrent close can observe the same shared joins. Leave their persistent
+            // outcomes in place; removing only the completed prefix is unnecessary for
+            // terminality and would race another closer's prefix length.
+            operations.abandoned.extend(join_errors);
+        }
+        if self.scope.as_ref().is_some_and(|scope| Arc::strong_count(scope) != 1) {
+            return Err(ModelError::Conflict("native reader clones remain live"));
+        }
+        {
+            let mut operations = self.operations.lock().map_err(|_| ModelError::Conflict("native query operation owner"))?;
+            if operations.active != 0 {
+                return Err(ModelError::Conflict("native accepted queries remain live"));
+            }
+            for error in &operations.abandoned {
+                completion.step("abandoned native query terminal", error.clone().map_err(ModelError::SharedCause));
+            }
+            // A confirmed statement failure remains observable without keeping a
+            // completed reader open. Unknown execution must retain its owners.
+            if operations.abandoned.iter().any(|outcome| outcome.as_ref().is_err_and(|error| !error.permits_storage_cleanup())) {
+                return lctx_model::domain::completion::complete(Ok(()), completion);
+            }
+            operations.closed = true;
+        }
         if let Some(scope) = &self.scope {
             if Arc::strong_count(scope) != 1 {
-                return Err(ModelError::Conflict("native reader clones remain live"));
+                return lctx_model::domain::completion::complete(Err(ModelError::Conflict("native reader clones remain live")), completion);
             }
             if let Some(pin) = &scope._pin {
-                pin.release().await?;
+                if let Err(error) = pin.release().await {
+                    return lctx_model::domain::completion::complete(Err(error), completion);
+                }
             }
-            scope
-                .selection
-                .lock()
-                .map_err(|_| ModelError::Conflict("reader selection owner"))?
-                .take();
+            match scope.selection.lock() {
+                Ok(mut selection) => { selection.take(); }
+                Err(_) => return lctx_model::domain::completion::complete(
+                    Err(ModelError::Conflict("reader selection owner")), completion),
+            }
         }
-        Ok(())
+        lctx_model::domain::completion::complete(Ok(()), completion)
     }
     /// Conservative protection when a finalizer cannot establish remote terminality.
     pub fn retain_unknown(&self) {
@@ -289,7 +787,7 @@ impl<Context> NativeReader<Context> {
                             crate::selection::SelectedPayloads::for_realizations(client,&exact.references,
                                 preparation_cancellation,&retained_budget).await
                         } else if let Some(handle)=lease.scope.publication.clone() {
-                            let published=NativeReader{client:client.clone(),handle,derivation,cancellation:preparation_cancellation.clone(),budget:Some(retained_budget.clone()),request_budget:Some(retained_budget.clone()),scope:Some(lease.scope.clone())};
+                            let published=NativeReader{operations:Default::default(),client:client.clone(),handle,derivation,cancellation:preparation_cancellation.clone(),budget:Some(retained_budget.clone()),request_budget:Some(retained_budget.clone()),scope:Some(lease.scope.clone())};
                             let prepared=async {
                                 let completed=crate::completed_state::published_completed_state(&published,&retained_budget).await?;
                                 crate::selection::SelectedPayloads::for_published_session(client,&completed,&lease.scope.views,preparation_cancellation,&retained_budget).await
@@ -612,8 +1110,8 @@ impl<Context> NativeReader<Context> {
         &self,
         query: crate::prepared::PreparedQuery,
     ) -> Result<T, ModelError> {
-        let value = self.checked_native_value(query).await?;
-        SerdeWrapper::<T>::from_value(value)
+        let mut value = self.checked_native_value(query).await?;
+        SerdeWrapper::<T>::from_value(value.take_value())
             .map(|value| value.0)
             .map_err(ModelError::codec)
     }
@@ -623,32 +1121,29 @@ impl<Context> NativeReader<Context> {
         &self,
         query: crate::prepared::PreparedQuery,
     ) -> Result<T, ModelError> {
-        T::from_value(self.checked_native_value(query).await?).map_err(ModelError::codec)
+        let mut value = self.checked_native_value(query).await?;
+        T::from_value(value.take_value()).map_err(ModelError::codec)
     }
+    /// Finite owner-generated SELECT/RETURN reads. This API does not register LIVE
+    /// subscriptions and is not a read-only authorization fence for arbitrary SQL.
     async fn checked_native_value(
         &self,
         query: crate::prepared::PreparedQuery,
-    ) -> Result<Value, ModelError> {
-        self.check_read_admission()?;
+    ) -> Result<ChargedNativeValue, ModelError> {
+        self.ensure_scope_live()?;
         if query.result_positions().len() != 1 {
             return Err(ModelError::Schema("native single result demand"));
         }
-        let position = query.result_positions()[0];
-        let terminals = query.expected_terminals();
+        let selected = query.result_positions()[0];
+        let statements = query.expected_terminals();
+        let budget = self.scratch_budget()?;
+        let charge = budget.reserve("native exact query accumulation", std::mem::size_of::<Value>())?;
         let (sql, bindings) = query.with_bindings(self.view_bindings()).into_request();
-        self.check_read_admission()?;
-        let mut response = self
-            .client
-            .query(sql)
-            .bind(bindings)
-            .await
-            .map_err(sdk_error)?
-            .check()
-            .map_err(sdk_error)?;
-        if response.num_statements() != terminals {
-            return Err(ModelError::Schema("native response terminal inventory"));
-        }
-        response.take(position).map_err(sdk_error)
+        self.ensure_scope_live()?;
+        let stream = self.client.query(sql).bind(bindings).stream_batches().map_err(sdk_error)?;
+        let lease = QueryLease::admit(self.operations.clone(), self.client.clone(), self.scope.clone())?;
+        let mut owner = NativeValueOwner::new(stream, statements, selected, budget, charge, lease);
+        owner.collect(self.cancellation.clone()).await
     }
 
     /// Finite owner-selected predicates; source payloads are decoded one at a time.
@@ -965,7 +1460,7 @@ impl NativeReader<SnapshotHandle> {
             || root_row.get("admission")!=Some(&Value::RecordId(admission_id.clone()))
             || root_row.get("derivation")!=Some(&Value::String(self.handle.realization.hex()))
             || root_row.get("generation")!=Some(&Value::String(self.handle.service_generation.hex()))
-            || root_row.get("validity_epoch")!=Some(&Value::from(validity)) {
+            || root_row.get("validity_epoch")!=Some(&validity.into_value()) {
             return Err(ModelError::Conflict("protected publication root changed"));
         }
         if !matches!(root_row.get("derived_children"),Some(Value::Number(surrealdb::types::Number::Int(count))) if *count>=2)
@@ -1076,6 +1571,7 @@ impl NativeReader<SnapshotHandle> {
         }
         let publication_scope=handle.clone();
         Ok(Self {
+            operations: Default::default(),
             client,
             derivation: Some(handle.realization),
             handle,
@@ -1177,7 +1673,7 @@ impl NativeReader<()> {
                 return lctx_model::domain::completion::complete(Err(error),completion);
             }
         };
-        Ok(Self{client,handle:(),derivation:None,cancellation:None,budget:Some(budget.clone()),request_budget:Some(budget.clone()),
+        Ok(Self{operations:Default::default(),client,handle:(),derivation:None,cancellation:None,budget:Some(budget.clone()),request_budget:Some(budget.clone()),
             scope:Some(Arc::new(ReaderScope{publication:None,originals:None,views:views.to_vec(),exact:Some(exact),_pin:Some(pin),selection:std::sync::Mutex::new(None)}))})
     }
     pub fn for_views(
@@ -1185,6 +1681,7 @@ impl NativeReader<()> {
         views: Vec<lctx_model::domain::ContentHash>,
     ) -> Self {
         Self {
+            operations: Default::default(),
             client,
             handle: (),
             derivation: None,
@@ -1205,6 +1702,7 @@ impl NativeReader<()> {
     /// The owner must drain/discard its private target after any terminal failure.
     pub fn private(client: Arc<Surreal<Client>>) -> Self {
         Self {
+            operations: Default::default(),
             client,
             handle: (),
             derivation: None,

@@ -115,6 +115,29 @@ where
 		self
 	}
 
+	/// Preserve execution batches and exact single-value shape, including absent SINGLE.
+	/// This finite-query API does not register LIVE subscriptions. Unlike `stream_items`,
+	/// execution is polled by the returned owner, and EOF joins execution with delivery.
+	/// A borrowed client must remain alive until this owner reaches EOF.
+	pub fn stream_batches(self) -> Result<BatchStream> {
+		let Self { txn, client, queries, variables } = self;
+		let engine = Arc::clone(&client.inner.router.extract()?.engine);
+		let query = join_queries(&queries);
+		let variables = variables?;
+		let ctx = ctx_txn(client.session_id, txn);
+		let keepalive = match client {
+			Cow::Owned(client) => Some(client),
+			Cow::Borrowed(_) => None,
+		};
+		let (sender, receiver) = crate::channel::bounded(QUERY_STREAM_BUFFER);
+		let execution = Box::pin(async move {
+			let _keepalive = keepalive;
+			engine.query_stream(ctx, Cow::Owned(query), variables, sender).await
+		});
+		Ok(BatchStream { items: Box::pin(receiver), execution: Some(execution), outcome: None })
+	}
+
+
 	/// Run the query and receive its results as they are produced, rather than
 	/// waiting for all of them.
 	///
@@ -161,6 +184,7 @@ where
 	/// # Ok(())
 	/// # }
 	/// ```
+
 	pub fn stream_items(self) -> Result<ItemStream> {
 		let Self {
 			txn,
@@ -260,6 +284,7 @@ fn stream_items_for(item: QueryStreamItem) -> Vec<StreamItem> {
 			statement: index,
 			value,
 		}],
+		QueryStreamItem::EmptyValue { .. } => Vec::new(),
 		QueryStreamItem::Finished {
 			index,
 			time,
@@ -357,6 +382,70 @@ impl Drop for ItemStream {
 	/// filled it would stay parked on a send with nothing to drain it.
 	fn drop(&mut self) {
 		self.stop.stop();
+	}
+}
+
+/// Exact engine item; Rows and Value are deliberately distinct.
+pub use surrealdb_rpc::{QueryStreamItem as BatchItem, QueryType as BatchQueryType};
+
+/// A finite query owner. EOF means both the engine future and its delivery queue ended.
+/// There is no detached execution task. Owners that need cancellation finality must drain
+/// this stream rather than drop it; dropping a future cannot prove remote finality.
+#[must_use = "streams do nothing unless you poll them"]
+pub struct BatchStream {
+	items: Pin<Box<crate::channel::Receiver<BatchItem>>>,
+	execution: Option<Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'static>>>,
+	outcome: Option<Result<()>>,
+}
+impl futures::Stream for BatchStream {
+	type Item = Result<BatchItem>;
+	fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+		if let Some(execution) = &mut self.execution {
+			if let Poll::Ready(outcome) = execution.as_mut().poll(cx) {
+				self.execution = None;
+				self.outcome = Some(outcome);
+			}
+		}
+		match self.items.as_mut().poll_next(cx) {
+			Poll::Ready(Some(item)) => Poll::Ready(Some(Ok(item))),
+			Poll::Ready(None) if self.execution.is_none() => {
+				match self.outcome.take() {
+					Some(Err(error)) => Poll::Ready(Some(Err(error))),
+					_ => Poll::Ready(None),
+				}
+			}
+			_ => Poll::Pending,
+		}
+	}
+}
+
+#[cfg(test)]
+mod batch_owner_controls {
+	use super::*;
+
+	#[test]
+	fn absent_single_preserves_legacy_row_stream_suppression() {
+		assert!(stream_items_for(QueryStreamItem::EmptyValue { index: 0 }).is_empty());
+		assert!(stream_items_for(QueryStreamItem::Rows { index: 0, values: vec![] }).is_empty());
+		assert!(matches!(stream_items_for(QueryStreamItem::Value { index: 0, value: Value::None }).as_slice(), [StreamItem::Row { value: Value::None, .. }]));
+	}
+
+	#[tokio::test]
+	async fn raw_eof_waits_for_execution_and_preserves_late_failure() {
+		let (sender, receiver) = crate::channel::bounded(1);
+		let (release, wait) = tokio::sync::oneshot::channel::<()>();
+		let execution = Box::pin(async move {
+			sender.send(QueryStreamItem::Finished { index: 0, time: Default::default(), query_type: QueryType::Other, error: None }).await.unwrap();
+			drop(sender);
+			wait.await.unwrap();
+			Err(Error::internal("late execution failure".into()))
+		});
+		let mut stream = BatchStream { items: Box::pin(receiver), execution: Some(execution), outcome: None };
+		assert!(matches!(stream.next().await, Some(Ok(QueryStreamItem::Finished { .. }))));
+		assert!(futures::poll!(stream.next()).is_pending(), "logical end is not physical EOF");
+		release.send(()).unwrap();
+		assert!(stream.next().await.unwrap().unwrap_err().to_string().contains("late execution failure"));
+		assert!(stream.next().await.is_none());
 	}
 }
 

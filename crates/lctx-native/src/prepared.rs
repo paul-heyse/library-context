@@ -13,6 +13,9 @@ pub fn check_read_cancellation(flag: Option<&std::sync::Arc<std::sync::atomic::A
 
 /// Statement positions include preparation. Every terminal remains part of the operation,
 /// including preparation failures; only designated result statements expose payload rows.
+/// Queries are finite owner-generated reads (SELECT/RETURN with finite preparation), not
+/// arbitrary subscription scripts. LIVE/KILL subscription behavior is intentionally outside
+/// this contract. This declaration is not a SQL authorization/parser fence.
 #[derive(Clone)]
 pub struct PreparedQuery {
     sql: String,

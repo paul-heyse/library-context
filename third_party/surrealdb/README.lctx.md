@@ -35,3 +35,11 @@ retains the transaction through checked query EOF, explicit cancellation and inv
 static source feasibility a qualified composed snapshot-export result.
 
 The external transaction adapter also exposes `Begin::retain_on_error`, retaining the exact consumed exporter session for explicit invalidation when the begin RPC fails. No dependency revision or ordinary clone semantics changed. Runtime composition is qualified by the consumer snapshot/cancel controls, separately from source review.
+
+The finite-query `Query::stream_batches` adapter owns and polls the engine future together
+with its raw bounded delivery channel. EOF waits for both, including late execution/physical
+transport errors. `BatchItem` preserves Rows, Value, EmptyValue and Finished; the exact
+`surrealdb-rpc` 3.3.0 patch carries an absent SINGLE payload as EmptyValue. Empty batched
+payload remains Rows, and the gRPC End result count is checked. The existing `stream_items`
+mapping still suppresses empty rows and EmptyValue. Streaming registers no LIVE subscriptions;
+finite generated read consumers drain this owner and retain the original borrowed session.

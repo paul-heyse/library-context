@@ -59,8 +59,31 @@ async fn drain_after_end<T>(
 fn late_query_frame(response: rpc::QueryResponse) -> Error {
 	match response.frame {
 		Some(rpc::query_response::Frame::Error(error)) => proto_error(error),
+		Some(rpc::query_response::Frame::Batch(batch)) if batch.error.is_some() => {
+			proto_error(batch.error.expect("guarded batch error"))
+		}
 		_ => Error::internal("Query stream carried a frame after its end".to_string()),
 	}
+}
+
+/// Query rejection still owns the physical stream. Keep every later typed failure
+/// in the SDK cause chain and wait for EOF, including after a malformed End count.
+async fn drain_query_terminal(
+	stream: &mut (impl futures::Stream<Item = Result<rpc::QueryResponse, tonic::Status>> + Unpin),
+	mut failure: Option<Error>,
+) -> EngineResult<()> {
+	use futures::StreamExt;
+	fn append(primary: Error, late: Error) -> Error {
+		match primary.cause().cloned() {
+			Some(cause) => primary.with_cause(append(cause, late)),
+			None => primary.with_cause(late),
+		}
+	}
+	while let Some(item) = stream.next().await {
+		let error = match item { Ok(frame) => late_query_frame(frame), Err(status) => status_to_error(status) };
+		failure = Some(match failure { Some(primary) => append(primary, error), None => error });
+	}
+	failure.map_or(Ok(()), Err)
 }
 
 /// The gRPC scheme used to connect to `grpc://` endpoints.
@@ -823,7 +846,7 @@ impl GrpcEngine {
 				}
 				Some(rpc::query_response::Frame::End(end)) => {
 					ended = Some(end);
-					drain_after_end(&mut stream, late_query_frame).await?;
+					drain_query_terminal(&mut stream, None).await?;
 					break;
 				}
 				// A stream-level error is not attributable to one statement,
@@ -911,27 +934,42 @@ async fn stream_query(
 ) -> EngineResult<()> {
 	let mut stream = engine.open_query(context, query, variables, max_batch_records).await?;
 	let mut ended = false;
-	while let Some(response) = stream.message().await.map_err(status_to_error)? {
+	let mut finished = 0usize;
+	use futures::StreamExt;
+	while let Some(response) = stream.next().await {
+		let response = match response {
+			Ok(response) => response,
+			Err(status) => return drain_query_terminal(&mut stream, Some(status_to_error(status))).await,
+		};
 		let batch = match response.frame {
 			Some(rpc::query_response::Frame::Batch(batch)) => batch,
-			Some(rpc::query_response::Frame::End(_)) => {
+			Some(rpc::query_response::Frame::End(end)) => {
+				let failure = (finished != end.result_count as usize).then(||
+					Error::internal("Query stream terminal count differs from End".to_owned()));
 				ended = true;
-				drain_after_end(&mut stream, late_query_frame).await?;
+				drain_query_terminal(&mut stream, failure).await?;
 				break;
 			}
 			// A stream-level error is not attributable to one statement, so it
 			// fails the whole query.
-			Some(rpc::query_response::Frame::Error(error)) => return Err(proto_error(error)),
+			Some(rpc::query_response::Frame::Error(error)) => {
+				return drain_query_terminal(&mut stream, Some(proto_error(error))).await;
+			}
 			// `Begin` only sizes a buffered caller's allocation; a streaming one
 			// has nothing to pre-size.
 			Some(rpc::query_response::Frame::Begin(_)) => continue,
 			None => {
-				return Err(Error::internal(
+				return drain_query_terminal(&mut stream, Some(Error::internal(
 					"Query stream carried an unrecognised frame".to_string(),
-				));
+				))).await;
 			}
 		};
-		for item in batch_items(batch)? {
+		let batch = match batch_items(batch) {
+			Ok(batch) => batch,
+			Err(error) => return drain_query_terminal(&mut stream, Some(error)).await,
+		};
+		for item in batch {
+			if matches!(item, QueryStreamItem::Finished { .. }) { finished += 1; }
 			// A receiver that has gone away wants no more items. Returning
 			// drops the response stream, which is how the server learns to stop.
 			if items.send(item).await.is_err() {
@@ -997,8 +1035,10 @@ fn batch_items(batch: rpc::QueryBatchFrame) -> EngineResult<Vec<QueryStreamItem>
 				index,
 				value,
 			});
+		} else {
+			items.push(QueryStreamItem::EmptyValue { index });
 		}
-	} else if !values.is_empty() {
+	} else {
 		items.push(QueryStreamItem::Rows {
 			index,
 			values,
@@ -2958,5 +2998,47 @@ mod request_compression_tests {
 		] {
 			assert!(!rejected_request_encoding(&status), "{status:?}");
 		}
+	}
+}
+
+#[cfg(test)]
+mod exact_batch_shape_tests {
+	use super::*;
+
+	#[test]
+	fn absent_single_and_empty_batched_keep_distinct_buffered_shapes() {
+		for kind in [rpc::QueryResponseKind::Single, rpc::QueryResponseKind::BatchedFinal] {
+			for payload in [None, Some(rpc::query_batch_frame::Payload::Values(Default::default()))] {
+				let items = batch_items(rpc::QueryBatchFrame {
+					kind: kind as i32, payload, ..Default::default()
+				}).unwrap();
+				assert_eq!(items.len(), 2);
+				match (&items[0], kind) {
+					(QueryStreamItem::EmptyValue { index: 0 }, rpc::QueryResponseKind::Single) => {}
+					(QueryStreamItem::Rows { index: 0, values }, rpc::QueryResponseKind::BatchedFinal) if values.is_empty() => {}
+					other => panic!("lost result shape: {other:?}"),
+				}
+				assert!(matches!(items[1], QueryStreamItem::Finished { index: 0, error: None, .. }));
+			}
+		}
+	}
+
+	#[tokio::test]
+	async fn rejected_query_keeps_all_late_causes_and_waits_for_physical_eof() {
+		let (sender, mut receiver) = futures::channel::mpsc::unbounded();
+		let primary = Error::internal("malformed End count".into());
+		sender.unbounded_send(Ok(rpc::QueryResponse {
+			frame: Some(rpc::query_response::Frame::Error(proto::SurrealError {
+				message: "late protocol failure".into(), ..Default::default()
+			})),
+		})).unwrap();
+		let mut drain = Box::pin(drain_query_terminal(&mut receiver, Some(primary)));
+		assert!(futures::poll!(drain.as_mut()).is_pending());
+		sender.unbounded_send(Err(tonic::Status::unavailable("late transport failure"))).unwrap();
+		drop(sender);
+		let error = drain.await.unwrap_err();
+		assert!(error.message().contains("malformed End count"));
+		assert!(error.cause().unwrap().message().contains("late protocol failure"));
+		assert!(error.cause().unwrap().cause().unwrap().message().contains("late transport failure"));
 	}
 }
