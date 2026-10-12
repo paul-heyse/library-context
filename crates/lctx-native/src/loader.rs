@@ -28,19 +28,19 @@ fn installation_definitions(sql: &str) -> Result<Vec<String>, ModelError> {
                 }
             }
             match &statement {
-            TopLevelExpr::Expr(Expr::Define(definition))
-                if matches!(
-                    definition.as_ref(),
-                    DefineStatement::Table(_)
-                        | DefineStatement::Field(_)
-                        | DefineStatement::Index(_)
-                        | DefineStatement::Analyzer(_)
-                        | DefineStatement::Function(_)
-                ) =>
-            {
-                Ok(statement.to_sql())
-            }
-            _ => Err(ModelError::Schema("installation declaration grammar")),
+                TopLevelExpr::Expr(Expr::Define(definition))
+                    if matches!(
+                        definition.as_ref(),
+                        DefineStatement::Table(_)
+                            | DefineStatement::Field(_)
+                            | DefineStatement::Index(_)
+                            | DefineStatement::Analyzer(_)
+                            | DefineStatement::Function(_)
+                    ) =>
+                {
+                    Ok(statement.to_sql())
+                }
+                _ => Err(ModelError::Schema("installation declaration grammar")),
             }
         })
         .collect()
@@ -55,11 +55,15 @@ struct InstallationIndex {
 #[cfg(test)]
 fn installation_index(sql: &str) -> Result<Option<InstallationIndex>, ModelError> {
     use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
-    let mut parsed = surrealdb_syn::parse(sql).map_err(ModelError::codec)?.expressions;
+    let mut parsed = surrealdb_syn::parse(sql)
+        .map_err(ModelError::codec)?
+        .expressions;
     let [TopLevelExpr::Expr(Expr::Define(definition))] = parsed.as_mut_slice() else {
         return Err(ModelError::Schema("installation declaration grammar"));
     };
-    let DefineStatement::Index(index) = definition.as_mut() else { return Ok(None); };
+    let DefineStatement::Index(index) = definition.as_mut() else {
+        return Ok(None);
+    };
     index.concurrently = true;
     let label = format!("{} ON {}", index.name.to_sql(), index.what.to_sql());
     Ok(Some(InstallationIndex {
@@ -69,29 +73,46 @@ fn installation_index(sql: &str) -> Result<Option<InstallationIndex>, ModelError
     }))
 }
 fn installation_index_ready(value: &Value) -> Result<bool, ModelError> {
-    let Value::Object(info) = value else { return Err(ModelError::Schema("installation index information")); };
-    let Some(Value::Object(building)) = info.get("building") else { return Err(ModelError::Schema("installation index build information")); };
+    let Value::Object(info) = value else {
+        return Err(ModelError::Schema("installation index information"));
+    };
+    let Some(Value::Object(building)) = info.get("building") else {
+        return Err(ModelError::Schema("installation index build information"));
+    };
     match building.get("status") {
         Some(Value::String(status)) if status.as_str() == "ready" => Ok(true),
-        Some(Value::String(status)) if matches!(status.as_str(), "started" | "cleaning" | "indexing") => Ok(false),
-        Some(Value::String(status)) if matches!(status.as_str(), "error" | "aborted") => Err(ModelError::codec(format!("index build failed: {building:?}"))),
+        Some(Value::String(status))
+            if matches!(status.as_str(), "started" | "cleaning" | "indexing") =>
+        {
+            Ok(false)
+        }
+        Some(Value::String(status)) if matches!(status.as_str(), "error" | "aborted") => Err(
+            ModelError::codec(format!("index build failed: {building:?}")),
+        ),
         _ => Err(ModelError::Schema("installation index build status")),
     }
 }
 #[derive(Debug)]
-struct InstallationFailure { context: String, cause: ModelError }
+struct InstallationFailure {
+    context: String,
+    cause: ModelError,
+}
 impl std::fmt::Display for InstallationFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{}: {}", self.context, self.cause) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.context, self.cause)
+    }
 }
 impl std::error::Error for InstallationFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(&self.cause) }
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.cause)
+    }
 }
 fn installation_failure(context: String, cause: ModelError) -> ModelError {
     ModelError::Cause(Box::new(InstallationFailure { context, cause }))
 }
 /// Blueprint functions are templates for the publisher's immutable named epochs, never
 /// shared mutable executable names. Validate the complete blueprint before selecting DDL.
-fn physical_native_definitions(blueprint: &str) -> Result<String, ModelError> {
+pub(crate) fn physical_native_definitions(blueprint: &str) -> Result<String, ModelError> {
     crate::materialization::validate_native_definitions(blueprint)?;
     use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
     let physical=surrealdb_syn::parse(blueprint).map_err(ModelError::codec)?.expressions.into_iter().filter(|statement|!matches!(statement,TopLevelExpr::Expr(Expr::Define(definition)) if matches!(definition.as_ref(),DefineStatement::Function(_)))).map(|statement|statement.to_sql()).collect::<Vec<_>>();
@@ -104,8 +125,8 @@ pub struct Loader {
     attempt: Option<ContentHash>,
     derivation: Option<ContentHash>,
     staging: Option<Arc<crate::control::staging::DerivedStaging>>,
-    prepared_reader:Option<crate::NativeReader<()>>,
-    _published_view_charge:Option<Box<dyn lctx_model::domain::resources::Reservation>>,
+    prepared_reader: Option<crate::NativeReader<()>>,
+    _published_view_charge: Option<Box<dyn lctx_model::domain::resources::Reservation>>,
     cancellation: Option<Arc<std::sync::atomic::AtomicBool>>,
     budget: Option<lctx_model::domain::resources::ResourceBudget>,
 }
@@ -152,23 +173,62 @@ impl Loader {
         Self {
             client,
             views: None,
-            attempt: None, cancellation: None, budget: None, derivation:None, staging:None, prepared_reader:None, _published_view_charge:None,
+            attempt: None,
+            cancellation: None,
+            budget: None,
+            derivation: None,
+            staging: None,
+            prepared_reader: None,
+            _published_view_charge: None,
         }
     }
     pub fn for_views(client: Arc<Surreal<Client>>, views: Vec<ContentHash>) -> Self {
         Self {
             client,
             views: Some(views),
-            attempt: None, cancellation: None, budget: None, derivation:None, staging:None, prepared_reader:None, _published_view_charge:None,
+            attempt: None,
+            cancellation: None,
+            budget: None,
+            derivation: None,
+            staging: None,
+            prepared_reader: None,
+            _published_view_charge: None,
         }
     }
     /// Borrow the exact publication reader/pin already earned by the caller. Its
     /// enclosing read owner drains all consumers before explicitly closing that reader.
-    pub fn for_published(completed:&crate::completed_state::PublishedCompletedState,budget:&lctx_model::domain::resources::ResourceBudget)->Result<Self,ModelError>{
-        let reader=completed.retained_reader();
-        let charge=budget.reserve("published loader exact view inventory",completed.inventory().bindings().len().saturating_mul(std::mem::size_of::<ContentHash>()).saturating_add(256))?;
-        let views=completed.inventory().bindings().iter().filter(|binding|binding.boundary.is_none()).map(|binding|binding.view.identity).collect();
-        Ok(Self{client:reader.shared_client(),views:Some(views),attempt:None,cancellation:None,budget:Some(budget.clone()),derivation:Some(reader.derivation()?),staging:None,prepared_reader:Some(reader.transport_reader().with_budget(budget)),_published_view_charge:Some(charge)})
+    pub fn for_published(
+        completed: &crate::completed_state::PublishedCompletedState,
+        budget: &lctx_model::domain::resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let reader = completed.retained_reader();
+        let charge = budget.reserve(
+            "published loader exact view inventory",
+            completed
+                .inventory()
+                .bindings()
+                .len()
+                .saturating_mul(std::mem::size_of::<ContentHash>())
+                .saturating_add(256),
+        )?;
+        let views = completed
+            .inventory()
+            .bindings()
+            .iter()
+            .filter(|binding| binding.boundary.is_none())
+            .map(|binding| binding.view.identity)
+            .collect();
+        Ok(Self {
+            client: reader.shared_client(),
+            views: Some(views),
+            attempt: None,
+            cancellation: None,
+            budget: Some(budget.clone()),
+            derivation: Some(reader.derivation()?),
+            staging: None,
+            prepared_reader: Some(reader.transport_reader().with_budget(budget)),
+            _published_view_charge: Some(charge),
+        })
     }
     pub fn for_attempt_views(
         client: Arc<Surreal<Client>>,
@@ -178,59 +238,147 @@ impl Loader {
         Self {
             client,
             views: Some(views),
-            attempt: Some(attempt), cancellation: None, budget: None, derivation:None, staging:None, prepared_reader:None, _published_view_charge:None,
+            attempt: Some(attempt),
+            cancellation: None,
+            budget: None,
+            derivation: None,
+            staging: None,
+            prepared_reader: None,
+            _published_view_charge: None,
         }
     }
     /// Borrow an already earned exact physical scope for attempt-owned derived
     /// kernels. This grants no publication or artifact admission.
-    pub fn with_installed_reader(mut self,reader:&crate::NativeReader<()>)->Result<Self,ModelError>{
+    pub fn with_installed_reader(
+        mut self,
+        reader: &crate::NativeReader<()>,
+    ) -> Result<Self, ModelError> {
         reader.require_installed_scope()?;
-        if !std::ptr::eq(self.client.as_ref(),reader.client()) || self.derivation!=Some(reader.derivation()?) {
-            return Err(ModelError::Conflict("derived loader installed reader session/derivation"));
+        if !std::ptr::eq(self.client.as_ref(), reader.client())
+            || self.derivation != Some(reader.derivation()?)
+        {
+            return Err(ModelError::Conflict(
+                "derived loader installed reader session/derivation",
+            ));
         }
-        let Some(views)=&self.views else{return Err(ModelError::Conflict("derived loader installed view inventory missing"));};
+        let Some(views) = &self.views else {
+            return Err(ModelError::Conflict(
+                "derived loader installed view inventory missing",
+            ));
+        };
         if !reader.matches_installed_views(views) {
-            return Err(ModelError::Conflict("derived loader installed reader view inventory"));
+            return Err(ModelError::Conflict(
+                "derived loader installed reader view inventory",
+            ));
         }
-        self.prepared_reader=Some(reader.transport_reader());Ok(self)
+        self.prepared_reader = Some(reader.transport_reader());
+        Ok(self)
     }
-    pub fn staging_root(&self)->Option<&RecordId>{self.staging.as_ref().map(|staging|staging.root())}
-    pub fn staging(&self)->Option<&Arc<crate::control::staging::DerivedStaging>>{self.staging.as_ref()}
-    pub fn with_derivation(mut self,namespace:ContentHash)->Self{self.derivation=Some(namespace);self}
-    pub fn derivation(&self)->Result<ContentHash,ModelError>{self.derivation.ok_or(ModelError::Conflict("derived loader requires exact realization"))}
-    pub fn with_staging(mut self,staging:Arc<crate::control::staging::DerivedStaging>)->Result<Self,ModelError>{
-        if self.attempt!=Some(staging.attempt()) || self.derivation!=Some(staging.derivation()){return Err(ModelError::Conflict("derived loader staging scope"));}
-        self.staging=Some(staging);Ok(self)
+    pub fn staging_root(&self) -> Option<&RecordId> {
+        self.staging.as_ref().map(|staging| staging.root())
+    }
+    pub fn staging(&self) -> Option<&Arc<crate::control::staging::DerivedStaging>> {
+        self.staging.as_ref()
+    }
+    pub fn with_derivation(mut self, namespace: ContentHash) -> Self {
+        self.derivation = Some(namespace);
+        self
+    }
+    pub fn derivation(&self) -> Result<ContentHash, ModelError> {
+        self.derivation.ok_or(ModelError::Conflict(
+            "derived loader requires exact realization",
+        ))
+    }
+    pub fn with_staging(
+        mut self,
+        staging: Arc<crate::control::staging::DerivedStaging>,
+    ) -> Result<Self, ModelError> {
+        if self.attempt != Some(staging.attempt()) || self.derivation != Some(staging.derivation())
+        {
+            return Err(ModelError::Conflict("derived loader staging scope"));
+        }
+        self.staging = Some(staging);
+        Ok(self)
     }
     /// Prepare exact physical view selection once, under the staging completion owner.
-    pub async fn prepare_completed_reader(mut self)->Result<Self,ModelError>{
-        let staging=self.staging.as_ref().ok_or(ModelError::Conflict("completed reader requires staging owner"))?;
-        let views=self.views.as_ref().ok_or(ModelError::Conflict("completed reader exact view inventory"))?;
-        let completed=staging.completed_owner();
-        let reader=crate::NativeReader::for_completed_views(self.client.clone(),completed,views,&self.read_budget()?).await?
-            .with_derivation(self.derivation()?);
-        self.prepared_reader=Some(reader);Ok(self)
+    pub async fn prepare_completed_reader(mut self) -> Result<Self, ModelError> {
+        let staging = self.staging.as_ref().ok_or(ModelError::Conflict(
+            "completed reader requires staging owner",
+        ))?;
+        let views = self.views.as_ref().ok_or(ModelError::Conflict(
+            "completed reader exact view inventory",
+        ))?;
+        let completed = staging.completed_owner();
+        let reader = crate::NativeReader::for_completed_views(
+            self.client.clone(),
+            completed,
+            views,
+            &self.read_budget()?,
+        )
+        .await?
+        .with_derivation(self.derivation()?);
+        self.prepared_reader = Some(reader);
+        Ok(self)
     }
-    pub async fn close_reader(&self)->Result<(),ModelError>{
-        let Some(reader)=&self.prepared_reader else{return Ok(());};
-        let prepared=reader.release_preparation().await;
-        if prepared.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()){reader.retain_unknown();}
-        let mut completion=lctx_model::domain::completion::Completion::default();
-        completion.step("publication completed reader pin release",reader.close().await);
-        lctx_model::domain::completion::complete(prepared,completion)
+    pub async fn close_reader(&self) -> Result<(), ModelError> {
+        let Some(reader) = &self.prepared_reader else {
+            return Ok(());
+        };
+        let prepared = reader.release_preparation().await;
+        if prepared
+            .as_ref()
+            .err()
+            .is_some_and(|error| !error.permits_storage_cleanup())
+        {
+            reader.retain_unknown();
+        }
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step(
+            "publication completed reader pin release",
+            reader.close().await,
+        );
+        lctx_model::domain::completion::complete(prepared, completion)
     }
-    pub fn with_budget(mut self, budget: &lctx_model::domain::resources::ResourceBudget) -> Self { self.budget = Some(budget.clone()); self }
-    pub fn read_budget(&self) -> Result<lctx_model::domain::resources::ResourceBudget, ModelError> { self.budget.clone().ok_or(ModelError::Conflict("native operation requires caller budget")) }
-    pub fn with_read_cancellation(mut self, flag: Arc<std::sync::atomic::AtomicBool>) -> Self { self.cancellation = Some(flag); self }
-    pub fn check_read_admission(&self) -> Result<(), ModelError> { crate::prepared::check_read_cancellation(self.cancellation.as_ref()) }
+    pub fn with_budget(mut self, budget: &lctx_model::domain::resources::ResourceBudget) -> Self {
+        self.budget = Some(budget.clone());
+        self
+    }
+    pub fn read_budget(&self) -> Result<lctx_model::domain::resources::ResourceBudget, ModelError> {
+        self.budget.clone().ok_or(ModelError::Conflict(
+            "native operation requires caller budget",
+        ))
+    }
+    pub fn with_read_cancellation(mut self, flag: Arc<std::sync::atomic::AtomicBool>) -> Self {
+        self.cancellation = Some(flag);
+        self
+    }
+    pub fn check_read_admission(&self) -> Result<(), ModelError> {
+        crate::prepared::check_read_cancellation(self.cancellation.as_ref())
+    }
     pub fn reader(&self) -> crate::NativeReader<()> {
-        let reader = if let Some(reader)=&self.prepared_reader{reader.clone()}else{match &self.views {
-            Some(views) => crate::NativeReader::for_views(self.client.clone(), views.clone()),
-            None => crate::NativeReader::private(self.client.clone()),
-        }};
-        let reader = if let Some(derivation)=self.derivation{reader.with_derivation(derivation)}else{reader};
-        let reader = if let Some(budget) = &self.budget { reader.with_budget(budget) } else { reader };
-        if let Some(flag) = &self.cancellation { reader.with_read_cancellation(flag.clone()) } else { reader }
+        let reader = if let Some(reader) = &self.prepared_reader {
+            reader.clone()
+        } else {
+            match &self.views {
+                Some(views) => crate::NativeReader::for_views(self.client.clone(), views.clone()),
+                None => crate::NativeReader::private(self.client.clone()),
+            }
+        };
+        let reader = if let Some(derivation) = self.derivation {
+            reader.with_derivation(derivation)
+        } else {
+            reader
+        };
+        let reader = if let Some(budget) = &self.budget {
+            reader.with_budget(budget)
+        } else {
+            reader
+        };
+        if let Some(flag) = &self.cancellation {
+            reader.with_read_cancellation(flag.clone())
+        } else {
+            reader
+        }
     }
     pub fn view_ids(&self) -> Option<&[ContentHash]> {
         self.views.as_deref()
@@ -245,7 +393,10 @@ impl Loader {
         self.client.clone()
     }
     pub async fn install(&self, native_definitions: &str) -> Result<(), ModelError> {
-        self.installation_catalog().await?.install(native_definitions).await
+        self.installation_catalog()
+            .await?
+            .install(native_definitions)
+            .await
     }
     /// Capture actual definitions for one explicitly excluded installation operation.
     /// The capture owns this exact session; it is never shared with another operation.
@@ -255,12 +406,11 @@ impl Loader {
     /// Explicit installation reconciles only repository-generated declarations. Existing
     /// definitions must match exactly; neither a retry nor a new client may overwrite them.
     /// Parse statement boundaries so function bodies retain their internal semicolons.
-    pub async fn install_declarations(
-        &self,
-        schema: &str,
-        phase: &str,
-    ) -> Result<(), ModelError> {
-        self.installation_catalog().await?.apply(schema, phase).await
+    pub async fn install_declarations(&self, schema: &str, phase: &str) -> Result<(), ModelError> {
+        self.installation_catalog()
+            .await?
+            .apply(schema, phase)
+            .await
     }
     pub async fn insert(
         &self,
@@ -272,10 +422,24 @@ impl Loader {
             return Ok(());
         }
         let _ = (table, relation);
-        if let Some(staging)=&self.staging{return staging.insert(&self.client,rows,&self.read_budget()?).await;}
-        let owner = self.attempt.map(|attempt| RecordId::new("native_attempt", attempt.hex()));
-        for window in crate::control::ImmutableWindows::for_loading(rows, self.attempt, owner).with_budget(self.budget.as_ref()) {
-            crate::control::install_window(&self.client, self.attempt, window?, self.budget.as_ref()).await?;
+        if let Some(staging) = &self.staging {
+            return staging
+                .insert(&self.client, rows, &self.read_budget()?)
+                .await;
+        }
+        let owner = self
+            .attempt
+            .map(|attempt| RecordId::new("native_attempt", attempt.hex()));
+        for window in crate::control::ImmutableWindows::for_loading(rows, self.attempt, owner)
+            .with_budget(self.budget.as_ref())
+        {
+            crate::control::install_window(
+                &self.client,
+                self.attempt,
+                window?,
+                self.budget.as_ref(),
+            )
+            .await?;
         }
         Ok(())
     }
@@ -441,13 +605,25 @@ impl Loader {
         self.flush_references("participant", &mut pending).await
     }
     /// Qualify physical adjacency while keeping canonical semantic endpoints unchanged.
-    pub fn reference_value(&self,value:Value)->Result<Value,ModelError>{
-        let Value::Object(mut row)=value else{return Err(ModelError::Schema("derived reference object"));};
-        let Some(Value::RecordId(id))=row.get("id") else{return Err(ModelError::Schema("derived reference ID"));};
-        if !matches!(id.table.as_str(),"participant"|"reference"){return Err(ModelError::Schema("derived reference family"));}
-        let namespace=self.derivation()?;
-        let id=crate::derivation::address(namespace,id.table.as_str(),&serde_json::to_vec(id).map_err(ModelError::codec)?);
-        row.insert("id",id);row.insert("derivation",namespace.hex());Ok(Value::Object(row))
+    pub fn reference_value(&self, value: Value) -> Result<Value, ModelError> {
+        let Value::Object(mut row) = value else {
+            return Err(ModelError::Schema("derived reference object"));
+        };
+        let Some(Value::RecordId(id)) = row.get("id") else {
+            return Err(ModelError::Schema("derived reference ID"));
+        };
+        if !matches!(id.table.as_str(), "participant" | "reference") {
+            return Err(ModelError::Schema("derived reference family"));
+        }
+        let namespace = self.derivation()?;
+        let id = crate::derivation::address(
+            namespace,
+            id.table.as_str(),
+            &serde_json::to_vec(id).map_err(ModelError::codec)?,
+        );
+        row.insert("id", id);
+        row.insert("derivation", namespace.hex());
+        Ok(Value::Object(row))
     }
     async fn reference_write(
         &self,
@@ -456,7 +632,7 @@ impl Loader {
         value: Value,
         endpoint: Option<Value>,
     ) -> Result<(), ModelError> {
-        let value=self.reference_value(value)?;
+        let value = self.reference_value(value)?;
         let bytes = native_bytes(&value).saturating_add(endpoint.as_ref().map_or(0, native_bytes));
         let limits = lctx_model::domain::batching::TransferLimits::default();
         require_row(bytes, limits)?;
@@ -508,43 +684,63 @@ impl Loader {
             .await
     }
     async fn original_stream_inner(
-        &self, source: ContentHash, content: ContentHash, length: u64,
-        input: &mut impl std::io::Read, _reuse: bool,
+        &self,
+        source: ContentHash,
+        content: ContentHash,
+        length: u64,
+        input: &mut impl std::io::Read,
+        _reuse: bool,
     ) -> Result<(), ModelError> {
-        let budget=self.read_budget()?;
-        let reader=self.reader();
+        let budget = self.read_budget()?;
+        let reader = self.reader();
         // This reader borrows the loader's authenticated session. Close its local scope on
         // every result; the caller remains the sole owner of session invalidation.
-        let result=async {
-        let layout=crate::originals::resolve_source(&reader,source,content,length,&budget).await?;
-        // Include exact replays in installation so this attempt earns its own holds.
-        self.insert("original",vec![layout.value()],false).await?;
-        let _charge=budget.reserve("original stream buffers",65536*64*4+65536)?;
-        let mut buffer=vec![0u8;crate::originals::CHUNK_BYTES];
-        let mut pending=Vec::new();let mut position=0u64;
-        let mut hasher=lctx_model::domain::ContentHasher::default();
-        loop {
-            self.check_read_admission()?;
-            let mut count=0;
-            while count<buffer.len(){
-                let next=input.read(&mut buffer[count..]).map_err(ModelError::codec)?;
-                if next==0 {break;} count+=next;
+        let result = async {
+            let layout =
+                crate::originals::resolve_source(&reader, source, content, length, &budget).await?;
+            // Include exact replays in installation so this attempt earns its own holds.
+            self.insert("original", vec![layout.value()], false).await?;
+            let _charge = budget.reserve("original stream buffers", 65536 * 64 * 4 + 65536)?;
+            let mut buffer = vec![0u8; crate::originals::CHUNK_BYTES];
+            let mut pending = Vec::new();
+            let mut position = 0u64;
+            let mut hasher = lctx_model::domain::ContentHasher::default();
+            loop {
+                self.check_read_admission()?;
+                let mut count = 0;
+                while count < buffer.len() {
+                    let next = input
+                        .read(&mut buffer[count..])
+                        .map_err(ModelError::codec)?;
+                    if next == 0 {
+                        break;
+                    }
+                    count += next;
+                }
+                if count == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..count]);
+                pending.push(layout.blob.piece(position, &buffer[..count])?);
+                position = position
+                    .checked_add(count as u64)
+                    .ok_or(ModelError::Schema("original stream bounds"))?;
+                if pending.len() == 64 {
+                    self.insert("original_chunk", std::mem::take(&mut pending), false)
+                        .await?;
+                }
             }
-            if count==0 {break;}
-            hasher.update(&buffer[..count]);
-            pending.push(layout.blob.piece(position,&buffer[..count])?);
-            position=position.checked_add(count as u64).ok_or(ModelError::Schema("original stream bounds"))?;
-            if pending.len()==64 {self.insert("original_chunk",std::mem::take(&mut pending),false).await?;}
+            self.insert("original_chunk", pending, false).await?;
+            if position != length || hasher.finish() != content {
+                return Err(ModelError::Conflict("original bytes"));
+            }
+            crate::originals::complete_blob(&reader, self.attempt, &layout, &budget).await
         }
-        self.insert("original_chunk",pending,false).await?;
-        if position!=length || hasher.finish()!=content {return Err(ModelError::Conflict("original bytes"));}
-        crate::originals::complete_blob(&reader,self.attempt,&layout,&budget).await
-        }.await;
-        let mut completion=lctx_model::domain::completion::Completion::default();
-        completion.step("original import reader close",reader.close().await);
-        lctx_model::domain::completion::complete(result,completion)
+        .await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step("original import reader close", reader.close().await);
+        lctx_model::domain::completion::complete(result, completion)
     }
-
 }
 fn external_value(target: &Target) -> Result<Option<Value>, ModelError> {
     if !matches!(target, Target::External { .. }) {
@@ -560,18 +756,32 @@ fn external_value(target: &Target) -> Result<Option<Value>, ModelError> {
 }
 /// Canonical endpoint backing is installed while the producer is open. Derived role
 /// publication later compares these exact rows without creating canonical content.
-pub fn entity_endpoint_values(row:&Entity)->Result<Vec<Value>,ModelError>{
+pub fn entity_endpoint_values(row: &Entity) -> Result<Vec<Value>, ModelError> {
     row.validate()?;
-    codec::entity_references(row).iter().map(|reference|{
-        let target=lctx_model::domain::graph::reference_target(reference)?.0;
-        external_value(&target)?.ok_or(ModelError::Schema("canonical entity endpoint"))
-    }).collect()
+    codec::entity_references(row)
+        .iter()
+        .map(|reference| {
+            let target = lctx_model::domain::graph::reference_target(reference)?.0;
+            external_value(&target)?.ok_or(ModelError::Schema("canonical entity endpoint"))
+        })
+        .collect()
 }
-pub fn assertion_endpoint_values(row:&Assertion)->Result<Vec<Value>,ModelError>{
+pub fn assertion_endpoint_values(row: &Assertion) -> Result<Vec<Value>, ModelError> {
     row.validate()?;
-    let mut output=Vec::new();
-    for participant in &row.participants {output.push(external_value(&participant.target)?.ok_or(ModelError::Schema("canonical assertion participant endpoint"))?);}
-    for (target,_) in row.references()?{output.push(external_value(&target)?.ok_or(ModelError::Schema("canonical assertion reference endpoint"))?);}
+    let mut output = Vec::new();
+    for participant in &row.participants {
+        output.push(
+            external_value(&participant.target)?.ok_or(ModelError::Schema(
+                "canonical assertion participant endpoint",
+            ))?,
+        );
+    }
+    for (target, _) in row.references()? {
+        output.push(
+            external_value(&target)?
+                .ok_or(ModelError::Schema("canonical assertion reference endpoint"))?,
+        );
+    }
     Ok(output)
 }
 
@@ -736,24 +946,39 @@ pub fn native_bytes(value: &Value) -> usize {
                     .saturating_add(native_bytes(value))
             })
             .fold(0, usize::saturating_add),
-        Value::RecordId(value) => value.table.as_str().len().saturating_add(native_key_bytes(&value.key)),
+        Value::RecordId(value) => value
+            .table
+            .as_str()
+            .len()
+            .saturating_add(native_key_bytes(&value.key)),
         _ => 0,
     })
 }
 fn native_key_bytes(key: &surrealdb::types::RecordIdKey) -> usize {
-    use surrealdb::types::RecordIdKey;
     use std::ops::Bound;
+    use surrealdb::types::RecordIdKey;
     size_of::<RecordIdKey>().saturating_add(match key {
         RecordIdKey::String(value) => value.len(),
         RecordIdKey::Number(_) | RecordIdKey::Uuid(_) => 0,
-        RecordIdKey::Array(values) => values.iter().map(native_bytes).fold(0, usize::saturating_add),
-        RecordIdKey::Object(values) => values.iter().map(|(key, value)| {
-            key.len().saturating_add(32).saturating_add(native_bytes(value))
-        }).fold(0, usize::saturating_add),
-        RecordIdKey::Range(range) => [&range.start, &range.end].into_iter().map(|bound| match bound {
-            Bound::Included(key) | Bound::Excluded(key) => native_key_bytes(key),
-            Bound::Unbounded => 0,
-        }).fold(0, usize::saturating_add),
+        RecordIdKey::Array(values) => values
+            .iter()
+            .map(native_bytes)
+            .fold(0, usize::saturating_add),
+        RecordIdKey::Object(values) => values
+            .iter()
+            .map(|(key, value)| {
+                key.len()
+                    .saturating_add(32)
+                    .saturating_add(native_bytes(value))
+            })
+            .fold(0, usize::saturating_add),
+        RecordIdKey::Range(range) => [&range.start, &range.end]
+            .into_iter()
+            .map(|bound| match bound {
+                Bound::Included(key) | Bound::Excluded(key) => native_key_bytes(key),
+                Bound::Unbounded => 0,
+            })
+            .fold(0, usize::saturating_add),
     })
 }
 pub fn validate_native_row(row: &Value) -> Result<(), ModelError> {
@@ -918,25 +1143,57 @@ mod tests {
         let sql = "DEFINE INDEX `index name` ON `table name` FIELDS value UNIQUE COMMENT 'CONCURRENTLY is text'";
         let index = installation_index(sql).unwrap().unwrap();
         assert!(index.execution.ends_with(" CONCURRENTLY"));
-        assert_eq!(index.information, "INFO FOR INDEX `index name` ON `table name`");
-        assert_eq!(installation_definitions(sql).unwrap(), installation_definitions(&index.execution).unwrap());
-        assert_ne!(installation_definitions(sql).unwrap(), installation_definitions(&sql.replace("FIELDS value", "FIELDS other")).unwrap());
-        assert_ne!(installation_definitions(sql).unwrap(), installation_definitions(&sql.replace(" UNIQUE", "")).unwrap());
-        assert!(installation_index("DEFINE FUNCTION fn::installer_control() { LET $value=1; RETURN $value; }").unwrap().is_none());
+        assert_eq!(
+            index.information,
+            "INFO FOR INDEX `index name` ON `table name`"
+        );
+        assert_eq!(
+            installation_definitions(sql).unwrap(),
+            installation_definitions(&index.execution).unwrap()
+        );
+        assert_ne!(
+            installation_definitions(sql).unwrap(),
+            installation_definitions(&sql.replace("FIELDS value", "FIELDS other")).unwrap()
+        );
+        assert_ne!(
+            installation_definitions(sql).unwrap(),
+            installation_definitions(&sql.replace(" UNIQUE", "")).unwrap()
+        );
+        assert!(
+            installation_index(
+                "DEFINE FUNCTION fn::installer_control() { LET $value=1; RETURN $value; }"
+            )
+            .unwrap()
+            .is_none()
+        );
     }
     #[test]
     fn installation_index_readiness_requires_terminal_success() {
         let info = |status: &str| {
-            let mut building = Object::new(); building.insert("status", status);
-            let mut value = Object::new(); value.insert("building", building); Value::Object(value)
+            let mut building = Object::new();
+            building.insert("status", status);
+            let mut value = Object::new();
+            value.insert("building", building);
+            Value::Object(value)
         };
         assert!(installation_index_ready(&info("ready")).unwrap());
-        for status in ["started", "cleaning", "indexing"] { assert!(!installation_index_ready(&info(status)).unwrap()); }
-        for status in ["error", "aborted", "unknown"] { assert!(installation_index_ready(&info(status)).is_err()); }
+        for status in ["started", "cleaning", "indexing"] {
+            assert!(!installation_index_ready(&info(status)).unwrap());
+        }
+        for status in ["error", "aborted", "unknown"] {
+            assert!(installation_index_ready(&info(status)).is_err());
+        }
         assert!(installation_index_ready(&Value::None).is_err());
         assert!(installation_index_ready(&Value::Object(Object::new())).is_err());
-        let error = installation_failure("native upgrade index test readiness".into(), ModelError::Conflict("index failure"));
-        assert!(error.to_string().contains("native upgrade index test readiness"));
+        let error = installation_failure(
+            "native upgrade index test readiness".into(),
+            ModelError::Conflict("index failure"),
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("native upgrade index test readiness")
+        );
         assert!(std::error::Error::source(&error).is_some());
     }
     #[tokio::test(flavor = "multi_thread")]
@@ -946,7 +1203,9 @@ mod tests {
             .expect("explicit validation maintenance installer configuration");
         let config = crate::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
         assert_eq!(config.authentication, crate::AuthenticationScope::Root);
-        let client = crate::installation::check_installation(&config).await.unwrap();
+        let client = crate::installation::check_installation(&config)
+            .await
+            .unwrap();
         let loader = Loader::new(client.clone());
         let table = format!(
             "installer_control_{}",

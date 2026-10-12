@@ -4,6 +4,7 @@ pub mod admission_scope_program;
 pub mod analysis;
 pub mod analytics;
 pub mod artifact;
+pub mod artifact_admission;
 pub mod assertion;
 pub mod assumptions;
 pub mod assumptions_universe;
@@ -16,18 +17,19 @@ pub mod captures;
 pub mod catalog;
 pub mod catalog_scope_program;
 pub mod charged;
+pub mod checked_admission;
 pub mod class_metadata;
-pub mod compiler_scope_program;
 pub mod compilation_product;
+pub mod compiler_scope_program;
 pub mod completed;
 pub mod completed_identity;
-pub mod recovery_closure;
 pub mod completion;
 pub mod composition;
 pub mod conditions;
 pub mod declarations;
 pub mod deployment;
 pub mod derivation;
+pub mod diagnostic;
 pub mod diagnostics;
 pub mod documents;
 pub mod embedding;
@@ -45,20 +47,18 @@ pub mod local_semantics;
 pub mod local_symbolic;
 pub mod local_theory;
 pub(crate) mod model;
-pub mod validation_factory;
-pub mod checked_admission;
-pub mod artifact_admission;
 pub mod models;
 pub mod normalized;
 pub mod obligation;
 pub mod occurrence_owner;
 pub(crate) mod ownership;
 pub mod place_composition;
-pub mod producer_contract;
 pub mod producer_assurance;
+pub mod producer_contract;
 pub mod projection;
 pub mod protocols;
 pub(crate) mod record;
+pub mod recovery_closure;
 pub mod resources;
 pub mod retrieval;
 pub mod ruff;
@@ -76,6 +76,7 @@ pub mod transfer;
 pub mod types;
 pub mod uniform_outcome;
 pub mod validation;
+pub mod validation_factory;
 pub mod value;
 
 pub use finite::FiniteF64;
@@ -86,8 +87,8 @@ pub use model::{
     ValidationIdentity, ValidationInput, ValidationKind, implementation_digest,
 };
 pub use record::{
-    Arm, ArmField, Batch, CheckedCanonicalBatch, Codebook, Field, FieldValue, FlatValue, HeapSize, Record, Scalar,
-    SemanticReference, Sum, SumRecord,
+    Arm, ArmField, Batch, CheckedCanonicalBatch, Codebook, Field, FieldValue, FlatValue, HeapSize,
+    Record, Scalar, SemanticReference, Sum, SumRecord,
 };
 
 #[derive(Debug, thiserror::Error)]

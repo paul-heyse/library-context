@@ -98,7 +98,20 @@ Compiler orchestration stays in `cpg-core`; private validated admission and rest
 are owned below it by `lctx-compiler-store` (ADR-0151). The coordinator
 records targeted functional controls and the authorized final UP9 assembled qualification boundary.
 
-> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108
+**Implemented lifecycle foundations / scoped-Tested, 2026-10-12 (ADR-0164).** Selected access resolves
+physical members/aliases under held exact readers. Independent observation may be shared inside
+an operation/preparation scope protecting its exact incarnation and validity premises, while
+each layout/range/root earns its own association and admission. Equal-peer completion uses
+typed, conclusively observed same-incarnation premise change followed by owned recapture and
+revalidation. The original bounded request outcome is read before its recovery reference is
+released; remote uncertainty, retirement and ABA never authorize a fresh effect. Model-owned
+bounded diagnostics preserve optional known native identities and independent completion axes
+through the actual durable writer/host consumers. No retained proof cache or global compile
+serialization is implied. Source acceptance and focused native/diagnostic controls support these
+foundations; generated-analysis/native-query and enclosing acceptance retain their exact boundaries
+in the [lifecycle coordinator §6](../../plans/surrealdb-lifecycle-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint).
+
+> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108, ADR-0164
 
 <a id="section-15-2"></a>
 

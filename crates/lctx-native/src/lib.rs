@@ -22,18 +22,19 @@ pub use surrealdb;
 pub mod phase;
 pub mod projections;
 
-pub mod installation;
-pub mod recovery;
-pub mod control;
-pub mod installed_view;
-pub mod completed_state;
-pub mod completed_rows;
-pub mod completed_logical_rows;
 pub mod binding_descriptor;
+pub mod completed_logical_rows;
+pub mod completed_rows;
+pub mod completed_state;
+pub mod control;
 pub mod derivation;
+pub mod installation;
+pub mod installed_view;
 pub mod maintenance;
+pub mod recovery;
 
 pub mod derived_search;
+pub mod diagnostic;
 pub mod lexical_stats;
 pub mod realization;
 pub mod scope;

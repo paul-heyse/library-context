@@ -3,7 +3,7 @@ use crate::records::{Prepared, need, rows, wire};
 use lctx_model::domain::{
     resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
 };
-use lctx_native::{NativeReader, batches::CanonicalNode, reader::target_id};
+use lctx_native::{NativeReader, reader::target_id};
 pub async fn get(
     reader: &NativeReader,
     preparation: &crate::preparation::Preparation<'_>,
@@ -202,7 +202,8 @@ async fn body(
                 range.start + offset,
                 (end - offset) as usize,
             )
-            .await?.into_vec(_charge.as_ref())?
+            .await?
+            .into_vec(_charge.as_ref())?
     };
     let continuation = if end < length {
         Optional(Some(
@@ -259,7 +260,15 @@ pub(crate) async fn hydrate_hits(
         }
     }
     // Outgoing semantic dependencies remain complete; incoming ownership is window/part only.
-    preparation.hydrate(reader, roots, &inputs, &inputs, &["window", "part", "set", "universe"]).await
+    preparation
+        .hydrate(
+            reader,
+            roots,
+            &inputs,
+            &inputs,
+            &["window", "part", "set", "universe"],
+        )
+        .await
 }
 
 fn source_range(
@@ -527,54 +536,176 @@ async fn derivations(
     b: &ResourceBudget,
 ) -> Result<SectionPage<DerivationStep>, ModelError> {
     let root = target_id(crate::originals::target(&range.source)?);
-    let mut vars = reader.view_bindings();
-    vars.insert("root", root);
-    // Resolve this source's adjacent owners once, then fetch only their canonical records.
-    // Incoming entity owners are not assertion derivations.
-    let nodes:Vec<CanonicalNode>=reader.query("RETURN {\
-        LET $nodes = array::distinct(array::concat(\
-            (SELECT VALUE in FROM participant WHERE out=$root AND in IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views)),\
-            (SELECT VALUE in FROM reference WHERE out=$root AND in IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views))));\
-        RETURN SELECT 'assertion' AS node_kind, canonical FROM $nodes WHERE record::table(id)='assertion';\
-        };",vars).await?;
-    let _charge = b.reserve(
-        "native-derivation-packets",
-        nodes.iter().map(|n| n.canonical.len() * 2 + 512).sum(),
-    )?;
+    let (nodes, _retained) = selected_derivation_payloads(reader, root, b).await?;
     let mut values = Vec::new();
     for (ordinal, node) in nodes.iter().enumerate() {
-        let assertion: graph::Assertion = serde_json::from_slice(&node.canonical).map_err(ModelError::codec)?;
+        let assertion: graph::Assertion =
+            serde_json::from_slice(node).map_err(ModelError::codec)?;
         if assertion.derivation.is_some() {
             derivation_packet(&assertion, false)?;
             values.push((assertion.id().0, ordinal));
         }
     }
-    let compact = crate::pagination::page(values, request, reader.handle(), channels,
-        request.tool().name(), "derivation", None, Availability::Available {}).map_err(wire)?;
+    let compact = crate::pagination::page(
+        values,
+        request,
+        reader.handle(),
+        channels,
+        request.tool().name(),
+        "derivation",
+        None,
+        Availability::Available {},
+    )
+    .map_err(wire)?;
     crate::operations::hydrate_page(compact, |ordinal| {
-        let assertion = serde_json::from_slice(&nodes[ordinal].canonical).map_err(ModelError::codec)?;
-        derivation_packet(&assertion, true)?.ok_or(ModelError::Schema("selected assertion derivation"))
+        let assertion = serde_json::from_slice(&nodes[ordinal]).map_err(ModelError::codec)?;
+        derivation_packet(&assertion, true)?
+            .ok_or(ModelError::Schema("selected assertion derivation"))
     })
 }
-fn derivation_packet(assertion: &graph::Assertion, emit: bool) -> Result<Option<DerivationStep>, ModelError> {
-    let Some(derivation) = &assertion.derivation else { return Ok(None); };
+async fn selected_derivation_payloads<Context>(
+    reader: &NativeReader<Context>,
+    root: surrealdb::types::RecordId,
+    b: &ResourceBudget,
+) -> Result<(Vec<surrealdb::types::Bytes>, charged::StateCharge), ModelError> {
+    let mut vars = surrealdb::types::Variables::new();
+    vars.insert("lctx_derivation", reader.derivation()?.hex());
+    vars.insert("root", root);
+    // Adjacency nominates owners; exact selected membership and contributor-owned
+    // aliases are resolved by native access before canonical bytes become visible.
+    let query=lctx_native::prepared::PreparedQuery::new(vars,vec![],["participant","reference"].map(|table|
+        format!("SELECT in AS id FROM {table} WITH INDEX incoming WHERE derivation=$lctx_derivation AND out=$root AND record::table(in)='assertion'")).to_vec())?;
+    let mut stream = reader.candidate_payload_rows(query, "assertion", "semantic_key")?;
+    let mut retained = charged::StateCharge::new(b, "native-derivation-packets");
+    let observed = async {
+        let mut nodes = Vec::new();
+        while let Some(value) = stream.next().await? {
+            let Some(surrealdb::types::Value::Bytes(canonical)) =
+                value.as_object().and_then(|row| row.get("canonical"))
+            else {
+                return Err(ModelError::Schema("selected derivation canonical"));
+            };
+            retained.grow(canonical.len().saturating_mul(2).saturating_add(512))?;
+            nodes.push(canonical.clone());
+        }
+        Ok::<_, ModelError>(nodes)
+    }
+    .await;
+    let mut terminal = completion::Completion::default();
+    terminal.step(
+        "selected derivation discovery drain",
+        stream.drain_transport().await,
+    );
+    let nodes = completion::complete(observed, terminal)?;
+    Ok((nodes, retained))
+}
+fn derivation_packet(
+    assertion: &graph::Assertion,
+    emit: bool,
+) -> Result<Option<DerivationStep>, ModelError> {
+    let Some(derivation) = &assertion.derivation else {
+        return Ok(None);
+    };
     let mut premises = Vec::new();
     for (ordinal, target) in derivation.premises.iter().enumerate() {
-        let role = assertion.participants.iter().find(|participant| &participant.target == target)
-            .map(|participant| participant.field.clone().unwrap_or_else(|| format!("{:?}", participant.role)))
+        let role = assertion
+            .participants
+            .iter()
+            .find(|participant| &participant.target == target)
+            .map(|participant| {
+                participant
+                    .field
+                    .clone()
+                    .unwrap_or_else(|| format!("{:?}", participant.role))
+            })
             .unwrap_or_else(|| format!("premise_{ordinal}"));
-        let premise = PremisePacket { role: Name::new(role).map_err(wire)?, premise: ProofReference::from_target(target.clone())? };
-        if emit { premises.push(premise); }
+        let premise = PremisePacket {
+            role: Name::new(role).map_err(wire)?,
+            premise: ProofReference::from_target(target.clone())?,
+        };
+        if emit {
+            premises.push(premise);
+        }
     }
     let source = ProofReference::from_target(graph::Target::Assertion(assertion.id()))?;
     let rule = Name::new(derivation.rule.clone()).map_err(wire)?;
-    let conclusion = ProofReference::from_target(derivation.conclusion.clone().unwrap_or(graph::Target::Assertion(assertion.id())))?;
-    Ok(emit.then_some(DerivationStep { source, rule, conclusion, premises }))
+    let conclusion = ProofReference::from_target(
+        derivation
+            .conclusion
+            .clone()
+            .unwrap_or(graph::Target::Assertion(assertion.id())),
+    )?;
+    Ok(emit.then_some(DerivationStep {
+        source,
+        rule,
+        conclusion,
+        premises,
+    }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn selected_derivation_hydration_excludes_foreign_contributor_and_cancellation_is_not_empty()
+     {
+        use analysis::catalog_evidence::{
+            AnalysisDerivation, AnalysisDerivationPremise, SupportSource,
+        };
+        let config = crate::scoped_fixture::config();
+        let conclusion = id::<AnalysisDerivation>(101);
+        let selected = graph::Assertion::from_record(AnalysisDerivationPremise {
+            derivation: conclusion,
+            source: id::<SupportSource>(102),
+        })
+        .unwrap();
+        let foreign = graph::Assertion::from_record(AnalysisDerivationPremise {
+            derivation: conclusion,
+            source: id::<SupportSource>(103),
+        })
+        .unwrap();
+        assert!(selected.derivation.is_some());
+        assert_ne!(selected.id(), foreign.id());
+        let native = crate::scoped_fixture::reader(&config, &[], std::slice::from_ref(&selected))
+            .await
+            .unwrap();
+        let other = crate::scoped_fixture::reader(&config, &[], std::slice::from_ref(&foreign))
+            .await
+            .unwrap();
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let root = target_id(graph::Target::Assertion(graph::AssertionId::of(conclusion)));
+        let result=async{
+            // Nominate a valid foreign contributor inside this exact derived
+            // realization too; the index prefix alone must never grant access.
+            lctx_native::Loader::for_attempt_views(
+                lctx_compiler_store::compiler::check_installation(&config).await?,
+                other.store.attempt(),other.installed.iter().map(|view|view.completion().view.identity).collect(),
+            ).with_derivation(native.derivation()?).with_budget(&budget)
+                .assertion_references(std::slice::from_ref(&foreign)).await?;
+            let mut nominations=surrealdb::types::Variables::new();nominations.insert("root",root.clone());
+            let nominations:Vec<surrealdb::types::Value>=native.query_native("SELECT in AS id FROM participant WITH INDEX incoming WHERE derivation=$lctx_derivation AND out=$root AND field='derivation'",nominations).await?;
+            assert_eq!(nominations.len(),2,"the same indexed realization nominates selected and foreign contributors");
+            for table in ["participant","reference"]{
+                let sql=format!("SELECT in AS id FROM {table} WITH INDEX incoming WHERE derivation=$lctx_derivation AND out=$root AND record::table(in)='assertion'");
+                let mut vars=surrealdb::types::Variables::new();vars.insert("root",root.clone());
+                let plan:serde_json::Value=native.query(format!("{sql} EXPLAIN"),vars).await?;
+                let plan=plan.to_string();assert!(plan.contains("incoming") && !plan.contains("TableScan") && !plan.contains("Sort"),"{plan}");
+            }
+            let (nodes,retained)=selected_derivation_payloads(&native.reader,root.clone(),&budget).await?;
+            assert_eq!(nodes.len(),1,"adjacent foreign contributor cannot widen exact selected proof");
+            let assertion:graph::Assertion=serde_json::from_slice(&nodes[0]).map_err(ModelError::codec)?;
+            assert_eq!(assertion,selected);let packet=derivation_packet(&assertion,true)?.unwrap();
+            assert_eq!(packet.rule,Name::new("qualified_analysis_derivation").unwrap());assert_eq!(packet.premises.len(),1);
+            drop(nodes);drop(retained);assert_eq!(budget.reserved(),0);
+            let cancelled=native.reader.clone().with_read_cancellation(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)));
+            assert!(selected_derivation_payloads(&cancelled,root,&budget).await.is_err());
+            Ok::<_,ModelError>(())
+        }.await;
+        let mut terminal = completion::Completion::default();
+        terminal.step("derivation selected fixture close", native.close().await);
+        terminal.step("derivation foreign fixture close", other.close().await);
+        completion::complete(result, terminal).unwrap();
+    }
     fn id<T>(n: u8) -> Id<T> {
         serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
     }

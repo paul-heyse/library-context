@@ -105,19 +105,25 @@ enum PreparedSelectionOwner {
 }
 impl std::ops::Deref for PreparedSelection {
     type Target = selection::evaluate::Prepared;
-    fn deref(&self) -> &Self::Target { match &self.0 {
-        PreparedSelectionOwner::Fresh(value) => value,
-        PreparedSelectionOwner::Cached(value) => value,
-    } }
+    fn deref(&self) -> &Self::Target {
+        match &self.0 {
+            PreparedSelectionOwner::Fresh(value) => value,
+            PreparedSelectionOwner::Cached(value) => value,
+        }
+    }
 }
-pub(crate) fn interpret(batches: &lctx_native::batches::CanonicalBatches, budget: &ResourceBudget)
-    -> Result<selection::evaluate::Prepared, ModelError> {
+pub(crate) fn interpret(
+    batches: &lctx_native::batches::CanonicalBatches,
+    budget: &ResourceBudget,
+) -> Result<selection::evaluate::Prepared, ModelError> {
     let mut data = selection::classification::ClassificationData::new(budget);
     let mut output = selection::build::Output::new(budget);
     for (name, batch) in &batches.batches {
         let input = data.visit(name, batch)?;
         let result = output.visit(name, batch)?;
-        if !input && !result { return Err(ModelError::Schema("undeclared native classification input")); }
+        if !input && !result {
+            return Err(ModelError::Schema("undeclared native classification input"));
+        }
     }
     selection::evaluate::Prepared::from_local_rows(data, output, budget)
 }
@@ -161,7 +167,9 @@ async fn classify_inner(
             )
             .await?;
         request.release_roots();
-        PreparedSelection(PreparedSelectionOwner::Cached(preparation.classification(&cached).await?))
+        PreparedSelection(PreparedSelectionOwner::Cached(
+            preparation.classification(&cached).await?,
+        ))
     } else {
         let fresh = crate::scope::hydrate(reader, request.take_roots(), &inputs, budget).await?;
         request.release_roots();
@@ -182,7 +190,7 @@ pub async fn members<Context>(
     operation: Option<&OperationSelector>,
     budget: &ResourceBudget,
 ) -> Result<Members, ModelError> {
-    let mut vars = reader.view_bindings();
+    let mut vars = Variables::new();
     vars.insert("library", library.map(|s| s.as_str().to_owned()));
     vars.insert(
         "member",
@@ -202,10 +210,9 @@ pub async fn members<Context>(
             _ => None,
         }),
     );
-    let mut sorted =
-        lctx_native::acknowledged_candidates::AsyncCandidateSort::new(budget).await?;
+    let mut sorted = lctx_native::acknowledged_candidates::AsyncCandidateSort::new(budget).await?;
     let discovery = async {
-        let packages = reader.query_stream(library_packages_sql(), vars.clone(), 1)?;
+        let packages = discovery_rows(reader, library_packages_sql(), vars.clone(), "entity")?;
         collect_library_candidates(reader, &mut vars, packages, &mut sorted).await
     }
     .await;
@@ -258,13 +265,30 @@ pub async fn members<Context>(
 /// These branches stream compact discovery rows without union, distinct or ordering state.
 /// Package spelling is residual policy; physical endpoints drive both reverse branches.
 fn library_packages_sql() -> &'static str {
-    "SELECT VALUE id FROM entity WITH INDEX semantic_key WHERE id IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND semantic_type='packages' AND ($library=NONE OR $library=NULL OR body.name=$library);"
+    "SELECT id FROM entity WITH INDEX semantic_key WHERE semantic_type='packages' AND ($library=NONE OR $library=NULL OR body.name=$library);"
 }
 fn library_releases_sql() -> &'static str {
-    "SELECT VALUE in FROM reference WITH INDEX incoming WHERE out=$package.anchor AND in IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND field='package';"
+    "SELECT in AS id FROM reference WITH INDEX incoming WHERE derivation=$lctx_derivation AND out=$package_anchor AND field='package' AND in.semantic_type='releases';"
 }
 fn library_inputs_sql() -> &'static str {
-    "SELECT VALUE in.body.input FROM participant WITH INDEX incoming WHERE out=$release.anchor AND in IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND field='release' AND in.semantic_type='input_distributions' AND in.body.role=0;"
+    "SELECT in AS id FROM participant WITH INDEX incoming WHERE derivation=$lctx_derivation AND out=$release_anchor AND field='release' AND in.semantic_type='input_distributions' AND in.body.role=0;"
+}
+
+/// Discovery SQL only nominates physical identities. The native owner intersects
+/// every nomination with the protected exact inventory before payload hydration.
+fn discovery_rows<Context>(
+    reader: &NativeReader<Context>,
+    sql: &str,
+    vars: Variables,
+    table: &str,
+) -> Result<NativeRows, ModelError> {
+    reader.derivation()?;
+    reader.candidate_payload_rows(
+        lctx_native::prepared::PreparedQuery::new(vars, vec![], vec![sql.into()])?
+            .with_bindings(reader.view_bindings()),
+        table,
+        "semantic_key",
+    )
 }
 
 async fn settle_discovery<T>(
@@ -287,20 +311,40 @@ async fn collect_library_candidates<Context>(
 ) -> Result<(), ModelError> {
     let result = async {
         while let Some(package) = packages.next().await? {
-            let surrealdb::types::Value::RecordId(package) = package else {
+            let surrealdb::types::Value::Object(package) = package else {
                 return Err(ModelError::Schema("native library package pointer"));
             };
-            vars.insert("package", package);
-            let mut releases = reader.query_stream(library_releases_sql(), vars.clone(), 1)?;
+            vars.insert(
+                "package_anchor",
+                package
+                    .get("anchor")
+                    .cloned()
+                    .ok_or(ModelError::Schema("native package anchor"))?,
+            );
+            let mut releases =
+                discovery_rows(reader, library_releases_sql(), vars.clone(), "entity")?;
             let result = async {
                 while let Some(release) = releases.next().await? {
-                    let surrealdb::types::Value::RecordId(release) = release else {
+                    let surrealdb::types::Value::Object(release) = release else {
                         return Err(ModelError::Schema("native library release pointer"));
                     };
-                    vars.insert("release", release);
-                    let mut inputs = reader.query_stream(library_inputs_sql(), vars.clone(), 1)?;
+                    vars.insert(
+                        "release_anchor",
+                        release
+                            .get("anchor")
+                            .cloned()
+                            .ok_or(ModelError::Schema("native release anchor"))?,
+                    );
+                    let mut inputs =
+                        discovery_rows(reader, library_inputs_sql(), vars.clone(), "assertion")?;
                     let result = async {
                         while let Some(input) = inputs.next().await? {
+                            let input = input
+                                .as_object()
+                                .and_then(|row| row.get("body"))
+                                .and_then(surrealdb::types::Value::as_object)
+                                .and_then(|body| body.get("input"))
+                                .ok_or(ModelError::Schema("native input distribution input"))?;
                             vars.insert(
                                 "scope",
                                 format!(
@@ -308,8 +352,12 @@ async fn collect_library_candidates<Context>(
                                     lctx_native::prepared::scope_string(&input)
                                 ),
                             );
-                            let mut rows =
-                                reader.query_stream(member_candidates_sql(), vars.clone(), 1)?;
+                            let mut rows = discovery_rows(
+                                reader,
+                                member_candidates_sql(),
+                                vars.clone(),
+                                "entity",
+                            )?;
                             let result = async {
                                 while let Some(value) = rows.next().await? {
                                     let surrealdb::types::Value::Object(row) = value else {
@@ -323,7 +371,7 @@ async fn collect_library_candidates<Context>(
                                         ));
                                     };
                                     let Some(surrealdb::types::Value::RecordId(node)) =
-                                        row.get("node")
+                                        row.get("id")
                                     else {
                                         return Err(ModelError::Schema(
                                             "native member backing pointer",
@@ -335,6 +383,49 @@ async fn collect_library_candidates<Context>(
                                         .map_err(|_| {
                                             ModelError::Schema("native member key width")
                                         })?;
+                                    if let Some(surrealdb::types::Value::Array(path)) =
+                                        vars.get("path")
+                                    {
+                                        let Some(surrealdb::types::Value::Bytes(canonical)) =
+                                            row.get("canonical")
+                                        else {
+                                            return Err(ModelError::Schema(
+                                                "native member canonical",
+                                            ));
+                                        };
+                                        let _decode = reader.resource_budget()?.reserve(
+                                            "native member path decode",
+                                            canonical.len().saturating_mul(8).saturating_add(4096),
+                                        )?;
+                                        let domain::graph::Entity::CatalogMember(member) =
+                                            serde_json::from_slice(canonical)
+                                                .map_err(ModelError::codec)?
+                                        else {
+                                            return Err(ModelError::Schema(
+                                                "native member canonical kind",
+                                            ));
+                                        };
+                                        let modules = reader
+                                            .records::<domain::source::Module>(
+                                                lctx_native::reader::RecordSelection::Keys(vec![
+                                                    *member.access.bytes(),
+                                                ]),
+                                            )
+                                            .await?;
+                                        let matches = modules.iter().any(|module| {
+                                            module
+                                                .qualified_name
+                                                .split('.')
+                                                .map(str::to_owned)
+                                                .chain(member.path.iter().cloned())
+                                                .map(surrealdb::types::Value::String)
+                                                .collect::<Vec<_>>()
+                                                == path.as_slice()
+                                        });
+                                        if !matches {
+                                            continue;
+                                        }
+                                    }
                                     sorted
                                         .push(lctx_native::ordered_rows::Candidate {
                                             relation: catalog::CatalogMember::NAME.into(),
@@ -368,7 +459,7 @@ async fn collect_library_candidates<Context>(
 /// Candidate extraction has one indexed equality branch and no native union/order state.
 /// The path predicate is owned by the finite member operation, never request SQL.
 pub fn member_candidates_sql() -> &'static str {
-    "SELECT semantic_key,id AS node FROM entity WITH INDEX by_scope WHERE id IN (SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views) AND semantic_type='catalog_members' AND scope_keys CONTAINS $scope AND ($member=NONE OR $member=NULL OR semantic_key=$member) AND ($path=NONE OR $path=NULL OR { LET $member_node=id; LET $member_path=body.path; LET $access=SELECT VALUE out FROM reference WITH INDEX outgoing WHERE in=$member_node AND field='access'; LET $module=SELECT VALUE node.body.qualified_name FROM compiler_view_member WHERE view IN $lctx_views AND node.anchor IN $access; RETURN array::concat(string::split($module[0],'.'),$member_path)=$path; });"
+    "SELECT id FROM entity WITH INDEX by_scope WHERE semantic_type='catalog_members' AND scope_keys CONTAINS $scope AND ($member=NONE OR $member=NULL OR semantic_key=$member);"
 }
 
 #[cfg(test)]
@@ -530,9 +621,7 @@ mod streamed_library_tests {
             let input = InputRevision {
                 manifest: ContentHash::of(name.as_bytes()),
             };
-            let source =
-                SourceArtifact::from_bytes(input.id(), format!("{name}.py"), name.as_bytes())
-                    .unwrap();
+            let source = SourceArtifact::from_bytes(input.id(), format!("{name}.py"), b"").unwrap();
             let module = Module {
                 source: source.id(),
                 qualified_name: "discovery".into(),
@@ -585,6 +674,33 @@ mod streamed_library_tests {
         let native = crate::scoped_fixture::reader(&config, &entities, &assertions)
             .await
             .unwrap();
+        let mut foreign_member = members[1].clone();
+        foreign_member.path = vec!["unselected".into()];
+        foreign_member.name = "unselected".into();
+        assert_ne!(
+            foreign_member.id(),
+            members[1].id(),
+            "a valid foreign candidate shares the selected input scope but has no selected membership"
+        );
+        let mut foreign_module = entities
+            .iter()
+            .find_map(|entity| match entity {
+                Entity::Module(module) => Some(module.clone()),
+                _ => None,
+            })
+            .unwrap();
+        foreign_module.qualified_name = "unselected.module".into();
+        let foreign_copy = crate::scoped_fixture::reader(
+            &config,
+            &[
+                Entity::CatalogMember(foreign_member),
+                Entity::Module(foreign_module),
+            ],
+            &[],
+        )
+        .await
+        .unwrap();
+        native.store.abandon().await.unwrap();
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
         let library = Name::new("discovery-selected").unwrap();
         let mut expected = members[..2].to_vec();
@@ -630,11 +746,33 @@ mod streamed_library_tests {
             assert_eq!(selected.as_slice(), &members[1..2]);
         }
         assert_eq!(budget.reserved(), 0);
+        let cancelled = native
+            .reader
+            .clone()
+            .with_read_cancellation(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
+                true,
+            )));
+        assert!(
+            super::members(&cancelled, Some(&library), None, &budget)
+                .await
+                .is_err(),
+            "cancellation is not successful empty discovery"
+        );
+        drop(cancelled);
         for library in [surrealdb::types::Value::None, surrealdb::types::Value::Null] {
-            let mut vars = native.view_bindings();
+            let mut vars = Variables::new();
             vars.insert("library", library);
             let mut packages = native
-                .query_stream(library_packages_sql(), vars, 1)
+                .candidate_payload_rows(
+                    lctx_native::prepared::PreparedQuery::new(
+                        vars,
+                        vec![],
+                        vec![library_packages_sql().into()],
+                    )
+                    .unwrap(),
+                    "entity",
+                    "semantic_key",
+                )
                 .unwrap();
             let mut count = 0;
             while packages.next().await.unwrap().is_some() {
@@ -655,7 +793,7 @@ mod streamed_library_tests {
             (
                 library_releases_sql(),
                 "incoming",
-                "package",
+                "package_anchor",
                 surrealdb::types::Value::RecordId(reader::target_id(
                     domain::graph::Target::Entity(domain::graph::EntityId::of(package.id())),
                 )),
@@ -663,13 +801,13 @@ mod streamed_library_tests {
             (
                 library_inputs_sql(),
                 "incoming",
-                "release",
+                "release_anchor",
                 surrealdb::types::Value::RecordId(reader::target_id(
                     domain::graph::Target::Entity(domain::graph::EntityId::of(second.id())),
                 )),
             ),
         ] {
-            let mut vars = native.view_bindings();
+            let mut vars = Variables::new();
             vars.insert(binding, value);
             let plan: serde_json::Value = native
                 .query(format!("{} EXPLAIN", sql.trim_end_matches(';')), vars)
@@ -692,7 +830,7 @@ mod streamed_library_tests {
         }
         // The real parent stream emits a package, allowing all descendants to submit
         // candidates, before its later terminal fails. It cannot seal sorted output.
-        let mut vars = native.view_bindings();
+        let mut vars = Variables::new();
         vars.insert("library", library.as_str().to_owned());
         vars.insert("member", surrealdb::types::Value::Null);
         vars.insert("path", surrealdb::types::Value::Null);
@@ -700,7 +838,7 @@ mod streamed_library_tests {
             .query_stream(
                 format!(
                     "{} THROW 'late upstream library failure';",
-                    library_packages_sql()
+                    library_packages_sql().replacen("SELECT id", "SELECT *", 1)
                 ),
                 vars.clone(),
                 2,
@@ -724,5 +862,224 @@ mod streamed_library_tests {
         sorted.drain().await.unwrap();
         assert_eq!(budget.reserved(), 0);
         native.close().await.unwrap();
+        foreign_copy.close().await.unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn scoped_nomination_and_get_preserve_same_nominal_copy_selected_alias_and_abandoned_source()
+     {
+        use domain::{
+            Id,
+            normalized::entities::EntityRef,
+            retrieval::{Family, Unit},
+            value::Place,
+        };
+        use surrealdb::types::Value;
+        fn id<R: Record>(byte: u8) -> Id<R> {
+            serde_json::from_value(serde_json::json!(vec![byte; 16])).unwrap()
+        }
+        let config = crate::scoped_fixture::config();
+        let selected = Unit {
+            input: id(71),
+            context: id(72),
+            family: Family::ApiOptions,
+            origin: id(73),
+            corpus: id(74),
+            title: "selected body".into(),
+        };
+        let mut foreign = selected.clone();
+        foreign.corpus = id(75);
+        foreign.title = "foreign body".into();
+        assert_eq!(selected.id(), foreign.id());
+        assert_ne!(selected, foreign);
+        let place = Place {
+            root: id(76),
+            path: id(77),
+        };
+        let alias = EntityRef::Place { place: place.id() };
+        let selected_node =
+            lctx_native::loader::entity_payload_id(&Entity::from(selected.clone())).unwrap();
+        let foreign_node =
+            lctx_native::loader::entity_payload_id(&Entity::from(foreign.clone())).unwrap();
+        let place_node =
+            lctx_native::loader::entity_payload_id(&Entity::from(place.clone())).unwrap();
+        let alias_node =
+            lctx_native::loader::entity_payload_id(&Entity::from(alias.clone())).unwrap();
+        assert_ne!(selected_node, foreign_node);
+        // Canonical Place endpoints are introduced at Normalized, not Facts. Use the
+        // real producer path so the reverse-alias witness is owned and audited.
+        let native = {
+            use domain::{
+                Relation,
+                admission::Frontier,
+                completed::ContributionSpec,
+                stages::{Profile, ProviderOutcome},
+            };
+            use lctx_compiler_store::compiler::NativeCompilerStore;
+            let store = NativeCompilerStore::begin(&config, Frontier::Normalized)
+                .await
+                .unwrap();
+            let budget = ResourceBudget::fixed(64 << 20).unwrap();
+            let relations = [Relation::of::<Unit>(), Relation::of::<Place>()];
+            let contribution = store
+                .begin_contribution(ContributionSpec {
+                    captured_binding: None,
+                    producer: "scoped-normalized-alias-fixture".into(),
+                    profile: domain::completed::OutputProfile::Specific(Profile::Catalog),
+                    model: domain::model().unwrap().digest(),
+                    implementation: ContentHash::of(b"scoped-normalized-alias-fixture/v1"),
+                    configuration: None,
+                    inputs: vec![],
+                    outputs: relations
+                        .iter()
+                        .map(|relation| relation.name().to_owned())
+                        .collect(),
+                })
+                .await
+                .unwrap();
+            store
+                .write_batch(
+                    &contribution,
+                    &relations[0],
+                    &Unit::encode(std::slice::from_ref(&selected)).unwrap(),
+                    &budget,
+                )
+                .await
+                .unwrap();
+            store
+                .write_batch(
+                    &contribution,
+                    &relations[1],
+                    &Place::encode(&[place]).unwrap(),
+                    &budget,
+                )
+                .await
+                .unwrap();
+            let views = store
+                .complete_contribution(
+                    contribution,
+                    ProviderOutcome::Complete,
+                    &relations,
+                    &std::collections::BTreeMap::new(),
+                    &budget,
+                )
+                .await
+                .unwrap();
+            let descriptors = views.values().cloned().collect::<Vec<_>>();
+            let reader = store.reader_for_views(&descriptors, &budget).await.unwrap();
+            let mut installed = Vec::new();
+            for view in &descriptors {
+                installed.push(store.installed_view(view, &budget).await.unwrap());
+            }
+            crate::scoped_fixture::ScopedFixture {
+                reader,
+                store,
+                installed,
+            }
+        };
+        let other = crate::scoped_fixture::reader(&config, &[Entity::from(foreign)], &[])
+            .await
+            .unwrap();
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        native.store.abandon().await.unwrap();
+        let result = async {
+            let answers = native
+                .selected_membership(
+                    &[
+                        selected_node.clone(),
+                        foreign_node.clone(),
+                        alias_node.clone(),
+                    ],
+                    &budget,
+                )
+                .await?;
+            assert!(answers.contains(&selected_node));
+            assert!(!answers.contains(&foreign_node));
+            assert!(answers.contains(&alias_node));
+            let alias_answer = answers
+                .answers
+                .iter()
+                .find(|answer| answer.requested == alias_node)
+                .unwrap();
+            assert!(!alias_answer.witnesses.is_empty());
+            assert!(
+                alias_answer
+                    .witnesses
+                    .iter()
+                    .all(|witness| witness.member == place_node
+                        && witness.ancestry == vec![alias_node.clone(), place_node.clone()]),
+                "alias access comes only from its selected Place owner"
+            );
+            drop(answers);
+            let mut vars = Variables::new();
+            vars.insert(
+                "nodes",
+                vec![selected_node.clone(), foreign_node, alias_node.clone()],
+            );
+            let query = lctx_native::prepared::PreparedQuery::new(
+                vars,
+                vec![],
+                vec!["SELECT id FROM $nodes".into()],
+            )?;
+            let mut rows = native.candidate_payload_rows(query, "entity", "semantic_key")?;
+            let observed = async {
+                let mut actual = std::collections::BTreeSet::new();
+                while let Some(row) = rows.next().await? {
+                    let Some(Value::RecordId(node)) = row.as_object().and_then(|row| row.get("id"))
+                    else {
+                        return Err(ModelError::Schema("scoped nominated physical identity"));
+                    };
+                    actual.insert(node.clone());
+                }
+                assert_eq!(
+                    actual,
+                    std::collections::BTreeSet::from([selected_node, alias_node])
+                );
+                Ok::<_, ModelError>(())
+            }
+            .await;
+            let mut terminal = domain::completion::Completion::default();
+            terminal.step(
+                "scoped nomination complete drain",
+                rows.drain_transport().await,
+            );
+            domain::completion::complete(observed, terminal)?;
+            assert_eq!(
+                native
+                    .records::<Unit>(lctx_native::RecordSelection::Keys(vec![
+                        *selected.id().bytes()
+                    ]))
+                    .await?,
+                vec![selected]
+            );
+            assert_eq!(
+                native
+                    .records::<EntityRef>(lctx_native::RecordSelection::Keys(vec![
+                        *alias.id().bytes()
+                    ]))
+                    .await?,
+                vec![alias]
+            );
+            assert!(
+                native
+                    .records::<Unit>(lctx_native::RecordSelection::Keys(vec![]))
+                    .await?
+                    .is_empty()
+            );
+            Ok::<_, ModelError>(())
+        }
+        .await;
+        let mut terminal = domain::completion::Completion::default();
+        terminal.step("scoped selected fixture close", native.close().await);
+        terminal.step("scoped foreign fixture close", other.close().await);
+        domain::completion::complete(result, terminal).unwrap();
+        assert!(
+            native
+                .records::<Unit>(lctx_native::RecordSelection::Keys(vec![]))
+                .await
+                .is_err(),
+            "empty demand cannot bypass released scope authority"
+        );
+        assert_eq!(budget.reserved(), 0);
     }
 }

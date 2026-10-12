@@ -1,4 +1,5 @@
 use futures::TryStreamExt;
+use lctx_compiler_store::compiler::{NativeCompilerStore, NativePredicate};
 use lctx_model::domain::{
     ContentHash, ModelError, Record, Relation,
     completed::{CompletedBinding, ContributionSpec},
@@ -7,7 +8,6 @@ use lctx_model::domain::{
     stages::{Profile, ProviderOutcome},
 };
 use lctx_native::RuntimeConfig;
-use lctx_compiler_store::compiler::{NativeCompilerStore, NativePredicate};
 use std::collections::{BTreeMap, BTreeSet};
 
 async fn fixture_client(
@@ -49,21 +49,21 @@ async fn compiler_backing_nodes(
     let mut bindings = lctx_native::surrealdb::types::Variables::new();
     bindings.insert(
         "owner",
-        lctx_native::surrealdb::types::RecordId::new(
-            "compiler_contribution",
-            contribution.hex(),
-        ),
+        lctx_native::surrealdb::types::RecordId::new("compiler_contribution", contribution.hex()),
     );
-    let reader=lctx_native::NativeReader::private(client.clone()).with_budget(budget);
+    let reader = lctx_native::NativeReader::private(client.clone()).with_budget(budget);
     let result=reader
         .query_native(
             "SELECT VALUE node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND record::table(node)='compiler_record'",
             bindings,
         )
         .await;
-    let mut completion=lctx_model::domain::completion::Completion::default();
-    completion.step("compiler backing control reader close",reader.close().await);
-    lctx_model::domain::completion::complete(result,completion).unwrap()
+    let mut completion = lctx_model::domain::completion::Completion::default();
+    completion.step(
+        "compiler backing control reader close",
+        reader.close().await,
+    );
+    lctx_model::domain::completion::complete(result, completion).unwrap()
 }
 
 async fn abandon_known_failure(
@@ -94,10 +94,7 @@ async fn abandon_known_failure(
         .query("SELECT VALUE state FROM $attempt")
         .bind((
             "attempt",
-            lctx_native::surrealdb::types::RecordId::new(
-                "native_attempt",
-                store.attempt().hex(),
-            ),
+            lctx_native::surrealdb::types::RecordId::new("native_attempt", store.attempt().hex()),
         ))
         .await
         .unwrap()
@@ -165,10 +162,7 @@ async fn abandon_acknowledged_write_failure(
         .query("SELECT VALUE state FROM $attempt")
         .bind((
             "attempt",
-            lctx_native::surrealdb::types::RecordId::new(
-                "native_attempt",
-                store.attempt().hex(),
-            ),
+            lctx_native::surrealdb::types::RecordId::new("native_attempt", store.attempt().hex()),
         ))
         .await
         .unwrap()
@@ -189,10 +183,7 @@ fn assert_acknowledged_native_guard(failure: &ModelError, guard: &str) {
         })
         .expect("exact native transaction guard cause");
     assert!(native.is_thrown());
-    assert_eq!(
-        native.message(),
-        format!("An error occurred: {guard}")
-    );
+    assert_eq!(native.message(), format!("An error occurred: {guard}"));
     let Value::Object(wire) = Value::from_t(native.clone()) else {
         panic!("native error wire object");
     };
@@ -295,7 +286,8 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .await
         .unwrap();
     restored.abandon().await.unwrap();
-    let backing_nodes = compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
+    let backing_nodes =
+        compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
     assert_eq!(backing_nodes.len(), 1);
 
     let mut before = admin
@@ -594,10 +586,15 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
         .await
         .unwrap();
     store
-        .write_batch(&contribution, &relation, &Package::encode(&rows).unwrap(), &native_operation_budget)
+        .write_batch(
+            &contribution,
+            &relation,
+            &Package::encode(&rows).unwrap(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
-    store
+    let views = store
         .complete_contribution(
             contribution,
             ProviderOutcome::Complete,
@@ -607,6 +604,23 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
         )
         .await
         .unwrap();
+    let view = views[relation.name()].clone();
+    store
+        .bind(CompletedBinding {
+            boundary: None,
+            source: lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+                &relation,
+                spec("membership-identity", &relation).model,
+                &view,
+            )
+            .unwrap(),
+            view: view.clone(),
+            configuration: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(view.rows, rows.len() as u64);
+    assert_eq!(store.views().await.unwrap(), vec![view]);
     store.verify_state(&native_operation_budget).await.unwrap();
 
     let mut response = admin
@@ -660,17 +674,21 @@ async fn cold_backing_rejects_coherently_renamed_membership_identity() {
         observed, payload,
         "renaming preserves every membership claim and backing pointer"
     );
-    assert!(matches!(
-        store.verify_state(&native_operation_budget).await,
-        Err(ModelError::Conflict(
-            "compiler membership physical identity"
-        ))
-    ));
+    let refusal = store.verify_state(&native_operation_budget).await;
     let mut restore = Variables::new();
     restore.insert("original", original);
     restore.insert("renamed", renamed);
     restore.insert("payload", Value::Object(payload));
     admin.query("BEGIN TRANSACTION; DELETE $renamed; CREATE $original CONTENT $payload; COMMIT TRANSACTION;").bind(restore).await.unwrap().check().unwrap();
+    assert!(
+        matches!(
+            refusal.as_ref().err().and_then(ModelError::primary),
+            Some(ModelError::Conflict(
+                "compiler membership physical identity"
+            ))
+        ),
+        "{refusal:?}"
+    );
     store.verify_state(&native_operation_budget).await.unwrap();
     store.abandon().await.unwrap();
 }
@@ -1061,7 +1079,8 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         .unwrap();
     let counts: Vec<serde_json::Value> = response.take(0).unwrap();
     assert_eq!(counts, vec![serde_json::json!({"rows":16})]);
-    let backing_nodes = compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
+    let backing_nodes =
+        compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
     assert_eq!(backing_nodes.len(), 1);
     let mut response = admin
         .query("SELECT VALUE body FROM $nodes WHERE record::table(id)='compiler_record'")
@@ -1182,7 +1201,10 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         )
         .await
         .unwrap_err();
-    assert_acknowledged_native_guard(&error, "completed original blob refuses missing or changed piece");
+    assert_acknowledged_native_guard(
+        &error,
+        "completed original blob refuses missing or changed piece",
+    );
     assert!(store.check().is_err());
     abandon_acknowledged_write_failure(&store, &config, &error).await;
     admin.invalidate().await.unwrap();
@@ -1228,7 +1250,12 @@ async fn overlapping_membership_windows_count_distinct_keys_across_contributors(
             .collect::<Vec<_>>();
         if !rows.is_empty() {
             store
-                .write_batch(&contribution, &relation, &Package::encode(&rows).unwrap(), &native_operation_budget)
+                .write_batch(
+                    &contribution,
+                    &relation,
+                    &Package::encode(&rows).unwrap(),
+                    &native_operation_budget,
+                )
                 .await
                 .unwrap();
         }
@@ -1275,8 +1302,8 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
     let native_operation_budget =
         lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use arrow_array::{FixedSizeBinaryArray, StringArray};
-    use lctx_model::domain::{graph::Entity, input::Release};
     use lctx_compiler_store::compiler_provider::{select_field_table, select_table};
+    use lctx_model::domain::{graph::Entity, input::Release};
     use lctx_native::surrealdb::types::{Number, Value};
     use std::sync::Arc;
 
@@ -1329,7 +1356,12 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
             .map(|index| releases[index].clone())
             .collect::<Vec<_>>();
         store
-            .write_batch(&contribution, &relation, &Release::encode(&rows).unwrap(), &native_operation_budget)
+            .write_batch(
+                &contribution,
+                &relation,
+                &Release::encode(&rows).unwrap(),
+                &native_operation_budget,
+            )
             .await
             .unwrap();
         views = store
@@ -1515,7 +1547,8 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
         ("all_frozen", None),
     ] {
         let provider = store
-            .table_provider(&frozen, relation.clone(), budget.clone(), 37).await
+            .table_provider(&frozen, relation.clone(), budget.clone(), 37)
+            .await
             .unwrap();
         let charge = Arc::new(lctx_model::domain::charged::StateCharge::new(
             &budget,
@@ -1641,7 +1674,8 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
         );
     }
     let provider = store
-        .table_provider(&frozen, relation.clone(), budget.clone(), 37).await
+        .table_provider(&frozen, relation.clone(), budget.clone(), 37)
+        .await
         .unwrap();
     let charge = Arc::new(lctx_model::domain::charged::StateCharge::new(
         &budget,
@@ -1690,7 +1724,8 @@ async fn large_exact_key_and_atomic_field_selections_preserve_frozen_membership(
     // An unsupported residual stays above the source. Fetch must consume rejected
     // rows before counting output, and cannot stop on the first native candidate.
     let provider = store
-        .table_provider(&frozen, relation.clone(), budget.clone(), 37).await
+        .table_provider(&frozen, relation.clone(), budget.clone(), 37)
+        .await
         .unwrap();
     let session = datafusion::prelude::SessionContext::new();
     session.register_table("fetch_frozen", provider).unwrap();
@@ -1749,10 +1784,10 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
             .unwrap();
     let relation = Relation::of::<lctx_model::domain::value::Place>();
     let first = lctx_model::domain::value::Place {
-        root:serde_json::from_value(serde_json::to_value([21u8;16]).unwrap()).unwrap(),
-        path:serde_json::from_value(serde_json::to_value([22u8;16]).unwrap()).unwrap(),
+        root: serde_json::from_value(serde_json::to_value([21u8; 16]).unwrap()).unwrap(),
+        path: serde_json::from_value(serde_json::to_value([22u8; 16]).unwrap()).unwrap(),
     };
-    let alias=lctx_model::domain::normalized::entities::EntityRef::Place{place:first.id()};
+    let alias = lctx_model::domain::normalized::entities::EntityRef::Place { place: first.id() };
     let pending = Package {
         name: "pending-unselected".into(),
     };
@@ -1783,7 +1818,7 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
         )
         .await
         .unwrap();
-    let views=store
+    let views = store
         .complete_contribution(
             complete,
             ProviderOutcome::Complete,
@@ -1793,15 +1828,37 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
         )
         .await
         .unwrap();
-    for selected_relation in [&relation,&Relation::of::<QualityStep>()]{
-        let view=views[selected_relation.name()].clone();
-        store.bind(CompletedBinding{boundary:None,
-            source:lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(selected_relation,spec("complete",&relation).model,&view).unwrap(),
-            view,configuration:None}).await.unwrap();
+    for selected_relation in [&relation, &Relation::of::<QualityStep>()] {
+        let view = views[selected_relation.name()].clone();
+        store
+            .bind(CompletedBinding {
+                boundary: None,
+                source: lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+                    selected_relation,
+                    spec("complete", &relation).model,
+                    &view,
+                )
+                .unwrap(),
+                view,
+                configuration: None,
+            })
+            .await
+            .unwrap();
     }
-    let pending_relation=Relation::of::<Package>();
-    let uncompleted=store.begin_contribution(spec("pending",&pending_relation)).await.unwrap();
-    store.write_batch(&uncompleted,&pending_relation,&Package::encode(&[pending]).unwrap(),&native_operation_budget).await.unwrap();
+    let pending_relation = Relation::of::<Package>();
+    let uncompleted = store
+        .begin_contribution(spec("pending", &pending_relation))
+        .await
+        .unwrap();
+    store
+        .write_batch(
+            &uncompleted,
+            &pending_relation,
+            &Package::encode(&[pending]).unwrap(),
+            &native_operation_budget,
+        )
+        .await
+        .unwrap();
     let mut rows = store.scan_canonical(true, &budget).await.unwrap();
     let mut selected = BTreeSet::new();
     while let Some(row) = rows.next().await.unwrap() {
@@ -1812,7 +1869,10 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
         let entity: Entity = serde_json::from_slice(&bytes).unwrap();
         selected.insert(entity.id());
     }
-    assert_eq!(selected,BTreeSet::from([Entity::from(first).id(),Entity::from(alias).id()]));
+    assert_eq!(
+        selected,
+        BTreeSet::from([Entity::from(first).id(), Entity::from(alias).id()])
+    );
     let mut headers = store.scan_graph_headers(true, &budget).await.unwrap();
     let mut count = 0;
     while headers.next().await.unwrap().is_some() {
@@ -1827,38 +1887,107 @@ async fn canonical_graph_scans_select_completed_families_and_one_hop_aliases() {
     store.abandon().await.unwrap();
 }
 
-#[tokio::test(flavor="multi_thread")]
-async fn installed_reader_pins_exact_closure_through_source_abandon_and_releases_after_drain(){
-    use lctx_native::surrealdb::types::{RecordId,Variables};
-    let config=RuntimeConfig::read(&std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"))).unwrap();
-    let budget=ResourceBudget::fixed(256<<20).unwrap();
-    let store=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
-    let relation=Relation::of::<Package>();let nonce=lctx_native::control::fresh_identity("installed-reader-lifetime").unwrap();
-    let row=Package{name:format!("installed-reader-{}",nonce.hex())};
-    let physical=store.begin_contribution(spec(&format!("reader-{}",nonce.hex()),&relation)).await.unwrap();
-    store.write_batch(&physical,&relation,&Package::encode(std::slice::from_ref(&row)).unwrap(),&budget).await.unwrap();
-    let views=store.complete_contribution(physical,ProviderOutcome::Complete,std::slice::from_ref(&relation),&BTreeMap::new(),&budget).await.unwrap();
-    let view=&views[relation.name()];let held=store.installed_view(view,&budget).await.unwrap();
-    let completion=held.completion().record().unwrap();
-    let client=fixture_client(&store,&config).await;
-    let reader=lctx_native::NativeReader::for_installed_views(client.clone(),std::slice::from_ref(&held),&budget).await.unwrap();
-    let from_store=store.reader_for_views(std::slice::from_ref(view),&budget).await.unwrap();
-    let observer=lctx_native::NativeReader::private(client.clone()).with_budget(&budget);
-    let pins=async {
-        let mut bindings=Variables::new();bindings.insert("completion",completion.clone());
+#[tokio::test(flavor = "multi_thread")]
+async fn installed_reader_pins_exact_closure_through_source_abandon_and_releases_after_drain() {
+    use lctx_native::surrealdb::types::{RecordId, Variables};
+    let config = RuntimeConfig::read(&std::path::PathBuf::from(
+        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture"),
+    ))
+    .unwrap();
+    let budget = ResourceBudget::fixed(256 << 20).unwrap();
+    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
+        .await
+        .unwrap();
+    let relation = Relation::of::<Package>();
+    let nonce = lctx_native::control::fresh_identity("installed-reader-lifetime").unwrap();
+    let row = Package {
+        name: format!("installed-reader-{}", nonce.hex()),
+    };
+    let physical = store
+        .begin_contribution(spec(&format!("reader-{}", nonce.hex()), &relation))
+        .await
+        .unwrap();
+    store
+        .write_batch(
+            &physical,
+            &relation,
+            &Package::encode(std::slice::from_ref(&row)).unwrap(),
+            &budget,
+        )
+        .await
+        .unwrap();
+    let views = store
+        .complete_contribution(
+            physical,
+            ProviderOutcome::Complete,
+            std::slice::from_ref(&relation),
+            &BTreeMap::new(),
+            &budget,
+        )
+        .await
+        .unwrap();
+    let view = &views[relation.name()];
+    let held = store.installed_view(view, &budget).await.unwrap();
+    let completion = held.completion().record().unwrap();
+    let client = fixture_client(&store, &config).await;
+    let reader = lctx_native::NativeReader::for_installed_views(
+        client.clone(),
+        std::slice::from_ref(&held),
+        &budget,
+    )
+    .await
+    .unwrap();
+    let from_store = store
+        .reader_for_views(std::slice::from_ref(view), &budget)
+        .await
+        .unwrap();
+    let observer = lctx_native::NativeReader::private(client.clone()).with_budget(&budget);
+    let pins = async {
+        let mut bindings = Variables::new();
+        bindings.insert("completion", completion.clone());
         observer.query_native::<Vec<RecordId>>("SELECT VALUE owner FROM native_hold WHERE object=$completion AND record::table(owner)='native_pin'",bindings).await
     };
-    let before=pins.await.unwrap();assert_eq!(before.len(),2,"reader owns its exact completion independently of source attempt");
+    let before = pins.await.unwrap();
+    assert_eq!(
+        before.len(),
+        2,
+        "reader owns its exact completion independently of source attempt"
+    );
     store.abandon().await.unwrap();
-    for selected in [&reader,&from_store]{
-        assert_eq!(selected.records::<Package>(lctx_native::reader::RecordSelection::Keys(vec![*row.id().bytes()])).await.unwrap(),vec![row.clone()],"source invalidation cannot end independently owned reader sessions");
+    for selected in [&reader, &from_store] {
+        assert_eq!(
+            selected
+                .records::<Package>(lctx_native::reader::RecordSelection::Keys(vec![
+                    *row.id().bytes()
+                ]))
+                .await
+                .unwrap(),
+            vec![row.clone()],
+            "source invalidation cannot end independently owned reader sessions"
+        );
     }
-    reader.close().await.unwrap();drop(reader);from_store.close().await.unwrap();drop(from_store);
-    let mut bindings=Variables::new();bindings.insert("completion",completion);
+    reader.close().await.unwrap();
+    drop(reader);
+    from_store.close().await.unwrap();
+    drop(from_store);
+    let mut bindings = Variables::new();
+    bindings.insert("completion", completion);
     let after:Vec<RecordId>=observer.query_native("SELECT VALUE owner FROM native_hold WHERE object=$completion AND record::table(owner)='native_pin'",bindings).await.unwrap();
-    assert!(after.is_empty(),"confirmed reader drainage releases its exact closure pin");
-    for pin in before {assert!(lctx_native::control::retirement_eligibility(&client,pin).await.unwrap().eligible,"released pin may enter ordinary retirement");}
-    observer.close().await.unwrap();client.invalidate().await.unwrap();
+    assert!(
+        after.is_empty(),
+        "confirmed reader drainage releases its exact closure pin"
+    );
+    for pin in before {
+        assert!(
+            lctx_native::control::retirement_eligibility(&client, pin)
+                .await
+                .unwrap()
+                .eligible,
+            "released pin may enter ordinary retirement"
+        );
+    }
+    observer.close().await.unwrap();
+    client.invalidate().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1891,13 +2020,27 @@ async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
         .unwrap();
     let frozen = views[relation.name()].clone();
     assert_eq!(frozen.rows, 0);
-    let native=store.reader_for_views(std::slice::from_ref(&frozen),&budget).await.unwrap();
-    assert!(native.records::<Package>(lctx_native::reader::RecordSelection::Keys(vec![])).await.unwrap().is_empty());
-    let mut empty=native.relation_bodies(Package::NAME,0).unwrap();
-    assert!(empty.next().await.unwrap().is_none());empty.drain_transport().await.unwrap();drop(empty);
-    let mut empty=native.relation_bodies(Package::NAME,1).unwrap();
-    assert!(empty.next().await.unwrap().is_none());empty.drain_transport().await.unwrap();drop(empty);
-    native.close().await.unwrap();drop(native);
+    let native = store
+        .reader_for_views(std::slice::from_ref(&frozen), &budget)
+        .await
+        .unwrap();
+    assert!(
+        native
+            .records::<Package>(lctx_native::reader::RecordSelection::Keys(vec![]))
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let mut empty = native.relation_bodies(Package::NAME, 0).unwrap();
+    assert!(empty.next().await.unwrap().is_none());
+    empty.drain_transport().await.unwrap();
+    drop(empty);
+    let mut empty = native.relation_bodies(Package::NAME, 1).unwrap();
+    assert!(empty.next().await.unwrap().is_none());
+    empty.drain_transport().await.unwrap();
+    drop(empty);
+    native.close().await.unwrap();
+    drop(native);
 
     assert!(
         store
@@ -1989,7 +2132,8 @@ async fn exact_empty_reads_retain_view_shape_and_lifecycle_checks() {
     // An empty physical demand is also preserved through the shared selected provider.
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     let provider = store
-        .table_provider(view, relation.clone(), budget.clone(), 8).await
+        .table_provider(view, relation.clone(), budget.clone(), 8)
+        .await
         .unwrap();
     let charge = std::sync::Arc::new(lctx_model::domain::charged::StateCharge::new(
         &budget,
@@ -2463,8 +2607,14 @@ async fn singleton_output_namespaces_preserve_logical_state_and_refuse_unowned_r
         descriptor.outputs[relation.name()].rows,
     )
     .unwrap();
-    let mut selected=cold.scan_rows(&singleton,&relation,None,None,&budget).await.unwrap();
-    assert!(selected.next().await.unwrap().is_some(),"production prepares exact singleton authority before an optional capture");
+    let mut selected = cold
+        .scan_rows(&singleton, &relation, None, None, &budget)
+        .await
+        .unwrap();
+    assert!(
+        selected.next().await.unwrap().is_some(),
+        "production prepares exact singleton authority before an optional capture"
+    );
     assert!(selected.next().await.unwrap().is_none());
     assert!(matches!(
         cold.scan_contribution_batches(
@@ -2527,16 +2677,24 @@ async fn singleton_output_namespaces_preserve_logical_state_and_refuse_unowned_r
 
 /// Arbitrary raw relation order is a public ingress contract. Replay lives in native
 /// attempt ownership, while path/revision layouts share only their complete byte blob.
-#[tokio::test(flavor="multi_thread")]
-async fn missing_source_headers_replay_native_staging_into_shared_and_empty_blobs(){
+#[tokio::test(flavor = "multi_thread")]
+async fn missing_source_headers_replay_native_staging_into_shared_and_empty_blobs() {
     use futures::FutureExt;
-    use lctx_model::domain::{artifact::ArtifactChunk,input::InputRevision,source::SourceArtifact,EvidenceBytes,completion};
+    use lctx_model::domain::{
+        EvidenceBytes, artifact::ArtifactChunk, completion, input::InputRevision,
+        source::SourceArtifact,
+    };
     use lctx_native::surrealdb::types::RecordId;
-    let budget=ResourceBudget::fixed(256<<20).unwrap();
-    let config=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"))).unwrap();
-    let store=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
-    let admin=fixture_client(&store,&config).await;
-    let reader=lctx_native::NativeReader::private(admin.clone()).with_budget(&budget);
+    let budget = ResourceBudget::fixed(256 << 20).unwrap();
+    let config = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
+    ))
+    .unwrap();
+    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
+        .await
+        .unwrap();
+    let admin = fixture_client(&store, &config).await;
+    let reader = lctx_native::NativeReader::private(admin.clone()).with_budget(&budget);
     let result=std::panic::AssertUnwindSafe(async{
         let mut bytes=vec![0xff;1024*1024];bytes[..32].copy_from_slice(&store.attempt().0);
         let input=InputRevision::from_entries(vec![]).unwrap().id();
@@ -2566,24 +2724,46 @@ async fn missing_source_headers_replay_native_staging_into_shared_and_empty_blob
         let counts:Vec<serde_json::Value>=response.take(0).unwrap();let held:Vec<RecordId>=response.take(1).unwrap();
         assert_eq!(counts,vec![serde_json::json!({"n":16})],"two logical artifacts retain one shared physical body");assert_eq!(held.len(),1,"staging remains owned until terminal cleanup acknowledges nomination");
     }).catch_unwind().await;
-    let mut cleanup=completion::Completion::default();cleanup.step("staging reader close",reader.close().await);cleanup.step("staging attempt cleanup",store.abandon().await);cleanup.step("staging observer invalidation",admin.invalidate().await.map_err(ModelError::codec));
-    let cleanup=completion::complete(Ok(()),cleanup);
-    if let Err(primary)=result{if let Err(secondary)=cleanup{eprintln!("staging control cleanup failed: {secondary:#?}");}std::panic::resume_unwind(primary);}cleanup.unwrap();
+    let mut cleanup = completion::Completion::default();
+    cleanup.step("staging reader close", reader.close().await);
+    cleanup.step("staging attempt cleanup", store.abandon().await);
+    cleanup.step(
+        "staging observer invalidation",
+        admin.invalidate().await.map_err(ModelError::codec),
+    );
+    let cleanup = completion::complete(Ok(()), cleanup);
+    if let Err(primary) = result {
+        if let Err(secondary) = cleanup {
+            eprintln!("staging control cleanup failed: {secondary:#?}");
+        }
+        std::panic::resume_unwind(primary);
+    }
+    cleanup.unwrap();
 }
 
 /// Shared dependency metadata never stands in for each physical producer's edge.
 /// The later logical contributor is deliberate: deleting the first edge would not
 /// reveal a cache shortcut that validates only the first incoming dependency.
-#[tokio::test(flavor="multi_thread")]
+#[tokio::test(flavor = "multi_thread")]
 async fn shared_dependency_view_requires_each_selected_contributors_exact_hold() {
     use futures::FutureExt;
-    use lctx_model::domain::{analysis::sources::SourceSnapshot,completion::{Completion,complete}};
-    use lctx_native::surrealdb::types::{Object,RecordId,Value};
-    let config=RuntimeConfig::read(&std::path::PathBuf::from(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned format-6 native fixture"))).unwrap();
-    let source=NativeCompilerStore::begin(&config,lctx_model::domain::admission::Frontier::Facts).await.unwrap();
-    let admin=fixture_client(&source,&config).await;let budget=ResourceBudget::fixed(256<<20).unwrap();
-    let nonce=lctx_native::control::fresh_identity("shared-dependency-edge-control").unwrap();
-    let mut restore:Option<(Object,Object,Object)>=None;
+    use lctx_model::domain::{
+        analysis::sources::SourceSnapshot,
+        completion::{Completion, complete},
+    };
+    use lctx_native::surrealdb::types::{Object, RecordId, Value};
+    let config = RuntimeConfig::read(&std::path::PathBuf::from(
+        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned format-6 native fixture"),
+    ))
+    .unwrap();
+    let source =
+        NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
+            .await
+            .unwrap();
+    let admin = fixture_client(&source, &config).await;
+    let budget = ResourceBudget::fixed(256 << 20).unwrap();
+    let nonce = lctx_native::control::fresh_identity("shared-dependency-edge-control").unwrap();
+    let mut restore: Option<(Object, Object, Object)> = None;
     let outcome=std::panic::AssertUnwindSafe(async {
         let relation=Relation::of::<Package>();
         let leaf=source.begin_contribution(spec(&format!("leaf-{}",nonce.hex()),&relation)).await.unwrap();
@@ -2623,18 +2803,116 @@ async fn shared_dependency_view_requires_each_selected_contributors_exact_hold()
         let restored=lctx_native::installed_view::install_live_view(admin.clone(),source.attempt(),&view,&sealed.mappings,&budget).await.unwrap();
         assert_eq!(restored.completion(),&sealed,"dependency repair reholds the authentic original seal without resealing");
     }).catch_unwind().await;
-    let mut completion=Completion::default();
-    if let Some(edge)=restore.as_ref(){completion.step("owned dependency edge restoration",restore_dependency_edge(&admin,edge).await);}
-    completion.step("shared dependency control source close",source.abandon().await);
-    completion.step("shared dependency control observer close",admin.invalidate().await.map_err(ModelError::codec));
-    let cleanup=complete(Ok(()),completion);
-    if let Err(primary)=outcome {if let Err(error)=cleanup{eprintln!("dependency control cleanup: {error:#?}");}std::panic::resume_unwind(primary);}
+    let mut completion = Completion::default();
+    if let Some(edge) = restore.as_ref() {
+        completion.step(
+            "owned dependency edge restoration",
+            restore_dependency_edge(&admin, edge).await,
+        );
+    }
+    completion.step(
+        "shared dependency control source close",
+        source.abandon().await,
+    );
+    completion.step(
+        "shared dependency control observer close",
+        admin.invalidate().await.map_err(ModelError::codec),
+    );
+    let cleanup = complete(Ok(()), completion);
+    if let Err(primary) = outcome {
+        if let Err(error) = cleanup {
+            eprintln!("dependency control cleanup: {error:#?}");
+        }
+        std::panic::resume_unwind(primary);
+    }
     cleanup.unwrap();
 }
-async fn restore_dependency_edge(client:&std::sync::Arc<lctx_native::surrealdb::Surreal<lctx_native::surrealdb::engine::remote::grpc::Client>>,
-    original:&(lctx_native::surrealdb::types::Object,lctx_native::surrealdb::types::Object,lctx_native::surrealdb::types::Object))->Result<(),ModelError>{
-    let (edge,owner_guard,object_guard)=original;
+async fn restore_dependency_edge(
+    client: &std::sync::Arc<
+        lctx_native::surrealdb::Surreal<lctx_native::surrealdb::engine::remote::grpc::Client>,
+    >,
+    original: &(
+        lctx_native::surrealdb::types::Object,
+        lctx_native::surrealdb::types::Object,
+        lctx_native::surrealdb::types::Object,
+    ),
+) -> Result<(), ModelError> {
+    let (edge, owner_guard, object_guard) = original;
     client.query("BEGIN; IF (SELECT * FROM ONLY $owner_guard.id)!=$owner_guard OR (SELECT * FROM ONLY $object_guard.id)!=$object_guard { THROW 'owned dependency restoration endpoints changed'; }; LET $actual=SELECT * FROM ONLY $edge.id; IF $actual!=NONE AND $actual!=$edge { THROW 'owned dependency restoration incidence changed'; }; IF $actual=NONE { fn::native_incidence($edge); CREATE $edge.id CONTENT $edge RETURN NONE; }; COMMIT;")
         .bind(("edge",edge.clone())).bind(("owner_guard",owner_guard.clone())).bind(("object_guard",object_guard.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
     Ok(())
+}
+
+/// Overlapping roots reuse a completed contributor only while a real native pin
+/// retains its immutable namespace. Distinct logical ranges still earn validation.
+#[tokio::test(flavor = "multi_thread")]
+async fn held_installation_scope_reuses_whole_blob_and_contributor_across_roots() {
+    use futures::FutureExt;
+    use lctx_model::domain::{
+        EvidenceBytes,
+        artifact::{ARTIFACT_CHUNK_BYTES, ArtifactChunk},
+        completion,
+        input::{InputRevision, Release},
+        source::SourceArtifact,
+    };
+    use lctx_native::installed_view::{InstallationAudit, install_live_view_scoped};
+    let config = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
+    ))
+    .unwrap();
+    let store = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
+        .await
+        .unwrap();
+    let admin = fixture_client(&store, &config).await;
+    let budget = ResourceBudget::fixed(768 << 20).unwrap();
+    let mut audit = InstallationAudit::new(admin.clone(), &budget)
+        .await
+        .unwrap();
+    let result=std::panic::AssertUnwindSafe(async{
+        let packages=Relation::of::<Package>();let releases=Relation::of::<Release>();let sources=Relation::of::<SourceArtifact>();let chunks=Relation::of::<ArtifactChunk>();
+        let relations=[packages.clone(),releases.clone(),sources.clone(),chunks.clone()];let mut specification=spec("held-installation-scope",&packages);
+        specification.outputs.extend(relations.iter().map(|relation|relation.name().to_owned()));
+        let contribution=store.begin_contribution(specification).await.unwrap();
+        let mut package_rows=(0..257).map(|index|Package{name:format!("scope-package-{index}")}).collect::<Vec<_>>();
+        package_rows.push(Package{name:"a".repeat(64<<10)});
+        store.write_batch(&contribution,&packages,&Package::encode(&package_rows).unwrap(),&budget).await.unwrap();
+        let release_rows=package_rows[..257].iter().map(|package|Release{package:package.id(),version:"1".into()}).collect::<Vec<_>>();
+        store.write_batch(&contribution,&releases,&Release::encode(&release_rows).unwrap(),&budget).await.unwrap();
+        let mut bytes=vec![0xff;ARTIFACT_CHUNK_BYTES*2+7];bytes[..32].copy_from_slice(&store.attempt().0);
+        let input=InputRevision::from_entries(vec![]).unwrap().id();
+        let source_rows=[SourceArtifact::from_bytes(input,"one.bin".into(),&bytes).unwrap(),SourceArtifact::from_bytes(input,"two.bin".into(),&bytes).unwrap()];
+        store.write_batch(&contribution,&sources,&SourceArtifact::encode(&source_rows).unwrap(),&budget).await.unwrap();
+        let chunk_rows=source_rows.iter().flat_map(|source|bytes.chunks(ARTIFACT_CHUNK_BYTES).enumerate().map(move |(ordinal,body)|ArtifactChunk{artifact:source.id(),ordinal:ordinal as i64,body:EvidenceBytes(body.to_vec())})).collect::<Vec<_>>();
+        store.write_batch(&contribution,&chunks,&ArtifactChunk::encode(&chunk_rows).unwrap(),&budget).await.unwrap();
+        let views=store.complete_contribution(contribution,ProviderOutcome::Complete,&relations,&BTreeMap::new(),&budget).await.unwrap();
+        for relation in &relations{
+            let view=&views[relation.name()];let baseline=store.installed_view(view,&budget).await.unwrap();
+            let mappings=baseline.completion().mappings.clone();
+            let checked=install_live_view_scoped(admin.clone(),store.attempt(),view,&mappings,&budget,&mut audit).await.unwrap();
+            assert_eq!(checked.completion(),baseline.completion());
+            assert_eq!(audit.observations(),(1,1),"all six logical ranges share one full blob observation, and later roots reuse exactly the retained contributor");
+            drop(checked);
+        }
+        audit.close().await.unwrap();
+        let view=&views[packages.name()];let baseline=store.installed_view(view,&budget).await.unwrap();
+        assert!(install_live_view_scoped(admin.clone(),store.attempt(),view,&baseline.completion().mappings,&budget,&mut audit).await.is_err(),"a released pin never retains reusable authority");
+    }).catch_unwind().await;
+    let mut cleanup = completion::Completion::default();
+    cleanup.step("installation observation pin release", audit.close().await);
+    cleanup.step(
+        "installation observation attempt cleanup",
+        store.abandon().await,
+    );
+    cleanup.step(
+        "installation observer invalidation",
+        admin.invalidate().await.map_err(ModelError::codec),
+    );
+    let cleaned = completion::complete(Ok(()), cleanup);
+    if let Err(panic) = result {
+        if let Err(error) = cleaned {
+            eprintln!("installation observation cleanup: {error:?}");
+        }
+        std::panic::resume_unwind(panic);
+    }
+    cleaned.unwrap();
 }

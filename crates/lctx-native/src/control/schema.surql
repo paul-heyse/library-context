@@ -29,6 +29,7 @@ DEFINE FIELD committed ON native_effect TYPE bool;
 DEFINE FIELD resolved ON native_effect TYPE bool;
 DEFINE FIELD revision ON native_effect TYPE int;
 DEFINE FIELD epoch ON native_effect TYPE int;
+DEFINE FIELD original_completion_outcome ON native_effect TYPE option<string> ASSERT $value=NONE OR $value IN ['applied','premise_changed'];
 DEFINE INDEX live_effects ON native_effect FIELDS resolved,id;
 DEFINE INDEX attempt_effects ON native_effect FIELDS attempt,id;
 DEFINE INDEX owner_effects ON native_effect FIELDS owner,resolved,id;
