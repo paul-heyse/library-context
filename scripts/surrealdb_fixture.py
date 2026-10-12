@@ -901,6 +901,8 @@ class Attachment:
 
 
 def serving_available(server: Server, name: str) -> dict[str, Any]:
+    if (server.directory / "serving" / _identifier(name) / "retired.json").exists():
+        raise FixtureBlocked("serving", "retained output was explicitly retired")
     identity = read_json(server.directory / "serving" / _identifier(name) / "identity.json")
     if not isinstance(identity, dict) or identity.get("fixture") != server.id:
         raise FixtureBlocked("serving", "no completed retained output on this installation")
@@ -912,6 +914,177 @@ def serving_available(server: Server, name: str) -> dict[str, Any]:
     # Native opening performs exact manifest/generation/admission checks. Availability is not
     # a cached test verdict, nor authority inferred from the mere presence of a database.
     return identity
+
+
+def _serving_retirement_bytes(path: Path) -> bytes:
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        raise FixtureBlocked("identity", "retained retirement path is not physical")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise FixtureBlocked("identity", "retained retirement state must be private and owned")
+        value = stream.read(1024 * 1024 + 1)
+    if len(value) > 1024 * 1024:
+        raise FixtureBlocked("identity", "retained retirement metadata exceeds its bound")
+    return value
+
+
+def retire_serving(name: str) -> dict[str, Any]:
+    """Retire one named validation publication; host attachment release is separate.
+
+    A durable plan precedes native effects. Interrupted native work keeps the actual
+    attachment/maintenance owner; explicit recovery must resolve it before retry.
+    Retrying this operation uses the same native job and never nominates a new root.
+    """
+    import hashlib
+    import secrets
+    from storage_lifecycle import admission, durable_json, fsync_directory
+
+    installation = Installation.load()
+    if installation.record.get("kind") != "campaign":
+        raise FixtureBlocked("scope", "retained retirement requires the explicitly selected campaign")
+    directory = installation.directory / "serving" / _identifier(name)
+    with admission([directory, installation.runtime_path("validation")]):
+        if not directory.is_dir() or directory.is_symlink():
+            raise FixtureBlocked("serving", "retained output is unavailable")
+        preflight = json.loads(_serving_retirement_bytes(directory / "identity.json"))
+        if preflight.get("configuration", {}).get("selection") != str((directory / "viewer.json").with_suffix(".selected.json")):
+            raise FixtureBlocked("identity", "retained retirement requires the producer's exact selection path")
+        lock = try_hold_lock(directory / "retirement.lock")
+        if lock is None:
+            raise FixtureBlocked("ownership", "retained retirement already has a live owner")
+        try:
+            plan_path, native_path, retired_path = (directory / filename for filename in
+                ("retirement-plan.json", "native-retirement.json", "retired.json"))
+            identity_path = directory / "identity.json"
+            identity_bytes = _serving_retirement_bytes(identity_path)
+            identity = json.loads(identity_bytes)
+            viewer_path = directory / "viewer.json"
+            selection = Path(identity["configuration"]["selection"])
+            handle = identity["content"]["handle"]
+            if (identity.get("fixture") != installation.id or identity.get("name") != name
+                    or identity["configuration"]["path"] != str(viewer_path)
+                    or selection != viewer_path.with_suffix(".selected.json")
+                    or handle.get("database") != {"namespace": service.NAMESPACE, "database": "validation"}
+                    or handle.get("service_generation") != bytes(installation.record["service_generation"]).hex()):
+                raise FixtureBlocked("identity", "retained retirement is outside its exact validation scope")
+            runtime_path = directory / "retirement-runtime.json"
+            handle_path = directory / "retirement-handle.json"
+            runtime = {**installation.runtime("validation"), "selection": str(selection)}
+            runtime_bytes = (json.dumps(runtime, sort_keys=True, indent=2) + "\n").encode()
+            expected = {"schema": 1, "fixture": installation.id, "name": name,
+                "identity_sha256": hashlib.sha256(identity_bytes).hexdigest(),
+                "viewer_sha256": identity["configuration"]["sha256"],
+                "selection": str(selection), "selection_sha256": identity["configuration"]["selection_sha256"],
+                "handle": handle, "runtime_sha256": hashlib.sha256(runtime_bytes).hexdigest()}
+            if plan_path.exists():
+                plan = json.loads(_serving_retirement_bytes(plan_path))
+                if {key: value for key, value in plan.items() if key != "job"} != expected:
+                    raise FixtureBlocked("identity", "retained retirement checkpoint changed")
+                if not isinstance(plan.get("job"), str) or not re.fullmatch("[a-f0-9]{64}", plan["job"]):
+                    raise FixtureBlocked("identity", "retained retirement job is unavailable")
+            else:
+                viewer_bytes = _serving_retirement_bytes(viewer_path)
+                viewer = json.loads(viewer_bytes)
+                if (hashlib.sha256(viewer_bytes).hexdigest() != expected["viewer_sha256"]
+                        or viewer.get("selection") != str(selection)
+                        or viewer.get("endpoint") != installation.grpc_endpoint
+                        or hashlib.sha256(_serving_retirement_bytes(selection)).hexdigest() != expected["selection_sha256"]
+                        or json.loads(_serving_retirement_bytes(selection)) != handle):
+                    raise FixtureBlocked("identity", "retained viewer or exact selected handle changed")
+                plan = {**expected, "job": secrets.token_hex(32)}
+                durable_json(plan_path, plan)
+            plan_sha256 = file_sha256(plan_path)
+            if retired_path.exists():
+                retired = json.loads(_serving_retirement_bytes(retired_path))
+                if (retired.get("outcome") != "retired" or retired.get("plan_sha256") != plan_sha256
+                        or retired.get("native_sha256") != file_sha256(native_path)
+                        or viewer_path.exists() or selection.exists() or runtime_path.exists() or handle_path.exists()):
+                    raise FixtureBlocked("identity", "completed retained retirement changed")
+                if (installation.directory / "maintenance.json").exists():
+                    raise FixtureBlocked("maintenance", "retained retirement needs explicit maintenance recovery")
+                return retired
+
+            with service.maintenance(installation, native_clients=True) as maintenance_env:
+                if not native_path.exists():
+                    viewer_bytes = _serving_retirement_bytes(viewer_path)
+                    if hashlib.sha256(viewer_bytes).hexdigest() != expected["viewer_sha256"]:
+                        raise FixtureBlocked("identity", "retained viewer changed before retirement")
+                    if selection.exists() and (
+                            hashlib.sha256(_serving_retirement_bytes(selection)).hexdigest() != expected["selection_sha256"]
+                            or json.loads(_serving_retirement_bytes(selection)) != handle):
+                        raise FixtureBlocked("identity", "retained selected handle changed before retirement")
+                    # Private runtime copies exist only while this exact owner needs them.
+                    durable_json(runtime_path, runtime)
+                    durable_json(handle_path, handle)
+                    attachment = Attachment.create(Server(installation), maintenance_env=maintenance_env)
+                    with admission([attachment.directory]):
+                        output_path = directory / ("retirement-output-" + attachment.id + ".json")
+                        command = [installation.record["installer"], "snapshot", "--runtime-config", str(runtime_path),
+                            "retire", str(handle_path), "--readers-stopped", "--clear-selection", "--job", plan["job"]]
+                        durable_json(directory / "retirement-attempt.json", {"plan_sha256": plan_sha256,
+                            "attachment": attachment.id, "output": str(output_path), "command": command})
+                        try:
+                            descriptor = os.open(output_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                            with os.fdopen(descriptor, "wb") as output:
+                                proof = {key: maintenance_env[key] for key in (
+                                    "LCTX_SURREAL_SERVICE_CONFIG", "LCTX_SURREAL_MAINTENANCE_TOKEN", "LCTX_SURREAL_INSTALLER_CONFIG")}
+                                code = run_attached(attachment, command, child_env=proof, stdout=output)
+                                output.flush()
+                                os.fsync(output.fileno())
+                        finally:
+                            attachment.release()
+                        row = read_json(attachment.directory / "record.json")
+                        native = native_completion(attachment.directory, row)
+                        if code or row.get("released") is not True or native.get("status") != "confirmed":
+                            raise FixtureFailed("retirement", "native retirement or actual owner finality remains unresolved")
+                        progress = json.loads(_serving_retirement_bytes(output_path))
+                        if (set(progress) != {"identity", "retired", "examined", "remaining", "retained"}
+                                or progress["identity"] != plan["job"] or progress["remaining"] != []
+                                or type(progress["retired"]) is not int or progress["retired"] <= 0
+                                or type(progress["examined"]) is not int or progress["examined"] < 0
+                                or not isinstance(progress["retained"], list)
+                                or any(not isinstance(item, str) for item in progress["retained"])):
+                            raise FixtureFailed("retirement", "native retirement did not acknowledge this completed job")
+                        durable_json(native_path, {"plan_sha256": plan_sha256, "progress": progress,
+                            "attachment": attachment.id, "command_cleanup": row["command_cleanup"],
+                            "native_completion": native})
+                native = json.loads(_serving_retirement_bytes(native_path))
+                if (native.get("plan_sha256") != plan_sha256 or native["progress"]["identity"] != plan["job"]
+                        or native["progress"]["remaining"] != []
+                        or native["native_completion"].get("status") != "confirmed"
+                        or native["command_cleanup"].get("status") != "confirmed"
+                        or native["command_cleanup"].get("survivors")):
+                    raise FixtureBlocked("identity", "native retained retirement receipt changed")
+                if selection.exists():
+                    raise FixtureBlocked("identity", "retained selection reappeared; no other pointer is removed")
+                for path, digest in ((viewer_path, expected["viewer_sha256"]), (runtime_path, expected["runtime_sha256"])):
+                    if path.exists():
+                        if hashlib.sha256(_serving_retirement_bytes(path)).hexdigest() != digest:
+                            raise FixtureBlocked("identity", "retained runtime changed before host release")
+                        path.unlink()
+                if handle_path.exists():
+                    if json.loads(_serving_retirement_bytes(handle_path)) != handle:
+                        raise FixtureBlocked("identity", "retained handle copy changed before host release")
+                    handle_path.unlink()
+                fsync_directory(directory)
+                producer_id = identity.get("producing_run", {}).get("attachment")
+                if isinstance(producer_id, str) and re.fullmatch("[a-f0-9-]{36}", producer_id):
+                    producer_directory = installation.directory / "attachments" / producer_id
+                    producer = read_json(producer_directory / "record.json")
+                    if isinstance(producer, dict):
+                        if (producer.get("fixture") != installation.id or producer.get("released") is not True
+                                or native_protected(producer_directory, producer, native_completion(producer_directory, producer))):
+                            raise FixtureBlocked("ownership", "retained producer local ownership remains unresolved")
+                        _complete_attachment_obligations(producer_directory, "exact retained native publication retired")
+                retired = {"outcome": "retired", "name": name, "fixture": installation.id,
+                    "plan_sha256": plan_sha256, "native_sha256": file_sha256(native_path),
+                    "job": plan["job"], "publication": handle["publication"], "retired_at": now()}
+                durable_json(retired_path, retired)
+            return retired
+        finally:
+            os.close(lock)
 
 
 def inspection_scope(server: Server, configuration: Path) -> tuple[str, str]:
@@ -1127,6 +1300,7 @@ def run_attached(
     cwd: Path | None = None,
     report: Callable[[str], None] = _stderr,
     child_env: Mapping[str, str] | None = None,
+    stdout: Any = None,
 ) -> int:
     """Run the command in its own process group with this attachment's environment. A signal to
     the launcher stops the command's group; the caller tears the state down."""
@@ -1166,7 +1340,7 @@ def run_attached(
             intent, command_cleanup={"status": "unknown", "reason": "launch pending"}
         )
         try:
-            child = spawn_group(command, death_signal=signal.SIGTERM, env=env, cwd=cwd)
+            child = spawn_group(command, death_signal=signal.SIGTERM, env=env, cwd=cwd, stdout=stdout)
         except OSError as error:
             attachment._command_cleanup = {"status": "confirmed", "survivors": []}
             attachment._write_record(
@@ -1327,6 +1501,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="ATTEMPT",
         help="recover a dead owner's exact command group; never delete DB data",
     )
+    action.add_argument("--retire-serving", metavar="NAME",
+                        help="retire only this named campaign validation publication after joined quiescence")
     parser.add_argument("--json", action="store_true")
     parser.add_argument(
         "--requires",
@@ -1361,6 +1537,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.recover:
             recover(args.recover)
+            return 0
+        if args.retire_serving:
+            if command or args.serving or args.retain_serving or args.sql or args.mcp:
+                parser.error("--retire-serving requires only its exact retained name")
+            for sig in TERMINATING:
+                signal.signal(sig, _raise_interrupt)
+            print(json.dumps(retire_serving(args.retire_serving), indent=2))
             return 0
         if not command and not args.sql:
             parser.error("provide a command after -- or select --sql")

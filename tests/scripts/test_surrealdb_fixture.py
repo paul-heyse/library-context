@@ -102,6 +102,265 @@ def complete_retained_output(attachment):
     return attachment.record_serving("retained", ["producer"])
 
 
+@pytest.fixture
+def retained_retirement_ready(installed, monkeypatch):
+    """Controlled host ownership/receipt seam; this executes no native retirement."""
+    installed.record.update(kind="campaign", unit=service.installation_unit({**installed.record, "kind": "campaign"}))
+    service.private_json(installed.directory / "installation.json", installed.record)
+    monkeypatch.setattr(service.Installation, "check", lambda self, **kwargs: {"outcome": "passed"})
+    directory = installed.directory / "serving" / "s01_current_20261012"
+    directory.mkdir(mode=0o700)
+    viewer_path, selection = directory / "viewer.json", directory / "viewer.selected.json"
+    handle = {"semantic": "a" * 64, "realization": "b" * 64, "publication": "c" * 64,
+        "view": "d" * 64, "definition_epoch": "e" * 64,
+        "service_generation": bytes(installed.record["service_generation"]).hex(),
+        "database": {"namespace": service.NAMESPACE, "database": "validation"}}
+    service.private_json(selection, handle)
+    service.private_json(viewer_path, {"endpoint": installed.grpc_endpoint, "username": "validation_writer",
+        "password": "private-password", "selection": str(selection)})
+    identity = {"name": directory.name, "fixture": installed.id,
+        "configuration": {"path": str(viewer_path), "sha256": service.file_sha256(viewer_path),
+            "selection": str(selection), "selection_sha256": service.file_sha256(selection)},
+        "content": {"handle": handle}}
+    service.private_json(directory / "identity.json", identity)
+    state = {"calls": [], "code": 0, "remaining": [], "native": "confirmed", "run_attached": fx.run_attached}
+    monkeypatch.setattr(fx, "native_completion", lambda *args: {"status": state["native"], "owners": []})
+
+    def child(attachment, command, *, child_env, stdout):
+        assert service.lock_held(installed.directory / "admission.lock")
+        assert service.lock_held(installed.directory / "borrowers.lock")
+        assert child_env["LCTX_SURREAL_MAINTENANCE_TOKEN"]
+        assert not any(key in child_env for key in fx.ATTACHMENT_VARIABLES if key != "LCTX_SURREAL_SERVICE_CONFIG")
+        plan = fx.read_json(directory / "retirement-plan.json")
+        assert command[-1] == plan["job"]
+        assert command[command.index("retire") + 1] == str(directory / "retirement-handle.json")
+        state["calls"].append(command)
+        runtime = fx.read_json(directory / "retirement-runtime.json")
+        assert runtime["selection"] == str(selection)
+        if selection.exists():
+            assert fx.read_json(selection) == handle
+            selection.unlink()  # Controlled stand-in for Rust's guarded exact clear.
+        stdout.write(json.dumps({"identity": plan["job"], "retired": 1, "examined": 2,
+            "remaining": state["remaining"], "retained": ["shared-current-contributor"]}).encode())
+        attachment._command_cleanup = {"status": "confirmed", "survivors": []}
+        attachment._write_record(None, command_cleanup=attachment._command_cleanup, child_exit_code=state["code"])
+        return state["code"]
+
+    monkeypatch.setattr(fx, "run_attached", child)
+    return installed, directory, selection, state
+
+
+def test_retained_retirement_releases_only_named_runtime_after_native_ack(retained_retirement_ready):
+    installed, directory, selection, state = retained_retirement_ready
+    other = installed.directory / "main-selected.json"
+    other.write_bytes(b"other current selection")
+    original_identity = (directory / "identity.json").read_bytes()
+    result = fx.retire_serving(directory.name)
+    assert result["outcome"] == "retired" and len(state["calls"]) == 1
+    assert other.read_bytes() == b"other current selection"
+    assert not selection.exists() and not (directory / "viewer.json").exists()
+    assert not (directory / "retirement-runtime.json").exists()
+    assert not (directory / "retirement-handle.json").exists()
+    assert (directory / "identity.json").read_bytes() == original_identity
+    assert fx.retire_serving(directory.name) == result and len(state["calls"]) == 1
+    with pytest.raises(fx.FixtureBlocked, match="explicitly retired"):
+        fx.serving_available(installed, directory.name)
+
+
+@pytest.mark.parametrize("alias", ["retirement-runtime.json", "retirement.lock"])
+def test_retained_retirement_rejects_selection_alias_before_any_owner_write(retained_retirement_ready, alias):
+    installed, directory, selection, state = retained_retirement_ready
+    aliased = directory / alias
+    original = selection.read_bytes()
+    aliased.write_bytes(original)
+    aliased.chmod(0o600)
+    identity = fx.read_json(directory / "identity.json")
+    identity["configuration"].update(selection=str(aliased), selection_sha256=service.file_sha256(aliased))
+    viewer = fx.read_json(directory / "viewer.json")
+    viewer["selection"] = str(aliased)
+    service.private_json(directory / "viewer.json", viewer)
+    identity["configuration"]["sha256"] = service.file_sha256(directory / "viewer.json")
+    service.private_json(directory / "identity.json", identity)
+    before = {path: path.read_bytes() for path in directory.iterdir()}
+    with pytest.raises(fx.FixtureBlocked, match="exact selection path"):
+        fx.retire_serving(directory.name)
+    assert {path: path.read_bytes() for path in directory.iterdir()} == before
+    assert state["calls"] == [] and not (installed.directory / "maintenance.json").exists()
+
+
+@pytest.mark.parametrize("failure", ["child", "remaining", "unregistered"])
+def test_retained_retirement_refusal_preserves_plan_and_runtime(retained_retirement_ready, failure):
+    installed, directory, selection, state = retained_retirement_ready
+    state.update(code=1 if failure == "child" else 0,
+        remaining=["pending-exact-child"] if failure == "remaining" else [],
+        native="not_observed" if failure == "unregistered" else "confirmed")
+    with pytest.raises(fx.FixtureFailed, match="native retirement"):
+        fx.retire_serving(directory.name)
+    assert (directory / "retirement-plan.json").exists()
+    assert (directory / "viewer.json").exists()
+    assert not (directory / "native-retirement.json").exists()
+    assert not (directory / "retired.json").exists()
+    assert (installed.directory / "maintenance.json").exists()
+
+
+def test_retained_retirement_retry_uses_same_job_and_refuses_changed_pointer(retained_retirement_ready):
+    installed, directory, selection, state = retained_retirement_ready
+    state["code"] = 1
+    with pytest.raises(fx.FixtureFailed):
+        fx.retire_serving(directory.name)
+    plan = (directory / "retirement-plan.json").read_bytes()
+    # Stand-in for explicit completed maintenance recovery, never an inferred join.
+    (installed.directory / "maintenance.json").unlink()
+    service.private_json(selection, {"foreign": "selected handle"})
+    with pytest.raises(fx.FixtureBlocked, match="selected handle changed"):
+        fx.retire_serving(directory.name)
+    assert len(state["calls"]) == 1 and selection.exists()
+    (installed.directory / "maintenance.json").unlink()
+    selection.unlink()
+    state["code"] = 0
+    assert fx.retire_serving(directory.name)["outcome"] == "retired"
+    assert (directory / "retirement-plan.json").read_bytes() == plan
+    assert state["calls"][0][-1] == state["calls"][1][-1]
+
+
+def test_retained_retirement_replays_same_job_after_native_receipt_publication_loss(retained_retirement_ready, monkeypatch):
+    import storage_lifecycle
+    installed, directory, selection, state = retained_retirement_ready
+    durable = storage_lifecycle.durable_json
+    def lose_native_receipt(path, value):
+        if path == directory / "native-retirement.json":
+            raise OSError("native receipt publication interrupted")
+        durable(path, value)
+    monkeypatch.setattr(storage_lifecycle, "durable_json", lose_native_receipt)
+    with pytest.raises(OSError, match="publication interrupted"):
+        fx.retire_serving(directory.name)
+    plan = (directory / "retirement-plan.json").read_bytes()
+    assert not selection.exists() and (directory / "viewer.json").exists()
+    assert (installed.directory / "maintenance.json").exists()
+    monkeypatch.setattr(storage_lifecycle, "durable_json", durable)
+    # Explicit completed maintenance recovery is supplied by this controlled host seam.
+    (installed.directory / "maintenance.json").unlink()
+    assert fx.retire_serving(directory.name)["outcome"] == "retired"
+    assert len(state["calls"]) == 2 and state["calls"][0][-1] == state["calls"][1][-1]
+    assert (directory / "retirement-plan.json").read_bytes() == plan
+
+
+def test_retained_retirement_resumes_host_cleanup_without_second_native_job(retained_retirement_ready, monkeypatch):
+    installed, directory, selection, state = retained_retirement_ready
+    unlink = Path.unlink
+    def refuse_viewer_unlink(path, *args, **kwargs):
+        if path == directory / "viewer.json":
+            raise OSError("host runtime release interrupted")
+        return unlink(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "unlink", refuse_viewer_unlink)
+    with pytest.raises(OSError, match="release interrupted"):
+        fx.retire_serving(directory.name)
+    native = (directory / "native-retirement.json").read_bytes()
+    assert not selection.exists() and (directory / "viewer.json").exists()
+    monkeypatch.setattr(Path, "unlink", unlink)
+    (installed.directory / "maintenance.json").unlink() # Explicit completed recovery seam.
+    assert fx.retire_serving(directory.name)["outcome"] == "retired"
+    assert len(state["calls"]) == 1 and (directory / "native-retirement.json").read_bytes() == native
+    service.private_json(installed.directory / "maintenance.json", {"unresolved": "final maintenance check"})
+    with pytest.raises(fx.FixtureBlocked, match="explicit maintenance recovery"):
+        fx.retire_serving(directory.name)
+
+
+def test_retained_retirement_signal_joins_child_and_preserves_unknown(retained_retirement_ready, monkeypatch):
+    import signal
+    installed, directory, selection, state = retained_retirement_ready
+    handlers = {}
+    monkeypatch.setattr(signal, "signal", lambda number, handler: handlers.__setitem__(number, handler))
+    observe = fx.observe_exit
+    interrupted = False
+    def interrupt_child(child):
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            state["native"] = "unknown"
+            assert all(handlers[number] is fx._raise_interrupt for number in fx.TERMINATING)
+            raise fx._Interrupted(signal.SIGTERM)
+        return observe(child)
+    monkeypatch.setattr(fx, "observe_exit", interrupt_child)
+    def child(attachment, command, *, child_env, stdout):
+        return state["run_attached"](attachment,
+            [sys.executable, "-c", "import time; time.sleep(60)"], child_env=child_env, stdout=stdout)
+    monkeypatch.setattr(fx, "run_attached", child)
+    assert fx.main(["--retire-serving", directory.name]) == 128 + signal.SIGTERM
+    records = [fx.read_json(path) for path in (installed.directory / "attachments").glob("*/record.json")]
+    assert len(records) == 1
+    assert records[0]["command_cleanup"]["status"] == "confirmed"
+    assert records[0]["command_cleanup"]["survivors"] == []
+    assert records[0]["released"] is False and records[0]["native_completion"]["status"] == "unknown"
+    assert selection.exists() and (directory / "viewer.json").exists()
+    assert (installed.directory / "maintenance.json").exists()
+    assert not (directory / "native-retirement.json").exists() and not (directory / "retired.json").exists()
+
+
+@pytest.mark.parametrize("producer_state", ["confirmed", "unknown", "unreleased"])
+def test_retained_retirement_completes_only_confirmed_exact_producer_temporary_obligations(retained_retirement_ready, monkeypatch, producer_state):
+    from storage_lifecycle import Storage
+    installed, directory, selection, state = retained_retirement_ready
+    storage = Storage()
+    producer = fx.Attachment.create(installed)
+    producer.release()
+    unrelated = fx.Attachment.create(installed)
+    unrelated.release()
+    def pending_obligation(attachment):
+        return storage.publish(attachment.directory, "attachment",
+            {"kind": "attachment", "path": str(attachment.directory.resolve())},
+            "retained-publication-retirement", temporary_days=0, managed=True)
+    producer_id, unrelated_id = pending_obligation(producer), pending_obligation(unrelated)
+    storage.retain(producer_id, "independent-retained-evidence")
+    unrelated_before = storage.get(unrelated_id)
+    retained_before = storage.get(producer_id)["obligations"]["independent-retained-evidence"]
+    identity = fx.read_json(directory / "identity.json")
+    identity["producing_run"] = {"attachment": producer.id}
+    service.private_json(directory / "identity.json", identity)
+    producer_unknown = False
+    monkeypatch.setattr(fx, "native_completion", lambda path, row:
+        {"status": "unknown" if path == producer.directory and producer_unknown else "confirmed", "owners": []})
+    native_child = fx.run_attached
+    def child(*args, **kwargs):
+        nonlocal producer_unknown
+        result = native_child(*args, **kwargs)
+        if producer_state == "unknown":
+            producer_unknown = True
+        if producer_state == "unreleased":
+            row = fx.read_json(producer.directory / "record.json")
+            service.private_json(producer.directory / "record.json", {**row, "released": False})
+        return result
+    monkeypatch.setattr(fx, "run_attached", child)
+    if producer_state == "confirmed":
+        assert fx.retire_serving(directory.name)["outcome"] == "retired"
+        assert storage.get(producer_id)["obligations"]["retained-publication-retirement"]["until"]
+    else:
+        with pytest.raises(fx.FixtureBlocked, match="producer local ownership remains unresolved"):
+            fx.retire_serving(directory.name)
+        assert storage.get(producer_id)["obligations"]["retained-publication-retirement"]["until"] is None
+        assert not (directory / "retired.json").exists()
+        assert (installed.directory / "maintenance.json").exists()
+    assert storage.get(producer_id)["obligations"]["independent-retained-evidence"] == retained_before
+    assert storage.get(unrelated_id) == unrelated_before
+
+
+def test_registered_retirement_recovery_class_preserves_unknown_and_terminal_failure():
+    import surrealdb_pd02_recovery as recovery
+    owner = {"owner": "native publication retirement", "state": "started", "completion": None}
+    assert "Started native publication retirement" in recovery.native_owner_class(owner)
+    completion = {"local": "terminal", "remote": "confirmed", "storage": [], "committed": [], "failures": []}
+    owner.update(state="complete", completion=completion)
+    assert "Clean terminal" in recovery.native_owner_class(owner)
+    completion["failures"] = [{"step": "known retirement refusal", "error": "still held"}]
+    assert "Failed terminal" in recovery.native_owner_class(owner)
+    for field, value in (("local", "outstanding"), ("remote", "unknown")):
+        failed = {**owner, "completion": {**completion, field: value}}
+        with pytest.raises(fx.FixtureBlocked):
+            recovery.native_owner_class(failed)
+    with pytest.raises(fx.FixtureBlocked):
+        recovery.native_owner_class({**owner, "owner": "unregistered retirement"})
+
+
 @pytest.mark.parametrize("patched", [False, True])
 def test_attachment_retained_inputs_and_readiness_report_verified_actual_server(installed, tmp_path, patched, capfd):
     generation = install_fake_patched_generation(installed, tmp_path) if patched else None

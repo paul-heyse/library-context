@@ -167,6 +167,12 @@ enum SnapshotCommand {
         handle: PathBuf,
         #[arg(long, required = true)]
         readers_stopped: bool,
+        /// Clear only this exact selected handle under its selection lifecycle lock.
+        #[arg(long)]
+        clear_selection: bool,
+        /// Durable invocation address recorded before effects; retries continue this exact job.
+        #[arg(long, value_parser=content_hash)]
+        job: Option<lctx_model::domain::ContentHash>,
     },
     /// Export one complete admitted input/context topology, including its coverage and gaps.
     Export {
@@ -842,9 +848,11 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                 SnapshotCommand::Retire {
                     handle,
                     readers_stopped,
+                    clear_selection,
+                    job,
                 } => {
                     let progress =
-                        runtime.block_on(newnative::retire(&config, &handle, readers_stopped))?;
+                        runtime.block_on(newnative::retire(&config, &handle, readers_stopped, clear_selection, job))?;
                     println!("{}", serde_json::to_string_pretty(&progress)?);
                 }
                 SnapshotCommand::Export {

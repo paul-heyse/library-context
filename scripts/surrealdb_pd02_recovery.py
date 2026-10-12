@@ -207,6 +207,9 @@ def native_owner_class(owner):
     if (store
             and owner.get("state") == "started" and owner.get("completion") is None):
         return "Started native store/workspace owners"
+    if (owner["owner"] == "native publication retirement"
+            and owner.get("state") == "started" and owner.get("completion") is None):
+        return "Started native publication retirement; original outcome unknown"
     if (owner["owner"] == "native product cache session"
             and owner.get("state") == "started" and owner.get("completion") is None):
         # The registered cache session has volatile remote work, while persistent
@@ -227,6 +230,9 @@ def native_owner_class(owner):
         if completion["failures"]:
             return "Failed terminal native store/workspace owners; original failure preserved"
         return "Clean terminal native store/workspace siblings; original outcome preserved"
+    if terminal and owner["owner"] == "native publication retirement":
+        return ("Failed terminal native publication retirement; original failure preserved"
+            if completion["failures"] else "Clean terminal native publication retirement; original outcome preserved")
     if (terminal and not completion["failures"] and owner["owner"] in {
             "native product cache session", "native terminal product source",
             "independent artifact admission"}):

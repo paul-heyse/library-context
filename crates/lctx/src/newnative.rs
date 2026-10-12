@@ -344,9 +344,11 @@ pub async fn retire(
     config: &RuntimeConfig,
     path: &Path,
     readers_stopped: bool,
+    clear_selection: bool,
+    job: Option<lctx_model::domain::ContentHash>,
 ) -> anyhow::Result<lctx_model::domain::completed::RetirementProgress> {
     let snapshot = handle(config, Some(path))?;
-    Ok(lctx_publisher::backup::retire(config, &snapshot, readers_stopped).await?)
+    Ok(lctx_publisher::backup::retire_named(config, &snapshot, readers_stopped, clear_selection, job).await?)
 }
 
 pub async fn list(config: &RuntimeConfig) -> anyhow::Result<Vec<SnapshotHandle>> {

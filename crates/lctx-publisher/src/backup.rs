@@ -219,6 +219,27 @@ pub async fn retire(
     handle: &SnapshotHandle,
     readers_stopped: bool,
 ) -> Result<lctx_model::domain::completed::RetirementProgress, ModelError> {
+    retire_named(config, handle, readers_stopped, false, None).await
+}
+async fn retirement_selection_guard(
+    config: &RuntimeConfig,
+    cancel: &crate::owned_read::Cancellation,
+    retry: &lctx_native::control::RetryCancellation,
+) -> Result<lctx_native::config::SelectionGuard, ModelError> {
+    let guard = config.lock_selection().await?;
+    cancel.check()?;
+    if retry.stopped() { return Err(ModelError::Conflict("retirement admission cancelled")); }
+    Ok(guard)
+}
+/// Explicit selection clearance and durable invocation addresses remain separate
+/// from native authority; every pass validates the actual installed retirement job.
+pub async fn retire_named(
+    config: &RuntimeConfig,
+    handle: &SnapshotHandle,
+    readers_stopped: bool,
+    clear_selection: bool,
+    job: Option<lctx_model::domain::ContentHash>,
+) -> Result<lctx_model::domain::completed::RetirementProgress, ModelError> {
     if !readers_stopped {
         return Err(ModelError::Invalid(
             "retirement requires stopped readers".into(),
@@ -232,38 +253,64 @@ pub async fn retire(
     {
         return Err(ModelError::Conflict("retirement installation identity"));
     }
-    let _guard = config.lock_selection().await?;
-    if config.selection.try_exists().map_err(ModelError::codec)? && config.selected()? == *handle {
-        return Err(ModelError::Conflict("cannot retire selected publication"));
-    }
-    let client = lctx_native::reader::connect(
-        &config.endpoint,
-        &config.writer_credentials(),
-        config.namespace.as_str(),
-        config.database.as_str(),
-    )
-    .await?;
-    let result = async {
-        let progress = lctx_native::control::retire_reachable(
-            &client,
-            vec![RecordId::new("publication", handle.publication.hex())],
-            4096,
-        )
-        .await?;
-        if progress.retired == 0 && !progress.retained.is_empty() {
-            return Err(ModelError::Conflict(
-                "publication remains reachable or pinned",
-            ));
+    let config = config.clone(); let handle = handle.clone();
+    crate::owned_read::run("native publication retirement", move |cancel| async move {
+        let retry = lctx_native::control::RetryCancellation::default();
+        let signal = lctx_native::signal::SignalRegistration::retry("native publication retirement", retry.clone())?;
+        let mut completion = Completion::default();
+        let result = lctx_native::control::with_retry_cancellation(retry.clone(), async {
+            cancel.check()?;
+            if retry.stopped() { return Err(ModelError::Conflict("retirement admission cancelled")); }
+            let _guard = retirement_selection_guard(&config, &cancel, &retry).await?;
+            // This validates the actual marker, not merely equality between two
+            // portable config/handle fields, before clearing any local authority.
+            let client = lctx_native::installation::check_installation(&config).await?;
+            let session = lctx_native::reader::SessionFinalizationGuard::new(client.clone());
+            let result = async {
+                cancel.check()?;
+                if retry.stopped() { return Err(ModelError::Conflict("retirement admission cancelled")); }
+                if clear_selection {
+                    config.clear_selection_locked(&handle, &_guard)?;
+                } else if config.selection.try_exists().map_err(ModelError::codec)? && config.selected()? == handle {
+                    return Err(ModelError::Conflict("cannot retire selected publication"));
+                }
+                let root = RecordId::new("publication", handle.publication.hex());
+                let root_key = serde_json::to_string(&root).map_err(ModelError::codec)?;
+                let identity = match job { Some(identity) => identity, None => lctx_native::control::fresh_identity("retirement-invocation")? };
+                let mut progress = lctx_native::control::retire_reachable_named(&client, identity, config.service_generation, vec![root], 4096).await?;
+                completion.committed("native retirement invocation", progress.identity.hex());
+                loop {
+                    if progress.retained.contains(&root_key) {
+                        return Err(ModelError::Conflict("publication remains reachable or pinned"));
+                    }
+                    if progress.remaining.is_empty() { return Ok(progress); }
+                    cancel.check()?;
+                    if retry.stopped() { return Err(ModelError::Conflict("retirement continuation cancelled")); }
+                    progress = lctx_native::control::resume_retirement(&client, progress.identity, 4096).await?;
+                }
+            }.await;
+            if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+                completion.local = lctx_model::domain::completion::LocalState::Outstanding;
+                completion.remote = RemoteState::Unknown;
+            } else {
+                let closed = session.close().await;
+                if closed.is_err() { completion.local = lctx_model::domain::completion::LocalState::Outstanding; }
+                completion.step("retirement session invalidation", closed);
+            }
+            result
+        }).await;
+        if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+            completion.local = lctx_model::domain::completion::LocalState::Outstanding;
+            completion.remote = RemoteState::Unknown;
         }
-        Ok(progress)
-    }
-    .await;
-    let mut completion = Completion::default();
-    completion.step(
-        "retirement session invalidation",
-        client.invalidate().await.map_err(ModelError::codec),
-    );
-    complete(result, completion)
+        // The receipt describes actual owner finality, independently of a known
+        // refusal or successful committed retirement pages.
+        if completion.local == lctx_model::domain::completion::LocalState::Terminal
+            && completion.remote == RemoteState::Confirmed && completion.failures.is_empty() {
+            completion.step("retirement signal owner", signal.complete(&Completion::default()).await);
+        }
+        complete(result, completion)
+    }).await
 }
 
 #[cfg(test)]
@@ -274,6 +321,33 @@ pub(crate) mod grpc_export_fixture;
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[tokio::test]
+    async fn retirement_cancelled_during_selection_lock_wait_preserves_pointer() {
+        use std::sync::atomic::Ordering;
+        let scratch = tempfile::tempdir().unwrap();
+        let config: RuntimeConfig = serde_json::from_value(serde_json::json!({
+            "endpoint":"grpc://127.0.0.1:1", "username":"fixture", "password":"private",
+            "viewer_username":"viewer", "viewer_password":"private", "namespace":"fixture",
+            "database":"validation", "cache_database":"validation", "authentication":"database",
+            "service_generation": lctx_model::domain::ContentHash::of(b"fixture"),
+            "selection":scratch.path().join("selected.json"), "reuse":null, "serving_limits":null,
+        })).unwrap();
+        std::fs::write(&config.selection, b"exact selected pointer bytes").unwrap();
+        let held = config.lock_selection().await.unwrap();
+        let cancel = crate::owned_read::Cancellation::default();
+        let retry = lctx_native::control::RetryCancellation::default();
+        let mut waiting = Box::pin(retirement_selection_guard(&config, &cancel, &retry));
+        std::future::poll_fn(|context| {
+            assert!(std::future::Future::poll(waiting.as_mut(), context).is_pending());
+            std::task::Poll::Ready(())
+        }).await;
+        cancel.flag().store(true, Ordering::Release);
+        drop(held);
+        assert!(waiting.await.is_err());
+        assert_eq!(std::fs::read(&config.selection).unwrap(), b"exact selected pointer bytes");
+        config.lock_selection().await.unwrap(); // The refused operation released its guard.
+    }
 
     #[tokio::test]
     async fn backup_sdk_file_export_faults_never_publish_provisional_bytes() {

@@ -189,6 +189,38 @@ impl RuntimeConfig {
             std::fs::File::open(parent)?.sync_all()
         })
     }
+    /// Disable only this exact selected handle while holding its lifecycle guard.
+    /// A missing pointer is an idempotent retry; a different selection is never removed.
+    pub fn clear_selection_locked(
+        &self,
+        expected: &SnapshotHandle,
+        guard: &SelectionGuard,
+    ) -> Result<(), ModelError> {
+        self.clear_selection(expected, guard, |parent| {
+            std::fs::File::open(parent)?.sync_all()
+        })
+    }
+    fn clear_selection(
+        &self,
+        expected: &SnapshotHandle,
+        guard: &SelectionGuard,
+        sync_parent: impl FnOnce(&Path) -> std::io::Result<()>,
+    ) -> Result<(), ModelError> {
+        if guard.selection != self.selection_path()? {
+            return Err(ModelError::Conflict("selection lifecycle guard"));
+        }
+        if guard.selection.try_exists().map_err(ModelError::codec)? {
+            if self.selected()? != *expected {
+                return Err(ModelError::Conflict("selected publication changed before retirement"));
+            }
+            std::fs::remove_file(&guard.selection).map_err(ModelError::codec)?;
+        }
+        sync_parent(guard.selection.parent().ok_or(ModelError::Schema("selection parent"))?)
+            .map_err(|error| ModelError::infrastructure(
+                lctx_model::domain::Infrastructure::Unconfirmed,
+                format!("selection was removed; directory durability is uncertain: {error}"),
+            ))
+    }
     fn commit_selection(
         &self,
         handle: &SnapshotHandle,
@@ -323,6 +355,46 @@ mod selection_controls {
                 database: Name::new(label).unwrap(),
             },
         }
+    }
+    #[tokio::test]
+    async fn retirement_clears_only_exact_selection_under_its_guard() {
+        let scratch = tempfile::tempdir().unwrap();
+        let cfg = config(scratch.path());
+        let expected = handle("expected");
+        let other = handle("other");
+        cfg.select(&expected).unwrap();
+        let original = std::fs::read(&cfg.selection).unwrap();
+        let guard = cfg.lock_selection().await.unwrap();
+        assert!(cfg.clear_selection_locked(&other, &guard).is_err());
+        assert_eq!(std::fs::read(&cfg.selection).unwrap(), original);
+        let mut foreign = cfg.clone();
+        foreign.selection = scratch.path().join("another.json");
+        assert!(foreign.clear_selection_locked(&expected, &guard).is_err());
+        cfg.clear_selection_locked(&expected, &guard).unwrap();
+        assert!(!cfg.selection.exists());
+        cfg.clear_selection_locked(&expected, &guard).unwrap();
+        assert!(cfg.selection.with_extension("serving.json").exists(), "clear touches only the exact pointer");
+    }
+    #[tokio::test]
+    async fn retirement_retry_requires_durable_pointer_absence_after_unconfirmed_unlink() {
+        let scratch = tempfile::tempdir().unwrap();
+        let cfg = config(scratch.path());
+        let expected = handle("expected");
+        cfg.select(&expected).unwrap();
+        let guard = cfg.lock_selection().await.unwrap();
+        let refuse_sync = |_: &Path| Err(std::io::Error::other("directory sync refused"));
+        let first = cfg.clear_selection(&expected, &guard, refuse_sync).unwrap_err();
+        assert!(!first.permits_storage_cleanup());
+        assert!(!cfg.selection.exists(), "unlink happened before durability failure");
+        let retry = cfg.clear_selection(&expected, &guard, refuse_sync).unwrap_err();
+        assert!(!retry.permits_storage_cleanup(), "missing pointer alone cannot acknowledge prior unlink");
+        let synced = std::cell::Cell::new(false);
+        cfg.clear_selection(&expected, &guard, |parent| {
+            std::fs::File::open(parent)?.sync_all()?;
+            synced.set(true);
+            Ok(())
+        }).unwrap();
+        assert!(synced.get());
     }
     #[tokio::test]
     async fn atomic_selection_is_one_authority_and_lifecycle_is_serialized() {

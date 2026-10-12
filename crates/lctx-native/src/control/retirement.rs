@@ -109,6 +109,12 @@ async fn enqueue_roots(client:&Surreal<Client>,job:&RecordId,objects:&[RecordId]
 pub async fn retire_reachable(client:&Surreal<Client>,roots:Vec<RecordId>,limit:usize)->Result<RetirementProgress,ModelError>{
     retire_roots_for_owner(client,EffectOwner::Installation,roots,limit,true,true).await
 }
+/// The caller durably records this identity before the first effect. It is an address,
+/// not authority: native generation, era and the exact canonical root set are checked
+/// on every retry, including after partial registration or destructive progress.
+pub async fn retire_reachable_named(client:&Surreal<Client>,identity:ContentHash,expected_generation:ContentHash,roots:Vec<RecordId>,limit:usize)->Result<RetirementProgress,ModelError>{
+    retire_named_for_owner(client,EffectOwner::Installation,identity,Some(expected_generation),roots,limit,true,true).await
+}
 /// Terminal cleanup registers its still-held exact roots during closed admission.
 /// Destructive advancement remains with the retirement owner after hold drainage;
 /// registration must also succeed while an independent cold-backup gate is held.
@@ -117,16 +123,22 @@ pub async fn retire_reachable(client:&Surreal<Client>,roots:Vec<RecordId>,limit:
 pub(super) async fn retire_terminal_roots(client:&Surreal<Client>,owner:TerminalAttempt,roots:Vec<RecordId>,limit:usize)->Result<RetirementProgress,ModelError>{
     retire_roots_for_owner(client,EffectOwner::TerminalAttempt(owner),roots,limit,false,false).await
 }
-async fn retire_roots_for_owner(client:&Surreal<Client>,owner:EffectOwner,mut roots:Vec<RecordId>,limit:usize,require_admission:bool,advance:bool)->Result<RetirementProgress,ModelError>{
+async fn retire_roots_for_owner(client:&Surreal<Client>,owner:EffectOwner,roots:Vec<RecordId>,limit:usize,require_admission:bool,advance:bool)->Result<RetirementProgress,ModelError>{
+    retire_named_for_owner(client,owner,fresh_identity("retirement-invocation")?,None,roots,limit,require_admission,advance).await
+}
+async fn retire_named_for_owner(client:&Surreal<Client>,owner:EffectOwner,identity:ContentHash,expected_generation:Option<ContentHash>,mut roots:Vec<RecordId>,limit:usize,require_admission:bool,advance:bool)->Result<RetirementProgress,ModelError>{
     if limit==0{return Err(ModelError::Invalid("bounded retirement effect limit".into()));}
     roots.sort();roots.dedup();
     let issuance=IssuanceEra::capture(client).await?;
-    let identity=fresh_identity("retirement-invocation")?;
+    if expected_generation.is_some_and(|expected|expected!=issuance.generation){return Err(ModelError::Conflict("native retirement expected installation generation"));}
     let job=RecordId::new("native_retirement",identity.hex());
     let digest=ContentHash::of(&serde_json::to_vec(&("native-retirement/v4",&roots)).map_err(ModelError::codec)?);
-    let mut bindings=Variables::new();bindings.insert("job",job.clone());bindings.insert("root_digest",digest.hex());bindings.insert("issuance",issuance.era);bindings.insert("root_count",roots.len());bindings.insert("require_admission",require_admission);
-    effect_for_owner(client,owner,"IF $__era!=$issuance OR ($require_admission AND !$__admission.admission_open) { THROW 'native retirement issuance changed'; }; fn::native_touch($job); CREATE $job SET generation=$__generation,era=$__era,epoch=$__epoch,root_digest=$root_digest,lineage=$job,state='registering',root_count=$root_count,roots_registered=0,examined=0,retired=0,revision=0 RETURN NONE",bindings).await.map_err(|error|authorization::lifecycle_error("retirement invocation",identity,issuance,error))?;
-    let result=async {register_retirement_roots(client,identity,roots).await?;if advance {resume_retirement(client,identity,limit).await}else{progress(client,identity).await}}.await;
+    let mut bindings=Variables::new();bindings.insert("job",job.clone());bindings.insert("root_digest",digest.hex());bindings.insert("issuance",issuance.era);bindings.insert("issuance_generation",issuance.generation.hex());bindings.insert("root_count",roots.len());bindings.insert("require_admission",require_admission);
+    effect_for_owner(client,owner,"IF $__generation!=$issuance_generation OR $__era!=$issuance OR ($require_admission AND !$__admission.admission_open) { THROW 'native retirement issuance changed'; }; fn::native_touch($job); LET $prior=SELECT * FROM ONLY $job FOR UPDATE; IF $prior=NONE { CREATE $job SET generation=$__generation,era=$__era,epoch=$__epoch,root_digest=$root_digest,lineage=$job,state='registering',root_count=$root_count,roots_registered=0,examined=0,retired=0,revision=0 RETURN NONE; } ELSE IF $prior.generation!=$__generation OR $prior.era!=$__era OR $prior.epoch<=0 OR $prior.root_digest!=$root_digest OR $prior.root_count!=$root_count OR $prior.lineage!=$job OR $prior.successor!=NONE OR $prior.state NOT IN ['registering','open','done'] { THROW 'native retirement exact invocation changed'; };",bindings).await.map_err(|error|authorization::lifecycle_error("retirement invocation",identity,issuance,error))?;
+    let result=async {
+        if record(client,&job).await?.get("state")==Some(&Value::String("done".into())) { return progress(client,identity).await; }
+        register_retirement_roots(client,identity,roots).await?;if advance {resume_retirement(client,identity,limit).await}else{progress(client,identity).await}
+    }.await;
     if result.is_err(){let mut completion=lctx_model::domain::completion::Completion::default();completion.committed("native retirement invocation",identity.hex());return lctx_model::domain::completion::complete(result,completion);}result
 }
 
@@ -228,9 +240,15 @@ pub async fn resume_retirement(client:&Surreal<Client>,identity:ContentHash,limi
     if !pending.is_empty(){return Err(ModelError::Conflict("native retirement previous page unresolved"));}
     let mut spent=0usize;let mut after=Value::None;
     while spent<limit {
-        let mut response=client.query("SELECT * FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job AND state IN ['pending','retained','retiring'] AND ($after=NONE OR id>$after) ORDER BY id LIMIT 1")
+        // Pending work must not starve behind a large shared retained frontier.
+        let mut response=client.query("SELECT * FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job AND state IN ['pending','retiring'] AND ($after=NONE OR id>$after) ORDER BY id LIMIT 1")
             .bind(("job",job.clone())).bind(("after",after.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-        let rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
+        let mut rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
+        if rows.is_empty() {
+            let mut response=client.query("SELECT * FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job AND state='retained' AND ($after=NONE OR id>$after) ORDER BY id LIMIT 1")
+                .bind(("job",job.clone())).bind(("after",after.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            rows=response.take(0).map_err(ModelError::codec)?;
+        }
         let Some(item)=rows.first() else{break;};
         let Some(Value::RecordId(id))=item.get("id") else{return Err(ModelError::Schema("retirement item identity"));};
         after=Value::RecordId(id.clone());

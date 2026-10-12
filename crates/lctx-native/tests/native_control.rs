@@ -124,6 +124,107 @@ async fn retirement_high_degree_parent_spans_the_actual_128_edge_window(){
     client.invalidate().await.unwrap();
 }
 
+#[tokio::test(flavor="multi_thread")]
+async fn named_retirement_continues_exact_roots_prioritizes_pending_and_replays_terminal_job(){
+    use futures::FutureExt;
+    use lctx_model::domain::completion::{Completion,LocalState,RemoteState,complete};
+    fn require(value:bool,message:&'static str)->Result<(),ModelError>{
+        if value {Ok(())} else {Err(ModelError::Conflict(message))}
+    }
+    fn item(job:&RecordId,object:&RecordId)->RecordId{
+        RecordId::new("native_retirement_item",ContentHash::of(&serde_json::to_vec(&(job,object,1i64)).unwrap()).hex())
+    }
+    async fn snapshot(client:&surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>,job:&RecordId,objects:&[RecordId])->Result<Vec<Vec<Object>>,ModelError>{
+        let mut response=client.query("SELECT * FROM $job; SELECT * FROM $objects ORDER BY id; SELECT * FROM native_hold WITH INDEX object_holds WHERE object IN $objects ORDER BY id; SELECT * FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job ORDER BY id")
+            .bind(("job",job.clone())).bind(("objects",objects.to_vec())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        (0..4).map(|index|response.take::<Vec<Object>>(index).map_err(ModelError::codec)).collect()
+    }
+    let nonce=control::fresh_identity("named-retirement-control").unwrap();
+    // The caller chooses and keeps this address before the first native effect.
+    let identity=control::fresh_identity("named-retirement-job").unwrap();
+    let job=RecordId::new("native_retirement",identity.hex());
+    // Arrange the physical queue so an earlier retained item would starve the
+    // pending parent under an undifferentiated LIMIT 1 traversal.
+    let mut candidates=[0,1].map(|index|RecordId::new("native_guard",format!("named_root_{}_{index}",nonce.hex())));
+    candidates.sort_by_key(|object|item(&job,object));
+    let [shared,parent]=candidates;
+    let leaf=RecordId::new("native_guard",format!("named_leaf_{}",nonce.hex()));
+    let refused=RecordId::new("native_guard",format!("named_unrelated_{}",nonce.hex()));
+    let objects=vec![parent.clone(),shared.clone(),leaf.clone(),refused.clone()];
+    let roots=vec![parent.clone(),shared.clone()];
+    let cfg=config();
+    let client=lctx_compiler_store::compiler::check_installation(&cfg).await.unwrap();
+    let session=lctx_native::reader::SessionFinalizationGuard::new(client.clone());
+    let mut pin=None;
+    let outcome=std::panic::AssertUnwindSafe(async {
+        let values=objects.iter().cloned().map(|id|{
+            let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("retired",false);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("tombstone_revision",0i64);Value::Object(row)
+        }).collect();
+        control::ensure_rows(&client,None,values).await?;
+        pin=Some(control::ReaderPin::acquire(client.clone(),&[]).await?);
+        pin.as_ref().unwrap().protect(shared.clone()).await?;
+        control::hold(&client,None,parent.clone(),vec![shared.clone(),leaf.clone()]).await?;
+        let first=control::retire_reachable_named(&client,identity,cfg.service_generation,roots.clone(),1).await?;
+        let shared_key=serde_json::to_string(&shared).map_err(ModelError::codec)?;
+        require(first.identity==identity && first.retired==0 && first.retained==[shared_key.clone()] && !first.remaining.is_empty(),"first named pass must retain the shared root and leave pending work")?;
+        let before=snapshot(&client,&job,&objects).await?;
+        let refusal=control::retire_reachable_named(&client,identity,cfg.service_generation,vec![refused.clone()],1).await;
+        let error=match refusal {Err(error)=>error,Ok(_)=>return Err(ModelError::Conflict("changed named roots must refuse"))};
+        if !error.permits_storage_cleanup(){return Err(error);}
+        require(error.to_string().contains("native retirement exact invocation changed"),"changed roots must fail the exact native invocation guard")?;
+        require(snapshot(&client,&job,&objects).await?==before,"changed-root refusal must preserve the original job, all payloads and holds")?;
+        // Reverse root order too: the contract is the exact canonical set.
+        let second=control::retire_reachable_named(&client,identity,cfg.service_generation,vec![shared.clone(),parent.clone()],1).await?;
+        require(second.identity==identity && second.retired==0,"same named job must continue rather than fork")?;
+        let after=snapshot(&client,&job,&objects).await?;
+        require(after[3].iter().any(|row|row.get("object")==Some(&Value::RecordId(parent.clone())) && row.get("state")==Some(&Value::String("retiring".into()))),"pending parent must advance ahead of earlier retained shared item")?;
+        let mut progress=second;
+        for _ in 0..4 {
+            if progress.remaining.is_empty(){break;}
+            progress=control::retire_reachable_named(&client,identity,cfg.service_generation,roots.clone(),5).await?;
+        }
+        require(progress.remaining.is_empty() && progress.retired==2 && progress.retained==[shared_key],"bounded continuation must retire parent and leaf while preserving independent shared content")?;
+        let held=snapshot(&client,&job,&objects).await?;
+        let pin_id=RecordId::new("native_pin",pin.as_ref().unwrap().identity.hex());
+        require(held[1].len()==2 && held[1].iter().any(|row|row.get("id")==Some(&Value::RecordId(shared.clone()))) && held[1].iter().any(|row|row.get("id")==Some(&Value::RecordId(refused.clone()))),"shared and unrelated payloads must remain")?;
+        require(held[2].len()==1 && held[2][0].get("owner")==Some(&Value::RecordId(pin_id)) && held[2][0].get("object")==Some(&Value::RecordId(shared.clone())),"independent pin hold must survive retirement traversal")?;
+        pin.as_ref().unwrap().release().await?;
+        let terminal=control::retire_reachable_named(&client,identity,cfg.service_generation,roots.clone(),2).await?;
+        require(terminal.identity==identity && terminal.retired==3 && terminal.remaining.is_empty() && terminal.retained.is_empty(),"same job must become terminal after independent owner releases")?;
+        let done=snapshot(&client,&job,&objects).await?;
+        require(done[0].len()==1 && done[0][0].get("state")==Some(&Value::String("done".into())),"completed named job must persist terminal state")?;
+        let replay=control::retire_reachable_named(&client,identity,cfg.service_generation,roots.clone(),1).await?;
+        require(replay.identity==identity && replay.retired==terminal.retired && replay.examined==terminal.examined && replay.remaining.is_empty() && replay.retained.is_empty(),"terminal named replay must retain the original result")?;
+        require(snapshot(&client,&job,&objects).await?==done,"terminal replay must not reset items, rewrite the job or touch unrelated payloads")
+    }).catch_unwind().await;
+    let cleanup_allowed=matches!(&outcome,Ok(result) if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup));
+    let mut completion=Completion::default();
+    if cleanup_allowed {
+        let released=if let Some(pin)=&pin {pin.release().await} else {Ok(())};
+        let release_ok=released.is_ok();completion.step("named retirement control independent pin release",released);
+        if release_ok {
+            let cleanup=async {
+                let mut progress=control::retire_reachable_named(&client,identity,cfg.service_generation,roots,16).await?;
+                for _ in 0..4 {if progress.remaining.is_empty(){break;}progress=control::resume_retirement(&client,identity,16).await?;}
+                require(progress.remaining.is_empty() && progress.retained.is_empty(),"owned named retirement cleanup must finish")?;
+                control::retire(&client,refused).await
+            }.await;
+            let safe=cleanup.as_ref().err().is_none_or(ModelError::permits_storage_cleanup);
+            if cleanup.is_err(){completion.local=LocalState::Outstanding;}
+            completion.step("named retirement control exact roots cleanup",cleanup);
+            if safe {completion.step("named retirement control session invalidation",session.close().await);}
+            else {completion.local=LocalState::Outstanding;completion.remote=RemoteState::Unknown;}
+        } else {if let Some(pin)=&pin {pin.retain_unknown();}completion.local=LocalState::Outstanding;completion.remote=RemoteState::Unknown;}
+    } else {
+        if let Some(pin)=&pin {pin.retain_unknown();}
+        completion.local=LocalState::Outstanding;completion.remote=RemoteState::Unknown;
+    }
+    match outcome {
+        Ok(result)=>complete(result,completion).unwrap(),
+        Err(panic)=>{let _=complete(Ok(()),completion);std::panic::resume_unwind(panic);}
+    }
+}
+
 #[test]
 fn original_native_request_serialization_retains_issuance_and_exact_payload_digest() {
     let original=control::NativeRequest{issuance:control::IssuanceEra{generation:ContentHash::of(b"service"),era:7},operation:ContentHash::of(b"original-operation"),request:ContentHash::of(b"exact-payload")};

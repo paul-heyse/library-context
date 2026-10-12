@@ -138,7 +138,7 @@ pub use cleanup::{recover_cleanup, resume_cleanup};
 
 pub use authorization::{IssuanceEra, NativeRequest, NativeRequestError, NativeAttemptError, NativeLifecycleError, EffectDisposition};
 use retirement::retire_terminal_roots;
-pub use retirement::{retire, retire_reachable, resume_retirement, recover_retirement, register_retirement_roots};
+pub use retirement::{retire, retire_reachable, retire_reachable_named, resume_retirement, recover_retirement, register_retirement_roots};
 pub use history::{cut_era, compact_history, HistoryCompaction, retain_outcome, retain_native_outcome, release_outcome, release_outcome_reference, qualify_history_inventory, resume_history_compaction};
 pub fn schema() -> &'static str {
     include_str!("control/schema.surql")

@@ -1200,6 +1200,53 @@ derived_excess_controls! {
 }
 
 #[tokio::test]
+async fn retirement_matching_stale_generation_refuses_before_selection_clear_or_job_creation() {
+    use lctx_native::surrealdb::types::{RecordId, Value};
+    let fixture = small_publication("retirement_stale_generation").await.unwrap();
+    let mut observer_owner = None;
+    let outcome = AssertUnwindSafe(async {
+        let budget = resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES).unwrap();
+        observer_owner = Some(NativeReader::connect(
+            &fixture.config.endpoint,
+            &fixture.config.writer_credentials(),
+            fixture.handle.clone(),
+        ).await.unwrap().with_budget(&budget));
+        let observer = observer_owner.as_ref().unwrap();
+        let publication = RecordId::new("publication", fixture.handle.publication.hex());
+        let job = lctx_native::control::fresh_identity("stale-generation-retirement-control").unwrap();
+        let job_record = RecordId::new("native_retirement", job.hex());
+        let mut records = surrealdb_vars();
+        records.insert("records", vec![publication.clone(), job_record]);
+        let before: Vec<Value> = observer.query_native("SELECT * FROM $records", records.clone()).await.unwrap();
+        assert_eq!(before.len(), 1, "actual publication exists and the exact chosen job does not");
+        let Value::Object(row) = &before[0] else { panic!("actual publication must be a native row"); };
+        assert_eq!(row.get("id"), Some(&Value::RecordId(publication)));
+
+        // Both portable fields agree with each other; only the actual installed
+        // generation distinguishes these stale addresses from the live publication.
+        let generation_a = ContentHash::of(b"stale-generation-retirement-control");
+        assert_ne!(generation_a, fixture.config.service_generation);
+        let mut stale_config = fixture.config.clone();
+        stale_config.service_generation = generation_a;
+        let mut stale_handle = fixture.handle.clone();
+        stale_handle.service_generation = generation_a;
+        stale_config.select(&stale_handle).unwrap();
+        let pointer = std::fs::read(&fixture.config.selection).unwrap();
+        let refused = lctx_publisher::backup::retire_named(
+            &stale_config, &stale_handle, true, true, Some(job),
+        ).await;
+        let error = refused.expect_err("matching stale config/handle cannot grant retirement in the actual installation");
+        assert!(format!("{error:#?}").contains("installed native service generation/schema"),
+            "refusal must come from the actual installed generation, not unrelated infrastructure: {error:#?}");
+        assert_eq!(std::fs::read(&fixture.config.selection).unwrap(), pointer,
+            "the exact stale selection must remain intact on actual-generation refusal");
+        let after: Vec<Value> = observer.query_native("SELECT * FROM $records", records).await.unwrap();
+        assert_eq!(after, before, "the actual publication is unchanged and no retirement job was created");
+    }).catch_unwind().await;
+    finish_small_publication(&fixture, outcome, [&mut observer_owner]).await;
+}
+
+#[tokio::test]
 #[ignore = "requires explicit exclusive maintenance admission"]
 async fn actual_installed_analyzer_drift_is_refused() {
     assert!(
