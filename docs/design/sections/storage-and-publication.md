@@ -314,6 +314,12 @@ Shared/operator state and separately paused qualification remain unchanged. A fu
 retained consumer that cannot regenerate requires its own migration decision rather than silently
 retaining an old-format runtime path.
 
+Retained server handoff provenance follows the exact installed executable and each predecessor
+executable within the same installation; rebuilding native databases does not change that physical
+chain. An active handoff or resumed replacement still requires its checkpointed native generation
+and exact database scope markers. Storage dependency observation preserves immutable handoff journals
+and does not confer maintenance or native admission authority.
+
 Index application may use execution-only concurrent construction without changing canonical schema
 identity. Catalog presence alone does not establish usability: every desired index, including one
 present on a retry, must report terminal readiness before installation advances. Unknown/error states

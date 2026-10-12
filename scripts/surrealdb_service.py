@@ -1960,8 +1960,7 @@ def _server_handoff_plan(installation: Installation, reference: Mapping[str, Any
                 or file_sha256(journal) != reference.get("journal_sha256")):
             raise FixtureBlocked("identity", "immutable server handoff journal changed")
         plan = read_json(journal)
-        if (plan.get("operation") != operation or plan.get("installation_id") != installation.id
-                or plan.get("service_generation") != installation.record["service_generation"]):
+        if plan.get("operation") != operation or plan.get("installation_id") != installation.id:
             raise FixtureBlocked("identity", "server handoff differs from its installation")
         return journal, plan
     except (OSError, TypeError, AttributeError, ValueError):
@@ -1980,22 +1979,36 @@ def _server_handoff_dependencies(installation: Installation) -> list[dict]:
                 result.extend(surrealdb_server.dependencies(generation))
     binary_assets(installation.record.get("binary"))
     marker = read_json(installation.directory / "maintenance.json")
-    references = [installation.record.get("server_handoff")]
-    if isinstance(marker, dict):
-        references.append(marker.get("server_handoff"))
+    references = [(installation.record.get("server_handoff"), installation.record.get("binary"), False, frozenset())]
+    if isinstance(marker, dict) and marker.get("server_handoff"):
+        if marker.get("operation") != SERVER_HANDOFF_OPERATION:
+            raise FixtureBlocked("identity", "active server handoff has a different maintenance owner")
+        references.append((marker["server_handoff"], installation.record.get("binary"), True, frozenset()))
     seen = set()
     while references:
-        reference = references.pop()
+        reference, expected_binary, active, ancestors = references.pop()
         if not reference:
             continue
-        if reference.get("operation") in seen:
-            continue
         journal, plan = _server_handoff_plan(installation, reference)
+        successor = _generation_binary(plan["generation"])
+        # Retained executable provenance survives rebuilding native databases. Each
+        # link still names the exact binary installed by that handoff, while a live
+        # handoff may be on either side of its checkpointed physical replacement.
+        matches_binary = expected_binary == successor or active and expected_binary == plan["previous_binary"]
+        if not matches_binary:
+            raise FixtureBlocked("identity", "server handoff executable chain differs")
+        if active and plan.get("service_generation") != installation.record["service_generation"]:
+            raise FixtureBlocked("identity", "active server handoff native generation differs")
+        if plan["operation"] in ancestors:
+            raise FixtureBlocked("identity", "server handoff executable chain is cyclic")
+        if plan["operation"] in seen:
+            continue
         seen.add(plan["operation"])
         result.append({"path": str(journal.parent), "role": "server-handoff-private-assets"})
         binary_assets(plan["previous_binary"])
         binary_assets(_generation_binary(plan["generation"]))
-        references.append(plan.get("previous_handoff"))
+        references.append((plan.get("previous_handoff"), plan["previous_binary"], False,
+                           ancestors | {plan["operation"]}))
     return result
 
 
@@ -2055,6 +2068,8 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
             port = int(installation.endpoint.rsplit(":", 1)[1])
             if resumed:
                 journal, plan = _server_handoff_plan(installation, marker["server_handoff"])
+                if plan.get("service_generation") != installation.record["service_generation"]:
+                    raise FixtureBlocked("identity", "resume requires the exact checkpointed native generation")
                 if generation != plan["generation"]:
                     raise FixtureBlocked("identity", "resume requires the exact checkpointed server generation")
             else:

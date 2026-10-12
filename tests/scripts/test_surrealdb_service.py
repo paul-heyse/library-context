@@ -1346,6 +1346,92 @@ def test_patched_server_status_names_owned_generation_and_retained_dependencies(
     assert generation["provenance"]["build_path"] in {row["path"] for row in result["storage"]["dependencies"]}
 
 
+def retained_handoff_chain_after_native_rebuild(server_handoff_ready, tmp_path):
+    installation, first, actions, state, *_ = server_handoff_ready
+    def rebuild_native_generation(value):
+        installation.record["service_generation"] = [value] * 32
+        for database in service.DATABASES:
+            state["markers"][database]["generation"] = bytes(installation.record["service_generation"]).hex()
+            for installer in (False, True):
+                path = installation.runtime_path(database, installer=installer)
+                config = json.loads(path.read_text())
+                config["service_generation"] = installation.record["service_generation"]
+                service.private_json(path, config)
+        service.private_json(installation.directory / "installation.json", installation.record)
+    service.handoff_server(installation, Path(first["descriptor_path"]))
+    first_reference = dict(installation.record["server_handoff"])
+    first_path = Path(first_reference["journal"])
+    first_bytes = first_path.read_bytes()
+    rebuild_native_generation(82)
+    second = owned_server_descriptor(installation.directory, tmp_path, "-second")
+    service.handoff_server(installation, Path(second["descriptor_path"]))
+    second_path = Path(installation.record["server_handoff"]["journal"])
+    second_bytes = second_path.read_bytes()
+    rebuild_native_generation(83)
+    return installation, first, second, {first_path:first_bytes, second_path:second_bytes}
+
+
+def test_retained_server_handoff_chain_survives_native_generation_rebuild(server_handoff_ready, tmp_path, monkeypatch, capfd):
+    from storage_service import dependencies
+    installation, first, second, originals = retained_handoff_chain_after_native_rebuild(server_handoff_ready,tmp_path)
+    descriptor = (installation.directory / "installation.json").read_bytes()
+    paths = {item["path"] for item in dependencies(installation)["dependencies"]}
+    assert {str(path.parent) for path in originals} <= paths
+    assert {first["path"], second["path"]} <= paths
+    monkeypatch.setenv("LCTX_SURREAL_SERVICE_CONFIG", str(installation.directory / "installation.json"))
+    monkeypatch.setattr(service, "unit_properties", lambda *args: {"ActiveState": "active"})
+    assert service.main(["status"]) == 0
+    result = json.loads(capfd.readouterr().out)
+    assert result["server"]["generation"] == second["identity"]
+    assert {item["path"] for item in result["storage"]["dependencies"]} == paths
+    assert (installation.directory / "installation.json").read_bytes() == descriptor
+    assert {path:path.read_bytes() for path in originals} == originals
+
+
+@pytest.mark.parametrize("change", ["current_binary", "previous_binary", "installation", "digest"])
+def test_retained_server_handoff_chain_refuses_physical_or_journal_substitution(server_handoff_ready,tmp_path,change):
+    from storage_service import dependencies
+    installation, first, second, originals = retained_handoff_chain_after_native_rebuild(server_handoff_ready,tmp_path)
+    reference = installation.record["server_handoff"]
+    journal = Path(reference["journal"])
+    plan = json.loads(journal.read_text())
+    if change == "current_binary":
+        installation.record["binary"] = service._generation_binary(first)
+    elif change == "digest":
+        reference["journal_sha256"] = "0" * 64
+    else:
+        if change == "installation": plan["installation_id"] = str(uuid.uuid4())
+        else:
+            predecessor = json.loads(Path(plan["previous_handoff"]["journal"]).read_text())
+            plan["previous_binary"] = predecessor["previous_binary"]
+        service.private_json(journal, plan)
+        reference["journal_sha256"] = service.file_sha256(journal)
+    with pytest.raises(service.FixtureBlocked, match="handoff"):
+        dependencies(installation)
+
+
+def test_active_server_handoff_resume_refuses_native_generation_rebuild(server_handoff_ready):
+    from storage_service import dependencies
+    installation, generation, actions, state, *_ = server_handoff_ready
+    state["drift"] = ("schema", "d" * 64)
+    with pytest.raises(service.FixtureBlocked, match="scope identity"):
+        service.handoff_server(installation, Path(generation["descriptor_path"]))
+    marker_path = installation.directory / "maintenance.json"
+    marker = json.loads(marker_path.read_text())
+    journal = Path(marker["server_handoff"]["journal"])
+    original = journal.read_bytes()
+    marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid":99999997, "start_ticks":1}
+    service.private_json(marker_path, marker)
+    installation.record["service_generation"] = [84] * 32
+    before = list(actions)
+    with pytest.raises(service.FixtureBlocked, match="checkpointed native generation"):
+        service.handoff_server(installation, Path(generation["descriptor_path"]))
+    with pytest.raises(service.FixtureBlocked, match="active server handoff native generation"):
+        dependencies(installation)
+    assert actions == before and journal.read_bytes() == original
+    assert json.loads(marker_path.read_text()) == marker
+
+
 
 
 
