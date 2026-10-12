@@ -180,6 +180,7 @@ impl ProducerOutput {
                 // Persisted admission does not carry ephemeral Rust verification owners.
                 // Reconstruct those only for consumers that require them, without ingress.
                 if prepare_owner {
+                    let preflight=async {
                     let mut charge = self
                         .workspace
                         .budget
@@ -217,7 +218,14 @@ impl ProducerOutput {
                         sections,
                         _charge: charge,
                     }))
-                    .await?;
+                    .await
+                    }.await;
+                    if let Err(error)=preflight {
+                        if !error.permits_storage_cleanup(){return Err(error);}
+                        let mut terminal=lctx_model::domain::completion::Completion::default();
+                        terminal.step("rejected retained product candidate close",candidate.close().await);
+                        return lctx_model::domain::completion::complete(Err(error),terminal);
+                    }
                 }
                 // The candidate remains physically held through complete receiver
                 // preflight; only now install receiver views and output ownership.

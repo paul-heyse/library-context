@@ -217,6 +217,17 @@ pub(crate) enum CandidateCompletion {
 }
 impl CandidateCompletion {
     pub(crate) fn retain_unknown(&self){if let Self::Terminal(owner)=self {owner.retain_unknown();}}
+    async fn close(self:Arc<Self>)->Result<(),ModelError>{
+        match Arc::try_unwrap(self){
+            Ok(Self::Terminal(owner))=>owner.close().await,
+            Ok(Self::Admitted(_))=>Ok(()),
+            Err(owner)=>{
+                owner.retain_unknown();
+                let completion=d::completion::Completion{local:d::completion::LocalState::Outstanding,..d::completion::Completion::default()};
+                d::completion::complete(Err(ModelError::Conflict("candidate completion still has live read owners")),completion)
+            }
+        }
+    }
     async fn held_view(&self,client:Arc<Surreal<Client>>,view:ContentHash,budget:&ResourceBudget)
         ->Result<Arc<lctx_native::installed_view::HeldInstalledView>,ModelError>{
         match self {
@@ -228,6 +239,10 @@ impl CandidateCompletion {
 impl HeldCandidate {
     pub fn physical(&self) -> ContentHash { self.physical }
     pub fn descriptor(&self) -> &CompletedContribution { &self.descriptor }
+    /// Explicitly join a candidate rejected by its caller after all scans drain.
+    pub async fn close(self)->Result<(),ModelError>{
+        let Self{completed,outputs,..}=self;drop(outputs);completed.close().await
+    }
 }
 // Request discovery commits the entire specification. Equality is eligibility
 // data only; exact native completion/incarnation acquisition still follows.
@@ -1543,6 +1558,7 @@ impl NativeCompilerStore {
     pub async fn hold_captured_product(self:&Arc<Self>,request:&d::producer_contract::request::CapturedRequest,
         model:Arc<ValidatedModel>,profile:d::stages::Profile,budget:&ResourceBudget)->Result<Option<HeldCandidate>,ModelError>{
         let lease=self.admit_mutation("hold captured terminal product",true)?;
+        let mut acquired=None;
         let result=lease.within(async {
             self.check_failed()?;
             if model.digest()!=request.contribution().model{return Err(ModelError::Conflict("terminal candidate current model"));}
@@ -1558,6 +1574,7 @@ impl NativeCompilerStore {
             let Some(row)=rows.first()else{return Ok(None);};
             let Some(Value::RecordId(product))=row.get("id")else{return Err(ModelError::Schema("terminal candidate discovered product"));};
             let held=Arc::new(lctx_native::control::hold_terminal_product(self.client.clone(),product.clone(),identity,budget).await?);
+            acquired=Some(held.clone());
             let descriptor=held.descriptor();
             require_retained_request_spec(&descriptor.spec,request.contribution())?;
             if descriptor.outcome!=0 || descriptor.spec.producer==d::producer_contract::facts::ASSEMBLE{return Ok(None);}
@@ -1575,6 +1592,16 @@ impl NativeCompilerStore {
             }
             Ok(Some(HeldCandidate{owner:self.admission.clone(),physical,descriptor,expected,completed:Arc::new(CandidateCompletion::Terminal(held)),outputs,_admission:Some(admission),_charge:charge}))
         }).await;
+        let result=if !matches!(&result,Ok(Some(_))) {
+            if let Some(owner)=acquired.take(){
+                if result.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()) {
+                    owner.retain_unknown();result
+                }else{
+                    let mut terminal=d::completion::Completion::default();terminal.step("rejected terminal candidate source close",owner.close().await);
+                    d::completion::complete(result,terminal)
+                }
+            }else{result}
+        }else{result};
         lease.finish_with(result)
     }
     pub(crate) fn terminal_read_owner(client:Arc<Surreal<Client>>,namespace:d::serving::Name,database:d::serving::Name,
@@ -1593,12 +1620,22 @@ impl NativeCompilerStore {
     pub async fn attach_held_product(self: &Arc<Self>, candidate: HeldCandidate, budget: &ResourceBudget)
         -> Result<(ContentHash, BTreeMap<String, CompletedView>, CompletedContribution), ModelError> {
         if !Arc::ptr_eq(&candidate.owner, &self.admission) {
-            return Err(ModelError::Conflict("retained candidate receiver owner"));
+            let mut terminal=d::completion::Completion::default();terminal.step("wrong receiver candidate close",candidate.close().await);
+            return d::completion::complete(Err(ModelError::Conflict("retained candidate receiver owner")),terminal);
         }
-        let lease = self.admit_mutation("attach held product", true)?;
-        let result = lease.within(async {
+        let lease = match self.admit_mutation("attach held product", true){
+            Ok(lease)=>lease,
+            Err(error)=>{
+                if !error.permits_storage_cleanup(){return Err(error);}
+                let mut terminal=d::completion::Completion::default();terminal.step("refused receiver candidate close",candidate.close().await);
+                return d::completion::complete(Err(error),terminal);
+            }
+        };
+        let HeldCandidate { physical, descriptor, expected, completed, outputs, _admission, _charge:_candidate_charge, .. } = candidate;
+        let closing=completed.clone();
+        let attached_committed=AtomicBool::new(false);let committed=&attached_committed;
+        let result = lease.within(async move {
             self.check_failed()?;
-            let HeldCandidate { physical, descriptor, expected, completed, outputs, _admission, _charge:_candidate_charge, .. } = candidate;
             if let CandidateCompletion::Terminal(owner)=completed.as_ref(){
                 _admission.as_ref().ok_or(ModelError::Conflict("terminal candidate lacks executed admission"))?.require(&descriptor)?;
                 owner.ensure_current(budget).await?;
@@ -1646,6 +1683,7 @@ impl NativeCompilerStore {
             drop(self.known_contributors.lock().map_err(|_|ModelError::Conflict("native contributor candidates"))?);
             drop(self.installed_views.lock().map_err(|_|ModelError::Conflict("attached exact installed owner"))?);
             let attached=lctx_native::installed_view::attach_live_views(self.client.clone(),self.attempt,&sources,vec![expected],budget).await?;
+            committed.store(true,Ordering::Release);
             for (view,rows,charge) in pending_mappings {
                 self.view_mappings.lock().map_err(|_|ModelError::Conflict("receiver exact mappings"))?.entry(view).or_insert((rows,charge));
             }
@@ -1658,6 +1696,16 @@ impl NativeCompilerStore {
             self.remember_contributor(logical,physical)?;
             Ok((physical, views, descriptor))
         }).await;
+        let result=if result.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()){
+            closing.retain_unknown();result
+        }else{
+            let mut terminal=d::completion::Completion::default();
+            // The receiver has earned independent holds before source release.
+            // A later source close error must retain the committed attach identity.
+            if attached_committed.load(Ordering::Acquire){terminal.committed("retained product attached",physical.hex());}
+            terminal.step("attached candidate source close",closing.close().await);
+            d::completion::complete(result,terminal)
+        };
         lease.finish_with(result)
     }
     async fn hold_contribution_inputs(
@@ -4025,6 +4073,7 @@ impl NativeCompilerStore {
         }
         let mut b = Variables::new();
         b.insert("row", row);
+        b.insert("frozen_binding",binding.boundary.is_some());
         if binding.boundary.is_some() {
             let mut lookup = Variables::new();
             lookup.insert(
@@ -4054,14 +4103,13 @@ impl NativeCompilerStore {
                 return Ok(());
             }
         }
-        crate::control::guarded_effect(&self.client,Some(self.attempt),vec![RecordId::new("compiler_binding",attempt_binding(self.attempt,binding.key()).hex())],"IF $__owner.admitted { THROW 'native binding inventory admitted'; }; UPSERT $row.id CONTENT $row RETURN NONE; UPDATE $__attempt SET revision+=1 RETURN NONE",b).await?;
-        crate::control::hold(
-            &self.client,
-            Some(self.attempt),
-            RecordId::new("native_attempt", self.attempt.hex()),
-            vec![RecordId::new("compiler_view", binding.view.identity.hex())],
-        )
-        .await?;
+        let slot=RecordId::new("compiler_binding",attempt_binding(self.attempt,binding.key()).hex());
+        let owner=RecordId::new("native_attempt",self.attempt.hex());
+        // The replaceable slot has its own terminal lifecycle. Canonical complete
+        // descriptors retain the full meaning independently after physical completion.
+        crate::control::guarded_effect_with_holds(&self.client,self.attempt,vec![slot.clone()],
+            vec![(owner.clone(),slot),(owner,RecordId::new("compiler_view",binding.view.identity.hex()))],
+            "IF $__owner.admitted { THROW 'native binding inventory admitted'; }; LET $existing=SELECT * FROM ONLY $row.id FOR UPDATE; IF $frozen_binding AND $existing!=NONE AND $existing!=$row { THROW 'frozen native binding replacement'; }; UPSERT $row.id CONTENT $row RETURN NONE; UPDATE $__attempt SET revision+=1 RETURN NONE",b).await?;
         Ok(())
     }
     pub async fn bindings(self: &Arc<Self>) -> Result<Vec<CompletedBinding>, ModelError> {

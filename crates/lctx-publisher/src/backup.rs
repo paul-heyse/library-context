@@ -25,12 +25,10 @@ async fn backup_owned(config: &RuntimeConfig, handle: &SnapshotHandle, output: &
     let parent = output.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or(Path::new("."));
     let viewer = NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle.clone()).await?;
     let mut pin_guard = viewer.protect_terminal_close();
-    let client = viewer.shared_client();
     let staged = match tempfile::NamedTempFile::new_in(parent) {
         Ok(file) => file,
         Err(error) => {
             let mut completion = Completion::default(); completion.step("backup setup reader pin release", pin_guard.close(&viewer).await);
-            completion.step("backup setup session invalidation", client.invalidate().await.map_err(ModelError::codec));
             return complete(Err(ModelError::codec(error)), completion);
         }
     };
@@ -83,7 +81,6 @@ async fn backup_owned(config: &RuntimeConfig, handle: &SnapshotHandle, output: &
         completion.step("backup snapshot session invalidation", invalidated);
     }
     completion.step("backup retained manifest pin release", pin_guard.close(&viewer).await);
-    completion.step("backup reader session invalidation", client.invalidate().await.map_err(ModelError::codec));
     let result = result.and_then(|()| cancel.check());
     complete_backup(staged, output, result, complete(Ok(()), completion), |parent| std::fs::File::open(parent)?.sync_all())
 }

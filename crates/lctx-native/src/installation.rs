@@ -142,7 +142,7 @@ pub async fn check_installation(
 pub fn completion_schema()->String {
     [crate::control::frozen_schema_target(),crate::completed_state::schema_target(),crate::installed_view::schema_target(),
      crate::control::staging::schema_target(),crate::schema::pending_original_schema_target(),
-     crate::binding_descriptor::schema_target()].join("\n")
+     crate::binding_descriptor::schema_target(),crate::control::validation_premise::schema_target()].join("\n")
 }
 pub fn base_schema_identity() -> ContentHash {
     static IDENTITY: std::sync::OnceLock<ContentHash> = std::sync::OnceLock::new();

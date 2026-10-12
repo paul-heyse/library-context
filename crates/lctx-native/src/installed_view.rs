@@ -109,6 +109,7 @@ enum InstalledViewOwner {
     Recovery{expected:crate::control::ExpectedRecord,pin:std::sync::Arc<crate::control::ReaderPin>,owner:RecordId},
 }
 impl HeldInstalledView {
+    pub(crate) fn validation_client(&self)->std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>{self.client.clone()}
     /// Preserve a borrowed terminal-product pin after unconfirmed transport. Other
     /// installed owners already retain their independent durable source lifetime.
     pub fn retain_unknown(&self) {if let InstalledViewOwner::Recovery{pin,..}=&self.owner {pin.retain_unknown();}}

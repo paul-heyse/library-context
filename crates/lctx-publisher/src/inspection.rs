@@ -226,6 +226,5 @@ async fn audit_owned(
     };
     if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) || completion.local != lctx_model::domain::completion::LocalState::Terminal || completion.remote != lctx_model::domain::completion::RemoteState::Confirmed { reader.retain_unknown(); }
     completion.step("audit reader pin release", pin_guard.close(&reader).await);
-    completion.step("audit session invalidation", reader.client().invalidate().await.map_err(ModelError::codec));
     lctx_model::domain::completion::complete(result, completion)
 }

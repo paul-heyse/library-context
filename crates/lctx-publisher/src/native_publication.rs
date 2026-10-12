@@ -46,6 +46,7 @@ pub(crate) struct Publication<'a> {
     bindings: Vec<CompletedBinding>,
     unchanged: Option<SnapshotHandle>,
     definition_epoch: ContentHash,
+    session:lctx_native::reader::SessionFinalizationGuard,
 }
 impl<'a> Publication<'a> {
     pub(crate) async fn new(
@@ -66,7 +67,8 @@ impl<'a> Publication<'a> {
         )
         .await;
         let client = match connected {Ok(client)=>client,Err(error)=>return lease.finish_with(Err(error))};
-        let result=async {
+        let mut session=Some(lctx_native::reader::SessionFinalizationGuard::new(client.clone()));
+        let result:Result<Self,ModelError>=async {
             lctx_native::materialization::validate_native_definitions(definitions)?;
             let attempt=admission.native().attempt();let budget=admission.budget();
             let loader=Loader::for_attempt_views(client.clone(),attempt,bindings.iter()
@@ -82,11 +84,12 @@ impl<'a> Publication<'a> {
                 let staging=lctx_native::control::staging::DerivedStaging::begin(&client,completed,realization,budget).await?;
                 loader.with_staging(Arc::new(staging))?.prepare_completed_reader().await?
             };
-            Ok(Self{admission,loader,bindings,unchanged,definition_epoch:crate::definitions::epoch_identity(definitions)})
+            Ok(Self{admission,loader,bindings,unchanged,definition_epoch:crate::definitions::epoch_identity(definitions),session:session.take().expect("publication session owner")})
         }.await;
-        if result.is_err(){
+        if let Err(error)=&result {
+            if !error.permits_storage_cleanup(){return lease.finish_with(result);}
             let mut completion=Completion::default();
-            completion.step("failed publication setup session invalidation",client.invalidate().await.map_err(ModelError::codec));
+            completion.step("failed publication setup session invalidation",session.as_ref().expect("failed setup session owner").close().await);
             return lease.finish_with(complete(result,completion));
         }
         lease.finish_with(result)
@@ -96,10 +99,10 @@ impl<'a> Publication<'a> {
     fn store(&self) -> &Arc<NativeCompilerStore> {
         self.admission.native()
     }
-    pub(crate) async fn invalidate(&self)->Result<(),ModelError>{
-        let result=self.loader.close_reader().await;
-        let mut completion=Completion::default();completion.step("publication session invalidation",self.loader.client().invalidate().await.map_err(ModelError::codec));
-        complete(result,completion)
+    pub(crate) async fn invalidate(&self,primary:&ModelError)->Result<(),ModelError>{
+        if !primary.permits_storage_cleanup(){return Err(ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed,"publication session retained after uncertain operation"));}
+        self.loader.close_reader().await?;
+        self.session.close().await
     }
 
     pub(crate) async fn entity_references(&self, entities: &[Entity]) -> Result<(), ModelError> {
@@ -158,7 +161,7 @@ impl<'a> Publication<'a> {
                 let staging=self.loader.staging().ok_or(ModelError::Conflict("publication staging owner missing"))?;
                 staging.publish(&self.loader,&expected,manifest,&self.bindings,self.admission.budget()).await?.handle
             };
-            finalize_marker(&self.loader,&handle,self.store().attempt(),config,&lease,committed_identity).await
+            finalize_marker(&self.loader,&handle,self.store().attempt(),config,&lease,committed_identity,&self.session).await
         }
         .await;
         let result = lease.finish_with(result);
@@ -176,22 +179,22 @@ pub(crate) fn publication_handle(manifest:&Manifest,views:&[CompletedBinding],da
 }
 /// Marker acknowledgement precedes every fallible finalizer and is retained in both owners.
 async fn finalize_marker(loader:&Loader,handle:&SnapshotHandle,attempt:ContentHash,config:&RuntimeConfig,
-    lease:&lctx_compiler_store::compiler::OperationLease,committed_identity:String)->Result<SnapshotHandle,ModelError>{
+    lease:&lctx_compiler_store::compiler::OperationLease,committed_identity:String,session:&lctx_native::reader::SessionFinalizationGuard)->Result<SnapshotHandle,ModelError>{
     let client=loader.client();
     lease.record_committed(committed_identity.clone());
     let mut completion = Completion::default();
     completion.committed("published unselected manifest", committed_identity);
-    completion.step("publication completed reader close",loader.close_reader().await);
+    let reader_closed=loader.close_reader().await;
+    let may_finalize=reader_closed.is_ok();
+    completion.step("publication completed reader close",reader_closed);
+    if !may_finalize { return complete(Ok(handle.clone()),completion); }
     if let Err(error) = lctx_native::control::close_attempt(client, attempt, "closed").await {
         return complete(Err(error), completion);
     }
     let readback_phase = Phase::begin("publication_readback");
     completion.step(
         "publication session invalidation",
-        client
-            .invalidate()
-            .await
-            .map_err(|error| ModelError::Cause(Box::new(error))),
+        session.close().await,
     );
     let readback = NativeReader::connect(
         &config.endpoint,
@@ -201,17 +204,8 @@ async fn finalize_marker(loader:&Loader,handle:&SnapshotHandle,attempt:ContentHa
     .await;
     let readback = match readback {
         Ok(reader) => {
-            let closed = reader.close().await;
-            let mut finality = Completion::default();
-            finality.step(
-                "publication readback session invalidation",
-                reader
-                    .client()
-                    .invalidate()
-                    .await
-                    .map_err(ModelError::codec),
-            );
-            complete(closed.map(|_| handle.clone()), finality)
+            let mut owner=reader.protect_terminal_close();
+            owner.close(&reader).await.map(|_|handle.clone())
         }
         Err(error) => Err(error),
     };

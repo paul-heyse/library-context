@@ -3,6 +3,7 @@ mod uniform;
 pub use uniform::AdmittedUniformOwners;
 pub(crate) mod candidate;
 mod normalization_declarations;
+mod durable;
 use arrow_array::RecordBatch;
 use datafusion::{execution::{disk_manager::{DiskManagerBuilder, DiskManagerMode}, memory_pool::{MemoryPool, MemoryReservation}, runtime_env::RuntimeEnvBuilder}, prelude::{SessionConfig,SessionContext}};
 use futures::{future::BoxFuture, FutureExt, TryStreamExt};
@@ -1075,6 +1076,11 @@ impl AdmissionRuntime {
                 self.remember_premise(premise)?;
                 continue;
             }
+            if external.is_none() && self.validate_durable_whole(&invariant,&inputs,&unrequested,profile,uniform.owners(),&session,planner).await? {
+                if earn{evidence.push(self.execution_evidence(&invariant,Execution::WholeInput,&inputs,&unrequested,&mut evidence_charge)?);}
+                self.remember_premise(premise)?;
+                continue;
+            }
             for input in &invariant.inputs {
                 let order = input
                     .order()
@@ -1148,9 +1154,11 @@ impl AdmissionRuntime {
         profile: Profile,
     ) -> Result<Option<ContentHash>, ModelError> {
         use lctx_model::domain::Key;
-        let mut sink = lctx_model::domain::KeySink::new("compiler-checked-premises/v1");
+        let Some(factory)=self.model.factory_contract(invariant.identity())else{return Ok(None);};
+        let mut sink = lctx_model::domain::KeySink::new("compiler-checked-premises/v2");
         self.model.digest().encode(&mut sink);
         invariant.digest().encode(&mut sink);
+        factory.identity()?.encode(&mut sink);
         profile.name().to_string().encode(&mut sink);
         for input in &invariant.inputs {
             if unrequested.contains(input.name()) {

@@ -822,10 +822,10 @@ pub(crate) async fn restore(
             }
             .await;
             let mut completion = lctx_model::domain::completion::Completion::default();
-            if result.is_err() {
+            if let Err(error)=&result {
                 completion.step(
                     "restore publication session invalidation",
-                    publication.invalidate().await,
+                    publication.invalidate(error).await,
                 );
             }
             lctx_model::domain::completion::complete(result, completion)

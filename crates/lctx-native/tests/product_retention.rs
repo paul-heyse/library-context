@@ -3,7 +3,7 @@
 use futures::FutureExt;
 use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{ContentHash, ModelError, Record, Relation, admission::Frontier,
-    completed::{ContributionSpec, OutputProfile}, input::Package, resources::ResourceBudget,
+    completed::{CompletedBinding, ContributionSpec, OutputProfile, attempt_binding}, input::Package, resources::ResourceBudget,
     stages::{Profile, ProviderOutcome}, completion::{Completion, complete}};
 use lctx_native::{RuntimeConfig, control};
 use std::{collections::BTreeMap, sync::Arc};
@@ -47,6 +47,15 @@ impl Product {
     async fn release(&self) -> ContentHash {
         control::release_retained_product(self.client.clone(),self.request,self.source.attempt(),&self.budget).await.unwrap().unwrap()
     }
+    async fn bind(&self) -> (CompletedBinding, RecordId) {
+        let view=self.source.views().await.unwrap().into_iter().find(|view|view.relation==Package::NAME).unwrap();
+        let binding=CompletedBinding{boundary:None,configuration:None,
+            source:lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+                &Relation::of::<Package>(),lctx_model::domain::model().unwrap().digest(),&view).unwrap(),view};
+        self.source.bind(binding.clone()).await.unwrap();
+        let slot=RecordId::new("compiler_binding",attempt_binding(self.source.attempt(),binding.key()).hex());
+        (binding,slot)
+    }
     async fn finish(self, result: Result<(),Box<dyn std::any::Any+Send>>) {
         let mut terminal=Completion::default();
         terminal.step("product control source close",self.source.abandon().await);
@@ -56,6 +65,50 @@ impl Product {
         if let Err(primary)=result {if let Err(error)=cleanup{eprintln!("product control cleanup: {error:#?}");}std::panic::resume_unwind(primary);}
         cleanup.unwrap();
     }
+}
+
+#[tokio::test(flavor="multi_thread")]
+async fn terminal_binding_slot_collection_preserves_canonical_completion_and_live_peer() {
+    let product=Product::new(&config()).await;
+    let peer=Product::new(&config()).await;
+    let pin=control::ReaderPin::acquire(product.client.clone(),&[]).await.unwrap();
+    let result=std::panic::AssertUnwindSafe(async {
+        let (binding,slot)=product.bind().await;
+        let (_,peer_slot)=peer.bind().await;
+        let peer_before=peer.row(&peer_slot).await.unwrap();
+        let mut current=binding.clone();current.configuration=Some(ContentHash::of(b"current binding configuration"));
+        product.source.bind(current.clone()).await.unwrap();
+        let mut response=product.client.query("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt AND object=$slot")
+            .bind(("attempt",RecordId::new("native_attempt",product.source.attempt().hex())))
+            .bind(("slot",slot.clone())).await.unwrap().check().unwrap();
+        let holds:Vec<Object>=response.take(0).unwrap();assert_eq!(holds.len(),1,"replacement keeps one owned mutable slot");
+        product.source.freeze_content(&product.budget).await.unwrap();
+        let physical=product.source.complete_physical_content(&product.budget).await.unwrap();
+        pin.protect(physical.completion().record().unwrap()).await.unwrap();
+        let canonical=lctx_native::binding_descriptor::record(&current).unwrap();
+        let canonical_before=product.row(&canonical).await.unwrap();
+        assert_eq!(lctx_native::binding_descriptor::decode(&Value::Object(canonical_before.clone())).unwrap(),current);
+        product.source.abandon().await.unwrap();
+        assert!(product.row(&slot).await.is_some(),"close releases incidence only after durable nomination; collection is separate");
+        let mut response=product.client.query("SELECT job,incarnation,state FROM native_retirement_item WITH INDEX object_retirements WHERE object=$slot ORDER BY id")
+            .bind(("slot",slot.clone())).await.unwrap().check().unwrap();
+        let items:Vec<Object>=response.take(0).unwrap();assert_eq!(items.len(),1);
+        assert_eq!(items[0].get("state"),Some(&Value::String("pending".into())));
+        let guard=RecordId::new("native_guard",ContentHash::of(&serde_json::to_vec(&Value::RecordId(slot.clone())).unwrap()).hex());
+        assert_eq!(items[0].get("incarnation"),product.row(&guard).await.unwrap().get("incarnation"),"cleanup nominates the original exact slot incarnation");
+        let Some(Value::RecordId(job))=items[0].get("job") else{panic!("slot retirement owner")};
+        let surrealdb::types::RecordIdKey::String(job)=&job.key else{panic!("slot retirement key")};
+        let job=ContentHash(hex::decode(job).unwrap().try_into().unwrap());
+        control::resume_retirement(&product.client,job,128).await.unwrap();
+        assert!(product.row(&slot).await.is_none(),"the collector removes the redundant attempt slot");
+        assert_eq!(peer.row(&peer_slot).await,Some(peer_before),"a live peer owns its separate mutable slot");
+        assert_eq!(product.row(&canonical).await,Some(canonical_before),"completed reads and backup retain canonical full binding meaning");
+        assert!(product.row(&RecordId::new("compiler_view",current.view.identity.hex())).await.is_some());
+        let portable=lctx_native::binding_descriptor::portable_row(&current).unwrap();
+        lctx_native::completed_rows::validate_state_row("compiler_binding",&portable).unwrap();
+    }).catch_unwind().await;
+    let released=pin.release().await;
+    peer.finish(Ok(())).await;product.finish(result).await;released.unwrap();
 }
 
 #[tokio::test(flavor="multi_thread")]
@@ -222,4 +275,90 @@ async fn history_preserves_a_released_products_durable_nomination() {
     let restore=if was_open {lctx_compiler_store::compiler::open_admission(&cfg).await}else{lctx_compiler_store::compiler::close_admission(&cfg).await};
     if let Err(error)=&restore{eprintln!("product history admission restoration: {error:#?}");}
     client.invalidate().await.unwrap();product.finish(result).await;restore.unwrap();
+}
+
+// A one-record production page keeps this maintenance control inside its exact
+// owned scope. The qualified inventory and drained horizon remain prerequisites.
+async fn exact_history_page(client:&Surreal<Client>,closed:i64,phase:&str,target:&RecordId)->control::HistoryCompaction {
+    let surrealdb::types::RecordIdKey::String(key)=&target.key else{panic!("history target key")};
+    let mut before: [u8;32]=hex::decode(key).unwrap().try_into().unwrap();
+    for byte in before.iter_mut().rev(){if *byte>0{*byte-=1;break;}*byte=255;}
+    let checkpoint=control::fresh_identity("binding-history-control").unwrap();
+    let mut bindings=surrealdb::types::Variables::new();
+    bindings.insert("checkpoint",RecordId::new("native_history_checkpoint",checkpoint.hex()));
+    bindings.insert("closed",closed);bindings.insert("phase",phase.to_owned());
+    bindings.insert("after",RecordId::new(target.table.as_str(),ContentHash(before).hex()));
+    control::effect(client,None,"IF $__installation.admission_open OR $__installation.history_inventory=NONE OR $__installation.closed_through<$closed { THROW 'binding history requires qualified drained horizon'; }; CREATE $checkpoint SET generation=$__generation,era=$__era,epoch=$__epoch,closed_through=$closed,phase=$phase,after=$after,state='open',removed_effects=0,removed_records=0,revision=0 RETURN NONE",bindings).await.unwrap();
+    let receipt=control::resume_history_compaction(client,checkpoint,0,1).await.unwrap();
+    assert_eq!(receipt.examined,[target.clone()],"the page cannot consume another test's history");receipt
+}
+
+#[tokio::test(flavor="multi_thread")]
+#[ignore="requires explicit drained validation maintenance and independently qualified history inventory"]
+async fn released_binding_slots_allow_exact_terminal_attempt_history_compaction() {
+    assert!(std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some());
+    let cfg=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("maintenance installer"))).unwrap();
+    assert_eq!(cfg.authentication,lctx_native::AuthenticationScope::Root);assert_eq!(cfg.database.as_str(),"validation");
+    let client=lctx_compiler_store::compiler::check_installation(&cfg).await.unwrap();
+    let mut response=client.query("SELECT admission_open,history_inventory FROM native_installation:current").await.unwrap().check().unwrap();
+    let rows:Vec<Object>=response.take(0).unwrap();let [installation]=rows.as_slice() else{panic!("maintenance installation")};
+    let Some(Value::Bool(was_open))=installation.get("admission_open") else{panic!("maintenance admission")};let was_open=*was_open;
+    let evidence=std::env::var("LCTX_HISTORY_INVENTORY_EVIDENCE").expect("independently qualified consumer inventory");
+    assert_eq!(installation.get("history_inventory"),Some(&Value::String(evidence)));
+    if !was_open {lctx_compiler_store::compiler::open_admission(&cfg).await.unwrap();}
+    let product=Product::new(&cfg).await;
+    let peer=Product::new(&cfg).await;
+    let result=std::panic::AssertUnwindSafe(async {
+        let (_,slot)=product.bind().await;let (_,peer_slot)=peer.bind().await;
+        let peer_before=peer.row(&peer_slot).await.unwrap();
+        let source=RecordId::new("native_attempt",product.source.attempt().hex());
+        let mut response=client.query("SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$source ORDER BY object")
+            .bind(("source",source.clone())).await.unwrap().check().unwrap();
+        let mut roots:Vec<RecordId>=response.take(0).unwrap();assert!(roots.contains(&slot));
+        product.source.abandon().await.unwrap();peer.source.abandon().await.unwrap();
+        product.release().await;roots.push(product.product.clone());
+        // The collector consumes only this producer's captured roots. Warm peers
+        // remain explicit owners and are not nominated by this operation.
+        let mut progress=control::retire_reachable(&client,roots,4096).await.unwrap();
+        // A parent visited later in a pass can release a previously retained
+        // child. Revisit this exact bounded fixture graph, never another owner.
+        for _ in 0..8 {
+            if progress.remaining.is_empty()&&progress.retained.is_empty(){break;}
+            progress=control::resume_retirement(&client,progress.identity,4096).await.unwrap();
+        }
+        assert!(progress.remaining.is_empty()&&progress.retained.is_empty());
+        assert!(product.row(&slot).await.is_none());assert!(product.row(&product.contribution).await.is_none());
+        assert_eq!(peer.row(&peer_slot).await,Some(peer_before));
+        let issuance=control::IssuanceEra::capture(&client).await.unwrap();
+        lctx_compiler_store::compiler::close_admission(&cfg).await.unwrap();
+        lctx_compiler_store::compiler::drain_installation(&cfg).await.unwrap();control::cut_era(&client).await.unwrap();
+        for (phase,sql) in [("effect","SELECT VALUE id FROM native_effect WITH INDEX attempt_effects WHERE attempt=$source ORDER BY id"),
+            ("cleanup","SELECT VALUE id FROM native_cleanup WITH INDEX attempt_cleanup WHERE attempt=$source ORDER BY id")] {
+            let mut response=client.query(sql).bind(("source",source.clone())).await.unwrap().check().unwrap();
+            let ids:Vec<RecordId>=response.take(0).unwrap();
+            for id in ids {let receipt=exact_history_page(&client,issuance.era,phase,&id).await;assert_eq!(receipt.removed,[id]);}
+        }
+        let receipt=exact_history_page(&client,issuance.era,"attempt",&source).await;
+        assert_eq!(receipt.removed,[source]);assert!(product.row(&RecordId::new("native_attempt",product.source.attempt().hex())).await.is_none());
+        assert!(peer.row(&RecordId::new("native_attempt",peer.source.attempt().hex())).await.is_some());
+        assert!(peer.row(&peer.product).await.is_some(),"the peer's warm product remains owned");
+    }).catch_unwind().await;
+    let restore=if was_open {lctx_compiler_store::compiler::open_admission(&cfg).await}else{lctx_compiler_store::compiler::close_admission(&cfg).await};
+    let mut terminal=Completion::default();
+    for owner in [&product,&peer] {
+        if let Some(source)=owner.row(&RecordId::new("native_attempt",owner.source.attempt().hex())).await {
+            // Ended old-era producers must not issue a fresh terminal-attempt
+            // operation after the cut. Their explicit warm release remains owned.
+            if !matches!(source.get("state"),Some(Value::String(state))if matches!(state.as_str(),"closed"|"abandoned"|"maintenance_fenced")) {
+                terminal.step("binding history active source close",owner.source.abandon().await);
+            }
+            terminal.step("binding history warm release",control::release_retained_product(owner.client.clone(),owner.request,owner.source.attempt(),&owner.budget).await.map(|_|()));
+        }
+    }
+    terminal.step("binding history source observer close",product.client.invalidate().await.map_err(ModelError::codec));
+    terminal.step("binding history peer observer close",peer.client.invalidate().await.map_err(ModelError::codec));
+    terminal.step("binding history maintenance observer close",client.invalidate().await.map_err(ModelError::codec));
+    terminal.step("binding history admission restoration",restore);
+    let cleanup=complete(Ok(()),terminal);
+    if let Err(primary)=result{if let Err(error)=cleanup{eprintln!("binding history cleanup: {error:#?}");}std::panic::resume_unwind(primary);}cleanup.unwrap();
 }

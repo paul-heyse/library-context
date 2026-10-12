@@ -77,8 +77,16 @@ Installation-local persisted evidence binds exact definitions/factories, ordered
 roles, complete-empty applicability and the selected physical epoch/incarnation. Native persistence
 performs the exact physical CAS; data deserialization cannot construct a compiler admission owner.
 The installation assumes trusted writers, including its low-level effect primitives. Artifact format4
-carries compact mandatory current producer assurance attribution. These source changes do not
-establish durable premise reuse or functional acceptance. A frozen warm producer may end product
+carries compact mandatory current producer assurance attribution. Current whole-input admission
+can reuse an installation-local premise only for its exact declared selected inputs, current
+factory/model/schema, installation validity epoch and protected completion incarnations. A fixed
+model driver executes the validator; an independent native observer compares its ordered typed
+input through EOF with actual held backing before persisting the premise. Completion owners hold
+the receipt, and a receiving pin independently protects it. Missing or stale keys execute current
+checks; matching corrupt evidence refuses. Scoped, undeclared, companion, uniform-owner and
+unrequested inputs conservatively retain ordinary validation. Portable restoration excludes this
+local witness. This mechanism is source-integrated, 2026-10-12; actual fresh-process reuse and
+functional acceptance remain open. A frozen warm producer may end product
 retention only after independently earned physical completion checks its exact contributor and
 inventory; this grants no artifact admission.
 

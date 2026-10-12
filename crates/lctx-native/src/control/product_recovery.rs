@@ -12,17 +12,26 @@ use std::collections::{BTreeMap,BTreeSet};
 /// Private fields retain the actual product and exact native namespace owners.
 /// Neither this type nor a deserialized completion establishes semantic eligibility.
 pub struct HeldTerminalProduct {
-    client:Arc<Surreal<Client>>,pin:Arc<ReaderPin>,product:ExpectedRecord,
+    client:Arc<Surreal<Client>>,pin:Option<Arc<ReaderPin>>,product:ExpectedRecord,
     contribution:ExpectedRecord,descriptor:CompletedContribution,
     generation:ContentHash,validity_epoch:i64,
     views:BTreeMap<ContentHash,Arc<HeldInstalledView>>,
     contributors:BTreeMap<ContentHash,CompletedContribution>,
+    session:Arc<crate::reader::SessionFinalizationGuard>,closed:bool,
+    signals:Arc<crate::signal::SignalRegistration>,cancellation:Arc<std::sync::atomic::AtomicBool>,retry:RetryCancellation,
     _charge:StateCharge,
+}
+impl Drop for HeldTerminalProduct {
+    fn drop(&mut self){if !self.closed {if let Some(pin)=&self.pin{pin.retain_unknown();}}}
 }
 // Factory and method cancellation must preserve the pin before a public cap or
 // caller-owned drainage guard exists. A terminal logical failure may release;
 // cancellation, panic and an unconfirmed result cannot.
 struct RecoveryPinTerminal {pin:Arc<ReaderPin>,confirmed:bool}
+fn live_borrowers(message:&'static str)->ModelError{
+    let completion=Completion{local:lctx_model::domain::completion::LocalState::Outstanding,..Completion::default()};
+    complete::<()>(Err(ModelError::Conflict(message)),completion).unwrap_err()
+}
 impl RecoveryPinTerminal {
     fn new(pin:Arc<ReaderPin>)->Self{Self{pin,confirmed:false}}
     fn observe<T>(&mut self,result:&Result<T,ModelError>){self.confirmed=result.as_ref().err().is_none_or(|error|error.permits_storage_cleanup());}
@@ -30,14 +39,45 @@ impl RecoveryPinTerminal {
 impl Drop for RecoveryPinTerminal {fn drop(&mut self){if !self.confirmed{self.pin.retain_unknown();}}}
 
 impl HeldTerminalProduct {
+    fn pin(&self)->&Arc<ReaderPin>{self.pin.as_ref().expect("terminal owner pin exists outside atomic close transfer")}
+    /// Consume the source owner only after every borrowed cap/reader and accepted
+    /// query has drained. A failed or interrupted close preserves exact ownership.
+    pub async fn close(self:Arc<Self>)->Result<(),ModelError>{
+        let mut owner=match Arc::try_unwrap(self){
+            Ok(owner)=>owner,
+            Err(owner)=>{owner.retain_unknown();return Err(live_borrowers("terminal product still has live source owners"));}
+        };
+        // Atomic consumption prevents a Weak upgrade racing a count-then-clear
+        // check. A retained cap refuses close before any pin/session release.
+        for view in std::mem::take(&mut owner.views).into_values(){
+            if Arc::try_unwrap(view).is_err(){
+                owner.retain_unknown();return Err(live_borrowers("terminal product still has live cap borrowers"));
+            }
+        }
+        let pin=owner.pin.take().expect("terminal source pin transfer");
+        match Arc::try_unwrap(pin){
+            Ok(pin)=>owner.pin=Some(Arc::new(pin)),
+            Err(pin)=>{owner.pin=Some(pin);owner.retain_unknown();return Err(live_borrowers("terminal product still has live reader borrowers"));}
+        }
+        if let Err(error)=owner.pin().release().await{
+            owner.retain_unknown();
+            let completion=Completion{local:lctx_model::domain::completion::LocalState::Outstanding,..Completion::default()};
+            return complete(Err(error),completion);
+        }
+        owner.session.close().await?;
+        owner.closed=true;
+        // Only actual joined pin and session completion may finish this source's
+        // independent process receipt. Drop/Unknown leaves it started.
+        owner.signals.complete(&Completion::default()).await
+    }
     pub fn descriptor(&self)->&CompletedContribution{&self.descriptor}
     pub fn contribution(&self)->&ExpectedRecord{&self.contribution}
     pub fn views(&self)->&BTreeMap<ContentHash,Arc<HeldInstalledView>>{&self.views}
     pub fn contributors(&self)->&BTreeMap<ContentHash,CompletedContribution>{&self.contributors}
     pub fn generation(&self)->ContentHash{self.generation}
-    pub fn retain_unknown(&self){self.pin.retain_unknown();}
+    pub fn retain_unknown(&self){self.pin().retain_unknown();}
     pub fn reader(&self,budget:&ResourceBudget)->crate::NativeReader<()>{
-        crate::NativeReader::private_pinned(self.client.clone(),self.pin.clone()).with_budget(budget)
+        crate::NativeReader::private_pinned(self.client.clone(),self.pin().clone()).with_budget(budget).with_read_cancellation(self.cancellation.clone())
     }
     /// Compare current captured source metadata with actual backing retained by
     /// this product's explicitly selected physical contributors. A missing row
@@ -66,10 +106,10 @@ impl HeldTerminalProduct {
         for view in self.views.values(){for mapping in &view.completion().mappings {
             charge.grow(512)?;owners.insert(RecordId::new("compiler_contribution",mapping.physical.hex()));
         }}
-        let mut pin_terminal=RecoveryPinTerminal::new(self.pin.clone());
+        let mut pin_terminal=RecoveryPinTerminal::new(self.pin().clone());
         let reader=self.reader(budget);
         let result=async {
-            self.pin.ensure_live()?;
+            self.pin().ensure_live()?;
             let mut after=Value::None;let mut found=false;
             loop {
                 let mut variables=Variables::new();variables.insert("capture_owners",owners.iter().cloned().collect::<Vec<_>>());
@@ -78,7 +118,7 @@ impl HeldTerminalProduct {
                 let [actual]=rows.as_slice()else{if !rows.is_empty(){return Err(ModelError::Conflict("terminal captured bounded backing page"));}break;};
                 after=actual.get("id").cloned().ok_or(ModelError::Schema("terminal captured backing cursor"))?;
                 if actual.get("address")!=Some(&Value::RecordId(id.clone())) || actual.get("stored")!=Some(&expected){return Err(ModelError::Conflict("terminal captured native payload differs"));}
-                self.pin.protect(id.clone()).await?;
+                with_retry_cancellation(self.retry.clone(),self.pin().protect(id.clone())).await?;
                 let protected=held::inspect_expected_read(&reader,id.clone(),budget).await?.ok_or(ModelError::Conflict("terminal captured native backing disappeared"))?;
                 if protected.row()!=&expected{return Err(ModelError::Conflict("terminal captured protected bytes changed"));}
                 found=true;
@@ -93,10 +133,10 @@ impl HeldTerminalProduct {
     /// Repeat actual guard/bytes and installation checks; an old original counter
     /// or a matching logical contributor in another namespace cannot satisfy them.
     pub async fn ensure_current(&self,budget:&ResourceBudget)->Result<(),ModelError>{
-        let mut pin_terminal=RecoveryPinTerminal::new(self.pin.clone());
+        let mut pin_terminal=RecoveryPinTerminal::new(self.pin().clone());
         let reader=self.reader(budget);
         let result=async {
-            self.pin.ensure_live()?;
+            self.pin().ensure_live()?;
             for original in [&self.product,&self.contribution] {
                 let actual=held::inspect_expected_read(&reader,original.record().clone(),budget).await?
                     .ok_or(ModelError::Conflict("terminal product held record disappeared"))?;
@@ -133,10 +173,28 @@ async fn check_installation(reader:&crate::NativeReader<()>,generation:ContentHa
 pub async fn hold_terminal_product(client:Arc<Surreal<Client>>,product:RecordId,request:ContentHash,
     budget:&ResourceBudget)->Result<HeldTerminalProduct,ModelError>{
     if product.table.as_str()!="native_product"{return Err(ModelError::Conflict("terminal product family"));}
-    let pin=ReaderPin::acquire(client.clone(),&[]).await?;
+    let retry=RetryCancellation::default();let cancellation=Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (stop,reads)=(retry.clone(),cancellation.clone());
+    let signals=Arc::new(crate::signal::SignalRegistration::new("native terminal product source",move ||{
+        stop.cancel();reads.store(true,std::sync::atomic::Ordering::Release);
+    })?);
+    // SDK clone creates a distinct authenticated session. Receiver abandonment
+    // cannot invalidate this source owner while a scanner/candidate retains it.
+    let client=Arc::new(client.as_ref().clone());
+    let session=Arc::new(crate::reader::SessionFinalizationGuard::new(client.clone()));
+    let pin=match with_retry_cancellation(retry.clone(),ReaderPin::acquire(client.clone(),&[])).await {
+        Ok(pin)=>pin,
+        Err(error)=>{
+            if !error.permits_storage_cleanup(){return Err(error);}
+            let mut terminal=Completion::default();let closed=session.close().await;
+            if closed.is_ok(){terminal.step("terminal failed acquisition source receipt",signals.complete(&Completion::default()).await);}
+            terminal.step("terminal acquisition session close",closed);
+            return complete(Err(error),terminal);
+        }
+    };
     let mut pin_terminal=RecoveryPinTerminal::new(pin.clone());
-    let reader=crate::NativeReader::private_pinned(client.clone(),pin.clone()).with_budget(budget);
-    let result=async {
+    let reader=crate::NativeReader::private_pinned(client.clone(),pin.clone()).with_budget(budget).with_read_cancellation(cancellation.clone());
+    let result=with_retry_cancellation(retry.clone(),async {
         pin.protect(product.clone()).await?;
         let product=held::inspect_expected_read(&reader,product,budget).await?
             .ok_or(ModelError::Conflict("terminal product disappeared before protection"))?;
@@ -232,14 +290,29 @@ pub async fn hold_terminal_product(client:Arc<Surreal<Client>>,product:RecordId,
             charge.grow(4096)?;views.insert(root_id,Arc::new(held));
         }
         if !dependencies.is_empty(){return Err(ModelError::Conflict("terminal extraneous product dependency witness"));}
-        let result=HeldTerminalProduct{client:client.clone(),pin:pin.clone(),product,contribution,descriptor,
-            generation,validity_epoch,views,contributors,_charge:charge};
-        result.ensure_current(budget).await?;Ok(result)
-    }.await;
+        for expected in [&product,&contribution] {
+            let actual=held::inspect_expected_read(&reader,expected.record().clone(),budget).await?.ok_or(ModelError::Conflict("terminal acquired record disappeared"))?;
+            if actual.incarnation()!=expected.incarnation() || actual.row()!=expected.row(){return Err(ModelError::Conflict("terminal acquired record changed"));}
+        }
+        check_installation(&reader,generation,validity_epoch).await?;
+        Ok(HeldTerminalProduct{client:client.clone(),pin:Some(pin.clone()),product,contribution,descriptor,
+            generation,validity_epoch,views,contributors,session:session.clone(),signals:signals.clone(),cancellation:cancellation.clone(),retry:retry.clone(),closed:false,_charge:charge})
+    }).await;
     let mut terminal=Completion::default();terminal.step("terminal product acquisition reader close",reader.close().await);
     let result=complete(result,terminal);
-    pin_terminal.observe(&result);
-    result
+    drop(reader);
+    if result.as_ref().err().is_some_and(ModelError::permits_storage_cleanup){
+        let mut terminal=Completion::default();
+        let released=pin.release().await;
+        if released.is_err(){pin.retain_unknown();terminal.local=lctx_model::domain::completion::LocalState::Outstanding;}
+        let can_close=released.is_ok();terminal.step("failed terminal acquisition pin release",released);
+        if can_close{
+            let closed=session.close().await;
+            if closed.is_ok(){terminal.step("terminal rejected acquisition source receipt",signals.complete(&Completion::default()).await);}
+            terminal.step("failed terminal acquisition session close",closed);
+        }
+        let result=complete(result,terminal);pin_terminal.observe(&result);result
+    }else{pin_terminal.observe(&result);result}
 }
 fn subclosure(all:&RecoveryClosure,root:&CompletedView)->Result<RecoveryClosure,ModelError>{
     let mut traversal=RecoveryTraversal::for_views(vec![root.clone()])?;

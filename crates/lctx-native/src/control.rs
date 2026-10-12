@@ -190,6 +190,7 @@ pub(crate) async fn prepare_maintenance_completion_expectations(client:&Surreal<
 pub(crate) fn maintenance_completion_expectation_guard()->&'static str{coordination::EXPECTED_OBJECT_GUARD}
 pub(crate) use held::{inspect_expected_read,hold_frozen_completed_expected,hold_frozen_admission_expected,hold_frozen_physical_expected};
 pub(crate) mod completed;
+pub mod validation_premise;
 async fn run_transaction(client: &Surreal<Client>, sql: &str, bindings: Variables) -> Result<(), ModelError> {
     retry::transaction(client, sql, bindings, false).await
 }
@@ -242,12 +243,25 @@ pub async fn drain_effects(client: &Surreal<Client>) -> Result<(), ModelError> {
 /// Apply a bounded mutable native-state write under the same object lifecycle guards
 /// used by immutable ingress. The guard and payload effect commit atomically.
 pub async fn guarded_effect(client:&Surreal<Client>,attempt:Option<ContentHash>,objects:Vec<RecordId>,sql:&str,mut bindings:Variables)->Result<(),ModelError>{
+    let guarded=guarded_effect_plan(objects,sql,&mut bindings)?;
+    effect(client,attempt,&guarded,bindings).await
+}
+/// Publish mutable attempt state and its ownership in one effect. Terminal cleanup
+/// can then nominate every created object before releasing the attempt's holds.
+pub async fn guarded_effect_with_holds(client:&Surreal<Client>,attempt:ContentHash,objects:Vec<RecordId>,references:Vec<(RecordId,RecordId)>,sql:&str,mut bindings:Variables)->Result<(),ModelError>{
+    let mut guarded=guarded_effect_plan(objects,sql,&mut bindings)?;
+    if let Some((_,holds,hold_bindings))=hold_plan(Some(attempt),references)? {
+        merge_plan_bindings(&mut bindings,hold_bindings)?;
+        guarded.push(';');guarded.push_str(&holds);
+    }
+    effect(client,Some(attempt),&guarded,bindings).await
+}
+fn guarded_effect_plan(objects:Vec<RecordId>,sql:&str,bindings:&mut Variables)->Result<String,ModelError>{
     let guards=objects.iter().map(|id|guard_id(&Value::RecordId(id.clone()))).collect::<Result<Vec<_>,_>>()?;
     bindings.insert("__guard_records",guard_records(objects.iter())?);
     bindings.insert("__write_guards",guards);
     let incidence=if matches!(bindings.get("row"),Some(Value::Object(_))) {"fn::native_incidence_insert($row);"} else {""};
-    let guarded=format!("{incidence} FOR $__target IN $__guard_records {{ fn::native_touch($__target.record); }}; {sql}");
-    effect(client,attempt,&guarded,bindings).await
+    Ok(format!("{incidence} FOR $__target IN $__guard_records {{ fn::native_touch($__target.record); }}; {sql}"))
 }
 
 /// Full native values are compared under the per-address guard, including concurrent first
@@ -313,7 +327,7 @@ fn immutable_row_plan(
         ""
     };
     let sql = format!(
-        "{fence} FOR $i IN 0..array::len($rows) {{ LET $row=$rows[$i]; IF record::table($row.id)='original_chunk' {{ fn::native_touch($row.blob); LET $blob_header=SELECT * FROM ONLY $row.blob; IF $blob_header=NONE OR type::is::bool($blob_header.completed)=false {{ THROW 'native original blob declaration missing'; }}; IF $blob_header.completed AND (SELECT * FROM ONLY $row.id)!=$row {{ THROW 'completed original blob refuses missing or changed piece'; }}; }}; fn::native_incidence_insert($row); LET $existing=SELECT * FROM ONLY $row.id; IF $existing != NONE AND $existing != $row {{ THROW 'native immutable address collision'; }}; IF $existing=NONE {{ IF record::table($row.id) IN ['participant','reference','lex_occurs','vec_occurs'] {{ INSERT RELATION $row RETURN NONE; }} ELSE {{ CREATE $row.id CONTENT $row RETURN NONE; }}; }}; }}"
+        "{fence} FOR $i IN 0..array::len($rows) {{ LET $row=$rows[$i]; IF record::table($row.id)='original_chunk' {{ fn::native_touch($row.blob); LET $blob_header=SELECT * FROM ONLY $row.blob; IF $blob_header=NONE OR type::is_bool($blob_header.completed)=false {{ THROW 'native original blob declaration missing'; }}; IF $blob_header.completed AND (SELECT * FROM ONLY $row.id)!=$row {{ THROW 'completed original blob refuses missing or changed piece'; }}; }}; fn::native_incidence_insert($row); LET $existing=SELECT * FROM ONLY $row.id; IF $existing != NONE AND $existing != $row {{ THROW 'native immutable address collision'; }}; IF $existing=NONE {{ IF record::table($row.id) IN ['participant','reference','lex_occurs','vec_occurs'] {{ INSERT RELATION $row RETURN NONE; }} ELSE {{ CREATE $row.id CONTENT $row RETURN NONE; }}; }}; }}"
     );
     Ok(Some((sql, bindings)))
 }

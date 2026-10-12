@@ -107,10 +107,10 @@ pub async fn publish(
     }
     .await;
     let mut completion = Completion::default();
-    if result.is_err() {
+    if let Err(error)=&result {
         completion.step(
             "publication session invalidation",
-            publication.invalidate().await,
+            publication.invalidate(error).await,
         );
     }
     let result = complete(result, completion);
@@ -166,10 +166,10 @@ pub async fn seal_completed(
     }
     .await;
     let mut completion = Completion::default();
-    if result.is_err() {
+    if let Err(error)=&result {
         completion.step(
             "publication session invalidation",
-            publication.invalidate().await,
+            publication.invalidate(error).await,
         );
     }
     let result = complete(result, completion);

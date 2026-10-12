@@ -222,14 +222,6 @@ async fn finish_reader<T>(mut reader: PinnedReader, result: anyhow::Result<T>) -
         completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
     }
     completion.step("published reader pin release", reader.finalization.close(&reader.reader).await);
-    completion.step(
-        "published reader session close",
-        reader
-            .client()
-            .invalidate()
-            .await
-            .map_err(lctx_model::domain::ModelError::codec),
-    );
     completion.step("CLI reader signal owner", reader.signal.complete(&completion).await);
     lctx_model::domain::completion::complete(result, completion).map_err(Into::into)
 }

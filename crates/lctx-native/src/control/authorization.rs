@@ -43,6 +43,12 @@ impl std::error::Error for NativeRequestError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(&self.source) }
 }
 impl NativeRequest {
+    fn validate(self) -> Result<(), ModelError> {
+        if self.issuance.era <= 0 {
+            return Err(self.error(ModelError::Conflict("native request requires a positive issuance era")));
+        }
+        Ok(())
+    }
     pub async fn issue(client: &Surreal<Client>, request: ContentHash) -> Result<Self, ModelError> {
         let issuance = IssuanceEra::capture(client).await?;
         // Never allocate the operation before capturing the authorization era.
@@ -195,6 +201,7 @@ pub async fn execute_request(client: &Surreal<Client>, request: NativeRequest, a
 }
 async fn execute_recorded(client: &Surreal<Client>, request: NativeRequest, owner: EffectOwner,
     payload: PreparedNativePayload<'_>, retain: bool) -> Result<(), ModelError> {
+    request.validate()?;
     // A recorded public request can outlive a format/era cut. Observation of its exact
     // retained committed receipt replays only the outcome, never old payload authority.
     // Internal freshly issued effects keep their ordinary single intent/payload path.
@@ -295,6 +302,7 @@ pub async fn request_disposition(client: &Surreal<Client>, request: NativeReques
     observe_request(client,request).await.map(|(disposition,_)|disposition)
 }
 async fn observe_request(client: &Surreal<Client>, request: NativeRequest) -> Result<(EffectDisposition,Option<Object>), ModelError> {
+    request.validate()?;
     let mut bindings=Variables::new(); request.bind(&mut bindings);
     let mut response=client.query("SELECT * FROM $__effect; SELECT generation,closed_through FROM native_installation:current")
         .bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
@@ -331,6 +339,7 @@ fn validate_replay_owner(request:NativeRequest,owner:&EffectOwner,row:&Object)->
     Ok(())
 }
 pub async fn reconcile_request(client:&Surreal<Client>, request:NativeRequest)->Result<EffectDisposition,ModelError>{
+    request.validate()?;
     let current=IssuanceEra::capture(client).await?;
     if current.generation!=request.issuance.generation { return Err(request.error(ModelError::Conflict("native reconciliation generation"))); }
     let mut bindings=Variables::new();request.bind(&mut bindings);
@@ -342,21 +351,13 @@ pub async fn reconcile_request(client:&Surreal<Client>, request:NativeRequest)->
     super::run_recovery_transaction(client,&sql,bindings).await.map_err(|error|request.error(error))?;
     request_disposition(client,request).await
 }
-/// Legacy ID-only observation cannot invent missing authorization. Callers that may retry
+/// ID-only observation cannot invent missing authorization. Callers that may retry
 /// use reconcile_request and retain NativeRequest, including its pre-intent era.
 pub async fn reconcile_effect(client:&Surreal<Client>,operation:ContentHash)->Result<bool,ModelError>{
     let mut bindings=Variables::new();bindings.insert("effect",RecordId::new("native_effect",operation.hex()));
-    let mut response=client.query("SELECT * FROM $effect").bind(bindings.clone()).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    let mut response=client.query("SELECT * FROM $effect").bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
     let rows:Vec<Object>=response.take(0).map_err(ModelError::codec)?;
     let [row]=rows.as_slice() else{return Err(ModelError::Conflict("native reconciliation requires original request"));};
-    // Migrated legacy receipts retain exact outcomes and are never collected automatically.
-    if int_field(row,"era")?==0 {
-        let current=IssuanceEra::capture(client).await?;bindings.insert("__generation",current.generation.hex());bindings.insert("__era",current.era);coordination::bind_stripe(&mut bindings,operation);
-        let sql=format!("BEGIN; {ERA_GUARD} LET $state=SELECT * FROM ONLY $effect FOR UPDATE; IF $state=NONE OR $state!=$original {{ THROW 'native legacy reconciliation identity'; }}; fn::native_incidence($state); IF !$state.resolved {{ UPDATE $effect SET resolved=true,revision+=1 RETURN NONE; }}; COMMIT;");
-        bindings.insert("original",row.clone());coordination::preflight(&sql,&bindings)?;
-        super::run_recovery_transaction(client,&sql,bindings).await?;
-        return Ok(row.get("committed")==Some(&Value::Bool(true)));
-    }
     let request=NativeRequest{issuance:IssuanceEra{generation:hash_field(row,"generation")?,era:int_field(row,"era")?},operation,request:hash_field(row,"request")?};
     Ok(reconcile_request(client,request).await?==EffectDisposition::Committed)
 }
@@ -364,6 +365,24 @@ pub async fn reconcile_effect(client:&Surreal<Client>,operation:ContentHash)->Re
 #[cfg(test)]
 mod payload_controls {
     use super::*;
+    #[tokio::test]
+    async fn nonpositive_request_eras_refuse_before_observation_reconciliation_or_execution() {
+        let client=Surreal::init();
+        let payload=PreparedNativePayload::new("RETURN []",Variables::new()).unwrap();
+        for era in [0,-1] {
+            let request=NativeRequest{issuance:IssuanceEra{generation:ContentHash::of(b"generation"),era},
+                operation:ContentHash::of(b"operation"),request:payload.digest};
+            let failures=[request_disposition(&client,request).await.unwrap_err(),
+                reconcile_request(&client,request).await.unwrap_err(),
+                execute_request(&client,request,None,"RETURN []",Variables::new()).await.unwrap_err()];
+            for error in failures {
+                let ModelError::Cause(cause)=error else{panic!("original request refusal missing");};
+                let error=cause.downcast_ref::<NativeRequestError>().unwrap();
+                assert_eq!(error.request,request);
+                assert!(matches!(error.source,ModelError::Conflict("native request requires a positive issuance era")));
+            }
+        }
+    }
     #[tokio::test]
     async fn changed_retry_bytes_refuse_before_any_native_request() {
         let mut original = Variables::new(); original.insert("rows", vec![1i64, 2]);

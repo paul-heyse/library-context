@@ -100,8 +100,9 @@ pub const PENDING_ORIGINAL_TABLES: [&str;3] = ["native_pending_original", "nativ
 /// Exact physical completion/admission and retained canonical binding witnesses are
 /// installation-local. This inventory is deliberately outside COMPLETED_FAMILIES and
 /// STATE_TABLES, whose six logical roots remain the portable semantic authority.
-pub const INSTALLATION_WITNESS_TABLES: [&str; 7] = [
+pub const INSTALLATION_WITNESS_TABLES: [&str; 8] = [
     "compiler_view_realization", "compiler_view_member", "compiler_view_completion",
     "native_completed_state", "native_completed_view", "native_completed_admission",
     "compiler_binding_descriptor",
+    "native_validation_premise",
 ];
