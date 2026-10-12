@@ -207,6 +207,12 @@ def native_owner_class(owner):
     if (store
             and owner.get("state") == "started" and owner.get("completion") is None):
         return "Started native store/workspace owners"
+    if (owner["owner"] == "native product cache session"
+            and owner.get("state") == "started" and owner.get("completion") is None):
+        # The registered cache session has volatile remote work, while persistent
+        # products retain their separate quota/generation/lease lifecycle. Only the
+        # checked daemon join establishes termination; this grants no cache deletion.
+        return "Started native product cache session; original outcome unknown"
     completion = owner.get("completion")
     terminal = (owner.get("state") == "complete" and isinstance(completion, dict)
             and set(completion) == {"local", "remote", "storage", "committed", "failures"}
@@ -221,6 +227,10 @@ def native_owner_class(owner):
         if completion["failures"]:
             return "Failed terminal native store/workspace owners; original failure preserved"
         return "Clean terminal native store/workspace siblings; original outcome preserved"
+    if (terminal and not completion["failures"] and owner["owner"] in {
+            "native product cache session", "native terminal product source",
+            "independent artifact admission"}):
+        return f"Clean terminal {owner['owner']} sibling; original outcome preserved"
     if (terminal and owner["owner"] == "D10 direct native query signal owner"
             and not completion["failures"]):
         return "Clean terminal direct-query signal sibling; original outcome preserved"

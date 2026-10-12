@@ -1185,6 +1185,14 @@ def test_native_host_mixed_registered_owners_preserve_all_original_outcomes(inst
         ]))
         paths.append(terminal_native_sibling(path,len(paths),owner,[]))
     paths.append(terminal_native_sibling(path,len(paths),"D10 direct native query signal owner",[]))
+    for owner in ("native product cache session", "native terminal product source",
+            "independent artifact admission"):
+        paths.append(terminal_native_sibling(path,len(paths),owner,[]))
+    started_cache = terminal_native_sibling(path,len(paths),"native product cache session",[])
+    cache_row = fx.read_json(started_cache)
+    cache_row.update(state="started",completion=None)
+    fx.write_json_atomic(started_cache,cache_row)
+    paths.append(started_cache)
     originals = {item.name:item.read_bytes() for item in paths}
     row = fx.read_json(attachment.directory / "record.json")
     assert fx.native_completion(attachment.directory,row)["status"] == "unknown"
@@ -1202,6 +1210,10 @@ def test_native_host_mixed_registered_owners_preserve_all_original_outcomes(inst
     assert "Failed terminal native store/workspace" in classification
     assert "Clean terminal native store/workspace" in classification
     assert "Clean terminal direct-query signal sibling" in classification
+    assert "Started native product cache session; original outcome unknown" in classification
+    for owner in ("native product cache session", "native terminal product source",
+            "independent artifact admission"):
+        assert f"Clean terminal {owner} sibling" in classification
     assert recovery.native_recovered(attachment.directory,row)
     assert not service.borrowers(installed.installation)
     paths[-1].write_bytes(originals[paths[-1].name]+b" ")
@@ -1212,6 +1224,8 @@ def test_native_host_mixed_registered_owners_preserve_all_original_outcomes(inst
 @pytest.mark.parametrize("change",[
     "owner", "state", "local", "remote", "storage", "committed", "failure_step",
     "failure_error", "extra", "generation", "attachment", "live", "signal_failure",
+    "cache_failure", "product_source_failure", "admission_failure",
+    "product_source_started", "admission_started", "cache_started_completion",
 ])
 def test_native_host_refuses_ineligible_terminal_sibling_before_effect(installed,tmp_path,monkeypatch,change):
     import surrealdb_pd02_recovery as recovery
@@ -1230,6 +1244,20 @@ def test_native_host_refuses_ineligible_terminal_sibling_before_effect(installed
     elif change == "generation": row["generation"] = "f"*64
     elif change == "attachment": row["attachment"] = "unbound"
     elif change == "signal_failure": row["owner"] = "D10 direct native query signal owner"
+    elif change in {"cache_failure", "product_source_failure", "admission_failure",
+            "product_source_started", "admission_started", "cache_started_completion"}:
+        row["owner"] = {
+            "cache_failure":"native product cache session",
+            "product_source_failure":"native terminal product source",
+            "admission_failure":"independent artifact admission",
+            "product_source_started":"native terminal product source",
+            "admission_started":"independent artifact admission",
+            "cache_started_completion":"native product cache session",
+        }[change]
+        if change.endswith("_started"):
+            row.update(state="started",completion=None)
+        elif change == "cache_started_completion":
+            row["state"] = "started"
     else:
         current = service.ProcessIdentity.of()
         sibling.unlink()
