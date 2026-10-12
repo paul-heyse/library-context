@@ -5,7 +5,7 @@ contradiction or dependency requires it; the whole corpus is not the default rea
 
 | Task | Start here |
 |---|---|
-| Plan lifecycle and tooling improvements for SurrealDB | [Lifecycle target review](design_review/reviews/design_review_surrealdb-lifecycle-target_2026-10-12.md): exact serving membership, audit execution, concurrent completion, recovery diagnostics and selected SurrealKit 1.0 beta integration; F01–F05/RC01–RC06 await plan creation |
+| Implement lifecycle and tooling improvements for SurrealDB | [Lifecycle coordinator](plans/surrealdb-lifecycle-plan_2026-10-12.md) → native, development and integrations companions: exact serving, bulk/scoped audits, concurrent completion, typed diagnostics, SurrealKit 1.0 beta and capability decisions. Distinct prioritized track; hard regeneration; older plans reconcile only after full delivery |
 | Understand the system | [Architecture map](design/README.md) → relevant owner |
 | Resume work | [STATUS](../STATUS.md) → [persisted execution plan](plans/persisted-graph-execution-plan_2026-10-07.md) (current compiler/consumer pivot) → [graph-native replacement coordinator](plans/graph-native-pivot-plan_2026-10-05.md) (hard pivot, audit remediation, contracts, dependencies and acceptance) → [forward plan](plans/behavioral-model-forward-plan_2026-09-24.md) (product/research queue) |
 | Change conditions, models or summaries | [Semantic owner §15.6–§15.9](design/sections/semantic-model.md#section-15-6) → affected model producer/consumer → [model/compiler plan](plans/graph-native-model-compiler-plan_2026-10-05.md); the [graph-native coordinator §7](plans/graph-native-pivot-plan_2026-10-05.md#7-sole-finding-disposition-and-optional-capabilities) owns current pivot disposition |

@@ -1,7 +1,12 @@
 # Status
 _Updated 2026-10-12 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Current scope: SA0–SA9 implemented / focused-Tested; assurance paused by operator,2026-10-11.**
+**Priority track: SurrealDB lifecycle plans authored / implementation Proposed,2026-10-12.**
+[Coordinator §6](docs/plans/surrealdb-lifecycle-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint) owns F01–F05; §3 records accepted RC01–RC06; beta1.0.0-beta.1/Rust is selected.
+Hard pivot: regenerate data/evidence from pinned inputs; no historical/legacy prerequisites; drain actual owners before disposal.
+Plan links/coverage passed; `just docs-check` failed on existing ADR refs (coordinator §6). Next LC00/LN01, LN00/LD00; product actions not_run; older plans paused until LC03.
+
+**Prior SA0–SA9 implemented / focused-Tested; assurance remains paused by operator,2026-10-11.**
 The [architecture companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) owns scope; [coordinator §8/§9.1](docs/plans/persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition) owns sole dispositions and exact receipts. Shared SA9/HS11/UP9/NE9/GK7/GR6/PC6/PJ5/CU6 acceptance remains open. ADR-0146's checked recovery and format3→4→5 transitions completed; installed format5/eec4, immutable0dcc maintenance executable and patched server405f6c02 remain preserved.
 No migration is replayed. Atomic progress, operation-valid catalog preparation, selected access,
 nomination, hydration and retirement registration are implemented/source-accepted.
@@ -49,11 +54,6 @@ transport cancellation/finality, cache/budget and publication/serving obligation
 SDK3.3.0 has the narrow vendored gRPC physical-terminal backport; patched gRPC remains initial.
 No dependency version or public artifact schema changed in this increment; [pins](docs/pins.md) owns holds.
 PSE-arrow and operator stores remain unchanged.
-
-**SurrealDB lifecycle target review,2026-10-12: Revise (Interface-checked).**
-[Principal review](docs/design_review/reviews/design_review_surrealdb-lifecycle-target_2026-10-12.md) owns F01–F05/RC01–RC06 pending plan creation.
-SurrealKit1.0.0-beta.1/Rust integration is the selected Proposed tooling target; no dependency/service change.
-Source/library investigation only; product tests/probes not_run. Next: reconcile into implementation planning.
 
 **Storage lifecycle implemented / focused-Tested; automation off.**
 [ADR-0144](docs/adr/0144-managed-storage-lifetimes.md) and
