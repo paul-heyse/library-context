@@ -1,6 +1,6 @@
 # Status
 
-_Updated 2026-10-11 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-10-12 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
 **Current scope: SA0–SA9 implemented / focused-Tested; assurance paused by operator,2026-10-11.**
 The [architecture companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)
@@ -93,27 +93,22 @@ An independent read-only exercise found no concrete guidance issue. Those checks
 **Reconciled efficiency track: implementation in progress, 2026-10-12.**
 [Efficiency coordinator §4](docs/plans/efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint)
 owns current receipts, failures and remaining scope. Disk capacity no longer blocks compilation.
-Focused model, selected compiler, SDK, native query/audit and four core cache-window controls passed
-within their stated scope. Nine dedicated wire controls passed with confirmed native finality; the
-earlier IAM-failed fixture remains protected. Four-crate test targets compiled (`033936`); compiler-store
-tests compiled (`040256`) before later component integration. Later checks failed
-before bodies on historical/staging/receipt API integration; the six-crate check `045457`
-failed on candidate/migration compilation with confirmed process cleanup. Repairs passed the six-crate check `052212` with confirmed cleanup before later typed-handler registration. The fresh registered-handler check is in progress.
-Authentic original factory exporters passed2 (`034619`): all21 upper recipes and888 typed fields.
-Private ArtifactAdmission consumes actual producer/reference, invariant, frontier, graph and
-manifest gates; completed-admission and publication migration now call those production gates.
-Retained obligations protect replacement products/publications before exact original-incarnation
-nomination and incidence release. Warm products survive unadmitted cleanup until explicit release;
-frozen warm release requires independently earned physical completion. Old original chunks remain protected for authentic retirement consumers. Source changes and focused evidence establish no native migration/admission or whole-track acceptance.
-Typed DAG/binding conversion, complete registry/aggregate/CLI, native controls and remaining packages/X01/X02 stay open.
-Assembly compact NotRequested emission and selected-owner compiler/serving consumers are implemented
-in source, with eight focused model controls passed (`050926`, cleanup confirmed); actual provider/native consumer
-controls remain pending. Whole-output NotRequested reuse and analysis-owner compaction remain open.
-All authenticated completed source output is preserved physically, including unselected/unadmitted
-output; physical preservation grants no semantic admission. Dedicated campaign remains schema5; shared paused
-service/operator state and protected source/cold assets are unchanged. Original A07 outcomes
-remain unknown. Failed-wire-owner host recovery controls passed36 (`052921`); exact named failed-wire attachment recovery passed (`053059`) while preserving its original failure/Unknown; authentic closed-owner semantic export remains pending. No target activation, full-suite or repository quality campaign ran.
-
+Focused model, compiler, SDK, native query/audit and cache-window controls passed within their scope; nine wire controls have confirmed native finality. Exact failed-wire attachment recovery passed
+(`053059`), preserving its original IAM failure/Unknown. Authentic source5 export passed (`053134`);
+factory exports cover all21 upper recipes and888 typed fields. Protected original assets remain unchanged.
+Private ArtifactAdmission consumes production producer/reference, invariant, frontier, graph and
+manifest gates. Operator cutover direction2026-10-12 replaces opaque legacy preservation: migrate
+views to current realizations where practical, otherwise explicitly regenerate pinned inputs; retain
+no legacy runtime code/data. Actual cutover remains not_run. Assembly compaction passed eight model
+controls (`050926`); compact analysis-owner/four-consumer model controls passed14 (`072908`), cleanup confirmed.
+Whole-output NotRequested reuse remains disabled pending actual producer/native/four-consumer acceptance.
+Seven-crate CLI-inclusive test compilation passed (`063401`), with confirmed cleanup; later focused
+migration and compact-owner controls exposed old-codec/binding and test-fixture defects under repair.
+Host migration/export controls passed48 (`062406`), cleanup confirmed. Actual direct native SIGINT/SIGTERM
+control compiled but remains not_run. Dedicated campaign remains schema5; shared paused service/operator
+state is unchanged. Cancelled old-revision fixture (`071909…e5da48`) has confirmed process cleanup;
+its native attachment is unknown pending dedicated campaign drain/regeneration. A07 and remaining
+native/serving/profile/X01/X02 acceptance stay open. No full-suite, quality campaign or real-library/operator adoption ran.
 **Preservation and boundaries:** all four auxiliary revisions are committed on `archive/*-2026-10-11`
 branches; [coordinator §9.2](docs/plans/persisted-graph-execution-plan_2026-10-07.md#92-operator-stop-and-worktree-preservation2026-10-11)
 owns exact commits, evidence handoff and checkout-removal outcomes. Preserve qualified recovery

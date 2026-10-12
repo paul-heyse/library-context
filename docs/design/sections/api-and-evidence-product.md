@@ -454,12 +454,19 @@ This is disposable session state, not a durable historical store.
 
 ## §14.10 Publication, optional analyses and rebuild boundaries
 
-> Decision: ADR-0071, ADR-0073, ADR-0150, ADR-0081, ADR-0085
+> Decision: ADR-0071, ADR-0073, ADR-0150, ADR-0081, ADR-0085, ADR-0160
 
 Public catalog construction is independent of optional behavioral analysis and brief seeds. Catalog
 and behavioral profiles have explicit identity. Unrequested analysis is `NotRequested`; selected
 partial/unsupported coverage remains declared. Crashes or invalid required outputs fail publication.
 A seed without an admissible Outcome produces no brief rather than a weakened documentary claim.
+
+**Accepted target / source integration, 2026-10-12 (ADR-0160).** A uniformly unrequested family or
+eligible whole analysis owner may publish a compact exact-domain declaration. Availability resolves
+the actual protected selected owner and the model's same scoped operation used by compiler/frontier
+and publication assessment. Explicit empty domains, subjects outside the domain, missing owners and
+changed definitions remain distinct. Native producer and integrated consumer acceptance are still open
+in the [efficiency track](../../plans/efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint).
 
 Compiler adapters read completed declared input closures, compute typed results and admit graph
 artifacts with model-owned structural, reference and outcome checks. Coverage, readiness and availability are

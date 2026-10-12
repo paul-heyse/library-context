@@ -163,8 +163,8 @@ remain correct. A value hit cannot turn NotRequested into complete coverage or p
 output, including empty ones. Form union views when a declared consumer needs them, not after every
 vocabulary contributor. A completed empty relation is a first-class result, never an absent relation.
 
-For uniform NotRequested over an exact declared domain, retain a compact outcome with invocation,
-exact source/definition and domain-total meaning. Do not manufacture per-kind invocation/output work
+For uniform NotRequested over an exact declared domain, retain a compact outcome with explicit owner,
+exact source/definition and domain-total meaning (ADR-0160). Do not manufacture per-kind invocation/output work
 merely to repeat that outcome. Mixed or partial scopes retain their distinctions; no-scope and unknown
 are different from domain-total non-request. The model owns scoped answers without inferring them
 from missing rows.

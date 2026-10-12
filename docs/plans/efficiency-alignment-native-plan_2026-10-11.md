@@ -419,21 +419,28 @@ backing integrity.
 
 ## 3. Transition, investigations and integration
 
-**Transition selected, Proposed, 2026-10-11.** Use quiesced rebuild only for exact named obligations
-whose complete inputs/content and consumers are reconstructible. Pinned library inputs alone do not
-reconstruct detached imports, artifact-only output, warm retained products, older named derivations,
-outcome evidence or unfinished cleanup/retirement/recovery lineages. For those obligations select an
-actual adjacent old→new transition under the existing immutable upgrade execution owner. The full
-[transition contract](../design_review/evidence/2026-10-11_efficiency-design-decisions/native.md#transition-decision--adjacent-conversion-when-retained-obligations-cannot-be-rebuilt)
-requires exact consumer/drain inventory, typed six-family conversion, complete binding descriptors,
-selected contributor mappings, blob content/ownership and fresh destination admission/completion.
-It fences predecessors, preserves outcomes/evidence, rehomes remaining lifecycle scope with original
-incarnations/cutoffs/lineage references and invalidates source premises. Existing source4→history-v5
-no-backfill code is not a generic migration receipt. Cross-format handles require explicit release or
-exact named consumer cutover before old representation retirement; add no old runtime readers/dual
-writes. New marker/definitions publish only after converted obligations validate; partial progress
-resumes the immutable migration operation. This selects a mechanism, not permission to execute
-maintenance, reset operator stores or delete retained content.
+**Current cutover, operator-directed, 2026-10-12 (ADR-0161).** Migrate useful views into
+current exact realizations where practical; explicitly regenerate unsupported design data from
+pinned inputs. No legacy runtime code/data, opaque preservation store or historical compatibility
+reader survives. The dedicated campaign's `library_context` namespace, databases `main` and
+`validation`, contain disposable fixture outputs: regenerate both through current focused producer,
+compiler, publication and serving controls. This is a regeneration disposition, not a claim that old
+views were semantically migrated. The interrupted original upper fixture remains unknown in its
+receipt and receives no retrospective acceptance.
+
+The existing service owner must bind the exact campaign installation, two database names, installer,
+interrupted run and attachment; acquire exclusive admission/borrower ownership; confirm actual child
+cessation and cooperative joined daemon shutdown before replacing data; recreate current configuration,
+users and schema; independently read back target installation and absent legacy definitions before
+opening admission. Failure leaves the owned transition closed and resumable. No shared paused service,
+operator database or client registration is affected. Unknown old effects cannot become a success
+merely because processes exited. No old-revision fixture, historical semantic exporter or benchmark is
+a prerequisite. Remove the transition-only converters/adapters and frozen historical fixture path.
+
+For later actual retained product views outside this disposable campaign, the plan must name exact
+current consumers and either their practical migration or pinned regeneration before replacement.
+A format constant bump or a declaration of equivalence is insufficient. No implicit reset follows
+from ordinary tests or this scope's completion.
 
 N01/N02 proceed independently. N03 gates only fencing replacement. N04 supplies compiler C03/C04.
 N06 precedes the N07 fast path and N11 trust reuse. N08 precedes a general retained-manifest shortcut.

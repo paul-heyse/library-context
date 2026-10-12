@@ -94,9 +94,24 @@ consumers; ordinary readers select blob-backed content. The mixed blob/source/st
 old pieces distinct without deleting their outgoing ownership obligations. No old-format reader
 is retained. A frozen warm producer may end product retention only after independently earned
 physical completion checks its exact contributor and inventory; this grants no artifact admission.
+Relations newly declared empty by preserved producers receive a real current completed binding
+derived from the authenticated original selected contributor/dependency closure. Actual view,
+binding and protection readback precede semantic earning. This target binding has no invented
+original correspondence, historical epoch or current producer/compact authority.
 
 
-> Decision: ADR-0151
+**Design-phase cutover target / implementation in progress, 2026-10-12.**
+Migrate useful supported views into protected current realizations where practical; otherwise
+record regeneration from pinned inputs and its responsible current producer. Retain no legacy
+runtime code/data, old view namespace, compatibility reader or opaque historical completed store.
+Actual owned process/service quiescence precedes replacing old data. Interrupted outcomes retain
+their original uncertainty; joined daemon shutdown establishes executor cessation, not operation
+success. The dedicated efficiency campaign does not authorize changes to shared/operator state.
+Remove transition-only converters and frozen historical fixtures after cutover. Current contracts
+need minimal revealing functional cases, not historical campaigns or performance benchmarks.
+The efficiency coordinator owns migration/regeneration dispositions and current acceptance.
+
+> Decision: ADR-0151, ADR-0161
 
 Immutable payload identity includes model/codec, relation, nominal key and full content digest.
 Hash hits compare canonical bytes. Nominal anchors contain identity without view existence.

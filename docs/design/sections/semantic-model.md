@@ -660,7 +660,20 @@ parallel DNF computation exists.
 set through composition and rendering (§15.3); missing or incompatible premise evidence
 refuses the operation rather than supplying an empty unconditional basis.
 
-> Decision: ADR-0085, ADR-0120
+**Accepted target / source integration, 2026-10-12 (ADR-0160).** Uniform unrequested families and
+eligible whole analysis owners use an explicit exact-domain declaration tied to their actual selected
+completed owner. The model reconstructs input/context, ordered sources, definitions and domain;
+an empty domain remains explicit. Frontier enumeration/finishing, publication assessment and scoped
+serving share that meaning. Missing output is never a NotRequested premise. Requested or mixed work
+retains ordinary records. Compact predecessor references require validated domains, conflict with
+ordinary output for the same frame and consume only relevant configuration. Historical ordinary
+outcomes retain original assurance. Invariants inspect the canonical selected descriptor inventory;
+current producers separately capture and validate the real predecessor checkpoint. A historical
+empty binding cannot manufacture a missing epoch or a current compact owner. Current compact representation grants no native admission or
+whole-provider reuse; complete producer/native/consumer acceptance remains with the
+[efficiency coordinator](../../plans/efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint).
+
+> Decision: ADR-0085, ADR-0120, ADR-0160
 
 <a id="section-15-9"></a>
 
