@@ -1216,6 +1216,17 @@ def test_native_host_mixed_registered_owners_preserve_all_original_outcomes(inst
         assert f"Clean terminal {owner} sibling" in classification
     assert recovery.native_recovered(attachment.directory,row)
     assert not service.borrowers(installed.installation)
+    # Completed recovery authenticates its embedded original descriptor; replacing only
+    # the live maintenance executable must not rewrite or invalidate that original proof.
+    import storage_service
+    current = tmp_path / "current-fixed-installer"
+    current.write_bytes(b"fixed current installer")
+    current.chmod(0o700)
+    generation = storage_service.prepare(installed.installation.directory, current)
+    installed.installation.record.update(installer=generation["path"], installer_generation=generation)
+    fx.write_json_atomic(installed.installation.directory / "installation.json", installed.installation.record)
+    assert recovery.native_recovered(attachment.directory,row)
+    assert {item.name:item.read_bytes() for item in paths} == originals
     paths[-1].write_bytes(originals[paths[-1].name]+b" ")
     assert not recovery.native_recovered(attachment.directory,row)
     assert service.borrowers(installed.installation)[0]["id"] == attachment.id

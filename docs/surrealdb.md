@@ -198,68 +198,36 @@ stages without changing live state; `--apply` explicitly restores only the match
 installation/generation under maintenance. Recovery validates asset digests and preserves the
 predecessor until readiness succeeds. Failure keeps admission closed and retains recovery assets.
 
-An installed control-format change uses the explicit journaled upgrade route:
+**Accepted installer handoff; implementation and campaign acceptance in progress
+(ADR-0163, 2026-10-12).** A corrected maintenance executable with the same installed native
+schema uses the existing service owner:
 
 ```sh
-just service maintenance --upgrade-installer /absolute/path/to/current/lctx
+just service maintenance --handoff-installer /absolute/path/to/current/lctx
 ```
 
-The owner closes and drains both databases, journals the exact old/new executable and schema
-identities privately, rotates credentials and restarts the owned daemon before native migration.
-The candidate verifies the exact source marker, adds checked declarations, translates legacy
-state with named outcome references and publishes the new marker last. The executable pointer
-moves only after both database checks succeed. An interrupted upgrade remains closed; repeat
-with the same candidate to reconcile its journal. Ordinary attachment and `store init` refuse
-an incompatible installed format. This transition is a schema migration.
+The owner copies immutable candidate bytes, excludes borrowers and compares their declared
+schema/version with both actual main/validation markers and the current generation. It uses
+that candidate explicitly for acknowledged closure, drainage and checks, then atomically changes
+only the installer binding. Exact private predecessor/successor evidence supports repeating the
+same command after interruption. Failure keeps admission closed; generic recovery cannot bypass
+this specialized journal. Complete any existing named recovery before starting a handoff.
+Service identity, native content, server, credentials and selection remain unchanged. Same-digest
+`--stabilize-installer` remains a transfer operation, not an executable replacement.
 
-If the candidate itself is defective, the explicit recovery route is:
-
-```sh
-just service maintenance --replace-upgrade-installer /absolute/path/to/corrected/lctx
-```
-
-This creates a distinct immutable host successor and preserves the failed executable, private
-journal, native intent and rotated credentials. After drainage and owned-daemon restart, each
-unpublished scope must retain its exact closed source3 marker and absent/intent-only native journal.
-Partial declarations are reconciled; potentially translated unpublished scope refuses replacement.
-If a scope already published, replacement requires an identical complete target declaration plus
-its exact closed target4/current-generation marker, published native journal and durable completed
-checkpoint. That scope is preserved and skipped. Remaining scopes resume the original native
-migration operation; the new host operation owns the immutable candidate bundle and diagnostics.
-A different target is allowed only before any scope publishes. Ordinary resume still requires the
-same candidate. The persisted coordinator owns actual qualification; this route does not imply a
-successful migration. Installation uses concurrent index construction and waits for every desired
-index to report ready, including catalog-present indexes on a retry; source identity is unchanged.
-
-**Accepted recoverable transition (ADR-0146); runtime qualification open.** A separately checked
-advanced-state recovery uses `just service maintenance --reconcile-upgrade-installer PATH`.
-It preserves the original native migration/credential operations and exact completed main scope,
-then classifies actual validation state before adopting only recognized partial forms. The original
-replacement route remains absent/intent-only. `--upgrade-step-pages N` on reconciliation stops at
-a durable validation checkpoint with admission still closed; it does not limit normal compiler or
-test parallelism. Continue only the exact staged successor through `--upgrade-installer PATH`.
-
-The host stages each database's versioned execution contract privately and passes its exact path
-to `store upgrade --execution-contract PATH`. Contract metadata is separate from `store schema`.
-Preflight and all native passes carry atomic page progress, including nested cleanup cursors.
-Unknown acknowledgement reconciles that revision; normal advancement retains one native client.
-Native sealing, executable-definition completion and host scope completion are distinct. A sealed
-scope with a missing host checkpoint finishes definition checks rather than replaying translation.
-Migration overlays follow cold-service recovery, are excluded from selected portable content and
-remain protected until their named terminal recovery consumers release them.
+An incompatible control format requires explicit current-design view migration or regeneration
+from pinned inputs under exclusive maintenance (ADR-0161). Historical translators and upgrade
+flags are retired. Do not use ordinary attachment or `store init` to reinterpret an incompatible
+store. The selected plan must name useful views, actual reader quiescence, regeneration and
+consumer cutover before native state is replaced. Shared paused and operator installations retain
+their separate authorization and owning coordinator.
 
 Native keyset scans retain native record IDs and excluded cursor bounds. On pinned
 SurrealDB3.3, the shared helper wraps the range in the identity `type::record(...)`
 so `DynamicScan` receives the page limit. The literal `RecordIdScan` path eagerly
 reads the remaining suffix before its outer limit. Regression controls require
 the pushed limit and exact complete page bodies/order; a small returned page alone
-does not demonstrate bounded examined work. This physical refinement preserves
-the migration protocol, schema, acknowledged prefix and runtime limits.
-
-The format3→4 recovery keeps its complete target unchanged. The subsequent explicit format4→5
-transition supplies bounded last-page history outcomes and expected-revision replay. Ordinary
-`store init` cannot install that changed runtime meaning; the explicit transition owns readback
-and publication. Existing era/horizon/reference protections continue to govern collection.
+does not demonstrate bounded examined work. This preserves control semantics and runtime limits.
 
 For compatible executable-epoch installation, run the current build's `lctx store
 --runtime-config INSTALLER_CONFIG init --keep-closed` through `just service maintenance -- COMMAND`.

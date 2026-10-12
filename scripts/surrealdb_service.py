@@ -1945,6 +1945,256 @@ def _write_private(path: Path, content: str) -> None:
 
 
 SERVER_HANDOFF_OPERATION = "server generation handoff"
+INSTALLER_HANDOFF_OPERATION = "installer generation handoff"
+
+
+def _installer_handoff_bytes(path: Path) -> bytes:
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        raise FixtureBlocked("identity", "installer handoff path is not physical")
+    info = path.stat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise FixtureBlocked("identity", "installer handoff state must be private and owned")
+    return path.read_bytes()
+
+
+def _installer_handoff_plan(installation: Installation, reference: Mapping[str, Any]) -> tuple[Path, dict]:
+    operation = reference.get("operation", "")
+    if not isinstance(operation, str) or not re.fullmatch("[a-f0-9]{64}", operation):
+        raise FixtureBlocked("identity", "installer handoff operation is unavailable")
+    path = installation.directory / "installer-handoffs" / operation / "plan.json"
+    raw = _installer_handoff_bytes(path)
+    if reference.get("journal") != str(path) or hashlib.sha256(raw).hexdigest() != reference.get("journal_sha256"):
+        raise FixtureBlocked("identity", "immutable installer handoff journal changed")
+    plan = json.loads(raw)
+    if plan.get("operation") != operation or plan.get("installation_id") != installation.id:
+        raise FixtureBlocked("identity", "installer handoff belongs to another installation")
+    previous = json.loads(base64.b64decode(plan["previous_bytes"], validate=True))
+    successor = json.loads(base64.b64decode(plan["successor_bytes"], validate=True))
+    if successor != {**previous, "installer": plan["candidate"]["path"], "installer_generation": plan["candidate"]}:
+        raise FixtureBlocked("identity", "installer handoff changes more than executable identity")
+    return path, plan
+
+
+def _installer_scope_markers(installation: Installation) -> dict:
+    """Observe real admission state; never normalize an open acknowledgement to closed."""
+    result = {}
+    for database in DATABASES:
+        rows = sql(installation,
+            "SELECT generation,schema,schema_version,admission_open FROM native_installation:current;",
+            cfg=installation.runtime(database, installer=True))
+        values = rows[0].get("result") if len(rows) == 1 else None
+        if not isinstance(values, list) or len(values) != 1 or not isinstance(values[0], dict):
+            raise FixtureBlocked("schema", "installer handoff native marker is unavailable")
+        marker = values[0]
+        if (set(marker) != {"generation", "schema", "schema_version", "admission_open"}
+                or marker["generation"] != bytes(installation.record["service_generation"]).hex()
+                or marker["schema_version"] != installation.record.get("native_schema_version", 3)
+                or not isinstance(marker["schema"], str) or not re.fullmatch("[a-f0-9]{64}", marker["schema"])
+                or type(marker["admission_open"]) is not bool):
+            raise FixtureBlocked("schema", "installer handoff native generation or schema differs")
+        result[database] = dict(marker)
+    return result
+
+
+def _installer_handoff_cli(installation: Installation, candidate: Mapping[str, Any], database: str,
+                           action: str, token: str) -> dict:
+    """Execute only the immutable, fully checked candidate inode for this handoff."""
+    path = Path(candidate["path"])
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        raise FixtureBlocked("identity", "installer candidate path changed")
+    descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(descriptor)
+        identity = executable_identity(info)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or stat.S_IMODE(info.st_mode) != 0o500 or info.st_size != candidate["size"]):
+            raise FixtureBlocked("identity", "installer candidate is not an immutable owned executable")
+        with os.fdopen(os.dup(descriptor), "rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        if digest != candidate["sha256"] or executable_identity(path.stat()) != identity:
+            raise FixtureBlocked("identity", "installer candidate bytes changed")
+        if database not in DATABASES or action not in {"schema", "close-admission", "drain", "check", "open-admission"}:
+            raise FixtureBlocked("identity", "unsupported installer handoff operation")
+        result = subprocess.run([f"/proc/self/fd/{descriptor}", "store", "--runtime-config",
+            str(installation.runtime_path(database, installer=True)), action],
+            pass_fds=(descriptor,), capture_output=True, check=False, env={**os.environ,
+                "LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json"),
+                "LCTX_SURREAL_INSTALLER_CONFIG": str(installation.runtime_path(database, installer=True)),
+                "LCTX_SURREAL_MAINTENANCE_TOKEN": token})
+        if (executable_identity(path.stat()) != identity or executable_identity(os.fstat(descriptor)) != identity
+                or file_sha256(path) != candidate["sha256"]):
+            raise FixtureBlocked("identity", "installer candidate changed during execution")
+        if result.returncode:
+            raise FixtureFailed("installer", f"candidate {action} failed for {database}; admission stays closed")
+        if len(result.stdout) > 4096:
+            raise FixtureBlocked("schema", "candidate installer response exceeds bound")
+        try:
+            value = json.loads(result.stdout)
+        except (ValueError, TypeError):
+            raise FixtureBlocked("schema", "candidate installer response is not structured") from None
+        if action == "schema":
+            if not isinstance(value, dict):
+                raise FixtureBlocked("schema", "candidate installer response is not a schema object")
+            _current_schema(value)
+            if set(value) != {"schema", "schema_version"}:
+                raise FixtureBlocked("schema", "candidate schema response differs")
+        elif value != {"ready": action in {"check", "open-admission"}, "namespace": NAMESPACE, "database": database}:
+            raise FixtureBlocked("schema", "candidate installer acknowledgement differs")
+        return value
+    finally:
+        os.close(descriptor)
+
+
+def handoff_installer(installation: Installation, source: Path) -> dict:
+    """Replace only the maintenance executable after both unchanged native scopes agree."""
+    from storage_lifecycle import admission, durable_json, fsync_directory, private_directory
+    from storage_service import prepare, tools_root
+
+    source = source.absolute()
+    root = installation.directory
+    if any(key in os.environ for key in ("LCTX_NATIVE_DRAIN_DIRECTORY", "LCTX_FIXTURE_ATTACHMENT",
+                                         "LCTX_SURREAL_GENERATION", "LCTX_SIGNAL_CONTROL_MODE")):
+        raise FixtureBlocked("ownership", "installer handoff refuses inherited native owner bindings")
+    with admission([root, source, tools_root(root)]):
+        gate = os.open(root / "admission.lock", os.O_RDWR | os.O_CLOEXEC)
+        use = None
+        marker_path = root / "maintenance.json"
+        try:
+            try:
+                fcntl.flock(gate, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise FixtureBlocked("ownership", "another owner holds installer handoff admission") from None
+            marker = read_json(marker_path)
+            if marker:
+                owner = ProcessIdentity.from_json(marker["owner"])
+                if (marker.get("operation") != INSTALLER_HANDOFF_OPERATION
+                        or owner.foreign() or owner.alive() or not marker.get("installer_handoff")):
+                    raise FixtureBlocked("ownership", "resume only the dead exact installer handoff owner")
+            if borrowers(installation):
+                raise FixtureBlocked("drainage", "installer handoff requires resolved host borrowers")
+            use = os.open(root / "borrowers.lock", os.O_RDWR | os.O_CLOEXEC)
+            try:
+                fcntl.flock(use, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise FixtureBlocked("drainage", "installer handoff borrower lease remains held") from None
+            _stopped_attachment_commands(installation)
+            installation.check_daemon()
+            candidate = prepare(root, source)
+            token = secrets.token_urlsafe(32)
+            descriptor_path = root / "installation.json"
+            if json.loads(_installer_handoff_bytes(descriptor_path)) != installation.record:
+                raise FixtureBlocked("identity", "installer handoff descriptor differs from its loaded owner")
+            if marker:
+                journal, plan = _installer_handoff_plan(installation, marker["installer_handoff"])
+                if plan["candidate"] != candidate:
+                    raise FixtureBlocked("identity", "resume requires the exact checkpointed installer candidate")
+                if _installer_handoff_bytes(descriptor_path) not in (
+                        base64.b64decode(plan["previous_bytes"], validate=True),
+                        base64.b64decode(plan["successor_bytes"], validate=True)):
+                    raise FixtureBlocked("identity", "resume requires the exact previous or successor descriptor")
+            else:
+                previous_bytes = _installer_handoff_bytes(descriptor_path)
+                if json.loads(previous_bytes) != installation.record:
+                    raise FixtureBlocked("identity", "installer descriptor changed before handoff")
+                if installation.record.get("installer_generation") == candidate:
+                    raise FixtureBlocked("identity", "installer candidate is already installed")
+                scopes = _installer_scope_markers(installation)
+                declared = _installer_handoff_cli(installation, candidate, "main", "schema", token)
+                if any({key: value[key] for key in ("schema", "schema_version")} != declared for value in scopes.values()):
+                    raise FixtureBlocked("schema", "candidate schema differs from an installed native scope")
+                successor = {**installation.record, "installer": candidate["path"], "installer_generation": candidate}
+                successor_bytes = (json.dumps(successor, sort_keys=True, indent=2) + "\n").encode()
+                operation = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
+                private_directory(root / "installer-handoffs")
+                directory = root / "installer-handoffs" / operation
+                directory.mkdir(parents=True, mode=0o700)
+                plan = {"schema": 1, "operation": operation, "installation_id": installation.id,
+                    "source": str(source), "candidate": candidate,
+                    "previous_bytes": base64.b64encode(previous_bytes).decode(),
+                    "successor_bytes": base64.b64encode(successor_bytes).decode(), "scopes": scopes,
+                    "configs": {str(installation.runtime_path(db, installer=privileged)):
+                        file_sha256(installation.runtime_path(db, installer=privileged))
+                        for db in DATABASES for privileged in (False, True)},
+                    "unit_sha256": file_sha256(_unit_path(installation.unit))}
+                journal = directory / "plan.json"
+                durable_json(journal, plan)
+                journal.chmod(0o400)
+                for path in (directory, directory.parent, root):
+                    fsync_directory(path)
+                marker = {"operation": INSTALLER_HANDOFF_OPERATION,
+                    "installer_handoff": {"operation": operation, "journal": str(journal),
+                        "journal_sha256": file_sha256(journal)}}
+            marker.update(owner=ProcessIdentity.of().to_json(), token=token)
+            durable_json(marker_path, marker)
+            marker_bytes = _installer_handoff_bytes(marker_path)
+
+            def verify(*, closed: bool | None = None) -> dict:
+                if (_installer_handoff_bytes(marker_path) != marker_bytes
+                        or _installer_handoff_bytes(descriptor_path) not in (
+                            base64.b64decode(plan["previous_bytes"], validate=True),
+                            base64.b64decode(plan["successor_bytes"], validate=True))
+                        or _installer_handoff_plan(installation, marker["installer_handoff"])[1] != plan
+                        or file_sha256(_unit_path(installation.unit)) != plan["unit_sha256"]
+                        or any(file_sha256(Path(path)) != digest for path, digest in plan["configs"].items())
+                        or file_sha256(Path(candidate["path"])) != candidate["sha256"]):
+                    raise FixtureBlocked("identity", "installer handoff checkpoint or executable changed")
+                installation.check_daemon()
+                for database in DATABASES:
+                    installation.runtime(database, installer=True)
+                    installation.runtime(database)
+                actual = _installer_scope_markers(installation)
+                for database, value in actual.items():
+                    if ({key: value[key] for key in ("generation", "schema", "schema_version")}
+                            != {key: plan["scopes"][database][key] for key in ("generation", "schema", "schema_version")}
+                            or closed is not None and value["admission_open"] is closed):
+                        raise FixtureBlocked("schema", "installer handoff native scope or admission acknowledgement differs")
+                return actual
+
+            try:
+                verify()
+                declared = _installer_handoff_cli(installation, candidate, "main", "schema", token)
+                if any({key: value[key] for key in ("schema", "schema_version")} != declared for value in plan["scopes"].values()):
+                    raise FixtureBlocked("schema", "checkpointed candidate schema differs")
+                for database in DATABASES:
+                    verify()
+                    _installer_handoff_cli(installation, candidate, database, "close-admission", token)
+                verify(closed=True)
+                for database in DATABASES:
+                    verify(closed=True)
+                    _installer_handoff_cli(installation, candidate, database, "drain", token)
+                    verify(closed=True)
+                    _installer_handoff_cli(installation, candidate, database, "check", token)
+                    verify(closed=True)
+                checked = {"candidate": candidate, "scopes": verify(closed=True), "plan_sha256": file_sha256(journal)}
+                durable_json(journal.parent / "checked.json", checked)
+                _write_private(descriptor_path, base64.b64decode(plan["successor_bytes"], validate=True).decode())
+                installation.record = json.loads(base64.b64decode(plan["successor_bytes"], validate=True))
+                verify(closed=True)
+                for database in DATABASES:
+                    verify()
+                    _installer_handoff_cli(installation, candidate, database, "open-admission", token)
+                final = verify(closed=False)
+                installation.check(allow_maintenance=True)
+                final = verify(closed=False)
+                durable_json(journal.parent / "receipt.json", {"outcome": "passed", "operation": plan["operation"],
+                    "plan_sha256": file_sha256(journal), "candidate": candidate, "scopes": final})
+                marker_path.unlink()
+                fsync_directory(root)
+                return {"outcome": "passed", "installation_id": installation.id,
+                    "installer_handoff": plan["operation"], "installer": candidate, "admission_open": True}
+            except BaseException:
+                # A failed open on either scope must not leave a partially reopened successor.
+                for database in DATABASES:
+                    with contextlib.suppress(Exception):
+                        # Never follow a changed config/descriptor/daemon during failure
+                        # cleanup. The host marker itself continues to block borrowers.
+                        verify()
+                        _installer_handoff_cli(installation, candidate, database, "close-admission", token)
+                raise
+        finally:
+            if use is not None:
+                os.close(use)
+            os.close(gate)
 
 
 def _server_handoff_plan(installation: Installation, reference: Mapping[str, Any]) -> tuple[Path, dict]:
@@ -2188,6 +2438,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="transfer the exact maintenance executable out of its supplying checkout",
     )
+    operations.add_argument("--handoff-installer", type=Path,
+                            help="explicitly replace the maintenance executable for unchanged installed native schemas")
     operations.add_argument("--server-generation", type=Path,
                             help="explicitly hand off the owned server to a reviewed immutable descriptor")
     maintenance_parser.add_argument(
@@ -2228,7 +2480,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if (
             (reconcile and (not args.recover or not args.reconcile_database))
             or (args.reconcile_database and not reconcile)
-            or ((args.recover or args.server_generation or args.recover_attachment or args.recover_native_attachment or args.prepare_grpc_recovery) and args.command)
+            or ((args.recover or args.server_generation or args.handoff_installer or args.recover_attachment or args.recover_native_attachment or args.prepare_grpc_recovery) and args.command)
         ):
             parser.error(
                 "named reader reconciliation requires --recover, --reconcile-database "
@@ -2240,7 +2492,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             parser.error("named reconciliation identities must be distinct")
     if args.action == "maintenance" and args.native_clients:
         command = args.command[1:] if args.command[:1] == ["--"] else args.command
-        if not command or args.restart or args.check or args.recover or args.stabilize_installer or args.server_generation or args.recover_attachment or args.recover_native_attachment or args.prepare_grpc_recovery:
+        if not command or args.restart or args.check or args.recover or args.stabilize_installer or args.handoff_installer or args.server_generation or args.recover_attachment or args.recover_native_attachment or args.prepare_grpc_recovery:
             parser.error("--native-clients requires only an explicit command after --")
     try:
         if args.action == "install":
@@ -2299,6 +2551,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.server_generation:
                     print(json.dumps(handoff_server(installation, args.server_generation), indent=2))
                     return 0
+                if args.handoff_installer:
+                    print(json.dumps(handoff_installer(installation, args.handoff_installer), indent=2))
+                    return 0
                 if args.recover:
                     gate = hold_lock(installation.directory / "admission.lock")
                     use = None
@@ -2309,6 +2564,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                             raise FixtureBlocked("maintenance", "resume the exact named PD02 maintenance operation")
                         if row and (row.get("server_handoff") or row.get("operation") == SERVER_HANDOFF_OPERATION):
                             raise FixtureBlocked("maintenance", "incomplete server handoff requires the exact --server-generation descriptor")
+                        if row and (row.get("installer_handoff") or row.get("operation") == INSTALLER_HANDOFF_OPERATION):
+                            raise FixtureBlocked("maintenance", "incomplete installer handoff requires the exact --handoff-installer candidate")
                         if row and ProcessIdentity.from_json(row["owner"]).alive():
                             raise FixtureBlocked("ownership", "maintenance owner is still alive")
                         if borrowers(installation):

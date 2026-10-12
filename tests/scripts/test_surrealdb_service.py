@@ -25,6 +25,284 @@ INSTALLATION_CHECK = service.Installation.check
 OWNED_START = service._start_owned
 
 
+@pytest.fixture
+def installer_handoff_ready(recoverable, tmp_path, monkeypatch):
+    import storage_service
+
+    installation, _, actions = recoverable
+    old = Path(installation.record["installer"])
+    old.chmod(0o700)
+    original = storage_service.prepare(installation.directory, old)
+    installation.record.update(installer=original["path"], installer_generation=original,
+                               native_schema_version=6)
+    service.private_json(installation.directory / "installation.json", installation.record)
+    candidate = tmp_path / "replacement-lctx"
+    candidate.write_bytes(b"current fixed installer")
+    candidate.chmod(0o700)
+    state = {"failure": None, "ignore_close": None, "markers": {
+        db: {"generation": bytes(installation.record["service_generation"]).hex(),
+             "schema": "a" * 64, "schema_version": 6, "admission_open": True}
+        for db in service.DATABASES}}
+    monkeypatch.setattr(service.Installation, "check_daemon", lambda inst: None)
+    monkeypatch.setattr(service, "sql", lambda inst, query, *, cfg:
+        [{"result": [dict(state["markers"][cfg["database"]])]}])
+
+    def cli(inst, generation, database, action, token):
+        assert service.lock_held(inst.directory / "admission.lock")
+        assert service.lock_held(inst.directory / "borrowers.lock")
+        assert service.file_sha256(Path(generation["path"])) == generation["sha256"]
+        assert generation != original, "no operation invokes the broken predecessor CLI"
+        actions.append((database, action))
+        if action == "schema":
+            return {"schema": "a" * 64, "schema_version": 6}
+        marker = json.loads((inst.directory / "maintenance.json").read_text())
+        assert token == marker["token"] and service.maintenance_owned(inst, {"LCTX_SURREAL_MAINTENANCE_TOKEN": token})
+        if state["failure"] == (database, action):
+            raise service.FixtureFailed("installer", "controlled second scope failure")
+        if action == "close-admission" and state["ignore_close"] != database:
+            state["markers"][database]["admission_open"] = False
+        if action == "open-admission":
+            state["markers"][database]["admission_open"] = True
+        return {"ready": action in {"open-admission", "check"}, "namespace": service.NAMESPACE, "database": database}
+
+    monkeypatch.setattr(service, "_installer_handoff_cli", cli)
+    return installation, candidate, actions, state
+
+
+def _ended_installer_handoff_owner(installation):
+    path = installation.directory / "maintenance.json"
+    marker = json.loads(path.read_text())
+    marker["owner"]["start_ticks"] += 1
+    service.private_json(path, marker)
+
+
+def test_installer_handoff_changes_only_executable_fields_after_both_checks(installer_handoff_ready):
+    installation, candidate, actions, state = installer_handoff_ready
+    before = json.loads(json.dumps(installation.record))
+    protected = {path: path.read_bytes() for path in installation.directory.glob("*-*.json")}
+    result = service.handoff_installer(installation, candidate)
+    assert result["outcome"] == "passed"
+    assert {key for key in before if before[key] != installation.record[key]} == {"installer", "installer_generation"}
+    assert json.loads((installation.directory / "installation.json").read_text()) == installation.record
+    assert all(path.read_bytes() == raw for path, raw in protected.items())
+    assert all(value["admission_open"] for value in state["markers"].values())
+    assert actions.index(("validation", "check")) < actions.index(("main", "open-admission"))
+    assert not (installation.directory / "maintenance.json").exists()
+    journal = next((installation.directory / "installer-handoffs").glob("*/plan.json"))
+    import base64
+    plan = json.loads(journal.read_text())
+    assert json.loads(base64.b64decode(plan["previous_bytes"])) == before
+    assert json.loads(base64.b64decode(plan["successor_bytes"])) == installation.record
+    assert (journal.parent / "receipt.json").exists()
+
+
+def test_installer_handoff_second_schema_mismatch_has_no_pointer_or_native_effect(installer_handoff_ready):
+    installation, candidate, actions, state = installer_handoff_ready
+    before = (installation.directory / "installation.json").read_bytes()
+    state["markers"]["validation"]["schema"] = "b" * 64
+    with pytest.raises(service.FixtureBlocked, match="candidate schema differs"):
+        service.handoff_installer(installation, candidate)
+    assert (installation.directory / "installation.json").read_bytes() == before
+    assert actions == [("main", "schema")]
+    assert not (installation.directory / "maintenance.json").exists()
+
+
+def test_installer_handoff_second_drain_failure_keeps_exact_old_pointer_and_both_closed(installer_handoff_ready):
+    installation, candidate, actions, state = installer_handoff_ready
+    before = (installation.directory / "installation.json").read_bytes()
+    state["failure"] = ("validation", "drain")
+    with pytest.raises(service.FixtureFailed, match="second scope"):
+        service.handoff_installer(installation, candidate)
+    assert (installation.directory / "installation.json").read_bytes() == before
+    assert not any(row["admission_open"] for row in state["markers"].values())
+    assert not any(action == "open-admission" for _, action in actions)
+    assert (installation.directory / "maintenance.json").exists()
+    import storage_service
+    dependencies = storage_service.dependencies(installation)["dependencies"]
+    assert sum(row["role"] == "unresolved-installer-handoff" for row in dependencies) == 2
+
+
+@pytest.mark.parametrize("refused_database", service.DATABASES)
+def test_installer_handoff_ordinary_readiness_refusal_closes_both_and_retains_journal(
+    installer_handoff_ready, monkeypatch, refused_database
+):
+    installation, candidate, actions, state = installer_handoff_ready
+    ordinary_reads = []
+
+    def observed_sql(inst, query, *, cfg):
+        marker = state["markers"][cfg["database"]]
+        if cfg["authentication"] == "database":
+            ordinary_reads.append(cfg["database"])
+            assert all(value["admission_open"] for value in state["markers"].values())
+            if cfg["database"] == refused_database:
+                raise service.FixtureBlocked("query", "controlled ordinary credential refusal")
+            return [{"result": [{key: marker[key] for key in ("generation", "schema_version")}]}]
+        return [{"result": [dict(marker)]}]
+
+    monkeypatch.setattr(service, "sql", observed_sql)
+    monkeypatch.setattr(service.Installation, "check", INSTALLATION_CHECK)
+    with pytest.raises(service.FixtureBlocked, match="ordinary credential refusal"):
+        service.handoff_installer(installation, candidate)
+    assert ordinary_reads == list(service.DATABASES[: service.DATABASES.index(refused_database) + 1])
+    assert ("validation", "open-admission") in actions
+    assert not any(value["admission_open"] for value in state["markers"].values())
+    assert (installation.directory / "maintenance.json").exists()
+    journal = next((installation.directory / "installer-handoffs").glob("*/plan.json"))
+    assert (journal.parent / "checked.json").exists()
+    assert not (journal.parent / "receipt.json").exists()
+    assert json.loads((installation.directory / "installation.json").read_bytes()) == installation.record
+
+
+@pytest.mark.parametrize("after_publication", [False, True])
+def test_installer_handoff_exact_resume_before_and_after_pointer_publication(installer_handoff_ready, monkeypatch, after_publication):
+    installation, candidate, actions, state = installer_handoff_ready
+    previous = (installation.directory / "installation.json").read_bytes()
+    write = service._write_private
+
+    def interrupt(path, content):
+        if after_publication:
+            write(path, content)
+        raise KeyboardInterrupt("controlled publication interruption")
+
+    monkeypatch.setattr(service, "_write_private", interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        service.handoff_installer(installation, candidate)
+    assert ((installation.directory / "installation.json").read_bytes() != previous) == after_publication
+    assert not any(value["admission_open"] for value in state["markers"].values())
+    journal = next((installation.directory / "installer-handoffs").glob("*/plan.json"))
+    exact_plan = journal.read_bytes()
+    _ended_installer_handoff_owner(installation)
+    monkeypatch.setattr(service, "_write_private", write)
+    installation = service.Installation(installation.directory, json.loads((installation.directory / "installation.json").read_text()))
+    assert service.handoff_installer(installation, candidate)["outcome"] == "passed"
+    assert journal.read_bytes() == exact_plan
+    assert all(row["admission_open"] for row in state["markers"].values())
+
+
+def test_installer_handoff_refuses_unacknowledged_close_without_normalizing_open_marker(installer_handoff_ready):
+    installation, candidate, _, state = installer_handoff_ready
+    before = (installation.directory / "installation.json").read_bytes()
+    state["ignore_close"] = "validation"
+    with pytest.raises(service.FixtureBlocked, match="admission acknowledgement differs"):
+        service.handoff_installer(installation, candidate)
+    assert (installation.directory / "installation.json").read_bytes() == before
+    assert state["markers"]["validation"]["admission_open"] is True
+    assert (installation.directory / "maintenance.json").exists()
+
+
+def test_installer_handoff_resume_uses_exact_owned_candidate_after_checkout_source_disappears(installer_handoff_ready):
+    installation, candidate, _, state = installer_handoff_ready
+    state["failure"] = ("validation", "drain")
+    with pytest.raises(service.FixtureFailed):
+        service.handoff_installer(installation, candidate)
+    journal = next((installation.directory / "installer-handoffs").glob("*/plan.json"))
+    original_plan = journal.read_bytes()
+    owned = Path(json.loads(original_plan)["candidate"]["path"])
+    candidate.unlink()
+    _ended_installer_handoff_owner(installation)
+    state["failure"] = None
+    assert service.handoff_installer(installation, owned)["outcome"] == "passed"
+    assert journal.read_bytes() == original_plan
+
+
+def test_installer_handoff_refuses_inherited_native_owner(installer_handoff_ready, monkeypatch):
+    installation, candidate, actions, _ = installer_handoff_ready
+    monkeypatch.setenv("LCTX_NATIVE_DRAIN_DIRECTORY", "/another/native-owner")
+    with pytest.raises(service.FixtureBlocked, match="inherited native owner"):
+        service.handoff_installer(installation, candidate)
+    assert not actions and not (installation.directory / "maintenance.json").exists()
+
+
+@pytest.mark.parametrize("change", ["candidate", "descriptor", "config"])
+def test_installer_handoff_resume_refuses_changed_checkpoint(installer_handoff_ready, change):
+    installation, candidate, actions, state = installer_handoff_ready
+    state["failure"] = ("validation", "drain")
+    with pytest.raises(service.FixtureFailed):
+        service.handoff_installer(installation, candidate)
+    _ended_installer_handoff_owner(installation)
+    if change == "candidate":
+        candidate.write_bytes(b"different candidate at same path")
+    elif change == "descriptor":
+        service.private_json(installation.directory / "installation.json", {**installation.record, "foreign": True})
+    else:
+        path = installation.runtime_path("validation", installer=True)
+        service.private_json(path, {**json.loads(path.read_text()), "foreign": True})
+    before = (installation.directory / "installation.json").read_bytes()
+    installation = service.Installation(installation.directory, json.loads(before))
+    previous_actions = list(actions)
+    with pytest.raises(service.FixtureBlocked, match="checkpoint|previous or successor"):
+        service.handoff_installer(installation, candidate)
+    assert (installation.directory / "installation.json").read_bytes() == before
+    assert (installation.directory / "maintenance.json").exists()
+    assert actions == previous_actions, "changed checkpoint must not direct native cleanup effects"
+
+
+@pytest.mark.parametrize("owner", ["live", "specialized", "foreign", "borrower"])
+def test_installer_handoff_refuses_existing_owner_before_candidate_effects(installer_handoff_ready, owner, monkeypatch):
+    installation, candidate, actions, _ = installer_handoff_ready
+    identity = service.ProcessIdentity.of().to_json()
+    if owner == "borrower":
+        monkeypatch.setattr(service, "borrowers", lambda inst: [{"id": "unresolved"}])
+    else:
+        if owner == "specialized":
+            identity["start_ticks"] += 1
+        if owner == "foreign":
+            identity["pid_namespace"] += 1
+        service.private_json(installation.directory / "maintenance.json", {
+            "owner": identity, "operation": "native named attachment recovery" if owner == "specialized" else service.INSTALLER_HANDOFF_OPERATION,
+            "installer_handoff": {"operation": "a" * 64}})
+    with pytest.raises(service.FixtureBlocked, match="owner|borrowers"):
+        service.handoff_installer(installation, candidate)
+    assert actions == []
+
+
+@pytest.mark.parametrize("name", ["admission.lock", "borrowers.lock"])
+def test_installer_handoff_refuses_held_real_host_lock(installer_handoff_ready, name):
+    installation, candidate, actions, _ = installer_handoff_ready
+    with (installation.directory / name).open("r+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with pytest.raises(service.FixtureBlocked, match="admission|borrower lease"):
+            service.handoff_installer(installation, candidate)
+    assert actions == []
+
+
+def test_installer_handoff_cli_executes_verified_fd_and_checks_exact_acknowledgement(recoverable, tmp_path, monkeypatch):
+    import storage_service
+
+    installation, _, _ = recoverable
+    source = tmp_path / "finite-metadata-cli"
+    source.write_text("#!/bin/sh\nprintf '%s\\n' '{\"schema_version\":6,\"schema\":\"" + "a" * 64 + "\"}'\n")
+    source.chmod(0o700)
+    candidate = storage_service.prepare(installation.directory, source)
+    invoke = subprocess.run
+    calls = []
+
+    def observed(args, **kwargs):
+        descriptor, = kwargs["pass_fds"]
+        assert args[0] == f"/proc/self/fd/{descriptor}"
+        assert service.executable_identity(os.fstat(descriptor)) == service.executable_identity(Path(candidate["path"]).stat())
+        assert kwargs["env"]["LCTX_SURREAL_MAINTENANCE_TOKEN"] == "actual-token"
+        calls.append(args[-1])
+        return invoke(args, **kwargs)
+
+    monkeypatch.setattr(service.subprocess, "run", observed)
+    assert service._installer_handoff_cli(installation, candidate, "main", "schema", "actual-token") == {
+        "schema_version": 6, "schema": "a" * 64}
+    with pytest.raises(service.FixtureBlocked, match="acknowledgement differs"):
+        service._installer_handoff_cli(installation, candidate, "main", "drain", "actual-token")
+    assert calls == ["schema", "drain"]
+
+
+@pytest.mark.parametrize("flag", ["--recover", "--stabilize-installer", "--server-generation"])
+def test_installer_handoff_cli_is_mutually_exclusive(flag):
+    args = ["maintenance", "--handoff-installer", "/current/lctx", flag]
+    if flag == "--server-generation":
+        args.append("/server/record.json")
+    with pytest.raises(SystemExit) as error:
+        service.main(args)
+    assert error.value.code == 2
+
+
 def test_actual_service_cli_keeps_helper_owner_and_startup_retry_identity():
     code = """
 import argparse, runpy, sys

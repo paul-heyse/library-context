@@ -359,6 +359,16 @@ memory, compiler-job or test-thread limits are selected. Embedding and optional 
 caches use distinct tables in the same configured database. Exact consumed vector winners remain
 canonical content and cannot depend on mutable cache survival.
 
+**Accepted executable handoff / implementation in progress, 2026-10-12.** The service owner can
+explicitly replace its maintenance executable against unchanged native schema/version/generation.
+An immutable candidate, actual main/validation markers, exclusive admission, acknowledged closure
+and drainage, and checks precede atomic publication of only the installer binding. Exact private
+predecessor/successor evidence permits same-candidate reconciliation; failure keeps admission closed.
+Specialized recovery completes first and its original receipts remain unchanged. Same-digest
+stabilization retains its narrower contract; incompatible state uses current-design regeneration.
+
+> Decision: ADR-0163
+
 Native graph/documents/functions/search/bulk operations are selected. Query planning tools are
 available for concrete uncertainties, not mandatory per-operation accounting or adoption proofs.
 Custom APIs, buckets, reactive enrichment, connectors and external exporters require a named

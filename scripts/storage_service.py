@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import stat
 import uuid
 from pathlib import Path
 
@@ -30,9 +31,21 @@ def prepare(directory: Path, source: Path) -> dict:
         raise Blocked("installer must have a physical regular path")
     if source.is_symlink() or not source.is_file() or not os.access(source, os.X_OK):
         raise Blocked("installer must be an executable regular file")
-    info = source.stat()
+    descriptor = os.open(source, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        return _prepare_open(directory, source, descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _prepare_open(directory: Path, source: Path, descriptor: int) -> dict:
+    info = os.fstat(descriptor)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or not info.st_mode & 0o111:
+        raise Blocked("installer must be an owned executable regular file")
     identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
-    sha = digest(source)
+    with os.fdopen(os.dup(descriptor), "rb") as stream:
+        sha = hashlib.file_digest(stream, "sha256").hexdigest()
+    os.lseek(descriptor, 0, os.SEEK_SET)
     root = tools_root(directory)
     if any(parent.is_symlink() for parent in (root, *root.parents)):
         raise Blocked("service tools must have a physical path")
@@ -51,13 +64,14 @@ def prepare(directory: Path, source: Path) -> dict:
         temporary = target.with_name(".lctx-" + uuid.uuid4().hex)
         fd = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o500)
         try:
-            with os.fdopen(fd, "wb") as output, source.open("rb") as input_stream:
+            with os.fdopen(fd, "wb") as output, os.fdopen(os.dup(descriptor), "rb") as input_stream:
                 shutil.copyfileobj(input_stream, output, length=1024**2)
                 output.flush()
                 os.fsync(output.fileno())
             after = source.stat()
             if (
                 identity != (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+                or identity != tuple(getattr(os.fstat(descriptor), key) for key in ("st_dev", "st_ino", "st_size", "st_mtime_ns"))
                 or digest(temporary) != sha
             ):
                 raise Blocked("installer changed during owned transfer")
@@ -69,6 +83,8 @@ def prepare(directory: Path, source: Path) -> dict:
     # newly linked ancestor, as well as the binary link, before exposing that reference.
     for path in (target.parent, target.parent.parent, root, root.parent):
         fsync_directory(path)
+    if identity != tuple(getattr(source.stat(), key) for key in ("st_dev", "st_ino", "st_size", "st_mtime_ns")):
+        raise Blocked("installer changed during owned transfer")
     return {"path": str(target), "sha256": sha, "size": info.st_size}
 
 
@@ -177,6 +193,22 @@ def dependencies(installation) -> dict:
     from surrealdb_service import _server_handoff_dependencies
 
     result.extend(_server_handoff_dependencies(installation))
+    active = read_json(installation.directory / "maintenance.json")
+    if isinstance(active, dict) and active.get("installer_handoff"):
+        from surrealdb_service import INSTALLER_HANDOFF_OPERATION, _installer_handoff_plan
+
+        if active.get("operation") != INSTALLER_HANDOFF_OPERATION:
+            raise Blocked("installer handoff has a different maintenance owner")
+        journal, plan = _installer_handoff_plan(installation, active["installer_handoff"])
+        import base64
+        import json
+
+        previous = json.loads(base64.b64decode(plan["previous_bytes"], validate=True))
+        result.extend([
+            {"path": str(journal.parent), "role": "installer-handoff-private-assets"},
+            {"path": previous["installer"], "role": "unresolved-installer-handoff"},
+            {"path": plan["candidate"]["path"], "role": "unresolved-installer-handoff"},
+        ])
     return {"installation_id": installation.id, "stable_installer": stable, "dependencies": result}
 
 

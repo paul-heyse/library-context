@@ -91,6 +91,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0160](0160-exact-domain-unrequested-owners.md) | Represent uniform unrequested work through exact owned domains | 2026-10-12 | semantic-model §15.8, api-and-evidence-product §14.10 | Proposed |  |
 | [ADR-0161](0161-regenerate-unmigratable-design-views.md) | Migrate current views and regenerate unsupported design data | 2026-10-12 | storage-and-publication §5, storage-and-publication §6.1 | Proposed | ADR-0159 |
 | [ADR-0162](0162-shared-ordinary-dev-test-profile.md) | Share the ordinary O2 dev and test family with explicit release acceptance | 2026-10-12 | [§1.2](../design/DESIGN.md#section-1-2), [§4](../design/sections/acquisition-and-extraction.md#section-4), [§15](../design/sections/semantic-model.md#section-15) | Interface-checked | ADR-0137 |
+| [ADR-0163](0163-checked-installer-handoff.md) | Hand off maintenance executables against unchanged native installations | 2026-10-12 | [§6.5](../design/sections/storage-and-publication.md#section-6-5) | Interface-checked |  |
 
 ## Proposed: open choices, not accepted decisions
 
