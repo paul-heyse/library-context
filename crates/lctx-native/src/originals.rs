@@ -473,20 +473,36 @@ async fn stage<Context>(reader:&crate::NativeReader<Context>,attempt:ContentHash
     install_owned(reader.client(),attempt,contribution,root.clone(),pending_ordinal(&root,chunk.ordinal,chunk.body.0.len(),ContentHash::of(&chunk.body.0))?,budget).await?;
     // An ordinal can be partially installed after a failed producer; exact replay fills only
     // matching pieces, and drainage refuses incomplete or extra physical inventory.
-    for (index,bytes) in chunk.body.0.chunks(CHUNK_BYTES).enumerate(){
-        let _charge=budget.reserve("pending original native piece",bytes.len().saturating_mul(2)+4096)?;
-        install_owned(reader.client(),attempt,contribution,ordinal.clone(),pending_piece(&ordinal,index*CHUNK_BYTES,bytes)?,budget).await?;
+    let pieces=pending_piece_rows(&ordinal,&chunk.body.0,budget);
+    for window in crate::control::ImmutableWindows::from_charged_iter(pieces,Some(attempt),contribution,Some(ordinal.clone())).with_budget(Some(budget)){
+        crate::control::install_window(reader.client(),Some(attempt),window?,Some(budget)).await?;
     }Ok(())
 }
-async fn install_pieces(client:&Surreal<Client>,attempt:ContentHash,contribution:Option<ContentHash>,blob:&Blob,start:u64,bytes:&[u8],budget:&ResourceBudget)->Result<(),ModelError>{
-    let pieces=bytes.chunks(CHUNK_BYTES).enumerate().map(|(index,bytes)|{
-        let charge=budget.reserve("native original blob piece",bytes.len().saturating_mul(2)+4096)?;
+type ChargedPiece=Result<(Value,Option<Box<dyn lctx_model::domain::resources::Reservation>>),ModelError>;
+fn pending_piece_rows<'a>(ordinal:&'a RecordId,body:&'a [u8],budget:&'a ResourceBudget)->impl Iterator<Item=ChargedPiece>+Send+'a{
+    body.chunks(CHUNK_BYTES).enumerate().map(move |(index,bytes)|{
+        let charge=budget.reserve("pending original native piece",bytes.len().saturating_mul(2)+4096)?;
+        Ok((pending_piece(ordinal,index*CHUNK_BYTES,bytes)?,Some(charge)))
+    })
+}
+fn charged_blob_piece(blob:&Blob,start:u64,bytes:&[u8],budget:&ResourceBudget)->ChargedPiece{
+    let charge=budget.reserve("native original blob piece",bytes.len().saturating_mul(2)+4096)?;
+    Ok((blob.piece(start,bytes)?,Some(charge)))
+}
+/// Flatten only this already charged ingress slice, borrowing bodies rather than copying
+/// a corpus. The immutable window retains each lazily acquired piece charge through ACK.
+fn blob_piece_rows<'a>(segments:impl Iterator<Item=(&'a Blob,u64,&'a [u8])>+Send+'a,budget:&'a ResourceBudget)->impl Iterator<Item=ChargedPiece>+Send+'a{
+    segments.flat_map(move |(blob,start,bytes)|bytes.chunks(CHUNK_BYTES).enumerate().map(move |(index,bytes)|{
         let at=start.checked_add((index*CHUNK_BYTES) as u64).ok_or(ModelError::Schema("original piece offset"))?;
-        Ok((blob.piece(at,bytes)?,Some(charge)))
-    });
-    for window in crate::control::ImmutableWindows::from_charged_iter(pieces,Some(attempt),contribution,None).with_budget(Some(budget)){
-        crate::control::install_window(client,Some(attempt),window?,Some(budget)).await?;
-    }Ok(())
+        charged_blob_piece(blob,at,bytes,budget)
+    }))
+}
+fn replay_page_rows<'a>(values:impl Iterator<Item=Value>+Send+'a,replay:&'a mut PendingReplay,blob:&'a Blob,base:u64,budget:&'a ResourceBudget)->impl Iterator<Item=ChargedPiece>+Send+'a{
+    values.map(move |value|{
+        let piece=replay.push(value)?;
+        let start=base.checked_add(piece.start as u64).ok_or(ModelError::Schema("pending original piece offset"))?;
+        charged_blob_piece(blob,start,&piece.bytes,budget)
+    })
 }
 async fn drain_pending<Context>(reader:&crate::NativeReader<Context>,attempt:ContentHash,contribution:Option<ContentHash>,layout:&Layout,budget:&ResourceBudget,replay:bool)->Result<(),ModelError>{
     let root=pending_id(attempt,&layout.id)?;
@@ -505,11 +521,17 @@ async fn drain_pending<Context>(reader:&crate::NativeReader<Context>,attempt:Con
             loop{
                 let values=rows(reader,"SELECT * FROM native_pending_original_piece WITH INDEX pending_pieces WHERE ordinal=$ordinal AND start >= $start ORDER BY start LIMIT 4",pieces.clone()).await?;
                 if values.is_empty(){break;}
-                for value in values{
-                    let piece=replay_state.push(value)?;
-                    let start=base+piece.start as u64;
-                    if replay { install_pieces(reader.client(),attempt,contribution,&layout.blob,start,&piece.bytes,budget).await?; }
-                    else {
+                if replay {
+                    // query_native has drained the bounded page before any mutation. All
+                    // its validated pieces feed one window iterator, not one effect each.
+                    let page=replay_page_rows(values.into_iter(),&mut replay_state,&layout.blob,base,budget);
+                    for window in crate::control::ImmutableWindows::from_charged_iter(page,Some(attempt),contribution,None).with_budget(Some(budget)){
+                        crate::control::install_window(reader.client(),Some(attempt),window?,Some(budget)).await?;
+                    }
+                }else{
+                    for value in values{
+                        let piece=replay_state.push(value)?;
+                        let start=base.checked_add(piece.start as u64).ok_or(ModelError::Schema("pending original piece offset"))?;
                         let mut vars=Variables::new();vars.insert("id",chunk_id(&layout.blob.id(),start)?);
                         let actual=rows(reader,"SELECT * FROM $id",vars).await?;
                         let [actual]=actual.as_slice() else{return Err(ModelError::Conflict("pending original acknowledged blob piece missing"));};
@@ -558,6 +580,11 @@ impl PendingOriginals {
     pub async fn chunks<Context>(&self,reader:&crate::NativeReader<Context>,attempt:ContentHash,contribution:Option<ContentHash>,chunks:&[lctx_model::domain::artifact::ArtifactChunk],budget:&ResourceBudget)->Result<(),ModelError>{
         let closed=self.gate.lock().await;if *closed{return Err(ModelError::Conflict("original ingress closed"));}
         if !chunks.is_empty(){self.retain_budget(budget)?;}
+        // Bodies remain borrowed from the caller's charged slice. Only fixed-size blob
+        // declarations and offsets are retained while layout/root setup runs separately.
+        let metadata_bytes=chunks.len().checked_mul(std::mem::size_of::<(Blob,u64,&[u8])>()).ok_or(ModelError::Schema("original ingress slice metadata"))?;
+        let _metadata=budget.reserve("original ingress slice metadata",metadata_bytes)?;
+        let mut segments=Vec::with_capacity(chunks.len());
         for chunk in chunks{
             chunk.validate()?;let source=RecordId::new("original",EntityId::of(chunk.artifact).0.hex());
             match layout(reader,&source).await?{
@@ -568,9 +595,13 @@ impl PendingOriginals {
                     let start=u64::try_from(chunk.ordinal).map_err(ModelError::codec)?.checked_mul(lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES as u64).ok_or(ModelError::Schema("original typed chunk offset"))?;
                     let expected=layout.blob.byte_len.checked_sub(start).ok_or(ModelError::Schema("original typed chunk bounds"))?.min(lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES as u64);
                     if chunk.body.0.len() as u64!=expected{return Err(ModelError::Conflict("original typed chunk length"));}
-                    install_pieces(reader.client(),attempt,contribution,&layout.blob,start,&chunk.body.0,budget).await?;
+                    segments.push((layout.blob,start,chunk.body.0.as_slice()));
                 },None=>stage(reader,attempt,contribution,&source,chunk,budget).await?,
             }
+        }
+        let pieces=blob_piece_rows(segments.iter().map(|(blob,start,bytes)|(blob,*start,*bytes)),budget);
+        for window in crate::control::ImmutableWindows::from_charged_iter(pieces,Some(attempt),contribution,None).with_budget(Some(budget)){
+            crate::control::install_window(reader.client(),Some(attempt),window?,Some(budget)).await?;
         }Ok(())
     }
     pub async fn sources<Context>(&self,reader:&crate::NativeReader<Context>,attempt:ContentHash,contribution:Option<ContentHash>,sources:&[SourceArtifact],budget:&ResourceBudget)->Result<(),ModelError>{
@@ -645,6 +676,48 @@ async fn process_pending<Context>(reader:&crate::NativeReader<Context>,attempt:C
 #[cfg(test)]
 mod pending_controls {
  use super::*;
+ #[test]fn charged_original_slice_preserves_typed_chunk_order_and_exact_blob_owners(){
+  let body=vec![0xff;lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES+3];let other=b"other";
+  let a=Blob::new(ContentHash::of(&body),body.len() as u64).unwrap();let b=Blob::new(ContentHash::of(other),other.len() as u64).unwrap();
+  let budget=ResourceBudget::fixed(64<<20).unwrap();
+  let caller=budget.reserve("original input slice",body.len()+other.len()).unwrap();let retained=budget.reserved();
+  let boundary=lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES;
+  let segments=[(&a,0,&body[..boundary]),(&a,boundary as u64,&body[boundary..]),(&b,0,other.as_slice())];
+  let mut pieces=blob_piece_rows(segments.into_iter(),&budget);
+  for index in 0..a.piece_count(){
+   let (value,charge)=pieces.next().unwrap().unwrap();assert!(budget.reserved()>retained);
+   let piece=decode_piece(value,&a).unwrap();assert_eq!(piece.start,index*CHUNK_BYTES as u64);assert_eq!(piece.id,chunk_id(&a.id(),piece.start).unwrap());
+   assert_eq!(piece.bytes.as_ref(),&body[piece.start as usize..piece.start as usize+piece.bytes.len()]);
+   drop(piece);drop(charge);assert_eq!(budget.reserved(),retained);
+  }
+  let (value,charge)=pieces.next().unwrap().unwrap();let piece=decode_piece(value,&b).unwrap();assert_eq!(piece.start,0);assert_eq!(piece.bytes.as_ref(),other);
+  drop(piece);drop(charge);assert!(pieces.next().is_none());assert_eq!(budget.reserved(),retained);drop(caller);assert_eq!(budget.reserved(),0);
+ }
+ #[test]fn original_windows_combine_blob_owners_and_all_pieces_of_one_pending_ordinal(){
+  let attempt=ContentHash([11;32]);let budget=ResourceBudget::fixed(64<<20).unwrap();
+  let a=Blob::new(ContentHash::of(b"one"),3).unwrap();let b=Blob::new(ContentHash::of(b"two"),3).unwrap();
+  let segments=[(&a,0,b"one".as_slice()),(&b,0,b"two".as_slice())];
+  let windows=crate::control::ImmutableWindows::from_charged_iter(blob_piece_rows(segments.into_iter(),&budget),Some(attempt),None,None).with_budget(Some(&budget)).collect::<Result<Vec<_>,_>>().unwrap();
+  assert_eq!(windows.len(),1,"two exact blob owners share a useful immutable window, with row-derived holds");assert!(budget.reserved()>0,"expanded rows and input copies survive until acknowledgement owner drops");drop(windows);assert_eq!(budget.reserved(),0);
+  let root=pending_id(attempt,&RecordId::new("original","source")).unwrap();let ordinal=ordinal_id(&root,0).unwrap();let body=vec![7;CHUNK_BYTES+3];
+  let windows=crate::control::ImmutableWindows::from_charged_iter(pending_piece_rows(&ordinal,&body,&budget),Some(attempt),None,Some(ordinal.clone())).with_budget(Some(&budget)).collect::<Result<Vec<_>,_>>().unwrap();
+  assert_eq!(windows.len(),1,"one ordinal owns all its pieces in the same window stream");drop(windows);assert_eq!(budget.reserved(),0);
+  let tiny=ResourceBudget::fixed(1).unwrap();let mut refused=crate::control::ImmutableWindows::from_charged_iter(pending_piece_rows(&ordinal,&body,&tiny),Some(attempt),None,Some(ordinal.clone())).with_budget(Some(&tiny));
+  assert!(refused.next().unwrap().is_err());assert!(refused.next().is_none());drop(refused);assert_eq!(tiny.reserved(),0,"budget refusal leaves no partially retained window");
+ }
+ #[test]fn drained_pending_page_combines_pieces_and_refuses_late_corruption_before_window_exposure(){
+  let attempt=ContentHash([12;32]);let budget=ResourceBudget::fixed(64<<20).unwrap();
+  let root=pending_id(attempt,&RecordId::new("original","source")).unwrap();let body=vec![0xff;CHUNK_BYTES+3];
+  let ordinal=decode_pending_ordinal(pending_ordinal(&root,1,body.len(),ContentHash::of(&body)).unwrap(),&root).unwrap();
+  let base=lctx_model::domain::artifact::ARTIFACT_CHUNK_BYTES as u64;let full=vec![0xff;base as usize+body.len()];let blob=Blob::new(ContentHash::of(&full),full.len() as u64).unwrap();
+  let values=[pending_piece(&ordinal.id,0,&body[..CHUNK_BYTES]).unwrap(),pending_piece(&ordinal.id,CHUNK_BYTES,&body[CHUNK_BYTES..]).unwrap()];
+  let mut replay=PendingReplay::new(&ordinal).unwrap();
+  let windows=crate::control::ImmutableWindows::from_charged_iter(replay_page_rows(values.clone().into_iter(),&mut replay,&blob,base,&budget),Some(attempt),None,None).with_budget(Some(&budget)).collect::<Result<Vec<_>,_>>().unwrap();
+  assert_eq!(windows.len(),1,"the fully drained two-piece page is one immutable window");replay.finish().unwrap();drop(windows);assert_eq!(budget.reserved(),0);
+  let mut corrupted=values;if let Value::Object(row)=&mut corrupted[1]{row.insert("bytes",Bytes::from(vec![1,2,3]));}
+  let mut replay=PendingReplay::new(&ordinal).unwrap();let mut refused=crate::control::ImmutableWindows::from_charged_iter(replay_page_rows(corrupted.into_iter(),&mut replay,&blob,base,&budget),Some(attempt),None,None).with_budget(Some(&budget));
+  assert!(refused.next().unwrap().is_err(),"a valid prefix cannot expose a window containing a corrupted suffix");assert!(refused.next().is_none());drop(refused);assert_eq!(budget.reserved(),0,"late page refusal releases prior construction and input charges");
+ }
  #[tokio::test]async fn failed_partial_ingress_closes_without_fabricating_semantic_completion(){
   let pending=PendingOriginals::default();let budget=ResourceBudget::fixed(4096).unwrap();pending.retain_budget(&budget).unwrap();
   // No connected service: terminal abandonment must not query absent headers or require

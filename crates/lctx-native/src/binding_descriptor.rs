@@ -37,7 +37,7 @@ pub fn portable_row(binding:&CompletedBinding)->Result<Value,ModelError>{
     Ok(row)
 }
 pub const fn schema_target()->&'static str{
-    "DEFINE TABLE compiler_binding_descriptor SCHEMAFULL; DEFINE FIELD descriptor ON compiler_binding_descriptor TYPE bytes; DEFINE FIELD view ON compiler_binding_descriptor TYPE record<compiler_view>; DEFINE FIELD source_identity ON compiler_binding_descriptor TYPE string; DEFINE INDEX descriptor_view ON compiler_binding_descriptor FIELDS view,id;"
+    "DEFINE TABLE compiler_binding_descriptor SCHEMAFULL; DEFINE FIELD id ON compiler_binding_descriptor TYPE string; DEFINE FIELD descriptor ON compiler_binding_descriptor TYPE bytes; DEFINE FIELD view ON compiler_binding_descriptor TYPE record<compiler_view>; DEFINE FIELD source_identity ON compiler_binding_descriptor TYPE string; DEFINE INDEX descriptor_view ON compiler_binding_descriptor FIELDS view,id;"
 }
 
 #[cfg(test)]
