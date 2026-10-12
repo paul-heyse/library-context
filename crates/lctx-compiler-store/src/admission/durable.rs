@@ -70,30 +70,44 @@ fn view_identity(cap:&lctx_native::installed_view::HeldInstalledView)->ContentHa
 mod controls {
     use super::*;
     use d::{Key,KeySink,Invariant,InvariantCheck,InvariantPurpose,ValidationDefinitions,ValidationInput,
-        input::Package,completed::{ContributionSpec,OutputProfile},producer_contract::request::CapturedRequest,
+        input::InputRevision,completed::{ContributionSpec,OutputProfile},producer_contract::request::CapturedRequest,
         admission::Frontier,stages::ProviderOutcome,completion::{Completion,complete}};
     use std::sync::atomic::{AtomicUsize,Ordering};
     static FINISHED:AtomicUsize=AtomicUsize::new(0);
-    struct Check;
+    // Native ingress accepts the canonical record's TypeId and schema only.
+    // Its existing relation-owned reference selects this fixture-local whole-input
+    // check; registering an unreferenced factory alone would exercise no reuse.
+    // This fixture checks an empty input revision, not full artifact admission.
+    struct Check { rows:usize }
     impl InvariantCheck for Check {
         fn visit(&mut self,name:&str,batch:&RecordBatch)->Result<(),ModelError>{
-            if name!=Package::NAME || Package::decode(batch)?.iter().any(|row|row.name.is_empty()){
-                return Err(ModelError::Conflict("durable control exact package invariant"));
+            if name!=InputRevision::NAME{return Err(ModelError::Conflict("durable control exact input revision role"));}
+            let expected=InputRevision::from_entries(vec![])?;
+            for row in InputRevision::decode(batch)?{
+                if row!=expected{return Err(ModelError::Conflict("durable control exact empty manifest"));}
+                self.rows=self.rows.checked_add(1).ok_or(ModelError::Schema("durable control row count"))?;
             }Ok(())
         }
-        fn finish(self:Box<Self>)->Result<(),ModelError>{FINISHED.fetch_add(1,Ordering::SeqCst);Ok(())}
+        fn finish(self:Box<Self>)->Result<(),ModelError>{
+            if self.rows!=1{return Err(ModelError::Conflict("durable control exact input revision count"));}
+            FINISHED.fetch_add(1,Ordering::SeqCst);Ok(())
+        }
     }
     fn model(changed:bool)->Arc<ValidatedModel>{
-        let invariant=Invariant{purpose:InvariantPurpose::Admission,revision:1,name:"durable_candidate_package_control",
-            inputs:vec![ValidationInput::of::<Package>(&["id"])],create:Arc::new(|_|Box::new(Check))};
+        let invariant=Invariant{purpose:InvariantPurpose::Admission,revision:1,name:"input_manifest_membership",
+            inputs:vec![ValidationInput::of::<InputRevision>(&["id"])],create:Arc::new(|_|Box::new(Check{rows:0}))};
         let identity=invariant.identity();
-        let mut model=ValidatedModel::validate(vec![Relation::of::<Package>()],ValidationDefinitions{invariants:vec![invariant],publication_checks:vec![]}).unwrap();
+        let mut model=ValidatedModel::validate(vec![Relation::of::<InputRevision>()],ValidationDefinitions{invariants:vec![invariant],publication_checks:vec![]}).unwrap();
         // The counter observes execution only. It never changes the result, declared
         // input set or validator semantics. A separately declared implementation
         // must re-execute even though this semantic model digest remains unchanged.
         let mut implementation=KeySink::new("durable-candidate-control-executable/v1");
         implementation.part(b"source",include_bytes!("durable.rs"));implementation.part(b"revision",&[u8::from(changed)]);
-        model.register_factory(identity,implementation.finish(),vec![]).unwrap();Arc::new(model)
+        model.register_factory(identity,implementation.finish(),vec![]).unwrap();
+        assert_eq!(model.admission_candidates_for_scope(&BTreeSet::from([InputRevision::NAME])).unwrap()
+            .iter().map(Invariant::identity).collect::<Vec<_>>(),vec![identity],
+            "the actual selected relation must require the counted factory");
+        Arc::new(model)
     }
     #[derive(serde::Serialize,serde::Deserialize)]
     struct Seed {spec:ContributionSpec,attempt:ContentHash}
@@ -149,15 +163,15 @@ mod controls {
         let cfg=config();let model=model(false);let budget=ResourceBudget::fixed(256<<20).unwrap();
         let nonce=lctx_native::control::fresh_identity("durable-candidate-native-control").unwrap();
         let spec=ContributionSpec{captured_binding:None,producer:format!("durable-candidate-{}",nonce.hex()),profile:OutputProfile::Specific(Profile::Catalog),
-            model:model.digest(),implementation:ContentHash::of(b"actual current durable test producer/v1"),configuration:None,inputs:vec![],outputs:[Package::NAME.into()].into()};
+            model:model.digest(),implementation:ContentHash::of(b"actual current durable test producer/v1"),configuration:None,inputs:vec![],outputs:[InputRevision::NAME.into()].into()};
         let request=request(spec.clone(),&model);
         let source=NativeCompilerStore::begin(&cfg,Frontier::Facts).await.unwrap();
         let client=crate::compiler::check_installation(&cfg).await.unwrap();
         let directory=tempfile::tempdir().unwrap();let seed_path=directory.path().join("seed.json");
         let result=std::panic::AssertUnwindSafe(async {
             let id=source.begin_contribution(spec.clone()).await.unwrap();
-            let relation=Relation::of::<Package>();
-            source.write_batch(&id,&relation,&Package::encode(&[Package{name:nonce.hex()}]).unwrap(),&budget).await.unwrap();
+            let relation=Relation::of::<InputRevision>();
+            source.write_batch(&id,&relation,&InputRevision::encode(&[InputRevision::from_entries(vec![]).unwrap()]).unwrap(),&budget).await.unwrap();
             source.complete_contribution(id,ProviderOutcome::Complete,&[relation],&BTreeMap::new(),&budget).await.unwrap();
             source.retain_product_identity(request.identity().unwrap(),id).await.unwrap();
             source.abandon().await.unwrap();
