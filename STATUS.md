@@ -92,23 +92,23 @@ An independent read-only exercise found no concrete guidance issue. Those checks
 
 **Reconciled efficiency track: implementation in progress, 2026-10-12.**
 [Efficiency coordinator §4](docs/plans/efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint)
-owns current receipts, failures and remaining scope. Disk capacity no longer blocks compilation.
-Focused model, compiler, SDK, native query/audit and cache-window controls passed within their scope; nine wire controls have confirmed native finality. Exact failed-wire attachment recovery passed
-(`053059`), preserving its original IAM failure/Unknown. Authentic source5 export passed (`053134`);
-factory exports cover all21 upper recipes and888 typed fields. Protected original assets remain unchanged.
-Private ArtifactAdmission consumes production producer/reference, invariant, frontier, graph and
-manifest gates. Operator cutover direction2026-10-12 replaces opaque legacy preservation: migrate
-views to current realizations where practical, otherwise explicitly regenerate pinned inputs; retain
-no legacy runtime code/data. Actual cutover remains not_run. Assembly compaction passed eight model
-controls (`050926`); compact analysis-owner/four-consumer model controls passed14 (`072908`), cleanup confirmed.
-Whole-output NotRequested reuse remains disabled pending actual producer/native/four-consumer acceptance.
-Seven-crate CLI-inclusive test compilation passed (`063401`), with confirmed cleanup; later focused
-migration and compact-owner controls exposed old-codec/binding and test-fixture defects under repair.
-Host migration/export controls passed48 (`062406`), cleanup confirmed. Actual direct native SIGINT/SIGTERM
-control compiled but remains not_run. Dedicated campaign remains schema5; shared paused service/operator
-state is unchanged. Cancelled old-revision fixture (`071909…e5da48`) has confirmed process cleanup;
-its native attachment is unknown pending dedicated campaign drain/regeneration. A07 and remaining
-native/serving/profile/X01/X02 acceptance stay open. No full-suite, quality campaign or real-library/operator adoption ran.
+owns current receipts, failures and remaining scope. ADR-0161 applies the operator's design-phase
+cutover: migrate useful views to current realizations or explicitly regenerate pinned inputs; retain
+no legacy runtime code/data. Historical fixtures and benchmarks are not acceptance prerequisites.
+Historical converters/readers and preserved-assurance paths are removed from source. Campaign
+regeneration is source-reviewed; host controls passed256 (`080327…d98a0e`), then27 resume controls
+(`080559…7cbbe3`), with confirmed cleanup. Native effects remain not_run pending current CLI build.
+Fourteen compact-owner/consumer controls passed release (`072908`) and current ordinary O2 test
+(`075708…d857a4`), cleanup confirmed. Current seven-crate CLI-inclusive test compilation passed (`081133…4ef556`) after repairing
+fixture/type and removed-inventory-count defects; current CLI/evaluator build is running. Installed readers independently pin
+exact closures and own separate sessions; uncertainty retains both. Native lifetime acceptance remains
+pending. Prior nine wire controls and exact failed-wire recovery (`053059`) retain their scoped passes.
+Whole-output NotRequested reuse stays disabled pending actual four-consumer acceptance. Dedicated
+campaign remains schema5; the cancelled old fixture (`071909…e5da48`) has confirmed process cleanup
+and unknown native outcome pending owned drain/regeneration. Shared paused service/operator state
+is unchanged. Analysis/native/serving/profile/X01/X02 acceptance remains open. No full-suite, quality
+campaign, real-library pilot or operator adoption ran. The numerical finite reference passed; its native
+case failed for missing serving-fixture configuration and awaits current fixture production.
 **Preservation and boundaries:** all four auxiliary revisions are committed on `archive/*-2026-10-11`
 branches; [coordinator §9.2](docs/plans/persisted-graph-execution-plan_2026-10-07.md#92-operator-stop-and-worktree-preservation2026-10-11)
 owns exact commits, evidence handoff and checkout-removal outcomes. Preserve qualified recovery

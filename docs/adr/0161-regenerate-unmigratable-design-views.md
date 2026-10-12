@@ -60,3 +60,7 @@ redo work, which is appropriate while the design is changing. The coordinator mu
 for unmigrated views rather than silently claim equivalent migrated content. Native cutover and current
 functional acceptance remain open; acceptance of this decision closes no source finding. Revisit if a
 future actual product consumer requires retained historical data or compatibility across deployments.
+
+## Amendments
+
+2026-10-12: the same cutover decision also governs schema evolution in storage-and-publication §6.3; its ownership and recovery constraints remain, while completed historical converter paths retire. This clarifies the owning section without changing the decision.

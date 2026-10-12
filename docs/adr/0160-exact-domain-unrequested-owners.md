@@ -76,3 +76,7 @@ acceptance remain open at this decision's creation. Acceptance records the selec
 finding closure. Reopen if an owner has a mixed domain, changes its requested policy or cannot expose
 an independently reconstructible selected input domain; do not broaden the compact eligibility rule
 to work around such a case.
+
+## Amendments
+
+2026-10-12: ADR-0161 replaces the adjacent historical migration approach with practical current-view migration or explicit regeneration. The current compact-owner policy and its consumer gates are unchanged; no historical adapter or preserved-assurance path remains required.

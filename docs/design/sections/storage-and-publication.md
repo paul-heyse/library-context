@@ -77,28 +77,10 @@ Installation-local persisted evidence binds exact definitions/factories, ordered
 roles, complete-empty applicability and the selected physical epoch/incarnation. Native persistence
 performs the exact physical CAS; data deserialization cannot construct a compiler admission owner.
 The installation assumes trusted writers, including its low-level effect primitives. Artifact format4
-carries compact mandatory assurance attribution; historical source5 provenance remains distinct from
-current provider-interface evidence and cannot enter current captured-input reuse. These source
-changes do not establish migration, durable premise reuse or functional acceptance.
-
-**Maintenance integration / native acceptance open, 2026-10-12.** Adjacent source5 conversion
-uses a live page-scoped owner over the immutable original journal and exact checkpoint. Fresh
-future-era target attempts earn physical completion before any source ownership is released.
-Authentic old artifact associations select the current production gates to execute; old receipts
-cannot substitute for those gates. Warm-only targets receive physical completion without artifact
-admission. Historical settings retain their original composed fingerprint under a separate
-migration settings identity with actual target configuration views; they are never presented as raw
-acquisition settings. Retained original collector claims and cutoffs remain original authority. Old original chunks and
-their source pointers survive only for authenticated original retirement and migration-resume
-consumers; ordinary readers select blob-backed content. The mixed blob/source/start index keeps
-old pieces distinct without deleting their outgoing ownership obligations. No old-format reader
-is retained. A frozen warm producer may end product retention only after independently earned
-physical completion checks its exact contributor and inventory; this grants no artifact admission.
-Relations newly declared empty by preserved producers receive a real current completed binding
-derived from the authenticated original selected contributor/dependency closure. Actual view,
-binding and protection readback precede semantic earning. This target binding has no invented
-original correspondence, historical epoch or current producer/compact authority.
-
+carries compact mandatory current producer assurance attribution. These source changes do not
+establish durable premise reuse or functional acceptance. A frozen warm producer may end product
+retention only after independently earned physical completion checks its exact contributor and
+inventory; this grants no artifact admission.
 
 **Design-phase cutover target / implementation in progress, 2026-10-12.**
 Migrate useful supported views into protected current realizations where practical; otherwise
@@ -305,38 +287,21 @@ A partial diagnostic subgraph reports its boundary and cannot claim global compi
 
 ### §6.3 Schema evolution
 
-**Implemented recovery refinement, 2026-10-10 (ADR-0146); integrated qualification open.**
-An explicit installer replacement follows owned-daemon restart/drainage and immutable predecessor
-inventory. Unpublished scopes require exact closed source markers and absent/intent-only native
-journals; potentially translated unpublished scope refuses replacement. Before any publication,
-a successor may select a corrected target with a new native operation. Once a scope is published,
-the complete candidate target must remain identical. Only an exact closed current-generation target
-marker, matching published native journal and durable completed-scope checkpoint allow that scope
-to be preserved and skipped. A distinct immutable host plan/executable/operation retains the original
-native migration operation for remaining intent-only scopes. It never refreshes native authority or
-reruns proven completed work. Credentials, predecessor evidence and private diagnostics remain
-protected; durable successor creation precedes maintenance-owner transfer. Ordinary attachment and
-same-candidate retry cannot silently substitute an executable.
+**Design-phase evolution target, 2026-10-12 (ADR-0161); implementation in progress.**
+Current consumers use one current physical format. Prefer practical migration into that format;
+otherwise explicitly regenerate named views from pinned inputs under the actual quiesced owner.
+The completed format3→4→5 transitions remain dated evidence, not retained runtime readers,
+converters or overlays. There is no requirement to reproduce those historical examples before
+assessing a future design. Any future migration needs a concrete current consumer and bounded
+transition, with obsolete code/data removed when its purpose ends.
 
-A distinct checked reconciliation successor may adopt recognized partially translated unpublished
-state. Its immutable execution contract binds original native/credential operations, successor,
-scope/generation, exact source/target and overlay/protocol/preflight/verifier identities. Actual
-bounded reconciliation produces new successor progress, never fabricated predecessor receipts.
-Unknown mixed forms, foreign identities, live predecessors and uncertain unfenced effects refuse.
-Complete row assignments preserve protected legacy scope without relying on defaults to backfill.
-
-One migration-only overlay record per original migration/database records atomic page effects and
-progress, including preflight and nested cleanup cursors. Closed exclusive effects establish reuse
-validity; relevant source/predicate changes invalidate preflight, and verifier changes invalidate
-verification. The overlay has independently checked declarations and is outside runtime/content
-identity because ordinary consumers do not use it. Privileged cold recovery includes it. Native
-marker/journal/overlay sealing, executable-definition completion and host checkpoint are separate
-completion boundaries. Named recovery consumers govern later exact overlay retirement.
-
-The exact format3→4 target completes before the explicit format4→5 runtime transition that adds
-bounded history-page receipts. One collector advancement commits one bounded page and revision;
-expected-revision replay recovers exact removed/protected outcomes without per-item effect history.
-Its typed declaration belongs in runtime schema identity. Original eras, horizons and cursors survive.
+Ownership and truthful recovery constraints survive: bind the exact installation and candidate,
+fence new work, drain actual executors before replacing state, keep interrupted outcomes unknown,
+and establish current definitions and content before opening admission. Neither a marker change nor
+local child exit establishes remote completion. The dedicated campaign regeneration has explicit
+scope; shared/operator state and separately paused qualification remain unchanged. A future actual
+retained consumer that cannot regenerate requires its own migration decision rather than silently
+retaining an old-format runtime path.
 
 Index application may use execution-only concurrent construction without changing canonical schema
 identity. Catalog presence alone does not establish usability: every desired index, including one
@@ -353,7 +318,7 @@ engine coercions do not define semantic identity. Snapshot changes are explicit 
 codebooks remain append-only. Rebuild fresh from pinned inputs without old-format readers, legacy
 IDs, dual writes or rollback/runtime archives. Quiesce actual readers before replacing their state.
 
-> Decision: ADR-0146, ADR-0145, ADR-0087, ADR-0048
+> Decision: ADR-0161, ADR-0145, ADR-0087, ADR-0048
 
 ### §6.4 Serving realizations
 

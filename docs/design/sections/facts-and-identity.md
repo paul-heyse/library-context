@@ -58,6 +58,16 @@ Flow. Behavioral explicitly requests it. `NotRequested`, unavailable, partial an
 are different outcomes. Facts publication does not select the generation and does not establish
 normalized, analysis, catalog or serving readiness merely because those relations exist elsewhere.
 
+**Source integration / focused model-Tested, native acceptance open, 2026-10-12.** Assembly represents Catalog's
+unrequested Flow family with one compact declaration per exact captured input/context domain,
+including an explicit zero-member domain. Its selected completed producer owns the declaration;
+the same model resolver checks actual scope membership and definition identity at compiler
+availability, frontier reconstruction, publication assessment and serving. A serialized descriptor
+alone grants no coverage or native access. Requested Flow, mixed scoped/compact authority,
+missing captured domains and changed source/definition identities refuse. Other scoped outcomes
+retain their complete/partial/unavailable/unknown distinctions. Whole-provider NotRequested reuse
+and analysis-owner per-kind compaction remain open in the efficiency coordinator.
+
 Model declarations lower mechanically to internal Arrow and selected graph codecs. Snapshot changes are schema
 migrations; no second hand-written column contract or old-format reader is maintained.
 

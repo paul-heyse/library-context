@@ -666,10 +666,10 @@ completed owner. The model reconstructs input/context, ordered sources, definiti
 an empty domain remains explicit. Frontier enumeration/finishing, publication assessment and scoped
 serving share that meaning. Missing output is never a NotRequested premise. Requested or mixed work
 retains ordinary records. Compact predecessor references require validated domains, conflict with
-ordinary output for the same frame and consume only relevant configuration. Historical ordinary
-outcomes retain original assurance. Invariants inspect the canonical selected descriptor inventory;
-current producers separately capture and validate the real predecessor checkpoint. A historical
-empty binding cannot manufacture a missing epoch or a current compact owner. Current compact representation grants no native admission or
+ordinary output for the same frame and consume only relevant configuration. Invariants inspect
+the canonical selected descriptor inventory; current producers capture and validate the real
+predecessor checkpoint. Missing epochs or compact owners cannot be manufactured by an empty binding.
+Current compact representation grants no native admission or
 whole-provider reuse; complete producer/native/consumer acceptance remains with the
 [efficiency coordinator](../../plans/efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint).
 
