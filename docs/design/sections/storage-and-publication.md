@@ -61,6 +61,41 @@ normal analyzer dependencies. Serving preparation/presentation remain above this
 model/ingestion/codec/derivation source and assets stay in conservative semantic fingerprint closures.
 The efficiency coordinator owns implementation and functional acceptance of this split.
 
+**Source integration / functional acceptance open, 2026-10-11.** Physical completion first
+checks the exact dependency closures, selected copies, backing and member EOF, and all six logical
+families. Retained product singleton views add protected physical roots; they do not alter artifact
+meaning unless selected by a semantic binding or its dependencies. Portable completed state format4
+uses the same six-family recipe. Logical contribution ownership includes the complete descriptor,
+including outcome, output digests and mandatory producer assurance. A producing physical owner is
+allocated from its specification before completion; a detached import uses its known completed
+identity so distinct completions of one specification cannot collapse.
+
+Compiler storage then executes producer/facts coverage, references, applicable invariants, the
+profile/frontier checks, canonical graph derivations and actual manifest inventories. Only its private
+constructor combines those executed owners with physical completion into an admitted artifact.
+Installation-local persisted evidence binds exact definitions/factories, ordered requested/resolved
+roles, complete-empty applicability and the selected physical epoch/incarnation. Native persistence
+performs the exact physical CAS; data deserialization cannot construct a compiler admission owner.
+The installation assumes trusted writers, including its low-level effect primitives. Artifact format4
+carries compact mandatory assurance attribution; historical source5 provenance remains distinct from
+current provider-interface evidence and cannot enter current captured-input reuse. These source
+changes do not establish migration, durable premise reuse or functional acceptance.
+
+**Maintenance integration / native acceptance open, 2026-10-12.** Adjacent source5 conversion
+uses a live page-scoped owner over the immutable original journal and exact checkpoint. Fresh
+future-era target attempts earn physical completion before any source ownership is released.
+Authentic old artifact associations select the current production gates to execute; old receipts
+cannot substitute for those gates. Warm-only targets receive physical completion without artifact
+admission. Historical settings retain their original composed fingerprint under a separate
+migration settings identity with actual target configuration views; they are never presented as raw
+acquisition settings. Retained original collector claims and cutoffs remain original authority. Old original chunks and
+their source pointers survive only for authenticated original retirement and migration-resume
+consumers; ordinary readers select blob-backed content. The mixed blob/source/start index keeps
+old pieces distinct without deleting their outgoing ownership obligations. No old-format reader
+is retained. A frozen warm producer may end product retention only after independently earned
+physical completion checks its exact contributor and inventory; this grants no artifact admission.
+
+
 > Decision: ADR-0151
 
 Immutable payload identity includes model/codec, relation, nominal key and full content digest.
@@ -74,11 +109,17 @@ private compiler-store admission establishes the exact semantic boundary. Compat
 content can attach through checked current ownership without canonical replay. Current provenance,
 exact dependencies and independent cold admission remain mandatory. Unknown acknowledgement is
 reconciled through an operation identity, never inferred from local process cleanup.
-Attempt closure fences writes before bounded ownership cleanup. Unadmitted product cleanup retains
-attempt prerequisite roots until every product is removed, so interrupted cleanup remains discoverable;
-admitted products survive. Remaining ownership rows provide conservative retry progress.
+Attempt closure fences writes before bounded ownership cleanup. Product roots retain their own
+prerequisites independently of artifact admission; attempt cleanup nominates outgoing attempt roots
+and releases only the attempt's holds. Explicit product release registers exact-incarnation retirement
+before marking the product released. Collection remains separate. The collector treats an unreleased
+product as retained even after attempt incidence ends. A named release checks the original terminal
+producer and exact product bytes/incarnation, then creates its retirement invocation and root item
+before setting released in the same transaction. It preserves all other consumers and advances no
+collection. Remaining ownership rows provide conservative retry progress. This target integration is
+not yet native-Tested; the efficiency coordinator retains the lifecycle acceptance obligation.
 Cleanup effects use the exact terminal attempt's original epoch, checking owner/state/epoch at
-both durable intent and execution; deleting owned holds/products does not allocate a new global
+both durable intent and execution; releasing attempt-owned holds does not allocate a new global
 installation epoch per page. A durable hold-cleanup intent spans bounded guarded deletion pages;
 only the final empty-scope proof marks it completed. Reconciliation fences further pages of an
 incomplete operation, while a fresh intent can resume the remaining ownership rows. Partial
@@ -213,11 +254,11 @@ cleanup failures. This source-correlated premise does not claim a missing inform
 resolve unknown per-request outcomes. Exclusive admission, exact dead-owner/borrower locks and
 durable separate host evidence precede local attachment release. Every peer is explicitly named;
 historical uninstrumented releases retain unqualified transport finality and receive no retrospective
-completion claim. A primary started-owner attachment remains required. Synthetic PD02 recovery additionally
+completion claim. A primary started-owner attachment or the fixed failed finite-query wire owner with local-terminal/remote-confirmed completion and no storage obligations remains required. Dead ordinary maintenance may transfer its exact plain marker to named recovery only after immutable preservation under the admission lock; specialized or ambiguous markers refuse. Synthetic PD02 recovery additionally
 retains exact request/session/effect manifests and positive join logging. Shared and operator service
 state remain outside campaign recovery.
 
-> Decision: ADR-0154
+> Decision: ADR-0158
 
 
 Compiler readers bind explicit immutable native completed views, including exact contribution

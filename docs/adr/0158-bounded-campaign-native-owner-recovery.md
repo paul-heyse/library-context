@@ -1,9 +1,9 @@
 ---
-id: ADR-0154
-title: Recover an explicit joint campaign attachment scope without promoting legacy finality
+id: ADR-0158
+title: Recover bounded campaign owners while preserving failed native observations
 status: accepted
-date: 2026-10-11
-supersedes: [ADR-0153]
+date: 2026-10-12
+supersedes: [ADR-0154]
 superseded-by: null
 design: ["storage-and-publication §6.2"]
 evidence: Proposed
@@ -17,14 +17,14 @@ drain server, but its installed warning filter omits the informational post-join
 fixture recovery correctly refuses to treat process disappearance as native completion, and ordinary
 maintenance correctly refuses an unresolved borrower. The bounded synthetic PD02 recovery route
 requires exact wire manifests and positive shutdown logging; ordinary compiler tests have neither.
-The shared service, other sessions and operator state are outside this decision. The first actual
+The shared service, other sessions and operator state are outside this decision. A later finite-query wire control ended with a complete local-terminal/remote-confirmed receipt but a logical IAM failure. Fixture policy correctly preserves that failed receipt as unknown, while the prior Started-only recovery classifier cannot accept it. Ordinary maintenance also leaves its admission marker when blocked before borrowing; requiring that marker to disappear before named recovery creates an ownership cycle. The first actual
 single-attachment recovery refused before effects because the new observation policy also protected
 an earlier, historically released source-producer command. This replacement makes the finite joint
 scope explicit; it does not infer that the earlier command ran no queries from its Cargo-lock log.
 
 [Coordinator §4](../plans/efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint)
 owns actual evidence and S09/D10 closure. This accepts an explicit campaign recovery contract;
-implementation and actual recovery qualification remain incomplete.
+the bounded additional owner and maintenance transfer require focused implementation controls and actual campaign recovery before Tested claims.
 
 ## Options
 
@@ -46,8 +46,11 @@ request outcome and content-retention meanings. Quantitative performance claims 
 
 The service owner may explicitly recover a finite named set of attachments on one dedicated
 campaign installation. At least one primary attachment has declared started native compiler-store/
-workspace owners with exact generation/process correspondence. Additional eligible peers are either
-the same class or historically released, uninstrumented attachments: released=true, exact dead
+workspace owners with exact generation/process correspondence, or the fixed S09 finite accepted-query
+wire owner with a complete receipt: local terminal, remote confirmed, empty storage obligations and
+a nonempty logical failure inventory. This latter classification supplies no successful test or
+request-specific effect claim. Additional eligible peers are either
+the same eligible classes or historically released, uninstrumented attachments: released=true, exact dead
 command/owner, confirmed cleanup with no survivors, no native binding and no native receipt files.
 The latter class retains its original not_observed status; neither a historical release nor absent
 log output establishes native completion. A live, unknown, changed or unlisted peer refuses recovery.
@@ -83,7 +86,11 @@ outcome/finality as unqualified. This recovery releases the named local attachme
 real persisted-state reconciliation; it does not close the transport finding or turn its test into a pass. Fixture borrowers and storage retention
 consume the authenticated host receipt alongside the unchanged original Unknown, then release only
 the explicitly named attachments' local obligations. Interrupted recovery remains journaled and resumes the same
-original scope before admission reopens.
+original scope before admission reopens. Named recovery may take over a dead ordinary maintenance
+marker containing only operation, token and exact owner identity, under the same exclusive admission
+lock. Its original bytes and digest are retained in the immutable recovery plan before replacing the
+marker. A live, foreign, malformed, recovery-bearing, upgrade or other specialized marker refuses
+this transfer. The original ordinary command is not resumed by recovery.
 
 The synthetic PD02 route retains its stronger exact table/session/effect manifests and positive
 post-join log prerequisite. Neither route changes shared service policy or original test outcomes.

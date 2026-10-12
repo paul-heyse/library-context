@@ -90,24 +90,29 @@ Test-review process skills and flexible report guidance are Implemented2026-10-1
 Their validation, agent lint, scoped Ruff/Pyrefly, ADR lint and docs check passed397 pages/zero link errors.
 An independent read-only exercise found no concrete guidance issue. Those checks did not qualify product behavior.
 
-**Reconciled efficiency track: implementation in progress, 2026-10-11.**
+**Reconciled efficiency track: implementation in progress, 2026-10-12.**
 [Efficiency coordinator §4](docs/plans/efficiency-alignment-plan_2026-10-11.md#4-package-sequence-and-sole-execution-checkpoint)
-owns exact receipts, failures and remaining scope. Dedicated schema5 source populations, actual
-cold recovery and exact joint owner recovery passed; original timed-out native outcomes remain
-unknown. The immutable patched server's56 lifecycle controls and302 affected host controls passed;
-actual wire finality remains not_run. Earlier lower/provider/analysis/cache controls retain their
-recorded scope; all15 selected native A07 bodies timed out amid transaction conflicts. Nine later
-lower cache/completion controls passed (`053d9f0e`); four core window controls remain not_run.
-Current six-crate test compilation is **blocked after ENOSPC**. Additional disk capacity/build
-volume is requested; shared caches and retained evidence are protected. Source-only N03 fencing,
-N04/N06 completion, N05/N08 staging/namespaces, N10 originals, N11 premises and C05/C06 value/coverage
-integration continues without compile or activation credit. Compact NotRequested output/reuse is
-disabled. Physical/published capabilities, C04 live/direct-member consumers and cleanup nomination are
-uncompiled source. Both admission transitions refuse pending the full profile/frontier and
-facts/producer/reference/graph gate ledger; ordinary admission is not delivered. Private stream Drop
-drainage is repaired in source; buffered-query shape/accounting/finality remain open.
-[Integration evidence](docs/design_review/evidence/2026-10-11_efficiency-execution-integration/README.md) preserves unapplied migration/host/historical packets and21 unsupported upper recipes.
-Format6 conversion, remaining packages and acceptance remain open; no migration, shared-service change or quality campaign ran.
+owns current receipts, failures and remaining scope. Disk capacity no longer blocks compilation.
+Focused model, selected compiler, SDK, native query/audit and four core cache-window controls passed
+within their stated scope. Nine dedicated wire controls passed with confirmed native finality; the
+earlier IAM-failed fixture remains protected. Four-crate test targets compiled (`033936`); compiler-store
+tests compiled (`040256`) before later component integration. Later checks failed
+before bodies on historical/staging/receipt API integration; the six-crate check `045457`
+failed on candidate/migration compilation with confirmed process cleanup. Repairs passed the six-crate check `052212` with confirmed cleanup before later typed-handler registration. The fresh registered-handler check is in progress.
+Authentic original factory exporters passed2 (`034619`): all21 upper recipes and888 typed fields.
+Private ArtifactAdmission consumes actual producer/reference, invariant, frontier, graph and
+manifest gates; completed-admission and publication migration now call those production gates.
+Retained obligations protect replacement products/publications before exact original-incarnation
+nomination and incidence release. Warm products survive unadmitted cleanup until explicit release;
+frozen warm release requires independently earned physical completion. Old original chunks remain protected for authentic retirement consumers. Source changes and focused evidence establish no native migration/admission or whole-track acceptance.
+Typed DAG/binding conversion, complete registry/aggregate/CLI, native controls and remaining packages/X01/X02 stay open.
+Assembly compact NotRequested emission and selected-owner compiler/serving consumers are implemented
+in source, with eight focused model controls passed (`050926`, cleanup confirmed); actual provider/native consumer
+controls remain pending. Whole-output NotRequested reuse and analysis-owner compaction remain open.
+All authenticated completed source output is preserved physically, including unselected/unadmitted
+output; physical preservation grants no semantic admission. Dedicated campaign remains schema5; shared paused
+service/operator state and protected source/cold assets are unchanged. Original A07 outcomes
+remain unknown. Failed-wire-owner host recovery controls passed36 (`052921`); exact named failed-wire attachment recovery passed (`053059`) while preserving its original failure/Unknown; authentic closed-owner semantic export remains pending. No target activation, full-suite or repository quality campaign ran.
 
 **Preservation and boundaries:** all four auxiliary revisions are committed on `archive/*-2026-10-11`
 branches; [coordinator §9.2](docs/plans/persisted-graph-execution-plan_2026-10-07.md#92-operator-stop-and-worktree-preservation2026-10-11)

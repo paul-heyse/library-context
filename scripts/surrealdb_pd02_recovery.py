@@ -200,20 +200,38 @@ def inputs(directory, row):
     return files, manifest
 
 
+def native_owner_class(owner):
+    """Finite owner classes; neither one certifies a successful original request."""
+    if (owner["owner"] in {"native compiler store", "compiler workspace"}
+            and owner.get("state") == "started" and owner.get("completion") is None):
+        return "Started native store/workspace owners"
+    completion = owner.get("completion")
+    if (owner["owner"] == "S09 finite accepted-query wire owner"
+            and owner.get("state") == "complete" and isinstance(completion, dict)
+            and set(completion) == {"local", "remote", "storage", "committed", "failures"}
+            and completion["local"] == "terminal" and completion["remote"] == "confirmed"
+            and completion["storage"] == [] and completion["committed"] == []
+            and isinstance(completion["failures"], list) and completion["failures"]
+            and all(isinstance(item, dict) and set(item) == {"step", "error"}
+                    and item["step"] == "S09 actual wire control"
+                    and isinstance(item["error"], str) and item["error"]
+                    for item in completion["failures"])):
+        return "Failed terminal finite-query wire owner; original failure preserved"
+    fail("native owner is outside the bounded Started or failed terminal wire recovery")
+
+
 def native_inputs(directory, row):
-    """Started receipts authorize no individual effect or attempt attribution."""
+    """Bound receipts authorize no individual effect or attempt attribution."""
     import surrealdb_fixture as fixture
     native = fixture.native_completion(directory, row)
     if native.get("status") != "unknown" or native.get("reason") or not native.get("owners"):
-        fail("native recovery requires bound actual Started owners")
+        fail("native recovery requires bound actual eligible owners")
     original_owner = ProcessIdentity.from_json(row["owner"])
     if original_owner.foreign():
         fail("native owner namespace is unobservable")
     files = {}
     for owner in native["owners"]:
-        if (owner["owner"] not in {"native compiler store", "compiler workspace"}
-                or owner.get("state") != "started" or owner.get("completion") is not None):
-            fail("native owner is outside the bounded Started store/workspace recovery")
+        native_owner_class(owner)
         process = ProcessIdentity.from_json({**original_owner.to_json(), **owner["process"]})
         if process.alive():
             fail("a declared native owner process is still live")
@@ -464,7 +482,8 @@ def native_scope_snapshot(directory, record):
     import surrealdb_fixture as fixture
     if record.get("native_drain") is not None:
         files, _ = native_inputs(directory, record)
-        classification = "Started native store/workspace owners"
+        classes = {native_owner_class(owner) for owner in fixture.native_completion(directory, record)["owners"]}
+        classification = "; ".join(sorted(classes))
     else:
         native_root = directory / "native-drain"
         if (record.get("released") is not True or record.get("native_completion") is not None
@@ -490,6 +509,17 @@ def same_original(original, current):
 
 def valid_native_scope(directory, plan):
     try:
+        transferred = plan.get("transferred_maintenance")
+        if transferred is not None:
+            raw = base64.b64decode(transferred["bytes"], validate=True)
+            prior = transferred["record"]
+            if (set(transferred) != {"record", "bytes", "sha256"}
+                    or digest_bytes(raw) != transferred["sha256"] or json.loads(raw) != prior
+                    or set(prior) != {"operation", "token", "owner"}
+                    or prior["operation"] != "maintenance"
+                    or not isinstance(prior["token"], str) or not prior["token"]):
+                return False
+            ProcessIdentity.from_json(prior["owner"])
         scope = plan["named_scope"]
         if not scope or plan["attachment"] not in scope:
             return False
@@ -663,7 +693,7 @@ def recover_native(installation, attachment_ids, *, legacy_runs=None):
     started = [identity for identity in attachment_ids
         if (read_json(installation.directory / "attachments" / identity / "record.json") or {}).get("native_drain") is not None]
     if not started:
-        fail("joint recovery requires an actual Started native owner")
+        fail("joint recovery requires an actual eligible native owner")
     primary = sorted(started)[0]
     return recover(installation,primary,native=True,peers=sorted(set(attachment_ids)-{primary}),legacy_runs=legacy_runs or {})
 
@@ -683,9 +713,22 @@ def recover(installation, attachment_id, *, native=False, peers=(), legacy_runs=
         if gate is None:
             fail("admission maintenance owner is live")
         owner_lock = use = None
+        maintenance_claimed = False
         peer_locks, peer_rows = {}, {}
         try:
             marker = read_json(marker_path)
+            transferred_maintenance = None
+            if marker and native and marker.get("operation") == "maintenance":
+                if set(marker) != {"operation", "token", "owner"} or not isinstance(marker["token"], str) or not marker["token"]:
+                    fail("ordinary maintenance marker carries additional or malformed ownership")
+                prior_owner = ProcessIdentity.from_json(marker["owner"])
+                if prior_owner.foreign() or prior_owner.alive():
+                    fail("ordinary maintenance owner is live or unobservable")
+                raw = checked_bytes(marker_path)
+                if json.loads(raw) != marker:
+                    fail("ordinary maintenance marker changed during transfer")
+                transferred_maintenance = {"record": marker, "bytes": base64.b64encode(raw).decode(), "sha256": digest_bytes(raw)}
+                marker = None
             if marker and (marker.get("operation") != operation or marker.get("attachment") != attachment_id
                     or ProcessIdentity.from_json(marker["owner"]).alive()):
                 fail("another or live maintenance owner must be resolved first")
@@ -743,6 +786,14 @@ def recover(installation, attachment_id, *, native=False, peers=(), legacy_runs=
                 plan = json.loads(checked_bytes(plan_path, readonly=True))
                 if marker.get("plan_sha256") != service.file_sha256(plan_path):
                     fail("recovery plan changed")
+            elif transferred_maintenance is not None and plan_path.exists():
+                # A crash after immutable preservation but before marker transfer
+                # resumes only that exact prepared scope, never an unclaimed plan.
+                plan = json.loads(checked_bytes(plan_path, readonly=True))
+                if plan.get("transferred_maintenance") != transferred_maintenance:
+                    fail("prepared recovery preserved a different maintenance owner")
+                marker = {"operation": operation, "attachment": attachment_id,
+                    "plan_sha256": service.file_sha256(plan_path), "phase": "prepared"}
             else:
                 if root.exists():
                     fail("unclaimed recovery journal requires its original maintenance marker")
@@ -762,6 +813,7 @@ def recover(installation, attachment_id, *, native=False, peers=(), legacy_runs=
                     "session_source": "238bfeb11f5725bebed370167656748df8067595 + reviewed grpc-execution-drain.patch: RpcState.sessions is process-local"}
                 if native:
                     plan["source_proof"] = SOURCE_JOIN
+                    plan["transferred_maintenance"] = transferred_maintenance
                     plan["named_scope"] = scope
                     plan["legacy_runs"] = {identity:legacy_run_snapshot(run_id,scope[identity]["original_record"])
                         for identity,run_id in (legacy_runs or {}).items()}
@@ -771,7 +823,10 @@ def recover(installation, attachment_id, *, native=False, peers=(), legacy_runs=
                 immutable(plan_path, plan)
                 marker = {"operation": operation, "attachment": attachment_id,
                     "plan_sha256": service.file_sha256(plan_path), "phase": "prepared"}
-            if (plan["descriptor"] != installation.record
+            if (plan.get("kind") != operation or plan.get("attachment") != attachment_id
+                    or plan.get("fixture") != installation.id
+                    or plan.get("generation") != row["native_drain"]["generation"]
+                    or plan["descriptor"] != installation.record
                     or plan["native_files"] != native_files
                     or plan["manifests"] != manifest):
                 fail("original native inputs or daemon descriptor changed")
@@ -788,8 +843,11 @@ def recover(installation, attachment_id, *, native=False, peers=(), legacy_runs=
                         or any(digest_bytes(base64.b64decode(value, validate=True)) != native_files[name]
                             for name, value in plan["native_bytes"].items())):
                     fail("original Started receipts or attachment changed before recovery")
+            if transferred_maintenance is not None and checked_bytes(marker_path) != base64.b64decode(transferred_maintenance["bytes"], validate=True):
+                fail("ordinary maintenance ownership changed before durable transfer")
             marker.update(owner=ProcessIdentity.of().to_json(), token=secrets.token_urlsafe(32))
             durable_json(marker_path, marker)
+            maintenance_claimed = True
             installer = Path(installation.record["installer"])
             if marker["phase"] == "prepared":
                 service._run_installer(installation, installer, "close-admission")
@@ -887,7 +945,7 @@ def recover(installation, attachment_id, *, native=False, peers=(), legacy_runs=
             return {"outcome": "recovered", "attachment": attachment_id,
                 "original_native_completion": fixture.native_completion(directory, row), "host_recovery": row["host_recovery"]}
         except BaseException:
-            if marker_path.exists():
+            if maintenance_claimed and marker_path.exists():
                 with contextlib.suppress(Exception):
                     service._run_installer(installation, Path(installation.record["installer"]), "close-admission")
             raise

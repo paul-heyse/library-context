@@ -1153,6 +1153,103 @@ def test_native_host_recovery_preserves_started_bytes_and_request_unknown(instal
     assert service.borrowers(installed.installation)[0]["id"] == attachment.id
 
 
+def failed_wire_owner(path):
+    row = fx.read_json(path)
+    row.update(owner="S09 finite accepted-query wire owner", state="complete", completion={
+        "local":"terminal", "remote":"confirmed", "storage":[], "committed":[],
+        "failures":[{"step":"S09 actual wire control", "error":"logical IAM refusal"}],
+    })
+    fx.write_json_atomic(path,row)
+
+
+def test_native_host_recovers_failed_wire_owner_without_rewriting_failure(installed,tmp_path,monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    failed_wire_owner(path)
+    original = path.read_bytes()
+    marker_path = installed.directory / "maintenance.json"
+    marker = {"operation":"maintenance", "token":"original-closed-owner", "owner":{
+        **service.ProcessIdentity.of().to_json(), "pid":99999997, "start_ticks":1}}
+    service.private_json(marker_path,marker)
+    prior = marker_path.read_bytes()
+    monkeypatch.setattr(service,"_run_installer",lambda *a:None)
+    assert recovery.recover_native(installed.installation,[attachment.id])["outcome"] == "recovered"
+    assert path.read_bytes() == original
+    row = fx.read_json(attachment.directory / "record.json")
+    assert row["released"] and fx.native_completion(attachment.directory,row)["status"] == "unknown"
+    plan = fx.read_json(attachment.directory / "native-host-recovery" / "plan.json")
+    import base64
+    assert base64.b64decode(plan["transferred_maintenance"]["bytes"]) == prior
+    assert plan["transferred_maintenance"]["record"] == marker
+    assert plan["named_scope"][attachment.id]["classification"].startswith("Failed terminal")
+    assert recovery.native_recovered(attachment.directory,row)
+    assert not marker_path.exists() and not service.borrowers(installed.installation)
+
+
+@pytest.mark.parametrize("change",["owner","state","local","remote","storage","committed","empty_failure","step","extra"])
+def test_native_host_refuses_ineligible_failed_wire_owner_before_effect(installed,tmp_path,monkeypatch,change):
+    import surrealdb_pd02_recovery as recovery
+    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    failed_wire_owner(path)
+    row = fx.read_json(path)
+    if change == "owner": row["owner"] = "arbitrary completed owner"
+    elif change == "state": row["state"] = "started"
+    elif change == "empty_failure": row["completion"]["failures"] = []
+    elif change == "step": row["completion"]["failures"][0]["step"] = "storage cleanup"
+    elif change == "extra": row["completion"]["extra"] = True
+    elif change in {"storage","committed"}: row["completion"][change] = ["unresolved"]
+    else: row["completion"][change] = "unknown"
+    fx.write_json_atomic(path,row)
+    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("ineligible owner cannot trigger effects"))
+    with pytest.raises(fx.FixtureBlocked):
+        recovery.recover_native(installed.installation,[attachment.id])
+
+
+@pytest.mark.parametrize("change",["live","foreign","specialized","extra","empty_token"])
+def test_native_host_refuses_untransferable_ordinary_maintenance(installed,tmp_path,monkeypatch,change):
+    import surrealdb_pd02_recovery as recovery
+    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    failed_wire_owner(path)
+    marker = {"operation":"maintenance", "token":"original", "owner":{
+        **service.ProcessIdentity.of().to_json(), "pid":99999997, "start_ticks":1}}
+    if change == "live": marker["owner"] = service.ProcessIdentity.of().to_json()
+    elif change == "foreign": marker["owner"]["pid_namespace"] += 1
+    elif change == "specialized": marker["operation"] = service.UPGRADE_OPERATION
+    elif change == "extra": marker["recovery"] = {"unknown":True}
+    else: marker["token"] = ""
+    service.private_json(installed.directory / "maintenance.json",marker)
+    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("untransferable owner cannot trigger effects"))
+    with pytest.raises(fx.FixtureBlocked):
+        recovery.recover_native(installed.installation,[attachment.id])
+    assert fx.read_json(installed.directory / "maintenance.json") == marker
+
+
+def test_native_host_resumes_between_preservation_and_maintenance_transfer(installed,tmp_path,monkeypatch):
+    import surrealdb_pd02_recovery as recovery
+    attachment,path,_ = native_mock_recovery_ready(installed,tmp_path,monkeypatch)
+    failed_wire_owner(path)
+    original = path.read_bytes()
+    marker_path = installed.directory / "maintenance.json"
+    marker = {"operation":"maintenance", "token":"prior-owner", "owner":{
+        **service.ProcessIdentity.of().to_json(), "pid":99999997, "start_ticks":1}}
+    service.private_json(marker_path,marker)
+    prior = marker_path.read_bytes()
+    publish = recovery.immutable
+    def interrupt_after_preservation(destination,value):
+        publish(destination,value)
+        if destination.name == "plan.json":
+            raise KeyboardInterrupt()
+    monkeypatch.setattr(recovery,"immutable",interrupt_after_preservation)
+    monkeypatch.setattr(service,"_run_installer",lambda *a:pytest.fail("preservation has not claimed maintenance"))
+    with pytest.raises(KeyboardInterrupt):
+        recovery.recover_native(installed.installation,[attachment.id])
+    assert marker_path.read_bytes() == prior and path.read_bytes() == original
+    monkeypatch.setattr(recovery,"immutable",publish)
+    monkeypatch.setattr(service,"_run_installer",lambda *a:None)
+    assert recovery.recover_native(installed.installation,[attachment.id])["outcome"] == "recovered"
+    assert path.read_bytes() == original and not marker_path.exists()
+
+
 @pytest.mark.parametrize("phase",["join","drain","open"])
 def test_native_host_interruption_retains_unknown_and_resumes_exact_plan(installed,tmp_path,monkeypatch,phase):
     import surrealdb_pd02_recovery as recovery
