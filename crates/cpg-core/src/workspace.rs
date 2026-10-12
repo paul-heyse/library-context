@@ -643,6 +643,24 @@ impl Workspace {
             "native store drain",
             lctx_model::domain::completion::complete(Ok(()), self.native.drain_report().await),
         );
+        let cache=match self.product_cache.lock(){
+            Ok(mut cache)=>cache.take(),
+            Err(_)=>{
+                completion.local=LocalState::Outstanding;
+                completion.step("product cache ownership",Err(poisoned()));
+                None
+            }
+        };
+        if let Some(cache)=cache {
+            if completion.local==LocalState::Terminal
+                && completion.remote==lctx_model::domain::completion::RemoteState::Confirmed
+                && completion.failures.iter().all(|failure|failure.error.permits_storage_cleanup()) {
+                completion.step("product cache session close",cache.close().await);
+            } else {
+                cache.retain_unknown();
+                completion.local=LocalState::Outstanding;
+            }
+        }
         let signal=self.signal.complete(&completion).await;
         completion.step("compiler workspace signal finality",signal);
         completion

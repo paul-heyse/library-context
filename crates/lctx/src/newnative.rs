@@ -297,8 +297,15 @@ pub async fn install(config: &RuntimeConfig, keep_closed: bool) -> anyhow::Resul
         lctx_compiler_store::compiler::install_shared(config, &lctx_serving::native_definitions())
             .await?;
         let client = lctx_compiler_store::compiler::check_installation(config).await?;
-        lctx_native::NativeEmbeddingCache::install(client).await?;
-        lctx_compiler_store::NativeProductCache::install(config).await?;
+        let session=lctx_native::reader::SessionFinalizationGuard::new(client.clone());
+        let embedding=lctx_native::NativeEmbeddingCache::install(client).await.map(|_|());
+        if embedding.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()){return embedding.map_err(Into::into);}
+        let mut terminal=lctx_model::domain::completion::Completion::default();
+        terminal.step("embedding schema session close",session.close().await);
+        lctx_model::domain::completion::complete(embedding,terminal)?;
+        if let Some(cache)=lctx_compiler_store::NativeProductCache::install(config).await? {
+            std::sync::Arc::new(cache).close().await?;
+        }
         lctx_publisher::install_definitions(config, &lctx_serving::native_definitions()).await?;
         if !keep_closed {
             lctx_compiler_store::compiler::open_admission(config).await?;

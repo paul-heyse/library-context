@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 use surrealdb::{
@@ -25,10 +25,79 @@ static NONCE: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone)]
 pub struct NativeProductCache {
     client: Arc<Surreal<Client>>,
+    session: Arc<CacheSession>,
     config: ReuseConfig,
     directory: PathBuf,
     generation: String,
     partition: String,
+}
+struct CacheSession {
+    session: lctx_native::reader::SessionFinalizationGuard,
+    signals: lctx_native::signal::SignalRegistration,
+    retry: crate::control::RetryCancellation,
+    uncertain: AtomicBool,
+}
+impl CacheSession {
+    async fn open(runtime:&RuntimeConfig)->Result<(Arc<Surreal<Client>>,Arc<Self>),ModelError> {
+        let retry=crate::control::RetryCancellation::default();
+        let signals=lctx_native::signal::SignalRegistration::retry("native product cache session",retry.clone())?;
+        let checked=crate::control::with_retry_cancellation(retry.clone(),crate::compiler::check_installation(runtime)).await;
+        let client=match checked {
+            Ok(client)=>client,
+            Err(error)=>{
+                if !error.permits_storage_cleanup(){return Err(error);}
+                let mut terminal=lctx_model::domain::completion::Completion::default();
+                terminal.step("product cache failed setup receipt",signals.complete(&lctx_model::domain::completion::Completion::default()).await);
+                return lctx_model::domain::completion::complete(Err(error),terminal);
+            }
+        };
+        let owner=Arc::new(Self{
+            session:lctx_native::reader::SessionFinalizationGuard::new(client.clone()),
+            signals,retry,uncertain:AtomicBool::new(false),
+        });
+        Ok((client,owner))
+    }
+    async fn run<T>(&self,work:impl std::future::Future<Output=Result<T,ModelError>>)->Result<T,ModelError> {
+        let mut operation=CacheOperation::new(self)?;
+        let result=crate::control::with_retry_cancellation(self.retry.clone(),work).await;
+        operation.finish(&result);
+        result
+    }
+    fn observe(&self, error:&ModelError) {
+        if !error.permits_storage_cleanup() { self.uncertain.store(true,Ordering::Release); }
+    }
+    async fn close(&self)->Result<(),ModelError> {
+        if self.uncertain.load(Ordering::Acquire) {
+            return Err(cache_unfinished("product cache has an unconfirmed operation",true));
+        }
+        self.session.close().await?;
+        self.signals.complete(&lctx_model::domain::completion::Completion::default()).await
+    }
+}
+fn cache_unfinished(message:&'static str,unknown:bool)->ModelError {
+    use lctx_model::domain::completion::{Completion,LocalState,RemoteState,complete};
+    complete::<()>(Err(ModelError::Conflict(message)),Completion{
+        local:LocalState::Outstanding,
+        remote:if unknown {RemoteState::Unknown}else{RemoteState::Confirmed},
+        ..Completion::default()
+    }).unwrap_err()
+}
+struct CacheOperation<'a> { owner:&'a CacheSession,finished:bool }
+impl<'a> CacheOperation<'a> {
+    fn new(owner:&'a CacheSession)->Result<Self,ModelError> {
+        if owner.uncertain.load(Ordering::Acquire) {
+            return Err(cache_unfinished("product cache has an unconfirmed operation",true));
+        }
+        if owner.retry.stopped() { return Err(ModelError::Invalid("product cache cancelled".into())); }
+        Ok(Self{owner,finished:false})
+    }
+    fn finish<T>(&mut self,result:&Result<T,ModelError>) {
+        if let Err(error)=result {self.owner.observe(error);}
+        self.finished=true;
+    }
+}
+impl Drop for CacheOperation<'_> {
+    fn drop(&mut self){if !self.finished {self.owner.uncertain.store(true,Ordering::Release);}}
 }
 struct PendingInsertion {
     position: usize,
@@ -307,13 +376,17 @@ impl NativeProductCache {
                 "product schema installation requires maintenance authority".into(),
             ));
         }
-        let client = crate::compiler::check_installation(runtime).await?;
-        crate::Loader::new(client)
+        let (client,session) = CacheSession::open(runtime).await?;
+        let installed=session.run(async {crate::Loader::new(client)
             .install_declarations(
                 &(PRODUCT_SCHEMA.join(";") + ";"),
                 "portable product cache schema",
             )
-            .await?;
+            .await}).await;
+        if installed.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()){return installed.map(|_|None);}
+        let mut terminal=lctx_model::domain::completion::Completion::default();
+        terminal.step("product schema session close",session.close().await);
+        lctx_model::domain::completion::complete(installed,terminal)?;
         Self::attach_partition(runtime, true).await
     }
     /// Ordinary attachment may create an owned logical partition; it never executes DDL.
@@ -335,19 +408,21 @@ impl NativeProductCache {
         if !maintenance && administration_pending(&directory)? {
             return Ok(None);
         }
-        let client = crate::compiler::check_installation(runtime).await?;
         let partition = lctx_model::domain::ContentHash::of(&canonical(&(
             runtime.service_generation,
             directory.to_string_lossy(),
         ))?)
         .hex();
+        let (client,session) = CacheSession::open(runtime).await?;
         let mut this = Self {
             client,
+            session:session.clone(),
             config: config.clone(),
             directory,
             generation: nonce(),
             partition,
         };
+        let attached=session.run(async {
         let mut vars = Variables::new();
         vars.insert("directory", this.directory.to_string_lossy().into_owned());
         vars.insert("generation", this.generation.clone());
@@ -379,7 +454,7 @@ impl NativeProductCache {
             header.version == VERSION && header.directory == this.directory.to_string_lossy()
         });
         if !compatible && !maintenance {
-            return Ok(None);
+            return Ok(false);
         }
         if maintenance {
             let generation = nonce();
@@ -415,8 +490,26 @@ impl NativeProductCache {
         this.generation = header.generation;
         reconcile_acknowledgments(&this.directory, &this.generation)?;
         clear_administration(&this.directory)?;
-        Ok(Some(this))
+        Ok(true)
+        }).await;
+        match attached {
+            Ok(true)=>Ok(Some(this)),
+            result=>{
+                if result.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()){return result.map(|_|None);}
+                let mut terminal=lctx_model::domain::completion::Completion::default();
+                terminal.step("product cache setup session close",session.close().await);
+                lctx_model::domain::completion::complete(result.map(|_|None),terminal)
+            }
+        }
     }
+    /// Join every caller/task first. Atomic consumption refuses a still-live
+    /// clone before invalidating the independent authenticated session.
+    pub async fn close(self:Arc<Self>)->Result<(),ModelError> {
+        let owner=Arc::try_unwrap(self).map_err(|_|cache_unfinished("product cache still has live callers",false))?;
+        let session=Arc::try_unwrap(owner.session).map_err(|_|cache_unfinished("product cache still has live tasks",false))?;
+        session.close().await
+    }
+    pub fn retain_unknown(&self){self.session.uncertain.store(true,Ordering::Release);}
     fn partition_id(&self, table: &str) -> RecordId {
         RecordId::new(table, self.partition.clone())
     }
@@ -552,7 +645,10 @@ impl NativeProductCache {
         }
         self.decode_bytes(entry,request,&bytes,budget)
     }
-    pub async fn lookup(
+    pub async fn lookup(&self,request:&ProductRequest,budget:&ResourceBudget)->Result<Option<LeasedProduct>,ModelError>{
+        self.session.run(self.lookup_inner(request,budget)).await
+    }
+    async fn lookup_inner(
         &self,
         request: &ProductRequest,
         budget: &ResourceBudget,
@@ -565,6 +661,7 @@ impl NativeProductCache {
             Ok(true) => {}
             Ok(false) => return Ok(None),
             Err(error) => {
+                self.session.observe(&error);
                 tracing::debug!(%error, "product cache unavailable");
                 return Ok(None);
             }
@@ -573,6 +670,7 @@ impl NativeProductCache {
             Ok(Some(entry)) => entry,
             Ok(None) => return Ok(None),
             Err(error) => {
+                self.session.observe(&error);
                 tracing::debug!(%error, "product cache unavailable");
                 return Ok(None);
             }
@@ -606,6 +704,9 @@ impl NativeProductCache {
     /// Read an existing root window as one metadata/chunk demand. Each returned entry retains
     /// its own lease and decoded reservation; order and multiplicity match the request slice.
     pub async fn lookup_window(&self,requests:&[ProductRequest],budget:&ResourceBudget)->Result<Vec<Option<LeasedProduct>>,ModelError>{
+        self.session.run(self.lookup_window_inner(requests,budget)).await
+    }
+    async fn lookup_window_inner(&self,requests:&[ProductRequest],budget:&ResourceBudget)->Result<Vec<Option<LeasedProduct>>,ModelError>{
         let empty=||std::iter::repeat_with(||None).take(requests.len()).collect::<Vec<_>>();
         if requests.is_empty(){return Ok(Vec::new());}
         let metadata_bytes=requests.iter().try_fold(0usize,|total,request|{
@@ -618,10 +719,10 @@ impl NativeProductCache {
         let lifecycle=Arc::new(lifecycle(&self.directory,true).await?);
         let mut leases=Vec::with_capacity(keys.len());
         for key in &keys {leases.push(Some(lock(&self.entry_path(key),true).await?));}
-        match self.current().await {Ok(true)=>{},Ok(false)=>return Ok(empty()),Err(error)=>{tracing::debug!(%error,"product window unavailable");return Ok(empty());}}
+        match self.current().await {Ok(true)=>{},Ok(false)=>return Ok(empty()),Err(error)=>{self.session.observe(&error);tracing::debug!(%error,"product window unavailable");return Ok(empty());}}
         let mut vars=Variables::new();vars.insert("ids",keys.iter().collect::<std::collections::BTreeSet<_>>().into_iter().map(|key|self.entry_id(key)).collect::<Vec<_>>());
         let fetched=async{let mut response=self.client.query("SELECT * FROM $ids").bind(vars).await.map_err(ModelError::codec)?;response.take(0).map_err(ModelError::codec)}.await;
-        let entries:Vec<Entry>=match fetched{Ok(entries)=>entries,Err(error)=>{tracing::debug!(%error,"product window unavailable");return Ok(empty());}};
+        let entries:Vec<Entry>=match fetched{Ok(entries)=>entries,Err(error)=>{self.session.observe(&error);tracing::debug!(%error,"product window unavailable");return Ok(empty());}};
         let mut by_key=std::collections::BTreeMap::new();
         for entry in entries {
             let key=entry.key.clone();
@@ -655,7 +756,7 @@ impl NativeProductCache {
             let mut vars=Variables::new();
             vars.insert("ids", ids[start..end].iter().map(|(id, _)| id.clone()).collect::<Vec<_>>());
             let fetched=async{let mut response=self.client.query("SELECT * FROM $ids").bind(vars).await.map_err(ModelError::codec)?;response.take(0).map_err(ModelError::codec)}.await;
-            let rows:Vec<Chunk>=match fetched{Ok(rows)=>rows,Err(error)=>{tracing::debug!(%error,"product window chunks unavailable");return Ok(empty());}};
+            let rows:Vec<Chunk>=match fetched{Ok(rows)=>rows,Err(error)=>{self.session.observe(&error);tracing::debug!(%error,"product window chunks unavailable");return Ok(empty());}};
             for chunk in rows {
                 if !ids[start..end].iter().any(|(id, _)| *id == chunk.id)
                     || chunks.insert(chunk.id.clone(),chunk).is_some() {
@@ -715,11 +816,16 @@ impl NativeProductCache {
     }
     /// Data-level caller validation can reject a syntactically valid cached section. Its
     /// invalidation uses the same leases; no live consumer's bytes are silently replaced.
-    pub async fn invalidate(&self, request: &ProductRequest) -> Result<(), ModelError> {
+    pub async fn invalidate(&self,request:&ProductRequest)->Result<(),ModelError>{
+        self.session.run(self.invalidate_inner(request)).await
+    }
+    async fn invalidate_inner(&self, request: &ProductRequest) -> Result<(), ModelError> {
         request.validate()?;
         let this = self.clone();
         let key = request.identity()?.hex();
-        tokio::spawn(async move { this.evict_corrupt(&key).await })
+        tokio::spawn(async move {
+            this.session.run(this.evict_corrupt(&key)).await
+        })
             .await
             .map_err(ModelError::codec)?
     }
@@ -739,7 +845,10 @@ impl NativeProductCache {
         Ok(())
     }
     /// Insertion owns its task through native terminality, even if the initiating caller cancels.
-    pub async fn insert(
+    pub async fn insert(&self,product:&PortableProduct,budget:&ResourceBudget)->Result<bool,ModelError>{
+        self.session.run(self.insert_inner(product,budget)).await
+    }
+    async fn insert_inner(
         &self,
         product: &PortableProduct,
         budget: &ResourceBudget,
@@ -764,7 +873,7 @@ impl NativeProductCache {
         let budget = budget.clone();
         tokio::spawn(async move {
             let _charge = charge;
-            match this.insert_owned(owned, &budget).await {
+            match this.session.run(this.insert_owned(owned, &budget)).await {
                 Err(error) if optional_refusal(&error) => {
                     tracing::warn!(%error, "known product-cache refusal; compute fresh");
                     Ok(false)
@@ -777,7 +886,10 @@ impl NativeProductCache {
     }
     /// One owned insertion window shares chunk transfers, while every product keeps its own
     /// admission reservation, staging fence, publication receipt and acknowledgement.
-    pub async fn insert_window(&self, products: &[PortableProduct], budget: &ResourceBudget)
+    pub async fn insert_window(&self,products:&[PortableProduct],budget:&ResourceBudget)->Result<Vec<bool>,ModelError>{
+        self.session.run(self.insert_window_inner(products,budget)).await
+    }
+    async fn insert_window_inner(&self, products: &[PortableProduct], budget: &ResourceBudget)
         -> Result<Vec<bool>, ModelError> {
         for product in products { product.validate()?; }
         let metadata = match budget.reserve("native-product-insertion-window", products.len().saturating_mul(1024)) {
@@ -808,7 +920,7 @@ impl NativeProductCache {
         let budget = budget.clone();
         tokio::spawn(async move {
             let _metadata = metadata;
-            match this.insert_window_owned(pending, count, &budget).await {
+            match this.session.run(this.insert_window_owned(pending, count, &budget)).await {
                 Err(error) if optional_refusal(&error) => { tracing::warn!(%error, "known product window refusal"); Ok(vec![false;count]) }
                 result => result,
             }
@@ -1220,9 +1332,12 @@ impl NativeProductCache {
     }
     /// Fence admissions and wait for all product leases and owned insertions before deleting.
     /// Existing cache instances retain the old generation and can no longer publish.
-    pub async fn retire(&self) -> Result<(), ModelError> {
+    pub async fn retire(&self)->Result<(),ModelError>{
+        self.session.run(self.retire_inner()).await
+    }
+    async fn retire_inner(&self) -> Result<(), ModelError> {
         let this = self.clone();
-        tokio::spawn(async move {
+        tokio::spawn(async move { this.session.run(async {
             let _admission = lock(&this.directory.join("admission.lock"), false).await?;
             let _life = lock(&this.directory.join("lifecycle.lock"), false).await?;
             if administration_pending(&this.directory)? {
@@ -1256,7 +1371,7 @@ impl NativeProductCache {
             remove_generation_assets(&this.directory)?;
             clear_administration(&this.directory)?;
             Ok(())
-        })
+        }).await })
         .await
         .map_err(ModelError::codec)?
     }
@@ -1315,6 +1430,20 @@ mod tests {
             .unwrap()
             .unwrap();
         (cache, runtime, scratch)
+    }
+    #[tokio::test]
+    async fn native_cache_session_close_refuses_live_caller_then_joins_exact_owner() {
+        let (cache,_runtime,_scratch)=fixture(16<<20).await;
+        let cache=Arc::new(cache);
+        let remaining=cache.clone();
+        let weak=Arc::downgrade(&cache);
+        let error=cache.close().await.unwrap_err();
+        assert!(matches!(error,ModelError::Completion(ref outcome)
+            if outcome.completion.local==lctx_model::domain::completion::LocalState::Outstanding
+                && outcome.completion.remote==lctx_model::domain::completion::RemoteState::Confirmed));
+        assert!(weak.upgrade().is_some());
+        remaining.close().await.unwrap();
+        assert!(weak.upgrade().is_none());
     }
     #[tokio::test]
     async fn native_product_stripe_collision_is_optional_refusal_not_identity_or_self_wait() {
@@ -1378,6 +1507,7 @@ mod tests {
             &first
         );
         cache.retire().await.unwrap();
+        Arc::new(cache).close().await.unwrap();
     }
     #[tokio::test]
     async fn native_product_reopen_exact_winner_and_borrowed_charge() {
@@ -1428,6 +1558,9 @@ mod tests {
             .unwrap();
         assert!(next.insert(&product, &budget).await.unwrap());
         next.retire().await.unwrap();
+        Arc::new(cache).close().await.unwrap();
+        Arc::new(reopened).close().await.unwrap();
+        Arc::new(next).close().await.unwrap();
     }
     #[tokio::test]
     async fn native_product_corruption_falls_back_and_retirement_drains_live_lease() {
@@ -1475,16 +1608,10 @@ mod tests {
         drop(borrowed);
         retire.await.unwrap().unwrap();
         assert_eq!(budget.reserved(), 0);
-        assert!(
-            NativeProductCache::connect(&runtime)
-                .await
-                .unwrap()
-                .unwrap()
-                .lookup(&product.request, &budget)
-                .await
-                .unwrap()
-                .is_none()
-        );
+        let reopened=NativeProductCache::connect(&runtime).await.unwrap().unwrap();
+        assert!(reopened.lookup(&product.request,&budget).await.unwrap().is_none());
+        Arc::new(reopened).close().await.unwrap();
+        Arc::new(cache).close().await.unwrap();
     }
     #[test]
     fn native_subprocess_entry_lease() {
@@ -1569,6 +1696,7 @@ mod tests {
                 .is_some()
         );
         cache.retire().await.unwrap();
+        Arc::new(cache).close().await.unwrap();
     }
     #[tokio::test]
     async fn native_bounded_chunks_and_unreachable_stage_recovery() {
@@ -1626,6 +1754,7 @@ mod tests {
         drop(borrowed);
         cache.retire().await.unwrap();
         assert_eq!(budget.reserved(), 0);
+        Arc::new(cache).close().await.unwrap();
     }
     fn lost_ack() -> ModelError {
         let mut completion = lctx_model::domain::completion::Completion::default();
@@ -1661,6 +1790,7 @@ mod tests {
             matches!(error, ModelError::Completion(ref failure) if failure.completion.remote == lctx_model::domain::completion::RemoteState::Unknown)
         );
         cache.retire().await.unwrap();
+        Arc::new(cache).close().await.unwrap();
     }
     #[tokio::test]
     async fn native_concurrent_writers_keep_one_equal_product_and_reject_unequal() {
@@ -1689,6 +1819,7 @@ mod tests {
             &product
         );
         cache.retire().await.unwrap();
+        Arc::new(cache).close().await.unwrap();
     }
 
     #[tokio::test]
@@ -1729,6 +1860,7 @@ mod tests {
             .unwrap();
         assert_eq!(quota.unwrap().used, 0);
         cache.retire().await.unwrap();
+        Arc::new(cache).close().await.unwrap();
     }
 
     #[tokio::test]
@@ -1768,6 +1900,7 @@ mod tests {
                 .is_some()
         );
         cache.retire().await.unwrap();
+        Arc::new(cache).close().await.unwrap();
     }
 
     #[tokio::test]
@@ -1831,6 +1964,7 @@ mod tests {
             .unwrap();
         let stages: Vec<Stage> = response.take(0).unwrap();
         assert!(stages.is_empty());
+        Arc::new(cache).close().await.unwrap();
     }
     #[tokio::test]
     async fn native_delayed_administration_cannot_destroy_a_rebuilt_generation() {
@@ -1980,6 +2114,10 @@ mod tests {
                 .is_none()
         );
         recovered.retire().await.unwrap();
+        Arc::new(cache).close().await.unwrap();
+        Arc::new(rebuilt).close().await.unwrap();
+        Arc::new(current).close().await.unwrap();
+        Arc::new(recovered).close().await.unwrap();
     }
 
     #[tokio::test]
@@ -2084,12 +2222,36 @@ mod tests {
         );
         recovered.retire().await.unwrap();
         foreign_current.retire().await.unwrap();
+        Arc::new(cache).close().await.unwrap();
+        Arc::new(foreign_cache).close().await.unwrap();
+        Arc::new(foreign_reset).close().await.unwrap();
+        Arc::new(reset).close().await.unwrap();
+        Arc::new(foreign_current).close().await.unwrap();
+        Arc::new(recovered).close().await.unwrap();
     }
 }
 
 #[cfg(test)]
 mod window_controls {
     use super::*;
+    #[tokio::test]
+    async fn cache_session_cancellation_retains_actual_client_and_unknown_disposition() {
+        let client=Arc::new(Surreal::init());
+        let retry=crate::control::RetryCancellation::default();
+        let session=CacheSession{
+            session:lctx_native::reader::SessionFinalizationGuard::new(client.clone()),
+            signals:lctx_native::signal::SignalRegistration::process(||{}).unwrap(),
+            retry,uncertain:AtomicBool::new(false),
+        };
+        drop(CacheOperation::new(&session).unwrap());
+        let error=session.close().await.unwrap_err();
+        assert!(!error.permits_storage_cleanup());
+        assert!(matches!(error,ModelError::Completion(ref outcome)
+            if outcome.completion.local==lctx_model::domain::completion::LocalState::Outstanding
+                && outcome.completion.remote==lctx_model::domain::completion::RemoteState::Unknown));
+        drop(session);
+        assert_eq!(Arc::strong_count(&client),2,"abandonment retains the actual session handle");
+    }
     #[test]
     fn transfers_preserve_cross_product_order_at_byte_and_row_boundaries() {
         let products = [vec![CHUNK, 3], vec![5, CHUNK - 8], vec![1]];

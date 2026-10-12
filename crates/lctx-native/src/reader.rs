@@ -2384,6 +2384,8 @@ pub struct SessionFinalizationGuard {
 }
 impl SessionFinalizationGuard {
     pub fn new(client:Arc<Surreal<Client>>)->Self{Self{client,closed:std::sync::atomic::AtomicBool::new(false)}}
+    /// Transfer the close obligation to the returned owner; this is no terminal acknowledgement.
+    pub(crate) fn transfer(self){self.closed.store(true,std::sync::atomic::Ordering::Release);}
     pub async fn close(&self)->Result<(),ModelError>{
         if self.closed.load(std::sync::atomic::Ordering::Acquire){return Ok(());}
         let invalidated=self.client.invalidate().await.map_err(sdk_error);
@@ -2404,11 +2406,19 @@ pub async fn connect(
     database: &str,
 ) -> Result<Arc<Surreal<Client>>, ModelError> {
     let client = authenticated(endpoint, credentials, Some((namespace, database))).await?;
-    client
+    let session=SessionFinalizationGuard::new(client.clone());
+    let selected=client
         .use_ns(namespace)
         .use_db(database)
         .await
-        .map_err(ModelError::codec)?;
+        .map_err(sdk_error);
+    if let Err(error)=selected {
+        if !error.permits_storage_cleanup(){return Err(error);}
+        let mut terminal=lctx_model::domain::completion::Completion::default();
+        terminal.step("failed native selection session close",session.close().await);
+        return lctx_model::domain::completion::complete(Err(error),terminal);
+    }
+    session.transfer();
     Ok(client)
 }
 /// Authenticate without selecting or implicitly creating a database. Private compiler creation
@@ -2418,13 +2428,15 @@ pub async fn authenticated(
     credentials: &Credentials,
     scope: Option<(&str, &str)>,
 ) -> Result<Arc<Surreal<Client>>, ModelError> {
-    let client = Surreal::new::<Grpc>(
+    let client = Arc::new(Surreal::new::<Grpc>(
         endpoint
             .strip_prefix("grpc://")
             .ok_or_else(|| ModelError::Invalid("native gRPC endpoint required".into()))?,
     )
     .await
-    .map_err(ModelError::codec)?;
+    .map_err(sdk_error)?);
+    let session=SessionFinalizationGuard::new(client.clone());
+    let signed:Result<(),ModelError>=async {
     match credentials {
         Credentials::Root { username, password } => {
             client
@@ -2433,7 +2445,7 @@ pub async fn authenticated(
                     password: password.clone(),
                 })
                 .await
-                .map_err(ModelError::codec)?;
+                .map_err(sdk_error)?;
         }
         Credentials::Database { username, password } => {
             let (namespace, database) =
@@ -2446,10 +2458,19 @@ pub async fn authenticated(
                     password: password.clone(),
                 })
                 .await
-                .map_err(ModelError::codec)?;
+                .map_err(sdk_error)?;
         }
     }
-    Ok(Arc::new(client))
+    Ok(())
+    }.await;
+    if let Err(error)=signed {
+        if !error.permits_storage_cleanup(){return Err(error);}
+        let mut terminal=lctx_model::domain::completion::Completion::default();
+        terminal.step("failed native authentication session close",session.close().await);
+        return lctx_model::domain::completion::complete(Err(error),terminal);
+    }
+    session.transfer();
+    Ok(client)
 }
 
 #[cfg(test)]

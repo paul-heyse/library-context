@@ -114,6 +114,7 @@ pub async fn check_installation(
         config.database.as_str(),
     )
     .await?;
+    let session=reader::SessionFinalizationGuard::new(client.clone());
     let checked = async {
         let version = client
             .version()
@@ -129,13 +130,15 @@ pub async fn check_installation(
     }
     .await;
     if let Err(error) = checked {
+        if !error.permits_storage_cleanup(){return Err(error);}
         let mut completion = d::completion::Completion::default();
         completion.step(
             "failed installation check session invalidation",
-            client.invalidate().await.map_err(ModelError::codec),
+            session.close().await,
         );
         return d::completion::complete(Err(error), completion);
     }
+    session.transfer();
     Ok(client)
 }
 /// Installed together with format six; none of these witnesses is portable authority.
