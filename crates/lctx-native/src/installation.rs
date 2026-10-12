@@ -188,12 +188,21 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
         ));
     }
     let client = check_installation(config).await?;
+    // The returned authenticated session belongs to this maintenance operation.
+    // Cancellation before its invalidation acknowledgement retains the actual handle.
+    let session=reader::SessionFinalizationGuard::new(client.clone());
+    let unconfirmed=|error:surrealdb::Error| {
+        let mut completion=d::completion::Completion::default();
+        completion.remote=d::completion::RemoteState::Unknown;
+        d::completion::complete::<()>(Err(reader::sdk_error(error)),completion).unwrap_err()
+    };
+    let result:Result<(),ModelError>=async {
     let mut response = client
         .query("SELECT VALUE admission_open FROM native_installation:current")
         .await
-        .map_err(ModelError::codec)?
+        .map_err(unconfirmed)?
         .check()
-        .map_err(ModelError::codec)?;
+        .map_err(reader::sdk_error)?;
     let open: Vec<bool> = response.take(0).map_err(ModelError::codec)?;
     if open != vec![false] {
         return Err(ModelError::Conflict(
@@ -204,9 +213,9 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
         let mut response = client
             .query("SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state IN ['open','frozen'] LIMIT 128")
             .await
-            .map_err(ModelError::codec)?
+            .map_err(unconfirmed)?
             .check()
-            .map_err(ModelError::codec)?;
+            .map_err(reader::sdk_error)?;
         let attempts: Vec<RecordId> = response.take(0).map_err(ModelError::codec)?;
         if attempts.is_empty() {
             break;
@@ -225,7 +234,7 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
     }
     crate::control::drain_effects(&client).await?;
     loop {
-        let mut response=client.query("SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state='closing' LIMIT 128").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let mut response=client.query("SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state='closing' LIMIT 128").await.map_err(unconfirmed)?.check().map_err(reader::sdk_error)?;
         let attempts: Vec<RecordId> = response.take(0).map_err(ModelError::codec)?;
         if attempts.is_empty() {
             break;
@@ -243,7 +252,7 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
             crate::control::close_attempt(&client, identity, "abandoned").await?;
         }
     }
-    let mut response=client.query("SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1; SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    let mut response=client.query("SELECT VALUE id FROM native_pin WITH INDEX live_pins WHERE released=false LIMIT 1; SELECT VALUE id FROM native_backup_hold WITH INDEX live_backups WHERE active=true LIMIT 1").await.map_err(unconfirmed)?.check().map_err(reader::sdk_error)?;
     let pins: Vec<RecordId> = response.take(0).map_err(ModelError::codec)?;
     let backups: Vec<RecordId> = response.take(1).map_err(ModelError::codec)?;
     if !pins.is_empty() || !backups.is_empty() {
@@ -252,6 +261,17 @@ pub async fn drain_installation(config: &RuntimeConfig) -> Result<(), ModelError
         ));
     }
     Ok(())
+    }.await;
+    let mut completion=d::completion::Completion::default();
+    if result.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()) {
+        completion.local=d::completion::LocalState::Outstanding;
+        completion.remote=d::completion::RemoteState::Unknown;
+    } else {
+        let closed=session.close().await;
+        if closed.is_err(){completion.local=d::completion::LocalState::Outstanding;}
+        completion.step("installation drainage session invalidation",closed);
+    }
+    d::completion::complete(result,completion)
 }
 /// Explicit recovery of named abandoned clients after the service owner proves actual
 /// host drainage. Neither identity age nor an empty view list establishes that proof.

@@ -319,6 +319,12 @@ impl OperationState {
 struct OperationAdmission {
     state: Mutex<OperationState>,
     changed: Notify,
+    source_finalization: tokio::sync::Mutex<SourceFinalization>,
+}
+#[derive(Default)]
+struct SourceFinalization {
+    attempt_closed: bool,
+    session_closed: bool,
 }
 #[derive(Default)]
 struct ProducingState {
@@ -2696,28 +2702,84 @@ impl NativeCompilerStore {
                 "read owner has no attempt abandonment authority",
             ));
         }
-        let mut completion = self.drain_report().await;
+        // Serialize acknowledgements, including callers repeating abandonment after
+        // its original operation failed. Never query an already invalidated session.
+        let mut source = self.admission.source_finalization.lock().await;
+        let session = (!source.session_closed)
+            .then(|| reader::SessionFinalizationGuard::new(self.client.clone()));
+        let mut completion = if source.attempt_closed {
+            self.acknowledged_finality()
+        } else {
+            self.drain_finality().await
+        };
         // Abandon releases this attempt only; shared immutable completed data survives.
+        if !source.attempt_closed && completion.local==d::completion::LocalState::Terminal
+            && completion.remote==d::completion::RemoteState::Confirmed
+            && completion.failures.is_empty() {
+        let closed=crate::control::close_attempt(&self.client,self.attempt,"abandoned").await;
+        if closed.is_ok(){source.attempt_closed=true;}
         completion.step(
             "native attempt abandonment",
-            crate::control::close_attempt(&self.client, self.attempt, "abandoned").await,
+            closed,
         );
+        }
+        if source.attempt_closed && completion.local==d::completion::LocalState::Terminal
+            && completion.remote==d::completion::RemoteState::Confirmed
+            && completion.failures.is_empty() {
+        if let Some(session)=session {
+        let closed=session.close().await;
+        if closed.is_ok(){source.session_closed=true;}
         completion.step(
             "native session invalidation",
-            self.client
-                .invalidate()
-                .await
-                .map_err(|error| ModelError::Cause(Box::new(error))),
+            closed,
         );
-        if let Ok(signals) = &self.signals {
-            let finality = signals.complete(&completion).await;
-            completion.step("native compiler signal owner", finality);
         }
+        }
+        if !source.session_closed {completion.local=d::completion::LocalState::Outstanding;}
+        self.complete_source_signals(&source,&mut completion).await;
+        self.append_operation_failures(&mut completion);
         d::completion::complete(Ok(()), completion)
+    }
+    async fn complete_source_signals(&self,source:&SourceFinalization,completion:&mut d::completion::Completion) {
+        // Signal completion is immutable. Keep the actual owner Started while
+        // finalization can still be retried; an error/drop is not a close ack.
+        if source.session_closed && completion.local==d::completion::LocalState::Terminal
+            && completion.remote==d::completion::RemoteState::Confirmed
+            && completion.failures.is_empty() {
+            if let Ok(signals)=&self.signals {
+                let finality=signals.complete(completion).await;
+                completion.step("native compiler signal owner",finality);
+            }
+        }
     }
     /// Local terminality and remote acknowledgement are independent facts. The admission owner
     /// remains registered when this future is interrupted, allowing a later drain to finish.
     pub async fn drain_report(&self) -> d::completion::Completion {
+        let source=self.admission.source_finalization.lock().await;
+        let mut completion=if source.attempt_closed {self.acknowledged_finality()} else {self.drain_finality().await};
+        // Attempt cleanup may already be acknowledged while session close is still
+        // owned by abandonment. This report covers execution drainage, not that close.
+        self.append_operation_failures(&mut completion);
+        completion
+    }
+    fn acknowledged_finality(&self)->d::completion::Completion {
+        let mut completion=d::completion::Completion::default();
+        match self.admission.state.lock() {
+            Ok(state)=>completion.committed.extend(state.committed.clone()),
+            Err(_)=>{completion.local=d::completion::LocalState::Outstanding;completion.step("native finalization acknowledgement state",Err(ModelError::Conflict("native operation admission")));},
+        }
+        completion
+    }
+    fn append_operation_failures(&self,completion:&mut d::completion::Completion) {
+        if let Ok(state)=self.admission.state.lock() {
+            for failure in &state.failures {
+                completion.step(failure.operation,Err(ModelError::SharedCause(failure.error.clone())));
+            }
+        }
+    }
+    // An acknowledged operation failure remains the caller's result, but is not
+    // a failure to join that operation or finalize its actual native owner.
+    async fn drain_finality(&self) -> d::completion::Completion {
         let mut completion = d::completion::Completion::default();
         match self.admission.state.lock() {
             Ok(mut state) => state.closed = true,
@@ -2756,12 +2818,6 @@ impl NativeCompilerStore {
         }
         if let Ok(state) = self.admission.state.lock() {
             completion.committed.extend(state.committed.clone());
-            for failure in &state.failures {
-                completion.step(
-                    failure.operation,
-                    Err(ModelError::SharedCause(failure.error.clone())),
-                );
-            }
         }
         // Final readback is non-destructive and safe after admission. It borrows the
         // existing session and retains the original ingress caller's budget capability.
@@ -4109,7 +4165,7 @@ impl NativeCompilerStore {
         // descriptors retain the full meaning independently after physical completion.
         crate::control::guarded_effect_with_holds(&self.client,self.attempt,vec![slot.clone()],
             vec![(owner.clone(),slot),(owner,RecordId::new("compiler_view",binding.view.identity.hex()))],
-            "IF $__owner.admitted { THROW 'native binding inventory admitted'; }; LET $existing=SELECT * FROM ONLY $row.id FOR UPDATE; IF $frozen_binding AND $existing!=NONE AND $existing!=$row { THROW 'frozen native binding replacement'; }; UPSERT $row.id CONTENT $row RETURN NONE; UPDATE $__attempt SET revision+=1 RETURN NONE",b).await?;
+            "IF $__owner.admitted { THROW 'native binding inventory admitted'; }; LET $binding_record=$row.id; LET $existing=SELECT * FROM ONLY $binding_record FOR UPDATE; IF $frozen_binding AND $existing!=NONE AND $existing!=$row { THROW 'frozen native binding replacement'; }; UPSERT $row.id CONTENT $row RETURN NONE; UPDATE $__attempt SET revision+=1 RETURN NONE",b).await?;
         Ok(())
     }
     pub async fn bindings(self: &Arc<Self>) -> Result<Vec<CompletedBinding>, ModelError> {
@@ -6514,10 +6570,83 @@ mod completion_tests {
         assert!(completion.failures.is_empty());
     }
     #[tokio::test]
+    async fn acknowledged_operation_failure_is_returned_separately_from_owner_finality() {
+        let store=local_store();
+        let lease=store.admit(false,"acknowledged control write",true).unwrap();
+        let error=lease.finish_with(Err::<(),_>(ModelError::Conflict("acknowledged immutable refusal"))).unwrap_err();
+        let finality=store.drain_finality().await;
+        assert_eq!(finality.local,d::completion::LocalState::Terminal);
+        assert_eq!(finality.remote,d::completion::RemoteState::Confirmed);
+        assert!(finality.failures.is_empty(),"joined acknowledged refusal is not failed owner cleanup");
+        let caller=store.drain_report().await;
+        assert_eq!(caller.failures.len(),1);
+        assert_eq!(caller.failures[0].step,"acknowledged control write");
+        let (ModelError::SharedCause(actual),ModelError::SharedCause(expected))=(&caller.failures[0].error,error)else{panic!("exact recorded cause")};
+        assert!(Arc::ptr_eq(actual,&expected));
+    }
+    #[tokio::test]
+    async fn source_signal_finality_remains_pending_until_acknowledged_retry() {
+        for retry_acknowledged in [false,true] {
+            let abandoned=Arc::new(AtomicBool::new(false));
+            let observed=abandoned.clone();
+            let mut store=local_store();
+            // Use the actual listener/OnceCell protocol without fixture receipt
+            // environment mutation or native effects. Drop cancels only an owner
+            // whose completion has not been published.
+            Arc::get_mut(&mut store).unwrap().signals=Ok(lctx_native::signal::SignalRegistration::process(move||{observed.store(true,Ordering::Release);}).unwrap());
+            let mut source=SourceFinalization{attempt_closed:true,session_closed:false};
+            let mut unknown=d::completion::Completion::default();
+            unknown.local=d::completion::LocalState::Outstanding;
+            unknown.remote=d::completion::RemoteState::Unknown;
+            store.complete_source_signals(&source,&mut unknown).await;
+            assert_eq!(unknown.remote,d::completion::RemoteState::Unknown);
+            assert_eq!(unknown.local,d::completion::LocalState::Outstanding);
+            if retry_acknowledged {
+                source.session_closed=true;
+                let mut confirmed=d::completion::Completion::default();
+                store.complete_source_signals(&source,&mut confirmed).await;
+                assert!(confirmed.failures.is_empty());
+            }
+            drop(store);
+            assert_eq!(abandoned.load(Ordering::Acquire),!retry_acknowledged,
+                "an unconfirmed first attempt must not freeze SignalRegistration completion before its acknowledged retry");
+        }
+    }
+    #[tokio::test]
+    async fn acknowledged_abandonment_replays_original_failure_without_reopening_session() {
+        let store=local_store();
+        let lease=store.admit(false,"acknowledged control write",true).unwrap();
+        let error=lease.finish_with(Err::<(),_>(ModelError::Conflict("original acknowledged refusal"))).unwrap_err();
+        // Model the two already received native acknowledgements. The unconnected
+        // SDK below makes any accidental repeated remote work fail this control.
+        {
+            let mut source=store.admission.source_finalization.lock().await;
+            assert!(!source.attempt_closed && !source.session_closed);
+            source.attempt_closed=true;
+            assert!(!source.session_closed,"attempt acknowledgement alone cannot cache session finality");
+            source.session_closed=true;
+        }
+        for _ in 0..2 {
+            let ModelError::Completion(outcome)=store.abandon().await.unwrap_err() else {panic!("original operation failure remains returned")};
+            assert_eq!(outcome.completion.local,d::completion::LocalState::Terminal);
+            assert_eq!(outcome.completion.remote,d::completion::RemoteState::Confirmed);
+            assert_eq!(outcome.completion.failures.len(),1);
+            assert_eq!(outcome.completion.failures[0].step,"acknowledged control write");
+            let (ModelError::SharedCause(actual),ModelError::SharedCause(expected))=(&outcome.completion.failures[0].error,&error) else {panic!("exact recorded cause")};
+            assert!(Arc::ptr_eq(actual,expected));
+        }
+        let drained=store.drain_report().await;
+        assert_eq!(drained.failures.len(),1);
+        assert_eq!(drained.remote,d::completion::RemoteState::Confirmed);
+    }
+    #[tokio::test]
     async fn local_terminal_drain_retains_unknown_native_acknowledgement() {
         let store = local_store();
         let lease = store.admit(false, "control write", true).unwrap();
         drop(lease);
+        let finality=store.drain_finality().await;
+        assert_eq!(finality.remote,d::completion::RemoteState::Unknown);
+        assert!(finality.failures.iter().any(|failure|failure.step=="native acknowledgement"),"unconfirmed ownership cannot become a successful cleanup receipt");
         let completion = store.drain_report().await;
         assert_eq!(completion.local, d::completion::LocalState::Terminal);
         assert_eq!(completion.remote, d::completion::RemoteState::Unknown);

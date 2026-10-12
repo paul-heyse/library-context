@@ -7,7 +7,7 @@ use std::{fs::{self, OpenOptions}, io::Write, path::PathBuf, sync::{Arc, Mutex, 
 use tokio::{sync::Notify, task::JoinHandle};
 
 struct Receipt { path: PathBuf, body: serde_json::Value }
-struct Listener { stop: Arc<Notify>, task: Mutex<Option<JoinHandle<()>>> }
+struct Listener { stop: Arc<Notify>, task: tokio::sync::Mutex<Option<JoinHandle<()>>> }
 static PROCESS_STOPPED: AtomicBool = AtomicBool::new(false);
 static PROCESS_SIGNAL: AtomicU8 = AtomicU8::new(0);
 type Cancellation = dyn Fn() + Send + Sync;
@@ -90,7 +90,7 @@ impl SignalRegistration {
                 process_stop(observed);
             }
         });
-        Ok(Self { listener: Listener { stop, task: Mutex::new(Some(task)) }, cancel,
+        Ok(Self { listener: Listener { stop, task: tokio::sync::Mutex::new(Some(task)) }, cancel,
             signal, receipt, completed: tokio::sync::OnceCell::new() })
     }
     pub fn received(&self) -> Option<&'static str> {
@@ -104,9 +104,12 @@ impl SignalRegistration {
     pub async fn complete(&self, completion: &Completion) -> Result<(), ModelError> {
         self.completed.get_or_init(|| async {
             self.listener.stop.notify_one();
-            let task = self.listener.task.lock().map_err(|_| Arc::new(ModelError::Conflict("native signal listener")))?.take();
-            let task = task.ok_or_else(|| Arc::new(ModelError::Conflict("native signal finalization owner lost")))?;
-            task.await.map_err(|error| Arc::new(ModelError::codec(error)))?;
+            // Await by reference: cancellation releases this lock, but leaves the
+            // sole actual join handle with the listener for a later completion.
+            let mut task = self.listener.task.lock().await;
+            let joined = task.as_mut().ok_or_else(|| Arc::new(ModelError::Conflict("native signal finalization owner lost")))?.await;
+            task.take();
+            joined.map_err(|error| Arc::new(ModelError::codec(error)))?;
             if let Some(receipt) = &self.receipt {
                 receipt.finish(completion, self.received()).map_err(Arc::new)?;
             }
@@ -120,9 +123,7 @@ impl Drop for SignalRegistration {
             (self.cancel)();
             // This is only a signal-listener task, never native execution. Leave
             // started receipt intact: runtime/drop is not a Completion report.
-            if let Ok(mut task) = self.listener.task.lock() {
-                if let Some(task) = task.take() { task.abort(); }
-            }
+            if let Some(task) = self.listener.task.get_mut().take() { task.abort(); }
         }
     }
 }
@@ -189,6 +190,27 @@ impl Receipt {
 mod tests {
     use super::*;
     use std::{process::{Command, Stdio}, time::{Duration, Instant}};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelled_listener_join_retains_actual_owner_for_completion_retry() {
+        let cancelled=Arc::new(AtomicBool::new(false));
+        let observed=cancelled.clone();
+        let owner=SignalRegistration::process(move||{observed.store(true,Ordering::Release);}).unwrap();
+        let completion=Completion::default();
+        // The current-thread listener has not run yet. Polling completion reaches
+        // its real pending JoinHandle await without relying on timing or a mock.
+        let mut first=Box::pin(owner.complete(&completion));
+        assert!(futures::poll!(first.as_mut()).is_pending());
+        drop(first);
+        assert!(owner.completed.get().is_none());
+        assert!(owner.listener.task.lock().await.is_some(),"cancelled initializer must retain the sole actual listener handle");
+        owner.complete(&completion).await.unwrap();
+        assert!(matches!(owner.completed.get(),Some(Ok(()))));
+        assert!(owner.listener.task.lock().await.is_none(),"only acknowledged listener join consumes its handle");
+        owner.complete(&completion).await.unwrap();
+        drop(owner);
+        assert!(!cancelled.load(Ordering::Acquire),"acknowledged retry completed the real owner");
+    }
 
     #[test]
     #[ignore = "invoked only by the subprocess ownership control"]
