@@ -1703,7 +1703,9 @@ mod tests {
         let (cache, _runtime, _scratch) = fixture(32 * 1024 * 1024).await;
         let budget = ResourceBudget::fixed(128 * 1024 * 1024).unwrap();
         let mut product = product("chunked");
-        product.sections[0].bytes = vec![65; 3 * 1024 * 1024];
+        // The current binary envelope retains opaque section bytes without JSON
+        // expansion. Cross the actual transfer boundary with the section itself.
+        product.sections[0].bytes = vec![65; CHUNK + 1];
         assert!(encoded_size(&product).unwrap() > CHUNK);
         let orphan = format!("{}_orphan", cache.partition);
         let stage = Stage {
@@ -1739,6 +1741,16 @@ mod tests {
                 .is_none()
         );
         assert!(cache.insert(&product, &budget).await.unwrap());
+        let entry=cache.entry(&product.request.identity().unwrap().hex()).await.unwrap().unwrap();
+        assert_eq!(entry.chunks,2,"the current binary product crosses one physical chunk boundary");
+        let mut physical_bytes=0;
+        for index in 0..entry.chunks {
+            let chunk:Chunk=cache.client.select(("product_chunk",format!("{}_{}",entry.staging,index)))
+                .await.unwrap().unwrap();
+            assert!(!chunk.bytes.is_empty() && chunk.bytes.len()<=CHUNK);
+            physical_bytes+=chunk.bytes.len();
+        }
+        assert_eq!(physical_bytes,encoded_size(&product).unwrap());
         let orphan: Option<Chunk> = cache
             .client
             .select(("product_chunk", format!("{orphan}_0")))
