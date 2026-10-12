@@ -12,8 +12,8 @@ Main and the independent probe checkout began clean at
 The intervening product changes are in artifact-manifest eligibility, native compiler/reader,
 selection and derived-search paths and their controls. The investigation uses those current
 context/negative-witness and charged-batch foundations rather than restoring the review snapshot.
-No new product edits were integrated. Probe code ran in
-`/home/paul/library-context-wt/efficiency-decisions`, branch `wt/efficiency-decisions`.
+No new product edits were integrated by the investigation. Probe code ran on branch
+`wt/efficiency-decisions`; its surviving source and evidence are integrated in the main checkout.
 
 The operator authorized a dedicated native campaign and bounded implementation probes, integrating
 decision evidence and plan updates only. Existing plans were not reviewed or superseded. Original
@@ -99,15 +99,18 @@ the exact distinction. The proposed owner fix is not implemented or qualified in
 
 Commands use repository Python 3.14.7 and pinned nightly-2026-09-29. Small lane probes have their
 exact commands and results in the linked notes. Product acceptance and broad checks are **not_run**.
+The commands below describe the original investigation, with fresh output destinations shown for
+any explicit replay. Original absolute destinations remain in the immutable managed run records;
+retaining or replaying the old worktree, executable copies or RocksDB stores is not required.
 
 ```sh
 uv run --no-sync python scripts/worktree.py create efficiency-decisions --ref 439f3d2d --no-ready
 uv run --no-sync python docs/design_review/evidence/2026-10-11_efficiency-design-decisions/cold_hash_probe.py
-just run --background --label efficiency-engine -- uv run --no-sync python docs/design_review/evidence/2026-10-11_efficiency-design-decisions/native_campaign.py --binary /home/paul/.local/state/library-context/surrealdb.tools/surreal/405f6c02ddfe12c004b04deab6bd91fd1458ed1c3ba247c05baa4a5396d5e206/surreal --destination /home/paul/library-context-wt/efficiency-decisions/.campaign/engine-02
+just run --background --label efficiency-engine -- uv run --no-sync python docs/design_review/evidence/2026-10-11_efficiency-design-decisions/native_campaign.py --binary /home/paul/.local/state/library-context/surrealdb.tools/surreal/405f6c02ddfe12c004b04deab6bd91fd1458ed1c3ba247c05baa4a5396d5e206/surreal --destination /absolute/new-campaign-output/engine-02
 # In the probe checkout, with grpc_campaign.rs copied to crates/lctx-publisher/tests/efficiency_grpc_campaign.rs:
 cargo test --release -p lctx-publisher --test efficiency_grpc_campaign --no-run
 # Use the exact executable path Cargo reports as --grpc-probe:
-just run --background --label efficiency-grpc -- uv run --no-sync python docs/design_review/evidence/2026-10-11_efficiency-design-decisions/native_campaign.py --binary /home/paul/.local/state/library-context/surrealdb.tools/surreal/405f6c02ddfe12c004b04deab6bd91fd1458ed1c3ba247c05baa4a5396d5e206/surreal --destination /home/paul/library-context-wt/efficiency-decisions/.campaign/grpc-01 --grpc-only --grpc-probe /home/paul/.cargo/build/library-context/release/build/lctx-publisher/f38b14262b567ed1/out/efficiency_grpc_campaign-f38b14262b567ed1
+just run --background --label efficiency-grpc -- uv run --no-sync python docs/design_review/evidence/2026-10-11_efficiency-design-decisions/native_campaign.py --binary /home/paul/.local/state/library-context/surrealdb.tools/surreal/405f6c02ddfe12c004b04deab6bd91fd1458ed1c3ba247c05baa4a5396d5e206/surreal --destination /absolute/new-campaign-output/grpc-01 --grpc-only --grpc-probe /home/paul/.cargo/build/library-context/release/build/lctx-publisher/f38b14262b567ed1/out/efficiency_grpc_campaign-f38b14262b567ed1
 ```
 
 Worktree creation **passed**, without readiness/sync. Cold tar/hash control **passed** six groups:
@@ -128,5 +131,12 @@ under its actual run owner and named consumer `citation:efficiency-design-decisi
 server logs and observations retain their producer/cleanup boundary. The failed setup path remains
 protected evidence. Credentials were not persisted or printed. No state was collected or deleted
 following test success. Exact raw evidence is copied here; compiler artifacts and RocksDB stores
-are not committed. The probe checkout remains protected until its named evidence/prototype
-consumer is explicitly released; its existence does not imply a running service.
+are not committed. On 2026-10-12, the completed engine and gRPC campaign logs and observations
+were checked byte-for-byte against these canonical raw copies; the failed setup observations and
+server log were also copied unchanged as `raw/engine-01-observations.json` and
+`raw/engine-01-server.log`. All three original managed runs retain confirmed child cleanup with no
+survivors (`0acd2e`, `fe9f43`, `4fd098`); the failed setup retains its original failure.
+The exact `citation:efficiency-design-decisions` obligations on the completed engine and gRPC
+campaign outputs were released after those checks. This evidence consumer needs the canonical raw files and probe
+source, not the old executable copies or runtime stores. Their filesystem disposal and worktree
+removal still belong to the existing storage/worktree owners and must recheck live holders.
