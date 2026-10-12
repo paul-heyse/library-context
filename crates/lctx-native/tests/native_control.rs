@@ -176,7 +176,8 @@ async fn exact_outcome_references_are_idempotent_and_release_only_the_named_cons
 #[tokio::test(flavor = "multi_thread")]
 async fn indexed_live_control_probes_select_declared_routes() {
     let client=lctx_compiler_store::compiler::check_installation(&config()).await.unwrap();
-    let reader=lctx_native::NativeReader::private(client.clone());
+    let budget=ResourceBudget::fixed(256<<20).unwrap();
+    let reader=lctx_native::NativeReader::private(client.clone()).with_budget(&budget);
     for (index,sql) in [
         ("live_effects","SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false LIMIT 1"),
         ("live_attempts","SELECT VALUE id FROM native_attempt WITH INDEX live_attempts WHERE state='open' LIMIT 1"),
@@ -193,6 +194,7 @@ async fn indexed_live_control_probes_select_declared_routes() {
         let plan:String=reader.query(format!("EXPLAIN SELECT VALUE id FROM type::record({table}:0>..) LIMIT 1"),Variables::new()).await.unwrap();
         assert!(plan.contains("DynamicScan") && plan.contains("limit: 1") && !plan.contains("RecordIdScan") && !plan.contains("Sort") && !plan.contains("TableScan"),"bounded primary-key page must push its limit into the scan: {plan}");
     }
+    reader.close().await.unwrap();
     client.invalidate().await.unwrap();
 }
 

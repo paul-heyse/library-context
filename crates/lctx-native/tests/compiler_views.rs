@@ -44,6 +44,7 @@ async fn compiler_backing_nodes(
         lctx_native::surrealdb::Surreal<lctx_native::surrealdb::engine::remote::grpc::Client>,
     >,
     contribution: ContentHash,
+    budget: &ResourceBudget,
 ) -> Vec<lctx_native::surrealdb::types::RecordId> {
     let mut bindings = lctx_native::surrealdb::types::Variables::new();
     bindings.insert(
@@ -53,13 +54,16 @@ async fn compiler_backing_nodes(
             contribution.hex(),
         ),
     );
-    lctx_native::NativeReader::private(client.clone())
+    let reader=lctx_native::NativeReader::private(client.clone()).with_budget(budget);
+    let result=reader
         .query_native(
             "SELECT VALUE node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND record::table(node)='compiler_record'",
             bindings,
         )
-        .await
-        .unwrap()
+        .await;
+    let mut completion=lctx_model::domain::completion::Completion::default();
+    completion.step("compiler backing control reader close",reader.close().await);
+    lctx_model::domain::completion::complete(result,completion).unwrap()
 }
 
 async fn abandon_known_failure(
@@ -175,7 +179,7 @@ async fn abandon_acknowledged_write_failure(
     observer.invalidate().await.unwrap();
 }
 
-fn assert_acknowledged_immutable_collision(failure: &ModelError) {
+fn assert_acknowledged_native_guard(failure: &ModelError, guard: &str) {
     use lctx_native::surrealdb::types::{Number, Value};
     let native = failure
         .primary()
@@ -183,11 +187,11 @@ fn assert_acknowledged_immutable_collision(failure: &ModelError) {
             ModelError::Cause(cause) => cause.downcast_ref::<lctx_native::surrealdb::Error>(),
             _ => None,
         })
-        .expect("exact native immutable-address guard cause");
+        .expect("exact native transaction guard cause");
     assert!(native.is_thrown());
     assert_eq!(
         native.message(),
-        "An error occurred: native immutable address collision"
+        format!("An error occurred: {guard}")
     );
     let Value::Object(wire) = Value::from_t(native.clone()) else {
         panic!("native error wire object");
@@ -291,7 +295,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .await
         .unwrap();
     restored.abandon().await.unwrap();
-    let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
+    let backing_nodes = compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
     assert_eq!(backing_nodes.len(), 1);
 
     let mut before = admin
@@ -911,7 +915,7 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             .write_batch(&replay, &relation, &batch, &native_operation_budget)
             .await
             .unwrap_err();
-        assert_acknowledged_immutable_collision(&error);
+        assert_acknowledged_native_guard(&error, "native immutable address collision");
         store.abandon().await.unwrap();
         store_finalized = true;
         abandon_acknowledged_write_failure(restored, &config, &error).await;
@@ -1057,7 +1061,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         .unwrap();
     let counts: Vec<serde_json::Value> = response.take(0).unwrap();
     assert_eq!(counts, vec![serde_json::json!({"rows":16})]);
-    let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
+    let backing_nodes = compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
     assert_eq!(backing_nodes.len(), 1);
     let mut response = admin
         .query("SELECT VALUE body FROM $nodes WHERE record::table(id)='compiler_record'")
@@ -1178,7 +1182,7 @@ async fn opaque_original_chunks_use_one_physical_owner_and_detect_same_key_confl
         )
         .await
         .unwrap_err();
-    assert_acknowledged_immutable_collision(&error);
+    assert_acknowledged_native_guard(&error, "completed original blob refuses missing or changed piece");
     assert!(store.check().is_err());
     abandon_acknowledged_write_failure(&store, &config, &error).await;
     admin.invalidate().await.unwrap();

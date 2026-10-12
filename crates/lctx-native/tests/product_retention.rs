@@ -3,7 +3,7 @@
 use futures::FutureExt;
 use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{ContentHash, ModelError, Record, Relation, admission::Frontier,
-    completed::{CompletedBinding, ContributionSpec, OutputProfile, attempt_binding}, input::Package, resources::ResourceBudget,
+    completed::{CompletedBinding, CompletedView, ContributionSpec, OutputProfile, attempt_binding}, input::Package, resources::ResourceBudget,
     stages::{Profile, ProviderOutcome}, completion::{Completion, complete}};
 use lctx_native::{RuntimeConfig, control};
 use std::{collections::BTreeMap, sync::Arc};
@@ -12,6 +12,7 @@ use surrealdb::{Surreal, engine::remote::grpc::Client, types::{Object, RecordId,
 struct Product {
     source: Arc<NativeCompilerStore>, client: Arc<Surreal<Client>>, budget: ResourceBudget,
     request: ContentHash, contribution: RecordId, product: RecordId,
+    view: CompletedView,
 }
 fn config() -> RuntimeConfig {
     RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
@@ -31,10 +32,11 @@ impl Product {
         let id=source.begin_contribution(spec).await.unwrap();
         let row=Package{name:format!("retention-{}",request.hex())};
         source.write_batch(&id,&relation,&Package::encode(&[row]).unwrap(),&budget).await.unwrap();
-        source.complete_contribution(id,ProviderOutcome::Complete,&[relation],&BTreeMap::new(),&budget).await.unwrap();
+        let mut views=source.complete_contribution(id,ProviderOutcome::Complete,&[relation],&BTreeMap::new(),&budget).await.unwrap();
+        let view=views.remove(Package::NAME).expect("completed Package singleton view");
         source.retain_product_identity(request,id).await.unwrap();
         Self{product:RecordId::new("native_product",format!("{}_{}",request.hex(),source.attempt().hex())),
-            contribution:RecordId::new("compiler_contribution",id.hex()),source,client,budget,request}
+            contribution:RecordId::new("compiler_contribution",id.hex()),source,client,budget,request,view}
     }
     async fn row(&self, id: &RecordId) -> Option<Object> {
         let mut response=self.client.query("SELECT * FROM $record").bind(("record",id.clone())).await.unwrap().check().unwrap();
@@ -48,7 +50,7 @@ impl Product {
         control::release_retained_product(self.client.clone(),self.request,self.source.attempt(),&self.budget).await.unwrap().unwrap()
     }
     async fn bind(&self) -> (CompletedBinding, RecordId) {
-        let view=self.source.views().await.unwrap().into_iter().find(|view|view.relation==Package::NAME).unwrap();
+        let view=self.view.clone();
         let binding=CompletedBinding{boundary:None,configuration:None,
             source:lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
                 &Relation::of::<Package>(),lctx_model::domain::model().unwrap().digest(),&view).unwrap(),view};
@@ -175,10 +177,14 @@ async fn released_product_collection_preserves_an_independent_reader_and_shared_
         let mut response=product.client.query("SELECT semantic_key,node,content FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$contribution ORDER BY semantic_key")
             .bind(("contribution",product.contribution.clone())).await.unwrap().check().unwrap();let before:Vec<Object>=response.take(0).unwrap();assert_eq!(before.len(),1);
         product.source.abandon().await.unwrap();let job=product.release().await;
-        let progress=control::resume_retirement(&product.client,job,128).await.unwrap();
+        let mut progress=control::resume_retirement(&product.client,job,128).await.unwrap();
+        // Children nominated behind this pass's hashed queue cursor are visited
+        // on the next pass. Drain pending work before inspecting retained claims.
+        while !progress.remaining.is_empty(){progress=control::resume_retirement(&product.client,job,128).await.unwrap();}
         assert!(product.row(&product.product).await.is_none(),"collector can end the released warm owner");
         assert_eq!(product.row(&product.contribution).await,Some(contributor),"reader incidence preserves the shared exact physical contributor");
-        assert!(!progress.retained.is_empty());
+        assert!(progress.retained.contains(&serde_json::to_string(&product.contribution).unwrap()),
+            "the collector must explicitly retain the exact reader-protected contributor");
         let mut response=product.client.query("SELECT semantic_key,node,content FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$contribution ORDER BY semantic_key")
             .bind(("contribution",product.contribution.clone())).await.unwrap().check().unwrap();let after:Vec<Object>=response.take(0).unwrap();assert_eq!(after,before);
         for row in &after {let Some(Value::RecordId(node))=row.get("node") else{panic!("native backing identity")};assert!(product.row(node).await.is_some(),"shared canonical backing remains readable");}
