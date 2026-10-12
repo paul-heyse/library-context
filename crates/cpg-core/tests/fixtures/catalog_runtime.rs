@@ -48,23 +48,26 @@ pub fn root(case: &str) -> std::path::PathBuf {
         .join("../../fixtures/python")
         .join(case)
 }
-pub fn capture(
+pub fn capture(case:&str,profile:Profile,budget:&resources::ResourceBudget)->Arc<CapturedInputs>{
+    try_capture(case,profile,budget).unwrap()
+}
+pub fn try_capture(
     case: &str,
     profile: Profile,
     budget: &resources::ResourceBudget,
-) -> Arc<CapturedInputs> {
+) -> Result<Arc<CapturedInputs>,ModelError> {
     let root = root(case);
     let mut paths = Vec::new();
     let mut pending = vec![root.clone()];
     while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(directory).unwrap() {
-            let path = entry.unwrap().path();
+        for entry in std::fs::read_dir(directory).map_err(|error|ModelError::Cause(Box::new(error)))? {
+            let path = entry.map_err(|error|ModelError::Cause(Box::new(error)))?.path();
             if path.is_dir() {
                 pending.push(path);
             } else {
                 paths.push(
                     path.strip_prefix(&root)
-                        .unwrap()
+                        .map_err(ModelError::codec)?
                         .to_string_lossy()
                         .into_owned(),
                 );
@@ -77,14 +80,14 @@ pub fn capture(
         .filter(|p| p.ends_with(".md") || p.ends_with(".mdx"))
         .cloned()
         .collect::<Vec<_>>();
-    Arc::new(CapturedInputs::new(
+    Ok(Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(
             CapturedInput::capture_derived(&root, &paths, budget, &documents, derive_blocks)
-                .unwrap(),
+                .map_err(|error|ModelError::Cause(Box::new(error)))?,
             case,
         )],
-        cpg_extract::native_context::NativeContextConfig::committed(profile, budget).unwrap(),
-    ))
+        cpg_extract::native_context::NativeContextConfig::committed(profile, budget)?,
+    )))
 }
 pub async fn compile(
     case: &str,

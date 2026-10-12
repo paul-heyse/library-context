@@ -111,7 +111,7 @@ pub async fn produce(
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let metadata = load_metadata(&access, &session, runtime, &mut admission).await?;
     let (expected_parameters, definition) = build::definition();

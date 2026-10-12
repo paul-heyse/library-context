@@ -31,7 +31,7 @@ pub mod completed_rows;
 pub mod completed_logical_rows;
 pub mod binding_descriptor;
 pub mod derivation;
-pub mod upgrade;
+pub mod maintenance;
 
 pub mod derived_search;
 pub mod lexical_stats;

@@ -379,7 +379,7 @@ pub fn inputs(method: AnalysisMethod) -> Vec<ValidationInput> {
 }
 /// Retain only the artifact properties that select expected scope membership. Paths and content
 /// remain with the completed source owner; decoding a batch never retains their rich rows here.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy,PartialEq,Eq)]
 struct ArtifactScope {
     input: Id<InputRevision>,
     class: Option<admission::ArtifactClass>,
@@ -403,6 +403,7 @@ struct PreparedUniforms {
     _charge:charged::StateCharge,
 }
 pub(crate) struct FrontierIndex {
+    coalescing:bool,
     uniform_owners: uniform_outcome::UniformOwners,
     uniform:charged::ChargedMap<Id<uniform_outcome::UniformNotRequested>,uniform_outcome::UniformNotRequested>,
     prepared_uniforms:std::sync::OnceLock<PreparedUniforms>,
@@ -429,6 +430,7 @@ impl FrontierIndex {
     }
     pub(crate) fn new(profile: Profile, budget: &resources::ResourceBudget) -> Self {
         Self {
+            coalescing:false,
             uniform_owners: uniform_outcome::UniformOwners::new(budget),
             uniform:Default::default(),prepared_uniforms:Default::default(),
             charge: charged::StateCharge::new(budget, "analysis_expected_frontier"),
@@ -446,6 +448,7 @@ impl FrontierIndex {
         }
     }
     pub(crate) fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.prepared_uniforms.take();self.uniform_owners.include(owner)}
+    pub(crate) fn coalesce_selected_copies(&mut self){self.coalescing=true;}
     fn visit_artifact_properties(
         &mut self,
         batch: &arrow_array::RecordBatch,
@@ -526,6 +529,7 @@ impl FrontierIndex {
             self.roots.take();
             self.prepared_uniforms.take();
             for row in SourceArtifact::decode(batch)? {
+                if self.coalescing && self.artifacts.get(&row.id())==Some(&ArtifactScope{input:row.input,class:admission::ArtifactClass::of(&row.path)}){continue;}
                 if self
                     .artifacts
                     .insert(&mut self.charge, row.id(), row.into())?
@@ -546,9 +550,11 @@ impl FrontierIndex {
                     }
                     if relation == uniform_outcome::UniformNotRequested::NAME {self.prepared_uniforms.take();}
                     for row in <$r>::decode(batch)? {
+                        let id=row.id();let row=row.into();
+                        if self.coalescing && self.$field.get(&id)==Some(&row){continue;}
                         if self
                             .$field
-                            .insert(&mut self.charge, row.id(), row.into())?
+                            .insert(&mut self.charge, id, row)?
                             .is_some()
                         {
                             return Err(ModelError::Conflict(<$r>::NAME));
@@ -606,6 +612,7 @@ impl FrontierIndex {
         let roots=self.prepared_roots()?;
         let mut prepared=PreparedUniforms{domains:Default::default(),_charge:charged::StateCharge::new(budget,"analysis-uniform-domains")};
         for descriptor in self.uniform.values(){
+            if descriptor.kind!=uniform_outcome::UniformKind::NativeFamily{continue;}
             if !self.inputs.contains_key(&descriptor.input){return Err(invalid("uniform frontier input absent"));}
             let owner=self.uniform_owners.require(descriptor)?;
             if owner.profile()!=self.profile{return Err(invalid("uniform frontier selected profile differs"));}
@@ -620,6 +627,94 @@ impl FrontierIndex {
             prepared.domains.insert(&mut prepared._charge,descriptor.id(),domain)?;
         }
         let _=self.prepared_uniforms.set(prepared);Ok(self.prepared_uniforms.get().expect("prepared uniform domains"))
+    }
+    fn requested(&self, contract:Contract)->Result<bool,ModelError>{
+        Ok(if contract.method == AnalysisMethod::AnalyticEmbedding {
+            if self.text.len() != 1 {
+                return Err(invalid(
+                    "analytic embedding requires one completed text definition",
+                ));
+            }
+            self.text
+                .values()
+                .next()
+                .expect("one text definition")
+                .requested
+        } else if crate::domain::analytics::build::METHODS.contains(&contract.method) {
+            if self.analytics.len() != 1 {
+                return Err(invalid(
+                    "optional analytics requires one immutable configuration",
+                ));
+            }
+            crate::domain::analytics::build::selected(
+                self.analytics
+                    .values()
+                    .next()
+                    .expect("one analytics configuration"),
+                contract.method,
+            )
+        } else {
+            !contract.behavioral || self.profile == Profile::Behavioral
+        })
+    }
+    pub(crate) fn validate_analysis_frames(&self,frames:&charged::ChargedSet<(Id<InputRevision>,Id<AnalysisContext>)>)->Result<(),ModelError>{
+        if frames.iter().any(|(input,_)|!self.inputs.contains_key(input))
+            || self.inputs.keys().any(|input|!frames.iter().any(|(actual,_)|actual==input)) {
+            return Err(invalid("compact analysis exact input/context inventory differs"));
+        }
+        Ok(())
+    }
+    pub(crate) fn assert_uniformly_unrequested(&self,owner:super::owner::AnalysisOwner,
+        definitions:&super::owner::SelectedDefinitions<'_>)->Result<(),ModelError>{
+        for &(method,capability) in owner.methods(){
+            definitions.definition(method)?;
+            if self.requested(contract(method,capability)?)?{return Err(invalid("requested method cannot report compact NotRequested"));}
+        }
+        Ok(())
+    }
+    pub(crate) fn uniform_analysis(&self,kind:super::owner::AnalysisOwner,input:Id<InputRevision>,context:Id<AnalysisContext>,
+        definitions:&normalized::Rows<super::AnalysisDefinition>,budget:&resources::ResourceBudget)
+        ->Result<Option<uniform_outcome::ValidatedUniformDomain>,ModelError>{
+        let mut rows=self.uniform.values().filter(|row|row.kind==uniform_outcome::UniformKind::AnalysisOwner
+            && row.owner==kind.name() && row.input==input && row.context==context);
+        let Some(row)=rows.next() else{return Ok(None);};
+        if rows.next().is_some(){return Err(invalid("ambiguous compact analysis selected owner"));}
+        let owner=self.uniform_owners.require(row)?;
+        if owner.profile()!=self.profile || owner.analysis_owner()!=Some(kind){return Err(invalid("compact analysis semantic owner profile/kind differs"));}
+        let selected=super::owner::SelectedDefinitions{definitions,analytics:None,text:None,retrieval:None};
+        for &(method,_) in kind.methods(){
+            if Some(selected.definition(method)?)!=owner.analysis_definition(method){return Err(invalid("compact analysis selected method definition changed"));}
+        }
+        let (entries,_entries)=self.unrequested_entries(kind,&selected,input,budget)?;
+        let expected=uniform_outcome::ExpectedUniform{kind:row.kind,owner:row.owner.clone(),family:None,input,context,
+            declaration:row.declaration,sources:row.sources,definitions:row.definitions,requested:false};
+        Ok(Some(uniform_outcome::UniformDomain::new(&expected,entries.iter().cloned(),budget)?.validate(row,owner)?))
+    }
+    /// The same fixed scope and request contracts used by ordinary coverage, without
+    /// requiring or synthesizing invocation/coverage rows for an unrequested owner.
+    pub(crate) fn unrequested_entries(&self, owner:super::owner::AnalysisOwner,
+        definitions:&super::owner::SelectedDefinitions<'_>, input:Id<InputRevision>,
+        budget:&resources::ResourceBudget)->Result<(charged::ChargedVec<(CoverageScope,ContentHash)>,charged::StateCharge),ModelError>{
+        if !self.inputs.contains_key(&input){return Err(invalid("compact analysis input absent"));}
+        let roots=self.prepared_roots()?;
+        let mut charge=charged::StateCharge::new(budget,"compact analysis scope entries");
+        let mut entries=charged::ChargedVec::default();
+        for &(method,capability) in owner.methods(){
+            let definition=definitions.definition(method)?;
+            let contract=contract(method,capability)?;
+            if self.requested(contract)?{return Err(invalid("requested method cannot report compact NotRequested"));}
+            for requirement in contract.scopes {
+                let mut add=|scope:CoverageScope|->Result<(),ModelError>{
+                    if self.scopes.get(&scope.id())!=Some(&scope){return Err(invalid("compact analysis captured scope absent"));}
+                    entries.push(&mut charge,(scope,definition.content_digest()))?;Ok(())
+                };
+                match requirement.grain {
+                    admission::Grain::Input=>add(CoverageScope::Input{input})?,
+                    admission::Grain::Artifact(class)=>for artifact in roots.by_grain.get(&(input,class)).into_iter().flatten(){add(CoverageScope::Artifact{artifact:*artifact})?;},
+                }
+            }
+        }
+        Ok((entries,charge))
     }
     pub(crate) fn domain(
         &self,
@@ -707,33 +802,7 @@ impl FrontierIndex {
                 }
             }
         }
-        let requested = if contract.method == AnalysisMethod::AnalyticEmbedding {
-            if self.text.len() != 1 {
-                return Err(invalid(
-                    "analytic embedding requires one completed text definition",
-                ));
-            }
-            self.text
-                .values()
-                .next()
-                .expect("one text definition")
-                .requested
-        } else if crate::domain::analytics::build::METHODS.contains(&contract.method) {
-            if self.analytics.len() != 1 {
-                return Err(invalid(
-                    "optional analytics requires one immutable configuration",
-                ));
-            }
-            crate::domain::analytics::build::selected(
-                self.analytics
-                    .values()
-                    .next()
-                    .expect("one analytics configuration"),
-                contract.method,
-            )
-        } else {
-            !contract.behavioral || self.profile == Profile::Behavioral
-        };
+        let requested = self.requested(contract)?;
         if selected.is_empty() {
             let scope = CoverageScope::Input { input };
             if self.scopes.get(&scope.id()) != Some(&scope) {
@@ -859,6 +928,9 @@ pub struct CoverageAdmission<'a> {
     index: FrontierIndex,
 }
 impl<'a> CoverageAdmission<'a> {
+    pub fn uniform_analysis(&self,kind:super::owner::AnalysisOwner,input:Id<InputRevision>,context:Id<AnalysisContext>,
+        definitions:&normalized::Rows<super::AnalysisDefinition>,budget:&resources::ResourceBudget)
+        ->Result<Option<uniform_outcome::ValidatedUniformDomain>,ModelError>{self.index.uniform_analysis(kind,input,context,definitions,budget)}
     pub fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.index.admit_uniform_owner(owner)}
     pub fn new(
         sources: &'a super::sources::CapturedSources,
@@ -1045,6 +1117,37 @@ mod tests {
     }
     fn fixture() -> Fixture {
         fixture_profile(Profile::Catalog)
+    }
+    #[test]
+    fn compact_analysis_uses_actual_scope_contract_and_refuses_requested_or_mixed_owners(){
+        use super::super::owner::{AnalysisOwner,SelectedDefinitions};
+        let f=fixture();let mut definitions=normalized::Rows::new(&f.budget);
+        definitions.insert(local_semantics::definition().1).unwrap();
+        let selected=SelectedDefinitions{definitions:&definitions,analytics:None,text:None,retrieval:None};
+        let (entries,_entries)=f.index.unrequested_entries(AnalysisOwner::Local,&selected,f.input,&f.budget).unwrap();
+        assert_eq!(entries.len(),1);assert_eq!(entries[0].0.id(),f.python);
+        assert_ne!(entries[0].0.id(),f.document);assert_ne!(entries[0].0.id(),f.root);
+        let behavioral=fixture_profile(Profile::Behavioral);
+        assert!(behavioral.index.unrequested_entries(AnalysisOwner::Local,&selected,behavioral.input,&f.budget).is_err());
+        // Structural has requested DirectUsage/Handoffs in Catalog; no reported outcome can
+        // turn its mixed fixed policy into a whole-owner NotRequested declaration.
+        let settings=analysis::settings::AnalyticsConfiguration{module_prefixes:vec!["pkg".into()],public_roots:vec!["pkg".into()],configured_seeds:vec![],depth:1,vertices:1,arcs:0,witnesses:1,brief_budget:0,communities:false,pagerank:false,fca:false,knn:false,rca:false,type_layer:false,mention_layer:false,knn_layer:false};
+        for method in structural::build::methods(){definitions.insert(structural::build::definition(&settings,method).unwrap().1).unwrap();}
+        let selected=SelectedDefinitions{definitions:&definitions,analytics:None,text:None,retrieval:None};
+        assert!(f.index.assert_uniformly_unrequested(AnalysisOwner::Structural,&selected).is_err());
+    }
+    #[test]
+    fn compact_analysis_empty_domain_has_no_synthetic_input_scope(){
+        use super::super::owner::{AnalysisOwner,SelectedDefinitions};
+        let budget=resources::ResourceBudget::fixed(1<<20).unwrap();
+        let input=InputRevision::from_entries(vec![]).unwrap();
+        let mut index=FrontierIndex::new(Profile::Catalog,&budget);visit(&mut index,std::slice::from_ref(&input));
+        visit(&mut index,&[CoverageScope::Input{input:input.id()}]);
+        let mut definitions=normalized::Rows::new(&budget);definitions.insert(local_semantics::definition().1).unwrap();
+        let selected=SelectedDefinitions{definitions:&definitions,analytics:None,text:None,retrieval:None};
+        let (entries,_entries)=index.unrequested_entries(AnalysisOwner::Local,&selected,input.id(),&budget).unwrap();
+        assert!(entries.is_empty());
+        assert!(index.unrequested_entries(AnalysisOwner::Local,&selected,fixture().input,&budget).is_err());
     }
     fn fixture_profile(profile: Profile) -> Fixture {
         let budget = resources::ResourceBudget::fixed(1 << 24).unwrap();
@@ -1307,6 +1410,47 @@ mod tests {
                 .is_err()
         );
         assert_eq!(f.index.roots.get().unwrap()._charge.reserved(), before);
+    }
+    #[test]
+    fn compact_flow_frontier_requires_selected_owner_and_exact_captured_domain() {
+        use std::sync::Arc;
+        use crate::domain::{input::{InputAcquisition,UnownedArtifact},producer_contract::{self as pc,acquisition::CapturedAcquisition},completed::{ContributionSpec,CompletedContribution,OutputContent,OutputProfile},uniform_outcome::*};
+        let mut f=fixture();
+        let input=f.index.inputs[&f.input].clone();
+        let mut capture=CapturedAcquisition::tree(input.clone(),"frontier compact control".into());
+        let acquisition=InputAcquisition{input:f.input,origin:capture.origin.id()}.id();
+        for (path,bytes,role) in [("api.py",b"x=1\n".as_slice(),SourceRole::Release),("guide.md",b"# Guide\n".as_slice(),SourceRole::Document),("pyproject.toml",b"[project]\n".as_slice(),SourceRole::Configuration)] {
+            let artifact=SourceArtifact::from_bytes(f.input,path.into(),bytes).unwrap();
+            capture.unowned.push(UnownedArtifact{artifact:artifact.id(),acquisition});
+            capture.uses.push(ArtifactUse{artifact:artifact.id(),input:f.input,role});
+            capture.artifacts.push(artifact);
+        }
+        capture.canonicalize();capture.validate().unwrap();
+        let template=f.index.native.values().find(|row|row.family==FactFamily::Syntax).unwrap().clone();
+        for family in [FactFamily::Lexical,FactFamily::Calls]{visit(&mut f.index,&[ProviderCoverage{family,..template.clone()}]);}
+        let contract=pc::facts::assembly();let settings=ContentHash::of(b"assemble");
+        let mut stage=contract.bind(ContentHash::of(b"frontier control implementation"),settings,[]);
+        let binding=stage.captured_binding.as_mut().unwrap();
+        binding.context_dependency=pc::CapturedContextDependency::SemanticContext;
+        binding.sources.push(pc::CapturedSourceBinding{input:f.input,context:Some(f.context),configuration:Some(ContentHash::of(b"finite-grain-control")),acquisition:Arc::new(capture)});
+        let (_,domain)=ExpectedUniform::captured_family(&stage,Profile::Catalog,f.input,f.context,FactFamily::Flow,&f.budget).unwrap();
+        let descriptor=domain.declaration().unwrap();
+        let spec=ContributionSpec{captured_binding:stage.captured_binding,producer:stage.name.into(),profile:OutputProfile::Specific(Profile::Catalog),model:ContentHash::of(b"control model"),implementation:stage.code,configuration:Some(settings),inputs:vec![],outputs:contract.outputs.iter().chain(&contract.contributes).map(|relation|relation.name().to_owned()).collect()};
+        let completed=CompletedContribution{assurance:producer_assurance::ProducerAssurance::CurrentProviderInterface,outputs:spec.outputs.iter().map(|name|(name.clone(),OutputContent{rows:u64::from(name==UniformNotRequested::NAME),content:ContentHash::of(b"control canonical output")})).collect(),spec,outcome:0};
+        visit(&mut f.index,std::slice::from_ref(&descriptor));
+        let method=method_contract(AnalysisMethod::Execution).unwrap();
+        assert!(f.index.domain(f.input,f.context,method).is_err(),"serialized descriptor alone is insufficient");
+        let owner=ValidatedUniformOwner::validate_semantic_binding(&completed,&descriptor,Profile::Catalog,&f.budget).unwrap();
+        f.index.admit_uniform_owner(&owner).unwrap();
+        let domain=f.index.domain(f.input,f.context,method).unwrap();
+        assert_eq!(domain.scopes.len(),1);
+        assert_eq!(domain.scopes[0].native.len(),4);
+        assert_eq!(domain.scopes[0].uniform.len(),1);
+        assert_eq!(domain.scopes[0].uniform[0].descriptor(),descriptor.id());
+        assert_eq!(domain.scopes[0].uniform[0].scope(),f.python);
+        drop(domain);
+        visit(&mut f.index,&[ProviderCoverage{family:FactFamily::Flow,provider:None,run:None,status:CoverageStatus::NotRequested,..template}]);
+        assert!(f.index.domain(f.input,f.context,method).is_err(),"mixed scoped and compact authority refuses");
     }
     #[test]
     fn base_execution_requires_exact_native_families_and_retains_catalog_not_requested() {

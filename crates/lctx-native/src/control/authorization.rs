@@ -141,7 +141,7 @@ impl EffectOwner {
 pub async fn effect(client: &Surreal<Client>, attempt: Option<ContentHash>, sql: &str, bindings: Variables) -> Result<(), ModelError> {
     effect_for_owner(client, attempt.map(EffectOwner::OpenAttempt).unwrap_or(EffectOwner::Installation), sql, bindings).await
 }
-pub(crate) async fn effect_frozen_attempt(client: &Surreal<Client>, attempt: ContentHash, sql: &str, bindings: Variables) -> Result<(), ModelError> {
+pub async fn effect_frozen_attempt(client: &Surreal<Client>, attempt: ContentHash, sql: &str, bindings: Variables) -> Result<(), ModelError> {
     effect_for_owner(client, EffectOwner::FrozenAttempt(attempt), sql, bindings).await
 }
 /// Only this constructor establishes correspondence between an internal payload and

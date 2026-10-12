@@ -156,7 +156,7 @@ pub async fn produce(
     };
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut coverage = CoverageAdmission::new(&sources, budget)?;
+    let mut coverage = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let data = load_inputs(&access, &session, &mut coverage, budget).await?;
     let scopes = if access.profile() == Profile::Behavioral {

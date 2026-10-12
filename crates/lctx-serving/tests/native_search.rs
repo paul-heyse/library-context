@@ -76,13 +76,9 @@ async fn insert<Context>(
         }
     }
     if matches!(table, "lex_occurs" | "vec_occurs" | "vector") {
-        let dependencies: Vec<RecordId> = reader
-            .query(
-                "SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views",
-                reader.view_bindings(),
-            )
-            .await
-            .unwrap();
+        let selected=reader.prepare_selection().await.unwrap().expect("exact installed fixture scope");
+        let mut pointers=selected.pointers().unwrap();let mut dependencies=Vec::new();
+        while let Some(row)=pointers.next_row().unwrap(){dependencies.push(row.as_object().unwrap().get("id").unwrap().as_record().unwrap().clone());}
         for row in &mut rows {
             let Value::Object(row) = row else {
                 panic!("kernel row")
@@ -92,9 +88,9 @@ async fn insert<Context>(
             }
             row.insert("dependencies", dependencies.clone());
             if table != "vector" {
-                let mut vars = reader.view_bindings();
+                let mut vars = Variables::new(); vars.insert("nodes",dependencies.clone());
                 vars.insert("unit_anchor", row.get("unit_node").unwrap().clone());
-                let payloads:Vec<RecordId>=reader.query("SELECT VALUE node FROM compiler_view_member WHERE view IN $lctx_views AND node.anchor=$unit_anchor",vars).await.unwrap();
+                let payloads:Vec<RecordId>=reader.query("SELECT VALUE id FROM $nodes WHERE anchor=$unit_anchor",vars).await.unwrap();
                 let payload = payloads
                     .first()
                     .cloned()
@@ -135,24 +131,10 @@ async fn extend(
     let native_read_budget =
         lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let added = scoped::reader(config, entities, &[]).await.unwrap();
-    let mut views = Vec::new();
-    for reader in [&*native, &added.reader] {
-        let variables = reader.view_bindings();
-        let Some(Value::Array(ids)) = variables.get("lctx_views") else {
-            panic!("explicit views")
-        };
-        for id in ids {
-            let Value::RecordId(id) = id else {
-                panic!("view identity")
-            };
-            let surrealdb::types::RecordIdKey::String(id) = &id.key else {
-                panic!("view hash")
-            };
-            views.push(ContentHash(hex::decode(id).unwrap().try_into().unwrap()));
-        }
-    }
-    *native =
-        NativeReader::for_views(native.shared_client(), views).with_budget(&native_read_budget);
+    let mut installed=fixtures.iter().flat_map(|fixture|fixture.installed.iter().cloned()).collect::<Vec<_>>();
+    installed.extend(added.installed.iter().cloned());
+    let derivation=native.derivation().unwrap();
+    *native=NativeReader::for_installed_views(native.shared_client(),&installed,&native_read_budget).await.unwrap().with_derivation(derivation);
     fixtures.push(added);
 }
 async fn freeze(
@@ -189,7 +171,8 @@ async fn freeze(
         fixtures[0].store.attempt(),
         views,
     )
-    .with_budget(&native_read_budget);
+    .with_derivation(native.derivation().unwrap()).with_budget(&native_read_budget)
+    .with_installed_reader(native).unwrap();
     lctx_native::lexical_stats::materialize(&loader)
         .await
         .unwrap();
@@ -590,11 +573,7 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     let initial = scoped::reader(&config, &[Entity::from(member.clone())], &[])
         .await
         .unwrap();
-    let mut native = NativeReader::for_views(
-        initial.reader.shared_client(),
-        selected_views(&initial.reader),
-    )
-    .with_budget(&native_read_budget);
+    let mut native=NativeReader::for_installed_views(initial.reader.shared_client(),&initial.installed,&native_read_budget).await.unwrap().with_derivation(initial.reader.derivation().unwrap());
     let mut fixtures = vec![initial];
     let mut member_vars = Variables::new();
     member_vars.insert(
@@ -1263,7 +1242,8 @@ async fn lexical_fixture(
         fixture.store.attempt(),
         views,
     )
-    .with_budget(&native_read_budget);
+    .with_derivation(fixture.reader.derivation().unwrap()).with_budget(&native_read_budget)
+    .with_installed_reader(&fixture.reader).unwrap();
     lctx_native::derived_search::materialize_search(&loader)
         .await
         .unwrap();
@@ -1571,6 +1551,7 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
             .await
             .unwrap();
     }
+    drop(aloader);drop(bloader);drop(newloader);
     a.close().await.unwrap();
     b.close().await.unwrap();
     new.close().await.unwrap();
@@ -1761,6 +1742,7 @@ async fn selective_fulltext_matches_complete_analyzer_bm25_for_compounds_and_emp
     lctx_native::derived_search::reconcile_search(&loader)
         .await
         .unwrap();
+    drop(loader);
     fixture.close().await.unwrap();
 }
 

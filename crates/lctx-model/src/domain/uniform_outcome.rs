@@ -4,6 +4,11 @@
 use crate::domain::{*,attribution::{AnalysisContext,ProviderCoverage,FactFamily},input::InputRevision,
     source::CoverageScope,resources::ResourceBudget,charged::{ChargedSet,StateCharge}};
 use crate::{Domain,DomainCode};
+mod analysis_owner;
+#[cfg(test)]
+pub(crate) use analysis_owner::test_support;
+pub(crate) use analysis_owner::AnalysisUniformConsumer;
+pub use analysis_owner::AnalysisUniformInputs;
 #[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
 #[repr(i16)]
 pub enum UniformKind {NativeFamily=0,AnalysisOwner=1}
@@ -87,6 +92,7 @@ struct SemanticOwner {
     profile:stages::Profile,
     descriptor:UniformNotRequested,
     domain:UniformDomain,
+    analysis:Option<(analysis::owner::AnalysisOwner,Vec<analysis::AnalysisDefinition>)>,
     _charge:StateCharge,
 }
 impl ValidatedUniformOwner {
@@ -101,19 +107,28 @@ impl ValidatedUniformOwner {
         let contract=producer_contract::facts::assembly();
         contract.validate_binding(binding,owner.spec.configuration,&[])?;
         contract.validate_context_dependency(binding,owner.spec.profile)?;
+        let expected_domains=binding.sources.iter().map(|source|(source.input,source.context))
+            .collect::<std::collections::BTreeSet<_>>();
         if owner.spec.inputs.iter().map(|input|input.relation()).ne(contract.inputs.iter().map(|input|input.name())) || owner.spec.outputs!=contract.outputs.iter().chain(&contract.contributes).map(|relation|relation.name().to_owned()).collect() || !owner.outputs.get(UniformNotRequested::NAME).is_some_and(|output|output.rows>0) {
             return Err(ModelError::Conflict("uniform outcome owner output inventory"));
+        }
+        if owner.outputs[UniformNotRequested::NAME].rows!=expected_domains.len() as u64 {
+            return Err(ModelError::Conflict("uniform owner omits an exact captured domain, including empty domains"));
         }
         let family=descriptor.family.ok_or(ModelError::Conflict("uniform native family absent"))?;
         let (_,domain)=ExpectedUniform::captured_binding(binding,profile,descriptor.input,descriptor.context,family,budget)?;
         if domain.declaration()?!=*descriptor {return Err(ModelError::Conflict("uniform outcome differs from actual completed declaration"));}
         let mut charge=StateCharge::new(budget,"uniform-semantic-owner");
         charge.grow(size_of::<SemanticOwner>()+descriptor.heap_bytes())?;
-        Ok(Self(std::sync::Arc::new(SemanticOwner{contribution:identity,profile,descriptor:descriptor.clone(),domain,_charge:charge})))
+        Ok(Self(std::sync::Arc::new(SemanticOwner{contribution:identity,profile,descriptor:descriptor.clone(),domain,analysis:None,_charge:charge})))
     }
     pub fn contribution(&self)->ContentHash{self.0.contribution}
     pub fn profile(&self)->stages::Profile{self.0.profile}
     pub fn descriptor(&self)->&UniformNotRequested{&self.0.descriptor}
+    pub fn analysis_owner(&self)->Option<analysis::owner::AnalysisOwner>{self.0.analysis.as_ref().map(|(owner,_)|*owner)}
+    pub fn analysis_definition(&self,method:analysis::AnalysisMethod)->Option<&analysis::AnalysisDefinition>{
+        self.0.analysis.as_ref()?.1.iter().find(|definition|definition.method==method)
+    }
     pub fn scoped_evidence(&self,scope:Id<CoverageScope>,definition:ContentHash)->Option<UniformScopedEvidence>{
         self.0.domain.evidence(self.0.descriptor.id(),scope,definition)
     }
@@ -148,7 +163,9 @@ pub enum ScopedUniformOutcome {NotRequested(CoverageAuthority),OutsideDomain}
 pub struct ValidatedUniformDomain {descriptor:Id<UniformNotRequested>,domain:UniformDomain}
 // Membership storage is retained under UniformDomain's own lease.
 impl HeapSize for ValidatedUniformDomain {}
+impl HeapSize for std::sync::Arc<ValidatedUniformDomain> {}
 impl ValidatedUniformDomain {
+    pub fn descriptor_row(&self)->Result<UniformNotRequested,ModelError>{self.domain.declaration()}
     pub fn evidence(&self,scope:Id<CoverageScope>,definition:ContentHash)->Option<UniformScopedEvidence>{
         self.domain.evidence(self.descriptor,scope,definition)
     }
@@ -158,6 +175,28 @@ impl ValidatedUniformDomain {
     pub fn is_explicit_empty(&self)->bool{self.domain.members.is_empty()}
     pub fn authority(&self)->CoverageAuthority{CoverageAuthority::Uniform{descriptor:self.descriptor}}
     pub fn members(&self)->impl Iterator<Item=&(Id<CoverageScope>,ContentHash)>{self.domain.members.iter()}
+}
+
+/// Already resolved current analysis predecessor domains. These carry the selected
+/// owner proof; a descriptor row alone cannot populate this inventory.
+pub struct AnalysisPredecessors {
+    domains:charged::ChargedMap<(String,Id<InputRevision>,Id<AnalysisContext>),std::sync::Arc<ValidatedUniformDomain>>,
+    charge:StateCharge,
+}
+impl AnalysisPredecessors {
+    pub fn new(budget:&ResourceBudget)->Self{Self{domains:Default::default(),charge:StateCharge::new(budget,"resolved compact analysis parents")}}
+    pub fn include(&mut self,domain:ValidatedUniformDomain)->Result<(),ModelError>{
+        let row=domain.descriptor_row()?;
+        if row.kind!=UniformKind::AnalysisOwner{return Err(ModelError::Conflict("analysis predecessor requires analysis owner"));}
+        let key=(row.owner.clone(),row.input,row.context);
+        if let Some(prior)=self.domains.get(&key){if prior.descriptor_row()?!=row{return Err(ModelError::Conflict("ambiguous compact analysis predecessor"));}return Ok(());}
+        self.charge.grow(2*size_of::<usize>()+size_of::<ValidatedUniformDomain>())?;
+        self.domains.insert(&mut self.charge,key,std::sync::Arc::new(domain))?;Ok(())
+    }
+    pub fn get(&self,kind:analysis::owner::AnalysisOwner,input:Id<InputRevision>,context:Id<AnalysisContext>)->Result<Option<Id<UniformNotRequested>>,ModelError>{
+        self.domains.get(&(kind.name().to_owned(),input,context)).map(|domain|domain.descriptor_row().map(|row|row.id())).transpose()
+    }
+    pub fn retain(&self,budget:&ResourceBudget)->Result<Self,ModelError>{let mut retained=Self::new(budget);for (key,domain) in self.domains.iter(){retained.domains.insert(&mut retained.charge,key.clone(),domain.clone())?;}Ok(retained)}
 }
 impl UniformDomain {
     fn evidence(&self,descriptor:Id<UniformNotRequested>,scope:Id<CoverageScope>,definition:ContentHash)->Option<UniformScopedEvidence>{

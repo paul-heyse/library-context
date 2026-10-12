@@ -12,7 +12,7 @@ fn fixture(paths:&[&str],budget:&resources::ResourceBudget)->(CapturedAcquisitio
     let (_,domain)=ExpectedUniform::captured_family(&stage,Profile::Catalog,input.id(),context.id(),FactFamily::Flow,budget).unwrap();let descriptor=domain.declaration().unwrap();
     let spec=ContributionSpec{captured_binding:stage.captured_binding,producer:stage.name.into(),profile:OutputProfile::Specific(Profile::Catalog),model:ContentHash::of(b"pure model"),implementation:stage.code,configuration:Some(settings),inputs:vec![],outputs:contract.outputs.iter().map(|relation|relation.name().to_owned()).collect()};
     let outputs=spec.outputs.iter().map(|name|(name.clone(),OutputContent{rows:u64::from(name==UniformNotRequested::NAME),content:ContentHash::of(b"semantic-only fixture; native membership is independent")})).collect();
-    (capture,context,descriptor,CompletedContribution{spec,outcome:0,outputs})
+    (capture,context,descriptor,CompletedContribution{ assurance: lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,spec,outcome:0,outputs})
 }
 #[test]
 fn compact_uniform_scoped_operation_requires_actual_semantic_owner_and_exact_domain(){
@@ -29,6 +29,8 @@ fn compact_uniform_scoped_operation_requires_actual_semantic_owner_and_exact_dom
     let mut changed=row.clone();changed.sources=ContentHash::of(b"foreign capture");assert!(ValidatedUniformOwner::validate_semantic_binding(&completed,&changed,Profile::Catalog,&budget).is_err());
     changed=row.clone();changed.definitions=ContentHash::of(b"foreign policy");assert!(ValidatedUniformOwner::validate_semantic_binding(&completed,&changed,Profile::Catalog,&budget).is_err());
     let mut incomplete=completed.clone();incomplete.outputs.pop_first();assert!(ValidatedUniformOwner::validate_semantic_binding(&incomplete,&row,Profile::Catalog,&budget).is_err());
+    let mut incomplete=completed.clone();incomplete.outputs.get_mut(UniformNotRequested::NAME).unwrap().rows+=1;
+    assert!(ValidatedUniformOwner::validate_semantic_binding(&incomplete,&row,Profile::Catalog,&budget).is_err(),"the producer must account for every exact captured domain, including empty ones");
 }
 #[test]
 fn explicit_empty_uniform_domain_is_not_missing_coverage_and_retains_its_budget_owner(){

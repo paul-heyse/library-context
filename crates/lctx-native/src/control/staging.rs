@@ -3,7 +3,6 @@
 use super::*;
 use crate::completed_state::HeldFrozenCompletedState;
 use lctx_model::domain::resources::ResourceBudget;
-
 /// Neither a root ID nor deserialized completion data constructs this capability.
 /// The native factory first earns a held, independently checked completed state.
 pub struct DerivedStaging {
@@ -164,7 +163,7 @@ impl DerivedStaging {
         handle.validate_identity()?;manifest.validate()?;
         if loader.staging_root()!=Some(&self.root) || loader.derivation()?!=self.derivation
             || handle.realization!=self.derivation || handle.service_generation!=data.generation
-            || handle.semantic!=manifest.content() || manifest.completed_state!=data.completed_state
+            || handle.semantic!=manifest.content() || manifest.completed_state!=lctx_model::domain::completed::CompletedStateIdentity::from_roots(&data.roots)?
             || handle.view!=data.bindings || lctx_model::domain::completed::binding_inventory_identity(views)?!=data.bindings {
             return Err(ModelError::Conflict("publication marker completed scope"));
         }
@@ -209,7 +208,8 @@ impl DerivedStaging {
                 // confirmed refusal permits a separately issued winner observation.
                 if !error.permits_storage_cleanup(){return Err(error);}
                 if existing_marker(loader,&RecordId::new("publication",handle.publication.hex()),&marker_value(handle,manifest,views)?).await? {
-                    check_published(loader,handle,budget).await?;Ok(PublishedMarker{handle:handle.clone()})
+                    check_published(loader,handle,budget).await?;
+                    Ok(PublishedMarker{handle:handle.clone()})
                 }else{Err(error)}
             }
         }

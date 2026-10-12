@@ -264,6 +264,7 @@ fn manifest_distinguishes_exact_empty_partial_and_missing_obligations() {
         captures: vec![EntityId(hash(3))],
         semantic_contract: hash(4),
         producers: vec![ProducerImplementation {
+            assurance: d::producer_assurance::ProducerAssurance::CurrentProviderInterface.summary().unwrap(),
             contract: None,
             producer: "native".into(),
             implementation: hash(5),

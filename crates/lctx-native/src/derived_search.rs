@@ -938,15 +938,28 @@ mod occurrence_budget_tests {
             )
             .await
             .unwrap();
-        let views = views.values().map(|view| view.identity).collect::<Vec<_>>();
+        let descriptors=views.values().cloned().collect::<Vec<_>>();
+        let views = descriptors.iter().map(|view| view.identity).collect::<Vec<_>>();
         let client = lctx_compiler_store::reader::connect(&config.endpoint, &config.writer_credentials(), store.namespace().as_str(), store.database().as_str()).await.unwrap();
-        let loader = Loader::for_attempt_views(client.clone(), store.attempt(), views.clone())
+        let derivation=ContentHash::of(format!("occurrence-driver-control/{}",store.attempt().hex()).as_bytes());
+        let loader = Loader::for_attempt_views(client.clone(), store.attempt(), views.clone()).with_derivation(derivation)
             .with_budget(&fixture_budget);
         loader
             .entity_references(&[graph::Entity::from(unit.clone())])
             .await
             .unwrap();
-        let reader = NativeReader::for_views(client.clone(), views).with_budget(&fixture_budget);
+        // The dev dependency owns a separately compiled native crate. Its metadata
+        // supplies only exact mappings; this crate independently earns its own
+        // capability by auditing the actual persisted closure and memberships.
+        let mut installed=Vec::with_capacity(descriptors.len());
+        for descriptor in &descriptors {
+            let source=store.installed_view(descriptor,&fixture_budget).await.unwrap();
+            let mappings=source.completion().mappings.iter().map(|mapping|crate::installed_view::ContributorRealization{
+                view:mapping.view,logical:mapping.logical,physical:mapping.physical,incarnation:mapping.incarnation,
+            }).collect::<Vec<_>>();
+            installed.push(std::sync::Arc::new(crate::installed_view::install_live_view(client.clone(),store.attempt(),descriptor,&mappings,&fixture_budget).await.unwrap()));
+        }
+        let reader=crate::NativeReader::for_installed_views(client.clone(),&installed,&fixture_budget).await.unwrap().with_derivation(derivation);
         let payload = typed_payload(&unit).unwrap();
         assert!(
             reader

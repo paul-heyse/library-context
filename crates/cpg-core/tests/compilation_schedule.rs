@@ -42,6 +42,23 @@ fn prepared_schedules_bind_canonical_values_to_completed_producer_epochs() {
                 selected
             );
             let schedule = prepared.schedule(&model, &providers, profile).unwrap();
+            for (name,checkpoint) in [
+                ("analyze_local",PublicationBoundary::Facts),("evaluate_base",PublicationBoundary::Local),
+                ("complete_base",PublicationBoundary::BaseEvaluation),("prepare_source_calls",PublicationBoundary::BaseCompletion),
+                ("enrich_execution",PublicationBoundary::SourceCall),("apply_models",PublicationBoundary::EnrichedExecution),
+                ("analyze_summaries",PublicationBoundary::Model),("analyze_structural",PublicationBoundary::Summary),
+                ("analytic_embedding",PublicationBoundary::Structural),("analyze_analytic",PublicationBoundary::AnalyticEmbedding),
+                ("catalog_evidence",PublicationBoundary::SourceCall),("catalog_selection",PublicationBoundary::SourceCall),
+                ("synthesis",PublicationBoundary::Analytic),("retrieval",PublicationBoundary::Synthesis),
+            ] {
+                let stage=schedule.stages().iter().find(|stage|stage.name==name).unwrap();
+                let uniform:Vec<_>=stage.inputs.iter().filter(|input|input.name()==uniform_outcome::UniformNotRequested::NAME).collect();
+                assert_eq!(uniform.len(),1,"{name} must select one cumulative compact predecessor inventory");
+                assert_eq!(uniform[0].prefix(),Some(checkpoint),"{name} must select its real predecessor boundary");
+                let owner=analysis::owner::AnalysisOwner::resolve(name).unwrap();
+                assert_eq!(stage.outputs.iter().any(|output|output.name()==uniform_outcome::UniformNotRequested::NAME),owner.can_be_wholly_unrequested());
+                assert!(!stage.contributes.iter().any(|output|output.name()==uniform_outcome::UniformNotRequested::NAME));
+            }
             for name in [
                 embedding::value::FullValue::NAME,
                 embedding::projection::ProjectedValue::NAME,

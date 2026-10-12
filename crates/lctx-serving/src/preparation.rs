@@ -655,7 +655,7 @@ impl Preparation<'_> {
         &self,
         batches: &PreparedBatches,
         kind: &'static str,
-        build: fn(&CanonicalBatches, &ResourceBudget) -> Result<PreparedData, ModelError>,
+        build: impl Fn(PreparedBatches,ResourceBudget)->Initialization + Send + Sync + 'static,
     ) -> Result<Arc<ChargedPreparedValue>, ModelError> {
         if batches.0._lease._pin != self.cache.pin {
             return Err(ModelError::Conflict("typed preparation pin"));
@@ -672,25 +672,40 @@ impl Preparation<'_> {
             key.extend_from_slice(kind.as_bytes());
             key.extend_from_slice(&batches.0._key.bytes);
             let key = ExactPreparedKey { bytes: Arc::new(key), _charge: Arc::new(charge) };
-            let batches = batches.clone();
+            let batches = batches.clone();let build=Arc::new(build);
             self.cache.load(key, Box::new(move |budget| {
-                let batches = batches.clone();
-                Box::pin(async move { build(&batches, &budget) })
+                build(batches.clone(),budget)
             })).await
         }.await;
         let resumed = self.admission.resume().await;
         match result { Ok(value) => { resumed?; Ok(value) }, Err(error) => Err(error) }
     }
-    pub(crate) async fn domains(&self, batches: &PreparedBatches) -> Result<PreparedDomains, ModelError> {
-        self.interpret(batches, "library-domains/v1", |batches, budget| {
-            let mut data = lctx_model::domain::serving::LibraryAdmissionData::new(budget);
-            for (name, batch) in &batches.batches { data.visit(name, batch)?; }
-            Ok(PreparedData::Domains(Arc::new(lctx_model::domain::serving::PreparedLibraryDomains::prepare(&data, budget)?)))
+    pub(crate) async fn domains_published(&self,reader:&lctx_native::NativeReader,batches:&PreparedBatches)->Result<PreparedDomains,ModelError>{
+        self.domains_inner(Some(reader.clone()),batches).await
+    }
+    #[cfg(test)]
+    pub(crate) async fn domains(&self,batches:&PreparedBatches)->Result<PreparedDomains,ModelError>{self.domains_inner(None,batches).await}
+    async fn domains_inner(&self,reader:Option<lctx_native::NativeReader>,batches:&PreparedBatches)->Result<PreparedDomains,ModelError>{
+        self.interpret(batches, "library-domains/v2", move |batches, budget| {
+            let reader=reader.clone();
+            Box::pin(async move {
+                let mut data = lctx_model::domain::serving::LibraryAdmissionData::new(&budget);
+                for (name, batch) in &batches.batches { data.visit(name, batch)?; }
+                if !data.uniform.is_empty(){
+                    let _scratch=budget.reserve("prepared library compact descriptor transfer",data.uniform.len().saturating_mul(1024))?;
+                    let rows=data.uniform.iter().cloned().collect::<Vec<_>>();
+                    let reader=reader.as_ref().ok_or(ModelError::Conflict("compact domain preparation requires actual published owner"))?;
+                    let completed=lctx_native::completed_state::published_completed_state(reader,&budget).await?;
+                    let owners=completed.admit_uniform_owners(&rows,&budget).await?;
+                    for owner in owners.owners(){data.admit_uniform_owner(owner)?;}
+                }
+                Ok(PreparedData::Domains(Arc::new(lctx_model::domain::serving::PreparedLibraryDomains::prepare(&data,&budget)?)))
+            }) as Initialization
         }).await.map(PreparedDomains)
     }
     pub(crate) async fn classification(&self, batches: &PreparedBatches) -> Result<PreparedClassification, ModelError> {
         self.interpret(batches, "classification-index/v1", |batches, budget| {
-            Ok(PreparedData::Classification(Arc::new(crate::selection::interpret(batches, budget)?)))
+            Box::pin(async move {Ok(PreparedData::Classification(Arc::new(crate::selection::interpret(&batches,&budget)?)))}) as Initialization
         }).await.map(PreparedClassification)
     }
     pub(crate) async fn hydrate(

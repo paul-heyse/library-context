@@ -65,6 +65,7 @@ pub fn lowering_allowance(
     };
     let column_len = |column: &ScopeColumn| column.field.len().saturating_mul(2).saturating_add(32);
     let value_len = |value: &ScopeValue| match value {
+        ScopeValue::AbsentNominal=>4,
         ScopeValue::Nominal(_) => 36,
         ScopeValue::Nominals(keys) => keys.len().saturating_mul(40).saturating_add(2),
         ScopeValue::Text(text) => text.len().saturating_mul(2).saturating_add(2),
@@ -252,6 +253,7 @@ pub fn select_pair_queries(
 }
 fn literal(value: &ScopeValue) -> String {
     match value {
+        ScopeValue::AbsentNominal=>"NULL".into(),
         ScopeValue::Nominal(key) => format!("X'{}'", hex::encode(key)),
         ScopeValue::Nominals(keys) => format!(
             "({})",
@@ -691,6 +693,25 @@ mod controls {
         resources::ResourceBudget,
     };
     use std::sync::Arc;
+    #[tokio::test]
+    async fn compact_parent_absence_preserves_finite_and_relational_nominal_selection(){
+        let model=model().unwrap();let budget=ResourceBudget::fixed(64<<20).unwrap();
+        let package=input::Package{name:"actual-package".into()};let release=input::Release{package:package.id(),version:"1".into()};
+        let column=|row,field|ScopeColumn{row,field};
+        let program=ScopeProgram{inputs:vec![ValidationInput::of::<input::Package>(&["id"]),ValidationInput::of::<input::Release>(&["id"])],ports:vec![ScopePort{input:0,virtual_owner:false},ScopePort{input:1,virtual_owner:false}],rules:vec![ScopeRule::Pairs{source:0,target:1,rows:vec![0,1],predicates:vec![ScopePredicate::Equal(column(0,"id"),column(1,"package")),ScopePredicate::Parameter(column(1,"id"),0)],source_key:column(0,"id"),target_key:column(1,"id")}]};
+        let finite=FiniteScope::new(program.clone(),vec![vec![FiniteScopeRow::of(&package)],vec![FiniteScopeRow::of(&release)]],&model,&budget).unwrap();
+        let session=SessionContext::new();
+        for (name,batch) in [("compact_packages",input::Package::encode(std::slice::from_ref(&package)).unwrap()),("compact_releases",input::Release::encode(std::slice::from_ref(&release)).unwrap())]{session.register_table(name,Arc::new(MemTable::try_new(batch.schema(),vec![vec![batch]]).unwrap())).unwrap();}
+        let tables=vec![ClosureTable{relation:Relation::of::<input::Package>(),alias:"compact_packages".into()},ClosureTable{relation:Relation::of::<input::Release>(),alias:"compact_releases".into()}];
+        for (parameter,expected_members) in [(ScopeValue::AbsentNominal,0),(ScopeValue::Nominal(*release.id().bytes()),1)]{
+            let parameters=ScopeParameters(vec![parameter]);
+            let expected=finite.select(&[(0,*package.id().bytes())],&parameters,&budget).unwrap();
+            let prepared=lower_with(&program,&tables,&parameters).unwrap().prepare(&session,&budget).await.unwrap();
+            let actual=prepared.batch(&[PreparedRoot{table:0,key:*package.id().bytes(),kind:PreparedRootKind::Physical}],&budget).await.unwrap();
+            let release_keys=actual.keys(0,1).unwrap().collect::<Vec<_>>();assert_eq!(release_keys.len(),expected_members);
+            let expected_keys=expected.partition(0).unwrap().iter().filter_map(|(table,key)|(*table==1).then_some(*key)).collect::<Vec<_>>();assert_eq!(release_keys,expected_keys);assert_eq!(actual.outcomes(),expected.outcomes());
+        }
+    }
     #[tokio::test]
     async fn finite_and_relational_programs_preserve_absence_and_reached_reverse_members() {
         let package = input::Package {

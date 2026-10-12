@@ -123,7 +123,7 @@ pub async fn produce(
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let (data, context) = load_initial(&access, &session, runtime, &mut admission).await?;
 
@@ -140,12 +140,13 @@ pub async fn produce(
     )
     .await?;
     drop(session);
-    drop(context);
+    let definitions=context.definitions;
     drop(data);
     for core in parents.iter() {
         let grain = scopes.grain(core.id(), runtime.budget()).await?;
         let (data, mut context) = load_grain(&scopes, &access, &grain, runtime).await?;
         drop(grain);
+        if let Some(domain)=admission.uniform_analysis(analysis::owner::AnalysisOwner::Local,core.input,core.context,&definitions,runtime.budget())?{context.admit_compact_local(domain)?;}
         let (results, receipts, projections) = derive_parent(
             &data,
             &mut context,
@@ -289,7 +290,7 @@ fn derive_parent(
     let mut results = semantic::Output::new(runtime.budget());
     let mut receipts = normalized::Rows::new(runtime.budget());
     let mut projections = normalized::Rows::new(runtime.budget());
-    let local = context.local_parent(core)?.id();
+    let local = context.local_source(core)?;
     for method in build::methods() {
         let (parameters, definition) = build::definition(settings, method)?;
         if context.definitions.get(definition.id()) != Some(&definition)
@@ -300,7 +301,7 @@ fn derive_parent(
             ));
         }
         let parents = [
-            owner::InvocationSource::Local { invocation: local },
+            local.clone(),
             owner::InvocationSource::CatalogCore {
                 invocation: core.id(),
             },

@@ -53,14 +53,13 @@ pub fn validate_state_row(table: &str, row: &Value) -> Result<Option<OriginalBac
                         }
                     })
                     .is_none_or(|attempt| {
-                        id.key
-                            != RecordIdKey::String(
-                                attempt_contribution(
-                                    attempt,
-                                    descriptor.spec.identity().expect("validated specification"),
-                                )
-                                .hex(),
-                            )
+                        // Producing owners allocate before completion is known; detached
+                        // imports already know the full descriptor and preserve distinct
+                        // completions of an otherwise identical specification.
+                        let producing = attempt_contribution(attempt, descriptor.spec.identity().expect("validated specification"));
+                        let detached = attempt_contribution(attempt, descriptor.identity().expect("validated completion"));
+                        id.key != RecordIdKey::String(producing.hex())
+                            && id.key != RecordIdKey::String(detached.hex())
                     })
             {
                 return Err(ModelError::Conflict("completed contribution identity"));

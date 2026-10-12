@@ -1,6 +1,6 @@
 //! Cooperative retry stop never aborts an in-flight transaction or its reconciliation.
 use super::*;
-use std::{future::Future, sync::atomic::{AtomicBool, Ordering}, time::Duration};
+use std::{future::Future, sync::atomic::{AtomicBool, AtomicU64, Ordering}, time::Duration};
 
 #[derive(Default)]
 struct State { stopped: AtomicBool, changed: tokio::sync::Notify }

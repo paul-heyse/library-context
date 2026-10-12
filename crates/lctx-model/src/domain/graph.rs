@@ -4045,7 +4045,7 @@ pub fn admit_assertion(assertion: &Assertion, lookup: &impl GraphLookup) -> Resu
     Ok(())
 }
 
-pub const ARTIFACT_FORMAT_VERSION: u32 = 3;
+pub const ARTIFACT_FORMAT_VERSION: u32 = 4;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u16)]
 pub enum GraphFamily {
@@ -4114,6 +4114,7 @@ impl FamilyHasher {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProducerImplementation {
+    pub assurance: super::producer_assurance::ProducerAssuranceSummary,
     #[serde(deserialize_with="super::producer_contract::required_optional")]
     pub contract: Option<ContentHash>,
     pub producer: String,
@@ -4192,7 +4193,7 @@ impl Manifest {
         manifest.validate()?;Ok(manifest)
     }
     pub fn content(&self) -> ContentHash {
-        let mut sink = KeySink::new("graph-artifact/v3");
+        let mut sink = KeySink::new("graph-artifact/v4");
         sink.part(b"u32", &self.format_version.to_le_bytes());
         self.completed_state.content.encode(&mut sink);
         sink.part(b"completed-state-format_version",&self.completed_state.format_version.to_le_bytes());
@@ -4207,6 +4208,7 @@ impl Manifest {
         self.settings.encode(&mut sink);
         sink.part(b"producers", &(self.producers.len() as u64).to_le_bytes());
         for p in &self.producers {
+            p.assurance.encode(&mut sink);
             p.contract.encode(&mut sink);
             p.producer.encode(&mut sink);
             p.implementation.encode(&mut sink);
@@ -4288,6 +4290,7 @@ impl Manifest {
         if self.producers.iter().any(|p| p.producer.is_empty()) {
             return Err(invalid("manifest producer needs name"));
         }
+        for producer in &self.producers { producer.assurance.validate(producer.contract)?; }
         if self.outcomes.len() != self.required_outcomes.len()
             || self
                 .outcomes

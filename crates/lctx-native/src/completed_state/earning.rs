@@ -24,10 +24,10 @@ fn member(realization:ContentHash,row:&Value)->Result<Value,ModelError>{
 pub(crate) async fn root_members(reader:&crate::NativeReader<()>,selection:&ViewSelection,realization:ContentHash,budget:&ResourceBudget)->Result<PreparedRows,ModelError>{
     let mut result=SortedRows::with_budget(budget)?;
     for logical in &selection.view.contributions {
-        let mapping=&selection.mappings[selection.mappings.binary_search_by_key(logical,|mapping|mapping.logical).map_err(|_|ModelError::Conflict("root contribution missing exact mapping"))?];
+        let mapping=&selection.mappings[selection.mappings.binary_search_by_key(&(selection.view.identity,*logical),|mapping|(mapping.view,mapping.logical)).map_err(|_|ModelError::Conflict("root contribution missing exact mapping"))?];
         let mut variables=Variables::new();variables.insert("owner",RecordId::new("compiler_contribution",mapping.physical.hex()));variables.insert("relation",selection.view.relation.clone());
         let mut rows=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],vec!["SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation".into()])?)?;
-        let outcome=async {while let Some(row)=rows.next_native().await? {
+        let outcome=async {while let Some(row)=rows.next().await? {
             let _scratch=budget.reserve("completed root member lowering",crate::loader::native_bytes(&row).saturating_mul(32).saturating_add(65536))?;
             crate::completed_rows::validate_state_row("compiler_membership",&row)?;result.push(member(realization,&row)?)?;
         }Ok::<_,ModelError>(())}.await;
@@ -39,7 +39,7 @@ pub(crate) async fn verify_members(reader:&crate::NativeReader<()>,realization:C
     let root=RecordId::new("compiler_view_realization",realization.hex());let mut actual=SortedRows::with_budget(budget)?;
     let mut variables=Variables::new();variables.insert("realization",root.clone());
     let mut stream=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],vec!["SELECT * FROM compiler_view_member WITH INDEX realization_nodes WHERE realization=$realization".into()])?)?;
-    let outcome=async {let mut count=0u64;while let Some(row)=stream.next_native().await? {
+    let outcome=async {let mut count=0u64;while let Some(row)=stream.next().await? {
         let _scratch=budget.reserve("completed actual member envelope",crate::loader::native_bytes(&row).saturating_mul(32).saturating_add(65536))?;
         let Some(Value::RecordId(id))=row.as_object().and_then(|row|row.get("id")) else{return Err(ModelError::Schema("completed actual member id"));};
         let Some(Value::RecordId(node))=row.as_object().and_then(|row|row.get("node")) else{return Err(ModelError::Schema("completed actual member node"));};
@@ -83,7 +83,9 @@ pub async fn complete_frozen_content(client:Arc<Surreal<Client>>,fence:&FrozenCo
             let closure=installed_view::audit::inspect_closure(&reader,&selection.view,&selection.mappings,budget).await?;
             installed_view::audit::audit_memberships(&reader,&closure,budget).await?;
             let aliases=installed_view::audit::audit_aliases(&reader,&closure,budget).await?;
-            let mut aliases_cursor=aliases.cursor_with_budget(budget)?;while let Some(alias)=aliases_cursor.next_row()?{all_aliases.push(alias)?;}
+            if bindings.iter().any(|binding|binding.view.identity==selection.view.identity) {
+                let mut aliases_cursor=aliases.cursor_with_budget(budget)?;while let Some(alias)=aliases_cursor.next_row()?{all_aliases.push(alias)?;}
+            }
             let realization=installed_view::realization_id(&selection.view,&selection.mappings)?;
             let root=RecordId::new("compiler_view_realization",realization.hex());
             let members=root_members(&reader,selection,realization,budget).await?;
@@ -97,6 +99,25 @@ pub async fn complete_frozen_content(client:Arc<Surreal<Client>>,fence:&FrozenCo
                 verify_installed_ref(&reader,data,reference,budget).await?;references.push(reference.clone());closures.push(closure);continue;
             }
             let existing=crate::control::inspect_expected_read(&reader,root.clone(),budget).await?;
+            if let Some(existing)=&existing {
+                if existing.row()==&installed_view::realization_declaration(&selection.view,&selection.mappings,true)? {
+                    // Live production and retained-product attachment already earned
+                    // this exact namespace. Independently audit it, then retain its
+                    // original completion without reinstalling one member pointer.
+                    let current_revision=revision(&reader,&root).await?;
+                    let membership_content=verify_members(&reader,realization,&members,selection.view.rows,budget).await?;
+                    charge.grow(selection.mappings.len().saturating_mul(std::mem::size_of::<ContributorRealization>()).saturating_add(selection.view.contributions.len().saturating_mul(128)).saturating_add(8192))?;
+                    let metadata=InstalledViewCompletion{generation:fence.generation(),validity_epoch:fence.validity_epoch(),realization_incarnation:existing.incarnation(),version:1,view:selection.view.clone(),realization,member_codec:installed_view::MEMBER_CODEC,mappings:selection.mappings.clone(),closure:closure_roots,membership_rows:selection.view.rows,membership_content,frozen_revision:0};
+                    let original=installed_view::audit::original_held_completion(&reader,&RecordId::new("native_attempt",fence.attempt().hex()),&metadata,current_revision,budget).await?;
+                    let installed=&original.completion;let persisted=&original.expected;
+                    require_hold(&reader,&RecordId::new("native_attempt",fence.attempt().hex()),persisted.record()).await?;
+                    require_hold(&reader,persisted.record(),&root).await?;
+                    require_hold(&reader,&root,&RecordId::new("compiler_view",selection.view.identity.hex())).await?;
+                    for mapping in &selection.mappings {require_hold(&reader,&root,&RecordId::new("compiler_contribution",mapping.physical.hex())).await?;}
+                    crate::control::completed::retain_installed_view(&client,fence,existing,persisted,current_revision,budget).await?;
+                    references.push(InstalledViewRef{logical_view:selection.view.identity,realization,incarnation:existing.incarnation(),installation_completion:installed.identity()?});closures.push(closure);continue;
+                }
+            }
             let declaration=installed_view::realization_declaration(&selection.view,&selection.mappings,false)?;
             let declaration=if let Some(existing)=&existing {
                 if existing.row()!=&declaration && existing.row()!=&installed_view::realization_declaration(&selection.view,&selection.mappings,true)?{return Err(ModelError::Conflict("realization declaration changed"));}
@@ -106,7 +127,7 @@ pub async fn complete_frozen_content(client:Arc<Surreal<Client>>,fence:&FrozenCo
             for mapping in &selection.mappings {
                 // Contribution predicate writes serialize this audit with every output/
                 // alias incidence accepted before contribution completion.
-                crate::control::completed::hold_selected_contributor(&client,fence,&root,&closure.contributors[&mapping.logical],budget).await?;
+                crate::control::completed::hold_selected_contributor(&client,fence,&root,&closure.contributors[&mapping.physical],budget).await?;
             }
             let mut cursor=members.cursor_with_budget(budget)?;
             while let Some(member)=cursor.next_row()? {
@@ -128,7 +149,11 @@ pub async fn complete_frozen_content(client:Arc<Surreal<Client>>,fence:&FrozenCo
         let all_views=closures.iter().flat_map(|closure|closure.logical.views().keys().copied()).collect::<std::collections::BTreeSet<_>>();
         if !all_views.iter().copied().eq(selections.iter().map(|selection|selection.view.identity)){return Err(ModelError::Conflict("complete installed inventory must explicitly include entire dependency closure"));}
         let aliases=all_aliases.finish()?.into_prepared();
-        let roots=installed_view::audit::logical_roots_many(&reader,&closures,bindings,&aliases,budget).await?;
+        // Product singleton namespaces are protected physical retention roots. They
+        // must not change portable artifact meaning merely because reuse was enabled.
+        let semantic_closures=closures.into_iter().zip(selections).filter_map(|(closure,selection)|
+            bindings.iter().any(|binding|binding.view.identity==selection.view.identity).then_some(closure)).collect::<Vec<_>>();
+        let roots=installed_view::audit::logical_roots_many(&reader,&semantic_closures,bindings,&aliases,budget).await?;
         let mut hasher=RealizationHasher::default();for reference in &references{hasher.row(reference)?;}
         let data=FrozenCompletion{version:VERSION,generation:fence.generation(),attempt:fence.attempt(),attempt_epoch:fence.attempt_epoch(),completed_revision:fence.completed_revision(),validity_epoch:fence.validity_epoch(),completed_state:roots.identity()?,roots,bindings:fence.bindings(),realization_inventory:hasher.finish()};
         if let Some((previous,inventory))=previous {
@@ -150,7 +175,7 @@ pub async fn complete_frozen_content(client:Arc<Surreal<Client>>,fence:&FrozenCo
         }
         let actual=crate::control::inspect_expected_read(&reader,data.record()?,budget).await?.ok_or(ModelError::Conflict("physical completed readback missing"))?;
         let inventory=inspect_inventory(&reader,&data,budget).await?;
-        let held=crate::control::hold_frozen_physical_expected(&client,&data,actual,budget).await?;
+        let held=crate::control::held::hold_frozen_physical_expected(&client,&data,actual,budget).await?;
         Ok(NativeCompletedState{completion:data,held,inventory,_charge:charge})
     }.await;
     let mut completion=Completion::default();completion.step("physical completion earning private reader close",reader.close().await);complete(result,completion)
@@ -161,7 +186,7 @@ async fn audit_attempt_bindings(reader:&crate::NativeReader<()>,fence:&FrozenCon
     let mut stream=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],vec!["SELECT * FROM compiler_binding WITH INDEX binding_attempt WHERE attempt=$attempt".into()])?)?;
     let outcome=async {
         let mut charge=StateCharge::new(budget,"frozen actual binding inventory audit");let mut actual=std::collections::BTreeMap::new();
-        while let Some(row)=stream.next_native().await? {
+        while let Some(row)=stream.next().await? {
             charge.grow(crate::loader::native_bytes(&row).saturating_mul(32).saturating_add(2048))?;
             crate::completed_rows::validate_state_row("compiler_binding",&row)?;
             let Some(Value::Bytes(bytes))=row.as_object().and_then(|row|row.get("descriptor")) else{return Err(ModelError::Schema("frozen actual binding descriptor"));};

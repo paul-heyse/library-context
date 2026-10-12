@@ -335,7 +335,7 @@ pub(super) fn selected<'a>(
     inv: &owner::Invocation,
 ) -> Result<Vec<Checked<'a>>, ModelError> {
     let mut out = vec![];
-    for w in d.witnesses.iter().filter(|w| w.invocation == frame.summary) {
+    for w in d.witnesses.iter().filter(|w| Some(w.invocation) == frame.summary) {
         out.push(checked(
             d,
             s,

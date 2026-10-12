@@ -282,7 +282,7 @@ impl SelectedPayloads {
 
     /// Mechanical preparation over exact stable namespaces. These data-only references
     /// do not grant admission; callers retain the completed-state/pin authority.
-    pub async fn for_realizations(client:Arc<Surreal<Client>>,references:&[crate::completed_state::InstalledViewRef],
+    pub(crate) async fn for_realizations(client:Arc<Surreal<Client>>,references:&[crate::completed_state::InstalledViewRef],
         cancelled:Option<Arc<std::sync::atomic::AtomicBool>>,budget:&ResourceBudget)->Result<Self,ModelError>{
         let source=SelectionSource::Session(client);
         let source=if let Some(flag)=cancelled {SelectionSource::Cancellable(Box::new(source),flag)}else{source};
@@ -290,6 +290,12 @@ impl SelectedPayloads {
     }
     async fn prepare_realizations(source:SelectionSource,references:&[crate::completed_state::InstalledViewRef],
         budget:&ResourceBudget)->Result<Self,ModelError>{
+        for (index,reference) in references.iter().enumerate(){
+            reference.validate()?;
+            if references[..index].iter().any(|previous|previous.logical_view==reference.logical_view){
+                return Err(ModelError::Conflict("selected logical view has multiple exact realizations"));
+            }
+        }
         let mut nodes=SortedRows::with_budget(budget)?;let mut owners=SortedRows::with_budget(budget)?;
         for reference in references {
             reference.validate()?;
@@ -394,7 +400,8 @@ impl SelectedPayloads {
         views: &[ContentHash],
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        Self::prepare(SelectionSource::Session(client), views, false, budget).await
+        let _=(client,views,budget);
+        Err(ModelError::Conflict("canonical selection requires protected exact installed views"))
     }
     pub async fn for_cancellable_views(
         client: Arc<Surreal<Client>>,
@@ -402,13 +409,8 @@ impl SelectedPayloads {
         flag: Option<Arc<std::sync::atomic::AtomicBool>>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        let source = SelectionSource::Session(client);
-        let source = if let Some(flag) = flag {
-            SelectionSource::Cancellable(Box::new(source), flag)
-        } else {
-            source
-        };
-        Self::prepare(source, views, false, budget).await
+        let _=(client,views,flag,budget);
+        Err(ModelError::Conflict("canonical selection requires protected exact installed views"))
     }
     pub async fn for_cancellable_owners(
         client: Arc<Surreal<Client>>,
@@ -442,13 +444,8 @@ impl SelectedPayloads {
         views: &[ContentHash],
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        Self::prepare(
-            SelectionSource::Transaction(transaction),
-            views,
-            false,
-            budget,
-        )
-        .await
+        let _=(transaction,views,budget);
+        Err(ModelError::Conflict("canonical selection requires protected exact installed views"))
     }
     pub async fn for_cancellable_transaction(
         transaction: Arc<surrealdb::method::Transaction<Client>>,
@@ -474,14 +471,11 @@ impl SelectedPayloads {
         owners: bool,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
+        if !owners{return Err(ModelError::Conflict("canonical selection requires protected exact installed views"));}
         let mut nodes = SortedRows::with_budget(&budget)?;
         for roots in roots.chunks(WINDOW) {
             let mut charge = StateCharge::new(budget, "selected-root-window");
-            let table = if owners {
-                "compiler_contribution"
-            } else {
-                "compiler_view"
-            };
+            let table = "compiler_contribution";
             charge.grow(roots.len().saturating_mul(
                 std::mem::size_of::<RecordId>()
                     + 2 * std::mem::size_of::<Value>()
@@ -495,11 +489,7 @@ impl SelectedPayloads {
                     .map(|root| RecordId::new(table, root.hex()))
                     .collect::<Vec<_>>(),
             );
-            let sql = if owners {
-                "SELECT node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $roots"
-            } else {
-                "SELECT node FROM compiler_view_member WITH INDEX view_nodes WHERE view IN $roots"
-            };
+            let sql = "SELECT node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $roots";
             consume(&source, sql.into(), vars, |value| {
                 let Value::Object(row) = value else {
                     return Err(ModelError::Schema("selected membership pointer"));
@@ -886,7 +876,7 @@ impl SelectedPayloads {
                 .ok_or(ModelError::Conflict("missing exact view realization"))?;
             vars.insert("realization",RecordId::new("compiler_view_realization",reference.realization.hex()));
             Ok(("realization","realization"))
-        } else {vars.insert("view",RecordId::new("compiler_view",view.hex()));Ok(("view","view"))}
+        } else {Err(ModelError::Conflict("canonical membership requires exact installed realization"))}
     }
     async fn sparse_membership_in(
         source: &SelectionSource,
@@ -895,6 +885,7 @@ impl SelectedPayloads {
         budget: &ResourceBudget,
         exact: Option<&Self>,
     ) -> Result<MembershipAnswers, ModelError> {
+        if exact.is_none(){return Err(ModelError::Conflict("canonical membership requires exact installed realization"));}
         let mut graph_charge = StateCharge::new(budget, "selected-membership-ancestry");
         let mut graph: BTreeMap<RecordId, BTreeSet<RecordId>> = BTreeMap::new();
         let mut direct: BTreeMap<RecordId, BTreeMap<ContentHash, (String, String, String)>> =
@@ -967,8 +958,6 @@ impl SelectedPayloads {
                 while let Some(row)=aliases.next_row()? {
                     if row.as_object().and_then(|row|row.get("target")).is_some_and(|target|matches!(target,Value::RecordId(target) if nodes.contains(target))){accept(row)?;}
                 }
-            } else {
-                consume(source,"SELECT source,target,id FROM compiler_alias WITH INDEX alias_target WHERE target IN $sources".into(),vars,accept).await?;
             }
         }
         Self::validate_nominal_membership(source, views, &direct, budget, exact).await?;
@@ -1101,6 +1090,7 @@ impl SelectedPayloads {
         budget: ResourceBudget,
         exact: Option<Self>,
     ) -> Result<NativeRows, ModelError> {
+        let exact=exact.ok_or(ModelError::Conflict("canonical relation requires exact installed realization"))?;
         NativeRows::owned(move |sender| async move {
             let mut nominated = SortedRows::with_budget(&budget)?;
             let mut seeds = SortedRows::with_budget(&budget)?;
@@ -1117,7 +1107,7 @@ impl SelectedPayloads {
                         return Ok(());
                     }
                     let mut vars = Variables::new();
-                    let (field,index)=Self::membership_scope(*view,exact.as_ref(),&mut vars)?;
+                    let (field,index)=Self::membership_scope(*view,Some(&exact),&mut vars)?;
                     vars.insert("relation", selected_relation.to_owned());
                     consume(&source, format!("SELECT node AS id FROM compiler_view_member WITH INDEX {index}_key WHERE {field}=${field} AND relation=$relation"), vars, |row| {
                         let node = id(&row)?;
@@ -1131,9 +1121,7 @@ impl SelectedPayloads {
                 // Reuse the cycle-safe disk-backed forward traversal on just these
                 // selected source relations. No complete view is prepared here.
                 let seeds=seeds.finish()?.into_prepared();
-                let (expanded,_) = if let Some(exact)=&exact {
-                    Self::expand_owned_aliases(seeds,exact.aliases.clone(),&budget)?
-                } else { Self::expand_nodes(&source,seeds,&budget,false).await? };
+                let (expanded,_) = Self::expand_owned_aliases(seeds,exact.aliases.clone(),&budget)?;
                 let mut cursor = expanded.cursor_with_budget(&budget)?;
                 loop {
                     if sender.is_closed() {
@@ -1244,6 +1232,7 @@ impl SelectedPayloads {
         order: &str,
         budget: &ResourceBudget,
     ) -> Result<NativeRows, ModelError> {
+        if selected.is_none(){return Err(ModelError::Conflict("canonical candidates require prepared exact selection"));}
         if !matches!(table, "entity" | "assertion" | "compiler_record") {
             return Err(ModelError::Schema("selected candidate table"));
         }
@@ -1674,6 +1663,36 @@ mod tests {
             budget,
         }
     }
+    // Mechanical lookup controls supply exact current namespace metadata and their
+    // owned aliases. This is not a factory for native authority or a reader pin.
+    fn exact_selection(source:SelectionSource,views:&[ContentHash],aliases:&[(RecordId,RecordId)],budget:&ResourceBudget)->SelectedPayloads{
+        let mut selected=role_selection(source,&[],budget.clone());
+        let mut charge=StateCharge::new(budget,"mechanical exact test references");
+        charge.grow(views.len()*std::mem::size_of::<crate::completed_state::InstalledViewRef>()).unwrap();
+        selected.exact=Some(Arc::new(RealizationSelection{references:views.iter().map(|view|crate::completed_state::InstalledViewRef{
+            logical_view:*view,realization:*view,incarnation:1,installation_completion:ContentHash::of(b"mechanical test completion")}).collect(),_charge:charge}));
+        let mut rows=SortedRows::with_budget(budget).unwrap();
+        for (index,(source,target)) in aliases.iter().enumerate(){let mut row=Object::new();row.insert("id",RecordId::new("compiler_alias",index.to_string()));row.insert("source",source.clone());row.insert("target",target.clone());rows.push(Value::Object(row)).unwrap();}
+        selected.aliases=rows.finish().unwrap().into_prepared();selected
+    }
+    #[tokio::test]
+    async fn logical_root_factories_refuse_without_opening_native_queries(){
+        let budget=ResourceBudget::fixed(1<<20).unwrap();let client=Arc::new(Surreal::init());
+        for views in [vec![],vec![ContentHash::of(b"unowned logical root")]]{
+            assert!(SelectedPayloads::for_views(client.clone(),&views,&budget).await.is_err());
+            assert!(SelectedPayloads::for_cancellable_views(client.clone(),&views,None,&budget).await.is_err());
+        }
+        assert_eq!(budget.reserved(),0);
+    }
+    #[tokio::test]
+    async fn duplicate_logical_realizations_refuse_before_any_inventory_query(){
+        let budget=ResourceBudget::fixed(1<<20).unwrap();
+        let one=crate::completed_state::InstalledViewRef{logical_view:ContentHash::of(b"same logical root"),realization:ContentHash::of(b"copy one"),incarnation:1,installation_completion:ContentHash::of(b"completion one")};
+        let mut two=one.clone();two.realization=ContentHash::of(b"copy two");two.installation_completion=ContentHash::of(b"completion two");
+        let source=SelectionSource::Fixture(Arc::new(|_|panic!("ambiguous exact input must refuse before query")));
+        assert!(SelectedPayloads::prepare_realizations(source,&[one,two],&budget).await.is_err());
+        assert_eq!(budget.reserved(),0);
+    }
     #[tokio::test]
     async fn exact_membership_uses_realization_and_owned_aliases_and_refuses_unseen_nominal_variant() {
         fn reference(logical:&str,physical:&str)->crate::completed_state::InstalledViewRef{
@@ -1688,7 +1707,7 @@ mod tests {
             let source=SelectionSource::Fixture(Arc::new(move|query|{
                 let (sql,vars)=query.into_request();
                 assert!(!sql.contains("compiler_alias"),"exact reverse aliases must use retained owned inventory: {sql}");
-                assert!(!vars.contains_key("view"),"logical view cannot select an arbitrary physical copy");
+                assert!(vars.get("view").is_none(),"logical view cannot select an arbitrary physical copy");
                 let selected=vars.get("realization")==Some(&Value::RecordId(RecordId::new("compiler_view_realization",realization_one.hex())));
                 let mut rows=Vec::new();
                 if sql.contains("realization_nodes") {
@@ -1745,7 +1764,7 @@ mod tests {
         for table in ["participant", "reference"] {
             let mut rows = selected.outgoing(table).unwrap();
             let mut fields = BTreeSet::new();
-            while let Some(row) = rows.next_native().await.unwrap() {
+            while let Some(row) = rows.next().await.unwrap() {
                 fields.insert(String::from_value(row.as_object().unwrap().get("field").unwrap().clone()).unwrap());
             }
             rows.drain_transport().await.unwrap();
@@ -1758,12 +1777,12 @@ mod tests {
         let source = SelectionSource::Fixture(Arc::new(|_| panic!("unqualified derived demand must refuse before native access")));
         let selected = role_selection(source, &[], ResourceBudget::fixed(8 << 20).unwrap());
         for mut rows in [selected.outgoing("reference").unwrap(), selected.recovery_roles().unwrap()] {
-            let error = rows.next_native().await.unwrap_err();
+            let error = rows.next().await.unwrap_err();
             assert!(error.to_string().contains("exact derivation"), "{error}");
             let _ = rows.drain_transport().await;
         }
         let mut canonical = selected.outgoing("compiler_alias").unwrap();
-        assert!(canonical.next_native().await.unwrap().is_none());
+        assert!(canonical.next().await.unwrap().is_none());
         canonical.drain_transport().await.unwrap();
     }
     #[test]
@@ -1775,7 +1794,7 @@ mod tests {
 
     #[tokio::test]
     async fn root_windows_preserve_indexed_exact_union_across_chunk_boundaries() {
-        for owners in [false, true] {
+        for owners in [true] {
             for count in [0usize, 1, 128, 129, 257] {
                 let budget = ResourceBudget::fixed(8 << 20).unwrap();
                 let roots = (0..count)
@@ -1811,11 +1830,7 @@ mod tests {
                 let observed = calls.clone();
                 let source = SelectionSource::Fixture(Arc::new(move |query| {
                     let (sql, vars) = query.into_request();
-                    assert!(sql.contains(if owners {
-                        "WITH INDEX contribution_rows WHERE contribution IN $roots"
-                    } else {
-                        "WITH INDEX view_nodes WHERE view IN $roots"
-                    }));
+                    assert!(sql.contains("WITH INDEX contribution_rows WHERE contribution IN $roots"));
                     let roots =
                         Vec::<RecordId>::from_value(vars.get("roots").unwrap().clone()).unwrap();
                     assert!(!roots.is_empty() && roots.len() <= WINDOW);
@@ -1910,7 +1925,7 @@ mod tests {
                 })
             }));
             let error =
-                SelectedPayloads::prepare(source, &[ContentHash::of(b"root")], false, &budget)
+                SelectedPayloads::prepare(source, &[ContentHash::of(b"root")], true, &budget)
                     .await
                     .err()
                     .unwrap();
@@ -1929,7 +1944,7 @@ mod tests {
             Arc::new(AtomicBool::new(true)),
         );
         assert!(
-            SelectedPayloads::prepare(source, &[ContentHash::of(b"root")], false, &budget)
+            SelectedPayloads::prepare(source, &[ContentHash::of(b"root")], true, &budget)
                 .await
                 .is_err()
         );
@@ -2137,6 +2152,7 @@ mod tests {
                     } else {
                         vec![]
                     };
+                    let owned_edges=edges.clone();
                     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
                     let observed = calls.clone();
                     let hydrated = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -2149,13 +2165,13 @@ mod tests {
                             .map(|value| Vec::<RecordId>::from_value(value.clone()).unwrap())
                             .unwrap_or_default();
                         observed.lock().unwrap().push((sql.clone(), nodes.clone()));
-                        let values = if sql == "SELECT node AS id FROM compiler_view_member WITH INDEX view_key WHERE view=$view AND relation=$relation;" {
-                            assert_eq!(vars.get("view"), Some(&RecordId::new("compiler_view", view.hex()).into_value()));
+                        let values = if sql == "SELECT node AS id FROM compiler_view_member WITH INDEX realization_key WHERE realization=$realization AND relation=$relation;" {
+                            assert_eq!(vars.get("realization"), Some(&RecordId::new("compiler_view_realization", view.hex()).into_value()));
                             if admitted && vars.get("relation") == Some(&Value::String(source_relation.into())) { vec![pointer(member.clone())] } else { vec![] }
                         } else if sql.starts_with("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member") {
-                            assert_eq!(vars.get("view"), Some(&RecordId::new("compiler_view", view.hex()).into_value()));
+                            assert_eq!(vars.get("realization"), Some(&RecordId::new("compiler_view_realization", view.hex()).into_value()));
                             let hit = if vars.get("nodes").is_some() { nodes.contains(&member) } else {
-                                assert!(sql.contains("WITH INDEX view_key"));
+                                assert!(sql.contains("WITH INDEX realization_key"));
                                 assert_eq!(vars.get("relation"), Some(&Value::String(source_relation.into())));
                                 Vec::<String>::from_value(vars.get("keys").unwrap().clone()).unwrap().contains(&format!("{:?}", member.key))
                             };
@@ -2181,9 +2197,10 @@ mod tests {
                             Ok(())
                         })
                     }));
+                    let selected=exact_selection(source.clone(),&[view],&owned_edges,&budget);
                     let mut rows = SelectedPayloads::candidate_rows_from(
                         source,
-                        None,
+                        Some(selected),
                         vec![view],
                         CandidateNominations::Relation(relation.into()),
                         "entity",
@@ -2240,7 +2257,7 @@ mod tests {
         let membership = nodes.point_index(&retained).unwrap();
         let payload_reads = Arc::new(AtomicUsize::new(0));
         let observed = payload_reads.clone();
-        let selected = SelectedPayloads {
+        let mut selected = SelectedPayloads {
             exact: None,
             derivation: None,
             nodes,
@@ -2255,10 +2272,10 @@ mod tests {
                 let (sql, vars) = query.into_request();
                 let values = if sql == "NOMINATE;" {
                     vec![pointer(RecordId::new("entity", "selected-0001")), pointer(RecordId::new("entity", "outside-view"))]
-                } else if sql.starts_with("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX view_nodes") {
+                } else if sql.starts_with("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX realization_nodes") {
                     let nodes = Vec::<RecordId>::from_value(vars.get("nodes").unwrap().clone()).unwrap();
                     assert!(nodes.len() <= WINDOW); nodes.into_iter().filter(|node| node == &RecordId::new("entity", "selected-0001")).map(|node| { let mut row = Object::new(); row.insert("id", node); row.insert("relation", "packages"); row.insert("semantic_key", "key"); row.insert("content", "hash"); Value::Object(row) }).collect()
-                } else if sql.starts_with("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX view_key") {
+                } else if sql.starts_with("SELECT node AS id,relation,semantic_key,content FROM compiler_view_member WITH INDEX realization_key") {
                     let mut row = Object::new(); row.insert("id", RecordId::new("entity", "selected-0001")); row.insert("relation", "packages"); row.insert("semantic_key", "key"); row.insert("content", "hash"); vec![Value::Object(row)]
                 } else if sql.starts_with("SELECT source,target,id FROM compiler_alias WITH INDEX alias_target") { vec![]
                 } else {
@@ -2279,6 +2296,8 @@ mod tests {
                 })
             })),
         };
+        let mut exact=exact_selection(selected.source.clone(),&[ContentHash::of(b"exact-view")],&[],&retained);
+        selected.exact=exact.exact.take();drop(exact);
         let baseline = retained.reserved();
         for _ in 0..3 {
             let query = crate::prepared::PreparedQuery::new(
@@ -2289,7 +2308,7 @@ mod tests {
             .unwrap();
             let mut rows = SelectedPayloads::candidate_rows_inner(
                 selected.source.clone(),
-                None,
+                Some(selected.clone()),
                 vec![ContentHash::of(b"exact-view")],
                 query,
                 "entity",
@@ -2315,7 +2334,7 @@ mod tests {
                 .unwrap();
         let mut rows = SelectedPayloads::candidate_rows_inner(
             selected.source.clone(),
-            None,
+            Some(selected.clone()),
             vec![ContentHash::of(b"exact-view")],
             query,
             "entity",
@@ -2363,14 +2382,14 @@ mod tests {
                         .filter(|node| keys.contains(&format!("{:?}", node.key)))
                         .collect()
                 };
-                let view = RecordId::from_value(vars.get("view").unwrap().clone()).unwrap();
+                let view = RecordId::from_value(vars.get("realization").unwrap().clone()).unwrap();
                 nodes
                     .into_iter()
                     .filter(|node| {
                         (node == &RecordId::new("entity", "d")
-                            && view == RecordId::new("compiler_view", one.hex()))
+                            && view == RecordId::new("compiler_view_realization", one.hex()))
                             || (node == &RecordId::new("entity", "c")
-                                && view == RecordId::new("compiler_view", two.hex()))
+                                && view == RecordId::new("compiler_view_realization", two.hex()))
                     })
                     .map(|node| {
                         let mut row = Object::new();
@@ -2413,10 +2432,9 @@ mod tests {
             })
         }));
         let requested = ["a", "b", "missing", "a"].map(|key| RecordId::new("entity", key));
-        let answers =
-            SelectedPayloads::sparse_membership(&source, &[one, two], &requested, &budget)
-                .await
-                .unwrap();
+        let aliases=[("c","a"),("c","b"),("d","c"),("a","d")].map(|(source,target)|(RecordId::new("entity",source),RecordId::new("entity",target)));
+        let selected=exact_selection(source,&[one,two],&aliases,&budget);
+        let answers=selected.membership_answers(&requested,&budget).await.unwrap();
         assert_eq!(answers.answers.len(), 3);
         assert!(answers.contains_all(&requested[..2]));
         assert!(!answers.contains(&requested[2]));
@@ -2435,11 +2453,12 @@ mod tests {
         }
         assert_eq!(
             reverse.load(Ordering::SeqCst),
-            3,
-            "shared ancestor c and d are read once, independent of requested-node count"
+            0,
+            "shared cyclic ancestry uses only the retained exact alias inventory"
         );
         assert!(budget.reserved() > 0);
         drop(answers);
+        drop(selected);
         assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
@@ -2521,8 +2540,8 @@ mod tests {
                 let values = if sql.starts_with(
                     "SELECT node AS id,relation,semantic_key,content FROM compiler_view_member",
                 ) {
-                    let view = RecordId::from_value(vars.get("view").unwrap().clone()).unwrap();
-                    let second = view == RecordId::new("compiler_view", two.hex());
+                    let view = RecordId::from_value(vars.get("realization").unwrap().clone()).unwrap();
+                    let second = view == RecordId::new("compiler_view_realization", two.hex());
                     let key = if second && competing {
                         "revision-two"
                     } else {
@@ -2534,7 +2553,7 @@ mod tests {
                             .unwrap()
                             .contains(&node)
                     } else {
-                        assert!(sql.contains("WITH INDEX view_key"));
+                        assert!(sql.contains("WITH INDEX realization_key"));
                         assert_eq!(
                             vars.get("relation"),
                             Some(&Value::String("source_artifacts".into()))
@@ -2577,13 +2596,8 @@ mod tests {
                     Ok(())
                 })
             }));
-            let result = SelectedPayloads::sparse_membership(
-                &source,
-                &[one, two],
-                &[RecordId::new("entity", "revision-one")],
-                &budget,
-            )
-            .await;
+            let selected=exact_selection(source,&[one,two],&[],&budget);
+            let result=selected.membership_answers(&[RecordId::new("entity","revision-one")],&budget).await;
             if competing {
                 assert!(
                     result.is_err(),
@@ -2596,6 +2610,7 @@ mod tests {
                 assert!(answers.answers[0].selected);
                 drop(answers);
             }
+            drop(selected);
             assert_eq!(budget.reserved(), 0);
         }
     }
@@ -2616,7 +2631,7 @@ async fn snapshot_incarnation(source:&SelectionSource,id:&RecordId,incarnation:i
     let mut vars=Variables::new();vars.insert("guard",crate::control::guard_id(&Value::RecordId(id.clone()))?);let mut found=false;
     consume(source,"SELECT phase,incarnation FROM $guard".into(),vars,|row|{
         if found || row.as_object().and_then(|row|row.get("phase"))!=Some(&Value::String("active".into()))
-            || row.as_object().and_then(|row|row.get("incarnation"))!=Some(&Value::from(incarnation)) {
+            || row.as_object().and_then(|row|row.get("incarnation"))!=Some(&incarnation.into_value()) {
             return Err(ModelError::Conflict("published transaction exact witness incarnation"));
         }found=true;Ok(())
     }).await?;

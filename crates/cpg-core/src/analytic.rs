@@ -194,7 +194,7 @@ pub async fn produce(
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let mut data = build::Data::new(runtime.budget());
     let session = access.session(runtime).await?;
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(

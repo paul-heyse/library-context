@@ -46,11 +46,12 @@ macro_rules! catalog_runtime_inputs {($m:ident)=>{$m!{
  locations:$crate::domain::local_fields::FieldLocation,location_candidates:$crate::domain::local_fields::FieldLocationCandidate,
 
 }};}
-macro_rules! data {($($f:ident:$ty:ty,)*)=>{pub struct RuntimeData{$(pub $f:Rows<$ty>,)*}impl RuntimeData{pub fn new(b:&resources::ResourceBudget)->Self{Self{$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}pub fn stage_inputs()->Vec<stages::RelationUse>{vec![$(stages::RelationUse::completed::<$ty>(),)*]}}};}
+macro_rules! data {($($f:ident:$ty:ty,)*)=>{pub struct RuntimeData{pub compact:uniform_outcome::AnalysisPredecessors,$(pub $f:Rows<$ty>,)*}impl RuntimeData{pub fn new(b:&resources::ResourceBudget)->Self{Self{compact:uniform_outcome::AnalysisPredecessors::new(b),$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}pub fn stage_inputs()->Vec<stages::RelationUse>{vec![$(stages::RelationUse::completed::<$ty>(),)*]}}};}
 crate::catalog_runtime_inputs!(data);
 impl RuntimeData {
     pub fn lower(&self) -> super::frames::LowerFrames<'_> {
         super::frames::LowerFrames {
+            compact:&self.compact,
             local: &self.local_invocations,
             local_outcomes: &self.local_outcomes,
             source: &self.source_invocations,

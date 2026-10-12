@@ -47,6 +47,8 @@ impl<'a> EvidencePremise<'a> {
 impl crate::domain::analysis::support::sealed::DerivedEvidence for AnalysisDerivation {}
 impl crate::domain::analysis::support::DerivedEvidence for AnalysisDerivation {fn source_facts(&self)->SourceFacts {self.facts()}}
 pub(super) fn input_digest(sources:&std::collections::BTreeSet<Id<SupportSource>>)->ContentHash {crate::domain::analysis::support::membership_digest("analysis-derivation-premises",sources)}
+/// Data-only exact premise membership used by the adjacent-format translator.
+pub fn preserved_derivation_digest(sources:&std::collections::BTreeSet<Id<SupportSource>>)->ContentHash {input_digest(sources)}
 impl AnalysisDerivation {
     #[allow(clippy::too_many_arguments,reason="Derivation emission binds the invocation, definition, subject, channel, phase, operation and premises")]
     pub fn emit(invocation:&AnalysisInvocation,definition:&AnalysisDefinition,subject:Id<ObligationSubject>,channel:AnalysisChannel,phase:CallPhase,operation:QualificationOperation,premises:&[EvidencePremise<'_>],budget:&resources::ResourceBudget)->Result<(Self,AnalysisProposition,Vec<AnalysisDerivationPremise>,QualifiedResult),ModelError> {

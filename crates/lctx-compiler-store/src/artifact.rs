@@ -224,6 +224,8 @@ pub struct AdmittedArtifact {
     original_keys: Vec<(Id<lctx_model::domain::source::SourceArtifact>, Original)>,
     manifest: Manifest,
     _manifest_charge: StateCharge,
+    _admission:Arc<ArtifactAdmission>,
+    _native_admission:lctx_native::completed_state::HeldFrozenCompletedState,
 }
 impl AdmittedArtifact {
     pub fn budget(&self) -> &ResourceBudget { self.workspace.budget() }
@@ -954,6 +956,8 @@ pub struct RestoredAdmission {
     workspace: Arc<AdmissionRuntime>,
     manifest: Manifest,
     _manifest_charge: StateCharge,
+    _admission:Arc<ArtifactAdmission>,
+    _native_admission:lctx_native::completed_state::HeldFrozenCompletedState,
 }
 impl RestoredAdmission {
     pub fn budget(&self) -> &ResourceBudget { self.workspace.budget() }
@@ -990,12 +994,15 @@ pub async fn verify_restored(
         {
             return Err(ModelError::Conflict("restored facts admission contract"));
         }
-        runtime.admit_semantics(manifest.profile).await?;
-        runtime
-            .admit_frontier(manifest.frontier, manifest.profile)
-            .await?;
-        crate::artifact_manifest::verify_outcomes(runtime, manifest).await?;
+        let semantic=runtime.execute_semantics(manifest.profile).await?;
+        let frontier=runtime.execute_frontier(manifest.frontier, manifest.profile).await?;
+        crate::artifact_manifest::verify_actual(runtime, manifest).await?;
         runtime.native().prepare_canonical(runtime.budget()).await?;
+        let graph=execute_graph_admission(runtime).await?;
+        let (captures,originals,_inventory_charge)=original_inventory(runtime).await?;
+        if captures!=manifest.captures || originals.iter().map(|(_,original)|original).ne(manifest.originals.iter()){
+            return Err(ModelError::Conflict("restored actual captures/originals"));
+        }
         // Reserve every cloned vector and nested string before retaining the admission owner.
         let mut manifest_charge = StateCharge::new(runtime.budget(), "restored-admission-manifest");
         manifest_charge.grow(size_of::<Manifest>())?;
@@ -1064,11 +1071,13 @@ pub async fn verify_restored(
                 manifest_charge.grow(loss.len())?;
             }
         }
-        runtime.native().mark_attempt_admitted().await?;
+        let admission=Arc::new(assemble_admission(runtime,semantic,frontier,graph,manifest).await?);
+        let native_admission=runtime.native().admit_completed_state(&admission,runtime.budget()).await?;
         Ok::<_, ModelError>(RestoredAdmission {
             workspace: runtime.clone(),
             manifest: manifest.clone(),
             _manifest_charge: manifest_charge,
+            _admission:admission,_native_admission:native_admission,
         })
     }
     .await;
@@ -1299,43 +1308,58 @@ async fn original_inventory(runtime:&AdmissionRuntime)->Result<(Vec<EntityId>,Ve
  Ok((captures,originals,charge))
 }
 
-/// Admit one completed native authority. Portable files are produced only by explicit export.
-pub async fn admit(
-    workspace: &Arc<AdmissionRuntime>,
-    frontier: lctx_model::domain::admission::Frontier,
-    profile: lctx_model::domain::stages::Profile,
-    settings: ContentHash,
-) -> Result<AdmittedArtifact, ModelError> {
-    let admission_phase = lctx_native::phase::Phase::begin("artifact_admission");
-    let result = async {
-        workspace.cancellation().check()?;
-        workspace.freeze_for_admission().await?;
-        let semantic_phase = lctx_native::phase::Phase::begin("artifact_semantic_admission");
-        let semantic_result = async {
-            let facts_phase = lctx_native::phase::Phase::begin("artifact_facts_admission");
-            let facts = workspace.facts_availability_async(profile).await;
-            facts_phase.finish_result(&facts);
-            facts?;
-            let invariants_phase =
-                lctx_native::phase::Phase::begin("artifact_invariant_admission");
-            let invariants = workspace.admit_semantics(profile).await;
-            invariants_phase.finish_result(&invariants);
-            invariants?;
-            let frontier_phase = lctx_native::phase::Phase::begin("artifact_frontier_admission");
-            let admitted_frontier = workspace.admit_frontier(frontier, profile).await;
-            frontier_phase.finish_result(&admitted_frontier);
-            admitted_frontier?;
-            Ok::<(), ModelError>(())
-        }
-        .await;
-        semantic_phase.finish_result(&semantic_result);
-        semantic_result?;
-        workspace
-            .native()
-            .prepare_canonical(workspace.budget())
-            .await?;
-        let graph_phase = lctx_native::phase::Phase::begin("artifact_graph_admission");
-        let graph_result = async {
+struct CheckedGraph {families:Vec<FamilyContent>,_charge:StateCharge}
+/// Complete production authority. Native receives no public DTO-to-admitted route;
+/// only this private constructor composes executed facts, semantic/frontier, graph and
+/// checked manifest evidence over the independently earned exact physical completion.
+pub(crate) struct ArtifactAdmission {
+    physical:Arc<lctx_native::completed_state::NativeCompletedState>,
+    model:Arc<lctx_model::domain::ValidatedModel>,
+    evidence:lctx_model::domain::artifact_admission::ArtifactAdmissionEvidence,
+    _charges:Vec<StateCharge>,
+}
+impl ArtifactAdmission {
+    pub(crate) fn physical(&self)->&lctx_native::completed_state::NativeCompletedState{&self.physical}
+    pub(crate) fn model(&self)->&lctx_model::domain::ValidatedModel{&self.model}
+    pub(crate) fn evidence(&self)->&lctx_model::domain::artifact_admission::ArtifactAdmissionEvidence{&self.evidence}
+    pub(crate) fn retained_bytes(&self)->usize{self._charges.iter().map(StateCharge::reserved).sum()}
+}
+fn manifest_retention_bytes(manifest:&Manifest)->usize{
+    size_of::<Manifest>().saturating_add(manifest.captures.capacity().saturating_mul(size_of::<EntityId>()))
+        .saturating_add(manifest.producers.capacity().saturating_mul(size_of::<ProducerImplementation>()))
+        .saturating_add(manifest.producers.iter().map(|producer|producer.producer.capacity()).sum::<usize>())
+        .saturating_add(manifest.families.capacity().saturating_mul(size_of::<FamilyContent>()))
+        .saturating_add(manifest.required_outcomes.capacity().saturating_mul(size_of::<OutcomeKey>()))
+        .saturating_add(manifest.required_outcomes.iter().map(|outcome|outcome.producer.capacity()).sum::<usize>())
+        .saturating_add(manifest.outcomes.capacity().saturating_mul(size_of::<Outcome>()))
+        .saturating_add(manifest.outcomes.iter().map(|outcome|outcome.key.producer.capacity().saturating_add(outcome.detail.as_ref().map_or(0,String::capacity))).sum::<usize>())
+        .saturating_add(manifest.originals.capacity().saturating_mul(size_of::<Original>()))
+        .saturating_add(manifest.embeddings.capacity().saturating_mul(size_of::<EmbeddingConsumption>()))
+        .saturating_add(manifest.projections.capacity().saturating_mul(size_of::<ProjectionDefinition>()))
+        .saturating_add(manifest.projections.iter().map(|projection|projection.name.capacity().saturating_add(projection.declared_losses.capacity().saturating_mul(size_of::<String>())).saturating_add(projection.declared_losses.iter().map(String::capacity).sum::<usize>())).sum::<usize>())
+}
+async fn assemble_admission(runtime:&Arc<AdmissionRuntime>,semantic:crate::admission::CheckedSemanticScope,
+    frontier:crate::admission::CheckedFrontier,graph:CheckedGraph,manifest:&Manifest)->Result<ArtifactAdmission,ModelError>{
+    use lctx_model::domain::{artifact_admission::{ArtifactAdmissionEvidence,production_contract},completed::binding_inventory_identity};
+    manifest.validate()?;
+    let physical=runtime.native().complete_physical_content(runtime.budget()).await?;
+    let bindings=physical.inventory().bindings();let binding_identity=binding_inventory_identity(bindings)?;
+    let facts=runtime.admitted_facts_async(manifest.profile).await?;
+    if facts.contract!=manifest.admission_contract || graph.families!=manifest.families
+        || manifest.semantic_contract!=semantic_contract(runtime.model()) {
+        return Err(ModelError::Conflict("complete artifact facts/graph/manifest gates disagree"));
+    }
+    let (invariants,semantic_charge)=semantic.into_evidence(runtime.model().digest(),manifest.profile,binding_identity)?;
+    let (frontier,frontier_charge)=frontier.into_evidence(runtime.model().digest(),manifest.profile,manifest.frontier)?;
+    let mut charge=StateCharge::new(runtime.budget(),"complete artifact admission retained evidence");
+    charge.grow(manifest_retention_bytes(manifest).saturating_mul(2).saturating_add(4096))?;
+    let evidence=ArtifactAdmissionEvidence{version:1,model:runtime.model().digest(),bindings:binding_identity,manifest:manifest.clone(),invariants,frontier,production_contract:production_contract()};
+    evidence.validate_current(runtime.model(),bindings,&physical.completion().roots,runtime.budget())?;
+    Ok(ArtifactAdmission{physical,model:runtime.model().clone(),evidence,_charges:vec![semantic_charge,frontier_charge,graph._charge,charge]})
+}
+/// This constructor executes all canonical entities/assertions and derivations to EOF.
+/// Its result cannot be manufactured from manifest family hashes.
+async fn execute_graph_admission(workspace:&Arc<AdmissionRuntime>)->Result<CheckedGraph,ModelError>{
             let lookup = crate::native_canonical::Lookup::load(workspace).await?;
             let mut derivations = Vec::new();
             let mut proof_charge = StateCharge::new(workspace.budget(), "native-final-derivations");
@@ -1373,11 +1397,56 @@ pub async fn admit(
             drop(derivations);
             drop(proof_charge);
             drop(lookup);
-            Ok::<_, ModelError>((entities_content, assertions_content))
+            let mut charge=StateCharge::new(workspace.budget(),"executed canonical graph admission receipt");charge.grow(2*size_of::<FamilyContent>()+128)?;
+            Ok(CheckedGraph{families:vec![entities_content,assertions_content],_charge:charge})
+
+}
+
+struct PreparedArtifactAdmission {
+    original_keys: Vec<(Id<lctx_model::domain::source::SourceArtifact>, Original)>,
+    manifest: Manifest,
+    manifest_charge: StateCharge,
+    admission: Arc<ArtifactAdmission>,
+}
+/// Shared production gates. Neither an ordinary caller nor maintenance may
+/// replace these executions with descriptor hashes or caller-authored labels.
+async fn prepare_full_admission(
+    workspace: &Arc<AdmissionRuntime>,
+    frontier: lctx_model::domain::admission::Frontier,
+    profile: lctx_model::domain::stages::Profile,
+    settings: crate::artifact_manifest::SettingsOrigin,
+) -> Result<PreparedArtifactAdmission, ModelError> {
+    async {
+        workspace.cancellation().check()?;
+        workspace.freeze_for_admission().await?;
+        let semantic_phase = lctx_native::phase::Phase::begin("artifact_semantic_admission");
+        let semantic_result = async {
+            let facts_phase = lctx_native::phase::Phase::begin("artifact_facts_admission");
+            let facts = workspace.facts_availability_async(profile).await;
+            facts_phase.finish_result(&facts);
+            facts?;
+            let invariants_phase =
+                lctx_native::phase::Phase::begin("artifact_invariant_admission");
+            let invariants = workspace.execute_semantics(profile).await;
+            invariants_phase.finish_result(&invariants);
+            let invariants=invariants?;
+            let frontier_phase = lctx_native::phase::Phase::begin("artifact_frontier_admission");
+            let admitted_frontier = workspace.execute_frontier(frontier, profile).await;
+            frontier_phase.finish_result(&admitted_frontier);
+            let admitted_frontier=admitted_frontier?;
+            Ok::<_, ModelError>((invariants,admitted_frontier))
         }
         .await;
+        semantic_phase.finish_result(&semantic_result);
+        let (semantic,frontier_evidence)=semantic_result?;
+        workspace
+            .native()
+            .prepare_canonical(workspace.budget())
+            .await?;
+        let graph_phase = lctx_native::phase::Phase::begin("artifact_graph_admission");
+        let graph_result = execute_graph_admission(workspace).await;
         graph_phase.finish_result(&graph_result);
-        let (entities_content, assertions_content) = graph_result?;
+        let checked_graph = graph_result?;
         let manifest_phase = lctx_native::phase::Phase::begin("artifact_manifest");
         let manifest_result = async {
             let (captures,original_keys,_inventory_charge)=original_inventory(workspace).await?;
@@ -1385,14 +1454,14 @@ pub async fn admit(
                 .iter()
                 .map(|(_, original)| original.clone())
                 .collect();
-            let (manifest, mut manifest_charge) = crate::artifact_manifest::populate(
+            let (manifest, mut manifest_charge) = crate::artifact_manifest::populate_with_origin(
                 workspace,
                 frontier,
                 profile,
                 settings,
                 captures,
                 originals,
-                vec![entities_content, assertions_content],
+                checked_graph.families.clone(),
             )
             .await?;
             manifest.validate()?;
@@ -1401,12 +1470,12 @@ pub async fn admit(
                     * (size_of::<Id<lctx_model::domain::source::SourceArtifact>>()
                         + size_of::<Original>()),
             )?;
-            workspace.native().mark_attempt_admitted().await?;
-            let artifact = AdmittedArtifact {
-                workspace: workspace.clone(),
+            let admission=Arc::new(assemble_admission(workspace,semantic,frontier_evidence,checked_graph,&manifest).await?);
+            let artifact = PreparedArtifactAdmission {
                 original_keys,
                 manifest,
-                _manifest_charge: manifest_charge,
+                manifest_charge,
+                admission,
             };
             Ok::<_, ModelError>(artifact)
         }
@@ -1414,7 +1483,31 @@ pub async fn admit(
         manifest_phase.finish_result(&manifest_result);
         manifest_result
     }
-    .await;
-    admission_phase.finish_result(&result);
+    .await
+}
+
+/// Admit one completed native authority. Portable files are produced only by explicit export.
+pub async fn admit(
+    workspace: &Arc<AdmissionRuntime>,
+    frontier: lctx_model::domain::admission::Frontier,
+    profile: lctx_model::domain::stages::Profile,
+    settings: ContentHash,
+) -> Result<AdmittedArtifact, ModelError> {
+    let phase=lctx_native::phase::Phase::begin("artifact_admission");
+    let result=async {
+    let prepared=prepare_full_admission(workspace,frontier,profile,
+        crate::artifact_manifest::SettingsOrigin::Acquisition(settings)).await?;
+    let native_admission=workspace.native().admit_completed_state(&prepared.admission,workspace.budget()).await?;
+    Ok::<_,ModelError>(AdmittedArtifact {
+        workspace: workspace.clone(),
+        original_keys:prepared.original_keys,
+        manifest:prepared.manifest,
+        _manifest_charge:prepared.manifest_charge,
+        _admission:prepared.admission,
+        _native_admission:native_admission,
+    })
+    }.await;
+    phase.finish_result(&result);
     result
 }
+

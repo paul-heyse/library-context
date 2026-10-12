@@ -167,7 +167,7 @@ impl<'a> Publication<'a> {
     }
 }
 
-fn publication_handle(manifest:&Manifest,views:&[CompletedBinding],database:&lctx_model::domain::serving::Name,
+pub(crate) fn publication_handle(manifest:&Manifest,views:&[CompletedBinding],database:&lctx_model::domain::serving::Name,
     config:&RuntimeConfig,realization:ContentHash,definition_epoch:ContentHash)->Result<SnapshotHandle,ModelError>{
     let view=view_identity(views)?;
     Ok(SnapshotHandle{publication:publication_identity(manifest.content(),realization,view,config.service_generation,definition_epoch),

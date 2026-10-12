@@ -75,7 +75,7 @@ impl ExpectedObject {
     fn binding(&self, guard: RecordId) -> Value {
         let mut row=Object::new(); row.insert("record",self.record.clone());row.insert("guard",guard);
         row.insert("incarnation",self.incarnation);row.insert("phase",self.phase.clone());
-        row.insert("tombstone_revision",self.tombstone_revision_if_vacant.map(crate::upgrade::native).unwrap_or(Value::None));
+        row.insert("tombstone_revision",self.tombstone_revision_if_vacant.map(surrealdb::types::SurrealValue::into_value).unwrap_or(Value::None));
         Value::Object(row)
     }
 }

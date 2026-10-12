@@ -1214,7 +1214,7 @@ def test_native_host_refuses_untransferable_ordinary_maintenance(installed,tmp_p
         **service.ProcessIdentity.of().to_json(), "pid":99999997, "start_ticks":1}}
     if change == "live": marker["owner"] = service.ProcessIdentity.of().to_json()
     elif change == "foreign": marker["owner"]["pid_namespace"] += 1
-    elif change == "specialized": marker["operation"] = service.UPGRADE_OPERATION
+    elif change == "specialized": marker["operation"] = service.SERVER_HANDOFF_OPERATION
     elif change == "extra": marker["recovery"] = {"unknown":True}
     else: marker["token"] = ""
     service.private_json(installed.directory / "maintenance.json",marker)

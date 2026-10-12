@@ -158,9 +158,10 @@ impl ProducerOutput {
                 return Err(ModelError::Conflict("product lookup after output started"));
             }
             let native = self.workspace.native.clone();
-            let identity = request.identity()?;
             let budget = self.workspace.budget().clone();
-            let spec = self.contribution_spec();
+            let captured=self.captured_request()?.clone();
+            let model=self.workspace.model.clone();
+            let profile=self.profile();
             let retained = if self
                 .workspace
                 .admitted_product_reuse
@@ -168,7 +169,7 @@ impl ProducerOutput {
             {
                 self.workspace
                     .native_call(
-                        async move { native.hold_retained_product(identity, &spec, &budget).await },
+                        async move { native.hold_captured_product(&captured,model,profile,&budget).await },
                     )
                     .await?
             } else {
@@ -188,8 +189,8 @@ impl ProducerOutput {
                         let mut stream = self
                             .workspace
                             .native
-                            .scan_contribution_batches(
-                                id,
+                            .scan_held_candidate_batches(
+                                &candidate,
                                 relation,
                                 self.workspace.budget(),
                                 self.workspace.options.batch_rows,

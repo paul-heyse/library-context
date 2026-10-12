@@ -144,17 +144,14 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for Assemble {
                         artifact: artifact.id(),
                     };
                     context.emit(scope.clone())?;
-                    context.emit(ProviderCoverage {
-                        scope: scope.id(),
-                        provider: None,
-                        context: analysis.id(),
-                        family: FactFamily::Flow,
-                        run: None,
-                        status: CoverageStatus::NotRequested,
-                        reason: None,
-                        diagnostic: Some("catalog profile".into()),
-                    })?;
                 }
+                // The declaration is total over the independently captured family
+                // domain, including explicit empty input domains. Every consumer
+                // binds it to this exact completed Assembly owner before use.
+                let (_,domain)=lctx_model::domain::uniform_outcome::ExpectedUniform::captured_family(
+                    context.stage(),context.profile(),input.captured().revision().id(),analysis.id(),
+                    FactFamily::Flow,context.budget())?;
+                context.emit(domain.declaration()?)?;
             }
         }
         Ok(ProviderOutcome::Complete)

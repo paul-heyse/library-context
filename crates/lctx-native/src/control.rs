@@ -13,6 +13,9 @@ use surrealdb::{
     types::{Object, RecordId, Value, Variables},
 };
 
+#[cfg(test)]
+fn test_value(value: impl surrealdb::types::SurrealValue) -> Value { value.into_value() }
+
 // Failed transactions include NotExecuted frames before the causal error. Inspect every
 // statement so contention remains retryable and permanent refusals retain their actual cause.
 pub(crate) fn checked_transaction(
@@ -116,6 +119,10 @@ pub(crate) use coordination::{initial_stripes as initial_admission_stripes, pref
 pub use coordination::{ADMISSION_STRIPES, ExpectedObject};
 mod authorization;
 mod retirement;
+mod product_release;
+mod product_recovery;
+pub use product_recovery::{HeldTerminalProduct,hold_terminal_product};
+pub use product_release::release_retained_product;
 mod history;
 mod cleanup;
 mod immutable_window;
@@ -128,8 +135,7 @@ pub use receipts::{EffectReceipt, EffectReceipts, capture_effect_receipts};
 pub use retry::{RetryCancellation, with_retry_cancellation, current_retry_cancellation, RetryCancellationContext, capture_retry_cancellation, with_retry_context};
 use cleanup::CleanupHolds;
 pub use cleanup::{recover_cleanup, resume_cleanup};
-pub(crate) mod migration;
-pub(crate) mod migration6;
+
 pub use authorization::{IssuanceEra, NativeRequest, NativeRequestError, NativeAttemptError, NativeLifecycleError, EffectDisposition};
 use retirement::retire_terminal_roots;
 pub use retirement::{retire, retire_reachable, resume_retirement, recover_retirement, register_retirement_roots};
@@ -172,12 +178,17 @@ use authorization::{EffectOwner, TerminalAttempt, effect_for_owner};
 mod frozen;
 pub use frozen::{freeze_content_native,resume_content_fence,advance_validity_epoch_native};
 pub use frozen::schema_target as frozen_schema_target;
-pub(crate) use authorization::effect_frozen_attempt;
-mod held;
+pub use authorization::effect_frozen_attempt;
+pub(crate) mod held;
 pub(crate) mod live_view;
-pub(crate) use held::hold_live_view_expected;
+pub(crate) use held::{hold_live_view_expected,hold_live_views_expected};
 pub use held::{ExpectedRecord, HeldRecord, inspect_expected, hold_expected};
-pub(crate) use held::{inspect_expected_read,hold_frozen_completed_expected,hold_frozen_admission_expected,install_completed_admission,hold_frozen_physical_expected};
+pub use held::completed_admission_plan;
+pub(crate) async fn prepare_maintenance_completion_expectations(client:&Surreal<Client>,bindings:&mut Variables)->Result<(),ModelError>{
+    coordination::prepare_expectations(client,bindings).await
+}
+pub(crate) fn maintenance_completion_expectation_guard()->&'static str{coordination::EXPECTED_OBJECT_GUARD}
+pub(crate) use held::{inspect_expected_read,hold_frozen_completed_expected,hold_frozen_admission_expected,hold_frozen_physical_expected};
 pub(crate) mod completed;
 async fn run_transaction(client: &Surreal<Client>, sql: &str, bindings: Variables) -> Result<(), ModelError> {
     retry::transaction(client, sql, bindings, false).await
@@ -310,7 +321,7 @@ fn immutable_row_plan(
 /// Shared by immutable windows and internal completed-state staging.
 fn merge_plan_bindings(bindings:&mut Variables,additional:Variables)->Result<(),ModelError>{
     for (key,value) in additional {
-        if let Some(prior)=bindings.remove(&key) {
+        if let Some(prior)=bindings.get(&key).cloned() {
             match (prior,value) {
                 (Value::Array(mut left),Value::Array(right))=>{left.extend(right);bindings.insert(key,left);}
                 (left,right) if left==right=>{bindings.insert(key,left);}
@@ -536,29 +547,10 @@ pub async fn close_attempt(
         [false] => {}
         _ => return Err(ModelError::Conflict("native cleanup attempt inventory")),
     }
-    bindings.insert("after", Value::None);
-    loop {
-        let contributions = cleanup_ids(client,"SELECT VALUE id FROM compiler_contribution WITH INDEX attempt_contributions WHERE attempt=$attempt AND ($after=NONE OR id>$after) ORDER BY id LIMIT 128",bindings.clone()).await?;
-        let Some(last) = contributions.last() else {
-            break;
-        };
-        bindings.insert("after", last.clone());
-        let mut product_bindings = bindings.clone();
-        product_bindings.insert("contributions", contributions);
-        loop {
-            let products = cleanup_ids(client,"SELECT VALUE id FROM native_product WITH INDEX contribution_products WHERE contribution IN $contributions LIMIT 128",product_bindings.clone()).await?;
-            if products.is_empty() {
-                break;
-            }
-            // Keep the product itself until its outgoing ownership has drained.
-            release_cleanup_holds(client, authorization, products.clone(), true).await?;
-            let mut deletion = product_bindings.clone();
-            deletion.insert("products", products);
-            effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"LET $owner=SELECT * FROM ONLY $attempt FOR UPDATE; IF $owner=NONE OR $owner.epoch!=$attempt_epoch OR $owner.state NOT IN ['closing','closed','abandoned','maintenance_fenced'] OR $owner.admitted { THROW 'native cleanup product owner'; }; LET $owned=SELECT * FROM $products WHERE contribution IN $contributions; FOR $product IN $owned { fn::native_incidence($product); DELETE $product.id RETURN NONE; }",deletion).await?;
-        }
-    }
-    // These roots keep immutable contributor IDs discoverable across interrupted
-    // product cleanup, even when concurrent retirement is making progress.
+    // A terminal producer is not an instruction to end warm retention. Product
+    // roots retain their exact completed outputs independently of artifact admission;
+    // only explicit product release and the retirement owner can remove those roots.
+    // The attempt's own outgoing roots have already been nominated above.
     release_cleanup_holds(
         client,
         authorization,

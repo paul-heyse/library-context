@@ -620,11 +620,12 @@ pub(crate) fn run_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "base_evaluation_inventory",
-        inputs: run_inputs(),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Base,run_inputs()),
         create: std::sync::Arc::new(|budget| Box::new(EvaluationRunCheck::new(budget))),
     }]
 }
 struct EvaluationRunCheck {
+    uniform:uniform_outcome::AnalysisUniformConsumer,
     reads: super::read_channels::ReadRecords,
     local: Rows<analysis::local::AnalysisInvocation>,
     data: EvaluationData,
@@ -645,6 +646,7 @@ struct EvaluationRunCheck {
 impl EvaluationRunCheck {
     fn new(budget: &ResourceBudget) -> Self {
         Self {
+            uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Base,budget),
             reads: super::read_channels::ReadRecords::new(budget),
             local: Rows::new(budget),
             data: EvaluationData::new(budget),
@@ -665,7 +667,9 @@ impl EvaluationRunCheck {
     }
 }
 impl InvariantCheck for EvaluationRunCheck {
+    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform.admit(owner)}
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        self.uniform.visit(name,batch)?;
         self.data.visit(name, batch)?;
         self.entry.visit(name, batch)?;
         self.reads.visit(name, batch)?;
@@ -674,6 +678,7 @@ impl InvariantCheck for EvaluationRunCheck {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        if self.uniform.complete_empty(self.invocations.is_empty() && self.runs.is_empty() && self.boundaries.is_empty() && self.evaluations.is_empty() && self.sources.is_empty() && self.members.is_empty() && self.operands.is_empty() && self.outcomes.is_empty())?{return Ok(());}
         let invalid = |message: &str| ModelError::Invalid(message.into());
         let mut expected_reads = super::read_channels::ReadRecords::new(&self.budget);
         let mut runs = Rows::new(&self.budget);

@@ -18,6 +18,7 @@ use std::{
 pub struct ScopedFixture {
     pub reader: NativeReader<()>,
     pub store: Arc<NativeCompilerStore>,
+    pub installed: Vec<Arc<lctx_native::installed_view::HeldInstalledView>>,
 }
 impl std::ops::Deref for ScopedFixture {
     type Target = NativeReader<()>;
@@ -96,15 +97,17 @@ pub async fn reader(
         .await?;
     let client = lctx_compiler_store::compiler::check_installation(config).await?;
     let selected = views.values().map(|v| v.identity).collect::<Vec<_>>();
+    let derivation=ContentHash::of(format!("scoped-native-kernel-fixture/{}",store.attempt().hex()).as_bytes());
     let loader = lctx_native::Loader::for_attempt_views(
         client.clone(),
         store.attempt(),
         selected.clone(),
-    ).with_budget(&budget);
+    ).with_derivation(derivation).with_budget(&budget);
     loader.entity_references(entities).await?;
     loader.assertion_references(assertions).await?;
-    Ok(ScopedFixture {
-        reader: NativeReader::for_views(client, selected).with_budget(&budget),
-        store,
-    })
+    let descriptors=views.values().cloned().collect::<Vec<_>>();
+    let reader=store.reader_for_views(&descriptors,&budget).await?.with_derivation(derivation);
+    let mut installed=Vec::new();
+    for view in &descriptors {installed.push(store.installed_view(view,&budget).await?);}
+    Ok(ScopedFixture {reader,store,installed})
 }

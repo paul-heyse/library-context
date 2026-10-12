@@ -15,6 +15,7 @@ use futures::{
 };
 use lctx_model::domain::{
     Batch, ContentHash, ModelError, Record, Relation, ValidatedModel,
+    analysis,
     batching::TransferLimits,
     charged::StateCharge,
     resources::{Reservation, ResourceBudget, ResourcePool},
@@ -339,6 +340,16 @@ impl Workspace {
         let runtime=self.admission_runtime(profile)?;self.bridge.call(async move{runtime.facts_availability_async(profile).await})
     }
     pub async fn facts_availability_async(&self,profile:Profile)->Result<Arc<lctx_model::domain::admission::ScopedAvailability>,ModelError>{self.admission_runtime(profile)?.facts_availability_async(profile).await}
+    /// Expected-domain consumers share the exact selected compact producer owners.
+    /// Their own captured sources still reconstruct and validate scope membership.
+    pub async fn coverage_admission<'a>(&self,sources:&'a analysis::sources::CapturedSources)
+        ->Result<analysis::expected::CoverageAdmission<'a>,ModelError>{
+        let profile=sources.profile().ok_or(ModelError::Conflict("coverage admission captured profile absent"))?;
+        let owners=self.admission_runtime(profile)?.uniform_owners_async(profile).await?;
+        let mut admission=analysis::expected::CoverageAdmission::new(sources,self.budget())?;
+        for owner in owners.owners(){admission.admit_uniform_owner(owner)?;}
+        Ok(admission)
+    }
     /// Semantic content over the actual completed typed streams, independent of IPC bytes.
     pub fn identity(&self) -> Result<ContentHash, ModelError> {
         let mut sink = lctx_model::domain::KeySink::new("compiler-workspace-view-set/v1");
@@ -474,7 +485,7 @@ impl Workspace {
                         source.relation.clone(),
                         self.budget.clone(),
                         self.options.batch_rows,
-                    )?,
+                    ).await?,
                 )
                 .map_err(ModelError::codec)?;
             tables.insert((*boundary, *name), table);
@@ -1651,7 +1662,7 @@ impl CompletedInputs {
     pub fn relations(&self) -> impl Iterator<Item = &Arc<CompletedRelation>> {
         self.relations.values().map(|binding| &binding.source)
     }
-    fn provider(
+    async fn provider(
         &self,
         workspace: &Workspace,
         source: &CompletedRelation,
@@ -1661,7 +1672,7 @@ impl CompletedInputs {
             source.relation.clone(),
             workspace.budget.clone(),
             workspace.options.batch_rows,
-        )?;
+        ).await?;
         match &self.producing_scope {
             Some(scope) => lctx_compiler_store::compiler_provider::bind_producing(&provider, scope),
             None => Ok(provider),
@@ -1729,7 +1740,7 @@ impl CompletedInputs {
         let mut aliases = BTreeMap::new();
         for ((name, prefix), source) in self.ordered_bindings() {
             let table = Self::table(name, prefix);
-            let provider = self.provider(workspace, source)?;
+            let provider = self.provider(workspace, source).await?;
             aliases.insert(table.clone(), provider.clone());
             context
                 .register_table(&table, provider)
@@ -1752,7 +1763,7 @@ impl CompletedInputs {
             if sources.all(|other| {
                 other.resolved == source.resolved && other.view.identity == source.view.identity
             }) {
-                let provider = self.provider(workspace, source)?;
+                let provider = self.provider(workspace, source).await?;
                 aliases.insert(name.to_owned(), provider.clone());
                 context
                     .register_table(name, provider)
@@ -1989,6 +2000,16 @@ struct Writer<R: Record> {
     limits: TransferLimits,
     contribution: bool,
 }
+/// Explicit empty output of a whole unrequested owner. This writer has no row ingress
+/// or downcast to a typed mutable buffer; it can only complete a zero-row membership.
+struct EmptyWriter {relation:Relation,contribution:bool}
+impl ErasedWriter for EmptyWriter {
+    fn as_any_mut(&mut self)->&mut dyn Any{self}
+    fn close(self:Box<Self>,_model:Arc<ValidatedModel>,_budget:ResourceBudget)
+        ->BoxFuture<'static,Result<PendingRelation,ModelError>>{
+        Box::pin(async move {Ok(PendingRelation{relation:self.relation,contribution:self.contribution})})
+    }
+}
 impl<R: Record> Writer<R> {
     fn write_batch(&mut self, batch: Batch<R>, budget: &ResourceBudget) -> Result<(), ModelError> {
         let write = owned_batch_write(
@@ -2209,6 +2230,18 @@ impl ProducerOutput {
     }
     pub fn declare<R: Record>(&self) -> Result<(), ModelError> {
         self.declare_kind::<R>(lctx_model::domain::stages::is_epoch_shared(R::NAME))
+    }
+    /// Declare the remaining actual stage outputs empty after its whole-owner request
+    /// policy and captured domain have been reconstructed. Existing writers are retained.
+    pub(crate) async fn declare_empty_outputs(&self)->Result<(),ModelError>{
+        self.check()?;self.registration_request().await?;
+        let mut writers=self.writers.lock().map_err(|_|poisoned())?;
+        for name in &self.allowed {
+            if writers.contains_key(name){continue;}
+            let relation=self.workspace.model.relation(name).ok_or(ModelError::Schema("empty owner output relation"))?.clone();
+            writers.insert(relation.name(),Box::new(EmptyWriter{relation,contribution:lctx_model::domain::stages::is_epoch_shared(name)}));
+        }
+        Ok(())
     }
     fn declare_kind<R: Record>(&self, contribution: bool) -> Result<(), ModelError> {
         self.guarded(|| {
@@ -2727,12 +2760,7 @@ mod tests {
         Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap())
     }
     #[tokio::test]
-    async fn native_transfer_windows_do_not_amplify_small_query_partitions() {
-        use datafusion::{
-            common::stats::Precision,
-            physical_plan::ExecutionPlanProperties,
-            prelude::{col, lit},
-        };
+    async fn native_transfer_window_configuration_does_not_authorize_an_unconnected_provider() {
         use lctx_model::domain::{completed::CompletedView, input::Release, serving::Name};
         let native = lctx_compiler_store::compiler::NativeCompilerStore::from_existing(
             Arc::new(lctx_native::surrealdb::Surreal::init()),
@@ -2762,100 +2790,9 @@ mod tests {
             config.target_partitions(),
             SessionConfig::default().target_partitions()
         );
-        let compute_rows = config.batch_size();
-        let large_rows = compute_rows.saturating_mul(128);
-        let provider = |rows: usize| {
-            let view = CompletedView::new(
-                Release::NAME.into(),
-                [ContentHash::of(b"partition-planning")].into(),
-                rows as u64,
-            )
-            .unwrap();
-            lctx_compiler_store::compiler_provider::table_provider(
-                native.clone(),
-                view,
-                Relation::of::<Release>(),
-                workspace.budget.clone(),
-                workspace.options.batch_rows,
-            )
-            .unwrap()
-        };
-        let tiny = provider(256);
-        let large = provider(large_rows);
-        let mut charge = StateCharge::new(workspace.budget(), "planning-selected-keys");
-        charge.grow(7 * 16).unwrap();
-        let selected = lctx_compiler_store::compiler_provider::select_table(
-            &large,
-            Arc::new((1..=7).map(|value| [value; 16]).collect()),
-            Arc::new(charge),
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(tiny.statistics().unwrap().num_rows, Precision::Exact(256));
-        assert_eq!(
-            selected.statistics().unwrap().num_rows,
-            Precision::Inexact(7)
-        );
-        let empty = lctx_compiler_store::compiler_provider::select_table(
-            &large,
-            Arc::new(vec![]),
-            Arc::new(StateCharge::new(workspace.budget(), "planning-empty-keys")),
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(empty.statistics().unwrap().num_rows, Precision::Inexact(0));
-        for (name, provider) in [
-            ("tiny", tiny),
-            ("selected", selected),
-            ("empty", empty),
-            ("large", large),
-        ] {
-            workspace.context.register_table(name, provider).unwrap();
-        }
-        fn partitioned(plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>) -> bool {
-            plan.output_partitioning().partition_count() > 1
-                || plan.children().into_iter().any(partitioned)
-        }
-        for (name, substantial) in [
-            ("tiny", false),
-            ("selected", false),
-            ("empty", false),
-            ("large", true),
-        ] {
-            // Unsupported native LIKE leaves a real compute filter below a non-native sort.
-            // The plan is built against the actual native provider without database I/O.
-            let plan = workspace
-                .context
-                .table(name)
-                .await
-                .unwrap()
-                .filter(col("version").like(lit("%x%")))
-                .unwrap()
-                .sort(vec![col("version").sort(true, false)])
-                .unwrap()
-                .create_physical_plan()
-                .await
-                .unwrap();
-            assert_eq!(
-                partitioned(&plan),
-                substantial && config.target_partitions() > 1,
-                "partition benefit must follow cardinality, not the seven-row transfer window: {name}"
-            );
-        }
-        fn native_source(plan: &Arc<dyn datafusion::physical_plan::ExecutionPlan>) -> bool {
-            plan.name() == "NativeCompilerExec" || plan.children().into_iter().any(native_source)
-        }
-        let frame = crate::sql::query(&workspace.context, "SELECT count(*) FROM empty")
-            .await
-            .unwrap();
-        assert!(
-            native_source(&frame.create_physical_plan().await.unwrap()),
-            "inexact empty selection cannot replace native authority with aggregate statistics"
-        );
-        assert!(
-            frame.collect().await.is_err(),
-            "an empty selected scan must reach this deliberately unconnected authority, rather than return a count"
-        );
+        let view = CompletedView::new(Release::NAME.into(), [ContentHash::of(b"unconnected-planning")].into(), 0).unwrap();
+        assert!(native.table_provider(&view,Relation::of::<Release>(),workspace.budget.clone(),7).await.is_err(),
+            "even an empty optimizer input needs earned native authority before construction");
     }
     #[tokio::test]
     async fn logical_templates_share_only_fixed_ports_program_and_input_order() {

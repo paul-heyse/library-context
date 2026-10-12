@@ -65,6 +65,7 @@ macro_rules! member_type{($name:ident,$table:literal,$assessment:ty;$($extra:tt)
  #[model(code=10)]Core{assessment:Id<$assessment>,method:Method,#[model(premise)]invocation:Id<analysis::catalog_core::AnalysisInvocation>,#[model(premise)]outcome:Id<analysis::catalog_core::AnalysisOutcome>,#[model(premise)]coverage:Id<analysis::catalog_core::AnalysisCoverage>,payload:ContentHash},
  #[model(code=11)]Evidence{assessment:Id<$assessment>,method:Method,#[model(premise)]invocation:Id<analysis::catalog_evidence::AnalysisInvocation>,#[model(premise)]outcome:Id<analysis::catalog_evidence::AnalysisOutcome>,#[model(premise)]coverage:Id<analysis::catalog_evidence::AnalysisCoverage>,payload:ContentHash},
  $($extra)*
+ #[model(code=15)]UniformAnalysis{assessment:Id<$assessment>,owner:String,#[model(premise)]descriptor:Id<uniform_outcome::UniformNotRequested>,payload:ContentHash},
  }
 };}
 member_type!(AnalysisMember,"analysis_frontier_members",AnalysisAssessment;);
@@ -184,11 +185,11 @@ macro_rules! lower_analysis {
     };
 }
 macro_rules! drafts{($($field:ident:$variant:ident:$owner:ident=>[$($method:ident),*],)*)=>{
- #[derive(Clone)]enum Draft{$($variant{method:Method,invocation:Id<analysis::$owner::AnalysisInvocation>,outcome:Id<analysis::$owner::AnalysisOutcome>,coverage:Id<analysis::$owner::AnalysisCoverage>,payload:ContentHash},)*}
- impl HeapSize for Draft{}
- impl Draft{fn id(&self)->ContentHash{match self{$(Self::$variant{method,invocation,outcome,coverage,payload}=>{let mut k=KeySink::new("final-frontier-member");k.part(b"owner",stringify!($variant).as_bytes());method.encode(&mut k);invocation.encode(&mut k);outcome.encode(&mut k);coverage.encode(&mut k);payload.encode(&mut k);k.finish()},)*}}
- fn analysis(&self,assessment:Id<AnalysisAssessment>)->Result<AnalysisMember,ModelError>{match self{$(Self::$variant{method,invocation,outcome,coverage,payload}=>lower_analysis!($variant,assessment,*method,*invocation,*outcome,*coverage,*payload),)*}}
- fn catalog(&self,assessment:Id<CatalogAssessment>)->CatalogMember{match self{$(Self::$variant{method,invocation,outcome,coverage,payload}=>CatalogMember::$variant{assessment,method:*method,invocation:*invocation,outcome:*outcome,coverage:*coverage,payload:*payload},)*}}}
+ #[derive(Clone)]enum Draft{UniformAnalysis{owner:String,descriptor:Id<uniform_outcome::UniformNotRequested>,payload:ContentHash},$($variant{method:Method,invocation:Id<analysis::$owner::AnalysisInvocation>,outcome:Id<analysis::$owner::AnalysisOutcome>,coverage:Id<analysis::$owner::AnalysisCoverage>,payload:ContentHash},)*}
+ impl HeapSize for Draft{fn heap_bytes(&self)->usize{match self{Self::UniformAnalysis{owner,..}=>owner.heap_bytes(),_=>0}}}
+ impl Draft{fn id(&self)->ContentHash{match self{Self::UniformAnalysis{owner,descriptor,payload}=>{let mut k=KeySink::new("final-frontier-uniform-analysis-member");owner.encode(&mut k);descriptor.encode(&mut k);payload.encode(&mut k);k.finish()},$(Self::$variant{method,invocation,outcome,coverage,payload}=>{let mut k=KeySink::new("final-frontier-member");k.part(b"owner",stringify!($variant).as_bytes());method.encode(&mut k);invocation.encode(&mut k);outcome.encode(&mut k);coverage.encode(&mut k);payload.encode(&mut k);k.finish()},)*}}
+ fn analysis(&self,assessment:Id<AnalysisAssessment>)->Result<AnalysisMember,ModelError>{match self{Self::UniformAnalysis{owner,descriptor,payload}=>Ok(AnalysisMember::UniformAnalysis{assessment,owner:owner.clone(),descriptor:*descriptor,payload:*payload}),$(Self::$variant{method,invocation,outcome,coverage,payload}=>lower_analysis!($variant,assessment,*method,*invocation,*outcome,*coverage,*payload),)*}}
+ fn catalog(&self,assessment:Id<CatalogAssessment>)->CatalogMember{match self{Self::UniformAnalysis{owner,descriptor,payload}=>CatalogMember::UniformAnalysis{assessment,owner:owner.clone(),descriptor:*descriptor,payload:*payload},$(Self::$variant{method,invocation,outcome,coverage,payload}=>CatalogMember::$variant{assessment,method:*method,invocation:*invocation,outcome:*outcome,coverage:*coverage,payload:*payload},)*}}}
 };}
 owners!(drafts);
 /// The expected universe comes from captured native frames and the fixed owner/method set.
@@ -246,14 +247,23 @@ pub fn derive(
         );
         let mut availability = Vec::new();
         let mut reasons = Vec::new();
-        macro_rules! assess_owners{($($field:ident:$variant:ident:$owner:ident=>[$($method:ident),*],)*)=>{$(if owner_required(target,stringify!($owner)){$({
+        macro_rules! assess_owners{($($field:ident:$variant:ident:$owner:ident=>[$($method:ident),*],)*)=>{$(if owner_required(target,stringify!($owner)){
+  let methods=&[$(Method::$method,)*];let kind=analysis::owner::AnalysisOwner::for_method(methods[0]).ok_or_else(||invalid("unknown final frontier owner"))?;
+  if let Some(domain)=data.frontier.uniform_analysis(kind,input,context,&data.definitions,b)?{
+    if data.$field.invocations.iter().any(|row|(row.input,row.context)==(input,context)){
+        return Err(invalid("mixed compact and scoped analysis owner frame"));
+    }
+    let descriptor=domain.descriptor_row()?;
+    let member=Draft::UniformAnalysis{owner:kind.name().to_owned(),descriptor:descriptor.id(),payload:descriptor.content_digest()};
+    if members.insert(&mut frame_charge,member.id(),member)?.is_some(){return Err(invalid("duplicate compact final frontier member"));}
+  }else{$({
   let method=Method::$method;let mut matching=data.$field.invocations.iter().filter(|i|(i.input,i.context)==(input,context)&&data.definitions.get(i.definition).is_some_and(|d|d.method==method));let invocation=matching.next().ok_or_else(||invalid("required final frontier invocation absent"))?;if matching.next().is_some()||invocation.subject.is_some(){return Err(invalid("final frontier has duplicate or subject-specific invocation"));}invocations.insert(&mut charge,derivation::RowRef::of(invocation.id()))?;
   let definition=data.definitions.get(invocation.definition).ok_or_else(||invalid("final frontier definition absent"))?;definition.validate()?;let outcome=data.$field.outcomes.iter().find(|r|r.invocation==invocation.id()).ok_or_else(||invalid("required final frontier outcome absent"))?;outcome.validate()?;outcomes.insert(&mut charge,derivation::RowRef::of(outcome.id()))?;
   let contract=analysis::expected::method_contract(method)?;let domain=data.frontier.domain(input,context,contract)?;
   for scope in &domain.scopes{let _scratch=b.reserve("final-frontier-scope-observations",(scope.native.len()+scope.uniform.len()+scope.normalized.len()).saturating_mul(1024).saturating_add(512))?;let mut observed=Vec::new();for row in &scope.native{observed.push(analysis::$owner::coverage::CoverageObservation::native(row)?);}for row in &scope.uniform{observed.push(analysis::$owner::coverage::CoverageObservation::uniform(row));}for row in &scope.normalized{observed.push(analysis::$owner::coverage::CoverageObservation::normalized(row)?);}let expectation=analysis::$owner::coverage::CoverageExpectation{invocation:invocation.id(),capability:contract.capability,scope:scope.scope,context:scope.context,requested:scope.requested,no_scope:scope.no_scope,sources:observed.iter().map(|o|o.source().id()).collect()};let(expected,_)=analysis::$owner::coverage::assess(&expectation,&observed,outcome.status,outcome.reason,b)?;let coverage=data.$field.coverage.get(expected.id()).filter(|r|**r==expected).ok_or_else(||invalid("final frontier differs from canonical owner coverage"))?;coverages.insert(&mut charge,derivation::RowRef::of(coverage.id()))?;
    let member=Draft::$variant{method,invocation:invocation.id(),outcome:outcome.id(),coverage:coverage.id(),payload:payload(invocation,outcome,coverage)};if members.insert(&mut frame_charge,member.id(),member)?.is_some(){return Err(invalid("duplicate final frontier member"));}if scope.requested{frame_charge.grow(size_of::<EvidenceAvailability>()+size_of::<Option<ObligationKind>>()+32)?;availability.push(coverage.availability);reasons.push(coverage.reason);}
   }
- })*})*};}
+ })*}})*};}
         owners!(assess_owners);
         if members.is_empty() || availability.is_empty() {
             return Err(invalid(

@@ -406,7 +406,7 @@ pub fn build(
                 for conclusion in o
                     .analytic_conclusions
                     .iter()
-                    .filter(|r| r.frame == frame.analytic && r.subject == candidate.entity)
+                    .filter(|r| Some(r.frame) == frame.analytic && r.subject == candidate.entity)
                 {
                     let q = need(&o.qualifications, conclusion.qualification())?;
                     if q.context != inv.context

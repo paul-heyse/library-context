@@ -165,6 +165,9 @@ pub struct OutputContent {
 #[serde(deny_unknown_fields)]
 pub struct CompletedContribution {
     pub spec: ContributionSpec,
+    /// Required on the current wire. Historical absence never becomes a current
+    /// provider interface or a reusable pure producer by deserialization default.
+    pub assurance: super::producer_assurance::ProducerAssurance,
     pub outcome: i16,
     pub outputs: BTreeMap<String, OutputContent>,
 }
@@ -178,8 +181,10 @@ impl CompletedContribution {
                 "incomplete contribution output inventory/outcome".into(),
             ));
         }
-        let mut sink = KeySink::new("compiler-completed-contribution/v1");
+        self.assurance.validate_for(self)?;
+        let mut sink = KeySink::new("compiler-completed-contribution/v2");
         self.spec.identity()?.encode(&mut sink);
+        self.assurance.identity()?.encode(&mut sink);
         self.outcome.encode(&mut sink);
         for (name, output) in &self.outputs {
             name.encode(&mut sink);
@@ -198,7 +203,7 @@ pub struct DependencySelection {
     pub keys: Option<BTreeSet<TypedRowKey>>,
 }
 
-pub const STATE_FORMAT_VERSION: u32 = 3;
+pub const STATE_FORMAT_VERSION: u32 = 4;
 
 /// Physical addresses qualify the complete nominal identity and semantic payload with the
 /// executable model and codec. Nominal identity alone is never a mutable storage address.
@@ -287,6 +292,11 @@ pub struct CompletedStateIdentity {
     pub content: ContentHash,
 }
 impl CompletedStateIdentity {
+    pub fn from_roots(roots: &super::completed_identity::CompletedFamilyRoots) -> Result<Self, ModelError> {
+        let families = roots.roots();
+        Ok(Self { format_version: STATE_FORMAT_VERSION, contributions: families[0].rows,
+            memberships: families[1].rows, backing_rows: families[3].rows, content: roots.identity()? })
+    }
     pub fn validate(&self) -> Result<(), ModelError> {
         if self.format_version != STATE_FORMAT_VERSION {
             return Err(ModelError::Invalid(
@@ -339,7 +349,7 @@ impl CompletedBinding {
         self.source.identity().encode(&mut sink);
         self.view.relation.encode(&mut sink);
         self.view.identity.encode(&mut sink);
-        self.view.rows.encode(&mut sink);
+        sink.part(b"rows", &self.view.rows.to_le_bytes());
         for contribution in &self.view.contributions { contribution.encode(&mut sink); }
         self.configuration.encode(&mut sink);
         Ok(sink.finish())

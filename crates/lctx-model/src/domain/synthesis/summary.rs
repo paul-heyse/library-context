@@ -179,7 +179,7 @@ pub fn build(
         for row in d
             .conclusions
             .iter()
-            .filter(|r| r.invocation == frame.summary)
+            .filter(|r| Some(r.invocation) == frame.summary)
         {
             let c = claim(d, row)?;
             let source = evidence(d, row)?.map(|s| sources.insert(s)).transpose()?;
@@ -620,7 +620,7 @@ mod tests {
         d.subjects.insert(subject.clone()).unwrap();
         let proof = if verdict == obligation::Verdict::RefutedUnderModel {
             ClaimProof::Refutation {
-                invocation: parent.summary,
+                invocation: parent.summary.unwrap(),
                 claim: claim.id(),
                 source: id(75),
                 qualification: q.id(),
@@ -645,7 +645,7 @@ mod tests {
                 &source, &proof, &q, &condition,
             )
             .unwrap();
-            let earlier = parents.summary.get(parent.summary).unwrap();
+            let earlier = parents.summary.get(parent.summary.unwrap()).unwrap();
             let definition = parents.definitions.get(earlier.definition).unwrap();
             let (derived, proposition, premises, _) = analysis::summary::AnalysisDerivation::emit(
                 earlier,
@@ -668,7 +668,7 @@ mod tests {
         }
         d.conclusions
             .insert(ClaimConclusion {
-                invocation: parent.summary,
+                invocation: parent.summary.unwrap(),
                 subject: subject.id(),
                 qualification: Some(q.id()),
                 proof: proven.then_some(proof.id()),

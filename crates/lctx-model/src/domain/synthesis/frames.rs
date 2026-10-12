@@ -1,5 +1,5 @@
 //! The independently known native frame universe fixes every S0 parent and output invocation.
-use crate::Domain;
+use crate::{Domain,DomainCode};
 use crate::domain::{
     analysis::{self, settings::AnalyticsConfiguration, synthesis as owner},
     normalized::Rows,
@@ -7,7 +7,7 @@ use crate::domain::{
     *,
 };
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
-#[model(name="synthesis_frames",invariant_refs=invariants_refs)]
+#[model(name="synthesis_frames",validate=validate_frame,invariant_refs=invariants_refs)]
 pub struct Frame {
     #[model(key)]
     pub invocation: Id<owner::Invocation>,
@@ -16,8 +16,20 @@ pub struct Frame {
     pub evidence: Id<analysis::catalog_evidence::Invocation>,
     pub selection: Id<analysis::selection::Invocation>,
     pub structural: Id<structural::StructuralFrame>,
-    pub analytic: Id<analytics::AnalyticFrame>,
-    pub summary: Id<analysis::summary::Invocation>,
+    pub analytic: Option<Id<analytics::AnalyticFrame>>,
+    pub analytic_kind:ParentKind,
+    pub analytic_uniform:Option<Id<uniform_outcome::UniformNotRequested>>,
+    pub summary: Option<Id<analysis::summary::Invocation>>,
+    pub summary_kind:ParentKind,
+    pub summary_uniform:Option<Id<uniform_outcome::UniformNotRequested>>,
+}
+#[derive(Debug,Clone,Copy,PartialEq,Eq,Hash,DomainCode)]
+#[repr(i16)]
+pub enum ParentKind {Ordinary=0,UniformAnalysis=1}
+fn validate_frame(frame:&Frame)->Result<(),ModelError>{
+    for (kind,ordinary,compact) in [(frame.analytic_kind,frame.analytic.is_some(),frame.analytic_uniform.is_some()),(frame.summary_kind,frame.summary.is_some(),frame.summary_uniform.is_some())]{
+        if !matches!((kind,ordinary,compact),(ParentKind::Ordinary,true,false)|(ParentKind::UniformAnalysis,false,true)){return Err(invalid("synthesis parent provenance is missing, duplicated or contradictory"));}
+    }Ok(())
 }
 #[macro_export]
 macro_rules! synthesis_frame_inputs {($apply:ident)=>{$apply!{
@@ -67,7 +79,7 @@ impl AnalyticParents {
         ]
     }
 }
-macro_rules! data{($($f:ident:$ty:ty,)*)=>{pub struct Data{pub analytic_parents:AnalyticParents,$(pub $f:Rows<$ty>,)*}impl Data{pub fn new(b:&ResourceBudget)->Self{Self{analytic_parents:AnalyticParents::new(b),$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{if self.analytic_parents.visit(n,b)? {return Ok(true);}$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{let mut inputs=vec![$(ValidationInput::of::<$ty>(&["id"]),)*];inputs.extend(AnalyticParents::inputs());inputs}}};}
+macro_rules! data{($($f:ident:$ty:ty,)*)=>{pub struct Data{pub compact:uniform_outcome::AnalysisPredecessors,pub analytic_parents:AnalyticParents,$(pub $f:Rows<$ty>,)*}impl Data{pub fn new(b:&ResourceBudget)->Self{Self{compact:uniform_outcome::AnalysisPredecessors::new(b),analytic_parents:AnalyticParents::new(b),$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{if self.analytic_parents.visit(n,b)? {return Ok(true);}$(if n==<$ty>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput>{let mut inputs=vec![$(ValidationInput::of::<$ty>(&["id"]),)*];inputs.extend(AnalyticParents::inputs());inputs}}};}
 crate::synthesis_frame_inputs!(data);
 fn invalid(s: &str) -> ModelError {
     ModelError::Invalid(s.into())
@@ -79,6 +91,7 @@ fn need<R: Record>(r: &Rows<R>, id: Id<R>) -> Result<&R, ModelError> {
 impl Data {
     pub fn lower(&self) -> catalog::evidence::frames::LowerFrames<'_> {
         catalog::evidence::frames::LowerFrames {
+            compact:&self.compact,
             local: &self.local,
             local_outcomes: &self.local_outcomes,
             source: &self.source,
@@ -134,8 +147,12 @@ pub struct Parents {
     pub evidence: Id<analysis::catalog_evidence::Invocation>,
     pub selection: Id<analysis::selection::Invocation>,
     pub structural: Id<structural::StructuralFrame>,
-    pub analytic: Id<analytics::AnalyticFrame>,
-    pub summary: Id<analysis::summary::Invocation>,
+    pub analytic: Option<Id<analytics::AnalyticFrame>>,
+    pub analytic_kind:ParentKind,
+    pub analytic_uniform:Option<Id<uniform_outcome::UniformNotRequested>>,
+    pub summary: Option<Id<analysis::summary::Invocation>>,
+    pub summary_kind:ParentKind,
+    pub summary_uniform:Option<Id<uniform_outcome::UniformNotRequested>>,
     pub sources: Vec<owner::InvocationSource>,
     _reservation: Box<dyn resources::Reservation>,
 }
@@ -258,7 +275,12 @@ pub fn parents(d: &Data, b: &ResourceBudget) -> Result<Vec<Parents>, ModelError>
                 invocation: inv.id(),
             });
         }
-        let af = analytics::AnalyticFrame {
+        let analytic_uniform=d.compact.get(analysis::owner::AnalysisOwner::Analytic,input,context)?;
+        let analytic=if let Some(descriptor)=analytic_uniform {
+            if d.analytic_parents.invocations.iter().any(|row|(row.input,row.context)==(input,context)) || d.analytic_parents.frames.iter().any(|frame|frame.structural==sf.id()) || d.analytic_parents.results.iter().any(|row|d.analytic_parents.frames.get(row.frame).is_none()) {return Err(invalid("synthesis compact and ordinary Analytic overlap"));}
+            sources.push(owner::InvocationSource::UniformAnalysis{descriptor});None
+        }else{
+            let af = analytics::AnalyticFrame {
             structural: sf.id(),
             configuration: settings.id(),
         };
@@ -297,10 +319,13 @@ pub fn parents(d: &Data, b: &ResourceBudget) -> Result<Vec<Parents>, ModelError>
                 invocation: inv.id(),
             });
         }
-        let summary = fixed!(d.summary, d.summary_outcomes, summary, input, context);
-        sources.push(owner::InvocationSource::Summary {
-            invocation: summary.id(),
-        });
+            Some(af.id())
+        };
+        let summary_uniform=d.compact.get(analysis::owner::AnalysisOwner::Summary,input,context)?;
+        let summary=if let Some(descriptor)=summary_uniform{
+            if d.summary.iter().any(|row|(row.input,row.context)==(input,context)){return Err(invalid("synthesis compact and ordinary Summary overlap"));}
+            sources.push(owner::InvocationSource::UniformAnalysis{descriptor});None
+        }else{let summary=fixed!(d.summary,d.summary_outcomes,summary,input,context);sources.push(owner::InvocationSource::Summary{invocation:summary.id()});Some(summary.id())};
         out.push(Parents {
             input,
             context,
@@ -309,8 +334,8 @@ pub fn parents(d: &Data, b: &ResourceBudget) -> Result<Vec<Parents>, ModelError>
             evidence: evidence.id(),
             selection: selection.id(),
             structural: sf.id(),
-            analytic: af.id(),
-            summary: summary.id(),
+            analytic,analytic_kind:if analytic_uniform.is_some(){ParentKind::UniformAnalysis}else{ParentKind::Ordinary},analytic_uniform,
+            summary,summary_kind:if summary_uniform.is_some(){ParentKind::UniformAnalysis}else{ParentKind::Ordinary},summary_uniform,
             sources,
             _reservation: reservation,
         });
@@ -325,8 +350,8 @@ pub fn frame(p: &Parents, invocation: Id<owner::Invocation>) -> Frame {
         evidence: p.evidence,
         selection: p.selection,
         structural: p.structural,
-        analytic: p.analytic,
-        summary: p.summary,
+        analytic:p.analytic,analytic_kind:p.analytic_kind,analytic_uniform:p.analytic_uniform,
+        summary:p.summary,summary_kind:p.summary_kind,summary_uniform:p.summary_uniform,
     }
 }
 pub fn verify(
@@ -382,13 +407,15 @@ pub fn invariants() -> Vec<Invariant> {
         ValidationInput::of::<owner::InvocationSource>(&["id"]),
         ValidationInput::of::<owner::AnalysisInput>(&["id"]),
     ]);
+    for kind in [analysis::owner::AnalysisOwner::Local,analysis::owner::AnalysisOwner::SourceCalls,analysis::owner::AnalysisOwner::Analytic,analysis::owner::AnalysisOwner::Summary]{inputs=uniform_outcome::AnalysisUniformConsumer::inputs(kind,inputs);}
     let invariants = vec![Invariant {
-        purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
-        revision: 1,
+        purpose: crate::domain::InvariantPurpose::Admission,
+        revision: 2,
         name: "synthesis_fixed_native_frames",
         inputs,
         create: std::sync::Arc::new(|b| {
             Box::new(Check {
+                uniform:[analysis::owner::AnalysisOwner::Local,analysis::owner::AnalysisOwner::SourceCalls,analysis::owner::AnalysisOwner::Analytic,analysis::owner::AnalysisOwner::Summary].map(|kind|uniform_outcome::AnalysisUniformConsumer::new(kind,b)),
                 data: Data::new(b),
                 frames: Rows::new(b),
                 invocations: Rows::new(b),
@@ -401,6 +428,7 @@ pub fn invariants() -> Vec<Invariant> {
     invariants
 }
 struct Check {
+    uniform:[uniform_outcome::AnalysisUniformConsumer;4],
     data: Data,
     frames: Rows<Frame>,
     invocations: Rows<owner::Invocation>,
@@ -409,7 +437,9 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{for consumer in &mut self.uniform{consumer.admit(owner)?;}Ok(())}
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        for consumer in &mut self.uniform{consumer.visit(n,b)?;}
         if self.data.visit(n, b)? {
             return Ok(());
         }
@@ -425,9 +455,11 @@ impl InvariantCheck for Check {
         row!(owner::Invocation, invocations);
         row!(owner::InvocationSource, sources);
         row!(owner::AnalysisInput, inputs);
+        if uniform_outcome::AnalysisUniformInputs::inputs().iter().any(|input|input.name()==n){return Ok(());}
         Err(invalid("undeclared synthesis frame input"))
     }
-    fn finish(self: Box<Self>) -> Result<(), ModelError> {
+    fn finish(mut self: Box<Self>) -> Result<(), ModelError> {
+        for run in self.data.runs.iter(){for consumer in &self.uniform{if let Some(domain)=consumer.frame(run.input,run.context)?{self.data.compact.include(domain)?;}}}
         verify(
             &self.data,
             &self.frames,
@@ -458,8 +490,9 @@ pub(crate) mod tests {
     pub(crate) fn fixture() -> (ResourceBudget, Data) {
         let b = ResourceBudget::fixed(64 << 20).unwrap();
         let mut d = Data::new(&b);
-        let input = id(1);
-        let context = id(2);
+        let (input_row,context_row)=uniform_outcome::test_support::input_context();
+        let input = input_row.id();
+        let context = context_row.id();
         let settings = super::super::seeds::tests::settings(vec![], 0);
         d.settings.insert(settings.clone()).unwrap();
         d.runs
@@ -625,16 +658,8 @@ pub(crate) mod tests {
             d.analytic_parents.results.insert(r).unwrap();
             d.analytic_parents.invocations.insert(inv).unwrap();
         }
-        // This pure parent-inventory test assumes the earlier Summary owner already validated its
-        // canonical authored definition. It is not an execution or store qualification fixture.
-        let parameters = super::super::build::definition().0;
-        let def = analysis::AnalysisDefinition {
-            method: analysis::AnalysisMethod::Summaries,
-            parameters: parameters.id(),
-            semantic_version: ContentHash::of(b"test-earlier-validated-summary"),
-            interpretation: analysis::Interpretation::ExactUnderContext,
-        };
-        let def = authored(&mut d, (parameters, def));
+        let catalog=models::Catalog::parse("finite-empty-models","version = 7\nmodels = []\n").unwrap();
+        let def = authored(&mut d, execution::configuration::summaries(catalog.declaration().id(),Default::default()).unwrap());
         let inv = analysis::summary::Invocation::new(input, context, def, None, []).0;
         d.summary_outcomes
             .insert(analysis::summary::AnalysisOutcome {
@@ -695,6 +720,54 @@ pub(crate) mod tests {
         );
         let (f, i, s, a) = publication(&d, &b);
         verify(&d, &f, &i, &s, &a, &b).unwrap();
+    }
+    #[test]
+    fn compact_synthesis_validates_actual_parent_inventory_and_refuses_missing_ambiguous_or_cross_scope_proofs(){
+        let (b,mut d)=fixture();
+        let (input,context)=uniform_outcome::test_support::input_context();
+        let analytic=uniform_outcome::test_support::empty_owner(analysis::owner::AnalysisOwner::Analytic,&input,&context,&b);
+        let summary=uniform_outcome::test_support::empty_owner(analysis::owner::AnalysisOwner::Summary,&input,&context,&b);
+        let ordinary_summary=d.summary.iter().next().unwrap().clone();
+        d.analytic_parents=AnalyticParents::new(&b);d.analytic_outcomes=Rows::new(&b);
+        d.summary=Rows::new(&b);d.summary_outcomes=Rows::new(&b);
+        assert!(parents(&d,&b).is_err(),"empty ordinary parents without selected owner proofs refuse");
+        d.compact.include(analytic.domain).unwrap();d.compact.include(summary.domain).unwrap();
+        let p=parents(&d,&b).unwrap();assert_eq!(p.len(),1);
+        assert!(p[0].analytic.is_none() && p[0].summary.is_none());
+        assert_eq!(p[0].analytic_kind,ParentKind::UniformAnalysis);assert_eq!(p[0].summary_kind,ParentKind::UniformAnalysis);
+        assert_eq!(p[0].sources.len(),9,"five analytic invocations and one Summary become two actual compact predecessors");
+        let (f,i,s,a)=publication(&d,&b);verify(&d,&f,&i,&s,&a,&b).unwrap();
+        let invariant=invariants().remove(0);
+        let mut check=(invariant.create)(&b);
+        check.admit_uniform_owner(&analytic.owner).unwrap();check.admit_uniform_owner(&summary.owner).unwrap();
+        macro_rules! feed {($($field:ident:$ty:ty,)*)=>{$(check.visit(<$ty>::NAME,&<$ty as Record>::encode(&d.$field.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();)*};}
+        crate::synthesis_frame_inputs!(feed);
+        for (name,batch) in analytic.batches.iter().chain(&summary.batches){if invariant.inputs.iter().any(|input|input.name()==*name){check.visit(name,batch).unwrap();}}
+        check.visit(Frame::NAME,&Frame::encode(&f.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();
+        check.visit(owner::Invocation::NAME,&owner::Invocation::encode(&i.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();
+        check.visit(owner::InvocationSource::NAME,&<owner::InvocationSource as Record>::encode(&s.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();
+        check.visit(owner::AnalysisInput::NAME,&owner::AnalysisInput::encode(&a.iter().cloned().collect::<Vec<_>>()).unwrap()).unwrap();
+        check.finish().unwrap();
+        let actual=f.iter().next().unwrap().clone();actual.validate().unwrap();
+        let mut changed=actual.clone();changed.summary=Some(ordinary_summary.id());assert!(changed.validate().is_err());
+        let mut changed=actual;changed.analytic_uniform=None;assert!(changed.validate().is_err());
+        d.summary.insert(ordinary_summary).unwrap();assert!(parents(&d,&b).is_err(),"ordinary and protected compact parents cannot overlap");
+        d.summary=Rows::new(&b);d.compact=uniform_outcome::AnalysisPredecessors::new(&b);
+        let mut other=context.clone();other.config_digest=ContentHash::of(b"different-context");
+        let other=uniform_outcome::test_support::empty_owner(analysis::owner::AnalysisOwner::Analytic,&input,&other,&b);
+        d.compact.include(other.domain).unwrap();assert!(parents(&d,&b).is_err(),"a protected foreign domain cannot supply this actual frame");
+    }
+    #[test]
+    fn compact_synthesis_preserves_independent_mixed_ordinary_and_compact_parent_choices(){
+        for kind in [analysis::owner::AnalysisOwner::Analytic,analysis::owner::AnalysisOwner::Summary]{
+            let (budget,mut data)=fixture();let (input,context)=uniform_outcome::test_support::input_context();
+            let selected=uniform_outcome::test_support::empty_owner(kind,&input,&context,&budget);
+            if kind==analysis::owner::AnalysisOwner::Analytic{data.analytic_parents=AnalyticParents::new(&budget);data.analytic_outcomes=Rows::new(&budget);}else{data.summary=Rows::new(&budget);data.summary_outcomes=Rows::new(&budget);}
+            data.compact.include(selected.domain).unwrap();let parents=parents(&data,&budget).unwrap();let parent=&parents[0];
+            assert_eq!(parent.analytic.is_none(),kind==analysis::owner::AnalysisOwner::Analytic);
+            assert_eq!(parent.summary.is_none(),kind==analysis::owner::AnalysisOwner::Summary);
+            let (frames,invocations,sources,inputs)=publication(&data,&budget);verify(&data,&frames,&invocations,&sources,&inputs,&budget).unwrap();
+        }
     }
     #[test]
     fn coupled_invocation_frame_erasure_cannot_shrink_native_universe() {

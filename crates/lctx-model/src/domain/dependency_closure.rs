@@ -121,7 +121,7 @@ impl DependencyClosure {
             if is_epoch_shared(input.name()) {
                 let epoch = match input.prefix() {
                     Some(epoch) => epoch,
-                    None if is_vocabulary(input.name()) => vocabulary,
+                    None if is_vocabulary(input.name()) || input.name()==super::uniform_outcome::UniformNotRequested::NAME => vocabulary,
                     None => selected_view(input.name(), declared_views.get(input.name()))?,
                 };
                 input = input.at_epoch(epoch);
@@ -197,6 +197,10 @@ impl DependencyClosure {
                         input.prefix().expect("resolved canonical parent view")
                     } else if !is_epoch_shared(input.name()) && owner_views.contains_key(target) {
                         selected_view(target, owner_views.get(target))?
+                    } else if target==super::uniform_outcome::UniformNotRequested::NAME && !declared_views.contains_key(target) {
+                        // Compact outcome references use the owner's genuine selected
+                        // semantic checkpoint, just as its explicit lower coverage premises.
+                        vocabulary
                     } else {
                         selected_view(target, declared_views.get(target))?
                     };

@@ -50,3 +50,20 @@ pub(crate) async fn hold_selected_contributor(client:&Surreal<Client>,fence:&Fro
     let sql=format!("{} fn::native_touch($contributor); LET $guard=SELECT * FROM ONLY $contributor_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $contributor FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$contributor_incarnation OR $actual!=$contributor_bytes OR !$actual.completed {{ THROW 'selected contributor completion changed'; }}; {holds}",frozen::FENCE_GUARD);
     effect_for_owner(client,EffectOwner::FrozenAttempt(fence.attempt()),&sql,variables).await
 }
+
+/// Preserve an already sealed namespace after independent EOF verification. The
+/// fixed frozen-owner transaction compares the original physical premises without
+/// touching its member predicate or rewriting any membership/hold incidence.
+pub(crate) async fn retain_installed_view(client:&Surreal<Client>,fence:&FrozenContentFence,
+    root:&ExpectedRecord,completion:&ExpectedRecord,revision:i64,budget:&ResourceBudget)->Result<(),ModelError>{
+    if root.record().table.as_str()!="compiler_view_realization" || completion.record().table.as_str()!="compiler_view_completion" {return Err(ModelError::Conflict("retained installed witness families"));}
+    let _charge=budget.reserve("retained installed fixed comparison",crate::loader::native_bytes(root.row()).saturating_add(crate::loader::native_bytes(completion.row())).saturating_mul(32).saturating_add(131072))?;
+    let mut variables=Variables::new();frozen::bind_fence(fence,&mut variables);
+    for (prefix,expected) in [("root",root),("completion",completion)] {
+        variables.insert(format!("{prefix}_record"),expected.record().clone());variables.insert(format!("{prefix}_guard"),guard_id(&Value::RecordId(expected.record().clone()))?);
+        variables.insert(format!("{prefix}_incarnation"),expected.incarnation());variables.insert(format!("{prefix}_bytes"),expected.row().clone());
+    }
+    variables.insert("root_revision",revision);
+    let sql=format!("{} LET $predicate=SELECT * FROM ONLY type::record('native_predicate',[$root_record]) FOR UPDATE; LET $rg=SELECT * FROM ONLY $root_guard FOR UPDATE; LET $root=SELECT * FROM ONLY $root_record FOR UPDATE; LET $cg=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $completion=SELECT * FROM ONLY $completion_record FOR UPDATE; IF $predicate.revision!=$root_revision OR $rg.phase!='active' OR $rg.incarnation!=$root_incarnation OR $root!=$root_bytes OR $root.sealed!=true OR $cg.phase!='active' OR $cg.incarnation!=$completion_incarnation OR $completion!=$completion_bytes OR $completion.completed!=true {{ THROW 'retained installed witness changed after EOF audit'; }}",frozen::FENCE_GUARD);
+    effect_for_owner(client,EffectOwner::FrozenAttempt(fence.attempt()),&sql,variables).await
+}

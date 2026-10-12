@@ -26,6 +26,7 @@ impl PartialEq for ScopedAvailability {
 }
 impl Eq for ScopedAvailability {}
 impl ScopedAvailability {
+    pub fn uniform_owners(&self)->&[uniform_outcome::ValidatedUniformOwner]{&self.uniform_owners}
     /// Compact domains arrive with actual selected-owner admission and independently rebuilt
     /// membership. Scoped rows remain ordinary authority for mixed and historical scoped inputs.
     pub fn from_completed_with_uniform(profile:Profile,expected:&BTreeSet<super::Expected>,rows:&[ProviderCoverage],scopes:&BTreeMap<Id<CoverageScope>,CoverageScope>,uniform:&[(&uniform_outcome::UniformNotRequested,&uniform_outcome::ValidatedUniformDomain,&uniform_outcome::ValidatedUniformOwner)],budget:&ResourceBudget)->Result<Self,ModelError>{

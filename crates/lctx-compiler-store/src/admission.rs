@@ -1,4 +1,8 @@
 //! Independent native artifact admission. Compiler providers and captured filesystem inputs remain above.
+mod uniform;
+pub use uniform::AdmittedUniformOwners;
+pub(crate) mod candidate;
+mod normalization_declarations;
 use arrow_array::RecordBatch;
 use datafusion::{execution::{disk_manager::{DiskManagerBuilder, DiskManagerMode}, memory_pool::{MemoryPool, MemoryReservation}, runtime_env::RuntimeEnvBuilder}, prelude::{SessionConfig,SessionContext}};
 use futures::{future::BoxFuture, FutureExt, TryStreamExt};
@@ -96,7 +100,7 @@ impl ExactRelation {
 #[derive(PartialEq, Eq)]
 struct FactsAvailabilityKey {
     profile: Profile,
-    views: [ContentHash; 9],
+    views: [ContentHash; 10],
 }
 pub struct AdmittedFacts {
     pub contract: ContentHash,
@@ -111,13 +115,34 @@ pub struct AdmittedFacts {
     _reporting_charge: StateCharge,
 }
 
+/// Fresh executed production evidence. Only validate_scope constructs this after
+/// reference closure and every applicable check reaches its required terminal state.
+pub(crate) struct CheckedSemanticScope {
+    invariants:Vec<lctx_model::domain::artifact_admission::ValidationExecution>,
+    model:ContentHash,profile:Profile,bindings:ContentHash,_charge:StateCharge,
+}
+impl CheckedSemanticScope {
+    pub(crate) fn into_evidence(self,model:ContentHash,profile:Profile,bindings:ContentHash)
+        ->Result<(Vec<lctx_model::domain::artifact_admission::ValidationExecution>,StateCharge),ModelError>{
+        if self.model!=model || self.profile!=profile || self.bindings!=bindings{return Err(ModelError::Conflict("executed semantic scope differs from artifact"));}Ok((self.invariants,self._charge))
+    }
+}
+pub(crate) struct CheckedFrontier {checks:Vec<lctx_model::domain::artifact_admission::ValidationExecution>,model:ContentHash,profile:Profile,frontier:lctx_model::domain::admission::Frontier,_charge:StateCharge}
+impl CheckedFrontier {
+    pub(crate) fn into_evidence(self,model:ContentHash,profile:Profile,frontier:lctx_model::domain::admission::Frontier)->Result<(Vec<lctx_model::domain::artifact_admission::ValidationExecution>,StateCharge),ModelError>{
+        if self.model!=model||self.profile!=profile||self.frontier!=frontier{return Err(ModelError::Conflict("executed frontier differs from artifact"));}Ok((self.checks,self._charge))
+    }
+}
+struct ScopeValidation {identity:ContentHash,evidence:Option<CheckedSemanticScope>}
+
 /// Share compact premises across compiler validation calls without sharing mutable provider state.
 pub struct AdmissionMemo {
  checked:Mutex<(BTreeSet<ContentHash>,StateCharge)>,
  facts:Mutex<Option<(FactsAvailabilityKey,Arc<AdmittedFacts>)>>,
+ uniform:Mutex<Option<((Profile,ContentHash),Arc<AdmittedUniformOwners>)>>,
 }
 impl AdmissionMemo {
- pub fn new(budget:&ResourceBudget)->Arc<Self>{Arc::new(Self{checked:Mutex::new((BTreeSet::new(),StateCharge::new(budget,"compiler-validity-premises"))),facts:Mutex::default()})}
+ pub fn new(budget:&ResourceBudget)->Arc<Self>{Arc::new(Self{checked:Mutex::new((BTreeSet::new(),StateCharge::new(budget,"compiler-validity-premises"))),facts:Mutex::default(),uniform:Mutex::default()})}
 }
 /// The restored/publication owner has only exact completed bindings, a private spillable session,
 /// typed model validators, resource/cancellation ownership and the native attempt.
@@ -174,7 +199,7 @@ impl AdmissionRuntime {
   let mut names=BTreeSet::new();let mut owners=BTreeMap::new();let mut charge=StateCharge::new(&self.budget,"compiler-completed-owners");
   for contribution in contributions {
    charge.grow(serde_json::to_vec(&contribution).map_err(ModelError::codec)?.len().saturating_mul(4).saturating_add(256))?;
-   if owners.insert(contribution.spec.identity()?,contribution.clone()).is_some(){return Err(ModelError::Conflict("duplicate restored contribution owner"));}
+   if owners.insert(contribution.identity()?,contribution.clone()).is_some(){return Err(ModelError::Conflict("duplicate restored contribution owner"));}
    contribution.identity()?;
    if contribution.spec.model!=self.model.digest(){return Err(ModelError::Conflict("restored contribution model"));}
    contribution.spec.validate_profile(profile)?;
@@ -215,10 +240,12 @@ impl AdmissionRuntime {
   let _charge=self.budget.reserve("compiler-final-handoff",descriptor_bytes.saturating_mul(3).saturating_add(binding_bytes))?;
   let inventory=self.native.freeze_content(&self.budget).await?;
   let mut owners=BTreeMap::new();
-  for owner in inventory.contributions{if owners.insert(owner.spec.identity()?,owner).is_some(){return Err(ModelError::Conflict("duplicate frozen native completed owner"));}}
+  for owner in inventory.contributions{if owners.insert(owner.identity()?,owner).is_some(){return Err(ModelError::Conflict("duplicate frozen native completed owner"));}}
   if owners!=self.owners.lock().map_err(|_|poisoned())?.0{return Err(ModelError::Conflict("frozen native completed owner handoff"));}
   let key=|b:&CompletedBinding|(b.boundary.clone(),b.view.relation.clone());let mut actual=inventory.bindings;let mut expected=bindings;actual.sort_by_key(key);expected.sort_by_key(key);
-  if actual!=expected{return Err(ModelError::Conflict("frozen native completed binding handoff"));}Ok(())
+  if actual!=expected{return Err(ModelError::Conflict("frozen native completed binding handoff"));}
+  self.native.complete_physical_content(&self.budget).await?;
+  Ok(())
  }
  fn bindings(&self)->Result<Vec<CompletedBinding>,ModelError>{
   let mut result=Vec::new();
@@ -254,10 +281,10 @@ impl AdmissionRuntime {
  pub fn completed_relations(&self)->Result<Vec<Arc<ExactRelation>>,ModelError>{Ok(self.completed.lock().map_err(|_|poisoned())?.values().cloned().collect())}
  fn input_relation(&self,input:&lctx_model::domain::ValidationInput)->Result<Arc<ExactRelation>,ModelError>{if let Some(boundary)=input.prefix(){return self.frozen_shared.lock().map_err(|_|poisoned())?.get(&(boundary,input.name())).cloned().ok_or(ModelError::Conflict("missing frozen validation input"));}self.relation(input.name())}
  fn inputs(&self,_name:&'static str,profile:Profile,names:impl IntoIterator<Item=&'static str>)->Result<ValidationInputs,ModelError>{
-  let mut relations=BTreeMap::new();for name in names{let role=relations.len();relations.insert((name,None),ResolvedInput{role,requested:None,resolved:None,source:self.relation(name)?});}Ok(ValidationInputs{relations,profile})
+  let mut relations=BTreeMap::new();for name in names{let role=relations.len();relations.insert((name,None),ResolvedInput{role,requested:None,resolved:None,source:self.relation(name)?});}Ok(ValidationInputs{relations,profile,companions:BTreeMap::new()})
  }
  pub async fn validate_compiler_selection(&self,profile:Profile,admission:bool,bindings:Vec<SelectedBinding>,session:&SessionContext,planner:&dyn ValidationPlanner)->Result<ContentHash,ModelError>{
-  let inputs=self.selected(profile,bindings)?;self.validate_scope(profile,admission,Some(&inputs),Some((session,planner))).await
+  let inputs=self.selected(profile,bindings)?;self.validate_scope(profile,admission,Some(&inputs),Some((session,planner)),false).await.map(|result|result.identity)
  }
  fn selected(&self,profile:Profile,bindings:Vec<SelectedBinding>)->Result<ValidationInputs,ModelError>{
   let mut roles=BTreeSet::new();let mut relations=BTreeMap::new();let mut exact=BTreeMap::<ContentHash,Arc<ExactRelation>>::new();
@@ -267,9 +294,10 @@ impl AdmissionRuntime {
    let source=if let Some(previous)=exact.get(&source.view.identity){if previous.view!=source.view || previous.snapshot!=source.snapshot{return Err(ModelError::Conflict("selected admission view collision"));}previous.clone()}else{exact.insert(source.view.identity,source.clone());source};
    let key=(source.name(),selected.requested);
    if relations.insert(key,ResolvedInput{role:selected.role,requested:selected.requested,resolved:selected.resolved,source}).is_some(){return Err(ModelError::Conflict("selected admission duplicate selector"));}
-  }Ok(ValidationInputs{relations,profile})
+  }Ok(ValidationInputs{relations,profile,companions:BTreeMap::new()})
  }
- pub async fn admit_semantics(&self,profile:Profile)->Result<(),ModelError>{let relations=self.completed_relations()?;let mut inputs=self.inputs("semantic-admission",profile,relations.iter().map(|r|r.name()))?;self.bind_admission_epochs(&mut inputs)?;self.validate_scope(profile,true,Some(&inputs),None).await.map(|_|())}
+ pub async fn admit_semantics(&self,profile:Profile)->Result<(),ModelError>{self.execute_semantics(profile).await.map(|_|())}
+ pub(crate) fn execute_semantics<'a>(&'a self,profile:Profile)->BoxFuture<'a,Result<CheckedSemanticScope,ModelError>>{Box::pin(async move {let relations=self.completed_relations()?;let mut inputs=self.inputs("semantic-admission",profile,relations.iter().map(|r|r.name()))?;self.bind_admission_epochs(&mut inputs)?;self.validate_scope(profile,true,Some(&inputs),None,true).await?.evidence.ok_or(ModelError::Conflict("missing fresh executed semantic evidence"))})}
     async fn coverage_rows_async<R: Record>(
         &self,
         source: &ExactRelation,
@@ -306,6 +334,7 @@ impl AdmissionRuntime {
         for row in rows {
             charge.grow(
                 size_of::<lctx_model::domain::completed::CompletedContribution>()
+                    + row.assurance.heap_bytes()
                     + row.spec.producer.len()
                     + row
                         .spec
@@ -346,15 +375,19 @@ impl AdmissionRuntime {
         profile: Profile,
         scope_rows: Vec<lctx_model::domain::source::CoverageScope>,
         facts: crate::facts::RecordedFacts<'_>,
+        compact:&[lctx_model::domain::uniform_outcome::UniformNotRequested],
+        compact_authority:&BTreeSet<ContentHash>,
     ) -> Result<AdmittedFacts, ModelError> {
         let rows = facts.observed;
-        let recorded = crate::facts::recorded_coverage(&self.model, profile, &facts, &self.budget)?;
+        let recorded = crate::facts::recorded_coverage_with_uniform(&self.model, profile, &facts, compact,compact_authority,&self.budget)?;
         let scopes = scope_rows.into_iter().map(|row| (row.id(), row)).collect();
-        let availability = lctx_model::domain::admission::ScopedAvailability::from_completed(
+        let uniform=recorded.uniform.iter().map(|row|(&row.descriptor,&row.domain,&row.owner)).collect::<Vec<_>>();
+        let availability = lctx_model::domain::admission::ScopedAvailability::from_completed_with_uniform(
             profile,
             &recorded.expected,
             rows,
             &scopes,
+            &uniform,
             &self.budget,
         )?;
         Ok(AdmittedFacts {
@@ -367,7 +400,7 @@ impl AdmissionRuntime {
     fn facts_availability_sources(
         &self,
         profile: Profile,
-    ) -> Result<(FactsAvailabilityKey, [Arc<ExactRelation>; 9]), ModelError> {
+    ) -> Result<(FactsAvailabilityKey, [Arc<ExactRelation>; 10]), ModelError> {
         use lctx_model::domain::{
             attribution::{AnalysisContext, Provider, ProviderCoverage, ProviderRun, RunFamily},
             input::{ArtifactUse, InputRevision},
@@ -391,6 +424,7 @@ impl AdmissionRuntime {
             bind(ProviderRun::NAME)?,
             bind(RunFamily::NAME)?,
             bind(AnalysisContext::NAME)?,
+            bind(lctx_model::domain::uniform_outcome::UniformNotRequested::NAME)?,
         ];
         let key = FactsAvailabilityKey {
             profile,
@@ -466,6 +500,7 @@ impl AdmissionRuntime {
             run_source,
             family_source,
             context_source,
+            uniform_source,
         ] = sources;
         let (inputs, _inputs) = self
             .coverage_rows_async::<InputRevision>(&input_source)
@@ -490,6 +525,8 @@ impl AdmissionRuntime {
         let (contexts, _contexts) = self
             .coverage_rows_async::<AnalysisContext>(&context_source)
             .await?;
+        let (compact,_compact)=self.coverage_rows_async::<lctx_model::domain::uniform_outcome::UniformNotRequested>(&uniform_source).await?;
+        let compact_authority=uniform_source.view().contributions.clone();
         let native = self.native.clone();
         let budget = self.budget.clone();
         let contributions = self
@@ -513,6 +550,8 @@ impl AdmissionRuntime {
                 authority: &authority,
                 bound_sources: &bound_sources,
             },
+            &compact,
+            &compact_authority,
         )?;
         self.remember_facts_availability(key, value)
     }
@@ -575,13 +614,17 @@ impl AdmissionRuntime {
         }
         Ok(())
     }
-    async fn validate_scope(
-        &self,
+    fn validate_scope<'a>(
+        &'a self,
         profile: Profile,
         admission: bool,
-        selected: Option<&ValidationInputs>,
-        external: Option<(&SessionContext,&dyn ValidationPlanner)>,
-    ) -> Result<ContentHash, ModelError> {
+        selected: Option<&'a ValidationInputs>,
+        external: Option<(&'a SessionContext,&'a dyn ValidationPlanner)>,
+        earn:bool,
+    ) -> BoxFuture<'a,Result<ScopeValidation, ModelError>> {Box::pin(async move {
+        use lctx_model::domain::artifact_admission::Execution;
+        if earn && !admission{return Err(ModelError::Conflict("diagnostic replay cannot earn artifact admission"));}
+        let mut evidence=Vec::new();let mut evidence_charge=StateCharge::new(self.budget(),"executed applicable validation evidence");
         let relations = match selected {
             Some(inputs) => inputs.relations().cloned().collect(),
             None => self.completed_relations()?,
@@ -607,6 +650,7 @@ impl AdmissionRuntime {
         let planner = external.map(|(_,planner)|planner).unwrap_or(&inputs as &dyn ValidationPlanner);
         self.validate_references(&session, &relations, &inputs)
             .await?;
+        if earn {self.validate_normalization_declarations(profile,&relations).await?;}
         // Catalog explicitly leaves native flow unrequested. Empty premises come from that
         // provider declaration, never from arbitrary missing requested relations.
         let mut unrequested = std::collections::BTreeSet::new();
@@ -657,9 +701,10 @@ impl AdmissionRuntime {
             self.model
                 .invariants_for_scope_with_premises(&names, &unrequested)?
         };
+        let uniform=self.uniform_owners_async(profile).await?;
         for invariant in checks {
-            let premise = self.validation_premise(&invariant, selected, &unrequested, profile)?;
-            if let Some(premise) = premise
+            let premise = if inputs.companions.is_empty(){self.validation_premise(&invariant, selected, &unrequested, profile)?}else{None};
+            if !earn && let Some(premise) = premise
                 && self
                     .memo.checked
                     .lock()
@@ -670,6 +715,7 @@ impl AdmissionRuntime {
                 continue;
             }
             let mut check = (invariant.create)(self.budget());
+            for owner in uniform.owners(){check.admit_uniform_owner(owner)?;}
             let execution_scope = check.execution_scope();
             if let Some(scope) = &execution_scope {
                 let alias = if let Some(inputs) = selected {
@@ -693,6 +739,7 @@ impl AdmissionRuntime {
                     nonempty |= batch.num_rows() != 0;
                 }
                 if !nonempty {
+                    if earn{evidence.push(self.execution_evidence(&invariant,Execution::EmptyDomain,&inputs,&unrequested,&mut evidence_charge)?);}
                     self.remember_premise(premise)?;
                     continue;
                 }
@@ -739,6 +786,7 @@ impl AdmissionRuntime {
                         }
                     }
                     if !nonempty {
+                        if earn{evidence.push(self.execution_evidence(&invariant,Execution::EmptyDomain,&inputs,&unrequested,&mut evidence_charge)?);}
                         self.remember_premise(premise)?;
                         continue;
                     }
@@ -747,7 +795,7 @@ impl AdmissionRuntime {
             if let Some(input) = invariant
                 .inputs
                 .iter()
-                .find(|input| !names.contains(input.name()) && !unrequested.contains(input.name()))
+                .find(|input| !names.contains(input.name()) && !inputs.companions.contains_key(input.name()) && !unrequested.contains(input.name()))
             {
                 return Err(ModelError::Invalid(format!(
                     "{} requires validation premise {} outside scope",
@@ -784,6 +832,7 @@ impl AdmissionRuntime {
                     &self.cancellation,
                 )
                 .await?;
+                if earn{evidence.push(self.execution_evidence(&invariant,Execution::Scoped,&inputs,&unrequested,&mut evidence_charge)?);}
                 self.remember_premise(premise)?;
                 continue;
             }
@@ -816,6 +865,7 @@ impl AdmissionRuntime {
                     &self.cancellation,
                 )
                 .await?;
+                if earn{evidence.push(self.execution_evidence(&invariant,Execution::Scoped,&inputs,&unrequested,&mut evidence_charge)?);}
                 self.remember_premise(premise)?;
                 continue;
             }
@@ -886,6 +936,7 @@ impl AdmissionRuntime {
                         .await?
                     }
                 }
+                if earn{evidence.push(self.execution_evidence(&invariant,Execution::Scoped,&inputs,&unrequested,&mut evidence_charge)?);}
                 self.remember_premise(premise)?;
                 continue;
             }
@@ -919,6 +970,7 @@ impl AdmissionRuntime {
                     &self.cancellation,
                 )
                 .await?;
+                if earn{evidence.push(self.execution_evidence(&invariant,Execution::Scoped,&inputs,&unrequested,&mut evidence_charge)?);}
                 self.remember_premise(premise)?;
                 continue;
             }
@@ -952,6 +1004,7 @@ impl AdmissionRuntime {
                     &self.cancellation,
                 )
                 .await?;
+                if earn{evidence.push(self.execution_evidence(&invariant,Execution::Scoped,&inputs,&unrequested,&mut evidence_charge)?);}
                 self.remember_premise(premise)?;
                 continue;
             }
@@ -984,6 +1037,7 @@ impl AdmissionRuntime {
                     &self.cancellation,
                 )
                 .await?;
+                if earn{evidence.push(self.execution_evidence(&invariant,Execution::Scoped,&inputs,&unrequested,&mut evidence_charge)?);}
                 self.remember_premise(premise)?;
                 continue;
             }
@@ -1017,6 +1071,7 @@ impl AdmissionRuntime {
                     &self.cancellation,
                 )
                 .await?;
+                if earn{evidence.push(self.execution_evidence(&invariant,Execution::Scoped,&inputs,&unrequested,&mut evidence_charge)?);}
                 self.remember_premise(premise)?;
                 continue;
             }
@@ -1064,9 +1119,26 @@ impl AdmissionRuntime {
                 )),
                 other => other,
             })?;
+            if earn{evidence.push(self.execution_evidence(&invariant,Execution::WholeInput,&inputs,&unrequested,&mut evidence_charge)?);}
             self.remember_premise(premise)?;
         }
-        self.identity()
+        let identity=self.identity()?;
+        let evidence=if earn{Some(CheckedSemanticScope{invariants:evidence,model:self.model.digest(),profile,bindings:lctx_model::domain::completed::binding_inventory_identity(&self.bindings()?)?,_charge:evidence_charge})}else{None};
+        Ok(ScopeValidation{identity,evidence})
+    })}
+    fn execution_evidence(&self,invariant:&lctx_model::domain::Invariant,execution:lctx_model::domain::artifact_admission::Execution,inputs:&ValidationInputs,unrequested:&BTreeSet<&'static str>,charge:&mut StateCharge)->Result<lctx_model::domain::artifact_admission::ValidationExecution,ModelError>{
+        use lctx_model::domain::artifact_admission::{SelectedInput,ValidationExecution,Execution};
+        charge.grow(invariant.name.len().saturating_add(invariant.inputs.len().saturating_mul(4096)).saturating_add(1024))?;
+        let mut selected=Vec::with_capacity(invariant.inputs.len());
+        for input in &invariant.inputs {
+            if unrequested.contains(input.name()){selected.push(SelectedInput::NotRequested{declaration:lctx_model::domain::producer_contract::facts::ty_flow().identity()});}
+            else {match inputs.validation_source(input){
+                Ok(binding)=>{let source=binding.source.snapshot();charge.grow(lctx_model::domain::HeapSize::heap_bytes(&source).saturating_mul(4).saturating_add(512))?;selected.push(SelectedInput::Completed{source,requested:binding.requested,resolved:binding.resolved});},
+                Err(_) if execution==Execution::EmptyDomain=>selected.push(SelectedInput::EmptyDomain),
+                Err(error)=>return Err(error),
+            }}
+        }
+        Ok(ValidationExecution{name:invariant.name.into(),revision:invariant.revision,definition:invariant.digest(),factory:self.model.factory_contract(invariant.identity()).map(|factory|factory.identity()).transpose()?,execution,inputs:selected})
     }
     fn validation_premise(
         &self,
@@ -1133,31 +1205,35 @@ impl AdmissionRuntime {
         frontier: lctx_model::domain::admission::Frontier,
         profile: Profile,
     ) -> Result<(), ModelError> {
-        use lctx_model::domain::admission::Frontier;
-        let ids: &[&str] = match frontier {
-            Frontier::Facts | Frontier::Normalized => &[],
-            Frontier::Conformance => {
-                return Err(ModelError::Frontier(
-                    "diagnostic conformance is not a complete artifact".into(),
-                ));
-            }
-            Frontier::Analysis => &["complete_analysis_frontier"],
-            Frontier::Catalog => &["complete_analysis_frontier", "complete_catalog_frontier"],
-        };
+        self.execute_frontier(frontier,profile).await.map(|_|())
+    }
+    pub(crate) async fn execute_frontier(&self,frontier:lctx_model::domain::admission::Frontier,profile:Profile)->Result<CheckedFrontier,ModelError>{
+        use lctx_model::domain::artifact_admission::{frontier_checks,ValidationExecution,Execution,SelectedInput};
+        let ids=frontier_checks(frontier)?;
+        let mut evidence=Vec::with_capacity(ids.len());let mut charge=StateCharge::new(self.budget(),"executed frontier evidence");
         let relations = self.completed_relations()?;
-        let access = self.inputs(
+        let mut access = self.inputs(
             "frontier-admission",
             profile,
             relations.iter().map(|r| r.name()),
         )?;
+        self.bind_admission_epochs(&mut access)?;
         let session = access.session(self).await?;
+        let uniform=self.uniform_owners_async(profile).await?;
         for id in ids {
             let invariant = self.model.publication_check(id)?;
             let mut check = (invariant.create)(self.budget());
+            for owner in uniform.owners(){check.admit_uniform_owner(owner)?;}
+            charge.grow(invariant.inputs.len().saturating_mul(4096).saturating_add(invariant.name.len()).saturating_add(1024))?;
+            let mut selected=Vec::with_capacity(invariant.inputs.len());let mut sources=Vec::with_capacity(invariant.inputs.len());
             for input in &invariant.inputs {
+                let binding=access.validation_source(input)?;
+                let source=binding.source.snapshot();charge.grow(lctx_model::domain::HeapSize::heap_bytes(&source).saturating_mul(8).saturating_add(1024))?;
+                selected.push(SelectedInput::Completed{source:source.clone(),requested:binding.requested,resolved:binding.resolved});sources.push(source);
+                let order=input.order().iter().map(|field|crate::consumed_rows::identifier(field)).collect::<Vec<_>>().join(",");
                 let mut stream = crate::sql::query(
                     &session,
-                    &format!("SELECT * FROM \"{}\" ORDER BY id", input.name()),
+                    &format!("SELECT * FROM {}{}",crate::consumed_rows::identifier(&access.validation_table(input)?),if order.is_empty(){String::new()}else{format!(" ORDER BY {order}")}),
                 )
                 .await
                 .map_err(ModelError::codec)?
@@ -1169,9 +1245,10 @@ impl AdmissionRuntime {
                     check.visit_input(input, &batch)?;
                 }
             }
-            check.finish(&[], profile)?;
+            check.finish(&sources, profile)?;
+            evidence.push(ValidationExecution{name:invariant.name.into(),revision:invariant.revision,definition:invariant.digest(),factory:self.model.factory_contract(invariant.identity()).map(|factory|factory.identity()).transpose()?,execution:Execution::WholeInput,inputs:selected});
         }
-        Ok(())
+        Ok(CheckedFrontier{checks:evidence,model:self.model.digest(),profile,frontier,_charge:charge})
     }
     async fn validation_views(
         &self,
@@ -1198,7 +1275,7 @@ impl AdmissionRuntime {
                         source.relation.clone(),
                         self.budget.clone(),
                         self.options.batch_rows,
-                    )?,
+                    ).await?,
                 )
                 .map_err(ModelError::codec)?;
             tables.insert((*boundary, *name), table);
@@ -1225,126 +1302,78 @@ impl AdmissionRuntime {
             _ => Ok(input.name()),
         }
     }
-    async fn validate_references(
-        &self,
-        session: &SessionContext,
-        relations: &[Arc<ExactRelation>],
-        inputs: &ValidationInputs,
-    ) -> Result<(), ModelError> {
-        let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
-        for source in relations {
-            for field in source
-                .relation
-                .fields()
-                .iter()
-                .filter(|field| !field.list())
-            {
-                let Some((_, target)) = field.target() else {
-                    continue;
-                };
-                let targets = distinct_reference_views(
-                    inputs
-                        .relations
-                        .iter()
-                        .filter(|((name, _), _)| *name == target)
-                        .collect(),
-                    |(_, source)| &source.view,
-                )?;
-                let target_source = targets.first().map(|(_, source)| *source);
-                let mut key = lctx_model::domain::KeySink::new("compiler-reference-premise/v1");
-                key.part(b"model", &self.model.digest().0);
-                key.part(b"source", &source.view_identity().0);
-                key.part(b"field", field.name().as_bytes());
-                for (_, source) in &targets {
-                    key.part(b"target", &source.view_identity().0);
-                }
-                if targets.is_empty() {
-                    key.part(b"missing-target", target.as_bytes());
-                }
-                let premise = key.finish();
-                if self
-                    .memo.checked
-                    .lock()
-                    .map_err(|_| poisoned())?
-                    .0
-                    .contains(&premise)
-                {
-                    continue;
-                }
-                let source_key = inputs
-                    .relations
-                    .iter()
-                    .find(|(_, bound)| bound.view == source.view)
-                    .map(|(key, _)| key)
-                    .ok_or(ModelError::Schema("selected reference source binding"))?;
-                let source_name = quote(&ValidationInputs::table(source_key.0, source_key.1));
-                let field_name = quote(field.name());
-                let sql = if let Some(target_source) = target_source {
-                    let subtype = if let Some(tag) = field.subtype() {
-                        let tag_field = target_source
-                            .relation
-                            .sum()
-                            .ok_or(ModelError::Schema("nominal subtype target"))?
-                            .tag;
-                        format!(
-                            " OR t.{} IS NULL OR t.{}<>{tag}",
-                            quote(tag_field),
-                            quote(tag_field)
-                        )
-                    } else {
-                        String::new()
-                    };
-                    let target_tables = targets
-                        .iter()
-                        .map(|((name, prefix), _)| {
-                            format!(
-                                "SELECT * FROM {}",
-                                quote(&ValidationInputs::table(name, *prefix))
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" UNION ALL ");
-                    format!(
-                        "SELECT s.{field_name} FROM {source_name} s LEFT JOIN ({target_tables}) t ON s.{field_name}=t.id WHERE s.{field_name} IS NOT NULL AND (t.id IS NULL{subtype}) LIMIT 1"
-                    )
-                } else {
-                    format!(
-                        "SELECT {field_name} FROM {source_name} WHERE {field_name} IS NOT NULL LIMIT 1"
-                    )
-                };
-                let mut stream = crate::sql::query(session, &sql)
-                    .await
-                    .map_err(ModelError::codec)?
-                    .execute_stream()
-                    .await
-                    .map_err(ModelError::codec)?;
-                while let Some(batch) = stream.try_next().await.map_err(ModelError::codec)? {
+    async fn validate_references(&self,session:&SessionContext,_relations:&[Arc<ExactRelation>],inputs:&ValidationInputs)->Result<(),ModelError>{
+        let quote=|name:&str|format!("\"{}\"",name.replace('"',"\"\""));
+        let mut tables=BTreeMap::<ContentHash,(Relation,String)>::new();
+        let mut seen_views=BTreeMap::new();
+        for ((name,prefix),source) in &inputs.relations {
+            if seen_views.insert(source.view.identity,&source.view).is_some_and(|prior|prior!=&source.view){return Err(ModelError::Conflict("reference target view descriptor collision"));}
+            tables.entry(source.view.identity).or_insert_with(||(source.relation.clone(),ValidationInputs::table(name,*prefix)));
+        }
+        for companion in inputs.companions.values(){tables.insert(companion.identity,(companion.relation.clone(),companion.table()));}
+        // A union of reference targets cannot hide conflicting nominal payloads.
+        // Captured companions carry independently protected canonical rows; each
+        // selected copy of their IDs must preserve every typed field as well.
+        for (position,(_, (left_relation,left_table))) in tables.iter().enumerate(){
+            for (_, (right_relation,right_table)) in tables.iter().skip(position+1){
+                if left_relation.name()!=right_relation.name(){continue;}
+                let differences=left_relation.schema().fields().iter().filter(|field|field.name()!="id")
+                    .map(|field|format!("l.{} IS DISTINCT FROM r.{}",quote(field.name()),quote(field.name()))).collect::<Vec<_>>().join(" OR ");
+                if differences.is_empty(){continue;}
+                let sql=format!("SELECT l.id FROM {} l JOIN {} r ON l.id=r.id WHERE {differences} LIMIT 1",quote(left_table),quote(right_table));
+                let mut stream=crate::sql::query(session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{
                     self.cancellation.check()?;
-                    if batch.num_rows() > 0 {
-                        return Err(ModelError::Invalid(format!(
-                            "missing or wrong-subtype nominal reference {}.{} -> {target}",
-                            source.name(),
-                            field.name()
-                        )));
-                    }
+                    if batch.num_rows()>0{return Err(ModelError::Conflict("selected nominal reference payloads conflict"));}
+                }
+            }
+        }
+        for (identity,(relation,source_table)) in &tables {
+            for field in relation.fields().iter().filter(|field|!field.list()) {
+                let Some((_,target))=field.target()else{continue;};
+                let targets=tables.iter().filter(|(_, (relation,_))|relation.name()==target).collect::<Vec<_>>();
+                let mut key=lctx_model::domain::KeySink::new("compiler-reference-premise/v1");
+                key.part(b"model",&self.model.digest().0);key.part(b"source",&identity.0);key.part(b"field",field.name().as_bytes());
+                for (identity,_) in &targets{key.part(b"target",&identity.0);}
+                if targets.is_empty(){key.part(b"missing-target",target.as_bytes());}
+                let premise=key.finish();
+                if self.memo.checked.lock().map_err(|_|poisoned())?.0.contains(&premise){continue;}
+                let source_name=quote(source_table);let field_name=quote(field.name());
+                let sql=if let Some((_,(target_relation,_)))=targets.first(){
+                    let subtype=if let Some(tag)=field.subtype(){
+                        let tag_field=target_relation.sum().ok_or(ModelError::Schema("nominal subtype target"))?.tag;
+                        format!(" OR t.{} IS NULL OR t.{}<>{tag}",quote(tag_field),quote(tag_field))
+                    }else{String::new()};
+                    let target_tables=targets.iter().map(|(_,(_,table))|format!("SELECT * FROM {}",quote(table))).collect::<Vec<_>>().join(" UNION ALL ");
+                    format!("SELECT s.{field_name} FROM {source_name} s LEFT JOIN ({target_tables}) t ON s.{field_name}=t.id WHERE s.{field_name} IS NOT NULL AND (t.id IS NULL{subtype}) LIMIT 1")
+                }else{format!("SELECT {field_name} FROM {source_name} WHERE {field_name} IS NOT NULL LIMIT 1")};
+                let mut stream=crate::sql::query(session,&sql).await.map_err(ModelError::codec)?.execute_stream().await.map_err(ModelError::codec)?;
+                while let Some(batch)=stream.try_next().await.map_err(ModelError::codec)?{
+                    self.cancellation.check()?;
+                    if batch.num_rows()>0{return Err(ModelError::Invalid(format!("missing or wrong-subtype nominal reference {}.{} -> {target}",relation.name(),field.name())));}
                 }
                 self.remember_premise(Some(premise))?;
             }
-        }
-        Ok(())
+        }Ok(())
     }
+
 }
 
 #[derive(Clone)]
-struct ValidationInputs { relations:BTreeMap<(&'static str,Option<PublicationBoundary>),ResolvedInput>,profile:Profile }
+struct ValidationInputs { relations:BTreeMap<(&'static str,Option<PublicationBoundary>),ResolvedInput>,profile:Profile,
+ companions:BTreeMap<&'static str,CompanionTable> }
+#[derive(Clone)]
+struct CompanionTable { relation:Relation,batches:Vec<RecordBatch>,identity:ContentHash }
+impl CompanionTable {fn table(&self)->String{format!("_captured_reference_{}",self.relation.name())}}
 impl ValidationInputs {
  fn relations(&self)->impl Iterator<Item=&Arc<ExactRelation>>{self.relations.values().map(|r|&r.source)}
  async fn session(&self,runtime:&AdmissionRuntime)->Result<SessionContext,ModelError>{
   let session=SessionContext::new_with_config_rt(runtime.context.copied_config(),runtime.context.runtime_env());
   let mut bindings=self.relations.iter().collect::<Vec<_>>();bindings.sort_by_key(|(_,b)|b.role);
-  for ((name,prefix),source) in bindings{session.register_table(Self::table(name,*prefix),runtime.native.table_provider(&source.view,source.relation.clone(),runtime.budget.clone(),runtime.options.batch_rows)?).map_err(ModelError::codec)?;}
+  for companion in self.companions.values(){session.register_table(companion.table(),Arc::new(datafusion::datasource::MemTable::try_new(companion.relation.schema().clone(),vec![companion.batches.clone()]).map_err(ModelError::codec)?)).map_err(ModelError::codec)?;}
+  for ((name,prefix),source) in bindings{session.register_table(Self::table(name,*prefix),runtime.native.table_provider(&source.view,source.relation.clone(),runtime.budget.clone(),runtime.options.batch_rows).await?).map_err(ModelError::codec)?;}
   let names=self.relations.keys().map(|(name,_)|*name).collect::<BTreeSet<_>>();
-  for name in names{let mut sources=self.relations.iter().filter(|((n,_),_)|*n==name).map(|(_,s)|s);let source=sources.next().expect("declared input");if sources.all(|other|other.resolved==source.resolved && other.view.identity==source.view.identity){session.register_table(name,runtime.native.table_provider(&source.view,source.relation.clone(),runtime.budget.clone(),runtime.options.batch_rows)?).map_err(ModelError::codec)?;}}
+  for name in names{let mut sources=self.relations.iter().filter(|((n,_),_)|*n==name).map(|(_,s)|s);let source=sources.next().expect("declared input");if sources.all(|other|other.resolved==source.resolved && other.view.identity==source.view.identity){session.register_table(name,runtime.native.table_provider(&source.view,source.relation.clone(),runtime.budget.clone(),runtime.options.batch_rows).await?).map_err(ModelError::codec)?;}}
   Ok(session)
  }
     fn validation_source(
@@ -1390,6 +1419,7 @@ impl ValidationInputs {
                 "checked admission requires a missing input epoch",
             ));
         }
+        if let Some(companion)=self.companions.get(input.name()){return Ok(companion.table());}
         let mut choices = self
             .relations
             .iter()
@@ -1423,23 +1453,6 @@ impl ValidationInputs {
 
 impl ValidationPlanner for ValidationInputs {
  fn query<'a>(&'a self,session:&'a SessionContext,_input:&'a lctx_model::domain::ValidationInput,sql:&'a str)->BoxFuture<'a,Result<datafusion::dataframe::DataFrame,ModelError>>{async move{crate::sql::query(session,sql).await.map_err(crate::sql::model_error)}.boxed()}
-}
-fn distinct_reference_views<T>(
-    mut targets: Vec<T>,
-    view: impl Fn(&T) -> &lctx_model::domain::completed::CompletedView,
-) -> Result<Vec<T>, ModelError> {
-    targets.sort_unstable_by_key(|target| view(target).identity);
-    for adjacent in targets.windows(2) {
-        if view(&adjacent[0]).identity == view(&adjacent[1]).identity
-            && view(&adjacent[0]) != view(&adjacent[1])
-        {
-            return Err(ModelError::Conflict(
-                "reference target view descriptor collision",
-            ));
-        }
-    }
-    targets.dedup_by_key(|target| view(target).identity);
-    Ok(targets)
 }
 #[derive(Debug)]
 struct BudgetMemoryPool {

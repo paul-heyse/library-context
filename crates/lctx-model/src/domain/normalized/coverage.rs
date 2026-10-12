@@ -174,7 +174,7 @@ pub struct NormalizationEvidenceSet {
     #[model(key)]
     pub family: FactFamily,
 }
-#[derive(Debug, Clone, PartialEq, Eq, DomainSum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "normalization_evidence_members")]
 pub enum NormalizationEvidenceMember {
     #[model(code=0)] Scoped{premise:Id<NormalizationEvidenceSet>,coverage:Id<ProviderCoverage>},

@@ -15,18 +15,62 @@ pub(crate) struct InspectedClosure {
     pub(crate) mappings: Vec<ContributorRealization>,
     _charge: StateCharge,
 }
-fn descriptor<T:serde::de::DeserializeOwned>(row:&Value)->Result<T,ModelError>{
+pub(crate) fn descriptor<T:serde::de::DeserializeOwned>(row:&Value)->Result<T,ModelError>{
     let Some(Value::Bytes(bytes))=row.as_object().and_then(|row|row.get("descriptor")) else {
         return Err(ModelError::Schema("installed audit descriptor"));
     };
     serde_json::from_slice(bytes).map_err(ModelError::codec)
 }
+/// Independently read evidence already retained by this exact native owner. The
+/// immutable seal revision is not today's incidence predicate: incoming holds can
+/// advance that predicate without changing one member of the completed namespace.
+pub(crate) struct OriginalHeldCompletion {
+    pub completion:super::InstalledViewCompletion,
+    pub expected:crate::control::ExpectedRecord,
+    _charge:StateCharge,
+}
+pub(crate) fn same_completion_metadata(expected:&super::InstalledViewCompletion,actual:&super::InstalledViewCompletion)->bool{
+    let mut metadata=actual.clone();metadata.frozen_revision=expected.frozen_revision;metadata==*expected
+}
+pub(crate) async fn original_held_completion(reader:&NativeReader<()>,owner:&RecordId,
+    expected:&super::InstalledViewCompletion,current_revision:i64,budget:&ResourceBudget)->Result<OriginalHeldCompletion,ModelError>{
+    let mut after=Value::None;let mut selected=None;
+    let mut charge=StateCharge::new(budget,"original held installed completion");
+    loop {
+        let mut variables=Variables::new();variables.insert("seal_owner",owner.clone());variables.insert("seal_after",after.clone());
+        let rows:Vec<Value>=reader.query_native("SELECT object AS address,object.* AS stored FROM native_hold WITH INDEX owner_holds WHERE owner=$seal_owner AND record::table(object)='compiler_view_completion' AND ($seal_after=NONE OR object>$seal_after) ORDER BY object LIMIT 1",variables).await?;
+        let [row]=rows.as_slice()else{if !rows.is_empty(){return Err(ModelError::Conflict("held completion bounded owner page"));}break;};
+        let _page=budget.reserve("held completion owner page decode",crate::loader::native_bytes(row).saturating_mul(32).saturating_add(65536))?;
+        let object=row.as_object().ok_or(ModelError::Schema("held completion owner page"))?;
+        let Some(Value::RecordId(address))=object.get("address")else{return Err(ModelError::Schema("held completion exact owner address"));};
+        after=Value::RecordId(address.clone());
+        let actual=object.get("stored").ok_or(ModelError::Schema("held completion owner target absent"))?;
+        let completion=super::InstalledViewCompletion::from_row(actual)?;
+        if completion.record()?!=*address{return Err(ModelError::Conflict("held completion owner target identity"));}
+        if same_completion_metadata(expected,&completion) {
+            if completion.frozen_revision>current_revision{return Err(ModelError::Conflict("held original seal exceeds current incidence revision"));}
+            if selected.is_some(){return Err(ModelError::Conflict("multiple exact held installed completion seals"));}
+            charge.grow(crate::loader::native_bytes(actual).saturating_mul(32).saturating_add(65536))?;
+            selected=Some((completion,actual.clone()));
+        }
+    }
+    let (completion,row)=selected.ok_or(ModelError::Conflict("sealed namespace lacks exact owner-held completion"))?;
+    let expected=crate::control::inspect_expected_read(reader,completion.record()?,budget).await?
+        .ok_or(ModelError::Conflict("owner-held completion disappeared"))?;
+    if expected.row()!=&row{return Err(ModelError::Conflict("owner-held original completion changed"));}
+    crate::completed_state::require_hold(reader,owner,expected.record()).await?;
+    Ok(OriginalHeldCompletion{completion,expected,_charge:charge})
+}
 fn exact_mappings(closure:&RecoveryClosure,mappings:&[ContributorRealization])->Result<(),ModelError>{
-    if mappings.windows(2).any(|pair|pair[0].logical>=pair[1].logical)
+    if mappings.windows(2).any(|pair|(pair[0].view,pair[0].logical)>=(pair[1].view,pair[1].logical))
         || mappings.iter().any(|mapping|mapping.incarnation<=0)
-        || mappings.iter().map(|mapping|mapping.physical).collect::<std::collections::BTreeSet<_>>().len()!=mappings.len()
-        || !closure.contributions().keys().copied().eq(mappings.iter().map(|mapping|mapping.logical)) {
+        || !closure.views().values().flat_map(|view| view.contributions.iter().map(move |logical| (view.identity,*logical))).eq(mappings.iter().map(|mapping| (mapping.view,mapping.logical))) {
         return Err(ModelError::Conflict("installed exact dependency realization inventory"));
+    }
+    let mut physical=BTreeMap::new();
+    for mapping in mappings {
+        let selected=(mapping.logical,mapping.incarnation);
+        if physical.insert(mapping.physical,selected).is_some_and(|previous|previous!=selected){return Err(ModelError::Conflict("installed exact dependency realization inventory"));}
     }
     Ok(())
 }
@@ -37,7 +81,7 @@ pub(crate) async fn inspect_closure(reader:&NativeReader<()>,root:&CompletedView
     root.validate()?;
     let mut charge=StateCharge::new(budget,"installed exact closure descriptors");
     charge.grow(mappings.len().saturating_mul(std::mem::size_of::<ContributorRealization>()+128))?;
-    if mappings.windows(2).any(|pair|pair[0].logical>=pair[1].logical) {
+    if mappings.windows(2).any(|pair|(pair[0].view,pair[0].logical)>=(pair[1].view,pair[1].logical)) {
         return Err(ModelError::Conflict("installed selected mapping order/duplicate"));
     }
     let mut contributors=BTreeMap::new();let mut descriptors=BTreeMap::new();
@@ -53,14 +97,15 @@ pub(crate) async fn inspect_closure(reader:&NativeReader<()>,root:&CompletedView
         validate_state_row("compiler_contribution",expected.row())?;
         let data:CompletedContribution=descriptor(expected.row())?;
         if data.identity()?!=mapping.logical{return Err(ModelError::Conflict("installed selected contributor logical identity"));}
-        descriptors.insert(mapping.logical,data);contributors.insert(mapping.logical,expected);
+        if descriptors.get(&mapping.logical).is_some_and(|previous| previous != &data) {return Err(ModelError::Conflict("installed equivalent copies differ in full descriptor"));}
+        descriptors.insert(mapping.logical,data);contributors.insert(mapping.physical,expected);
     }
     let mut traversal=RecoveryTraversal::for_views(vec![root.clone()])?;
     while let Some(requested)=traversal.next_view()? {
         let mut variables=Variables::new();variables.insert("view",RecordId::new("compiler_view",requested.identity.hex()));
         // One bounded declared row. All payload/decode allocations remain covered until
         // the closure owner is consumed by the final effect.
-        let _read=budget.reserve("installed exact view read",d::resources::MAX_ROW_BYTES)?;
+        let _read=budget.reserve("installed exact view read",std::mem::size_of::<Value>())?;
         let rows:Vec<Value>=reader.query_native("SELECT * FROM $view",variables).await?;
         let [actual]=rows.as_slice() else{return Err(ModelError::Conflict("installed selected view cardinality"));};
         charge.grow(crate::loader::native_bytes(actual).saturating_mul(32).saturating_add(65536))?;
@@ -71,20 +116,22 @@ pub(crate) async fn inspect_closure(reader:&NativeReader<()>,root:&CompletedView
             let contribution=descriptors.get(logical).ok_or(ModelError::Conflict("installed missing dependency mapping"))?;
             charge.grow(serde_json::to_vec(contribution).map_err(ModelError::codec)?.len().saturating_mul(4).saturating_add(1024))?;
             selected.push(contribution.clone());
-            let mapping=&mappings[mappings.binary_search_by_key(logical,|mapping|mapping.logical)
+            let mapping=&mappings[mappings.binary_search_by_key(&(requested.identity,*logical),|mapping|(mapping.view,mapping.logical))
                 .map_err(|_|ModelError::Conflict("installed selected mapping disappeared"))?];
             crate::completed_state::require_hold(reader,&RecordId::new("compiler_view",requested.identity.hex()),
                 &RecordId::new("compiler_contribution",mapping.physical.hex())).await?;
             for input in &contribution.spec.inputs {
+                // Reusing dependency metadata does not discharge another physical
+                // contributor's edge. Check every selected source independently.
+                crate::completed_state::require_hold(reader,&RecordId::new("compiler_contribution",mapping.physical.hex()),
+                    &RecordId::new("compiler_view",input.view().hex())).await?;
                 if dependencies.contains_key(&input.view()){continue;}
-                let _page=budget.reserve("installed dependency view read",d::resources::MAX_ROW_BYTES)?;
+                let _page=budget.reserve("installed dependency view read",std::mem::size_of::<Value>())?;
                 let mut variables=Variables::new();variables.insert("view",RecordId::new("compiler_view",input.view().hex()));
                 let rows:Vec<Value>=reader.query_native("SELECT * FROM $view",variables).await?;
                 let [row]=rows.as_slice() else{return Err(ModelError::Conflict("installed dependency view cardinality"));};
                 charge.grow(crate::loader::native_bytes(row).saturating_mul(32).saturating_add(65536))?;
                 validate_state_row("compiler_view",row)?;let dependency:CompletedView=descriptor(row)?;
-                crate::completed_state::require_hold(reader,&RecordId::new("compiler_contribution",mapping.physical.hex()),
-                    &RecordId::new("compiler_view",input.view().hex())).await?;
                 dependencies.insert(input.view(),dependency);
             }
         }
@@ -110,7 +157,7 @@ pub(crate) async fn audit_memberships(reader:&NativeReader<()>,closure:&Inspecte
             .collect::<BTreeMap<_,_>>();
         let mut after_relation=String::new();let mut after_key=String::new();let mut after_id=Value::None;
         loop {
-            let _page=budget.reserve("installed membership read",d::resources::MAX_ROW_BYTES)?;
+            let _page=budget.reserve("installed membership read",std::mem::size_of::<Value>())?;
             let mut variables=Variables::new();variables.insert("owner",owner.clone());
             variables.insert("after_relation",after_relation.clone());variables.insert("after_key",after_key.clone());variables.insert("after_id",after_id.clone());
             let rows:Vec<Value>=reader.query_native("SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND (relation>$after_relation OR (relation=$after_relation AND (semantic_key>$after_key OR (semantic_key=$after_key AND id>$after_id)))) ORDER BY relation,semantic_key,id LIMIT 1",variables).await?;
@@ -209,7 +256,7 @@ mod tests {
     use super::*;
     use d::{Relation, analysis::sources::SourceSnapshot, completed::{ContributionSpec,OutputContent,OutputProfile},input::Package,stages::Profile};
     fn contribution(name:&str,inputs:Vec<SourceSnapshot>)->CompletedContribution {
-        CompletedContribution{spec:ContributionSpec{captured_binding:None,producer:name.into(),profile:OutputProfile::Specific(Profile::Catalog),
+        CompletedContribution{ assurance: lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,spec:ContributionSpec{captured_binding:None,producer:name.into(),profile:OutputProfile::Specific(Profile::Catalog),
             model:ContentHash::of(b"model"),implementation:ContentHash::of(b"implementation"),configuration:None,inputs,outputs:["packages".into()].into()},
             outcome:0,outputs:[("packages".into(),OutputContent{rows:0,content:ContentHash::of(b"empty membership EOF")})].into()}
     }
@@ -226,9 +273,24 @@ mod tests {
         traversal.include_view(&requested,dependency_view,vec![dependency],|_|unreachable!()).unwrap();
         assert!(traversal.next_view().unwrap().is_none());
         let closure=traversal.finish().unwrap();
-        let mappings=closure.contributions().keys().enumerate().map(|(i,logical)|ContributorRealization{
-            logical:*logical,physical:ContentHash::of(format!("exact-copy-{i}").as_bytes()),incarnation:1}).collect();
+        let mappings=closure.views().values().flat_map(|view| view.contributions.iter().map(move |logical|(view.identity,*logical))).enumerate().map(|(i,(view,logical))|ContributorRealization{
+            view,logical,physical:ContentHash::of(format!("exact-copy-{i}").as_bytes()),incarnation:1}).collect();
         (closure,mappings)
+    }
+    #[test]
+    fn immutable_seal_metadata_survives_incidence_revision_changes_only() {
+        let (closure,mappings)=closure();let view=closure.views().values().next().unwrap().clone();
+        let actual=super::super::InstalledViewCompletion{generation:ContentHash::of(b"generation"),validity_epoch:1,realization_incarnation:7,version:1,
+            realization:super::super::realization_id(&view,&mappings).unwrap(),view,member_codec:super::super::MEMBER_CODEC,mappings,
+            closure:d::completed_identity::CompletedFamilyRoots::new(d::recovery_closure::COMPLETED_FAMILIES.map(|family|d::completed_identity::CompletedFamilyHasher::new(family).unwrap().finish())).unwrap(),
+            membership_rows:0,membership_content:ContentHash::of(b"audited EOF"),frozen_revision:19};
+        let mut current=actual.clone();current.frozen_revision=91;
+        assert!(same_completion_metadata(&current,&actual));assert_eq!(actual.frozen_revision,19);
+        assert_ne!(actual.identity().unwrap(),current.identity().unwrap(),"incidence revision must not mint a replacement immutable seal");
+        current.membership_content=ContentHash::of(b"changed member");assert!(!same_completion_metadata(&current,&actual));
+        current=actual.clone();current.realization_incarnation=8;assert!(!same_completion_metadata(&current,&actual));
+        current=actual.clone();current.mappings[0].physical=ContentHash::of(b"another physical copy");assert!(!same_completion_metadata(&current,&actual));
+        current=actual.clone();current.validity_epoch=2;assert!(!same_completion_metadata(&current,&actual));
     }
     #[test]
     fn exact_dependency_mapping_retains_empty_premise_and_refuses_missing_extra_duplicate_or_rebound_copy(){
@@ -238,8 +300,8 @@ mod tests {
             let mut changed=mappings.clone();
             match defect {
                 "missing"=>{changed.pop();},
-                "extra"=>{changed.push(ContributorRealization{logical:ContentHash::of(b"unrequested logical owner"),physical:ContentHash::of(b"unrequested copy"),incarnation:1});changed.sort_by_key(|mapping|mapping.logical);},
-                "duplicate"=>{changed.push(changed[0].clone());changed.sort_by_key(|mapping|mapping.logical);},
+                "extra"=>{changed.push(ContributorRealization{view:ContentHash::of(b"unrequested view"),logical:ContentHash::of(b"unrequested logical owner"),physical:ContentHash::of(b"unrequested copy"),incarnation:1});changed.sort_by_key(|mapping|(mapping.view,mapping.logical));},
+                "duplicate"=>{changed.push(changed[0].clone());changed.sort_by_key(|mapping|(mapping.view,mapping.logical));},
                 "physical_alias"=>{changed[1].physical=changed[0].physical;},
                 _=>{changed[0].incarnation=0;},
             }
@@ -251,6 +313,29 @@ mod tests {
         exact_mappings(&closure,&alternate).unwrap();
         assert_ne!(before,super::super::realization_id(root,&alternate).unwrap(),"two exact valid copies have different physical namespaces");
     }
+    #[test]
+    fn equivalent_copies_are_selected_per_view_instead_of_collapsing_the_closure(){
+        let mut shared=contribution("shared",vec![]);
+        shared.spec.outputs.insert("releases".into());
+        shared.outputs.insert("releases".into(),shared.outputs["packages"].clone());
+        let logical=shared.identity().unwrap();
+        let views=["packages","releases"].map(|relation|CompletedView::new(relation.into(),[logical].into(),0).unwrap());
+        let mut traversal=RecoveryTraversal::for_views(views.to_vec()).unwrap();
+        while let Some(view)=traversal.next_view().unwrap(){traversal.include_view(&view,view.clone(),vec![shared.clone()],|_|unreachable!()).unwrap();}
+        let closure=traversal.finish().unwrap();
+        let mut mappings=views.iter().enumerate().map(|(index,view)|ContributorRealization{view:view.identity,logical,physical:ContentHash::of(format!("copy-{index}").as_bytes()),incarnation:1}).collect::<Vec<_>>();
+        mappings.sort_by_key(|mapping|(mapping.view,mapping.logical));
+        exact_mappings(&closure,&mappings).unwrap();
+        assert_ne!(mappings[0].physical,mappings[1].physical,"each selected view retains its exact chosen copy");
+        mappings[1].physical=mappings[0].physical;
+        exact_mappings(&closure,&mappings).unwrap();
+        mappings[1].incarnation+=1;
+        assert!(exact_mappings(&closure,&mappings).is_err(),"one physical record cannot claim two current incarnations");
+        mappings[1].incarnation=1;
+        mappings[1].view=mappings[0].view;
+        assert!(exact_mappings(&closure,&mappings).is_err(),"duplicate incidence is never an alternate choice");
+    }
+
 }
 
 /// Only alias rows owned by the supplied completed contributor set are closure
@@ -265,13 +350,13 @@ pub(crate) async fn audit_aliases(reader:&NativeReader<()>,closure:&InspectedClo
         let mut variables=Variables::new();variables.insert("owner",owner.clone());
         let mut members=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],
             vec!["SELECT node AS id FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner".into()])?)?;
-        let result=async {while let Some(row)=members.next_native().await? {seeds.push(row)?;} Ok::<_,ModelError>(())}.await;
+        let result=async {while let Some(row)=members.next().await? {seeds.push(row)?;} Ok::<_,ModelError>(())}.await;
         let mut completion=Completion::default();completion.step("installed seed membership drainage",members.drain_transport().await);complete(result,completion)?;
         let mut variables=Variables::new();variables.insert("owner",owner.clone());
         let mut holds=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],
             vec!["SELECT object AS id FROM native_hold WITH INDEX owner_holds WHERE owner=$owner".into()])?)?;
         let result=async {
-            while let Some(pointer)=holds.next_native().await? {
+            while let Some(pointer)=holds.next().await? {
                 let Some(Value::RecordId(id))=pointer.as_object().and_then(|row|row.get("id")) else{return Err(ModelError::Schema("installed held alias pointer"));};
                 if id.table.as_str()!="compiler_alias"{continue;}
                 let expected=crate::control::inspect_expected_read(reader,id.clone(),budget).await?.ok_or(ModelError::Conflict("installed held alias missing"))?;
@@ -284,7 +369,7 @@ pub(crate) async fn audit_aliases(reader:&NativeReader<()>,closure:&InspectedClo
                 sink.part(b"target",&serde_json::to_vec(target).map_err(ModelError::codec)?);
                 let mut canonical=surrealdb::types::Object::new();canonical.insert("id",RecordId::new("compiler_alias",sink.finish().hex()));canonical.insert("source",source.clone());canonical.insert("target",target.clone());
                 if expected.row()!=&Value::Object(canonical){return Err(ModelError::Conflict("installed exact alias envelope"));}
-                crate::completed_state::require_hold(reader,id,source).await?;
+                crate::completed_state::require_hold(reader,&id,source).await?;
                 let backing=crate::control::inspect_expected_read(reader,target.clone(),budget).await?.ok_or(ModelError::Conflict("installed alias target missing"))?;
                 crate::completed_state::require_hold(reader,&owner,target).await?;
                 audit_backing(reader,&owner,backing.row(),budget).await?;
@@ -368,20 +453,20 @@ pub(crate) async fn logical_roots_many(reader:&NativeReader<()>,closures:&[Inspe
     d::completed::binding_inventory_identity(bindings)?;
     let mut owner_charge=StateCharge::new(budget,"installed logical normalization owner descriptors");
     let mut owners=BTreeMap::new();
-    for (closure,mapping) in closures.iter().flat_map(|closure|closure.mappings.iter().map(move |mapping|(closure,mapping))) {
+    for closure in closures { for mapping in &closure.mappings {
         let descriptor=&closure.logical.contributions()[&mapping.logical];
         owner_charge.grow(serde_json::to_vec(descriptor).map_err(ModelError::codec)?.len().saturating_mul(16).saturating_add(1024))?;
         owners.insert(RecordId::new("compiler_contribution",mapping.physical.hex()),descriptor.clone());
-    }
+    }}
     let mut families=COMPLETED_FAMILIES.map(|_|SortedRows::with_budget_and_row_bytes(budget,d::resources::MAX_ROW_BYTES)).into_iter().collect::<Result<Vec<_>,_>>()?;
     let mut backing_ids=SortedRows::with_budget(budget)?;
-    for (closure,mapping) in closures.iter().flat_map(|closure|closure.mappings.iter().map(move |mapping|(closure,mapping))) {
-        let expected=&closure.contributors[&mapping.logical];
+    for closure in closures { for mapping in &closure.mappings {
+        let expected=&closure.contributors[&mapping.physical];
         families[0].push(crate::completed_logical_rows::normalize("compiler_contribution",expected.row(),&owners)?)?;
         let mut variables=Variables::new();variables.insert("owner",expected.record().clone());
         let mut rows=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],vec!["SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner".into()])?)?;
         let result=async {
-            while let Some(row)=rows.next_native().await? {
+            while let Some(row)=rows.next().await? {
                 validate_state_row("compiler_membership",&row)?;
                 families[1].push(crate::completed_logical_rows::normalize("compiler_membership",&row,&owners)?)?;
                 let Some(Value::RecordId(node))=row.as_object().and_then(|row|row.get("node")) else{return Err(ModelError::Schema("logical backing member node"));};
@@ -390,17 +475,17 @@ pub(crate) async fn logical_roots_many(reader:&NativeReader<()>,closures:&[Inspe
             Ok::<_,ModelError>(())
         }.await;
         let mut completion=Completion::default();completion.step("installed logical membership drainage",rows.drain_transport().await);complete(result,completion)?;
-    }
-    for view in closures.iter().flat_map(|closure|closure.logical.views().values()) {
+    }}
+    for closure in closures { for view in closure.logical.views().values() {
         let mut variables=Variables::new();variables.insert("view",RecordId::new("compiler_view",view.identity.hex()));
-        let _read=budget.reserve("logical declared view read",d::resources::MAX_ROW_BYTES)?;
+        let _read=budget.reserve("logical declared view read",std::mem::size_of::<Value>())?;
         let rows:Vec<Value>=reader.query_native("SELECT * FROM $view",variables).await?;
         let [row]=rows.as_slice() else{return Err(ModelError::Conflict("logical declared view cardinality"));};
         let _decode=budget.reserve("logical declared view normalization",crate::loader::native_bytes(row).saturating_mul(32).saturating_add(65536))?;
         validate_state_row("compiler_view",row)?;
         if descriptor::<CompletedView>(row)?!=*view {return Err(ModelError::Conflict("logical declared view changed"));}
         families[2].push(crate::completed_logical_rows::normalize("compiler_view",row,&owners)?)?;
-    }
+    }}
     let mut backing_ids=backing_ids.finish()?;
     while let Some(pointer)=backing_ids.next_row()? {
         let Some(Value::RecordId(id))=pointer.as_object().and_then(|row|row.get("id")) else{return Err(ModelError::Schema("logical backing identity"));};

@@ -60,13 +60,46 @@ fn complete_request_distinguishes_acquisition_metadata_order_and_negative_premis
     }
 }
 #[derive(Default)]
-struct Sink {declared:Mutex<BTreeSet<String>>,rows:Mutex<BTreeMap<String,Vec<ContentHash>>>,outcomes:Mutex<Vec<ProviderOutcome>>}
+struct Sink {declared:Mutex<BTreeSet<String>>,rows:Mutex<BTreeMap<String,Vec<ContentHash>>>,outcomes:Mutex<Vec<ProviderOutcome>>,uniform:Mutex<Vec<uniform_outcome::UniformNotRequested>>,coverage:Mutex<Vec<attribution::ProviderCoverage>>}
 impl ProviderSink for Sink {
     fn read<R:Record>(&self)->Result<cpg_extract::bundle::ProviderBatchStream<R>,ModelError>{Err(ModelError::Invalid("acquisition has no upstream reads".into()))}
     fn declare<R:Record>(&self)->Result<(),ModelError>{self.declared.lock().unwrap().insert(R::NAME.into());self.rows.lock().unwrap().entry(R::NAME.into()).or_default();Ok(())}
-    fn write<R:Record>(&self,batch:Batch<R>)->Result<(),ModelError>{self.rows.lock().unwrap().entry(R::NAME.into()).or_default().extend(batch.rows().iter().map(Record::content_digest));Ok(())}
+    fn write<R:Record>(&self,batch:Batch<R>)->Result<(),ModelError>{
+        for row in batch.rows(){
+            let value=row as &dyn std::any::Any;
+            if let Some(row)=value.downcast_ref::<uniform_outcome::UniformNotRequested>(){self.uniform.lock().unwrap().push(row.clone());}
+            if let Some(row)=value.downcast_ref::<attribution::ProviderCoverage>(){self.coverage.lock().unwrap().push(row.clone());}
+        }
+        self.rows.lock().unwrap().entry(R::NAME.into()).or_default().extend(batch.rows().iter().map(Record::content_digest));Ok(())
+    }
     fn contribute<R:Record>(&self,batch:Batch<R>)->Result<(),ModelError>{self.write(batch)}
     fn finish(&self,outcome:ProviderOutcome)->Result<(),ModelError>{self.outcomes.lock().unwrap().push(outcome);Ok(())}
+}
+
+#[tokio::test]
+async fn real_assembly_compacts_unrequested_flow_and_preserves_explicit_empty_domain() {
+    for profile in [Profile::Catalog,Profile::Behavioral] {
+    let budget=ResourceBudget::fixed(256<<20).unwrap();
+    let empty=tempfile::tempdir().unwrap();
+    let empty=AcquiredInput::tree(CapturedInput::capture(empty.path(),&[],&budget).unwrap(),"empty");
+    let inputs=Arc::new(CapturedInputs::new(vec![acquired(b"VALUE = 1\n","one",&budget),empty],NativeContextConfig::committed(profile,&budget).unwrap()));
+    let bound=cpg_extract::contracts::bind_stage(cpg_extract::assembly::Assemble.declaration(profile),&inputs).unwrap();
+    let mut expected=Vec::new();
+    for input in inputs.inputs(){
+        let context=cpg_extract::pyrefly_stage::analysis_context(input,None,inputs.config()).unwrap();
+        let (_,domain)=uniform_outcome::ExpectedUniform::captured_family(&bound,profile,input.captured().revision().id(),context.id(),attribution::FactFamily::Flow,&budget).unwrap();
+        if profile==Profile::Catalog{expected.push(domain.declaration().unwrap());}
+        else {assert!(domain.declaration().is_err(),"requested Flow cannot declare uniform NotRequested");}
+    }
+    let sink=Arc::new(Sink::default());
+    cpg_extract::bundle::run_provider(Box::new(cpg_extract::assembly::Assemble),profile,sink.clone(),Arc::new(model().unwrap()),inputs,budget,Default::default()).await.unwrap();
+    assert_eq!(*sink.outcomes.lock().unwrap(),vec![ProviderOutcome::Complete]);
+    assert_eq!(*sink.uniform.lock().unwrap(),expected);
+    assert_eq!(expected.iter().map(|row|row.members).collect::<Vec<_>>(),if profile==Profile::Catalog{vec![1,0]}else{vec![]});
+    let coverage=sink.coverage.lock().unwrap();
+    assert_eq!(coverage.len(),2);
+    assert!(coverage.iter().all(|row|row.family==attribution::FactFamily::Artifacts && row.status==attribution::CoverageStatus::CompleteUnderStatedModel));
+    }
 }
 #[tokio::test]
 async fn real_acquisition_emits_the_bound_inventory_and_explicit_empty_outputs() {
@@ -80,7 +113,7 @@ async fn real_acquisition_emits_the_bound_inventory_and_explicit_empty_outputs()
     same!(artifacts:source::SourceArtifact,packages:Package,releases:Release,distributions:InputDistribution,verifications:DistributionVerification,fingerprints:EnvironmentFingerprint,ownership:ArtifactOwnership,unowned:UnownedArtifact,derivations:DerivedArtifact,uses:ArtifactUse);
     assert!(rows[DerivedArtifact::NAME].is_empty());
     assert!(rows[CorpusLibrary::NAME].is_empty());
-    let completed=CompletedContribution {spec:expected.contribution().clone(),outcome:0,outputs:rows.iter().map(|(name,values)|{
+    let completed=CompletedContribution { assurance: lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,spec:expected.contribution().clone(),outcome:0,outputs:rows.iter().map(|(name,values)|{
         let mut digest=KeySink::new("focused-output");for value in values {digest.part(b"row",&value.0);}(name.clone(),OutputContent{rows:values.len() as u64,content:digest.finish()})
     }).collect()};
     assert!(matches!(expected.eligibility(Candidate::Completed {request:expected.identity().unwrap(),descriptor:&completed,admitted:true}),Eligibility::Hit));
@@ -90,7 +123,7 @@ async fn real_acquisition_emits_the_bound_inventory_and_explicit_empty_outputs()
 #[test]
 fn terminal_eligibility_is_total_and_never_promotes_partial_or_unrequested_results() {
     let budget=ResourceBudget::fixed(64<<20).unwrap();let input=captured(vec![acquired(b"","empty",&budget)],&budget);let request=request(&input);
-    let complete=CompletedContribution {spec:request.contribution().clone(),outcome:0,outputs:request.contribution().outputs.iter().map(|name|(name.clone(),OutputContent{rows:0,content:ContentHash::of(b"empty")})).collect()};
+    let complete=CompletedContribution { assurance: lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,spec:request.contribution().clone(),outcome:0,outputs:request.contribution().outputs.iter().map(|name|(name.clone(),OutputContent{rows:0,content:ContentHash::of(b"empty")})).collect()};
     let key=request.identity().unwrap();
     assert!(matches!(request.eligibility(Candidate::Completed {request:key,descriptor:&complete,admitted:true}),Eligibility::Hit));
     assert!(matches!(request.eligibility(Candidate::Completed {request:key,descriptor:&complete,admitted:false}),Eligibility::Miss(_)));

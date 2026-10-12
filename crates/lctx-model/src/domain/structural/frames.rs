@@ -11,6 +11,8 @@ use crate::domain::{
     *,
 };
 pub struct Context {
+    compact_local:charged::ChargedMap<(Id<input::InputRevision>,Id<attribution::AnalysisContext>),uniform_outcome::ValidatedUniformDomain>,
+    compact_charge:charged::StateCharge,
     pub settings: Rows<AnalyticsConfiguration>,
     pub definitions: Rows<analysis::AnalysisDefinition>,
     pub parameters: Rows<analysis::MethodParameters>,
@@ -26,6 +28,7 @@ pub struct Context {
 impl Context {
     pub fn new(b: &ResourceBudget) -> Self {
         Self {
+            compact_local:Default::default(),compact_charge:charged::StateCharge::new(b,"structural compact Local predecessors"),
             settings: Rows::new(b),
             definitions: Rows::new(b),
             parameters: Rows::new(b),
@@ -57,6 +60,23 @@ impl Context {
         }
         row.validate()?;
         Ok(row)
+    }
+    pub fn admit_compact_local(&mut self,domain:uniform_outcome::ValidatedUniformDomain)->Result<(),ModelError>{
+        let row=domain.descriptor_row()?;
+        if row.kind!=uniform_outcome::UniformKind::AnalysisOwner || row.owner!=analysis::owner::AnalysisOwner::Local.name(){return Err(invalid("structural compact predecessor is not Local"));}
+        if self.compact_local.insert(&mut self.compact_charge,(row.input,row.context),domain)?.is_some(){return Err(invalid("structural compact Local predecessor duplicated"));}Ok(())
+    }
+    pub fn local_source(&self,core:&analysis::catalog_core::Invocation)->Result<owner::InvocationSource,ModelError>{
+        if let Some(domain)=self.compact_local.get(&(core.input,core.context)){
+            if self.local.iter().any(|row|(row.input,row.context)==(core.input,core.context)){return Err(invalid("Local compact and ordinary predecessor overlap"));}
+            return Ok(owner::InvocationSource::UniformAnalysis{descriptor:domain.descriptor_row()?.id()});
+        }
+        Ok(owner::InvocationSource::Local{invocation:self.local_parent(core)?.id()})
+    }
+    fn controls_requested(&self,core:&analysis::catalog_core::Invocation)->Result<bool,ModelError>{
+        if matches!(self.local_source(core)?,owner::InvocationSource::UniformAnalysis{..}){return Ok(false);}
+        let local=self.local_parent(core)?;
+        Ok(self.local_outcomes.iter().find(|row|row.invocation==local.id()).ok_or_else(||invalid("Local outcome absent"))?.status!=analysis::AnalysisStatus::NotRequested)
     }
     pub fn validation_inputs() -> Vec<ValidationInput> {
         let mut v = ProjectionOutput::validation_inputs();
@@ -149,13 +169,7 @@ pub fn frame(
         usage_invocation: select(analysis::AnalysisMethod::DirectUsage)?,
         handoff_invocation: select(analysis::AnalysisMethod::Handoffs)?,
         control_invocation: select(analysis::AnalysisMethod::Controls)?,
-        controls_requested: ctx
-            .local_outcomes
-            .iter()
-            .find(|r| r.invocation == ctx.local_parent(core).unwrap().id())
-            .ok_or_else(|| invalid("Local outcome absent"))?
-            .status
-            != analysis::AnalysisStatus::NotRequested,
+        controls_requested: ctx.controls_requested(core)?,
         configuration: settings.id(),
         invocation_graph: ctx
             .graph(core, projection::ProjectionName::CallableInvocation)?
@@ -186,7 +200,7 @@ pub fn verify(
     let mut inputs = Rows::new(b);
     let mut count = 0;
     for core in parents.iter() {
-        let local = c.local_parent(core)?;
+        let local = c.local_source(core)?;
         let f = frame(c, core)?;
         let invocation = need(&c.invocations, f.invocation)?;
         for invocation in [
@@ -196,9 +210,7 @@ pub fn verify(
             f.control_invocation,
         ] {
             for parent in [
-                owner::InvocationSource::Local {
-                    invocation: local.id(),
-                },
+                local.clone(),
                 owner::InvocationSource::CatalogCore {
                     invocation: core.id(),
                 },
@@ -285,9 +297,10 @@ pub(crate) fn invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "structural_replay",
-        inputs,
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Local,inputs),
         create: std::sync::Arc::new(|b| {
             Box::new(Check {
+                uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Local,b),
                 data: Data::new(b),
                 context: Context::new(b),
                 output: Output::new(b),
@@ -297,17 +310,20 @@ pub(crate) fn invariants() -> Vec<Invariant> {
     }]
 }
 struct Check {
+    uniform:uniform_outcome::AnalysisUniformConsumer,
     data: Data,
     context: Context,
     output: Output,
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform.admit(owner)}
     fn visit_input(
         &mut self,
         input: &ValidationInput,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
+        self.uniform.visit(input.name(),batch)?;
         if stages::is_vocabulary(input.name()) {
             if input.prefix().is_some() {
                 self.data.visit_input(input, batch)?;
@@ -320,16 +336,18 @@ impl InvariantCheck for Check {
         }
     }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        self.uniform.visit(n,b)?;
         let data = self.data.visit(n, b)?;
         let context = self.context.visit(n, b)?;
         let output = self.output.visit(n, b)?;
-        if data || context || output {
+        if data || context || output || uniform_outcome::AnalysisUniformInputs::inputs().iter().any(|input|input.name()==n) {
             Ok(())
         } else {
             Err(invalid("undeclared structural replay input"))
         }
     }
-    fn finish(self: Box<Self>) -> Result<(), ModelError> {
+    fn finish(mut self: Box<Self>) -> Result<(), ModelError> {
+        for core in parents(&self.data,&self.budget)?.iter(){if let Some(domain)=self.uniform.frame(core.input,core.context)?{self.context.admit_compact_local(domain)?;}}
         verify(&self.data, &self.context, &self.output, &self.budget)
     }
 }

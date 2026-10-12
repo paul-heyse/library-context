@@ -22,6 +22,8 @@ fn validate_source_receipt(row:&SourceReceipt)->Result<(),ModelError> {if row.re
 #[model(name=owner_table!("projection_inputs"),rule="analysis_projection_input",conclusion=invocation)]
 pub struct ProjectionInput {#[model(key)] pub invocation:Id<AnalysisInvocation>,#[model(key,premise)] pub projection:Id<ProjectionDefinition>}
 fn projection_digest(values:&std::collections::BTreeSet<Id<ProjectionDefinition>>)->ContentHash {let mut sink=KeySink::new("analysis-projection-inputs");for value in values {value.encode(&mut sink);}sink.finish()}
+/// Data-only exact declaration-owned projection membership, also used during translation.
+pub fn preserved_projection_digest(values:&std::collections::BTreeSet<Id<ProjectionDefinition>>)->ContentHash {projection_digest(values)}
 impl AnalysisInvocation {
     /// Bind semantic identity to admitted completed inputs, static projection meanings and exact
     /// nominal parent membership. CapturedSources never supplies new completion authority.

@@ -61,6 +61,9 @@ fn parent_digest(parents: &std::collections::BTreeSet<Id<InvocationSource>>) -> 
     }
     sink.finish()
 }
+/// Exact nominal membership calculation shared with the adjacent-format translator.
+/// This returns data only; it certifies neither source selection nor admission.
+pub fn preserved_parent_digest(parents:&std::collections::BTreeSet<Id<InvocationSource>>)->ContentHash {parent_digest(parents)}
 #[derive(Debug, Clone, PartialEq, Eq, Domain, serde::Serialize, serde::Deserialize)]
 #[model(name = owner_table!("analysis_outcomes"), validate = validate_outcome)]
 pub struct AnalysisOutcome {
@@ -115,13 +118,16 @@ pub(crate) fn invocation_invariants() -> Vec<Invariant> {
                 rows: Default::default(),
                 edges: Default::default(),
                 snapshots:Default::default(),projections:Default::default(),
+                uniform:Default::default(),uniform_owners:uniform_outcome::UniformOwners::new(budget),
                 sources: Default::default(),frames:Default::default(),
             })
         }),
     }]
 }
-fn invocation_inputs()->Vec<ValidationInput> { let mut inputs=vec![ValidationInput::of::<SourceReceipt>(&["id"]),ValidationInput::of::<ProjectionInput>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisInput>(&["id"]),ValidationInput::of::<InvocationSource>(&["id"])]; predecessor_invocation_inputs(&mut inputs); inputs }
+fn invocation_inputs()->Vec<ValidationInput> { let mut inputs=vec![ValidationInput::of::<uniform_outcome::UniformNotRequested>(&["id"]),ValidationInput::of::<SourceReceipt>(&["id"]),ValidationInput::of::<ProjectionInput>(&["id"]),ValidationInput::of::<AnalysisInvocation>(&["id"]),ValidationInput::of::<AnalysisInput>(&["id"]),ValidationInput::of::<InvocationSource>(&["id"])]; predecessor_invocation_inputs(&mut inputs); inputs }
 struct InvocationCheck {
+    uniform:charged::ChargedMap<Id<uniform_outcome::UniformNotRequested>,uniform_outcome::UniformNotRequested>,
+    uniform_owners:uniform_outcome::UniformOwners,
     snapshots:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeMap<ContentHash,crate::domain::analysis::sources::SourceSnapshot>>,
     projections:charged::ChargedMap<Id<AnalysisInvocation>,std::collections::BTreeSet<Id<ProjectionDefinition>>>,
     sources:charged::ChargedMap<Id<InvocationSource>,InvocationSource>,
@@ -134,12 +140,14 @@ struct InvocationCheck {
     >,
 }
 impl InvariantCheck for InvocationCheck {
+    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform_owners.include(owner)}
     fn visit(
         &mut self,
         relation: &str,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
-        if relation == AnalysisInvocation::NAME {
+        if relation==uniform_outcome::UniformNotRequested::NAME{for row in uniform_outcome::UniformNotRequested::decode(batch)?{self.uniform.insert(&mut self.charge,row.id(),row)?;}}
+        else if relation == AnalysisInvocation::NAME {
             for row in AnalysisInvocation::decode(batch)? {
                 if self.rows.insert(&mut self.charge, row.id(), row)?.is_some() {
                     return Err(ModelError::Conflict(AnalysisInvocation::NAME));
@@ -166,7 +174,7 @@ impl InvariantCheck for InvocationCheck {
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
         let empty = std::collections::BTreeSet::new();
-        for (id,edges) in self.edges.iter() { let invocation=self.rows.get(id).ok_or_else(||invalid("analysis input invocation absent"))?; for parent in edges {let source=self.sources.get(parent).ok_or_else(||invalid("analysis parent source absent"))?; let reference=source.reference(); let frame=if reference.relation()==AnalysisInvocation::NAME {let row=self.rows.get(&source.current().ok_or_else(||invalid("parent is not current"))?).ok_or_else(||invalid("analysis parent absent"))?; (row.input,row.context)} else {*self.frames.get(&reference).ok_or_else(||invalid("predecessor invocation absent"))?}; if reference==derivation::RowRef::of(*id) || frame!=(invocation.input,invocation.context) {return Err(invalid("analysis parent crosses input/context or self"));} } }
+        for (id,edges) in self.edges.iter() { let invocation=self.rows.get(id).ok_or_else(||invalid("analysis input invocation absent"))?; for parent in edges {let source=self.sources.get(parent).ok_or_else(||invalid("analysis parent source absent"))?; let reference=source.reference(); let frame=if let InvocationSource::UniformAnalysis{descriptor}=source {let row=self.uniform.get(descriptor).ok_or_else(||invalid("compact invocation predecessor absent"))?;let owner=self.uniform_owners.require(row)?;let kind=owner.analysis_owner().ok_or_else(||invalid("invocation predecessor is not analysis owner"))?;let allowed=allows_uniform_predecessor(kind);if !allowed{return Err(invalid("compact invocation predecessor family not declared"));}(row.input,row.context)} else if reference.relation()==AnalysisInvocation::NAME {let row=self.rows.get(&source.current().ok_or_else(||invalid("parent is not current"))?).ok_or_else(||invalid("analysis parent absent"))?; (row.input,row.context)} else {*self.frames.get(&reference).ok_or_else(||invalid("predecessor invocation absent"))?}; if reference==derivation::RowRef::of(*id) || frame!=(invocation.input,invocation.context) {return Err(invalid("analysis parent crosses input/context or self"));} } }
         let no_sources=std::collections::BTreeMap::new();
         let no_projections=std::collections::BTreeSet::new();
         for (id, row) in self.rows.iter() {

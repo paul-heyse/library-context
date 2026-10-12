@@ -2,7 +2,8 @@
 //! Deserializing completion data never establishes a native hold or cold admission.
 pub(crate) mod audit;
 mod live;
-pub use live::{install_live_view, hold_published_view, InstalledMember, SelectedMembers};
+pub use live::{install_live_view, hold_published_view, hold_frozen_view, hold_physical_view, attach_live_view, attach_live_views, InstalledMember, SelectedMembers};
+pub(crate) use live::recovery_view;
 use lctx_model::domain::{self as d, ContentHash, Key, KeySink, ModelError};
 use serde::{Deserialize, Serialize};
 use surrealdb::types::{RecordId, Value};
@@ -11,6 +12,8 @@ pub const MEMBER_CODEC: u32 = 2;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContributorRealization {
+    /// Logical view whose contributor incidence selects this exact physical copy.
+    pub view: ContentHash,
     pub logical: ContentHash,
     pub physical: ContentHash,
     pub incarnation: i64,
@@ -39,10 +42,9 @@ impl InstalledViewCompletion {
         if self.version != 1 || self.member_codec != MEMBER_CODEC || self.frozen_revision < 0
             || self.validity_epoch <= 0 || self.realization_incarnation <= 0
             || self.membership_rows != self.view.rows
-            || self.mappings.windows(2).any(|pair| pair[0].logical >= pair[1].logical)
+            || self.mappings.windows(2).any(|pair| (pair[0].view, pair[0].logical) >= (pair[1].view, pair[1].logical))
             || self.mappings.iter().any(|mapping| mapping.incarnation <= 0)
-            || self.mappings.iter().map(|mapping| mapping.physical).collect::<std::collections::BTreeSet<_>>().len() != self.mappings.len()
-            || self.view.contributions.iter().any(|logical| !self.mappings.iter().any(|mapping| mapping.logical == *logical))
+            || self.view.contributions.iter().any(|logical| !self.mappings.iter().any(|mapping| mapping.view == self.view.identity && mapping.logical == *logical))
             || realization_id(&self.view, &self.mappings)? != self.realization {
             return Err(ModelError::Conflict("installed view completion structure"));
         }
@@ -72,7 +74,7 @@ impl InstalledViewCompletion {
 }
 pub fn realization_id(view: &d::completed::CompletedView, mappings: &[ContributorRealization]) -> Result<ContentHash, ModelError> {
     view.validate()?;
-    if mappings.windows(2).any(|pair| pair[0].logical >= pair[1].logical)
+    if mappings.windows(2).any(|pair| (pair[0].view, pair[0].logical) >= (pair[1].view, pair[1].logical))
         || mappings.iter().any(|mapping| mapping.incarnation <= 0) {
         return Err(ModelError::Conflict("view realization mapping order/incarnation"));
     }
@@ -80,7 +82,7 @@ pub fn realization_id(view: &d::completed::CompletedView, mappings: &[Contributo
     view.identity.encode(&mut sink);
     sink.part(b"member-codec", &MEMBER_CODEC.to_le_bytes());
     for mapping in mappings {
-        mapping.logical.encode(&mut sink); mapping.physical.encode(&mut sink);
+        mapping.view.encode(&mut sink); mapping.logical.encode(&mut sink); mapping.physical.encode(&mut sink);
         sink.part(b"incarnation", &mapping.incarnation.to_le_bytes());
     }
     Ok(sink.finish())
@@ -101,15 +103,21 @@ pub struct HeldInstalledView {
 }
 enum InstalledViewOwner {
     Live{held:crate::control::HeldRecord,epoch:i64},
+    Physical{expected:crate::control::ExpectedRecord,completed:std::sync::Arc<crate::completed_state::NativeCompletedState>,owner:RecordId},
+    Frozen{expected:crate::control::ExpectedRecord,completed:std::sync::Arc<crate::completed_state::HeldFrozenCompletedState>,owner:RecordId},
     Published{expected:crate::control::ExpectedRecord,completed:crate::completed_state::PublishedCompletedState,owner:RecordId},
+    Recovery{expected:crate::control::ExpectedRecord,pin:std::sync::Arc<crate::control::ReaderPin>,owner:RecordId},
 }
 impl HeldInstalledView {
+    /// Preserve a borrowed terminal-product pin after unconfirmed transport. Other
+    /// installed owners already retain their independent durable source lifetime.
+    pub fn retain_unknown(&self) {if let InstalledViewOwner::Recovery{pin,..}=&self.owner {pin.retain_unknown();}}
     pub fn completion(&self) -> &InstalledViewCompletion { &self.completion }
-    pub fn owner(&self) -> &RecordId { match &self.owner {InstalledViewOwner::Live{held,..}=>held.owner(),InstalledViewOwner::Published{owner,..}=>owner} }
+    pub fn owner(&self) -> &RecordId { match &self.owner {InstalledViewOwner::Live{held,..}=>held.owner(),InstalledViewOwner::Published{owner,..}|InstalledViewOwner::Frozen{owner,..}|InstalledViewOwner::Physical{owner,..}|InstalledViewOwner::Recovery{owner,..}=>owner} }
     pub fn incarnation(&self) -> i64 { self.completion.realization_incarnation }
-    pub fn completion_incarnation(&self) -> i64 { match &self.owner {InstalledViewOwner::Live{held,..}=>held.incarnation(),InstalledViewOwner::Published{expected,..}=>expected.incarnation()} }
-    fn expected_record(&self)->&RecordId{match &self.owner{InstalledViewOwner::Live{held,..}=>held.record(),InstalledViewOwner::Published{expected,..}=>expected.record()}}
-    fn expected_bytes(&self)->&Value{match &self.owner{InstalledViewOwner::Live{held,..}=>held.row(),InstalledViewOwner::Published{expected,..}=>expected.row()}}
+    pub fn completion_incarnation(&self) -> i64 { match &self.owner {InstalledViewOwner::Live{held,..}=>held.incarnation(),InstalledViewOwner::Published{expected,..}|InstalledViewOwner::Frozen{expected,..}|InstalledViewOwner::Physical{expected,..}|InstalledViewOwner::Recovery{expected,..}=>expected.incarnation()} }
+    fn expected_record(&self)->&RecordId{match &self.owner{InstalledViewOwner::Live{held,..}=>held.record(),InstalledViewOwner::Published{expected,..}|InstalledViewOwner::Frozen{expected,..}|InstalledViewOwner::Physical{expected,..}|InstalledViewOwner::Recovery{expected,..}=>expected.record()}}
+    fn expected_bytes(&self)->&Value{match &self.owner{InstalledViewOwner::Live{held,..}=>held.row(),InstalledViewOwner::Published{expected,..}|InstalledViewOwner::Frozen{expected,..}|InstalledViewOwner::Physical{expected,..}|InstalledViewOwner::Recovery{expected,..}=>expected.row()}}
     pub fn address(&self, relation: &str, key: &[u8; 16]) -> Result<RecordId, ModelError> {
         if relation != self.completion.view.relation { return Err(ModelError::Conflict("held view selected relation")); }
         Ok(member_id(self.completion.realization, relation, key))
@@ -127,7 +135,7 @@ mod tests {
     fn realization_namespace_changes_with_physical_copy_incarnation_and_relation() {
         let view = view();
         let logical = *view.contributions.first().unwrap();
-        let mut mappings = vec![ContributorRealization { logical, physical: ContentHash::of(b"copy-a"), incarnation: 1 }];
+        let mut mappings = vec![ContributorRealization { view: view.identity, logical, physical: ContentHash::of(b"copy-a"), incarnation: 1 }];
         let first = realization_id(&view, &mappings).unwrap();
         let key = [1u8;16];
         assert_ne!(member_id(first, "packages", &key), member_id(first, "releases", &key));
@@ -141,7 +149,7 @@ mod tests {
     fn data_only_completion_refuses_same_count_substitution_and_incomplete_inventory() {
         use d::recovery_closure::COMPLETED_FAMILIES;
         let view = view();
-        let mappings = vec![ContributorRealization { logical: *view.contributions.first().unwrap(), physical: ContentHash::of(b"copy"), incarnation: 1 }];
+        let mappings = vec![ContributorRealization { view: view.identity, logical: *view.contributions.first().unwrap(), physical: ContentHash::of(b"copy"), incarnation: 1 }];
         let mut completion = InstalledViewCompletion {
             version: 1, generation:ContentHash::of(b"generation"),validity_epoch:1,realization_incarnation:1, realization: realization_id(&view, &mappings).unwrap(), view,
             member_codec: MEMBER_CODEC, mappings,
@@ -157,7 +165,7 @@ mod tests {
     #[test]
     fn validity_completion_is_epoch_qualified_and_does_not_rename_stable_realization(){
         use d::recovery_closure::COMPLETED_FAMILIES;
-        let view=view();let mappings=vec![ContributorRealization{logical:*view.contributions.first().unwrap(),physical:ContentHash::of(b"copy"),incarnation:1}];
+        let view=view();let mappings=vec![ContributorRealization{view:view.identity,logical:*view.contributions.first().unwrap(),physical:ContentHash::of(b"copy"),incarnation:1}];
         let original=InstalledViewCompletion{generation:ContentHash::of(b"generation"),validity_epoch:1,realization_incarnation:4,version:1,realization:realization_id(&view,&mappings).unwrap(),view,member_codec:MEMBER_CODEC,mappings,closure:d::completed_identity::CompletedFamilyRoots::new(COMPLETED_FAMILIES.map(|family|d::completed_identity::CompletedFamilyHasher::new(family).unwrap().finish())).unwrap(),membership_rows:0,membership_content:ContentHash::of(b"empty"),frozen_revision:2};
         let mut rechecked=original.clone();rechecked.validity_epoch+=1;
         assert_ne!(original.record().unwrap(),rechecked.record().unwrap(),"new epoch earns distinct immutable completion");

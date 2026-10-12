@@ -456,6 +456,36 @@ impl FrontierContract {
         let mut contract=self.clone();contract.digest=digest.finish();
         Ok(Preflight{schedule:contract.digest,contract,coverers})
     }
+    /// Declaration admission over exact current or independently recovered historical owners.
+    /// Historical bindings remain revision one; no current capture completeness is inferred.
+    pub fn admitted_preflight(&self,declarations:&[&super::producer_assurance::AdmittedProducerDeclaration<'_>])->Result<Preflight,ModelError> {
+        let mut ordered=declarations.to_vec();ordered.sort_by_key(|declaration|declaration.name());
+        let mut names=BTreeSet::new();let mut written=BTreeMap::new();let mut reporting=BTreeMap::new();
+        let mut coverers:BTreeMap<FactFamily,BTreeSet<Id<Provider>>>=BTreeMap::new();
+        let mut digest=KeySink::new("admitted-facts-declaration-contract/v1");self.digest.encode(&mut digest);
+        for declaration in &ordered {
+            if !names.insert(declaration.name()){return Err(refuse("duplicate admitted producer declaration"));}
+            declaration.declaration_identity().encode(&mut digest);declaration.completed().assurance.identity()?.encode(&mut digest);
+            for input in declaration.target_dependency_sources(){if !self.contains(input.relation()){return Err(refuse("admitted input exceeds facts frontier"));}}
+            for output in &declaration.completed().spec.outputs {if !self.contains(output){return Err(refuse("admitted output exceeds facts frontier"));}}
+            let roles=declaration.suppliers();
+            for relation in declaration.written_relations(){if written.insert(relation,roles.iter().flat_map(|role|role.families.iter().copied()).collect::<BTreeSet<_>>()).is_some(){return Err(refuse("ambiguous admitted facts writer"));}}
+            for role in roles {let provider=declaration.supplier(role.name)?;for family in role.families {
+                if !self.requested(family){return Err(refuse("admitted supplier attempts unrequested family"));}
+                coverers.entry(family).or_default().insert(provider);
+            }}
+            for family in declaration.not_requested(){if !self.requested(*family) && reporting.insert(*family,declaration.name()).is_some(){return Err(refuse("ambiguous admitted unrequested reporting"));}}
+        }
+            for declaration in super::producer_contract::facts::facts().iter().filter(|declaration|!declaration.profiles.contains(&self.profile)) {
+                declaration.identity().encode(&mut digest);for family in &declaration.not_requested {if !self.requested(*family) && reporting.insert(*family,declaration.name).is_some(){return Err(refuse("ambiguous inactive reporting"));}}
+            }
+        for requirement in &self.requirements {if self.requested(requirement.family){if !coverers.contains_key(&requirement.family){return Err(refuse("requested family lacks admitted supplier"));}}else if !reporting.contains_key(&requirement.family){return Err(refuse("unrequested family lacks admitted reporting owner"));}}
+        for (relation,family) in &self.families {match (self.requested(*family),written.get(relation)) {
+            (true,Some(families)) if families.contains(family)=>{},(false,None)=>{},_=>return Err(refuse("admitted facts writer differs from supplier coverage")),
+        }}
+        for relation in [ProviderCoverage::NAME,CoverageScope::NAME]{if !written.contains_key(relation){return Err(refuse("missing admitted attribution writer"));}}
+        let mut contract=self.clone();contract.digest=digest.finish();Ok(Preflight{schedule:contract.digest,contract,coverers})
+    }
     /// Admission for a frozen prefix of a cumulative schedule. A stage cannot straddle the
     /// checkpoint boundary; later writers are excluded, while the full schedule digest is bound.
     pub fn checkpoint_preflight(&self, schedule: &Schedule) -> Result<Preflight, ModelError> {
@@ -638,6 +668,37 @@ impl Preflight {
         artifacts: &[SourceArtifact],
         uses: &[ArtifactUse],
     ) -> Result<BTreeMap<Expected, CoverageScope>, ModelError> {
+        let domains=coverage_domains(&self.contract,inputs,artifacts,uses)?;
+        let mut expected=BTreeMap::new();
+        for (family,scopes) in domains {
+            let providers: Vec<Option<Id<Provider>>> = match self.coverers.get(&family)
+            {
+                Some(providers) if self.contract.requested(family) => {
+                    providers.iter().copied().map(Some).collect()
+                }
+                _ => vec![None],
+            };
+            for scope in scopes {
+                for provider in &providers {
+                    expected.insert(
+                        Expected {
+                            scope: scope.id(),
+                            family: family,
+                            provider: *provider,
+                        },
+                        scope.clone(),
+                    );
+                }
+            }
+        }
+        Ok(expected)
+    }
+}
+
+/// Shared model-owned scope expansion for whole facts and independently admitted
+/// supplier products. Artifact selections, including empty domains, use one definition.
+fn coverage_domains(contract:&FrontierContract,inputs:&[InputRevision],artifacts:&[SourceArtifact],
+    uses:&[ArtifactUse])->Result<BTreeMap<FactFamily,Vec<CoverageScope>>,ModelError>{
         let owned: BTreeSet<_> = inputs.iter().map(Record::id).collect();
         if let Some(artifact) = artifacts.iter().find(|a| !owned.contains(&a.input)) {
             return Err(refuse(format!(
@@ -645,9 +706,9 @@ impl Preflight {
                 artifact.path
             )));
         }
-        let mut expected = BTreeMap::new();
+        let mut domains = BTreeMap::new();
         let selected = analysis_roots(artifacts, uses)?;
-        for requirement in &self.contract.requirements {
+        for requirement in &contract.requirements {
             let scopes: Vec<CoverageScope> = requirement
                 .grains
                 .iter()
@@ -667,24 +728,25 @@ impl Preflight {
                         .collect::<Vec<_>>(),
                 })
                 .collect();
-            let providers: Vec<Option<Id<Provider>>> = match self.coverers.get(&requirement.family)
-            {
-                Some(providers) if self.contract.requested(requirement.family) => {
-                    providers.iter().copied().map(Some).collect()
-                }
-                _ => vec![None],
-            };
-            for scope in scopes {
-                for provider in &providers {
-                    expected.insert(
-                        Expected {
-                            scope: scope.id(),
-                            family: requirement.family,
-                            provider: *provider,
-                        },
-                        scope.clone(),
-                    );
-                }
+            domains.insert(requirement.family,scopes);
+        }
+        Ok(domains)
+}
+impl FrontierContract {
+    /// Exact requested-family domain for one authentic supplier declaration. This
+    /// grants no completion or semantic admission authority and requires no other supplier.
+    pub fn supplier_coverage(&self,provider:Id<Provider>,families:&[FactFamily],inputs:&[InputRevision],
+        artifacts:&[SourceArtifact],uses:&[ArtifactUse])->Result<BTreeMap<Expected,CoverageScope>,ModelError>{
+        let unique=families.iter().copied().collect::<BTreeSet<_>>();
+        if unique.len()!=families.len() || unique.iter().any(|family|!self.requested(*family)
+            || !self.requirements.iter().any(|requirement|requirement.family==*family)) {
+            return Err(refuse("supplier coverage family differs from requested model contract"));
+        }
+        let domains=coverage_domains(self,inputs,artifacts,uses)?;
+        let mut expected=BTreeMap::new();
+        for family in unique {
+            for scope in domains.get(&family).ok_or_else(||refuse("supplier family domain absent"))? {
+                expected.insert(Expected{scope:scope.id(),family,provider:Some(provider)},scope.clone());
             }
         }
         Ok(expected)
@@ -749,5 +811,32 @@ impl Availability {
     }
     pub fn from_code(code: i16) -> Option<Self> {
         Self::ALL.into_iter().find(|a| a.code() == code)
+    }
+}
+
+#[cfg(test)]
+mod supplier_product_controls {
+    use super::*;
+    #[test]
+    fn supplier_domain_matches_whole_frontier_without_unrelated_suppliers() {
+        let model=super::super::model().unwrap();
+        let provider=Provider{tool:"supplier-control".into(),revision:"pinned".into(),build_digest:ContentHash::of(b"supplier")}.id();
+        let body=b"x=1\n";
+        let input=InputRevision::from_entries(vec![super::super::input::ManifestEntry{path:"mod.py".into(),content:ContentHash::of(body),byte_len:body.len() as i64}]).unwrap();
+        let artifact=SourceArtifact::from_bytes(input.id(),"mod.py".into(),body).unwrap();
+        let usage=ArtifactUse{artifact:artifact.id(),input:input.id(),role:SourceRole::Release};
+        for profile in [Profile::Catalog,Profile::Behavioral] {
+            let contract=FrontierContract::facts(&model,profile).unwrap();
+            let families=[FactFamily::Artifacts,FactFamily::Syntax];
+            let preflight=Preflight{contract:contract.clone(),schedule:ContentHash::of(b"whole"),coverers:families.into_iter().map(|family|(family,BTreeSet::from([provider]))).collect()};
+            let whole=preflight.expected_coverage(std::slice::from_ref(&input),std::slice::from_ref(&artifact),std::slice::from_ref(&usage)).unwrap();
+            let supplier=contract.supplier_coverage(provider,&families,std::slice::from_ref(&input),std::slice::from_ref(&artifact),std::slice::from_ref(&usage)).unwrap();
+            assert_eq!(supplier,whole.into_iter().filter(|(key,_)|families.contains(&key.family)).collect());
+            assert_eq!(supplier.len(),2);
+            assert!(contract.supplier_coverage(provider,&[FactFamily::Syntax,FactFamily::Syntax],&[],&[],&[]).is_err());
+            assert!(contract.supplier_coverage(provider,&families,&[],std::slice::from_ref(&artifact),std::slice::from_ref(&usage)).is_err());
+            let flow=contract.supplier_coverage(provider,&[FactFamily::Flow],std::slice::from_ref(&input),std::slice::from_ref(&artifact),std::slice::from_ref(&usage));
+            assert_eq!(flow.is_ok(),profile==Profile::Behavioral);
+        }
     }
 }

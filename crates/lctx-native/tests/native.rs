@@ -122,16 +122,10 @@ async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisi
             .await
             .unwrap();
         if producer == "selected" {
-            selected_views = views.values().map(|view| view.identity).collect();
+            selected_views = views.values().cloned().collect();
         }
     }
-    let native = NativeReader::for_views(
-        lctx_compiler_store::compiler::check_installation(&cfg)
-            .await
-            .unwrap(),
-        selected_views,
-    )
-    .with_budget(&native_read_budget);
+    let native = store.reader_for_views(&selected_views,&native_read_budget).await.unwrap();
     let alias = normalized::entities::EntityRef::Place { place: place.id() };
     let result = async {
         let aliases = native
@@ -785,12 +779,12 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
         growth = Some(scoped::reader_at_frontier(&config, admission::Frontier::Normalized, &foreign_growth, &[]).await?);
         let foreign_growth = growth.as_ref().ok_or(ModelError::Schema("foreign growth fixture"))?;
         for relation in [Release::NAME, input::InputRevision::NAME] {
-            let mut vars = foreign_growth.view_bindings(); vars.insert("relation", relation);
-            let members: Vec<RecordId> = foreign_growth.query_native("SELECT VALUE node FROM compiler_view_member WITH INDEX view_key WHERE view IN $lctx_views AND relation=$relation", vars).await?;
+            let mut vars = Variables::new(); vars.insert("realizations",foreign_growth.realizations()); vars.insert("relation", relation);
+            let members: Vec<RecordId> = foreign_growth.query_native("SELECT VALUE node FROM compiler_view_member WITH INDEX realization_key WHERE realization IN $realizations AND relation=$relation", vars).await?;
             assert_eq!(members.len(), 4, "actual unselected same-relation growth for {relation}");
-            let mut vars = Variables::new(); vars.insert("view", RecordId::new("compiler_view", selected.views[0].hex())); vars.insert("relation", relation);
-            let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(vars, vec![], vec!["SELECT node AS id FROM compiler_view_member WITH INDEX view_key WHERE view=$view AND relation=$relation EXPLAIN".into()])?).await?;
-            assert!(format!("{plan:?}").contains("view_key"), "tiny/empty selected relation prefix plan: {plan:?}");
+            let mut vars = Variables::new(); vars.insert("realization", selected.realizations()[0].clone()); vars.insert("relation", relation);
+            let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(vars, vec![], vec!["SELECT node AS id FROM compiler_view_member WITH INDEX realization_key WHERE realization=$realization AND relation=$relation EXPLAIN".into()])?).await?;
+            assert!(format!("{plan:?}").contains("realization_key"), "tiny/empty selected relation prefix plan: {plan:?}");
         }
         assert_eq!(limited_relation(&reader, Release::NAME).await?, before_tiny, "foreign growth cannot change the exact tiny selected payload");
         assert!(limited_relation(&reader, input::InputRevision::NAME).await?.is_empty(), "foreign growth cannot populate an empty selected relation");
@@ -815,15 +809,15 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
         // Two compatible Package views share two payloads but also contain distinct
         // rows. The 261-row prefix crosses native windows and must include rows from
         // both views, irrespective of their hash order; one of 262 unique rows is cut.
-        let mut union_views = selected.views.clone(); union_views.extend(compatible.views.iter().copied());
+        let union_views=selected.installed.iter().chain(&compatible.installed).cloned().collect::<Vec<_>>();
         // Complete root windows use the same exact union as singleton reads, including
         // every physical membership field; foreign coexisting roots grant no authority.
         for owners in [true, false] {
             let (table, index, field, root_table) = if owners {
                 ("compiler_membership", "contribution_rows", "contribution", "compiler_contribution")
-            } else { ("compiler_view_member", "view_nodes", "view", "compiler_view") };
-            let roots = if owners { vec![selected.contribution, compatible.contribution] } else { union_views.clone() };
-            let roots = roots.into_iter().map(|root| RecordId::new(root_table, root.hex())).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+            } else { ("compiler_view_member", "realization_nodes", "realization", "compiler_view_realization") };
+            let roots = if owners { vec![selected.contribution, compatible.contribution].into_iter().map(|root|RecordId::new(root_table,root.hex())).collect() } else { selected.realizations().into_iter().chain(compatible.realizations()).collect::<Vec<_>>() };
+            let roots = roots.into_iter().collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
             assert!(roots.len() > 1);
             let by_id = |rows: Vec<Value>| -> Result<std::collections::BTreeMap<RecordId, Value>, ModelError> {
                 rows.into_iter().map(|row| { let id = row.as_object().and_then(|row| row.get("id")).and_then(Value::as_record).cloned().ok_or(ModelError::Schema("exact root row ID"))?; Ok((id, row)) }).collect()
@@ -850,7 +844,7 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
             assert!(actual.values().all(|row| row.as_object().unwrap().get("node") != Some(&Value::RecordId(foreign_payload.clone()))));
             assert!(actual.values().any(|row| row.as_object().unwrap().get("node") == Some(&Value::RecordId(shared_payload.clone()))));
         }
-        let union = NativeReader::for_views(reader.shared_client(), union_views).with_budget(&retained).with_request_budget(&request);
+        let union = NativeReader::for_installed_views(reader.shared_client(), &union_views,&retained).await?.with_request_budget(&request);
         let known_packages = packages.iter().chain(extra_packages.iter()).collect::<Vec<_>>();
         let expected_keys = known_packages.iter().map(|package| package.id().hex()).collect::<std::collections::BTreeSet<_>>();
         assert_eq!(expected_keys.len(), 262);
@@ -894,9 +888,9 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
             assert_eq!(request.reserved(), 0);
         }
         union.close().await?; drop(union);
-        let mut bindings = Variables::new(); bindings.insert("view", RecordId::new("compiler_view", selected.views[0].hex())); bindings.insert("relation", Package::NAME);
-        let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(bindings, vec![], vec!["SELECT node AS id FROM compiler_view_member WITH INDEX view_key WHERE view=$view AND relation=$relation EXPLAIN".into()])?).await?;
-        assert!(format!("{plan:?}").contains("view_key"), "actual selected view/relation prefix nomination plan: {plan:?}");
+        let mut bindings = Variables::new(); bindings.insert("realization", selected.realizations()[0].clone()); bindings.insert("relation", Package::NAME);
+        let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(bindings, vec![], vec!["SELECT node AS id FROM compiler_view_member WITH INDEX realization_key WHERE realization=$realization AND relation=$relation EXPLAIN".into()])?).await?;
+        assert!(format!("{plan:?}").contains("realization_key"), "actual selected view/relation prefix nomination plan: {plan:?}");
         let mut bindings = Variables::new(); bindings.insert("type", Package::NAME); bindings.insert("keys", keys.iter().map(hex::encode).collect::<Vec<_>>());
         let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(bindings, vec![], vec!["SELECT id FROM entity WITH INDEX semantic_key WHERE semantic_type=$type AND semantic_key IN $keys EXPLAIN".into()])?).await?;
         assert!(format!("{plan:?}").contains("semantic_key"), "actual key nomination plan: {plan:?}");
@@ -905,14 +899,14 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
         let predicate = lctx_native::prepared::prepare_scope(&mut preparation, "record_scope", "$type", "package", "$values");
         let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(bindings, preparation, vec![format!("SELECT id FROM entity WITH INDEX by_scope WHERE semantic_type=$type AND ({predicate}) EXPLAIN")])?).await?;
         assert!(format!("{plan:?}").contains("by_scope"), "actual scope nomination plan: {plan:?}");
-        let mut views = selected.views.clone(); views.extend(foreign.views.iter().copied());
-        let conflicted = NativeReader::for_views(reader.shared_client(), views).with_budget(&retained).with_request_budget(&request);
-        let mut singleton_bindings = reader.view_bindings(); singleton_bindings.insert("relation", Unit::NAME); singleton_bindings.insert("key", revision.id().hex());
-        let physical: Vec<RecordId> = reader.query("SELECT VALUE node FROM compiler_view_member WITH INDEX view_key WHERE view IN $lctx_views AND relation=$relation AND semantic_key=$key", singleton_bindings).await?;
+        let views=selected.installed.iter().chain(&foreign.installed).cloned().collect::<Vec<_>>();
+        let conflicted = NativeReader::for_installed_views(reader.shared_client(),&views,&retained).await?.with_request_budget(&request);
+        let mut singleton_bindings = Variables::new(); singleton_bindings.insert("realizations",selected.realizations()); singleton_bindings.insert("relation", Unit::NAME); singleton_bindings.insert("key", revision.id().hex());
+        let physical: Vec<RecordId> = reader.query("SELECT VALUE node FROM compiler_view_member WITH INDEX realization_key WHERE realization IN $realizations AND relation=$relation AND semantic_key=$key", singleton_bindings).await?;
         assert_eq!(physical.len(), 1);
         assert!(conflicted.selected_membership(&physical, &request).await.is_err(), "a singleton search dependency must reject an un-nominated revision in another selected view");
-        let mut shared_bindings = reader.view_bindings(); shared_bindings.insert("relation", Package::NAME); shared_bindings.insert("key", packages[0].id().hex());
-        let shared: Vec<RecordId> = reader.query("SELECT VALUE node FROM compiler_view_member WITH INDEX view_key WHERE view IN $lctx_views AND relation=$relation AND semantic_key=$key", shared_bindings).await?;
+        let mut shared_bindings = Variables::new(); shared_bindings.insert("realizations",selected.realizations()); shared_bindings.insert("relation", Package::NAME); shared_bindings.insert("key", packages[0].id().hex());
+        let shared: Vec<RecordId> = reader.query("SELECT VALUE node FROM compiler_view_member WITH INDEX realization_key WHERE realization IN $realizations AND relation=$relation AND semantic_key=$key", shared_bindings).await?;
         assert_eq!(shared.len(), 1);
         let shared_answers = conflicted.selected_membership(&shared, &request).await?;
         assert!(shared_answers.contains_all(&shared)); assert_eq!(shared_answers.answers[0].witnesses.len(), 2, "identical physical/content admission in two exact views is legitimate"); drop(shared_answers);
@@ -926,6 +920,9 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
     }.await;
     let exact = reader.prepare_selection().await.unwrap().unwrap();
     drop(reader);
+    assert!(retained.reserved()>0,"the immutable selection retains its physical owner and allocation");
+    assert!(matches!(selected.reader.close().await,Err(ModelError::Conflict("native reader clones remain live"))),"an outstanding selected borrower must fence reader closure");
+    drop(exact);
     let mut terminal = completion::Completion::default();
     terminal.step("sparse selected fixture close", selected.close().await);
     terminal.step("sparse foreign fixture close", foreign.close().await);
@@ -942,10 +939,5 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
     drop(compatible);
     drop(growth);
     assert_eq!(request.reserved(), 0);
-    assert!(
-        retained.reserved() > 0,
-        "the immutable selected borrower retains its original charge after cache/owner release"
-    );
-    drop(exact);
     assert_eq!(retained.reserved(), 0);
 }

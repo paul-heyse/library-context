@@ -128,7 +128,7 @@ async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs
             .register_table(
                 *alias,
                 store
-                    .table_provider(view, relation.clone(), budget.clone(), 16)
+                    .table_provider(view, relation.clone(), budget.clone(), 16).await
                     .unwrap(),
             )
             .unwrap();
@@ -361,7 +361,7 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
             .register_table(
                 *alias,
                 store
-                    .table_provider(view, relation.clone(), budget.clone(), 16)
+                    .table_provider(view, relation.clone(), budget.clone(), 16).await
                     .unwrap(),
             )
             .unwrap();
@@ -530,7 +530,7 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
             package_relation.clone(),
             native_budget.clone(),
             64,
-        )
+        ).await
         .unwrap();
     let release_provider = store
         .table_provider(
@@ -538,7 +538,7 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
             release_relation.clone(),
             native_budget.clone(),
             128,
-        )
+        ).await
         .unwrap();
     session.register_table("packages", packages).unwrap();
     session

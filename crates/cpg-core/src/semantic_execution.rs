@@ -168,7 +168,7 @@ pub async fn evaluate_base(
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut admission = CoverageAdmission::new(&sources, budget)?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let data = EvaluationData::new(budget);
     let entry = EntryData::new(budget);
@@ -543,7 +543,7 @@ pub async fn complete_base(
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut admission = CoverageAdmission::new(&sources, budget)?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let data = execution::completion_production::CompletedEvaluations::new(budget);
     let scopes = if profile == Profile::Behavioral {
@@ -914,7 +914,7 @@ pub async fn prepare_source_calls(
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut admission = CoverageAdmission::new(&sources, budget)?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let mut data = SourceCallData::new(budget);
     let scopes = if profile == Profile::Behavioral {
@@ -1289,7 +1289,7 @@ pub async fn enrich(
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut admission = CoverageAdmission::new(&sources, budget)?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let mut data = EnrichedData::new(budget);
     let scopes = if profile == Profile::Behavioral {

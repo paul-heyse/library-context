@@ -200,9 +200,10 @@ pub fn invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 2,
         name: "analytic_replay",
-        inputs,
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Analytic,inputs),
         create: std::sync::Arc::new(|b| {
             Box::new(Check {
+                uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Analytic,b),
                 data: Data::new(b),
                 context: Context::new(b),
                 output: Output::new(b),
@@ -212,17 +213,20 @@ pub fn invariants() -> Vec<Invariant> {
     }]
 }
 struct Check {
+    uniform:uniform_outcome::AnalysisUniformConsumer,
     data: Data,
     context: Context,
     output: Output,
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform.admit(owner)}
     fn visit_input(
         &mut self,
         input: &ValidationInput,
         batch: &arrow_array::RecordBatch,
     ) -> Result<(), ModelError> {
+        self.uniform.visit(input.name(),batch)?;
         if stages::is_vocabulary(input.name()) && input.prefix().is_some() {
             self.data.visit_input(input, batch)
         } else {
@@ -230,13 +234,16 @@ impl InvariantCheck for Check {
         }
     }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        self.uniform.visit(n,b)?;
         if self.data.visit(n, b)? || self.context.visit(n, b)? || self.output.visit(n, b)? {
             Ok(())
         } else {
+            if uniform_outcome::AnalysisUniformInputs::inputs().iter().any(|input|input.name()==n){return Ok(());}
             Err(invalid("undeclared analytic input"))
         }
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        if self.uniform.complete_empty(self.context.invocations.is_empty() && self.context.sources.is_empty() && self.context.inputs.is_empty() && self.context.outcomes.is_empty() && self.output.is_empty())?{return Ok(());}
         verify(&self.data, &self.context, &self.output, &self.budget)
     }
 }

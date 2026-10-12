@@ -181,6 +181,19 @@ impl Loader {
             attempt: Some(attempt), cancellation: None, budget: None, derivation:None, staging:None, prepared_reader:None, _published_view_charge:None,
         }
     }
+    /// Borrow an already earned exact physical scope for attempt-owned derived
+    /// kernels. This grants no publication or artifact admission.
+    pub fn with_installed_reader(mut self,reader:&crate::NativeReader<()>)->Result<Self,ModelError>{
+        reader.require_installed_scope()?;
+        if !std::ptr::eq(self.client.as_ref(),reader.client()) || self.derivation!=Some(reader.derivation()?) {
+            return Err(ModelError::Conflict("derived loader installed reader session/derivation"));
+        }
+        let Some(views)=&self.views else{return Err(ModelError::Conflict("derived loader installed view inventory missing"));};
+        if !reader.matches_installed_views(views) {
+            return Err(ModelError::Conflict("derived loader installed reader view inventory"));
+        }
+        self.prepared_reader=Some(reader.transport_reader());Ok(self)
+    }
     pub fn staging_root(&self)->Option<&RecordId>{self.staging.as_ref().map(|staging|staging.root())}
     pub fn staging(&self)->Option<&Arc<crate::control::staging::DerivedStaging>>{self.staging.as_ref()}
     pub fn with_derivation(mut self,namespace:ContentHash)->Self{self.derivation=Some(namespace);self}
@@ -193,7 +206,8 @@ impl Loader {
     pub async fn prepare_completed_reader(mut self)->Result<Self,ModelError>{
         let staging=self.staging.as_ref().ok_or(ModelError::Conflict("completed reader requires staging owner"))?;
         let views=self.views.as_ref().ok_or(ModelError::Conflict("completed reader exact view inventory"))?;
-        let reader=crate::NativeReader::for_completed_views(self.client.clone(),staging.completed_owner(),views,&self.read_budget()?).await?
+        let completed=staging.completed_owner();
+        let reader=crate::NativeReader::for_completed_views(self.client.clone(),completed,views,&self.read_budget()?).await?
             .with_derivation(self.derivation()?);
         self.prepared_reader=Some(reader);Ok(self)
     }

@@ -1023,7 +1023,7 @@ def prepare_logs(installation):
                 # Ordinary pre-request maintenance only. Never used to recover
                 # lost wire finality: its stop timeout is not joined_exit.
                 service._stop_owned(installation)
-                service._upgrade_write_private(service._unit_path(installation.unit), plan["successor_unit"])
+                service._write_private(service._unit_path(installation.unit), plan["successor_unit"])
                 if service.systemctl("daemon-reload").returncode:
                     fail("logging preparation daemon-reload failed")
                 installation.record = plan["successor_descriptor"]

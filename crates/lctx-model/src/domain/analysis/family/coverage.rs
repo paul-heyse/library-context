@@ -129,6 +129,8 @@ fn membership_digest(ids: &std::collections::BTreeSet<Id<CoverageSource>>) -> Co
     }
     sink.finish()
 }
+/// Data-only exact coverage membership; destination validators still check the domain.
+pub fn preserved_coverage_digest(ids:&std::collections::BTreeSet<Id<CoverageSource>>)->ContentHash {membership_digest(ids)}
 /// Computes a total outcome without trusting a producer's desired status. Missing/extra/duplicate
 /// or foreign-context inputs refuse. Empty observations never imply complete requested coverage.
 pub fn assess(

@@ -201,9 +201,14 @@ fn fixture_text(
             evidence: c1.id(),
             selection: id(8),
             structural: id(9),
-            analytic: id(10),
-            summary: id(11),
-        })
+            analytic:Some(id(10)),
+            analytic_kind:synthesis::frames::ParentKind::Ordinary,
+            analytic_uniform:None,
+            summary:Some(id(11)),
+            summary_kind:synthesis::frames::ParentKind::Ordinary,
+            summary_uniform:None,
+        
+})
         .unwrap();
     let mut parents = vec![];
     for source in d.render.parents(a.input, id(2)).unwrap() {

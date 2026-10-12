@@ -112,7 +112,7 @@ pub(crate) async fn export(
         let mut contributors = Vec::new(); let mut inputs = BTreeMap::new();
         for logical in &actual.contributions {
             let mappings=completed.inventory().contributors(actual.identity)?;
-            let mut matches=mappings.iter().filter(|mapping|mapping.logical==*logical);
+            let mut matches=mappings.iter().filter(|mapping|mapping.view==actual.identity && mapping.logical==*logical);
             let mapping=matches.next().ok_or(ModelError::Conflict("snapshot exact contributor mapping absent"))?;
             if matches.next().is_some(){return Err(ModelError::Conflict("snapshot exact contributor mapping duplicate"));}
             let owner=RecordId::new("compiler_contribution",mapping.physical.hex());

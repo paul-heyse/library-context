@@ -67,7 +67,7 @@ pub async fn produce(
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let mut registered = charged::ChargedSet::default();
     let mut registration =

@@ -67,7 +67,7 @@ pub fn invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "finite_summary_inventory_replay",
-        inputs: inputs(),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Summary,inputs()),
         create: std::sync::Arc::new(|b| Box::new(Check::new(b))),
     }]
 }
@@ -100,12 +100,13 @@ pub fn parents(
     Ok(rows)
 }
 macro_rules! check{($($field:ident:$ty:ty,)*)=>{
- struct Check{data:SummaryData,invocations:Rows<owner::AnalysisInvocation>,outcomes:Rows<owner::AnalysisOutcome>,coverage:Rows<owner::AnalysisCoverage>,vocabulary:Vocabulary,$($field:Rows<$ty>,)*budget:ResourceBudget}
- impl Check{fn new(b:&ResourceBudget)->Self{Self{data:SummaryData::new(b),invocations:Rows::new(b),outcomes:Rows::new(b),coverage:Rows::new(b),vocabulary:Vocabulary::new(b),$($field:Rows::new(b),)*budget:b.clone()}}}
+ struct Check{uniform:uniform_outcome::AnalysisUniformConsumer,data:SummaryData,invocations:Rows<owner::AnalysisInvocation>,outcomes:Rows<owner::AnalysisOutcome>,coverage:Rows<owner::AnalysisCoverage>,vocabulary:Vocabulary,$($field:Rows<$ty>,)*budget:ResourceBudget}
+ impl Check{fn new(b:&ResourceBudget)->Self{Self{uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Summary,b),data:SummaryData::new(b),invocations:Rows::new(b),outcomes:Rows::new(b),coverage:Rows::new(b),vocabulary:Vocabulary::new(b),$($field:Rows::new(b),)*budget:b.clone()}}}
  impl InvariantCheck for Check{
-  fn visit_input(&mut self,i:&ValidationInput,b:&arrow_array::RecordBatch)->Result<(),ModelError>{if is_vocabulary(i.name()){match i.prefix(){Some(PublicationBoundary::Facts|PublicationBoundary::Model)=>self.data.visit_input(i,b),None=>self.vocabulary.visit(i.name(),b),_=>Err(invalid("Summary replay changes completed vocabulary view"))}}else{self.visit(i.name(),b)}}
-  fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{if is_vocabulary(n){return Err(invalid("Summary vocabulary needs explicit prefix"));}self.data.visit(n,b)?;$(if n==<$ty>::NAME{self.$field.decode(b)?;})*if n==owner::AnalysisInvocation::NAME{self.invocations.decode(b)?;}if n==owner::AnalysisOutcome::NAME{self.outcomes.decode(b)?;}if n==owner::AnalysisCoverage::NAME{self.coverage.decode(b)?;}Ok(())}
-  fn finish(self:Box<Self>)->Result<(),ModelError>{
+ fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform.admit(owner)}
+  fn visit_input(&mut self,i:&ValidationInput,b:&arrow_array::RecordBatch)->Result<(),ModelError>{self.uniform.visit(i.name(),b)?;if is_vocabulary(i.name()){match i.prefix(){Some(PublicationBoundary::Facts|PublicationBoundary::Model)=>self.data.visit_input(i,b),None=>self.vocabulary.visit(i.name(),b),_=>Err(invalid("Summary replay changes completed vocabulary view"))}}else{self.visit(i.name(),b)}}
+  fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<(),ModelError>{self.uniform.visit(n,b)?;if is_vocabulary(n){return Err(invalid("Summary vocabulary needs explicit prefix"));}self.data.visit(n,b)?;$(if n==<$ty>::NAME{self.$field.decode(b)?;})*if n==owner::AnalysisInvocation::NAME{self.invocations.decode(b)?;}if n==owner::AnalysisOutcome::NAME{self.outcomes.decode(b)?;}if n==owner::AnalysisCoverage::NAME{self.coverage.decode(b)?;}Ok(())}
+  fn finish(self:Box<Self>)->Result<(),ModelError>{if self.uniform.complete_empty(self.invocations.is_empty()&&self.outcomes.is_empty()&&self.coverage.is_empty()$(&&(stages::is_epoch_shared(<$ty>::NAME)||self.$field.is_empty()))*)?{return Ok(());}
    let mut frames=charged::ChargedSet::default();let mut charge=charged::StateCharge::new(&self.budget,"summary-replay-frames");for run in self.data.entry.runs.iter(){frames.insert(&mut charge,(run.input,run.context))?;}
    if frames.len()!=self.invocations.len()||frames.iter().any(|f|self.invocations.iter().filter(|i|(i.input,i.context)==*f&&i.subject.is_none()).count()!=1){return Err(invalid("Summary omitted or duplicated an independently captured frame"));}
    $(let mut $field=Rows::<$ty>::new(&self.budget);)*let mut outcomes=Rows::new(&self.budget);

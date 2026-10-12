@@ -415,12 +415,13 @@ pub fn invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::Admission,
         revision: 2,
         name: "analytic_embedding_consumption",
-        inputs,
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Embedding,inputs),
         create: std::sync::Arc::new(|budget| Box::new(Check::new(budget))),
     }]
 }
 type Frame = (Id<input::InputRevision>, Id<attribution::AnalysisContext>);
 struct Check {
+    uniform:uniform_outcome::AnalysisUniformConsumer,
     metadata: ConsumptionData,
     frames: charged::ChargedSet<Frame>,
     unavailable: charged::ChargedSet<Frame>,
@@ -436,6 +437,7 @@ struct Check {
 impl Check {
     fn new(budget: &ResourceBudget) -> Self {
         Self {
+            uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Embedding,budget),
             metadata: ConsumptionData::new(budget),
             frames: Default::default(),
             unavailable: Default::default(),
@@ -518,7 +520,9 @@ impl Check {
     }
 }
 impl InvariantCheck for Check {
+    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform.admit(owner)}
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
+        self.uniform.visit(name,batch)?;
         macro_rules! each {($ty:ty,$row:ident,$body:block)=>{if name==<$ty>::NAME {
             let _decode=self.budget.reserve("analytic-admission-decode",decode_allowance::<$ty>(batch)?)?;
             for $row in <$ty>::decode(batch)? $body
@@ -585,9 +589,11 @@ impl InvariantCheck for Check {
         {
             return Ok(());
         }
+        if uniform_outcome::AnalysisUniformInputs::inputs().iter().any(|input|input.name()==name){return Ok(());}
         Err(invalid("undeclared analytic consumption input"))
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
+        if self.uniform.complete_empty(self.invocations.is_empty() && self.outcomes.is_empty() && self.windows.is_empty() && self.consumed.is_empty())?{return Ok(());}
         self.metadata.selected()?;
         if self.windows.len() != self.consumed.len()
             || self.frames.len() != self.invocations.len()

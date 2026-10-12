@@ -59,9 +59,16 @@ fn add_outcome(
     outcomes.insert(value.key.clone(), value);
     Ok(())
 }
-fn settings(workspace: &AdmissionRuntime, acquisition: ContentHash) -> Result<ContentHash, ModelError> {
-    let mut sink = KeySink::new("graph-compiler-settings/v1");
-    acquisition.encode(&mut sink);
+pub(crate) enum SettingsOrigin {
+    Acquisition(ContentHash),
+}
+fn settings(workspace: &AdmissionRuntime, origin: SettingsOrigin) -> Result<ContentHash, ModelError> {
+    let mut sink = match origin {
+        SettingsOrigin::Acquisition(acquisition) => {
+            let mut sink=KeySink::new("graph-compiler-settings/v1");
+            acquisition.encode(&mut sink);sink
+        }
+    };
     // Model-owned configuration streams only. Endpoint/runtime diagnostics are deliberately absent.
     let mut names = vec![
         d::analysis::AnalysisDefinition::NAME,
@@ -97,6 +104,17 @@ pub async fn populate(
     frontier: Frontier,
     profile: Profile,
     acquisition_config: ContentHash,
+    captures: Vec<EntityId>,
+    originals: Vec<Original>,
+    families: Vec<FamilyContent>,
+) -> Result<(Manifest, charged::StateCharge), ModelError> {
+    populate_with_origin(workspace,frontier,profile,SettingsOrigin::Acquisition(acquisition_config),captures,originals,families).await
+}
+pub(crate) async fn populate_with_origin(
+    workspace: &Arc<AdmissionRuntime>,
+    frontier: Frontier,
+    profile: Profile,
+    settings_origin: SettingsOrigin,
     mut captures: Vec<EntityId>,
     mut originals: Vec<Original>,
     mut families: Vec<FamilyContent>,
@@ -153,7 +171,7 @@ pub async fn populate(
         captures,
         semantic_contract: graph::semantic_contract(workspace.model()),
         producers,
-        settings: settings(workspace, acquisition_config)?,
+        settings: settings(workspace, settings_origin)?,
         families,
         required_outcomes: outcomes.keys().cloned().collect(),
         outcomes: outcomes.into_values().collect(),
@@ -171,6 +189,10 @@ pub(crate) async fn producer_inventory(
 ) -> Result<Vec<ProducerImplementation>, ModelError> {
     let mut producers = BTreeMap::new();
     for contribution in workspace.native().contributions(workspace.budget()).await? {
+        let assurance = contribution.assurance.summary()?;
+        let contract = match &contribution.assurance {
+            d::producer_assurance::ProducerAssurance::CurrentProviderInterface => contribution.spec.captured_binding.as_ref().map(|binding|binding.contract),
+        };
         let spec = contribution.spec;
         let configuration = spec.configuration.ok_or_else(|| {
             invalid(format!(
@@ -179,10 +201,8 @@ pub(crate) async fn producer_inventory(
             ))
         })?;
         let value = ProducerImplementation {
-            contract: spec
-                .captured_binding
-                .as_ref()
-                .map(|binding| binding.contract),
+            assurance,
+            contract,
             producer: spec.producer,
             implementation: spec.implementation,
             configuration,
@@ -396,6 +416,19 @@ pub(crate) async fn verify_outcomes(
         ));
     }
     Ok(())
+}
+
+/// Restored descriptors receive the same actual producer, outcome, projection and
+/// embedding inventory checks as populate; serialized source evidence grants none.
+pub(crate) async fn verify_actual(workspace:&AdmissionRuntime,manifest:&Manifest)->Result<(),ModelError>{
+    let mut charge=charged::StateCharge::new(workspace.budget(),"restored complete manifest inventories");
+    if manifest.semantic_contract!=graph::semantic_contract(workspace.model())
+        || producer_inventory(workspace,&mut charge).await?!=manifest.producers
+        || projections(workspace,manifest.frontier,&mut charge).await?!=manifest.projections
+        || embeddings(workspace,manifest.profile,&mut charge).await?!=manifest.embeddings {
+        return Err(ModelError::Conflict("restored actual semantic manifest inventories"));
+    }
+    verify_outcomes(workspace,manifest).await
 }
 
 async fn projections(

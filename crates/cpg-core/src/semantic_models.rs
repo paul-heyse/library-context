@@ -221,7 +221,7 @@ pub async fn apply(
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut admission = CoverageAdmission::new(&sources, budget)?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let data = load_inputs(&access, &session, definition, &mut admission, budget).await?;
     let selected = data

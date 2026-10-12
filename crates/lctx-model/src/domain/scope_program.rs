@@ -207,6 +207,8 @@ pub enum ScopeRule {
 }
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ScopeValue {
+    /// No ordinary predecessor exists. Equality against this parameter selects no rows.
+    AbsentNominal,
     Nominal([u8; 16]),
     Nominals(Vec<[u8; 16]>),
     Text(String),

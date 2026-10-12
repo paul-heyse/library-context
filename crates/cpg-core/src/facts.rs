@@ -286,7 +286,7 @@ mod recorded_coverage_controls {
                 .chain(&stage.contributes)
                 .map(|row| row.name().to_owned())
                 .collect::<BTreeSet<_>>();
-            contributions.push(CompletedContribution {
+            contributions.push(CompletedContribution { assurance: lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,
                 spec: ContributionSpec {
                     captured_binding: stage.captured_binding.clone(),
                     producer: stage.name.into(),

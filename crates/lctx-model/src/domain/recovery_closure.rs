@@ -131,7 +131,7 @@ mod tests {
     use super::*;
     use crate::domain::{Relation, analysis::sources::SourceSnapshot, completed::{ContributionSpec, OutputContent}, input::{Package, Release}, stages::Profile};
     fn contribution(inputs: Vec<SourceSnapshot>, outputs: &[(&str, u64)]) -> CompletedContribution {
-        CompletedContribution {
+        CompletedContribution { assurance: crate::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,
             spec: ContributionSpec { captured_binding: None, producer: format!("closure:{}", outputs[0].0), profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog), model: ContentHash::of(b"model"), implementation: ContentHash::of(b"implementation"), configuration: None, inputs, outputs: outputs.iter().map(|(name, _)| name.to_string()).collect() },
             outcome: 0, outputs: outputs.iter().map(|(name, rows)| (name.to_string(), OutputContent { rows: *rows, content: ContentHash::of(name.as_bytes()) })).collect(),
         }

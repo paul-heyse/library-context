@@ -314,8 +314,7 @@ mod tests {
     }
 }
 
-/// Format-six original owner. The adjacent converter replaces source-owned pieces
-/// with exact shared blob pieces; authentic format-five authority remains external.
+/// Originals reference exact shared blob pieces; each piece has one current blob owner.
 pub fn original_blob_schema_target() -> &'static str {
     "DEFINE TABLE original TYPE NORMAL SCHEMAFULL; DEFINE FIELD artifact ON original TYPE record<entity>; DEFINE FIELD blob ON original TYPE record<original_blob>; DEFINE FIELD content ON original TYPE string; DEFINE FIELD byte_len ON original TYPE int; DEFINE INDEX blob_layout ON original FIELDS blob,id; DEFINE TABLE original_blob TYPE NORMAL SCHEMAFULL; DEFINE FIELD content ON original_blob TYPE string; DEFINE FIELD byte_len ON original_blob TYPE int; DEFINE FIELD format ON original_blob TYPE string; DEFINE FIELD completed ON original_blob TYPE bool; DEFINE TABLE original_chunk TYPE NORMAL SCHEMAFULL; DEFINE FIELD blob ON original_chunk TYPE record<original_blob>; DEFINE FIELD start ON original_chunk TYPE int; DEFINE FIELD bytes ON original_chunk TYPE bytes; DEFINE FIELD content ON original_chunk TYPE string; DEFINE INDEX position ON original_chunk FIELDS blob,start UNIQUE;"
 }

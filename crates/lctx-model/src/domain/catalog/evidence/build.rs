@@ -82,6 +82,7 @@ impl EvidenceData {
         crate::catalog_evidence_inputs!(copy_facts);
         macro_rules! copy_runtime{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.runtime.$field,&mut selected.runtime.$field,inputs,None,contains)?;)*};}
         crate::catalog_runtime_inputs!(copy_runtime);
+        selected.runtime.compact = self.runtime.compact.retain(budget)?;
         copy_selected_rows(
             &self.local_qualifications,
             &mut selected.local_qualifications,

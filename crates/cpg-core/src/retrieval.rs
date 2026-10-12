@@ -114,7 +114,7 @@ pub async fn produce(
     let b = runtime.budget();
     let sources =
         analysis::sources::CapturedSources::capture(access.profile(), access.snapshots(), b)?;
-    let mut admission = analysis::expected::CoverageAdmission::new(&sources, b)?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let mut preparation =
         retrieval_preparation::Preparation::prepare(&access, runtime, model, &mut admission)
             .await?;

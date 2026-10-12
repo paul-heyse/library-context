@@ -9,7 +9,7 @@ fn spec(producer:&str)->ContributionSpec {
 }
 #[test]
 fn completed_empty_is_explicit_and_failed_or_missing_outputs_are_not_completed() {
-    let mut contribution=CompletedContribution {spec:spec("provider"),outcome:0,
+    let mut contribution=CompletedContribution { assurance: lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,spec:spec("provider"),outcome:0,
         outputs:BTreeMap::from([("packages".into(),OutputContent {rows:0,content:ContentHash::of(b"empty")})])};
     let complete=contribution.identity().unwrap();
     contribution.outcome=2;

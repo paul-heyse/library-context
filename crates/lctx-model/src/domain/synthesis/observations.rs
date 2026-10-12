@@ -175,7 +175,7 @@ pub fn build(
         for row in d
             .analytic_conclusions
             .iter()
-            .filter(|r| r.frame == frame.analytic)
+            .filter(|r| Some(r.frame) == frame.analytic)
         {
             need(&d.analytic_sources, row.source)?;
             emit(

@@ -2050,7 +2050,7 @@ mod nominal_closure_controls {
         let views=native.complete_contribution(contribution,stages::ProviderOutcome::Complete,&relations,&BTreeMap::new(),&budget).await.unwrap();
         let workspace=AdmissionRuntime::with_budget(model,AdmissionOptions{memory_bytes:64<<20,..Default::default()},budget,native.clone()).unwrap();
         let session=workspace.transport_session();
-        for relation in &relations{session.register_table(relation.name(),native.table_provider(&views[relation.name()],relation.clone(),workspace.budget().clone(),4096).unwrap()).unwrap();}
+        for relation in &relations{session.register_table(relation.name(),native.table_provider(&views[relation.name()],relation.clone(),workspace.budget().clone(),4096).await.unwrap()).unwrap();}
         let inputs = vec![
             ValidationInput::of::<Release>(&["id"]),
             ValidationInput::of::<Package>(&["id"]),

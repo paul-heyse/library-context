@@ -254,6 +254,9 @@ def native_completion(directory: Path, record: Mapping[str, Any] | None) -> dict
 def native_protected(directory: Path, record: Mapping[str, Any] | None, native: Mapping[str, Any]) -> bool:
     if not _native_pending(record, native):
         return False
+    from surrealdb_campaign import discarded
+    if discarded(directory, record or {}):
+        return False
     from surrealdb_pd02_recovery import recovered
     return not recovered(directory, record)
 

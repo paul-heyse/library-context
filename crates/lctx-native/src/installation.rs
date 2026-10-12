@@ -82,15 +82,14 @@ pub async fn install_shared(
     }
     let loader = Loader::new(client.clone());
     let mut catalog = loader.installation_catalog().await?;
+    crate::materialization::validate_native_definitions(native_definitions)?;
+    catalog.retire_unneeded_vector_neighbor(native_definitions).await?;
     catalog
         .apply(crate::control::schema(), "native durable control schema")
         .await?;
     catalog.install(native_definitions).await?;
     catalog
         .apply(&compiler_schema(), "compiler shared state schema")
-        .await?;
-    catalog
-        .apply(VIEW_SCHEMA, "exact completed view mapping schema")
         .await?;
     catalog.apply(&completion_schema(), "native frozen completion and derived staging schema").await?;
     let mut bindings = Variables::new();
@@ -150,11 +149,10 @@ pub fn base_schema_identity() -> ContentHash {
     *IDENTITY.get_or_init(|| {
         ContentHash::of(
             format!(
-                "{}{}{}{}{}",
+                "{}{}{}{}",
                 crate::schema::canonical_schema(),
                 compiler_schema(),
                 crate::control::schema(),
-                VIEW_SCHEMA,
                 completion_schema()
             )
             .as_bytes(),
@@ -300,4 +298,3 @@ pub async fn reconcile_maintenance(
     .await;
     lctx_model::domain::completion::complete(result, completion)
 }
-pub const VIEW_SCHEMA: &str = "DEFINE TABLE compiler_view_member SCHEMAFULL; DEFINE FIELD view ON compiler_view_member TYPE record<compiler_view>; DEFINE FIELD relation ON compiler_view_member TYPE string; DEFINE FIELD semantic_key ON compiler_view_member TYPE string; DEFINE FIELD node ON compiler_view_member TYPE record<entity | assertion | compiler_record>; DEFINE FIELD content ON compiler_view_member TYPE string; DEFINE INDEX view_key ON compiler_view_member FIELDS view,relation,semantic_key UNIQUE; DEFINE INDEX view_nodes ON compiler_view_member FIELDS view,node;";

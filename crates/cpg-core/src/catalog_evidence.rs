@@ -220,8 +220,10 @@ fn publish_frames<'a, 'sources>(
             budget,
         )?;
         for parent in expected_parents.iter() {
-            let parent_sources =
-                evidence::frames::sources(parent, &inventory.frames.runtime.lower())?;
+            let mut compact=uniform_outcome::AnalysisPredecessors::new(budget);
+            for kind in [analysis::owner::AnalysisOwner::Local,analysis::owner::AnalysisOwner::SourceCalls]{if let Some(domain)=admission.uniform_analysis(kind,parent.input,parent.context,&inventory.definitions,budget)?{compact.include(domain)?;}}
+            let lower=evidence::frames::LowerFrames{compact:&compact,..inventory.frames.runtime.lower()};
+            let parent_sources = evidence::frames::sources(parent, &lower)?;
             let (invocation, parents, receipts, projections) = Invocation::admitted(
                 parent.input,
                 parent.context,
@@ -366,7 +368,7 @@ pub async fn produce(
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let inventory = inventory_phase(&access, &session, &mut admission, runtime.budget()).await?;
     let invocations =

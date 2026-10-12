@@ -341,14 +341,14 @@ pub async fn produce(
         access.snapshots(),
         runtime.budget(),
     )?;
-    let mut admission = analysis::expected::CoverageAdmission::new(&sources, runtime.budget())?;
+    let mut admission = runtime.coverage_admission(&sources).await?;
     let session = access.session(runtime).await?;
     let mut frames = selection::frames::Frames::new(runtime.budget());
     let mut definitions = Rows::<analysis::AnalysisDefinition>::new(runtime.budget());
     let mut parameters = Rows::<analysis::MethodParameters>::new(runtime.budget());
     let mut consumed = crate::consumed_rows::ConsumedInputs::new(
         {
-            let mut inputs = selection::frames::Frames::inputs();
+            let mut inputs = selection::frames::Frames::validation_inputs();
             inputs.extend([
                 ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
                 ValidationInput::of::<analysis::MethodParameters>(&["id"]),
@@ -379,6 +379,13 @@ pub async fn produce(
     }
     declare_outputs(&output).await?;
     let mut invocations = Rows::new(runtime.budget());
+    for run in frames.runs.iter(){
+        for kind in [analysis::owner::AnalysisOwner::Local,analysis::owner::AnalysisOwner::SourceCalls]{
+            if let Some(domain)=admission.uniform_analysis(kind,run.input,run.context,&definitions,runtime.budget())?{
+                frames.compact.include(domain)?;
+            }
+        }
+    }
     let expected_parents = frames.parents(runtime.budget())?;
     for parent in expected_parents.iter() {
         let source = InvocationSource::CatalogEvidence {

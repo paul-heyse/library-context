@@ -9,10 +9,14 @@ use lctx_model::domain::{
 use lctx_native::RuntimeConfig;
 mod native_publication;
 use native_publication::{Admission, Publication};
-/// Independently compare executable definitions during owned upgrade recovery.
-/// This performs no DDL and remains usable while ordinary admission is closed.
+/// Independently compare the installed current executable definitions without DDL.
 pub async fn check_definitions(config: &RuntimeConfig, blueprint: &str) -> Result<lctx_model::domain::ContentHash, ModelError> {
-    let client = lctx_native::upgrade::maintenance_client(config).await?;
+    let client = lctx_native::reader::connect(
+        &config.endpoint,
+        &config.writer_credentials(),
+        config.namespace.as_str(),
+        config.database.as_str(),
+    ).await?;
     let result = async {
         lctx_native::control::check_installation(&client, config.service_generation).await?;
         let loader = lctx_native::Loader::new(client.clone());

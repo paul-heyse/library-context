@@ -88,6 +88,7 @@ impl Data {
     ) -> Result<Self, ModelError> {
         use std::any::TypeId;
         let mut out = Self::new(budget);
+        out.frames.compact=self.frames.compact.retain(budget)?;
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
             for row in self.frames.$field.iter(){

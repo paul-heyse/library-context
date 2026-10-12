@@ -212,38 +212,6 @@ enum StoreCommand {
     Check,
     /// Print this executable's native schema identity without accessing stored state.
     Schema,
-    /// Print the exact resumable upgrade contract without accessing stored state.
-    UpgradeContract {
-        #[arg(long, value_parser=content_hash)]
-        expected_schema: lctx_model::domain::ContentHash,
-        #[arg(long, value_parser=content_hash)]
-        operation: lctx_model::domain::ContentHash,
-        #[arg(long, value_parser=content_hash)]
-        execution: lctx_model::domain::ContentHash,
-    },
-    /// Independently check base installation and pinned executable definitions.
-    UpgradeCheck,
-    /// Qualify atomic progress primitives on the exact owned validation upgrade slot.
-    UpgradeQualify {
-        #[arg(long, value_parser=content_hash)]
-        expected_schema: lctx_model::domain::ContentHash,
-        #[arg(long, value_parser=content_hash)]
-        operation: lctx_model::domain::ContentHash,
-        #[arg(long)]
-        execution_contract: PathBuf,
-    },
-    /// Upgrade one exact legacy scope while its service owner holds closed maintenance.
-    Upgrade {
-        #[arg(long, value_parser=content_hash)]
-        expected_schema: lctx_model::domain::ContentHash,
-        #[arg(long, value_parser=content_hash)]
-        operation: lctx_model::domain::ContentHash,
-        #[arg(long)]
-        execution_contract: PathBuf,
-        /// Stop after durable checkpoints; only an explicit execution contract permits stepping.
-        #[arg(long, requires="execution_contract", value_parser=clap::value_parser!(u64).range(1..))]
-        stop_after_pages: Option<u64>,
-    },
     /// Explicit drained maintenance of retained control history.
     History {
         #[command(subcommand)]
@@ -955,22 +923,12 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                 return Ok(());
             }
             let config = newnative::config(&runtime_config)?;
-            if let StoreCommand::UpgradeContract { expected_schema, operation, execution } = &command {
-                let contract = lctx_native::upgrade::UpgradeExecutionContract::current(
-                    *operation, *execution, *expected_schema, &config);
-                contract.validate(&config)?;
-                println!("{}", serde_json::to_string(&contract)?);
-                return Ok(());
-            }
             let reports_ready = !matches!(
                 &command,
                 StoreCommand::Init { keep_closed: true }
                     | StoreCommand::Drain
                     | StoreCommand::CloseAdmission
                     | StoreCommand::Reconcile { .. }
-                    | StoreCommand::Upgrade { .. }
-                    | StoreCommand::UpgradeCheck
-                    | StoreCommand::UpgradeQualify { .. }
                     | StoreCommand::History { .. }
                     | StoreCommand::Recover { .. }
             );
@@ -982,53 +940,10 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                     runtime.block_on(newnative::ready(&config))?;
                 }
                 StoreCommand::Schema => unreachable!("metadata command returned above"),
-                StoreCommand::UpgradeContract { .. } => unreachable!("metadata command returned above"),
-                StoreCommand::UpgradeCheck => {
-                    let definitions = runtime.block_on(async {
-                        lctx_publisher::check_definitions(&config, &lctx_serving::native_definitions()).await
-                    })?;
-                    println!("{}", serde_json::json!({"ready":false,"definitions_complete":true,
-                        "definitions":definitions.hex(),"namespace":config.namespace,"database":config.database}));
-                    return Ok(());
-                }
-                StoreCommand::UpgradeQualify { expected_schema, operation, execution_contract } => {
-                    anyhow::ensure!(config.database.as_str() == "validation", "upgrade qualification requires validation");
-                    let contract: lctx_native::upgrade::UpgradeExecutionContract =
-                        serde_json::from_slice(&std::fs::read(execution_contract)?)?;
-                    anyhow::ensure!(contract.migration == operation && contract.source == expected_schema,
-                        "upgrade qualification arguments differ from immutable execution contract");
-                    let qualification = runtime.block_on(lctx_native::upgrade::qualify_upgrade_pages(&config, &contract))?;
-                    println!("{}", serde_json::json!({"ready":false,"qualification":qualification,
-                        "namespace":config.namespace,"database":config.database}));
-                    return Ok(());
-                }
-                StoreCommand::Upgrade { expected_schema, operation, execution_contract, stop_after_pages } => {
-                    let advance = runtime.block_on(async {
-                        let blueprint=lctx_serving::native_definitions();
-                        let advance = {
-                            anyhow::ensure!(stop_after_pages.is_none() || config.database.as_str() == "validation",
-                                "upgrade stepping is restricted to the owned validation scope");
-                            let contract: lctx_native::upgrade::UpgradeExecutionContract =
-                                serde_json::from_slice(&std::fs::read(execution_contract)?)?;
-                            anyhow::ensure!(contract.migration == operation && contract.source == expected_schema,
-                                "upgrade arguments differ from immutable execution contract");
-                            lctx_native::upgrade::upgrade_with_contract(&config, &contract, &blueprint, stop_after_pages).await?
-                        };
-                        // Executable epochs have a separate owner from the base format marker.
-                        // Repeat safely after unknown installation acknowledgement; stay closed.
-                        if advance.published {
-                            lctx_publisher::install_definitions(&config,&blueprint).await?;
-                        }
-                        anyhow::Ok(advance)
-                    })?;
-                    println!("{}", serde_json::json!({"ready":false,"definitions_complete":advance.published,
-                        "upgrade":advance,"namespace":config.namespace,"database":config.database}));
-                    return Ok(());
-                }
                 StoreCommand::History { command } => {
                     let receipt = runtime.block_on(async {
                         use lctx_model::domain::{ModelError, completion::{Completion, complete}};
-                        let client = lctx_native::upgrade::maintenance_client(&config).await?;
+                        let client = lctx_native::maintenance::maintenance_client(&config).await?;
                         let result = async {
                             match command {
                                 HistoryCommand::Qualify { evidence } => {
@@ -1051,7 +966,7 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                     let receipts = runtime.block_on(async {
                         use lctx_model::domain::{ModelError, completion::{Completion, complete}};
                         anyhow::ensure!(!cleanup.is_empty() || !retirement.is_empty(), "recover requires named obligations");
-                        let client = lctx_native::upgrade::maintenance_client(&config).await?;
+                        let client = lctx_native::maintenance::maintenance_client(&config).await?;
                         let result = async {
                             let mut receipts=Vec::new();
                             for predecessor in cleanup {

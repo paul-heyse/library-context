@@ -13,18 +13,41 @@ macro_rules! frame_rows {($apply:ident)=>{$apply!{
     source:analysis::source_call::Invocation,source_outcomes:analysis::source_call::AnalysisOutcome,
 }};}
 macro_rules! metadata {($($field:ident:$ty:ty,)*)=>{
-    pub struct Frames {$(pub $field:Rows<$ty>,)*}
+    pub struct Frames {
+        pub compact:uniform_outcome::AnalysisPredecessors,
+        local_uniform:uniform_outcome::AnalysisUniformConsumer,
+        source_uniform:uniform_outcome::AnalysisUniformConsumer,
+        $(pub $field:Rows<$ty>,)*
+    }
     impl Frames {
-        pub fn new(b:&ResourceBudget)->Self{Self{$($field:Rows::new(b),)*}}
+        pub fn new(b:&ResourceBudget)->Self{Self{
+            compact:uniform_outcome::AnalysisPredecessors::new(b),
+            local_uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Local,b),
+            source_uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::SourceCalls,b),
+            $($field:Rows::new(b),)*
+        }}
         pub fn inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$ty>(&["id"])),*]}
+        pub fn validation_inputs()->Vec<ValidationInput>{
+            uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::SourceCalls,
+                uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Local,Self::inputs()))
+        }
+        pub fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{
+            self.local_uniform.admit(owner)?;self.source_uniform.admit(owner)
+        }
         pub fn visit(&mut self,n:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError>{
-            $(if n==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})* Ok(false)
+            self.local_uniform.visit(n,batch)?;self.source_uniform.visit(n,batch)?;
+            $(if n==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*
+            Ok(uniform_outcome::AnalysisUniformInputs::inputs().iter().any(|input|input.name()==n))
         }
     }
 };}
 frame_rows!(metadata);
 impl Frames {
     pub fn parents(&self, b: &ResourceBudget) -> Result<Rows<c1::Invocation>, ModelError> {
+        let mut compact=self.compact.retain(b)?;
+        for run in self.runs.iter(){for helper in [&self.local_uniform,&self.source_uniform]{
+            if let Some(domain)=helper.frame(run.input,run.context)?{compact.include(domain)?;}
+        }}
         parents_from(
             &self.runs,
             &self.core,
@@ -32,6 +55,7 @@ impl Frames {
             &self.evidence_sources,
             &self.evidence_inputs,
             &catalog::evidence::frames::LowerFrames {
+                compact:&compact,
                 local: &self.local,
                 local_outcomes: &self.local_outcomes,
                 source: &self.source,
@@ -156,7 +180,7 @@ pub fn verify(
     Ok(())
 }
 pub fn invariants() -> Vec<Invariant> {
-    let mut inputs = Frames::inputs();
+    let mut inputs = Frames::validation_inputs();
     inputs.extend([
         ValidationInput::of::<catalog::CatalogMember>(&["id"]),
         ValidationInput::of::<SelectionDomain>(&["id"]),
@@ -169,7 +193,7 @@ pub fn invariants() -> Vec<Invariant> {
     ]);
     vec![Invariant {
         purpose: crate::domain::InvariantPurpose::Admission,
-        revision: 2,
+        revision: 3,
         name: "catalog_selection_invocation_domain",
         inputs,
         create: std::sync::Arc::new(|b| {
@@ -200,6 +224,7 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.frames.admit_uniform_owner(owner)}
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if self.frames.visit(n, b)? {
             return Ok(());

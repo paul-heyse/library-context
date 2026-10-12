@@ -33,10 +33,11 @@ macro_rules! analysis_family {
             #[model(name=owner_table!("invocation_sources"),rule="analysis_invocation_source")]
             pub enum InvocationSource {
                 #[model(code=0)] Current {#[model(premise)] invocation:Id<AnalysisInvocation>},
+                #[model(code=16)] UniformAnalysis {#[model(premise)] descriptor:Id<uniform_outcome::UniformNotRequested>},
                 $(#[model(code=$code)] $variant {#[model(premise)] invocation:Id<super::$predecessor::AnalysisInvocation>},)*
             }
             impl InvocationSource {
-                pub fn reference(&self)->derivation::RowRef {match self {Self::Current {invocation}=>derivation::RowRef::of(*invocation),$(Self::$variant {invocation}=>derivation::RowRef::of(*invocation),)*}}
+                pub fn reference(&self)->derivation::RowRef {match self {Self::UniformAnalysis{descriptor}=>derivation::RowRef::of(*descriptor),Self::Current {invocation}=>derivation::RowRef::of(*invocation),$(Self::$variant {invocation}=>derivation::RowRef::of(*invocation),)*}}
                 #[allow(unreachable_patterns,reason="Owners without predecessors have only the current variant")]
                 fn current(&self)->Option<Id<AnalysisInvocation>> {match self {Self::Current {invocation}=>Some(*invocation),_=>None}}
             }
@@ -124,6 +125,7 @@ macro_rules! analysis_family {
             }
             #[allow(unused_variables,clippy::ptr_arg,reason="Owners without predecessors instantiate an empty repetition")]
             fn predecessor_invocation_inputs(inputs:&mut Vec<ValidationInput>) {$(inputs.push(ValidationInput::of::<super::$predecessor::AnalysisInvocation>(&["id"]));)*}
+            fn allows_uniform_predecessor(kind:crate::domain::analysis::owner::AnalysisOwner)->bool{false $(||Some(kind)==crate::domain::analysis::owner::AnalysisOwner::for_family(stringify!($predecessor)))*}
             #[allow(unused_variables,reason="Owners without predecessors instantiate an empty repetition")]
             fn visit_predecessor_invocation(relation:&str,batch:&arrow_array::RecordBatch,frames:&mut charged::ChargedMap<derivation::RowRef,(Id<InputRevision>,Id<AnalysisContext>)>,charge:&mut charged::StateCharge)->Result<bool,ModelError> {$(if relation==super::$predecessor::AnalysisInvocation::NAME {for row in super::$predecessor::AnalysisInvocation::decode(batch)? {frames.insert(charge,derivation::RowRef::of(row.id()),(row.input,row.context))?;}return Ok(true);})* Ok(false)}
             #[allow(unused_variables,clippy::ptr_arg,reason="Owners without predecessors instantiate an empty repetition")]

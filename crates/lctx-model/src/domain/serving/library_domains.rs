@@ -264,6 +264,9 @@ impl PreparedLibraryDomains {
         let mut uniform_domains=Vec::with_capacity(data.uniform.len());
         for descriptor in data.uniform.iter(){
             let owner=data.uniform_owners.require(descriptor)?;
+            // Analysis descriptors are independently admitted at publication and their
+            // named frame/frontier consumers. They never represent native facts coverage.
+            if descriptor.kind!=uniform_outcome::UniformKind::NativeFamily{continue;}
             let input=data.inputs.get(descriptor.input).ok_or(ModelError::Conflict("uniform library input absent"))?;
             let context=data.contexts.get(descriptor.context).ok_or(ModelError::Conflict("uniform library context absent"))?;
             let domain=uniform_outcome::ExpectedUniform::native_inputs(owner,input,context,&artifacts,&uses,owner.profile(),b)?;
@@ -479,5 +482,50 @@ impl PreparedLibraryDomains {
             }
         };
         Ok(ResolvedLibraryDomain { domains })
+    }
+}
+
+#[cfg(test)]
+mod compact_controls {
+    use super::*;
+    #[test]
+    fn compact_library_facts_coverage_keeps_analysis_owner_separate(){
+        use crate::domain::{producer_contract::{self,acquisition::CapturedAcquisition},completed::*,uniform_outcome::*};
+        let budget=ResourceBudget::fixed(64<<20).unwrap();
+        let (input,context)=test_support::input_context();
+        let analysis=test_support::empty_owner(analysis::owner::AnalysisOwner::Analytic,&input,&context,&budget);
+        let mut data=LibraryAdmissionData::new(&budget);
+        data.inputs.insert(input.clone()).unwrap();data.contexts.insert(context.clone()).unwrap();
+        let package=data.packages.insert(input::Package{name:"compact-mixed".into()}).unwrap();
+        let release=data.releases.insert(input::Release{package,version:"1".into()}).unwrap();
+        data.distributions.insert(input::InputDistribution{input:input.id(),release,role:input::DistributionRole::FirstParty}).unwrap();
+        data.uniform.insert(analysis.owner.descriptor().clone()).unwrap();
+        assert!(PreparedLibraryDomains::prepare(&data,&budget).is_err(),"analysis inventory still requires its admitted owner");
+        data.admit_uniform_owner(&analysis.owner).unwrap();
+        let prepared=PreparedLibraryDomains::prepare(&data,&budget).unwrap();
+        let resolved=prepared.resolve(None).unwrap();let capture=&resolved.domains()[0].captures[0];
+        assert!(capture.coverage.is_empty(),"five analytic input subjects grant no native fact family coverage");
+        assert!(matches!(capture.collection,Availability::Unavailable{..}));
+        let capture=CapturedAcquisition::tree(input.clone(),"finite-mixed-uniform-control".into());
+        let contract=producer_contract::facts::assembly();
+        let mut stage=contract.bind(ContentHash::of(b"finite-assembly-control"),ContentHash::of(b"assemble"),[]);
+        let binding=stage.captured_binding.as_mut().unwrap();
+        binding.context_dependency=producer_contract::CapturedContextDependency::SemanticContext;
+        binding.sources.push(producer_contract::CapturedSourceBinding{input:input.id(),context:Some(context.id()),configuration:Some(context.config_digest),acquisition:std::sync::Arc::new(capture)});
+        let (_,domain)=ExpectedUniform::captured_family(&stage,stages::Profile::Catalog,input.id(),context.id(),attribution::FactFamily::Flow,&budget).unwrap();
+        let descriptor=domain.declaration().unwrap();
+        let outputs=contract.outputs.iter().chain(&contract.contributes).map(|relation|relation.name().to_owned()).collect::<std::collections::BTreeSet<_>>();
+        let completed=CompletedContribution{spec:ContributionSpec{captured_binding:stage.captured_binding,producer:stage.name.into(),profile:OutputProfile::Specific(stages::Profile::Catalog),model:crate::domain::model().unwrap().digest(),implementation:stage.code,configuration:Some(stage.configuration),inputs:vec![],outputs:outputs.clone()},
+            assurance:producer_assurance::ProducerAssurance::CurrentProviderInterface,outcome:0,
+            outputs:outputs.into_iter().map(|name|{let rows=u64::from(name==UniformNotRequested::NAME);(name,OutputContent{rows,content:ContentHash::of(b"pure-kernel-output")})}).collect()};
+        let owner=ValidatedUniformOwner::validate_semantic_binding(&completed,&descriptor,stages::Profile::Catalog,&budget).unwrap();
+        data.uniform.insert(descriptor.clone()).unwrap();
+        assert!(PreparedLibraryDomains::prepare(&data,&budget).is_err(),"an analysis owner cannot stand in for a missing native owner");
+        data.admit_uniform_owner(&owner).unwrap();
+        let prepared=PreparedLibraryDomains::prepare(&data,&budget).unwrap();let resolved=prepared.resolve(None).unwrap();
+        let capture=&resolved.domains()[0].captures[0];assert!(matches!(capture.collection,Availability::NotRequested{}));
+        assert_eq!(capture.coverage.len(),1);assert_eq!(capture.coverage[0].family,attribution::FactFamily::Flow);
+        assert_eq!(capture.coverage[0].coverage,CoverageAuthority::Uniform{descriptor:descriptor.id()});
+        assert_eq!(capture.coverage[0].observations,0);
     }
 }

@@ -20,6 +20,7 @@ use lctx_model::domain::{
 use std::sync::Arc;
 mod reuse;
 mod preparation;
+mod uniform;
 #[cfg(test)]
 mod cache_controls;
 /// Closed executable upper routes. Metadata and runner dispatch use the same finite type.
@@ -156,29 +157,7 @@ impl UpperStage {
         }
     }
     fn boundary(self) -> Option<PublicationBoundary> {
-        match self {
-            Self::Configuration(_) => None,
-            Self::Native => None,
-            Self::EmbeddingConfiguration => None,
-            Self::Text => None,
-            Self::Embedding => Some(PublicationBoundary::AnalyticEmbedding),
-            Self::CatalogCore => None,
-            Self::CatalogEvidence => None,
-            Self::Local => Some(PublicationBoundary::Local),
-            Self::Base => None,
-            Self::Completion => None,
-            Self::SourceCalls => None,
-            Self::Enriched => None,
-            Self::Models => Some(PublicationBoundary::Model),
-            Self::Summary => Some(PublicationBoundary::Summary),
-            Self::Structural => Some(PublicationBoundary::Structural),
-            Self::Analytic => Some(PublicationBoundary::Analytic),
-            Self::Selection => None,
-            Self::Synthesis => Some(PublicationBoundary::Synthesis),
-            Self::Retrieval => Some(PublicationBoundary::Retrieval),
-            Self::AnalysisFrontier => None,
-            Self::CatalogFrontier => None,
-        }
+        analysis::owner::AnalysisOwner::resolve(self.name()).ok().and_then(|owner|owner.boundary())
     }
     fn graphs(self, profile: Profile) -> &'static [projection::ProjectionName] {
         match self {
@@ -320,6 +299,12 @@ impl PreparedCompilation {
         model: &ValidatedModel,
         order: &PublicationOrder,
     ) -> Result<Stage, ModelError> {
+        if let Ok(owner)=analysis::owner::AnalysisOwner::resolve(binding.name()) {
+            let selected=analysis::owner::SelectedDefinitions{definitions:self.configuration.definitions(),
+                analytics:self.configuration.analytics().iter().next(),text:Some(&self.text),
+                retrieval:self.configuration.retrieval().iter().next()};
+            return owner.declaration(profile,&selected,model,order);
+        }
         Ok(match binding {
             UpperStage::Configuration(group) => self.configuration.declaration(group),
             UpperStage::Native => analysis::preparation::native_stage(profile, model, order)?,
@@ -431,12 +416,7 @@ impl PreparedCompilation {
             })
             .map(|s| s.name)
             .collect();
-        let mut groups = vec![PublicationGroup::new(PublicationBoundary::Facts, facts)];
-        for binding in &bindings {
-            if let Some(boundary) = binding.boundary() {
-                groups.push(PublicationGroup::new(boundary, vec![binding.name()]));
-            }
-        }
+        let groups = analysis::owner::publication_groups(facts, self.frontier == Frontier::Catalog);
         let order = PublicationOrder::planning(&groups)?;
         for binding in &bindings {
             let declaration = self.upper_declaration(*binding, profile, model, &order)?;
@@ -839,6 +819,18 @@ async fn compile_driver(
                     _ => {}
                 }
             } else {
+            if uniform::unrequested(binding,profile,prepared) {
+                uniform::produce(access,output,workspace,declaration).await?;
+                match binding {
+                    UpperStage::Enriched=>source_calls=None,
+                    UpperStage::Models=>evaluations=None,
+                    UpperStage::Summary=>local=None,
+                    _=>{},
+                }
+            }else{
+            if analysis::owner::AnalysisOwner::resolve(binding.name()).is_ok_and(|owner|owner.can_be_wholly_unrequested()){
+                output.declare_async::<uniform_outcome::UniformNotRequested>().await?;
+            }
             if !binding.graphs(profile).is_empty()
                 && (binding != UpperStage::Analytic
                     || analytics::build::requested(prepared.settings()))
@@ -1051,6 +1043,7 @@ async fn compile_driver(
                     )
                     .await?
                 }
+            }
             }
             }
             // Future cache decisions remain stage-local. A possible selected consumer keeps

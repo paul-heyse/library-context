@@ -396,7 +396,7 @@ struct PreparedClosure {
     blobs: BTreeMap<RecordId,lctx_native::originals::Blob>,
     binding_rows: BTreeSet<RecordId>,
     owners: BTreeSet<RecordId>,
-    owner_specs: BTreeMap<RecordId, lctx_model::domain::completed::ContributionSpec>,
+    owner_specs: BTreeMap<RecordId, lctx_model::domain::completed::CompletedContribution>,
     views: BTreeSet<String>,
     nodes: BTreeSet<RecordId>,
     derived_rows: BTreeSet<RecordId>,
@@ -494,8 +494,8 @@ impl PreparedClosure {
                 if !owners.contains(&owner) {
                     selection_charge.try_resize(selection_charge.size()
                         .saturating_add(identity_charge(&owner)?.saturating_mul(2))
-                        .saturating_add(serde_json::to_vec(&descriptor.spec).map_err(ModelError::codec)?.len()))?;
-                    owners.insert(owner.clone()); owner_specs.insert(owner, descriptor.spec.clone());
+                        .saturating_add(serde_json::to_vec(descriptor).map_err(ModelError::codec)?.len()))?;
+                    owners.insert(owner.clone()); owner_specs.insert(owner, descriptor.clone());
                 }
                 descriptors.push(descriptor.clone());
             }
@@ -901,7 +901,7 @@ async fn compare_derived_claims(dump: &Dump, prepared: &PreparedClosure, loader:
     let views = prepared.views.iter().map(|view| hash_hex(view)).collect::<Result<Vec<_>, _>>()?;
     let staging=loader.staging().ok_or(ModelError::Conflict("restore derived comparison staging owner"))?;
     let all=lctx_native::NativeReader::for_completed_views(loader.reader().shared_client(),
-        staging.completed_owner(),views,budget).await?.with_derivation(loader.derivation()?);
+        staging.completed_owner(),&views,budget).await?.with_derivation(loader.derivation()?);
     let mut graph_tables = Vec::new(); let mut search_tables = Vec::new();
     for family in RECOVERY_FAMILIES.iter().copied() {
         match family {
@@ -1153,7 +1153,7 @@ mod definition_tests {
                     },
                 );
             }
-            CompletedContribution {
+            CompletedContribution { assurance: lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,
                 spec: ContributionSpec {
                     captured_binding: None,
                     producer: producer.into(),

@@ -51,7 +51,7 @@ mod tests {
     use super::*;
     use d::{completed::{ContributionSpec,OutputContent,OutputProfile},stages::Profile};
     fn contribution()->CompletedContribution {
-        CompletedContribution{spec:ContributionSpec{captured_binding:None,producer:"provider".into(),profile:OutputProfile::Specific(Profile::Catalog),model:ContentHash::of(b"model"),implementation:ContentHash::of(b"implementation"),configuration:None,inputs:vec![],outputs:["packages".into()].into()},outcome:0,outputs:[("packages".into(),OutputContent{rows:0,content:ContentHash::of(b"complete empty EOF")})].into()}
+        CompletedContribution{ assurance: lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,spec:ContributionSpec{captured_binding:None,producer:"provider".into(),profile:OutputProfile::Specific(Profile::Catalog),model:ContentHash::of(b"model"),implementation:ContentHash::of(b"implementation"),configuration:None,inputs:vec![],outputs:["packages".into()].into()},outcome:0,outputs:[("packages".into(),OutputContent{rows:0,content:ContentHash::of(b"complete empty EOF")})].into()}
     }
     fn physical(physical:&str,descriptor:&CompletedContribution)->Value{
         let mut row=Object::new();row.insert("id",RecordId::new("compiler_contribution",physical));row.insert("attempt",RecordId::new("native_attempt",physical));

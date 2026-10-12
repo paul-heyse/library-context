@@ -45,6 +45,7 @@ pub struct NativeReader<Context = SnapshotHandle> {
 /// This holds the pin alone, so it never counts as another reader/scope borrower.
 pub struct ReadFinalizationGuard {
     pin: Option<Arc<crate::control::ReaderPin>>,
+    installed: Option<Arc<ExactViewSelection>>,
     closed: bool,
 }
 impl ReadFinalizationGuard {
@@ -60,6 +61,10 @@ impl ReadFinalizationGuard {
         } {
             return Err(ModelError::Conflict("reader finalization guard owner"));
         }
+        let actual=reader.scope.as_ref().and_then(|scope|scope.exact.as_ref());
+        if !match (&self.installed,actual){(Some(expected),Some(actual))=>Arc::ptr_eq(expected,actual),(None,None)=>true,_=>false}{
+            return Err(ModelError::Conflict("reader finalization guard installed owner"));
+        }
         reader.close().await?;
         self.closed = true;
         Ok(())
@@ -71,12 +76,44 @@ impl Drop for ReadFinalizationGuard {
             if let Some(pin) = &self.pin {
                 pin.retain_unknown();
             }
+            if let Some(exact)=&self.installed{for view in &exact._installed{view.retain_unknown();}}
         }
     }
 }
 struct ExactViewSelection {
     references: Vec<crate::completed_state::InstalledViewRef>,
+    // Live/compiler selections retain the capabilities that chose these copies.
+    // Published/completed selections instead retain their enclosing pin/page owner.
+    _installed: Vec<Arc<crate::installed_view::HeldInstalledView>>,
     _charge: Box<dyn lctx_model::domain::resources::Reservation>,
+}
+// Own the receiving session before publication. An abandoned or unconfirmed
+// setup retains the actual SDK owner as well as its physical closure; dropping
+// the last session handle would otherwise enqueue a best-effort detach.
+struct InstalledReaderSetup {
+    views: Vec<Arc<crate::installed_view::HeldInstalledView>>,
+    pin: Option<Arc<crate::control::ReaderPin>>,
+    client: Arc<Surreal<Client>>,
+    confirmed: bool,
+}
+impl InstalledReaderSetup {
+    fn permits_cleanup(&self, error: &ModelError) -> bool {
+        if error.permits_storage_cleanup() { return true; }
+        self.retain_unknown();
+        false
+    }
+    fn retain_unknown(&self) {
+        if let Some(pin) = &self.pin { pin.retain_unknown(); }
+        for view in &self.views { view.retain_unknown(); }
+    }
+}
+impl Drop for InstalledReaderSetup {
+    fn drop(&mut self) {
+        if !self.confirmed {
+            self.retain_unknown();
+            std::mem::forget(self.client.clone());
+        }
+    }
 }
 struct ReaderScope {
     publication:Option<SnapshotHandle>,
@@ -84,6 +121,7 @@ struct ReaderScope {
     originals: Option<Vec<lctx_model::domain::graph::Original>>,
     views: Vec<lctx_model::domain::ContentHash>,
     _pin: Option<Arc<crate::control::ReaderPin>>,
+    release_pin_on_close: bool,
     selection: std::sync::Mutex<
         Option<(
             lctx_model::domain::resources::ResourceBudget,
@@ -97,8 +135,19 @@ struct ReaderScope {
         )>,
     >,
 }
+impl ReaderScope {
+    fn retain_unknown(&self){
+        if let Some(pin)=&self._pin{pin.retain_unknown();}
+        if let Some(exact)=&self.exact{for view in &exact._installed{view.retain_unknown();}}
+    }
+    fn require_canonical_selection(&self)->Result<(),ModelError>{
+        if self.exact.is_none() && self.publication.is_none(){return Err(ModelError::Conflict("canonical selection requires protected exact installed views"));}Ok(())
+    }
+}
 #[derive(Default)]
 struct QueryOperations {
+    owns_session: bool,
+    session_closed: bool,
     active: usize,
     drains: Vec<futures::future::Shared<futures::future::BoxFuture<'static, Result<(), Arc<ModelError>>>>>,
     closed: bool,
@@ -127,7 +176,7 @@ impl QueryLease {
     }
     fn finish(&mut self, outcome: &Result<(), Arc<ModelError>>, abandoned: bool) {
         if outcome.as_ref().is_err_and(|error| !error.permits_storage_cleanup()) {
-            if let Some(pin) = self.scope.as_ref().and_then(|scope| scope._pin.as_ref()) { pin.retain_unknown(); }
+            if let Some(scope)=&self.scope{scope.retain_unknown();}
         }
         if let Ok(mut state) = self.operations.lock() {
             if abandoned || outcome.as_ref().is_err_and(|error| !error.permits_storage_cleanup()) { state.abandoned.push(outcome.clone()); }
@@ -140,7 +189,7 @@ impl Drop for QueryLease {
     fn drop(&mut self) {
         if self.finished { return; }
         if self.confirmed { self.finish(&Ok(()), false); return; }
-        if let Some(pin) = self.scope.as_ref().and_then(|scope| scope._pin.as_ref()) { pin.retain_unknown(); }
+        if let Some(scope)=&self.scope{scope.retain_unknown();}
         // Runtime shutdown/panic cannot establish execution finality. Preserve the actual
         // session and a sticky unknown receipt; no local EOF is manufactured.
         std::mem::forget(self._client.clone());
@@ -356,7 +405,7 @@ impl Drop for NativeValueOwner {
     fn drop(&mut self) {
         let Some(mut accepted) = self.accepted.take() else { return; };
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-            if let Some(pin) = accepted.lease.scope.as_ref().and_then(|scope| scope._pin.as_ref()) { pin.retain_unknown(); }
+            if let Some(scope)=&accepted.lease.scope{scope.retain_unknown();}
             // Preserve the actual stream/session/charge when no executor can drain it.
             std::mem::forget(accepted);
             return;
@@ -564,9 +613,7 @@ struct SelectionLease {
 impl Drop for SelectionLease {
     fn drop(&mut self) {
         if !self.confirmed {
-            if let Some(pin) = &self.scope._pin {
-                pin.retain_unknown();
-            }
+            self.scope.retain_unknown();
         }
     }
 }
@@ -617,6 +664,7 @@ impl<Context> NativeReader<Context> {
     pub fn protect_terminal_close(&self) -> ReadFinalizationGuard {
         ReadFinalizationGuard {
             pin: self.scope.as_ref().and_then(|scope| scope._pin.clone()),
+            installed: self.scope.as_ref().and_then(|scope|scope.exact.clone()),
             closed: false,
         }
     }
@@ -630,6 +678,16 @@ impl<Context> NativeReader<Context> {
     pub(crate) fn ensure_scope_live(&self)->Result<(),ModelError>{
         self.check_read_admission()?;
         if let Some(pin)=self.scope.as_ref().and_then(|scope|scope._pin.as_ref()){pin.ensure_live()?;}
+        Ok(())
+    }
+    pub(crate) fn matches_installed_views(&self,views:&[lctx_model::domain::ContentHash])->bool{
+        self.scope.as_ref().is_some_and(|scope|scope.exact.is_some()
+            && views.iter().all(|view|scope.views.contains(view)) && scope.views.iter().all(|view|views.contains(view)))
+    }
+    pub(crate) fn require_installed_scope(&self)->Result<(),ModelError>{
+        self.ensure_scope_live()?;
+        let scope=self.scope.as_ref().ok_or(ModelError::Conflict("installed reader scope missing"))?;
+        if scope.exact.is_none(){return Err(ModelError::Conflict("installed reader exact scope missing"));}
         Ok(())
     }
     pub(crate) fn attach_scope(&self,mut rows:NativeRows)->Result<NativeRows,ModelError>{
@@ -678,7 +736,7 @@ impl<Context> NativeReader<Context> {
             if Arc::strong_count(scope) != 1 {
                 return lctx_model::domain::completion::complete(Err(ModelError::Conflict("native reader clones remain live")), completion);
             }
-            if let Some(pin) = &scope._pin {
+            if scope.release_pin_on_close && let Some(pin) = &scope._pin {
                 if let Err(error) = pin.release().await {
                     return lctx_model::domain::completion::complete(Err(error), completion);
                 }
@@ -689,13 +747,26 @@ impl<Context> NativeReader<Context> {
                     Err(ModelError::Conflict("reader selection owner")), completion),
             }
         }
+        let owns_session={let state=self.operations.lock().map_err(|_|ModelError::Conflict("native query operation owner"))?;state.owns_session && !state.session_closed};
+        if owns_session {
+            // Even after confirmed query drainage, session detach/invalidation
+            // needs its own acknowledgement. Cancellation must retain the exact
+            // owner rather than enqueue a best-effort detach on handle drop.
+            let mut session=InstalledReaderSetup{views:vec![],pin:None,client:self.client.clone(),confirmed:false};
+            let invalidated=self.client.invalidate().await.map_err(sdk_error);
+            session.confirmed=invalidated.is_ok();
+            if invalidated.is_err() {
+                completion.remote=lctx_model::domain::completion::RemoteState::Unknown;
+                completion.step("owned reader session invalidation",invalidated);
+                return lctx_model::domain::completion::complete(Ok(()),completion);
+            }
+            self.operations.lock().map_err(|_|ModelError::Conflict("native query operation owner"))?.session_closed=true;
+        }
         lctx_model::domain::completion::complete(Ok(()), completion)
     }
     /// Conservative protection when a finalizer cannot establish remote terminality.
     pub fn retain_unknown(&self) {
-        if let Some(pin) = self.scope.as_ref().and_then(|scope| scope._pin.as_ref()) {
-            pin.retain_unknown();
-        }
+        if let Some(scope)=&self.scope{scope.retain_unknown();}
     }
     pub fn authorize_original_ranges(
         &self,
@@ -796,8 +867,7 @@ impl<Context> NativeReader<Context> {
                             // retained by the mechanical cached result.
                             drop(published);prepared
                         } else {
-                            crate::selection::SelectedPayloads::for_cancellable_views(client,&lease.scope.views,
-                                preparation_cancellation,&retained_budget).await
+                            Err(ModelError::Conflict("canonical selection requires protected exact installed views"))
                         }.map(|selected|if let Some(namespace)=derivation{selected.with_derivation(namespace)}else{selected});
                         lease.confirmed = result
                             .as_ref()
@@ -896,7 +966,8 @@ impl<Context> NativeReader<Context> {
         let scope = self.scope.as_ref().ok_or(ModelError::Conflict(
             "candidate read requires exact selected scope",
         ))?;
-        let mut rows = if scope.exact.is_some() {
+        scope.require_canonical_selection()?;
+        let mut rows = {
             let preparation=self.selection_preparation();let table=table.to_owned();let order=order.to_owned();
             NativeRows::owned(move|sender|async move {
                 let selected=preparation.await?.ok_or(ModelError::Conflict("candidate exact selection missing"))?;
@@ -905,8 +976,6 @@ impl<Context> NativeReader<Context> {
                 let mut terminal=lctx_model::domain::completion::Completion::default();terminal.step("exact candidate payload drainage",rows.drain_transport().await);
                 lctx_model::domain::completion::complete(result,terminal)
             })?
-        } else {
-            crate::selection::SelectedPayloads::sparse_candidate_rows(self.client.clone(),scope.views.clone(),self.cancellation.clone(),candidates,table,order,&budget)?
         };
         rows.scope = Some(scope.clone());
         rows.client = Some(self.client.clone());
@@ -923,6 +992,7 @@ impl<Context> NativeReader<Context> {
         let Some(scope) = self.scope.clone() else {
             return crate::selection::MembershipAnswers::unrestricted(requested, budget);
         };
+        scope.require_canonical_selection()?;
         let requested_charge = budget.reserve(
             "selected-membership-task-input",
             requested
@@ -933,8 +1003,6 @@ impl<Context> NativeReader<Context> {
         let requested = requested.to_vec();
         let budget = budget.clone();
         let selection=self.selection_preparation();
-        let client = self.client.clone();
-        let cancelled = self.cancellation.clone();
         // Caller cancellation detaches delivery, not the admitted physical operation.
         // The task retains its input charge and reader pin until every query is drained.
         tokio::spawn(async move {
@@ -943,14 +1011,12 @@ impl<Context> NativeReader<Context> {
                 scope,
                 confirmed: false,
             };
-            let result=if lease.scope.exact.is_some() {
+            let result={
                 match selection.await {
                     Ok(Some(selected))=>selected.membership_answers(&requested,&budget).await,
                     Ok(None)=>Err(ModelError::Conflict("exact membership selection missing")),
                     Err(error)=>Err(error),
                 }
-            } else {
-                crate::selection::SelectedPayloads::view_membership(client,&lease.scope.views,cancelled,&requested,&budget).await
             };
             lease.confirmed = result
                 .as_ref()
@@ -1039,20 +1105,17 @@ impl<Context> NativeReader<Context> {
             ))?
             .clone();
         let table = crate::schema::ScopeTable::for_relation(relation)?.name();
-        if limit == 0 || scope.views.is_empty() {
-            return Ok(self.retain_rows(NativeRows::owned(|_| async { Ok(()) })?));
-        }
-        let mut input=if scope.exact.is_some() {
+        scope.require_canonical_selection()?;
+        let mut input={
             let preparation=self.selection_preparation();let relation=relation.to_owned();let table=table.to_owned();let budget=budget.clone();
             NativeRows::owned(move|sender|async move {
                 let selected=preparation.await?.ok_or(ModelError::Conflict("exact relation selection missing"))?;
+                if limit==0{return Ok(());}
                 let mut rows=selected.relation_candidates(&relation,&table,&budget)?;
                 let result=async {while let Some(row)=rows.next().await? {if sender.send(row).await.is_err(){rows.cancel_delivery();break;}}Ok(())}.await;
                 let mut terminal=lctx_model::domain::completion::Completion::default();terminal.step("exact relation nomination drainage",rows.drain_transport().await);
                 lctx_model::domain::completion::complete(result,terminal)
             })?
-        } else {
-            crate::selection::SelectedPayloads::sparse_relation_rows(self.client.clone(),scope.views.clone(),self.cancellation.clone(),relation,table,&budget)?
         };
         let mut rows = NativeRows::owned(move |sender| async move {
             let result = async {
@@ -1215,6 +1278,11 @@ impl<Context> NativeReader<Context> {
         &self,
         selection: RecordSelection,
     ) -> Result<Vec<R>, ModelError> {
+        self.check_read_admission()?;
+        if let Some(scope)=&self.scope{
+            scope.require_canonical_selection()?;
+            self.prepare_selection().await?.ok_or(ModelError::Conflict("typed read exact installed selection missing"))?;
+        }
         let mut bindings = Variables::new();
         bindings.insert("type", R::NAME.to_string());
         let mut preparation = Vec::new();
@@ -1583,6 +1651,7 @@ impl NativeReader<SnapshotHandle> {
                 originals: Some(manifest.originals),
                 views,
                 _pin: Some(pin),
+                release_pin_on_close: true,
                 selection: std::sync::Mutex::new(None),
             })),
         })
@@ -1615,6 +1684,86 @@ impl NativeReader<SnapshotHandle> {
     }
 }
 impl NativeReader<()> {
+    /// Select only the exact namespaces already earned by native view factories.
+    /// These capabilities stay in the reader scope through every clone and drain.
+    pub async fn for_installed_views(client:Arc<Surreal<Client>>,
+        views:&[Arc<crate::installed_view::HeldInstalledView>],budget:&lctx_model::domain::resources::ResourceBudget,
+    )->Result<Self,ModelError>{
+        if views.is_empty(){return Err(ModelError::Conflict("installed reader requires explicit completed views"));}
+        let charge=budget.reserve("installed reader exact capability inventory",views.len().saturating_mul(
+            std::mem::size_of::<crate::completed_state::InstalledViewRef>()+std::mem::size_of::<Arc<crate::installed_view::HeldInstalledView>>()
+            +std::mem::size_of::<lctx_model::domain::ContentHash>()).saturating_add(1024))?;
+        let mut logical=Vec::with_capacity(views.len());
+        for view in views {
+            let identity=view.completion().view.identity;
+            if logical.contains(&identity){return Err(ModelError::Conflict("installed reader duplicate logical view"));}
+            logical.push(identity);
+        }
+        // SDK Surreal::clone creates an independently attached authenticated session.
+        // Arc::clone would share the source store's invalidation lifetime.
+        let client=Arc::new(client.as_ref().clone());
+        let mut setup=InstalledReaderSetup{views:views.to_vec(),pin:None,client:client.clone(),confirmed:false};
+        let pin=match crate::control::ReaderPin::acquire(client.clone(),&logical).await{
+            Ok(pin)=>pin,
+            Err(error)=>{
+                if !setup.permits_cleanup(&error) { return Err(error); }
+                let mut terminal=lctx_model::domain::completion::Completion::default();
+                let invalidated=client.invalidate().await.map_err(sdk_error);
+                if invalidated.is_err(){terminal.remote=lctx_model::domain::completion::RemoteState::Unknown;}
+                terminal.step("failed installed reader session invalidation",invalidated);
+                let result=lctx_model::domain::completion::complete(Err(error),terminal);
+                setup.confirmed=result.as_ref().err().is_none_or(|error|error.permits_storage_cleanup());
+                return result;
+            }
+        };
+        setup.pin=Some(pin.clone());
+        let reader=Self::private(client.clone()).with_budget(budget);
+        let result=async {
+            let mut references=Vec::with_capacity(views.len());
+            for view in views {
+                // The pin owns the sealed completion's transitive physical closure,
+                // independently of the original attempt's later close/abandon.
+                pin.protect(view.completion().record()?).await?;
+                // Empty demand still verifies exact completion, incarnation, source
+                // hold and current installation. No logical lookup chooses a copy.
+                view.members(&reader,&[],budget).await?;
+                let completion=view.completion();
+                references.push(crate::completed_state::InstalledViewRef{logical_view:completion.view.identity,realization:completion.realization,
+                    incarnation:completion.realization_incarnation,installation_completion:completion.identity()?});
+            }
+            Ok(references)
+        }.await;
+        // Mark uncertainty before any cleanup can release the pin or drop a
+        // recovery view. Still close the private transport to join its drains.
+        if let Err(error)=&result { setup.permits_cleanup(error); }
+        let closed=reader.close().await;
+        if let Err(error)=&closed { setup.permits_cleanup(error); }
+        let mut terminal=lctx_model::domain::completion::Completion::default();terminal.step("installed reader setup private transport close",closed);
+        let result=lctx_model::domain::completion::complete(result,terminal);
+        let references=match result{
+            Ok(references)=>references,
+            Err(error)=>{
+                if !setup.permits_cleanup(&error) { return Err(error); }
+                let released=pin.release().await;
+                let may_invalidate=released.as_ref().err().is_none_or(|error|setup.permits_cleanup(error));
+                let mut terminal=lctx_model::domain::completion::Completion::default();terminal.step("failed installed reader setup pin release",released);
+                if may_invalidate {
+                    let invalidated=client.invalidate().await.map_err(sdk_error);
+                    if invalidated.is_err(){terminal.remote=lctx_model::domain::completion::RemoteState::Unknown;}
+                    terminal.step("failed installed reader session invalidation",invalidated);
+                }
+                let result=lctx_model::domain::completion::complete(Err(error),terminal);
+                setup.confirmed=result.as_ref().err().is_none_or(|error|error.permits_storage_cleanup());
+                return result;
+            }
+        };
+        let installed=std::mem::take(&mut setup.views);let pin=setup.pin.take().expect("earned installed reader pin");
+        setup.confirmed=true;
+        Ok(Self{operations:Arc::new(std::sync::Mutex::new(QueryOperations{owns_session:true,..Default::default()})),client,handle:(),derivation:None,cancellation:None,budget:Some(budget.clone()),request_budget:Some(budget.clone()),
+            scope:Some(Arc::new(ReaderScope{publication:None,originals:None,views:logical,
+                exact:Some(Arc::new(ExactViewSelection{references,_installed:installed,_charge:charge})),
+                _pin:Some(pin),release_pin_on_close:true,selection:std::sync::Mutex::new(None)}))})
+    }
     /// Earn an exact physical view scope under a temporary pin. Every requested logical
     /// view is resolved through this completed state's inventory, never global discovery.
     pub async fn for_completed_views(
@@ -1659,7 +1808,7 @@ impl NativeReader<()> {
             if current.len()!=1{return Err(ModelError::Conflict("completed reader validity epoch changed"));}
             charge.try_resize(references.capacity().saturating_mul(std::mem::size_of::<crate::completed_state::InstalledViewRef>())
                 .saturating_add(views.len().saturating_mul(std::mem::size_of::<lctx_model::domain::ContentHash>())).saturating_add(1024))?;
-            Ok(Arc::new(ExactViewSelection{references,_charge:charge}))
+            Ok(Arc::new(ExactViewSelection{references,_installed:vec![],_charge:charge}))
         }.await;
         let mut completion=lctx_model::domain::completion::Completion::default();
         completion.step("completed reader setup private reader close",reader.close().await);
@@ -1674,7 +1823,7 @@ impl NativeReader<()> {
             }
         };
         Ok(Self{operations:Default::default(),client,handle:(),derivation:None,cancellation:None,budget:Some(budget.clone()),request_budget:Some(budget.clone()),
-            scope:Some(Arc::new(ReaderScope{publication:None,originals:None,views:views.to_vec(),exact:Some(exact),_pin:Some(pin),selection:std::sync::Mutex::new(None)}))})
+            scope:Some(Arc::new(ReaderScope{publication:None,originals:None,views:views.to_vec(),exact:Some(exact),_pin:Some(pin),release_pin_on_close:true,selection:std::sync::Mutex::new(None)}))})
     }
     pub fn for_views(
         client: Arc<Surreal<Client>>,
@@ -1693,6 +1842,7 @@ impl NativeReader<()> {
                 originals: None,
                 views,
                 _pin: None,
+                release_pin_on_close: true,
                 selection: std::sync::Mutex::new(None),
             })),
         }
@@ -1711,6 +1861,12 @@ impl NativeReader<()> {
             request_budget: None,
             scope: None,
         }
+    }
+    /// Borrow a recovery owner's pin through every accepted operation. Closing this
+    /// private transport drains its operations; the recovery owner releases the pin.
+    pub(crate) fn private_pinned(client:Arc<Surreal<Client>>,pin:Arc<crate::control::ReaderPin>)->Self {
+        Self{scope:Some(Arc::new(ReaderScope{publication:None,exact:None,originals:None,views:vec![],
+            _pin:Some(pin),release_pin_on_close:false,selection:std::sync::Mutex::new(None)})),..Self::private(client)}
     }
 }
 
@@ -1910,9 +2066,7 @@ impl NativeRows {
         }
         if self.ended != self.statements {
             if let Some(scope) = &self.scope {
-                if let Some(pin) = &scope._pin {
-                    pin.retain_unknown();
-                }
+                scope.retain_unknown();
             }
         }
         if let Some(result) = self.owned_result.as_ref().cloned() {
@@ -1938,9 +2092,7 @@ impl NativeRows {
             );
         }
         if completion.remote == lctx_model::domain::completion::RemoteState::Unknown {
-            if let Some(pin) = self.scope.as_ref().and_then(|scope| scope._pin.as_ref()) {
-                pin.retain_unknown();
-            }
+            if let Some(scope)=&self.scope{scope.retain_unknown();}
         }
         self.scope.take();
         lctx_model::domain::completion::complete(Ok(()), completion)
@@ -1995,9 +2147,7 @@ impl NativeRows {
         self.exhausted = true;
         if self.ended != self.statements {
             if let Some(scope) = &self.scope {
-                if let Some(pin) = &scope._pin {
-                    pin.retain_unknown();
-                }
+                scope.retain_unknown();
             }
             return Err(ModelError::infrastructure(
                 lctx_model::domain::Infrastructure::Unconfirmed,
@@ -2009,9 +2159,7 @@ impl NativeRows {
             self.owned_result.take();
             if let Err(error) = result {
                 if !error.permits_storage_cleanup() {
-                    if let Some(pin) = self.scope.as_ref().and_then(|scope| scope._pin.as_ref()) {
-                        pin.retain_unknown();
-                    }
+                    if let Some(scope)=&self.scope{scope.retain_unknown();}
                 }
                 return Err(ModelError::SharedCause(error));
             }
@@ -2038,16 +2186,12 @@ impl Drop for NativeRows {
                 .is_some_and(|error| !error.permits_storage_cleanup())
                 || self.drain_errors.iter().any(|error|!error.permits_storage_cleanup())
             {
-                if let Some(pin) = scope.as_ref().and_then(|scope|scope._pin.as_ref()) {
-                    pin.retain_unknown();
-                }
+                if let Some(scope)=&scope{scope.retain_unknown();}
             }
             return;
         }
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-            if let Some(pin) = scope.as_ref().and_then(|scope|scope._pin.as_ref()) {
-                pin.retain_unknown();
-            }
+            if let Some(scope)=&scope{scope.retain_unknown();}
             return;
         };
         self.cancel_delivery();
@@ -2247,23 +2391,50 @@ mod streaming_tests {
     use super::*;
     use surrealdb::method::StreamItem;
     #[tokio::test]
-    async fn empty_relation_scope_preserves_admission_and_budget_checks_without_native_queries() {
+    async fn installed_reader_setup_marks_unknown_before_pin_release_and_retains_session_on_abandonment() {
+        let client=Arc::new(Surreal::init());
+        let pin=crate::control::ReaderPin::test_detached(false);
+        let setup=InstalledReaderSetup{views:vec![],pin:Some(pin.clone()),client:client.clone(),confirmed:false};
+        let unknown=ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed,"setup readback has no remote terminal");
+        assert!(!setup.permits_cleanup(&unknown));
+        assert!(pin.test_uncertain());
+        // The guard marks the real pin before a release could make native effects.
+        assert!(!pin.release().await.unwrap_err().permits_storage_cleanup());
+        drop(setup);
+        assert_eq!(Arc::strong_count(&client),2,"unconfirmed setup retains the actual SDK session owner");
+
+        let cancelled_client=Arc::new(Surreal::init());
+        let cancelled_pin=crate::control::ReaderPin::test_detached(false);
+        let cancelled=InstalledReaderSetup{views:vec![],pin:Some(cancelled_pin.clone()),client:cancelled_client.clone(),confirmed:false};
+        drop(cancelled);
+        assert!(cancelled_pin.test_uncertain());
+        assert_eq!(Arc::strong_count(&cancelled_client),2,"cancellation before publication also retains the session");
+
+        let confirmed_client=Arc::new(Surreal::init());
+        let confirmed=InstalledReaderSetup{views:vec![],pin:None,client:confirmed_client.clone(),confirmed:true};
+        assert!(confirmed.permits_cleanup(&ModelError::Conflict("confirmed semantic refusal")));
+        drop(confirmed);
+        assert_eq!(Arc::strong_count(&confirmed_client),1);
+        let mut invalidation=lctx_model::domain::completion::Completion::default();
+        invalidation.remote=lctx_model::domain::completion::RemoteState::Unknown;
+        invalidation.step("session invalidation",Err(sdk_error(surrealdb::Error::internal("lost invalidation acknowledgement".into()))));
+        let failure=lctx_model::domain::completion::complete(Ok(()),invalidation).unwrap_err();
+        assert!(!failure.permits_storage_cleanup(),"an SDK cause cannot turn absent invalidation acknowledgement into confirmed finality");
+    }
+    #[tokio::test]
+    async fn logical_view_scope_refuses_canonical_reads_including_zero_demand_without_native_queries() {
         let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
         let reader =
             NativeReader::for_views(Arc::new(Surreal::init()), vec![]).with_budget(&budget);
-        let mut rows = reader.relation_bodies("packages", 0).unwrap();
-        assert!(rows.next().await.unwrap().is_none());
-        rows.drain_transport().await.unwrap();
-        drop(rows);
+        assert!(reader.relation_bodies("packages",0).is_err());
+        assert!(reader.prepare_selection().await.is_err());
+        assert!(reader.selected_membership(&[],&budget).await.is_err());
         let nonempty = NativeReader::for_views(
             Arc::new(Surreal::init()),
             vec![lctx_model::domain::ContentHash::of(b"zero-limit-view")],
         )
         .with_budget(&budget);
-        let mut rows = nonempty.relation_bodies("packages", 0).unwrap();
-        assert!(rows.next().await.unwrap().is_none());
-        rows.drain_transport().await.unwrap();
-        drop(rows);
+        assert!(nonempty.relation_bodies("packages",0).is_err());
         assert!(
             nonempty.relation_bodies("not-a-model-relation", 0).is_err(),
             "zero demand still validates the relation schema"
@@ -2275,6 +2446,18 @@ mod streaming_tests {
         assert!(cancelled.relation_bodies("packages", 0).is_err());
         let unadmitted = NativeReader::for_views(Arc::new(Surreal::init()), vec![]);
         assert!(unadmitted.relation_bodies("packages", 0).is_err());
+    }
+    #[tokio::test]
+    async fn borrowed_recovery_pin_survives_private_reader_close_and_guard_close() {
+        let pin=crate::control::ReaderPin::test_detached(false);
+        let reader=NativeReader::private_pinned(Arc::new(Surreal::init()),pin.clone());
+        let mut guard=reader.protect_terminal_close();
+        guard.close(&reader).await.unwrap();
+        drop(guard);
+        pin.ensure_live().unwrap();
+        assert!(!pin.test_uncertain());
+        // Synthetic pins have no service attachment to release.
+        pin.retain_unknown();
     }
     #[tokio::test]
     async fn reader_terminal_guard_retains_actual_pin_on_unwind_without_an_extra_scope_borrower() {

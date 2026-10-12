@@ -1390,13 +1390,13 @@ pub fn synthesis(
             ScopeValue::Nominals(
                 parents
                     .iter()
-                    .map(|parent| *parent.analytic.bytes())
+                    .filter_map(|parent|parent.analytic.map(|id|*id.bytes()))
                     .collect(),
             ),
             ScopeValue::Nominals(
                 parents
                     .iter()
-                    .map(|parent| *parent.summary.bytes())
+                    .filter_map(|parent|parent.summary.map(|id|*id.bytes()))
                     .collect(),
             ),
         ]);

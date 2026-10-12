@@ -1,6 +1,8 @@
 //! Installation-local physical completion. Serialized data never grants freeze,
 //! semantic admission or protected read authority; native factories earn those separately.
 pub(crate) mod earning;
+mod uniform;
+pub use uniform::PublishedUniformOwners;
 pub use earning::{ViewSelection,complete_frozen_content};
 use lctx_model::domain::{self as d, ContentHash, Key, KeySink, ModelError};
 use serde::{Deserialize, Serialize};
@@ -152,7 +154,7 @@ pub async fn hold_admitted_completed_state_for_attempt(
 )->Result<HeldFrozenCompletedState,ModelError>{
     let reader=crate::NativeReader::private(client.clone()).with_budget(budget);
     let result=async {
-        let _page=budget.reserve("admitted attempt exact completion lookup",d::resources::MAX_ROW_BYTES)?;
+        let _page=budget.reserve("admitted attempt exact completion lookup",4096)?;
         let mut variables=surrealdb::types::Variables::new();variables.insert("attempt",RecordId::new("native_attempt",attempt.hex()));
         let rows:Vec<Object>=reader.query_native("SELECT id,state,admitted,completed_identity FROM $attempt",variables).await?;
         let [row]=rows.as_slice() else{return Err(ModelError::Conflict("admitted completed attempt cardinality"));};
@@ -176,6 +178,13 @@ pub async fn hold_admitted_completed_state_for_attempt(
 /// A decoded DTO is never accepted as input authority to this constructor.
 pub async fn hold_completed_state(client:std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
     attempt:ContentHash,identity:ContentHash,budget:&d::resources::ResourceBudget)->Result<HeldFrozenCompletedState,ModelError>{
+    let model=d::model()?;
+    hold_completed_state_with_model(client,attempt,identity,&model,budget).await
+}
+/// Fresh admission may use an explicitly supplied validated model. This does not make
+/// an undeclared executable factory eligible for later durable reuse.
+pub async fn hold_completed_state_with_model(client:std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
+    attempt:ContentHash,identity:ContentHash,model:&d::ValidatedModel,budget:&d::resources::ResourceBudget)->Result<HeldFrozenCompletedState,ModelError>{
     use surrealdb::types::Variables;
     let reader=crate::NativeReader::private(client.clone()).with_budget(budget);
     let result=async {
@@ -191,10 +200,9 @@ pub async fn hold_completed_state(client:std::sync::Arc<surrealdb::Surreal<surre
         let [address]=admissions.as_slice() else{return Err(ModelError::Conflict("frozen semantic admission pointer cardinality"));};
         let admission=crate::control::inspect_expected_read(&reader,address.clone(),budget).await?.ok_or(ModelError::Conflict("frozen semantic admission missing"))?;
         let _decode=budget.reserve("frozen semantic admission decoding",crate::loader::native_bytes(admission.row()).saturating_mul(32).saturating_add(65536))?;
-        let semantic=CompletedAdmission::from_row(admission.row())?;let model=d::model()?;
-        semantic.validate(&data,held.incarnation(),&model)?;
+        let semantic=CompletedAdmission::from_row(admission.row())?;
+        semantic.validate(&data,held.incarnation(),model,&inventory,budget)?;
         require_hold(&reader,address,&data.record()?).await?;
-        super_input_verification(&reader,&semantic.premises,&inventory,&model,budget).await?;
         let admission=crate::control::hold_frozen_admission_expected(&client,&data,&semantic,admission,budget).await?;
         // Recheck owner/installation after all reads. The first hold remains retained,
         // while this fixed exact effect confirms no epoch/admission change at return.
@@ -313,7 +321,7 @@ pub(crate) async fn inspect_inventory(reader:&crate::NativeReader<()>,data:&Froz
     let identity=data.identity()?;let mut hasher=RealizationHasher::default();let mut after=String::new();let mut after_id=Value::None;
     let mut result=InstalledViewInventory{references:Vec::new(),bindings:Vec::new(),binding_incarnations:std::collections::BTreeMap::new(),installed:std::collections::BTreeMap::new(),_charge:d::charged::StateCharge::new(budget,"exact completed installed inventory")};
     loop {
-        let _page=budget.reserve("exact completed inventory page",d::resources::MAX_ROW_BYTES)?;
+        let _page=budget.reserve("exact completed inventory page",4096)?;
         let mut variables=surrealdb::types::Variables::new();variables.insert("completion",data.record()?);variables.insert("after",after.clone());variables.insert("after_id",after_id.clone());
         let rows:Vec<Value>=reader.query_native("SELECT * FROM native_completed_view WITH INDEX completion_view WHERE completion=$completion AND (logical_view>$after OR (logical_view=$after AND id>$after_id)) ORDER BY logical_view,id LIMIT 1",variables).await?;
         if rows.is_empty(){break;}
@@ -332,7 +340,7 @@ pub(crate) async fn inspect_inventory(reader:&crate::NativeReader<()>,data:&Froz
 
     let mut after=Value::None;
     loop {
-        let _page=budget.reserve("completed canonical binding incidence page",d::resources::MAX_ROW_BYTES)?;
+        let _page=budget.reserve("completed canonical binding incidence page",4096)?;
         let mut variables=surrealdb::types::Variables::new();variables.insert("completion",data.record()?);variables.insert("after",after.clone());
         let holds:Vec<Object>=reader.query_native("SELECT id,object FROM native_hold WITH INDEX owner_holds WHERE owner=$completion AND record::table(object)='compiler_binding_descriptor' AND id>$after ORDER BY id LIMIT 1",variables).await?;
         if holds.is_empty(){break;}
@@ -361,6 +369,37 @@ pub struct NativeCompletedState {
     pub(crate) inventory:std::sync::Arc<InstalledViewInventory>,
     pub(crate) _charge:d::charged::StateCharge,
 }
+/// Re-hold protected physical completion without granting artifact admission.
+/// Used by lifecycle operations on a frozen producer, including warm-only targets.
+pub(crate) async fn hold_physical_state_for_attempt(
+    client:std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
+    attempt:ContentHash,budget:&d::resources::ResourceBudget)->Result<NativeCompletedState,ModelError>{
+    let reader=crate::NativeReader::private(client.clone()).with_budget(budget);
+    let result=async {
+        let _delivery=budget.reserve("frozen physical owner delivery",d::resources::MAX_ROW_BYTES)?;
+        let mut variables=surrealdb::types::Variables::new();variables.insert("physical_attempt",RecordId::new("native_attempt",attempt.hex()));
+        let owners:Vec<Object>=reader.query_native("SELECT * FROM $physical_attempt",variables).await?;
+        let [owner]=owners.as_slice()else{return Err(ModelError::Conflict("physical lifecycle attempt cardinality"));};
+        if owner.get("state")!=Some(&Value::String("frozen".into())){return Err(ModelError::Conflict("physical lifecycle requires frozen producer"));}
+        let Some(Value::String(identity))=owner.get("completed_identity")else{return Err(ModelError::Conflict("frozen lifecycle has no physical completion"));};
+        let expected=crate::control::inspect_expected_read(&reader,RecordId::new("native_completed_state",identity.clone()),budget).await?
+            .ok_or(ModelError::Conflict("frozen lifecycle physical completion absent"))?;
+        let mut charge=d::charged::StateCharge::new(budget,"frozen lifecycle physical completion");
+        charge.grow(crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(65536))?;
+        let data=FrozenCompletion::from_row(expected.row(),true)?;
+        if data.identity()?.hex()!=*identity || data.attempt!=attempt {return Err(ModelError::Conflict("frozen lifecycle physical owner identity"));}
+        let held=crate::control::hold_frozen_physical_expected(&client,&data,expected,budget).await?;
+        let inventory=inspect_inventory(&reader,&data,budget).await?;
+        // Repeat the exact freeze/epoch/bytes CAS after the complete inventory EOF.
+        let expected=crate::control::inspect_expected_read(&reader,data.record()?,budget).await?
+            .ok_or(ModelError::Conflict("frozen lifecycle completion disappeared"))?;
+        if expected.incarnation()!=held.incarnation(){return Err(ModelError::Conflict("frozen lifecycle completion ABA"));}
+        let repeated=crate::control::hold_frozen_physical_expected(&client,&data,expected,budget).await?;
+        Ok(NativeCompletedState{completion:data,held:repeated,inventory,_charge:charge})
+    }.await;
+    let mut terminal=d::completion::Completion::default();terminal.step("frozen lifecycle reader close",reader.close().await);
+    d::completion::complete(result,terminal)
+}
 impl NativeCompletedState {
     pub fn completion(&self)->&FrozenCompletion{&self.completion}
     pub fn incarnation(&self)->i64{self.held.incarnation()}
@@ -372,17 +411,17 @@ impl NativeCompletedState {
 pub struct CompletedAdmission {
     pub version:u32,pub completion:ContentHash,pub completion_incarnation:i64,
     pub generation:ContentHash,pub validity_epoch:i64,
-    pub premises:d::checked_admission::AdmissionPremises,
+    pub evidence:d::artifact_admission::ArtifactAdmissionEvidence,
 }
 impl CompletedAdmission {
-    fn validate(&self,data:&FrozenCompletion,incarnation:i64,model:&d::ValidatedModel)->Result<(),ModelError>{
-        if self.version!=1 || self.completion!=data.identity()? || self.completion_incarnation!=incarnation
+    pub(crate) fn validate(&self,data:&FrozenCompletion,incarnation:i64,model:&d::ValidatedModel,inventory:&InstalledViewInventory,budget:&d::resources::ResourceBudget)->Result<(),ModelError>{
+        if self.version!=2 || self.completion!=data.identity()? || self.completion_incarnation!=incarnation
             || incarnation<=0 || self.generation!=data.generation || self.validity_epoch!=data.validity_epoch {
             return Err(ModelError::Conflict("semantic admission exact physical completion/epoch"));
         }
-        self.premises.validate_current(model)
+        self.evidence.validate_current(model,inventory.bindings(),&data.roots,budget)
     }
-    pub fn identity(&self)->Result<ContentHash,ModelError>{let mut sink=KeySink::new("native-completed-admission/v1");sink.part(b"canonical",&serde_json::to_vec(self).map_err(ModelError::codec)?);Ok(sink.finish())}
+    pub fn identity(&self)->Result<ContentHash,ModelError>{let mut sink=KeySink::new("native-completed-admission/v2");sink.part(b"canonical",&serde_json::to_vec(self).map_err(ModelError::codec)?);Ok(sink.finish())}
     pub fn record(&self)->Result<RecordId,ModelError>{Ok(RecordId::new("native_completed_admission",self.identity()?.hex()))}
     pub fn value(&self)->Result<Value,ModelError>{let mut row=Object::new();row.insert("id",self.record()?);row.insert("descriptor",surrealdb::types::Bytes::from(serde_json::to_vec(self).map_err(ModelError::codec)?));Ok(Value::Object(row))}
     pub(crate) fn from_row(row:&Value)->Result<Self,ModelError>{
@@ -409,6 +448,12 @@ impl PublishedCompletedState {
     pub fn admission_record(&self)->Result<RecordId,ModelError>{self.inner.admission.record()}
     pub fn admission_incarnation(&self)->i64{self.inner.admission_incarnation}
     pub fn inventory(&self)->&InstalledViewInventory{&self.inner.inventory}
+    /// Require this protected inventory to belong to the borrowing native session.
+    pub fn require_session(&self,client:&surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>)->Result<(),ModelError>{
+        if !std::ptr::eq(client,self.inner.reader.client()){return Err(ModelError::Conflict("published inventory foreign native session"));}Ok(())
+    }
+    /// Capability identity includes the retained publication marker and its pin scope.
+    pub fn same_capability(&self,other:&Self)->bool{std::sync::Arc::ptr_eq(&self.inner,&other.inner)}
     pub(crate) fn marker(&self)->&Object{self.inner.marker.row()}
     pub(crate) fn admission(&self)->&CompletedAdmission{&self.inner.admission}
     pub(crate) fn retained_reader(&self)->&crate::NativeReader<d::serving::SnapshotHandle>{&self.inner.reader}
@@ -425,136 +470,27 @@ pub async fn published_completed_state(reader:&crate::NativeReader<d::serving::S
     let _scratch=budget.reserve("published completion decode",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(65536))?;
     let data=FrozenCompletion::from_row(expected.row(),true)?;
     if data.record()?!=completion_id || data.generation!=reader.handle().service_generation
-        || marker.row().get("completion_incarnation")!=Some(&Value::from(expected.incarnation())) {
+        || marker.row().get("completion_incarnation")!=Some(&expected.incarnation().into_value()) {
         return Err(ModelError::Conflict("published physical completion identity/incarnation"));
     }
     let admission=crate::control::inspect_expected_read(&transport,admission_id.clone(),budget).await?.ok_or(ModelError::Conflict("published semantic admission missing"))?;
     let mut charge=budget.reserve("published completed retained data",crate::loader::native_bytes(expected.row()).saturating_add(crate::loader::native_bytes(admission.row())).saturating_mul(32).saturating_add(65536))?;
     let semantic=CompletedAdmission::from_row(admission.row())?;
-    let model=d::model()?;semantic.validate(&data,expected.incarnation(),&model)?;
-    if semantic.record()?!=admission_id || marker.row().get("admission_incarnation")!=Some(&Value::from(admission.incarnation())) {
+    let model=d::model()?;
+    if semantic.record()?!=admission_id || marker.row().get("admission_incarnation")!=Some(&admission.incarnation().into_value()) {
         return Err(ModelError::Conflict("published semantic admission identity/incarnation"));
     }
     require_hold(&transport,&semantic.record()?,&data.record()?).await?;
     let inventory=inspect_inventory(&transport,&data,budget).await?;
-    super_input_verification(&transport,&semantic.premises,&inventory,&model,budget).await?;
+    semantic.validate(&data,expected.incarnation(),&model,&inventory,budget)?;
     let repeated=reader.protected_publication_marker(budget).await?;
     if repeated.row()!=marker.row(){return Err(ModelError::Conflict("published marker changed during completed factory"));}
     charge.try_resize(crate::loader::native_bytes(&data.value(true)?).saturating_add(crate::loader::native_bytes(&semantic.value()?)).saturating_mul(32).saturating_add(65536))?;
     Ok(PublishedCompletedState{inner:std::sync::Arc::new(PublishedCompletedInner{completion:data,completion_incarnation:expected.incarnation(),admission:semantic,admission_incarnation:admission.incarnation(),inventory,marker,reader:reader.clone(),_charge:charge})})
 }
 
-/// Independent native fingerprinting uses full typed rows in declared order. Native ID
-/// order, batch framing and an asserted SourceSnapshot never replace this readback.
-async fn super_input_verification(reader:&crate::NativeReader<()>,premises:&d::checked_admission::AdmissionPremises,
-    inventory:&InstalledViewInventory,model:&d::ValidatedModel,budget:&d::resources::ResourceBudget)->Result<(),ModelError>{
-    use d::{Record,completion::{Completion,complete}};
-    use arrow_row::{RowConverter,SortField};use arrow_schema::SortOptions;
-    premises.validate_current(model)?;
-    for proof in &premises.validations {
-        let declared=match proof.kind {0=>&model.invariant(&proof.name)?.inputs,1=>&model.publication_check(&proof.name)?.inputs,
-            _=>return Err(ModelError::Conflict("native premise validation kind"))};
-        if declared.len()!=proof.inputs.len(){return Err(ModelError::Conflict("native premise ordered role count"));}
-        for (input,actual) in declared.iter().zip(&proof.inputs) {
-            let installed=inventory.installed(actual.source.view())?;
-            let relation=model.relation(input.name()).ok_or(ModelError::Schema(input.name()))?;
-            let expected=d::analysis::sources::SourceSnapshot::of_completed_view(relation,model.digest(),&installed.view)?;
-            let exact_binding=inventory.bindings().iter().find(|binding|binding.source==actual.source
-                && binding.boundary.as_deref()==actual.resolved.map(|boundary|boundary.name()));
-            if actual.source!=expected || exact_binding.is_none() || actual.rows!=installed.view.rows || actual.requested!=input.prefix(){
-                return Err(ModelError::Conflict("native premise exact selected source metadata"));
-            }
-            let mut ordered=crate::ordered_rows::SortedValidationOrder::new(budget)?;
-            let mut variables=surrealdb::types::Variables::new();variables.insert("realization",RecordId::new("compiler_view_realization",installed.realization.hex()));
-            let mut rows=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],vec!["SELECT * FROM compiler_view_member WITH INDEX realization_nodes WHERE realization=$realization".into()])?)?;
-            let result=async {
-                let mut count=0u64;
-                while let Some(member)=rows.next_native().await? {
-                    let _member_scratch=budget.reserve("native validation member scratch",crate::loader::native_bytes(&member).saturating_mul(32).saturating_add(65536))?;
-                    let object=member.as_object().ok_or(ModelError::Schema("native validation member object"))?;
-                    let Some(Value::String(key))=object.get("semantic_key") else{return Err(ModelError::Schema("native validation member key"));};
-                    let key:[u8;16]=hex::decode(key).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("native validation member key width"))?;
-                    let Some(Value::RecordId(node))=object.get("node") else{return Err(ModelError::Schema("native validation member backing"));};
-                    require_hold(reader,&RecordId::new("compiler_view_realization",installed.realization.hex()),&crate::installed_view::member_id(installed.realization,input.name(),&key)).await?;
-                    require_hold(reader,&crate::installed_view::member_id(installed.realization,input.name(),&key),node).await?;
-                    if object.get("id")!=Some(&Value::RecordId(crate::installed_view::member_id(installed.realization,input.name(),&key)))
-                        || object.get("realization")!=Some(&Value::RecordId(RecordId::new("compiler_view_realization",installed.realization.hex())))
-                        || object.get("relation")!=Some(&Value::String(input.name().into())) {
-                        return Err(ModelError::Conflict("native validation exact member envelope"));
-                    }
-                    let expected=crate::control::inspect_expected_read(reader,node.clone(),budget).await?.ok_or(ModelError::Conflict("native validation backing missing"))?;
-                    let object=expected.row().as_object().ok_or(ModelError::Schema("native validation backing object"))?;
-                    if object.get("semantic_type")!=member.as_object().and_then(|row|row.get("relation"))
-                        || object.get("semantic_key")!=member.as_object().and_then(|row|row.get("semantic_key"))
-                        || object.get("content")!=member.as_object().and_then(|row|row.get("content")) {
-                        return Err(ModelError::Conflict("native validation selected backing metadata"));
-                    }
-                    let original=if input.name()==d::artifact::ArtifactChunk::NAME {
-                        Some(crate::completed_rows::validate_state_row("compiler_record",expected.row())?.ok_or(ModelError::Schema("native validation original metadata"))?)
-                    } else {None};
-                    // Keep the full typed original, its canonical Arrow copies and sort/hash
-                    // construction charged together. Physical ingress pieces are smaller than
-                    // the model's ArtifactChunk and must not set its semantic row boundary.
-                    let original_scratch=original.as_ref().map_or(0,|original|original.len.saturating_mul(32));
-                    let _typed=budget.reserve("native validation full typed row construction",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(original_scratch).saturating_add(65536))?;
-                    let batch=if input.name()==d::artifact::ArtifactChunk::NAME {
-                        let original=original.ok_or(ModelError::Schema("native validation original metadata"))?;
-                        let source=RecordId::new("original",d::graph::EntityId::of(original.artifact).0.hex());
-                        let mut bytes=Vec::with_capacity(original.len);
-                        // The exact selected member, backing and holds above authorize this
-                        // internal read. Re-entering public selection would add a legacy
-                        // membership dependency while earning the new publication owner.
-                        while bytes.len()<original.len {
-                            let length=(original.len-bytes.len()).min(256*1024);
-                            let start=original.start.checked_add(bytes.len() as u64).ok_or(ModelError::Schema("native validation original range"))?;
-                            let part=crate::originals::read_ranges(reader,&[(source.clone(),start,length)],budget).await?.pop().ok_or(ModelError::Conflict("native validation original range missing"))?;
-                            if part.len()!=length{return Err(ModelError::Conflict("native validation original range length"));}
-                            bytes.extend_from_slice(&part);
-                        }
-                        if ContentHash::of(&bytes)!=original.digest{return Err(ModelError::Conflict("native validation original full bytes"));}
-                        let ordinal=i64::try_from(original.start/(d::artifact::ARTIFACT_CHUNK_BYTES as u64)).map_err(ModelError::codec)?;
-                        d::artifact::ArtifactChunk::encode(&[d::artifact::ArtifactChunk{artifact:original.artifact,ordinal,body:d::EvidenceBytes(bytes)}])?
-                    } else {
-                        let Some(Value::Object(body))=object.get("body") else{return Err(ModelError::Schema("native validation typed body"));};
-                        let mut body=body.clone();body.insert("id",hex::encode(key));
-                        let mut builder=crate::projected_arrow::ProjectedBuilder::new(relation.clone(),relation.schema().clone(),budget)?;
-                        builder.push(Value::Object(body))?;builder.finish()?
-                    };
-                    let batch=relation.ordered_canonical(&batch)?;
-                    let fingerprints=relation.row_fingerprints(&batch)?;
-                    let [(nominal,content)]=fingerprints.as_slice() else{return Err(ModelError::Conflict("native validation one-row lowering"));};
-                    if *nominal!=key{return Err(ModelError::Conflict("native validation typed nominal identity"));}
-                    let columns=input.order().iter().map(|name|batch.column_by_name(name).cloned().ok_or(ModelError::Schema("native validation declared order field"))).collect::<Result<Vec<_>,_>>()?;
-                    let converter=RowConverter::new(columns.iter().map(|column|SortField::new_with_options(column.data_type().clone(),SortOptions{descending:false,nulls_first:false})).collect()).map_err(ModelError::codec)?;
-                    let order=converter.convert_columns(&columns).map_err(ModelError::codec)?;
-                    let tuple=order.row(0);let _tuple=budget.reserve("native validation sort tuple copy",tuple.as_ref().len().saturating_mul(6).saturating_add(1024))?;
-                    ordered.push(crate::ordered_rows::ValidationOrderRow{order:tuple.as_ref().to_vec(),nominal:*nominal,content:*content})?;
-                    count=count.checked_add(1).ok_or(ModelError::Schema("native validation input count"))?;
-                }
-                if count!=actual.rows{return Err(ModelError::Conflict("native validation member actual EOF count"));}
-                Ok(count)
-            }.await;
-            let mut completion=Completion::default();completion.step("native validation input stream drainage",rows.drain_transport().await);
-            let count=complete(result,completion)?;
-            let mut ordered=ordered.finish()?;let mut sink=KeySink::new("validation-ordered-typed-input/v1");input.encode_contract(&mut sink);
-            let mut seen=0u64;
-            while let Some(row)=ordered.next()? {sink.part(b"nominal",&row.nominal);row.content.encode(&mut sink);seen=seen.checked_add(1).ok_or(ModelError::Schema("native validation sorted count"))?;}
-            sink.part(b"rows",&seen.to_le_bytes());
-            if seen!=count || sink.finish()!=actual.ordered_content{return Err(ModelError::Conflict("native executed premise full typed content/order differs"));}
-        }
-        // Compact ownership is not inferred from source metadata or descriptor hashes.
-        // Until exact member-owner proof is integrated, any such premise refuses.
-        if !proof.uniform_owners.is_empty(){return Err(ModelError::Conflict("native uniform premise requires exact selected owner proof"));}
-    }
-    Ok(())
-}
-
-/// Integration seam, deliberately closed until executed evidence includes the exact
-/// profile/frontier applicability and facts/producer/reference/graph admission gates.
-/// Model checks alone are not full artifact admission. In particular this entrypoint
-/// must not persist admitted=true while those owners and ordinary/restore consumers
-/// are absent. No request or native effect is accepted by this incomplete transition.
-pub async fn mark_completed_admitted(_client:std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
-    _physical:NativeCompletedState,_premises:&d::checked_admission::CheckedAdmissionPremises,_budget:&d::resources::ResourceBudget)->Result<HeldFrozenCompletedState,ModelError>{
-    Err(ModelError::Conflict("complete artifact admission evidence integration is required"))
-}
+// Semantic execution belongs to compiler storage (ADR-0151). Native completion
+// independently audits the full selected typed backing and physical holds; the read
+// factories above then check the exact immutable persisted production evidence against
+// current applicability, bindings and the complete six-family identity. There is no
+// native DTO-to-semantic-admission constructor.

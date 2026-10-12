@@ -27,6 +27,7 @@ pub struct ScopedFixture {
         reason = "Some kernel controls prepare additional scoped native operators"
     )]
     pub views: Vec<ContentHash>,
+    pub installed: Vec<Arc<lctx_native::installed_view::HeldInstalledView>>,
 }
 impl std::ops::Deref for ScopedFixture {
     type Target = NativeReader<()>;
@@ -35,6 +36,9 @@ impl std::ops::Deref for ScopedFixture {
     }
 }
 impl ScopedFixture {
+    pub fn realizations(&self)->Vec<lctx_native::surrealdb::types::RecordId>{
+        self.installed.iter().map(|view|lctx_native::surrealdb::types::RecordId::new("compiler_view_realization",view.completion().realization.hex())).collect()
+    }
     pub async fn close(&self) -> Result<(), ModelError> {
         self.reader.close().await?;
         self.store.abandon().await
@@ -112,18 +116,24 @@ pub async fn reader_at_frontier(
             &BTreeMap::new(), &budget)
         .await?;
     let client = lctx_compiler_store::compiler::check_installation(config).await?;
+    let derivation=ContentHash::of(format!("scoped-native-kernel-fixture/{}",store.attempt().hex()).as_bytes());
     let loader = lctx_native::Loader::for_attempt_views(
         client.clone(),
         store.attempt(),
         views.values().map(|view| view.identity).collect(),
-    ).with_budget(&budget);
+    ).with_derivation(derivation).with_budget(&budget);
     loader.entity_references(entities).await?;
     loader.assertion_references(assertions).await?;
-    let views = views.values().map(|v| v.identity).collect::<Vec<_>>();
+    let descriptors=views.values().cloned().collect::<Vec<_>>();
+    let reader=store.reader_for_views(&descriptors,&budget).await?.with_derivation(derivation);
+    let mut installed=Vec::new();
+    for view in &descriptors {installed.push(store.installed_view(view,&budget).await?);}
+    let views = descriptors.iter().map(|v| v.identity).collect::<Vec<_>>();
     Ok(ScopedFixture {
-        reader: NativeReader::for_views(client, views.clone()).with_budget(&budget),
+        reader,
         store,
         contribution,
         views,
+        installed,
     })
 }

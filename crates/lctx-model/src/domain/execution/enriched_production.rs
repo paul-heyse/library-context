@@ -1247,7 +1247,7 @@ pub(crate) fn run_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "enriched_execution_inventory",
-        inputs: invariant_inputs(),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
         create: std::sync::Arc::new(|budget| Box::new(ExecutionCheck::new(budget))),
     }]
 }
@@ -1256,7 +1256,7 @@ pub(crate) fn binding_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "context_entry_binding_replay",
-        inputs: invariant_inputs(),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
         create: std::sync::Arc::new(|b| Box::new(ExecutionCheck::new(b))),
     }]
 }
@@ -1265,7 +1265,7 @@ pub(crate) fn context_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "context_execution_replay",
-        inputs: invariant_inputs(),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
         create: std::sync::Arc::new(|b| Box::new(ExecutionCheck::new(b))),
     }]
 }
@@ -1274,7 +1274,7 @@ pub(crate) fn definition_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "definition_evaluation_replay",
-        inputs: invariant_inputs(),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
         create: std::sync::Arc::new(|b| Box::new(ExecutionCheck::new(b))),
     }]
 }
@@ -1283,7 +1283,7 @@ pub(crate) fn modeled_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "enriched_modeled_call_replay",
-        inputs: invariant_inputs(),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
         create: std::sync::Arc::new(|budget| Box::new(ExecutionCheck::new(budget))),
     }]
 }
@@ -1292,17 +1292,18 @@ pub(crate) fn statement_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "enriched_statement_replay",
-        inputs: invariant_inputs(),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
         create: std::sync::Arc::new(|budget| Box::new(ExecutionCheck::new(budget))),
     }]
 }
 macro_rules! checker{($($field:ident:$ty:ty,)*)=>{
- struct ExecutionCheck{data:EnrichedData,invocations:Rows<publication::AnalysisInvocation>,runs:Rows<ExecutionRun>,results:Rows<publication::AnalysisOutcome>,$($field:Rows<$ty>,)*budget:ResourceBudget}
- impl ExecutionCheck{fn new(budget:&ResourceBudget)->Self{Self{data:EnrichedData::new(budget),invocations:Rows::new(budget),runs:Rows::new(budget),results:Rows::new(budget),$($field:Rows::new(budget),)*budget:budget.clone()}}}
+ struct ExecutionCheck{uniform:uniform_outcome::AnalysisUniformConsumer,data:EnrichedData,invocations:Rows<publication::AnalysisInvocation>,runs:Rows<ExecutionRun>,results:Rows<publication::AnalysisOutcome>,$($field:Rows<$ty>,)*budget:ResourceBudget}
+ impl ExecutionCheck{fn new(budget:&ResourceBudget)->Self{Self{uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Enriched,budget),data:EnrichedData::new(budget),invocations:Rows::new(budget),runs:Rows::new(budget),results:Rows::new(budget),$($field:Rows::new(budget),)*budget:budget.clone()}}}
  impl InvariantCheck for ExecutionCheck{
-  fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{self.data.visit(name,batch)?;if name==publication::AnalysisInvocation::NAME{self.invocations.decode(batch)?;}if name==ExecutionRun::NAME{self.runs.decode(batch)?;}if name==publication::AnalysisOutcome::NAME{self.results.decode(batch)?;}$(if name==<$ty>::NAME{self.$field.decode(batch)?;})*Ok(())}
-  fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{if stages::is_vocabulary(input.name()){self.data.visit_input(input,batch)}else{self.visit(input.name(),batch)}}
-  fn finish(self:Box<Self>)->Result<(),ModelError>{
+ fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform.admit(owner)}
+  fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{self.uniform.visit(name,batch)?;self.data.visit(name,batch)?;if name==publication::AnalysisInvocation::NAME{self.invocations.decode(batch)?;}if name==ExecutionRun::NAME{self.runs.decode(batch)?;}if name==publication::AnalysisOutcome::NAME{self.results.decode(batch)?;}$(if name==<$ty>::NAME{self.$field.decode(batch)?;})*Ok(())}
+  fn visit_input(&mut self,input:&ValidationInput,batch:&arrow_array::RecordBatch)->Result<(),ModelError>{self.uniform.visit(input.name(),batch)?;if stages::is_vocabulary(input.name()){self.data.visit_input(input,batch)}else{self.visit(input.name(),batch)}}
+  fn finish(self:Box<Self>)->Result<(),ModelError>{if self.uniform.complete_empty(self.invocations.is_empty()&&self.runs.is_empty()&&self.results.is_empty()$(&&(stages::is_epoch_shared(<$ty>::NAME)||self.$field.is_empty()))*)?{return Ok(());}
    let invalid=|message:&str|ModelError::Invalid(message.into());let mut frames=charged::ChargedSet::default();let mut charge=charged::StateCharge::new(&self.budget,"enriched_frame_inventory");for row in self.data.source_invocations.iter(){frames.insert(&mut charge,(row.input,row.context))?;}if self.invocations.len()!=frames.len()||frames.iter().any(|frame|self.invocations.iter().filter(|row|(row.input,row.context)==*frame).count()!=1){return Err(invalid("enriched omitted/duplicated SourceCall frame"));}
    let mut runs=Rows::new(&self.budget);let mut results=Rows::new(&self.budget);$(let mut $field=Rows::new(&self.budget);)*
    for invocation in self.invocations.iter(){let mut parents=Rows::new(&self.budget);for source in self.data.source_invocations.iter().filter(|row|(row.input,row.context)==(invocation.input,invocation.context)){parents.insert(publication::InvocationSource::SourceCallAnalysis{invocation:source.id()})?;}let mut key=KeySink::new("analysis-invocation-inputs");for row in parents.iter(){row.id().encode(&mut key);}if invocation.inputs!=key.finish(){return Err(invalid("enriched changes exact SourceCall parents"));}

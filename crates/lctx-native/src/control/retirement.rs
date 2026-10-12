@@ -3,7 +3,7 @@ use super::*;
 use authorization::{hash_field,int_field};
 use lctx_model::domain::completed::RetirementProgress;
 
-fn item_id(job:&RecordId,object:&RecordId,incarnation:i64)->Result<RecordId,ModelError>{
+pub(super) fn item_id(job:&RecordId,object:&RecordId,incarnation:i64)->Result<RecordId,ModelError>{
     Ok(RecordId::new("native_retirement_item",ContentHash::of(&serde_json::to_vec(&(job,object,incarnation)).map_err(ModelError::codec)?).hex()))
 }
 async fn record(client:&Surreal<Client>,id:&RecordId)->Result<Object,ModelError>{
@@ -151,7 +151,7 @@ async fn claim(client:&Surreal<Client>,job:&RecordId,item:&Object)->Result<(),Mo
     let Some(Value::RecordId(object))=item.get("object") else{return Err(ModelError::Schema("retirement object"));};
     let mut bindings=Variables::new();bindings.insert("job",job.clone());bindings.insert("item",item.get("id").cloned().ok_or(ModelError::Schema("retirement item"))?);
     bindings.insert("object",object.clone());bindings.insert("guard",guard_id(&Value::RecordId(object.clone()))?);
-    effect_for_owner(client,EffectOwner::Retirement(job.clone()),"fn::native_backup_clear(); fn::native_touch($item); fn::native_touch($object); LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $queued.job!=$job OR $queued.object!=$object OR $queued.successor!=NONE OR $queued.state NOT IN ['pending','retained'] { THROW 'native retirement item not claimable'; }; IF $before.incarnation!=$queued.incarnation OR $before.phase='retired' { UPDATE $item SET state='superseded' RETURN NONE; } ELSE { IF $before.phase='retiring' OR array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0 { UPDATE $item SET state='retained' RETURN NONE; UPDATE $job SET examined+=1,revision+=1 RETURN NONE; } ELSE { UPDATE $guard SET phase='retiring',retiring_item=$item,revision+=1 RETURN NONE; UPDATE $item SET state='retiring',cutoff=$before.tombstone_revision RETURN NONE; UPDATE $job SET revision+=1 RETURN NONE; }; };",bindings).await
+    effect_for_owner(client,EffectOwner::Retirement(job.clone()),"fn::native_backup_clear(); fn::native_touch($item); fn::native_touch($object); LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $queued.job!=$job OR $queued.object!=$object OR $queued.successor!=NONE OR $queued.state NOT IN ['pending','retained'] { THROW 'native retirement item not claimable'; }; IF $before.incarnation!=$queued.incarnation OR $before.phase='retired' { UPDATE $item SET state='superseded' RETURN NONE; } ELSE { IF $before.phase='retiring' OR (record::table($object)='native_product' AND (SELECT VALUE released FROM ONLY $object)!=true) OR array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0 { UPDATE $item SET state='retained' RETURN NONE; UPDATE $job SET examined+=1,revision+=1 RETURN NONE; } ELSE { UPDATE $guard SET phase='retiring',retiring_item=$item,revision+=1 RETURN NONE; UPDATE $item SET state='retiring',cutoff=$before.tombstone_revision RETURN NONE; UPDATE $job SET revision+=1 RETURN NONE; }; };",bindings).await
 }
 
 async fn outgoing_page(client:&Surreal<Client>,object:&RecordId,limit:usize)->Result<Vec<Object>,ModelError>{
@@ -357,7 +357,7 @@ mod incarnation_controls {
         let snapshot=nominated_page_snapshot(&client,&job,&parent).await;
         assert!(snapshot[1].is_empty());assert_eq!(snapshot[2].len(),3);
         let second_item=item_id(&job,second,2).unwrap();
-        assert!(snapshot[2].iter().any(|row|row.get("id")==Some(&Value::RecordId(second_item.clone())) && row.get("incarnation")==Some(&crate::upgrade::native(2i64))));
+        assert!(snapshot[2].iter().any(|row|row.get("id")==Some(&Value::RecordId(second_item.clone())) && row.get("incarnation")==Some(&crate::control::test_value(2i64))));
         let mut progress=resume_retirement(&client,first.identity,16).await.unwrap();
         while !progress.remaining.is_empty(){progress=resume_retirement(&client,first.identity,16).await.unwrap();}
         assert_eq!(progress.retired,3);assert!(progress.retained.is_empty());
@@ -375,10 +375,10 @@ mod cleanup_nomination_controls {
         let owner=RecordId::new("native_attempt","failed-no-product");let one=RecordId::new("original","one");let two=RecordId::new("compiler_contribution","incomplete");let job=RecordId::new("native_retirement","owned-job");
         let holds=vec![hold(&owner,&two,"two"),hold(&owner,&one,"one")];let guards=vec![physical(&one,4),physical(&two,9)];
         let bindings=cleanup_nomination_bindings(&owner,holds.clone(),guards.clone(),Some(job.clone())).unwrap();
-        assert_eq!(bindings.get("n09_root_count"),Some(&crate::upgrade::native(2i64)));assert_eq!(bindings.get("n09_holds"),Some(&crate::upgrade::native(holds)));
-        let mut canonical=vec![one.clone(),two.clone()];canonical.sort();let digest=ContentHash::of(&serde_json::to_vec(&("native-retirement/v4",canonical)).unwrap());assert_eq!(bindings.get("n09_root_digest"),Some(&crate::upgrade::native(digest.hex())));
+        assert_eq!(bindings.get("n09_root_count"),Some(&crate::control::test_value(2i64)));assert_eq!(bindings.get("n09_holds"),Some(&crate::control::test_value(holds)));
+        let mut canonical=vec![one.clone(),two.clone()];canonical.sort();let digest=ContentHash::of(&serde_json::to_vec(&("native-retirement/v4",canonical)).unwrap());assert_eq!(bindings.get("n09_root_digest"),Some(&crate::control::test_value(digest.hex())));
         let Some(Value::Array(roots))=bindings.get("n09_roots")else{panic!("actual root envelope")};
-        for root in roots{let Value::Object(root)=root else{panic!("actual root")};let Some(Value::RecordId(object))=root.get("object")else{panic!("actual object")};let incarnation=if object==&one{4}else{9};assert_eq!(root.get("incarnation"),Some(&crate::upgrade::native(incarnation)));assert_eq!(root.get("item"),Some(&Value::RecordId(item_id(&job,object,incarnation).unwrap())));assert_eq!(root.get("physical"),Some(&Value::Object(physical(object,incarnation))));}
+        for root in roots{let Value::Object(root)=root else{panic!("actual root")};let Some(Value::RecordId(object))=root.get("object")else{panic!("actual object")};let incarnation=if object==&one{4}else{9};assert_eq!(root.get("incarnation"),Some(&crate::control::test_value(incarnation)));assert_eq!(root.get("item"),Some(&Value::RecordId(item_id(&job,object,incarnation).unwrap())));assert_eq!(root.get("physical"),Some(&Value::Object(physical(object,incarnation))));}
         let mut duplicate=vec![hold(&owner,&one,"one"),hold(&owner,&one,"other")];assert!(cleanup_nomination_bindings(&owner,duplicate.clone(),guards.clone(),Some(job.clone())).is_err());
         duplicate[1]=hold(&RecordId::new("native_attempt","foreign"),&two,"two");assert!(cleanup_nomination_bindings(&owner,duplicate,guards,Some(job)).is_err());
     }
@@ -386,8 +386,8 @@ mod cleanup_nomination_controls {
     fn missing_or_nonactive_original_incarnation_is_never_defaulted(){
         let owner=RecordId::new("native_attempt","owner");let object=RecordId::new("original","partial");let holds=vec![hold(&owner,&object,"held")];let job=Some(RecordId::new("native_retirement","job"));
         assert!(cleanup_nomination_bindings(&owner,holds.clone(),vec![],job.clone()).is_err());
-        for(field,value)in [("incarnation",crate::upgrade::native(0i64)),("phase",crate::upgrade::native("retired")),("phase",crate::upgrade::native("retiring")),("retired",crate::upgrade::native(true))]{let mut guard=physical(&object,5);guard.insert(field,value);assert!(cleanup_nomination_bindings(&owner,holds.clone(),vec![guard],job.clone()).is_err());}
-        let empty=cleanup_nomination_bindings(&owner,vec![],vec![],None).unwrap();assert_eq!(empty.get("n09_job"),Some(&Value::None));assert_eq!(empty.get("n09_root_count"),Some(&crate::upgrade::native(0i64)));
+        for(field,value)in [("incarnation",crate::control::test_value(0i64)),("phase",crate::control::test_value("retired")),("phase",crate::control::test_value("retiring")),("retired",crate::control::test_value(true))]{let mut guard=physical(&object,5);guard.insert(field,value);assert!(cleanup_nomination_bindings(&owner,holds.clone(),vec![guard],job.clone()).is_err());}
+        let empty=cleanup_nomination_bindings(&owner,vec![],vec![],None).unwrap();assert_eq!(empty.get("n09_job"),Some(&Value::None));assert_eq!(empty.get("n09_root_count"),Some(&crate::control::test_value(0i64)));
         assert!(cleanup_nomination_bindings(&owner,vec![],vec![],job).is_err());
     }
 }

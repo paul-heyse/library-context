@@ -778,9 +778,14 @@ pub(crate) mod tests {
             evidence: id(81),
             selection: id(82),
             structural: id(83),
-            analytic: id(84),
-            summary: id(85),
-        };
+            analytic:Some(id(84)),
+            analytic_kind:frames::ParentKind::Ordinary,
+            analytic_uniform:None,
+            summary:Some(id(85)),
+            summary_kind:frames::ParentKind::Ordinary,
+            summary_uniform:None,
+        
+};
         let mut d = Data::new(&b);
         let bytes = "from api import run, other\nother(run())\n";
         let artifact =

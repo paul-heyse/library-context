@@ -97,7 +97,7 @@ impl ProducerContract {
         Stage {name:self.name,inputs:self.inputs.clone(),outputs:self.outputs.clone(),contributes:self.contributes.clone(),coverage,profiles:self.profiles.clone(),effect:self.effect,code:implementation,configuration:settings,
             captured_binding:Some(CapturedProducerBinding{contract:self.identity(),semantic_revision:self.semantic_revision,producer_settings:settings,context_dependency:CapturedContextDependency::ConservativeFullContext,suppliers,sources:vec![]})}
     }
-    /// Cold admission accepts stronger preserved source5 premises only as profile specific.
+    /// Full semantic-context dependencies are profile specific.
     pub fn validate_context_dependency(&self,binding:&CapturedProducerBinding,profile:super::completed::OutputProfile)->Result<(),ModelError> {
         use super::completed::OutputProfile;
         binding.validate()?;
@@ -132,7 +132,7 @@ impl ProducerContract {
     }
 }
 
-/// A source5 destination retains the exact old full-context premise without claiming a split.
+/// Captured dependencies distinguish acquisition, semantic and full-context premises.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
 pub enum CapturedContextDependency {

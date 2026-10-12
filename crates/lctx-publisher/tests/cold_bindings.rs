@@ -169,7 +169,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             ConfigurationBinding::ProducerSettings => {
                 ContentHash::of(b"foreign captured producer settings")
             }
-            ConfigurationBinding::CapturedAnalysisContext => panic!("producer settings contract"),
+            ConfigurationBinding::CapturedAnalysisContext | ConfigurationBinding::CurrentAssemblyContext => panic!("producer settings contract"),
         };
         let stage = contract.bind(
             ContentHash::of(

@@ -291,7 +291,7 @@ mod native_controls {
             .register_table(
                 "packages",
                 store
-                    .table_provider(&views[Package::NAME], relation.clone(), budget.clone(), 1)
+                    .table_provider(&views[Package::NAME], relation.clone(), budget.clone(), 1).await
                     .unwrap(),
             )
             .unwrap();

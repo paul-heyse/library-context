@@ -47,6 +47,7 @@ pub mod local_theory;
 pub(crate) mod model;
 pub mod validation_factory;
 pub mod checked_admission;
+pub mod artifact_admission;
 pub mod models;
 pub mod normalized;
 pub mod obligation;
@@ -54,6 +55,7 @@ pub mod occurrence_owner;
 pub(crate) mod ownership;
 pub mod place_composition;
 pub mod producer_contract;
+pub mod producer_assurance;
 pub mod projection;
 pub mod protocols;
 pub(crate) mod record;
@@ -553,6 +555,7 @@ macro_rules! facts_records {
             $crate::domain::source::SyntaxSupport,
             $crate::domain::source::CoverageScope,
             $crate::domain::attribution::ProviderCoverage,
+            $crate::domain::uniform_outcome::UniformNotRequested,
         )
     };
 }

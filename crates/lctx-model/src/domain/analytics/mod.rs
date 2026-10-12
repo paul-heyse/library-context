@@ -58,7 +58,7 @@ macro_rules! analytic_outputs {
 }
 macro_rules! output {($($f:ident:$t:ty,)*)=>{
 pub struct Output{pub qualifications:Rows<assertion::AssertionQualification>,$(pub $f:Rows<$t>,)*}
-impl Output{pub fn new(b:&ResourceBudget)->Self{Self{qualifications:Rows::new(b),$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$t>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$t>(&["id"]),)*]}pub fn matches(&self,e:&Self)->Result<(),ModelError>{$(if !self.$f.same(&e.$f){return Err(ModelError::Invalid(format!("analytic output differs: {}",<$t>::NAME)));})*Ok(())}pub fn extend(&mut self,e:Self)->Result<(),ModelError>{for r in e.qualifications.iter(){self.qualifications.insert(r.clone())?;}$(for r in e.$f.iter(){self.$f.insert(r.clone())?;})*Ok(())}}
+impl Output{pub fn is_empty(&self)->bool{self.qualifications.is_empty()$(&&self.$f.is_empty())*}pub fn new(b:&ResourceBudget)->Self{Self{qualifications:Rows::new(b),$($f:Rows::new(b),)*}}pub fn visit(&mut self,n:&str,b:&arrow_array::RecordBatch)->Result<bool,ModelError>{$(if n==<$t>::NAME{self.$f.decode(b)?;return Ok(true);})*Ok(false)}pub fn validation_inputs()->Vec<ValidationInput>{vec![$(ValidationInput::of::<$t>(&["id"]),)*]}pub fn matches(&self,e:&Self)->Result<(),ModelError>{$(if !self.$f.same(&e.$f){return Err(ModelError::Invalid(format!("analytic output differs: {}",<$t>::NAME)));})*Ok(())}pub fn extend(&mut self,e:Self)->Result<(),ModelError>{for r in e.qualifications.iter(){self.qualifications.insert(r.clone())?;}$(for r in e.$f.iter(){self.$f.insert(r.clone())?;})*Ok(())}}
 };}
 crate::analytic_outputs!(output);
 pub fn relations() -> Vec<Relation> {

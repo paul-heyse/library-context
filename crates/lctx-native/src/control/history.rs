@@ -73,8 +73,8 @@ fn eligible(phase:&str)->Result<&'static str,ModelError>{
     Ok(match phase {
         "effect"=>"$candidate_state.resolved AND $candidate_state.era<=$closed AND array::len(SELECT VALUE id FROM native_outcome_ref WITH INDEX effect_outcome_refs WHERE effect=$candidate LIMIT 1)=0",
         "cleanup"=>"$candidate_state.era<=$closed AND $candidate_state.state IN ['done','superseded'] AND ($candidate_state.state='superseded' OR array::len($candidate_state.owners)=0) AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX cleanup_predecessor WHERE predecessor=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX cleanup_successor WHERE successor=$candidate LIMIT 1)=0",
-        "retirement_item"=>"$candidate_state.state IN ['done','superseded'] AND $parent!=NONE AND $parent.era<=$closed AND $parent.state!='legacy_protected' AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX lineage_retirements WHERE lineage=$parent.lineage AND state='recovering' LIMIT 1)=0",
-        "retirement"=>"$candidate_state.era<=$closed AND $candidate_state.state IN ['open','done','superseded'] AND $candidate_state.root_count=$candidate_state.roots_registered AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX retirement_predecessor WHERE predecessor=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX retirement_successor WHERE successor=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX retirement_recovery_source WHERE recovery_source=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX lineage_retirements WHERE lineage=$candidate_state.lineage AND state IN ['registering','recovering','open'] AND id!=$candidate LIMIT 1)=0",
+        "retirement_item"=>"$candidate_state.state IN ['done','superseded'] AND $parent!=NONE AND $parent.era<=$closed AND $parent.state IN ['registering','open','recovering','done','superseded'] AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX lineage_retirements WHERE lineage=$parent.lineage AND state='recovering' LIMIT 1)=0",
+        "retirement"=>"$candidate_state.era<=$closed AND $candidate_state.state IN ['open','done','superseded'] AND $candidate_state.root_count=$candidate_state.roots_registered AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX retirement_predecessor WHERE predecessor=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX retirement_successor WHERE successor=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX retirement_recovery_source WHERE recovery_source=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_product WITH INDEX product_release_job WHERE release_job=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_retirement WITH INDEX lineage_retirements WHERE lineage=$candidate_state.lineage AND state IN ['registering','recovering','open'] AND id!=$candidate LIMIT 1)=0",
         "pin"=>"$candidate_state.era<=$closed AND $candidate_state.released",
         "backup"=>"$candidate_state.era<=$closed AND !$candidate_state.active",
         "attempt"=>"$candidate_state.era<=$closed AND $candidate_state.epoch>0 AND $candidate_state.state IN ['closed','abandoned','maintenance_fenced'] AND array::len(SELECT VALUE id FROM compiler_contribution WITH INDEX attempt_contributions WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM compiler_binding WITH INDEX binding_attempt WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_pending_original WITH INDEX pending_attempt WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_publication_staging WITH INDEX attempt_staging WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_cleanup WITH INDEX attempt_cleanup WHERE attempt=$candidate LIMIT 1)=0 AND array::len(SELECT VALUE id FROM native_effect WITH INDEX attempt_effects WHERE attempt=$candidate LIMIT 1)=0",
@@ -245,7 +245,7 @@ pub async fn retain_native_outcome(client:&Surreal<Client>,object:RecordId,owner
     effect(client,None,"fn::native_touch($object); fn::native_touch($reference); LET $target=SELECT * FROM ONLY $object FOR UPDATE; IF $target=NONE { THROW 'native lifecycle outcome unavailable'; }; LET $prior=SELECT * FROM ONLY $reference FOR UPDATE; IF $prior!=NONE AND ($prior.object!=$object OR $prior.owner!=$owner OR $prior.kind!=$kind) { THROW 'native lifecycle outcome reference collision'; }; UPSERT $reference SET object=$object,owner=$owner,kind=$kind RETURN NONE",bindings).await?;
     Ok(reference)
 }
-/// Release one named legacy or lifecycle retention reference after its actual consumer ends.
+/// Release one named lifecycle retention reference after its actual consumer ends.
 /// This also covers migrated receipts whose historical request field was not a content hash.
 pub async fn release_outcome_reference(client:&Surreal<Client>,reference:RecordId,owner:&str,kind:&str)->Result<(),ModelError>{
     if reference.table.as_str()!="native_outcome_ref" {return Err(ModelError::Invalid("native outcome reference table".into()));}
@@ -258,12 +258,12 @@ mod tests {
     use super::*;
     // One-off actual evidence acquisition, deliberately separate from qualification and
     // collector controls. The host/run owners supply exclusion and artifact retention.
-    const INVENTORY_TABLES:[&str;22]=[
+    const INVENTORY_TABLES:[&str;20]=[
         "native_outcome_ref","native_effect","native_attempt","native_hold",
         "native_cleanup","native_retirement","native_retirement_item","native_guard",
         "native_pin","native_backup_hold","native_history_checkpoint","native_product",
-        "compiler_contribution","compiler_binding","compiler_view","native_upgrade",
-        "native_upgrade_progress_v1","native_installation","native_admission_stripe","native_backup_gate","native_predicate","native_operation_owner",
+        "compiler_contribution","compiler_binding","compiler_view",
+        "native_installation","native_admission_stripe","native_backup_gate","native_predicate","native_operation_owner",
     ];
     #[derive(serde::Serialize)]
     struct InventoryPage {
@@ -339,7 +339,7 @@ mod tests {
         let run=std::path::PathBuf::from(std::env::var_os("LCTX_RUN_DIR").expect("existing managed run output required"));
         assert!(run.is_absolute() && run.is_dir(),"existing absolute managed run output required");
         let output=run.canonicalize().unwrap().join("hs6-history-inventory");
-        let client=crate::upgrade::maintenance_client(&config).await.unwrap();
+        let client=crate::reader::connect(&config.endpoint,&config.writer_credentials(),config.namespace.as_str(),config.database.as_str()).await.unwrap();
         let result=async {
             let marker_before=checkpoint_row(&client,&RecordId::new("native_installation","current")).await?;
             if marker_before.get("admission_open")!=Some(&Value::Bool(false)) || int_field(&marker_before,"schema_version")?!=SCHEMA_VERSION || hash_field(&marker_before,"schema")?!=crate::installation::base_schema_identity() || hash_field(&marker_before,"generation")?!=config.service_generation{return Err(ModelError::Conflict("history inventory current closed installation"));}
@@ -348,8 +348,7 @@ mod tests {
             let mut tables=Vec::with_capacity(INVENTORY_TABLES.len());
             for table in INVENTORY_TABLES {
                 if !catalog.has_table(table) {
-                    if table!="native_upgrade_progress_v1"{return Err(ModelError::Conflict("history inventory required native table"));}
-                    tables.push(InventoryTable{table:table.into(),present:false,rows:0,pages:Vec::new(),terminal:None});
+                    return Err(ModelError::Conflict("history inventory required native table"));
                 }else{tables.push(acquire_inventory_table(&client,table,&output).await?);}
             }
             let marker_after=checkpoint_row(&client,&RecordId::new("native_installation","current")).await?;
