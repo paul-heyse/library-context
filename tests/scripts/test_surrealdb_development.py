@@ -189,13 +189,20 @@ def interrupted_token_input(installation, tmp_path):
             "credential_storage": development.protect_token_input(installation, run_path),
         },
     )
+    # Disposal reobserves the actual recorded group; a terminal flag without
+    # child identity is not current quiescence evidence.
+    import harness
+
+    child = harness.spawn_group([sys.executable, "-c", "raise SystemExit(0)"])
+    with harness.SpawnGuard(child, grace=0.1) as guard:
+        leader = {**service.ProcessIdentity.of(child.pid).to_json(), "pgid": child.pid}
     service.private_json(
         run_path / runs.RECORD,
         {
             "id": run_path.name,
             "owner": owner,
-            "child": None,
-            "cleanup": {"status": "confirmed", "survivors": []},
+            "child": leader,
+            "cleanup": guard.cleanup,
         },
     )
     service.private_json(
