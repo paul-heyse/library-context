@@ -1263,6 +1263,7 @@ impl NativeCompilerStore {
             Ok(())
         }).map(|rows|rows.with_row_bytes(d::resources::MAX_ROW_BYTES))
     }
+    #[cfg(test)]
     async fn registered_or_install_views(
         self: &Arc<Self>,
         views: &[&CompletedView],
@@ -5116,55 +5117,6 @@ impl NativeCompilerStore {
         Ok(())
     }
 
-    async fn membership_page(
-        &self,
-        owner: RecordId,
-        after: Option<RecordId>,
-        budget: &ResourceBudget,
-    ) -> Result<
-        (
-            Vec<Value>,
-            Box<dyn lctx_model::domain::resources::Reservation>,
-        ),
-        ModelError,
-    > {
-        let mut charge = budget.reserve(
-            "native membership keyset page",
-            crate::loader::NATIVE_WINDOW_ROWS * 4096,
-        )?;
-        let mut bindings = Variables::new();
-        bindings.insert("owner", owner.clone());
-        bindings.insert(
-            "after",
-            after.clone().map(Value::RecordId).unwrap_or(Value::None),
-        );
-        let mut response = self.client.query("SELECT id,contribution,relation,semantic_key,node,content FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND ($after=NONE OR id>$after) ORDER BY id LIMIT 128")
-            .bind(bindings).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-        let rows: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
-        if rows.len() > crate::loader::NATIVE_WINDOW_ROWS {
-            return Err(ModelError::Schema("membership page size"));
-        }
-        let mut previous = after;
-        let mut bytes = rows.capacity().saturating_mul(size_of::<Value>());
-        for row in &rows {
-            let object = value_object(row).ok_or(ModelError::Schema("membership page object"))?;
-            let Some(Value::RecordId(id)) = object.get("id") else {
-                return Err(ModelError::Schema("membership page cursor"));
-            };
-            if object.get("contribution") != Some(&Value::RecordId(owner.clone()))
-                || previous.as_ref().is_some_and(|previous| id <= previous)
-            {
-                return Err(ModelError::Conflict("membership page exact owner/order"));
-            }
-            previous = Some(id.clone());
-            bytes = bytes.saturating_add(crate::loader::native_bytes(row));
-        }
-        if bytes > crate::loader::NATIVE_WINDOW_ROWS * 4096 {
-            return Err(ModelError::Schema("membership page representation bound"));
-        }
-        charge.try_resize(bytes)?;
-        Ok((rows, charge))
-    }
     // Compare only this bounded batch's complete immutable rows, then insert new rows in one
     // statement. Identical replay is admitted without per-row transactions or silent conflicts.
     async fn ensure_immutable_rows(
