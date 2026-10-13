@@ -290,8 +290,15 @@ alongside initially proven source jobs; full original roots/digest/incarnations 
 discovered jobs. Its build passed; runtime timed out370.019s during initial serial source retirement
 after four job-advancement reports, before fixed-point/physical-absence/receiver assertions. Local
 cleanup was confirmed; the exact-continuation correction remains runtime unproven rather than
-contradicted. Distinct checked job scheduling is under source review; no deadline/budget increase
-or cold-premise reduction is selected. No arbitrary/global root or new nomination is introduced.
+contradicted. Distinct checked job scheduling (`41979023`) was source-accepted and exercised in
+`2fd29e`: all initial chains drained, then the control failed309.253s at the stable retained frontier.
+Captured diagnostics show only canonical assertion/entity/anchor payloads still held there. The
+helper incorrectly required a globally empty shared frontier. The reviewed correction permits a
+stable retained frontier only with no pending work, then keeps mandatory exact source publication,
+original/blob/chunk/contribution/member absence and old-publication refusal before either restore.
+This qualifies source ownership/originals cold with coexisting canonical payloads, not a globally
+empty graph. `f3b46c` is the focused rerun. No foreign holder is reclaimed, deadline/budget increased,
+or exact source-absence assertion removed. No arbitrary/global root or new nomination is introduced.
 `8886ccca` removes the duplicate complete native-inventory output
 map, preserves whole-projection prevalidation and streams through bounded writers; compile and8
 pure projection controls passed. Remaining serial transport/selector/held-alias observations were
@@ -312,11 +319,20 @@ Current source review accepts exact windows and retirement authority. The remain
 operation-registry first-miss route now uses bounded grouped work through the original per-item
 keys/flights/owner, joining overlap rather than bypassing singleflight. Failed flight and uncached
 alias metadata ownership passed6 pure controls in `c4581653` (Nextest `b8310e24…` and `49a2cad8…`).
-Independent review then found that cancelling final worker drainage could detach sole JoinHandles;
-owned-handle preservation and an interrupted-close/retry barrier control are being completed.
+Independent review then found that cancelling final worker drainage could detach sole JoinHandles.
+`b508e121` retains unjoined handles and accumulated failures in the existing owner across cancelled
+close; compile and7 pure controls passed (`690e7d18…`). Actual `d5b3e9` passed held cross-root reuse
+and exact-empty lifetime bodies, but its third tiny-consumer case refused before the intended
+membership preparation at first physical view earning. The fixture now explicitly earns that source
+with its unchanged256MiB owner before the unchanged4096-byte consumer; `ce95bf` reruns the original
+membership-refusal/zero-reservation/healthy-retry assertions. The failed enclosing fixture retains
+Unknown attachment `77f387e3-cec2-461a-8e12-ef53569d9fb1`; local cleanup was confirmed.
 Reference validation's vacuous-query demand is separately being reduced only for internally earned
 native empties or actual captured empty batches; external self-consistent metadata must never bypass
-real table validation. Neither correction is asserted as the Catalog timeout's dominant cause.
+real table validation. Actual registered native providers now qualify an exact private reference
+snapshot; finite/unrecognized tables execute real SQL without native-reference memo reuse. Actual
+provider control `34eb13` and pure countercontrols are pending. Neither correction is asserted as
+the Catalog timeout's dominant cause.
 
 Independent implementation review found selector-crossing alias witnesses, partially committed
 receiving attachment, and abandoned retained-boundary pin release. Corrections are source-reviewed:

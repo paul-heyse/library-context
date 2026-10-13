@@ -1316,17 +1316,16 @@ async fn advance_source_cleanup<Context>(
         }
         if !retained { break; }
         if !changed {
-            let mut retained_ids = std::collections::BTreeSet::new();
-            for (identity, progress) in &checked_progress {
-                eprintln!("cold cleanup fixed point: identity={} retired={} examined={} retained={}",
-                    identity.hex(), progress.retired, progress.examined, progress.retained.len());
-                for value in &progress.retained {
-                    charge.grow(value.len().saturating_add(128))?;
-                    retained_ids.insert(serde_json::from_str::<RecordId>(value).map_err(ModelError::codec)?);
-                }
+            if checked_progress.iter().any(|(_, progress)| !progress.remaining.is_empty()) {
+                return Err(ModelError::Conflict("cold source captured cleanup has unresolved pending work"));
             }
-            cold_remaining_holders(&reader.shared_client(), &retained_ids.into_iter().collect::<Vec<_>>(), budget).await?;
-            return Err(ModelError::Conflict("cold source captured cleanup remains held"));
+            // Canonical payloads may be shared by unrelated valid/failed attempts.
+            // A cold source is not a globally empty database. The caller next
+            // proves every exact source publication/original/blob/chunk/copy/member
+            // absent before restoration; any retained source owner still fails it.
+            eprintln!("cold source cleanup reached stable shared frontier: {} retained observations; exact source physical absence checked next",
+                checked_progress.iter().map(|(_, progress)| progress.retained.len()).sum::<usize>());
+            break;
         }
     }
     fixed_point_phase.finish(lctx_native::phase::Terminal::Passed);
