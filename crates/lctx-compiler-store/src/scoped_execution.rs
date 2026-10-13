@@ -1,19 +1,16 @@
 //! Portable execution admission selects each actual owner before rich decoding.
 use crate::{
+    admission::Cancellation,
     consumed_rows::{
         ClosureTable, PreparedEdges, PreparedRoot, PreparedRootBatch, PreparedRootKind, identifier,
     },
     scoped_admission::column,
-    admission::Cancellation,
+    scoped_positions::{ColumnarInputs, PreparedPositions},
 };
 use datafusion::prelude::SessionContext;
 use futures::TryStreamExt;
 use lctx_model::domain::{
-    charged::{ChargedSet, StateCharge},
-    execution::fidelity::ExecutionScope,
-    resources::ResourceBudget,
-    scope_program::ScopeInterner,
-    *,
+    execution::fidelity::ExecutionScope, resources::ResourceBudget, scope_program::ScopeInterner, *,
 };
 
 pub async fn validate_execution(
@@ -87,64 +84,38 @@ pub async fn validate_execution(
 }
 
 const ROOT_ROWS: usize = 128;
-struct ColumnarInputs {
-    rows: Vec<Vec<arrow_array::RecordBatch>>,
-    _charge: StateCharge,
-}
 /// Physical owner input and the private namespace used to isolate its selected root.
 struct RootBinding {
     input: usize,
     namespace: usize,
 }
-async fn hydrate(
-    batch: &PreparedRootBatch,
-    inputs: &[ValidationInput],
+async fn hydrate<'a>(
+    batch: &'a PreparedRootBatch,
+    inputs: &'a [ValidationInput],
     budget: &ResourceBudget,
     cancellation: &Cancellation,
-) -> Result<ColumnarInputs, ModelError> {
-    let mut charge = StateCharge::new(budget, "execution-admission-columnar-union");
-    charge.grow(
-        inputs
-            .len()
-            .saturating_mul(size_of::<Vec<arrow_array::RecordBatch>>())
-            .saturating_add(4096),
-    )?;
-    let mut rows = (0..inputs.len()).map(|_| Vec::new()).collect::<Vec<_>>();
+) -> Result<ColumnarInputs<'a>, ModelError> {
+    let mut union = ColumnarInputs::new(batch, inputs, budget)?;
     crate::scoped_batch::hydrate_union(
         batch,
         inputs,
         budget,
         cancellation,
-        &mut |index, _, batch| {
-            let target = &mut rows[index];
-            let additional = if target.len() == target.capacity() {
-                target.capacity().max(4)
-            } else {
-                0
-            };
-            charge.grow(batch.get_array_memory_size().saturating_add(
-                additional.saturating_mul(size_of::<arrow_array::RecordBatch>()),
-            ))?;
-            target.reserve_exact(additional);
-            target.push(batch.clone());
-            Ok(())
-        },
+        &mut |index, _, batch| union.push(index, batch),
     )
     .await?;
-    Ok(ColumnarInputs {
-        rows,
-        _charge: charge,
-    })
+    Ok(union)
 }
+
 fn visit_partition(
     invariant: &Invariant,
     root: &RootBinding,
-    batch: &PreparedRootBatch,
     partition: usize,
-    union: &ColumnarInputs,
+    positions: &PreparedPositions<'_>,
     budget: &ResourceBudget,
     cancellation: &Cancellation,
 ) -> Result<(), ModelError> {
+    positions.require_owner(budget)?;
     let mut check = (invariant.create)(budget);
     for (index, input) in invariant.inputs.iter().enumerate() {
         let table = if index == root.input {
@@ -152,31 +123,10 @@ fn visit_partition(
         } else {
             index
         };
-        let mut charge = StateCharge::new(budget, "execution-admission-partition-keys");
-        let mut keys = ChargedSet::default();
-        for key in batch.keys(partition, table)? {
-            keys.insert(&mut charge, key)?;
-        }
-        for rows in &union.rows[index] {
+        let selected = positions.gather(&[partition], index, table, cancellation)?;
+        for rows in selected.rows() {
             cancellation.check()?;
-            // Arrow's stable filter preserves the union's declared total order and schema.
-            // Reserve mask, filtered arrays and checker handoff while retained union stays live.
-            let _filter = budget.reserve(
-                "execution-admission-columnar-partition",
-                rows.get_array_memory_size()
-                    .saturating_add(rows.num_rows().saturating_mul(32))
-                    .saturating_add(4096),
-            )?;
-            let mut mask = Vec::with_capacity(rows.num_rows());
-            for row in 0..rows.num_rows() {
-                mask.push(column(rows, "id", row)?.is_some_and(|key| keys.contains(&key)));
-            }
-            let mask = arrow_array::BooleanArray::from(mask);
-            let selected = datafusion::arrow::compute::filter_record_batch(rows, &mask)
-                .map_err(ModelError::codec)?;
-            if selected.num_rows() != 0 {
-                check.visit_input(input, &selected)?;
-            }
+            check.visit_input(input, rows)?;
         }
     }
     check.finish()
@@ -202,6 +152,8 @@ async fn validate_window(
         .batch_with_cancellation(&roots, budget, cancellation)
         .await?;
     let union = hydrate(&batch, &invariant.inputs, budget, cancellation).await?;
+    let positions =
+        PreparedPositions::new(&batch, &invariant.inputs, &union, budget, cancellation)?;
     for partition in 0..ids.len() {
         cancellation.check()?;
         visit_partition(
@@ -210,9 +162,8 @@ async fn validate_window(
                 input: root,
                 namespace: root_namespace,
             },
-            &batch,
             partition,
-            &union,
+            &positions,
             budget,
             cancellation,
         )?;
@@ -323,23 +274,6 @@ mod controls {
             .batch_with_cancellation(&roots, &budget, &Cancellation::default())
             .await
             .unwrap();
-        let union = hydrate(&batch, &inputs, &budget, &Cancellation::default())
-            .await
-            .unwrap();
-        assert_eq!(
-            union.rows[0]
-                .iter()
-                .map(|batch| batch.num_rows())
-                .sum::<usize>(),
-            2
-        );
-        assert_eq!(
-            union.rows[1]
-                .iter()
-                .map(|batch| batch.num_rows())
-                .sum::<usize>(),
-            1
-        );
         let expected = Arc::new(Mutex::new(Vec::new()));
         let capture = expected.clone();
         let invariant = Invariant {
@@ -354,6 +288,33 @@ mod controls {
                 })
             }),
         };
+        let union = hydrate(&batch, &invariant.inputs, &budget, &Cancellation::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            union
+                .rows(0)
+                .iter()
+                .map(|batch| batch.num_rows())
+                .sum::<usize>(),
+            2
+        );
+        assert_eq!(
+            union
+                .rows(1)
+                .iter()
+                .map(|batch| batch.num_rows())
+                .sum::<usize>(),
+            1
+        );
+        let positions = PreparedPositions::new(
+            &batch,
+            &invariant.inputs,
+            &union,
+            &budget,
+            &Cancellation::default(),
+        )
+        .unwrap();
         for partition in 0..ids.len() {
             visit_partition(
                 &invariant,
@@ -361,15 +322,15 @@ mod controls {
                     input: 0,
                     namespace: 2,
                 },
-                &batch,
                 partition,
-                &union,
+                &positions,
                 &budget,
                 &Cancellation::default(),
             )
             .unwrap();
         }
         assert_eq!(*expected.lock().unwrap(), vec![vec![ids[0]], vec![ids[1]]]);
+        drop(positions);
         drop(union);
         drop(batch);
         drop(edges);
