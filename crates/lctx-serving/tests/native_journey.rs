@@ -35,6 +35,22 @@ async fn journey(name: &'static str, run: impl std::future::Future<Output = ()>)
     .with_subscriber(dispatch)
     .await;
 }
+// These journeys own the original compiler only until publication. Serving and
+// backup then use independently owned published readers.
+async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelError> {
+    let mut terminal = workspace.drain_owned_report().await;
+    if terminal.local == completion::LocalState::Terminal
+        && terminal.remote == completion::RemoteState::Confirmed
+        && terminal.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+    {
+        terminal.step("journey original compiler finality", workspace.native().abandon().await);
+    } else {
+        terminal.storage.push(completion::StorageState::Orphan(format!("native_attempt:{}", workspace.native().attempt().hex())));
+    }
+    let settled = workspace.complete_signal(&terminal).await;
+    terminal.step("journey workspace signal finality", settled);
+    completion::complete(Ok(()), terminal)
+}
 const LIBRARY: &str = "synthesis-sources";
 /// Nominal E1 output needs known above-floor geometry, not the random-text fake's cosine.
 /// This fixture owns a distinct encoder identity. A shared dominant component plus small
@@ -340,6 +356,9 @@ async fn catalog_journey() {
         lctx_publisher::seal_completed(&admitted, &config, &lctx_serving::native_definitions())
             .await
             .unwrap();
+    drop(admitted);
+    finalize_compiler_workspace(&workspace).await.unwrap();
+    drop(workspace);
     assert!(!config.selection.exists());
     let reader = NativeReader::connect(
         &config.endpoint,
@@ -696,6 +715,9 @@ async fn catalog_journey() {
     let b_handle = lctx_publisher::seal_completed(
         &b_admitted, &config, &lctx_native::materialization::native_definitions(),
     ).await.unwrap();
+    drop(b_admitted);
+    finalize_compiler_workspace(&b_workspace).await.unwrap();
+    drop(b_workspace);
     let mut b_reader = None;
     let observations = async {
         lctx_publisher::inspection::audit(&config, &b_handle, &lctx_native::materialization::native_definitions()).await?;
@@ -724,7 +746,6 @@ async fn catalog_journey() {
         Ok::<_, ModelError>((b_sources, continued, packet, attributed, reader.handle().clone(), a_executables_after))
     }.await;
     let mut b_completion = completion::Completion::default();
-    b_completion.step("coexisting Facts compiler drainage", b_workspace.drain().await);
     if let Some(b_reader) = b_reader.take() {
         b_completion.step("coexisting Facts reader close", b_reader.close().await);
         b_completion.step("coexisting Facts reader invalidation", b_reader.client().invalidate().await.map_err(ModelError::codec));
@@ -1046,6 +1067,9 @@ async fn remediation_browse_scopes_share_members_counts_and_vocabulary() {
         lctx_publisher::seal_completed(&admitted, &config, &lctx_serving::native_definitions())
             .await
             .unwrap();
+    drop(admitted);
+    finalize_compiler_workspace(&workspace).await.unwrap();
+    drop(workspace);
     let reader = NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle)
         .await
         .unwrap();

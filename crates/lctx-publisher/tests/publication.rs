@@ -303,6 +303,8 @@ async fn publication_control() {
     // panic cannot be relied on to finish ReaderPin's best-effort asynchronous Drop.
     let mut inspector_owner = None;
     let mut viewer_owner = None;
+    let mut source_workspace_owner = None;
+    let mut receiving_workspace_owner = None;
     let outcome = AssertUnwindSafe(async {
         let scratch = tempfile::tempdir().unwrap();
         let mut config = RuntimeConfig::read(std::path::Path::new(
@@ -322,6 +324,7 @@ async fn publication_control() {
             native.clone(),
         )
         .unwrap();
+        source_workspace_owner = Some(workspace.clone());
         let captured = runtime::capture("catalog_core", Profile::Catalog, workspace.budget());
         let settings = ContentHash::of(
             format!(
@@ -357,8 +360,8 @@ async fn publication_control() {
         let export = scratch.path().join("artifact");
         let export_receipt = admitted.export(&export).await.unwrap();
         drop(admitted);
-        workspace.drain().await.unwrap();
-        native.abandon().await.unwrap();
+        finalize_compiler_workspace(&workspace).await.unwrap();
+        drop(source_workspace_owner.take());
         let restored = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             Frontier::Normalized,
@@ -371,6 +374,7 @@ async fn publication_control() {
             restored,
         )
         .unwrap();
+        receiving_workspace_owner = Some(workspace.clone());
         let verified = artifact::verify_export(&export, &workspace, &export_receipt)
             .await
             .unwrap();
@@ -496,6 +500,8 @@ async fn publication_control() {
                     .unwrap();
             assert_eq!(bytes.as_ref(), &expected[..bytes.len()]);
         }
+        finalize_compiler_workspace(&workspace).await.unwrap();
+        drop(receiving_workspace_owner.take());
         let cli = std::env::var_os("LCTX_REMEDIATION_CLI_BIN").map(std::path::PathBuf::from);
         if let Some(binary) = &cli {
             select_and_show_cli(binary, &config, &handle, scratch.path());
@@ -543,7 +549,12 @@ async fn publication_control() {
     })
     .catch_unwind()
     .await;
-    let completion = finalize_reader_owners([&mut inspector_owner, &mut viewer_owner]).await;
+    let mut completion = finalize_reader_owners([&mut inspector_owner, &mut viewer_owner]).await;
+    // Assertion unwinding must not drop either original compiler owner before its
+    // actual native session and source/workspace signal have been reconciled.
+    for workspace in [receiving_workspace_owner, source_workspace_owner].into_iter().flatten() {
+        completion.step("publication control compiler finality", finalize_compiler_workspace(&workspace).await);
+    }
     let cleanup = completion::complete(Ok(()), completion);
     if let Err(primary) = outcome {
         if let Err(secondary) = cleanup {
@@ -2024,6 +2035,21 @@ async fn actual_installed_analyzer_drift_is_refused() {
     .catch_unwind()
     .await;
     finish_small_publication(&fixture, outcome, []).await;
+}
+
+async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelError> {
+    let mut terminal = workspace.drain_owned_report().await;
+    if terminal.local == completion::LocalState::Terminal
+        && terminal.remote == completion::RemoteState::Confirmed
+        && terminal.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+    {
+        terminal.step("publication control original compiler finality", workspace.native().abandon().await);
+    } else {
+        terminal.storage.push(completion::StorageState::Orphan(format!("native_attempt:{}", workspace.native().attempt().hex())));
+    }
+    let settled = workspace.complete_signal(&terminal).await;
+    terminal.step("publication control workspace signal finality", settled);
+    completion::complete(Ok(()), terminal)
 }
 
 async fn close_reader_owner(
