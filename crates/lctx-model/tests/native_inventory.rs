@@ -237,6 +237,42 @@ fn inventory_and_collected_output_retain_and_release_their_reservations() {
 }
 
 #[test]
+fn borrowed_pairs_match_complete_projection_without_a_second_inventory() {
+    let frames = facts();
+    let budget = budget();
+    let native = inventory(&frames, &budget).unwrap();
+    let retained = budget.reserved();
+    let output = native.collect().unwrap();
+    assert!(budget.reserved() > retained);
+    // Qualification identity order is independent of premise identity order. Compare
+    // each authoritative pair by its own ID instead of assuming the maps align.
+    for pair in native.pairs() {
+        let (premise, qualification) = pair.unwrap();
+        assert_eq!(output.premises.get(premise.id()), Some(premise));
+        assert_eq!(output.qualifications.get(qualification.id()), Some(&qualification));
+    }
+    drop(output);
+    assert_eq!(budget.reserved(), retained);
+    native.for_each(|_, _| Ok(())).unwrap();
+    assert_eq!(native.pairs().count(), 3);
+    assert_eq!(budget.reserved(), retained);
+    drop(native);
+    assert_eq!(budget.reserved(), 0);
+}
+
+#[test]
+fn borrowed_pairs_preserve_complete_projection_refusal() {
+    let frames = facts();
+    for missing in [SyntaxObservation::NAME, AssertionQualification::NAME] {
+        let remaining = frames.iter().filter(|(name, _)| *name != missing)
+            .cloned().collect::<Vec<_>>();
+        let native = inventory(&remaining, &budget()).unwrap();
+        assert!(native.for_each(|_, _| Ok(())).is_err());
+        assert!(native.pairs().any(|pair| pair.is_err()));
+    }
+}
+
+#[test]
 fn inventory_inputs_have_only_native_authority_and_require_native_support_validation() {
     let inputs = NativeInventory::inputs();
     let stored = NativeInventory::stage_inputs(lctx_model::domain::stages::Profile::Behavioral);

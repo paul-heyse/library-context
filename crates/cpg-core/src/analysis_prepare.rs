@@ -133,23 +133,36 @@ pub async fn native_inventory(
     runtime: &Workspace,
     _model: &Arc<ValidatedModel>,
 ) -> Result<(), ModelError> {
-    let session = access.session(runtime).await?;
+    let phase = lctx_native::phase::Phase::begin("native_inventory_inputs");
     let mut inventory = NativeInventory::new(runtime.budget());
     let declarations = NativeInventory::inputs();
-    load_native_inputs(&access, &session, &declarations, &mut inventory).await?;
-    drop(session);
-    let rows = inventory.collect()?;
+    let loaded = async {
+        let session = access.session(runtime).await?;
+        load_native_inputs(&access, &session, &declarations, &mut inventory).await?;
+        // Preserve the former collect-before-write refusal boundary without keeping
+        // another complete pair/qualification map beside the charged native inventory.
+        inventory.for_each(|_, _| Ok(()))
+    }.await;
+    phase.finish_result(&loaded);
+    loaded?;
+    let phase = lctx_native::phase::Phase::begin("native_inventory_output");
+    let emitted = async {
+        output.declare_async::<NativeAssertionPremise>().await?;
+        output.declare_async::<NativeQualification>().await?;
+        for pair in inventory.pairs() {
+            let (premise, qualification) = pair?;
+            output.push(premise.clone()).await?;
+            output.push(qualification).await?;
+        }
+        Ok::<_, ModelError>(())
+    }.await;
+    phase.finish_result(&emitted);
+    emitted?;
     drop(inventory);
-    output.declare_async::<NativeAssertionPremise>().await?;
-    for row in rows.premises.iter() {
-        output.push(row.clone()).await?;
-    }
-    output.declare_async::<NativeQualification>().await?;
-    for row in rows.qualifications.iter() {
-        output.push(row.clone()).await?;
-    }
-    drop(rows);
-    output.finish(ProviderOutcome::Complete).await
+    let phase = lctx_native::phase::Phase::begin("native_inventory_completion");
+    let completed = output.finish(ProviderOutcome::Complete).await;
+    phase.finish_result(&completed);
+    completed
 }
 
 /// Publish the one selected embedding configuration before analytic or retrieval work.

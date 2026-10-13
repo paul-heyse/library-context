@@ -216,7 +216,20 @@ impl NativeInventory {
         &self,
         mut emit: impl FnMut(&NativeAssertionPremise, NativeQualification) -> Result<(), ModelError>,
     ) -> Result<(), ModelError> {
-        for (id, (premise, fidelity)) in self.supports.iter() {
+        for pair in self.pairs() {
+            let (premise, qualification) = pair?;
+            emit(premise, qualification)?;
+        }
+        Ok(())
+    }
+    /// Borrow the exact projection without retaining a second full output inventory. The
+    /// immutable input owner and its reservations remain borrowed until iteration ends.
+    /// Each pair still refuses an absent assertion or qualification. Consumers that must
+    /// establish complete validity before effects can first call `for_each` with a no-op.
+    pub fn pairs(
+        &self,
+    ) -> impl Iterator<Item = Result<(&NativeAssertionPremise, NativeQualification), ModelError>> + '_ {
+        self.supports.iter().map(|(id, (premise, fidelity))| {
             let (assertion, _) = premise.assertion_and_support();
             let qualification = *self
                 .assertions
@@ -226,7 +239,7 @@ impl NativeInventory {
                 return Err(invalid("native assertion qualification is absent"));
             }
             let family = premise.family();
-            emit(
+            Ok((
                 premise,
                 NativeQualification {
                     premise: *id,
@@ -235,9 +248,8 @@ impl NativeInventory {
                     fidelity: *fidelity,
                     status: super::policy::native_status(family, *fidelity),
                 },
-            )?;
-        }
-        Ok(())
+            ))
+        })
     }
     pub fn collect(&self) -> Result<NativeInventoryOutput, ModelError> {
         let mut output = NativeInventoryOutput::new(&self.budget);
