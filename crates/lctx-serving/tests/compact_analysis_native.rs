@@ -267,12 +267,13 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
     let native =
         lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
             .await?;
-    let mut publication_owns_completion = false;
+    let mut workspace_owner = None;
     let mut handle = None;
     let mut reader = None;
     let mut service = None;
     let result=async {
         let workspace=Workspace::new(Arc::new(model()?),WorkspaceOptions::default(),native.clone())?;
+        workspace_owner=Some(workspace.clone());
         let captured=if empty{
             let root=scratch.path().join("empty-input");std::fs::create_dir(&root).map_err(ModelError::codec)?;
             let capture=cpg_extract::capture::CapturedInput::capture_derived(&root,&[],workspace.budget(),&[],cpg_extract::acquisition::derive_blocks).map_err(|error|ModelError::Cause(Box::new(error)))?;
@@ -304,7 +305,6 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
         }
         if queries{eprintln!("native linked-analysis control: independent artifact admission");}
         let admitted=artifact::admit(&workspace,&captured,Frontier::Catalog,Profile::Catalog,settings).await?;
-        publication_owns_completion=true;
         if queries{eprintln!("native linked-analysis control: actual unselected publication");}
         handle=Some(lctx_publisher::seal_completed(&admitted,&config,&lctx_serving::native_definitions()).await?);
         reader=Some(NativeReader::connect(&config.endpoint,&config.writer_credentials(),handle.as_ref().unwrap().clone()).await?);
@@ -340,6 +340,9 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
         Ok(())
     }.await;
     let mut terminal = completion::Completion::default();
+    if let Some(handle) = &handle {
+        terminal.committed("compact unselected manifest", format!("{handle:?}"));
+    }
     if let Some(service) = service.take() {
         service.close().await;
         drop(service);
@@ -360,6 +363,11 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
         }
         drop(reader);
     }
+    if let Some(workspace) = &workspace_owner {
+        terminal.step("compact workspace owned drain", completion::complete(Ok(()), workspace.drain_owned_report().await));
+    } else {
+        terminal.step("compact original store drain", completion::complete(Ok(()), native.drain_report().await));
+    }
     let confirmed = result
         .as_ref()
         .err()
@@ -370,13 +378,26 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
             .failures
             .iter()
             .all(|failure| failure.error.permits_storage_cleanup());
-    if !publication_owns_completion && confirmed {
+    if confirmed {
         terminal.step(
-            "compact producing attempt abandonment",
+            "compact original store finality",
             native.abandon().await,
         );
     }
-    if confirmed && let Some(handle) = handle {
+    if !confirmed {
+        terminal.storage.push(completion::StorageState::Orphan(format!("native_attempt:{}", native.attempt().hex())));
+        if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+            terminal.remote=completion::RemoteState::Unknown;
+        }
+    }
+    if let Some(workspace) = workspace_owner {
+        let settled=workspace.complete_signal(&terminal).await;
+        terminal.step("compact workspace signal finality", settled);
+    }
+    if confirmed && terminal.local == completion::LocalState::Terminal
+        && terminal.remote == completion::RemoteState::Confirmed
+        && terminal.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+        && let Some(handle) = handle {
         terminal.step(
             "compact unselected publication retirement",
             retire_owned(&config, &handle).await,

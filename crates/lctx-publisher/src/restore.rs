@@ -1305,8 +1305,13 @@ pub(crate) async fn restore(
                 lctx_model::domain::completion::complete(result, completion)
             }
             .await;
-            let mut completion = crate::publication_completion(&native, &result).await;
-            if let Some(runtime) = runtime {
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            if let Ok(handle) = &result {
+                completion.committed("restored unselected manifest", format!("{handle:?}"));
+            } else {
+                native.fail();
+            }
+            if let Some(runtime) = &runtime {
                 completion.step(
                     "restored admission owned drain",
                     lctx_model::domain::completion::complete(
@@ -1314,6 +1319,30 @@ pub(crate) async fn restore(
                         runtime.drain_owned_report().await,
                     ),
                 );
+            } else {
+                completion.step(
+                    "restore original store drain",
+                    lctx_model::domain::completion::complete(Ok(()), native.drain_report().await),
+                );
+            }
+            // The restored admission is no longer borrowed after publication. Its
+            // original session remains ours even when a separate publication session
+            // has already committed and closed the attempt.
+            if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup)
+                && completion.local == lctx_model::domain::completion::LocalState::Terminal
+                && completion.remote == lctx_model::domain::completion::RemoteState::Confirmed
+                && completion.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+            {
+                completion.step("restore original store finality", native.abandon().await);
+            } else {
+                completion.storage.push(lctx_model::domain::completion::StorageState::Orphan(
+                    format!("native_attempt:{}", native.attempt().hex()),
+                ));
+                if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+                    completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
+                }
+            }
+            if let Some(runtime) = runtime {
                 let settled = runtime.complete_signal(&completion).await;
                 completion.step("restored admission signal finality", settled);
             }

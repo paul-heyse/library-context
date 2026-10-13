@@ -89,37 +89,43 @@ pub async fn publish(
         lctx_publisher::publish(&export, config, &lctx_serving::native_definitions()).await
     }
     .await;
-    let mut completion = workspace.drain_report().await;
-    if let Ok(handle) = &result {
-        completion.committed(
-            "published unselected manifest",
-            serde_json::to_string(handle)?,
-        );
+    let committed = result.as_ref().ok().map(|handle| format!("{handle:?}"));
+    let completion = finalize_compilation(&workspace, &native, &result, committed).await;
+    lctx_model::domain::completion::complete(result, completion).map_err(Into::into)
+}
+
+/// Finish a CLI-owned compiler at its last use. A publication owns a separate
+/// session, so a committed handle does not release the original compiler session.
+/// Borrowed seals and exports must leave this decision to their actual owner.
+pub(crate) async fn finalize_compilation<T>(
+    workspace: &cpg_core::workspace::Workspace,
+    native: &lctx_compiler_store::compiler::NativeCompilerStore,
+    result: &Result<T, lctx_model::domain::ModelError>,
+    committed: Option<String>,
+) -> lctx_model::domain::completion::Completion {
+    use lctx_model::domain::{ModelError, completion::{LocalState, RemoteState, StorageState}};
+    let mut completion = workspace.drain_owned_report().await;
+    if let Some(identity) = committed {
+        completion.committed("published unselected manifest", identity);
     }
     if result.is_err() || !completion.failures.is_empty() {
         native.fail();
-        if !result
-            .as_ref()
-            .err()
-            .is_some_and(lctx_model::domain::ModelError::has_committed_effect)
-            && result.is_err()
-        {
-            if result
-                .as_ref()
-                .err()
-                .is_none_or(lctx_model::domain::ModelError::permits_storage_cleanup)
-            {
-                completion.step("import abandon", native.abandon().await);
-            } else {
-                completion
-                    .storage
-                    .push(lctx_model::domain::completion::StorageState::Orphan(
-                        format!("attempt:{}", native.attempt().hex()),
-                    ));
-            }
+    }
+    if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup)
+        && completion.local == LocalState::Terminal
+        && completion.remote == RemoteState::Confirmed
+        && completion.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+    {
+        completion.step("CLI original compiler store finality", native.abandon().await);
+    } else {
+        completion.storage.push(StorageState::Orphan(format!("native_attempt:{}", native.attempt().hex())));
+        if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+            completion.remote = RemoteState::Unknown;
         }
     }
-    lctx_model::domain::completion::complete(result, completion).map_err(Into::into)
+    let settled = workspace.complete_signal(&completion).await;
+    completion.step("CLI compiler workspace signal finality", settled);
+    completion
 }
 
 fn handle(config: &RuntimeConfig, path: Option<&Path>) -> anyhow::Result<SnapshotHandle> {

@@ -639,15 +639,11 @@ fn flow_file(
         });
         Ok(serde_json::to_string(&result)?)
     })();
-    let mut completion = runtime.block_on(workspace.drain_report());
-    completion.step(
-        "facts inspection abandon",
-        runtime.block_on(native.abandon()),
-    );
-    let output = lctx_model::domain::completion::complete(
-        output.map_err(crate::newnative::operation_error),
-        completion,
-    )?;
+    let output = output.map_err(crate::newnative::operation_error);
+    let completion = runtime.block_on(crate::newnative::finalize_compilation(
+        &workspace, &native, &output, None,
+    ));
+    let output = lctx_model::domain::completion::complete(output, completion)?;
     println!("{output}");
     Ok(())
 }

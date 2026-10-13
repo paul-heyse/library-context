@@ -768,7 +768,6 @@ async fn small_publication_from_source(
         WorkspaceOptions::default(),
         native.clone(),
     )?;
-    let mut publication_owns_completion = false;
     let built = async {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let nonce = format!(
@@ -834,8 +833,6 @@ async fn small_publication_from_source(
         let manifest = admitted.manifest().clone();
         let source_cleanup =
             source_cleanup_roots(&config, native.attempt(), workspace.budget()).await?;
-        // Once entered, publication owns attempt/session completion on either outcome.
-        publication_owns_completion = true;
         let handle = lctx_publisher::seal_completed(
             &admitted,
             &config,
@@ -846,11 +843,24 @@ async fn small_publication_from_source(
     }
     .await;
     let mut completion = workspace.drain_owned_report().await;
-    if built.is_err() && !publication_owns_completion {
-        completion.step(
-            "small publication attempt abandonment",
-            native.abandon().await,
-        );
+    if let Ok((handle, ..)) = &built {
+        completion.committed("small unselected publication", format!("{handle:?}"));
+    } else {
+        native.fail();
+    }
+    if built.as_ref().err().is_none_or(ModelError::permits_storage_cleanup)
+        && completion.local == completion::LocalState::Terminal
+        && completion.remote == completion::RemoteState::Confirmed
+        && completion.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+    {
+        completion.step("small publication original store finality", native.abandon().await);
+    } else {
+        completion.storage.push(completion::StorageState::Orphan(
+            format!("native_attempt:{}", native.attempt().hex()),
+        ));
+        if built.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+            completion.remote = completion::RemoteState::Unknown;
+        }
     }
     let signal = workspace.complete_signal(&completion).await;
     completion.step("small publication workspace finality", signal);
@@ -1357,21 +1367,25 @@ async fn facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_owne
         assert_eq!(fresh.len(), 2, "both receiving calls create fresh independently admitted attempts for the exact incoming capture");
         assert!(fresh.iter().all(|attempt| !before.attempts.contains(attempt)), "source attempts cannot become receiving owners");
         assert_ne!(after.completion_attempt, before.completion_attempt);
-        assert_ne!(after.completion_epoch, before.completion_epoch);
+        assert_ne!((&after.completion_attempt, after.completion_epoch),
+            (&before.completion_attempt, before.completion_epoch));
         assert!(fresh.contains(&after.completion_attempt));
-        let mut variables = Variables::new(); variables.insert("attempts", fresh);
+        let mut variables = Variables::new(); variables.insert("attempts", fresh.clone());
         let attempts: Vec<lctx_native::surrealdb::types::Object> = reader.query_native("SELECT * FROM $attempts", variables).await.unwrap();
         assert_eq!(attempts.len(), 2);
-        let mut epochs = std::collections::BTreeSet::new();
+        let mut owners = std::collections::BTreeSet::new();
         for attempt in attempts {
+            let Some(Value::RecordId(id)) = attempt.get("id") else { panic!("fresh restored attempt identity"); };
+            assert!(fresh.contains(id));
             assert_eq!(attempt.get("state"), Some(&Value::String("closed".into())));
             assert_eq!(attempt.get("admitted"), Some(&Value::Bool(true)));
             assert_eq!(attempt.get("generation"), Some(&Value::String(fixture.config.service_generation.hex())));
             let Some(Value::Number(Number::Int(epoch))) = attempt.get("epoch") else { panic!("fresh restored attempt epoch"); };
-            assert!(*epoch > 0); assert_ne!(*epoch, before.completion_epoch);
-            assert!(epochs.insert(*epoch), "restore calls must not share an attempt epoch");
+            assert!(*epoch > 0);
+            assert!(owners.insert((id.clone(), *epoch)), "restore calls must have distinct attempt/epoch owners");
         }
-        assert!(epochs.contains(&after.completion_epoch));
+        assert_eq!(owners.len(), fresh.len());
+        assert!(owners.contains(&(after.completion_attempt, after.completion_epoch)));
         let actual = lctx_publisher::inspection::show(reader).await.unwrap();
         assert_eq!(actual.manifest.content(), fixture.manifest.content());
         assert_eq!(actual.manifest.originals, fixture.manifest.originals);
@@ -1692,9 +1706,9 @@ async fn selected_backup_restores_fresh_ownership_while_foreign_window_binding_c
 }
 
 #[tokio::test]
-async fn backup_omissions_and_concurrent_cold_restores_preserve_fresh_ownership() {
+async fn backup_omissions_and_concurrent_warm_restores_preserve_fresh_ownership() {
     cpg_extract::logging::init_logging();
-    let fixture = small_publication("backup_cold_restore").await.unwrap();
+    let fixture = small_publication("backup_warm_restore").await.unwrap();
     let config = &fixture.config;
     let handle = fixture.handle.clone();
     let definitions = lctx_native::materialization::native_definitions();
@@ -1711,6 +1725,8 @@ async fn backup_omissions_and_concurrent_cold_restores_preserve_fresh_ownership(
             .unwrap(),
         );
         let viewer = viewer_owner.as_ref().unwrap();
+        let budget = resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES).unwrap();
+        let source_ownership = publication_ownership(viewer, &budget).await.unwrap();
         config.select(&handle).unwrap();
         let backup = fixture.scratch.path().join("snapshot.surql");
         let backup_receipt =
@@ -1815,16 +1831,21 @@ async fn backup_omissions_and_concurrent_cold_restores_preserve_fresh_ownership(
             2,
             "each restore creates a fresh mutable attempt owner"
         );
+        assert!(fresh.iter().all(|attempt| !source_ownership.attempts.contains(attempt)));
         let mut ownership = surrealdb_vars();
-        ownership.insert("attempts", fresh);
+        ownership.insert("attempts", fresh.clone());
         let attempts: Vec<lctx_native::surrealdb::types::Object> = viewer
             .query_native("SELECT * FROM $attempts", ownership)
             .await
             .unwrap();
         assert_eq!(attempts.len(), 2);
-        let mut epochs = std::collections::BTreeSet::new();
+        let mut owners = std::collections::BTreeSet::new();
         for attempt in attempts {
             use lctx_native::surrealdb::types::{Number, Value};
+            let Some(Value::RecordId(id)) = attempt.get("id") else {
+                panic!("fresh restore attempt identity");
+            };
+            assert!(fresh.contains(id));
             assert_eq!(attempt.get("state"), Some(&Value::String("closed".into())));
             assert_eq!(attempt.get("admitted"), Some(&Value::Bool(true)));
             assert_eq!(
@@ -1836,8 +1857,8 @@ async fn backup_omissions_and_concurrent_cold_restores_preserve_fresh_ownership(
             };
             assert!(*epoch > 0);
             assert!(
-                epochs.insert(*epoch),
-                "restores cannot borrow another attempt's epoch"
+                owners.insert((id.clone(), *epoch)),
+                "restores must have distinct attempt/epoch owners"
             );
         }
 
@@ -1851,6 +1872,11 @@ async fn backup_omissions_and_concurrent_cold_restores_preserve_fresh_ownership(
             .unwrap(),
         );
         let restored_viewer = restored_viewer_owner.as_ref().unwrap();
+        assert_eq!(owners.len(), fresh.len());
+        let winning = publication_ownership(restored_viewer, &budget).await.unwrap();
+        assert_eq!((winning.completion_attempt, winning.completion_epoch),
+            (source_ownership.completion_attempt, source_ownership.completion_epoch),
+            "warm equal restores preserve the existing publication's exact source completion");
         assert_eq!(fixture.manifest.originals.len(), 1);
         for original in &fixture.manifest.originals {
             let bytes = restored_viewer

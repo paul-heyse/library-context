@@ -88,25 +88,9 @@ pub async fn compile(
         }
         .await;
         if let Err(error) = cache_setup {
-            store.fail();
-            let mut completion = workspace.drain_report().await;
-            if error.permits_storage_cleanup()
-                && completion.local == lctx_model::domain::completion::LocalState::Terminal
-                && completion.remote == lctx_model::domain::completion::RemoteState::Confirmed
-                && completion
-                    .failures
-                    .iter()
-                    .all(|failure| failure.error.permits_storage_cleanup())
-            {
-                completion.step("compile cache setup abandon", store.abandon().await);
-            } else {
-                completion
-                    .storage
-                    .push(lctx_model::domain::completion::StorageState::Orphan(
-                        format!("attempt:{}", store.attempt().hex()),
-                    ));
-            }
-            return lctx_model::domain::completion::complete::<_>(Err(error), completion)
+            let result: Result<_, lctx_model::domain::ModelError> = Err(error);
+            let completion = crate::newnative::finalize_compilation(&workspace, &store, &result, None).await;
+            return lctx_model::domain::completion::complete(result, completion)
                 .map_err(Into::into);
         }
         Ok((runtime, store, workspace))
@@ -121,7 +105,6 @@ pub async fn compile(
         }
     };
 
-    let artifact_target = matches!(&target, Target::Artifact(..));
     let mut committed = None;
     let result: anyhow::Result<String>=async {
     let acquisition_phase = Phase::begin("configuration_and_acquisition");
@@ -189,33 +172,7 @@ pub async fn compile(
     Ok(output)
     }.await;
     let result = result.map_err(crate::newnative::operation_error);
-    let mut completion = workspace.drain_report().await;
-    if let Some(identity) = committed {
-        completion.committed("published unselected manifest", identity);
-    }
-    if artifact_target || result.is_err() || !completion.failures.is_empty() {
-        store.fail();
-        if completion.committed.is_empty()
-            && !result
-                .as_ref()
-                .err()
-                .is_some_and(lctx_model::domain::ModelError::has_committed_effect)
-        {
-            if result
-                .as_ref()
-                .err()
-                .is_none_or(lctx_model::domain::ModelError::permits_storage_cleanup)
-            {
-                completion.step("compile abandon", store.abandon().await);
-            } else {
-                completion
-                    .storage
-                    .push(lctx_model::domain::completion::StorageState::Orphan(
-                        format!("attempt:{}", store.attempt().hex()),
-                    ));
-            }
-        }
-    }
+    let completion = crate::newnative::finalize_compilation(&workspace, &store, &result, committed).await;
     let output = lctx_model::domain::completion::complete(result, completion);
     operation_phase.finish_result(&output);
     let output = output?;
