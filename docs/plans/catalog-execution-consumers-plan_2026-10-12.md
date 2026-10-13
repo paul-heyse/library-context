@@ -248,10 +248,12 @@ Explicit Workspace drainage remains authoritative; export or a borrowed seal doe
 finish the entire lifetime. Published preparation borrows the retained reader/pin and drains its own
 operations; only the enclosing owner closes that shared reader after its borrowers end.
 
-At operator closeout2026-10-13, source is integrated and independently reviewed, while acceptance
-remains partial at coordinator §6. Actual Facts artifact transport/originals and the production
-shared-owner finalizer passed focused bodies; backup reached successfully. Cold restoration still
-needs its corrected exact source-nomination premise exercised. Facts does not arm warm-product
-capture; publication retirement alone need not advance intermediate source-view cleanup jobs. The
-final test preserves strict physical absence, receipts, fresh dual admission, originals and no
-selection. Its late publication/staging-root augmentation is source-reviewed, not native-Tested.
+Current acceptance remains partial at coordinator §6. Actual Facts artifact transport/originals,
+original-session finalization, exact alias/copy/cold binding and maximum projection controls have
+focused evidence; generated Catalog composition and strict cold restoration remain separate.
+Facts does not arm warm-product capture. Publication retirement and source-view cleanup have
+distinct exact invocations; both pending and retryable retained roots must reach their checked
+fixed point before the cold control asserts physical absence. Its source proof retains complete
+original roots/digests/incarnations, and its publication continuation comes directly from checked
+retirement of the exact fixture publication. Receipts, dual independent admission, originals and
+no-selection assertions remain required; source review cannot replace their runtime result.

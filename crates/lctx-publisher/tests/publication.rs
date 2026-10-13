@@ -977,6 +977,15 @@ async fn retire_publication_completely(
     config: &RuntimeConfig,
     handle: &SnapshotHandle,
 ) -> Result<(), ModelError> {
+    retire_publication_progress(config, handle).await.map(|_| ())
+}
+
+// Shared retained descendants are a separate axis from pending work. A cold
+// caller must retain this exact invocation for its cross-job fixed point.
+async fn retire_publication_progress(
+    config: &RuntimeConfig,
+    handle: &SnapshotHandle,
+) -> Result<lctx_model::domain::completed::RetirementProgress, ModelError> {
     let client = lctx_native::reader::connect(
         &config.endpoint,
         &config.writer_credentials(),
@@ -988,7 +997,7 @@ async fn retire_publication_completely(
         let mut progress = lctx_publisher::backup::retire(config, handle, true).await?;
         loop {
             if progress.remaining.is_empty() {
-                return Ok(());
+                return Ok(progress);
             }
             let next =
                 lctx_native::control::resume_retirement(&client, progress.identity, 4096).await?;
@@ -1093,6 +1102,7 @@ async fn advance_source_cleanup<Context>(
     fixture: &SmallPublication,
     reader: &NativeReader<Context>,
     budget: &resources::ResourceBudget,
+    publication: lctx_model::domain::completed::RetirementProgress,
 ) -> Result<(), ModelError> {
     use lctx_native::surrealdb::types::{Number, Object, RecordId, RecordIdKey, Value, Variables};
     let evidence = &fixture.source_cleanup;
@@ -1136,7 +1146,11 @@ async fn advance_source_cleanup<Context>(
         }
     }
     let mut proven = 0;
-    let mut checked_progress = Vec::new();
+    // This job is not discovered from an epoch: it is the actual checked result
+    // of retiring this fixture's exact publication through backup::retire.
+    charge.grow(publication.retained.iter().chain(&publication.remaining)
+        .map(|value| value.capacity().saturating_add(128)).sum::<usize>().saturating_add(512))?;
+    let mut checked_progress = vec![(publication.identity, publication)];
     for job in jobs {
         let mut variables = Variables::new();
         variables.insert("job", job.clone());
@@ -1281,6 +1295,16 @@ async fn advance_source_cleanup<Context>(
         }
         if !retained { break; }
         if !changed {
+            let mut retained_ids = std::collections::BTreeSet::new();
+            for (identity, progress) in &checked_progress {
+                eprintln!("cold cleanup fixed point: identity={} retired={} examined={} retained={}",
+                    identity.hex(), progress.retired, progress.examined, progress.retained.len());
+                for value in &progress.retained {
+                    charge.grow(value.len().saturating_add(128))?;
+                    retained_ids.insert(serde_json::from_str::<RecordId>(value).map_err(ModelError::codec)?);
+                }
+            }
+            cold_remaining_holders(&reader.shared_client(), &retained_ids.into_iter().collect::<Vec<_>>(), budget).await?;
             return Err(ModelError::Conflict("cold source captured cleanup remains held"));
         }
     }
@@ -1361,7 +1385,7 @@ async fn facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_owne
         }
         assert!(before.attempts.contains(&RecordId::new("native_attempt", fixture.source_attempt.hex())));
         close_reader_owner(&mut source_owner).await.unwrap();
-        retire_publication_completely(&fixture.config, &fixture.handle).await.unwrap();
+        let publication_retirement = retire_publication_progress(&fixture.config, &fixture.handle).await.unwrap();
         observer_owner = Some(lctx_native::reader::connect(&fixture.config.endpoint,
             &fixture.config.writer_credentials(), fixture.config.namespace.as_str(),
             fixture.config.database.as_str()).await.unwrap());
@@ -1370,7 +1394,7 @@ async fn facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_owne
         // release their holds. The helper also revisits retained roots on the same
         // exact invocations after later captured jobs release their dependencies.
         let cleanup_reader = NativeReader::private(observer.clone()).with_budget(&budget);
-        let cleanup = advance_source_cleanup(&fixture, &cleanup_reader, &budget).await;
+        let cleanup = advance_source_cleanup(&fixture, &cleanup_reader, &budget, publication_retirement).await;
         let mut cleanup_completion = completion::Completion::default();
         cleanup_completion.step("cold source cleanup reader finality", cleanup_reader.close().await);
         completion::complete(cleanup, cleanup_completion).unwrap();

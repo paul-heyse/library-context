@@ -271,6 +271,10 @@ remains unchanged. Current schema8 tooling build `a95f1a`, generated/projection/
 `22ad64` (4/4), beta Sync/readback `26f90f` and declarative sample `eb0e28` (1 suite/6 cases) passed
 with confirmed local cleanup on owned i. The worker still truthfully reports remote uncertainty
 until that target's checked disposal.
+Fixed index/schema/plain-plan inspection `20261013T214503.956Z-4ae536` passed with confirmed local
+cleanup against current schema8 validation; it observed canonical and audit membership indexes/plans
+and actual server generation/version. This closes the changed C09 diagnostic seam, not workload
+execution or a measured query-plan effectiveness claim.
 
 **Current functional corrections.** `ff0c0eb3` and `3d3608f0` migrate actual last-use success owners
 through owned drainage, original native finality and signal completion; generic borrowed artifacts
@@ -279,13 +283,40 @@ its Facts cold companion failed strict source absence after113s. Its exact sourc
 attempted while the source publication reader remained pinned. Moving advancement after reader
 close/publication retirement (`f41508`) still failed strict absence after178s: the helper incorrectly
 treated an empty pending queue as completion although `resume_retirement` separately retains
-retryable held roots. The latest control (`c7f4ed`) revisits only the same initially proven exact
-captured invocations to a useful fixed point, preserving full original roots/digest/incarnations;
-no arbitrary/global root or new nomination is introduced. `8886ccca` removes the duplicate complete native-inventory output
+retryable held roots. `c7f4ed` failed after324.257s at its useful fixed point, before strict physical
+absence/restore: the already-advanced publication job was excluded by the untouched-discovery
+filter. `347ce3` preserves the actual checked publication-retirement result as an exact continuation,
+alongside initially proven source jobs; full original roots/digest/incarnations remain required for
+discovered jobs. Its build passed; runtime timed out370.019s during initial serial source retirement
+after four job-advancement reports, before fixed-point/physical-absence/receiver assertions. Local
+cleanup was confirmed; the exact-continuation correction remains runtime unproven rather than
+contradicted. Distinct checked job scheduling is under source review; no deadline/budget increase
+or cold-premise reduction is selected. No arbitrary/global root or new nomination is introduced.
+`8886ccca` removes the duplicate complete native-inventory output
 map, preserves whole-projection prevalidation and streams through bounded writers; compile and8
 pure projection controls passed. Remaining serial transport/selector/held-alias observations were
 found during current consumer review and are being migrated through existing exact windows before
 final CE01. No timeout cause or measured speedup is inferred from these source corrections.
+`ae14125d` and `c3eceeb8` passed current source checks and4+3 pure controls for exact selected
+requests, complete selector envelopes, alias incidence, refusal and budget ownership. Actual affected
+native controls `d18986` passed5 cases/149.789s with enclosing fixture exit0 and confirmed local
+cleanup. Actual maximum projection transport `6d50a3` passed1 case/8.156s with enclosing cleanup;
+this is its existing256MiB source/8MiB consumer contract, not a new8MiB cold-acquisition claim.
+CLI and excluded serving journey compile `740be9` passed; excluded runtime remains not_run.
+Catalog composition `921db9` timed out370s at the unchanged360s deadline plus grace. Providers
+completed170.567s; normalized semantic-reference validation was active at cancellation, before
+analysis inventory. Generated analysis/admission/publication/query assertions remain unproven.
+Local cleanup was confirmed, while native completion remains Unknown and attachment
+`3a70190a-00e1-474f-a72f-e6ad02370c9e` is protected on i. A phase cutoff is not a causal diagnosis.
+Current source review accepts exact windows and retirement authority. The remaining
+operation-registry first-miss route now uses bounded grouped work through the original per-item
+keys/flights/owner, joining overlap rather than bypassing singleflight. Failed flight and uncached
+alias metadata ownership passed6 pure controls in `c4581653` (Nextest `b8310e24…` and `49a2cad8…`).
+Independent review then found that cancelling final worker drainage could detach sole JoinHandles;
+owned-handle preservation and an interrupted-close/retry barrier control are being completed.
+Reference validation's vacuous-query demand is separately being reduced only for internally earned
+native empties or actual captured empty batches; external self-consistent metadata must never bypass
+real table validation. Neither correction is asserted as the Catalog timeout's dominant cause.
 
 Independent implementation review found selector-crossing alias witnesses, partially committed
 receiving attachment, and abandoned retained-boundary pin release. Corrections are source-reviewed:

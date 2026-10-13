@@ -264,6 +264,15 @@ extra, duplicate, foreign, inactive and mismatched results by identity, not coun
 still atomically check the exact premises they consume; bulk read never authorizes an unchecked
 later attachment. Keep intentional singleton checks where the operation itself is singleton.
 
+**Remaining-consumer integration, 2026-10-13 (Implemented; evidence in coordinator §6).** Exact
+transport copies, complete selector envelopes and held alias incidences now use genuine bounded
+windows. First misses in operation preparation retain original per-item keys and shared flights:
+claim the actual missing set, join overlapping requests, and earn record/guard/hold observations in
+bounded batches before publishing success. Terminal failures evict only their token. Worker and
+cache metadata reservations follow their actual retained owners; reaping a finished/failed worker
+must not wait on an unrelated live key. Final drainage must retain unjoined handles across caller
+cancellation, so a retried close cannot release the audit pin ahead of accepted work.
+
 Implement the window/alias primitives and their revealing controls before CP04 consumes them.
 Migrate backing/alias audits, remaining completion verification, live attachment and retained-product/
 recovery inspections with CP04's reduced-demand route; full consumer migration does not precede

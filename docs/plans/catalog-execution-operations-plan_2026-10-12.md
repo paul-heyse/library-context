@@ -220,8 +220,10 @@ actual selected project state under real drainage; CE03 then reconciles older pl
 non-adoption closes only its fit decision, never a mandatory finding or required functional assertion.
 No progress ledger or new evidence registry belongs in this companion.
 
-At operator closeout2026-10-13, schema8 host controls and checked owned campaign disposals retain
-their exact outcomes in coordinator §6. Owned g's failed diagnostic left ordinary maintenance
-closed; reviewed server-recipe and predecessor-child proof requirements still apply. Its protected
-service/attachment obligation is not settled by other targets' successful disposals. No shared or
-operator target was changed, and no source-recipe or maintenance-owner guard was weakened.
+Current schema8 host/beta readback/declarative/index-inspection controls and checked owned
+campaign disposals retain their exact outcomes in coordinator §6. ADR-0167's fresh-current-
+quiescence transfer settled owned g through checked disposal; its original native Unknown remains
+unchanged. This narrow ordinary-marker repair does not alter specialized recovery/SOURCE_JOIN or
+another target's obligations. Current validation i must still be disposed after authenticated
+drainage, including its retained Unknown attachment. Shared/operator and older paused targets
+remain outside this campaign's authority.
