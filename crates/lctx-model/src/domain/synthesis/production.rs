@@ -77,207 +77,101 @@ impl Data {
     }
     /// Exact root partition over one already decoded union. Current finite renderers own their
     /// inputs; only the current root is copied, with clone scratch and retained Rows charged.
-    pub fn selected_copy(
+    pub fn selected_copy<I: Iterator<Item = [u8; 16]>>(
         &self,
-        selected: &mut dyn FnMut(
-            std::any::TypeId,
-            Option<PublicationBoundary>,
-            [u8; 16],
-        ) -> Result<bool, ModelError>,
+        inputs: &[ValidationInput],
+        keys: &mut dyn FnMut(usize) -> Result<I, ModelError>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        use std::any::TypeId;
+        use crate::domain::normalized::copy_selected_rows;
         let mut out = Self::new(budget);
-        out.frames.compact=self.frames.compact.retain(budget)?;
+        out.frames.compact = self.frames.compact.retain(budget)?;
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.frames.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.frames.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Analytic);
+                copy_selected_rows(&self.frames.$field, &mut out.frames.$field, inputs, epoch, keys)?;
+            })*};}
             crate::synthesis_frame_inputs!(copy);
         }
-
-        for row in self.frames.analytic_parents.frames.iter() {
-            if selected(
-                TypeId::of::<analytics::AnalyticFrame>(),
-                None,
-                *row.id().bytes(),
-            )? {
-                out.frames.analytic_parents.frames.insert_borrowed(row)?;
-            }
-        }
-        for row in self.frames.analytic_parents.invocations.iter() {
-            if selected(
-                TypeId::of::<analysis::analytic::Invocation>(),
-                None,
-                *row.id().bytes(),
-            )? {
-                out.frames
-                    .analytic_parents
-                    .invocations
-                    .insert_borrowed(row)?;
-            }
-        }
-        for row in self.frames.analytic_parents.results.iter() {
-            if selected(
-                TypeId::of::<analytics::TechniqueResult>(),
-                None,
-                *row.id().bytes(),
-            )? {
-                out.frames.analytic_parents.results.insert_borrowed(row)?;
-            }
-        }
+        copy_selected_rows(&self.frames.analytic_parents.frames, &mut out.frames.analytic_parents.frames, inputs, None, keys)?;
+        copy_selected_rows(&self.frames.analytic_parents.invocations, &mut out.frames.analytic_parents.invocations, inputs, None, keys)?;
+        copy_selected_rows(&self.frames.analytic_parents.results, &mut out.frames.analytic_parents.results, inputs, None, keys)?;
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.documentary.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Facts)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.documentary.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Facts);
+                copy_selected_rows(&self.documentary.$field, &mut out.documentary.$field, inputs, epoch, keys)?;
+            })*};}
             crate::synthesis_documentary_inputs!(copy);
         }
-
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.automatic.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.automatic.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Analytic);
+                copy_selected_rows(&self.automatic.$field, &mut out.automatic.$field, inputs, epoch, keys)?;
+            })*};}
             crate::synthesis_automatic_unique_inputs!(copy);
         }
-
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.observations.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.observations.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Analytic);
+                copy_selected_rows(&self.observations.$field, &mut out.observations.$field, inputs, epoch, keys)?;
+            })*};}
             crate::synthesis_observation_inputs!(copy);
         }
-
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.controls.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.controls.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Analytic);
+                copy_selected_rows(&self.controls.$field, &mut out.controls.$field, inputs, epoch, keys)?;
+            })*};}
             crate::synthesis_control_text_inputs!(copy);
         }
-
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.summary.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.summary.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Analytic);
+                copy_selected_rows(&self.summary.$field, &mut out.summary.$field, inputs, epoch, keys)?;
+            })*};}
             crate::synthesis_summary_inputs!(copy);
         }
-
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.terminal.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Analytic)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.terminal.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Analytic);
+                copy_selected_rows(&self.terminal.$field, &mut out.terminal.$field, inputs, epoch, keys)?;
+            })*};}
             crate::synthesis_terminal_inputs!(copy);
         }
-
-        self.terminal
-            .copy_selected_ownership(&mut out.terminal, &mut |kind, key| {
-                selected(kind, None, key)
-            })?;
+        self.terminal.copy_selected_ownership(&mut out.terminal, inputs, keys)?;
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.patterns.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Facts)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.patterns.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Facts);
+                copy_selected_rows(&self.patterns.$field, &mut out.patterns.$field, inputs, epoch, keys)?;
+            })*};}
             crate::synthesis_pattern_inputs!(copy);
         }
-
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.patterns.setup.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Facts)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.patterns.setup.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Facts);
+                copy_selected_rows(&self.patterns.setup.$field, &mut out.patterns.setup.$field, inputs, epoch, keys)?;
+            })*};}
             crate::synthesis_setup_inputs!(copy);
         }
-
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.patterns.flow.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Facts)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.patterns.flow.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Facts);
+                copy_selected_rows(&self.patterns.flow.$field, &mut out.patterns.flow.$field, inputs, epoch, keys)?;
+            })*};}
             crate::structural_handoff_inputs!(copy);
         }
-
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
-            for row in self.patterns.flow.entry.$field.iter(){
-                let epoch=if is_vocabulary(<$ty>::NAME){Some(PublicationBoundary::Facts)}else{None};
-                if selected(TypeId::of::<$ty>(),epoch,*row.id().bytes())?{out.patterns.flow.entry.$field.insert_borrowed(row)?;}
-            }
-        })*};}
+                let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Facts);
+                copy_selected_rows(&self.patterns.flow.entry.$field, &mut out.patterns.flow.entry.$field, inputs, epoch, keys)?;
+            })*};}
             crate::entry_value_inputs!(copy);
         }
-
-        // The flow collector's cumulative Local vocabulary is separate from its Facts entry.
-        for row in self.patterns.flow.local.qualifications.iter() {
-            if selected(
-                TypeId::of::<assertion::AssertionQualification>(),
-                Some(PublicationBoundary::Local),
-                *row.id().bytes(),
-            )? {
-                out.patterns
-                    .flow
-                    .local
-                    .qualifications
-                    .insert_borrowed(row)?;
-            }
-        }
-        for row in self.patterns.flow.local.conditions.iter() {
-            if selected(
-                TypeId::of::<conditions::Condition>(),
-                Some(PublicationBoundary::Local),
-                *row.id().bytes(),
-            )? {
-                out.patterns.flow.local.conditions.insert_borrowed(row)?;
-            }
-        }
-        for row in self.patterns.flow.local.condition_nodes.iter() {
-            if selected(
-                TypeId::of::<conditions::ConditionNode>(),
-                Some(PublicationBoundary::Local),
-                *row.id().bytes(),
-            )? {
-                out.patterns
-                    .flow
-                    .local
-                    .condition_nodes
-                    .insert_borrowed(row)?;
-            }
-        }
-        for row in self.public.iter() {
-            if selected(
-                TypeId::of::<structural::PublicCandidate>(),
-                None,
-                *row.id().bytes(),
-            )? {
-                out.public.insert_borrowed(row)?;
-            }
-        }
+        // Cumulative Local flow vocabulary stays separate from its Facts entry.
+        copy_selected_rows(&self.patterns.flow.local.qualifications, &mut out.patterns.flow.local.qualifications, inputs, Some(PublicationBoundary::Local), keys)?;
+        copy_selected_rows(&self.patterns.flow.local.conditions, &mut out.patterns.flow.local.conditions, inputs, Some(PublicationBoundary::Local), keys)?;
+        copy_selected_rows(&self.patterns.flow.local.condition_nodes, &mut out.patterns.flow.local.condition_nodes, inputs, Some(PublicationBoundary::Local), keys)?;
+        copy_selected_rows(&self.public, &mut out.public, inputs, None, keys)?;
         Ok(out)
     }
     /// Physical original chunks are selected from the current partition's exact text demand.
@@ -649,5 +543,40 @@ mod tests {
                     .any(|r| r.name() == owner::SourceReceipt::NAME)
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod selected_copy_controls {
+    use super::*;
+    fn nominal<T>(byte: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+    }
+    #[test]
+    fn selected_copy_keeps_facts_analytic_and_local_ports_distinct() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut source = Data::new(&budget);
+        let qualification = |context| assertion::AssertionQualification {
+            context: nominal(context), scope: nominal(2), condition: conditions::Diagram::always().id(),
+            assumptions: assumptions::AssumptionSet::empty_id(), modality: attribution::Modality::Definite,
+            approximation: assertion::Approximation::Exact,
+        };
+        let facts = qualification(3);
+        let analytic = qualification(4);
+        let local = qualification(5);
+        for row in [&local,&facts,&analytic] {
+            source.documentary.qualifications.insert_borrowed(row).unwrap();
+            source.observations.qualifications.insert_borrowed(row).unwrap();
+            source.patterns.flow.local.qualifications.insert_borrowed(row).unwrap();
+        }
+        let inputs = [PublicationBoundary::Local,PublicationBoundary::Facts,PublicationBoundary::Analytic]
+            .map(|epoch| ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(epoch));
+        let selected = [&local,&facts,&analytic].map(|row| [*row.id().bytes(),[255;16]].into_iter().collect::<std::collections::BTreeSet<_>>());
+        let result = source.selected_copy(&inputs,&mut |port| Ok(selected[port].iter().copied()),&budget).unwrap();
+        assert_eq!(result.documentary.qualifications.iter().collect::<Vec<_>>(), [&facts]);
+        assert_eq!(result.observations.qualifications.iter().collect::<Vec<_>>(), [&analytic]);
+        assert_eq!(result.patterns.flow.local.qualifications.iter().collect::<Vec<_>>(), [&local]);
+        drop((source,result));
+        assert_eq!(budget.reserved(),0);
     }
 }

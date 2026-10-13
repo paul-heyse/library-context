@@ -296,19 +296,10 @@ impl SynthesisScopes {
         budget: &resources::ResourceBudget,
     ) -> Result<Data, ModelError> {
         let mut selected = union.selected_copy(
-            &mut |kind, epoch, key| {
-                if kind == std::any::TypeId::of::<artifact::ArtifactChunk>() {
-                    return Ok(false);
-                }
-                for (table, input) in self.inputs.iter().enumerate().filter(|(_, input)| {
-                    input.type_id() == kind && (epoch.is_none() || input.prefix() == epoch)
-                }) {
-                    let _ = input;
-                    if batch.contains(partition, table, key)? {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
+            &self.inputs,
+            &mut |table| {
+                let include = self.inputs[table].type_id() != std::any::TypeId::of::<artifact::ArtifactChunk>();
+                batch.keys(partition, table).map(|keys| keys.filter(move |_| include))
             },
             budget,
         )?;

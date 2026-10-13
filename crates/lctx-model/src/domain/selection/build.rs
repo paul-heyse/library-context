@@ -120,27 +120,22 @@ impl Data {
         self.source.visit_input(input, b)
     }
     /// Preserve each finite member/witness domain while sharing one decoded batch union.
-    pub fn selected_copy(
+    pub fn selected_copy<I: Iterator<Item = [u8; 16]>>(
         &self,
         inputs: &[ValidationInput],
-        contains: &mut dyn FnMut(usize, [u8; 16]) -> Result<bool, ModelError>,
+        keys: &mut dyn FnMut(usize) -> Result<I, ModelError>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
         let mut selected = Self::new(budget);
-        selected.source = self.source.selected_copy(inputs, contains, budget)?;
-        macro_rules! copy_evidence{($($field:ident:$ty:ty,)*)=>{$(c1::build::copy_selected_rows(&self.evidence.$field,&mut selected.evidence.$field,inputs,None,contains)?;)*};}
+        selected.source = self.source.selected_copy(inputs, keys, budget)?;
+        macro_rules! copy_evidence{($($field:ident:$ty:ty,)*)=>{$(crate::domain::normalized::copy_selected_rows(&self.evidence.$field,&mut selected.evidence.$field,inputs,None,keys)?;)*};}
         crate::catalog_evidence_outputs!(copy_evidence);
-        macro_rules! copy_facts{($($field:ident:$ty:ty,)*)=>{$(c1::build::copy_selected_rows(&self.facts.$field,&mut selected.facts.$field,inputs,None,contains)?;)*};}
+        macro_rules! copy_facts{($($field:ident:$ty:ty,)*)=>{$(crate::domain::normalized::copy_selected_rows(&self.facts.$field,&mut selected.facts.$field,inputs,None,keys)?;)*};}
         crate::catalog_selection_inputs!(copy_facts);
-        if let Some(table) = inputs.iter().position(|input| {
-            input.type_id() == std::any::TypeId::of::<input::DistributionVerification>()
-        }) {
-            for (id, release) in self.verification_releases.iter() {
-                if contains(table, *id.bytes())? {
-                    selected.insert_verification(*id, *release)?;
-                }
-            }
-        }
+        crate::domain::normalized::visit_selected_ids::<input::DistributionVerification, I>(inputs, None, keys, &mut |id| {
+            if let Some(release) = self.verification_releases.get(&id) { selected.insert_verification(id, *release)?; }
+            Ok(())
+        })?;
         Ok(selected)
     }
     pub fn consumed_inputs(_profile: Profile) -> Vec<ValidationInput> {
@@ -1242,10 +1237,11 @@ mod selected_copy_controls {
         let inputs = vec![ValidationInput::of::<input::DistributionVerification>(&[
             "id",
         ])];
+        let keys = [*selected_id.bytes(), [255;16]];
         let data = union
             .selected_copy(
                 &inputs,
-                &mut |table, key| Ok(table == 0 && key == *selected_id.bytes()),
+                &mut |table| { assert_eq!(table,0); Ok(keys.iter().copied()) },
                 &budget,
             )
             .unwrap();

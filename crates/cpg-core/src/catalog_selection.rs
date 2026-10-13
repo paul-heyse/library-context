@@ -290,7 +290,7 @@ async fn member_batch(
         runtime.cancellation().check()?;
         let data = union.selected_copy(
             &scopes.inputs,
-            &mut |table, key| selected.contains(partition, table, key),
+            &mut |table| selected.keys(partition, table),
             runtime.budget(),
         )?;
         let rows = build::member(&data, *member, *context, runtime.budget())?;
@@ -321,7 +321,7 @@ async fn witness_batch(
         runtime.cancellation().check()?;
         let data = union.selected_copy(
             &scopes.inputs,
-            &mut |table, key| selected.contains(partition, table, key),
+            &mut |table| selected.keys(partition, table),
             runtime.budget(),
         )?;
         let rows = build::witnesses(&data, runtime.budget())?;
@@ -793,7 +793,7 @@ mod tests {
             let data = union
                 .selected_copy(
                     &scopes.inputs,
-                    &mut |table, key| selected.contains(partition, table, key),
+                    &mut |table| selected.keys(partition, table),
                     &budget,
                 )
                 .unwrap();

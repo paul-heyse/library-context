@@ -393,3 +393,85 @@ mod required_controls {
         assert_eq!(tiny.reserved(), 0);
     }
 }
+
+/// Resolve the exact typed input port once, then visit its ordered nominal demand.
+/// Missing physical rows stay with the consumer; no rich union scan or key copy is needed.
+pub(crate) fn visit_selected_ids<R: Record, I: Iterator<Item = [u8; 16]>>(
+    inputs: &[ValidationInput],
+    epoch: Option<stages::PublicationBoundary>,
+    keys: &mut dyn FnMut(usize) -> Result<I, ModelError>,
+    visit: &mut impl FnMut(Id<R>) -> Result<(), ModelError>,
+) -> Result<(), ModelError> {
+    let prefix = epoch.or_else(|| stages::is_vocabulary(R::NAME).then_some(stages::PublicationBoundary::Facts));
+    let mut bindings = inputs.iter().enumerate().filter(|(_, input)| {
+        input.type_id() == std::any::TypeId::of::<R>() && input.name() == R::NAME && input.prefix() == prefix
+    });
+    let Some((table, _)) = bindings.next() else {
+        return Ok(());
+    };
+    if bindings.next().is_some() {
+        return Err(ModelError::Conflict(
+            "selected copy immutable namespace ambiguity",
+        ));
+    }
+    let mut previous = None;
+    for key in keys(table)? {
+        if previous.is_some_and(|prior| prior >= key) {
+            return Err(ModelError::Conflict("selected copy keys are not strictly ordered"));
+        }
+        previous = Some(key);
+        let id = serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new(key.into_iter())).map_err(ModelError::codec)?;
+        visit(id)?;
+    }
+    Ok(())
+}
+
+/// Copy only actual hydrated rows, preserving the nominal JOIN realization of absent keys.
+pub(crate) fn copy_selected_rows<R: Record, I: Iterator<Item = [u8; 16]>>(
+    source: &Rows<R>,
+    target: &mut Rows<R>,
+    inputs: &[ValidationInput],
+    epoch: Option<stages::PublicationBoundary>,
+    keys: &mut dyn FnMut(usize) -> Result<I, ModelError>,
+) -> Result<(), ModelError> {
+    visit_selected_ids::<R, I>(inputs, epoch, keys, &mut |id| {
+        if let Some(row) = source.get(id) { target.insert_borrowed(row)?; }
+        Ok(())
+    })
+}
+
+#[cfg(test)]
+mod selected_key_controls {
+    use super::*;
+    use crate::domain::input::{Package, Release};
+    #[test]
+    fn ordered_selected_keys_preserve_overlap_missing_rows_and_canonical_output() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let rows = [Package { name: "gamma".into() }, Package { name: "alpha".into() }, Package { name: "beta".into() }];
+        let mut source = Rows::new(&budget);
+        for row in rows.iter().rev() { source.insert_borrowed(row).unwrap(); }
+        let inputs = [ValidationInput::of::<Release>(&["id"]), ValidationInput::of::<Package>(&["id"])];
+        let keys = [*rows[0].id().bytes(), *rows[2].id().bytes(), [255;16]].into_iter().collect::<std::collections::BTreeSet<_>>();
+        let overlap = [*rows[1].id().bytes(), *rows[2].id().bytes()].into_iter().collect::<std::collections::BTreeSet<_>>();
+        let mut first = Rows::new(&budget);
+        copy_selected_rows(&source, &mut first, &inputs, None, &mut |port| { assert_eq!(port,1); Ok(keys.iter().copied()) }).unwrap();
+        let mut second = Rows::new(&budget);
+        copy_selected_rows(&source, &mut second, &inputs, None, &mut |port| { assert_eq!(port,1); Ok(overlap.iter().copied()) }).unwrap();
+        assert_eq!(first.iter().map(|row| row.name.as_str()).collect::<std::collections::BTreeSet<_>>(), ["gamma", "beta"].into());
+        assert_eq!(second.iter().map(|row| row.name.as_str()).collect::<std::collections::BTreeSet<_>>(), ["alpha", "beta"].into());
+        assert!(first.iter().map(Record::id).collect::<Vec<_>>().windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(first.get(rows[2].id()), second.get(rows[2].id()));
+        drop((source,first,second));
+        assert_eq!(budget.reserved(),0);
+    }
+    #[test]
+    fn selected_key_adapter_refuses_ambiguous_ports_and_noncanonical_demand() {
+        let input = ValidationInput::of::<Package>(&["id"]);
+        let mut touched = false;
+        assert!(visit_selected_ids::<Package,_>(&[input.clone(),input.clone()],None,&mut |_| { touched=true; Ok(std::iter::empty()) },&mut |_| Ok(())).is_err());
+        assert!(!touched, "ambiguous namespace refuses before demand");
+        for keys in [[[2;16],[1;16]], [[1;16],[1;16]]] {
+            assert!(visit_selected_ids::<Package,_>(std::slice::from_ref(&input),None,&mut |_| Ok(keys.into_iter()),&mut |_| Ok(())).is_err());
+        }
+    }
+}

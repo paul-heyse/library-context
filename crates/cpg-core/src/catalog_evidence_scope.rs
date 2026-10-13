@@ -252,7 +252,7 @@ mod controls {
             let data = union
                 .selected_copy(
                     &inputs,
-                    &mut |table, key| selected.contains(partition, table, key),
+                    &mut |table| selected.keys(partition, table),
                     &budget,
                 )
                 .unwrap();

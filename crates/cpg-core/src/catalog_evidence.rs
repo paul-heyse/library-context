@@ -348,7 +348,7 @@ async fn artifact_batch(
         runtime.cancellation().check()?;
         let data = union.selected_copy(
             &scopes.inputs,
-            &mut |table, key| selected.contains(partition, table, key),
+            &mut |table| selected.keys(partition, table),
             runtime.budget(),
         )?;
         let rows = build_artifact(data, runtime.budget().clone()).await?;

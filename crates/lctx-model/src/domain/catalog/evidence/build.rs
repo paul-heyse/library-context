@@ -7,7 +7,7 @@ use crate::domain::{
     attribution::*,
     charged::{ChargedSet, StateCharge},
     input::*,
-    normalized::Rows,
+    normalized::{Rows, copy_selected_rows},
     resources::ResourceBudget,
     source::*,
     stages::*,
@@ -67,20 +67,20 @@ impl EvidenceData {
     }
     /// Copy one exact selected partition into charged builder-owned premises. The union
     /// was decoded once; facts and later qualification epochs retain separate membership.
-    pub fn selected_copy(
+    pub fn selected_copy<I: Iterator<Item = [u8; 16]>>(
         &self,
         inputs: &[ValidationInput],
-        contains: &mut dyn FnMut(usize, [u8; 16]) -> Result<bool, ModelError>,
+        keys: &mut dyn FnMut(usize) -> Result<I, ModelError>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
         let mut selected = Self::new(budget);
-        macro_rules! copy_core{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.core.$field,&mut selected.core.$field,inputs,None,contains)?;)*};}
+        macro_rules! copy_core{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.core.$field,&mut selected.core.$field,inputs,None,keys)?;)*};}
         crate::catalog_inputs!(copy_core);
-        macro_rules! copy_catalog{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.catalog.$field,&mut selected.catalog.$field,inputs,None,contains)?;)*};}
+        macro_rules! copy_catalog{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.catalog.$field,&mut selected.catalog.$field,inputs,None,keys)?;)*};}
         crate::catalog_outputs!(copy_catalog);
-        macro_rules! copy_facts{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.facts.$field,&mut selected.facts.$field,inputs,None,contains)?;)*};}
+        macro_rules! copy_facts{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.facts.$field,&mut selected.facts.$field,inputs,None,keys)?;)*};}
         crate::catalog_evidence_inputs!(copy_facts);
-        macro_rules! copy_runtime{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.runtime.$field,&mut selected.runtime.$field,inputs,None,contains)?;)*};}
+        macro_rules! copy_runtime{($($field:ident:$ty:ty,)*)=>{$(copy_selected_rows(&self.runtime.$field,&mut selected.runtime.$field,inputs,None,keys)?;)*};}
         crate::catalog_runtime_inputs!(copy_runtime);
         selected.runtime.compact = self.runtime.compact.retain(budget)?;
         copy_selected_rows(
@@ -88,7 +88,7 @@ impl EvidenceData {
             &mut selected.local_qualifications,
             inputs,
             Some(PublicationBoundary::Local),
-            contains,
+            keys,
         )?;
         Ok(selected)
     }
@@ -113,33 +113,7 @@ impl EvidenceData {
         rows
     }
 }
-/// Copy only actual hydrated rows, preserving the nominal JOIN realization of absent keys.
-pub(crate) fn copy_selected_rows<R: Record>(
-    source: &Rows<R>,
-    target: &mut Rows<R>,
-    inputs: &[ValidationInput],
-    epoch: Option<PublicationBoundary>,
-    contains: &mut dyn FnMut(usize, [u8; 16]) -> Result<bool, ModelError>,
-) -> Result<(), ModelError> {
-    let prefix = epoch.or_else(|| is_vocabulary(R::NAME).then_some(PublicationBoundary::Facts));
-    let mut bindings = inputs.iter().enumerate().filter(|(_, input)| {
-        input.type_id() == std::any::TypeId::of::<R>() && input.prefix() == prefix
-    });
-    let Some((table, _)) = bindings.next() else {
-        return Ok(());
-    };
-    if bindings.next().is_some() {
-        return Err(ModelError::Conflict(
-            "selected copy immutable namespace ambiguity",
-        ));
-    }
-    for row in source.iter() {
-        if contains(table, *row.id().bytes())? {
-            target.insert_borrowed(row)?;
-        }
-    }
-    Ok(())
-}
+
 macro_rules! data {($($f:ident:$ty:ty,)*)=>{
  pub struct EvidenceFacts {$(pub $f:Rows<$ty>,)*}
  impl EvidenceFacts {pub fn new(b:&ResourceBudget)->Self {Self {$($f:Rows::new(b),)*}}pub fn visit(&mut self,name:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if name==<$ty>::NAME {self.$f.decode(batch)?;return Ok(true);})*Ok(false)}pub fn inputs()->Vec<ValidationInput> {vec![$(ValidationInput::of::<$ty>(&["id"]),)*]}fn stage_inputs()->Vec<RelationUse> {vec![$(RelationUse::completed::<$ty>()),*]}}
@@ -1243,10 +1217,11 @@ mod selected_copy_controls {
             ValidationInput::of::<assertion::AssertionQualification>(&["id"])
                 .at_epoch(PublicationBoundary::Local),
         ];
+        let keys = [vec![], vec![*local.id().bytes(), [255;16]]];
         let selected = union
             .selected_copy(
                 &inputs,
-                &mut |table, key| Ok(table == 1 && key == *local.id().bytes()),
+                &mut |table| Ok(keys[table].iter().copied()),
                 &budget,
             )
             .unwrap();

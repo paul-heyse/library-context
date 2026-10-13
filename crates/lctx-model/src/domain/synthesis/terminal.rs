@@ -349,11 +349,12 @@ pub(super) fn selected<'a>(
 }
 
 impl Data {
-    pub(crate) fn copy_selected_ownership(
+    pub(crate) fn copy_selected_ownership<I: Iterator<Item = [u8; 16]>>(
         &self,
         target: &mut Self,
-        selected: &mut dyn FnMut(std::any::TypeId, [u8; 16]) -> Result<bool, ModelError>,
+        inputs: &[ValidationInput],
+        keys: &mut dyn FnMut(usize) -> Result<I, ModelError>,
     ) -> Result<(), ModelError> {
-        self.scope.copy_selected_into(&mut target.scope, selected)
+        self.scope.copy_selected_into(&mut target.scope, inputs, keys)
     }
 }
