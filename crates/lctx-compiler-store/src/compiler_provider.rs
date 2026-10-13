@@ -113,6 +113,57 @@ pub const REFERENCE_KEYS: usize = 1024;
 pub fn is_native_table(provider: &Arc<dyn TableProvider>) -> bool {
     provider.downcast_ref::<NativeTable>().is_some()
 }
+/// An actual unfiltered provider retained by one private reference-validation snapshot.
+/// Declared views, external row counts and provider statistics cannot construct this owner.
+pub(crate) struct ReferenceSource {
+    provider: Arc<dyn TableProvider>,
+}
+pub(crate) fn reference_source(
+    provider: &Arc<dyn TableProvider>,
+    store: &Arc<NativeCompilerStore>,
+    view: &CompletedView,
+    relation: &Relation,
+    budget: &ResourceBudget,
+) -> Option<ReferenceSource> {
+    let source = provider.downcast_ref::<NativeTable>()?;
+    if !Arc::ptr_eq(&source.store, store)
+        || &source.view != view
+        || source.installed.completion().view != *view
+        || source.relation.type_id() != relation.type_id()
+        || source.relation.name() != relation.name()
+        || source.relation.schema() != relation.schema()
+        || provider.schema() != *relation.schema()
+        || !source.keys.is_empty()
+        || !source.budget.shares_pool(budget)
+        || source.producing.as_ref().is_some_and(|scope| !scope.belongs_to(store))
+    {
+        return None;
+    }
+    Some(ReferenceSource { provider: provider.clone() })
+}
+impl ReferenceSource {
+    pub(crate) fn provider(&self) -> Arc<dyn TableProvider> { self.provider.clone() }
+    pub(crate) fn is_empty(&self) -> bool {
+        self.provider.downcast_ref::<NativeTable>().expect("captured native reference source").view.rows == 0
+    }
+    pub(crate) fn check(&self) -> Result<(), ModelError> {
+        self.provider.downcast_ref::<NativeTable>().expect("captured native reference source").store.check()
+    }
+    pub(crate) async fn current(&self) -> Result<(), ModelError> {
+        let source = self.provider.downcast_ref::<NativeTable>().expect("captured native reference source");
+        let current = async {
+            let actual = source.store.installed_view(&source.view, &source.budget).await?;
+            if !Arc::ptr_eq(&actual, &source.installed) {
+                return Err(ModelError::Conflict("reference installed native owner changed"));
+            }
+            Ok(())
+        };
+        match &source.producing {
+            Some(scope) => scope.run(current).await,
+            None => current.await,
+        }
+    }
+}
 /// Compact current tokens for finer product domains; finite providers retain their own route.
 pub async fn content_tokens(
     provider: &Arc<dyn TableProvider>,

@@ -316,10 +316,10 @@ mod controls {
         assert!(inputs.validation_source(&source).is_err(),"captured references never become completed snapshots");
         assert!(inputs.validation_table(&source.clone().at_epoch(PublicationBoundary::Facts)).is_err(),"a capture cannot substitute for a missing explicit epoch");
         let session=inputs.session(&runtime).await.unwrap();
-        assert!(runtime.validate_references(&session,&[],&inputs).await.is_err(),"a missing actual reference target must fail");
+        assert!(runtime.validate_references(&session,&[],&inputs,Some(&session)).await.is_err(),"a missing actual reference target must fail");
         inputs.companions.insert(Package::NAME,companion(std::slice::from_ref(&package)));
         let session=inputs.session(&runtime).await.unwrap();
-        runtime.validate_references(&session,&[],&inputs).await.unwrap();
+        runtime.validate_references(&session,&[],&inputs,Some(&session)).await.unwrap();
         assert!(runtime.bindings().unwrap().is_empty(),"reference companions create no completed bindings");
         lctx_model::domain::completion::complete(Ok(()),runtime.drain_report().await).unwrap();
     }
