@@ -685,6 +685,26 @@ impl OperationLease {
         self.finish();
         result
     }
+    fn finish_cached_view_borrow<T>(
+        self,
+        result: Result<T, ModelError>,
+        cached_exact: bool,
+    ) -> Result<T, ModelError> {
+        let local_refusal = cached_exact && result.as_ref().is_err_and(|mut error| {
+            // SharedCause adds no completion state. Contextual Cause and Completion
+            // remain opaque, including resource errors with uncertain reader cleanup.
+            while let ModelError::SharedCause(inner) = error {
+                error = inner.as_ref();
+            }
+            matches!(error, ModelError::Resource { .. })
+        });
+        if local_refusal {
+            self.finish();
+            result
+        } else {
+            self.finish_with(result)
+        }
+    }
 }
 // A blocking worker owns a local computation, not a remote acknowledgement. Its
 // lease remains live until the worker really exits, including cancellation/drop.
@@ -1313,8 +1333,20 @@ impl NativeCompilerStore {
         budget: &ResourceBudget,
     ) -> Result<Arc<lctx_native::installed_view::HeldInstalledView>, ModelError> {
         let lease = self.admit(false, "exact installed view acquisition", true)?;
-        let result = lease.within(self.installed_view_inner(view, budget)).await;
-        lease.finish_with(result)
+        // Retain the actual admitted capability, since another operation can replace
+        // the cache. Only this borrowed path may refuse locally; fresh earning stays strict.
+        let cached = match self.installed_views.lock() {
+            Ok(views) => views.get(&view.identity).cloned(),
+            Err(_) => return lease.finish_with(Err(ModelError::Conflict("native installed view owner"))),
+        };
+        let borrowed = cached.is_some();
+        let result = lease.within(async {
+            match cached {
+                Some(held) => self.borrow_cached_installed_view(held, view, budget).await,
+                None => self.installed_view_inner(view, budget).await,
+            }
+        }).await;
+        lease.finish_cached_view_borrow(result, borrowed)
     }
     /// Reader construction consumes native-held exact copies, never logical view
     /// names. Its scope retains every selected capability through delivery/drain.
@@ -1465,6 +1497,30 @@ impl NativeCompilerStore {
             reader
         })
     }
+    async fn borrow_cached_installed_view(
+        self: &Arc<Self>,
+        held: Arc<lctx_native::installed_view::HeldInstalledView>,
+        view: &CompletedView,
+        budget: &ResourceBudget,
+    ) -> Result<Arc<lctx_native::installed_view::HeldInstalledView>, ModelError> {
+        self.check_failed()?;
+        view.validate()?;
+        if held.completion().view != *view {
+            return Err(ModelError::Conflict("installed view descriptor collision"));
+        }
+        let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
+        let reader = if let Some(flag) = self.read_cancellation()? {
+            reader.with_read_cancellation(flag)
+        } else {
+            reader
+        };
+        let result = held.ensure_borrowed_current(&reader, budget).await;
+        let mut terminal = d::completion::Completion::default();
+        terminal.step("cached installed view reader close", reader.close().await);
+        // Retain the captured capability and its real pin through reader close,
+        // including a failed observation or concurrent cache replacement.
+        d::completion::complete(result, terminal).map(|_| held)
+    }
     async fn installed_view_inner(
         self: &Arc<Self>,
         view: &CompletedView,
@@ -1479,22 +1535,7 @@ impl NativeCompilerStore {
             .get(&view.identity)
             .cloned();
         if let Some(held) = cached {
-            if held.completion().view != *view {
-                return Err(ModelError::Conflict("installed view descriptor collision"));
-            }
-            let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
-            let reader = if let Some(flag) = self.read_cancellation()? {
-                reader.with_read_cancellation(flag)
-            } else {
-                reader
-            };
-            let result = held
-                .ensure_borrowed_current(&reader, budget)
-                .await
-                .map(|_| held);
-            let mut terminal = d::completion::Completion::default();
-            terminal.step("cached installed view reader close", reader.close().await);
-            return d::completion::complete(result, terminal);
+            return self.borrow_cached_installed_view(held, view, budget).await;
         }
         let physical = self
             .physical_completed
@@ -8433,6 +8474,74 @@ fn hydrate_original_row(value: Value) -> Result<Value, ModelError> {
 #[cfg(test)]
 mod completion_tests {
     use super::*;
+    fn test_view_borrow_lease() -> (Arc<OperationAdmission>, OperationLease) {
+        let owner = Arc::new(OperationAdmission::default());
+        owner.state.lock().unwrap().active = 1;
+        let lease = OperationLease {
+            owner: owner.clone(),
+            scan: false,
+            mutation: false,
+            finished: false,
+            operation: "exact installed view acquisition",
+            poison_on_error: true,
+            finalization: false,
+            _producing: None,
+            live: Arc::new(AtomicBool::new(true)),
+        };
+        (owner, lease)
+    }
+    fn test_view_borrow_resource() -> ModelError {
+        ModelError::Resource {
+            owner: "earned borrowed current installation observation",
+            requested: 8192,
+            used: 1096,
+            limit: 4096,
+        }
+    }
+    #[test]
+    fn cached_view_borrow_only_exempts_terminal_local_resource() {
+        let shared = ModelError::SharedCause(Arc::new(ModelError::SharedCause(Arc::new(
+            test_view_borrow_resource(),
+        ))));
+        let mut unknown = d::completion::Completion::default();
+        unknown.remote = d::completion::RemoteState::Unknown;
+        let unknown = d::completion::complete::<()>(Err(test_view_borrow_resource()), unknown)
+            .unwrap_err();
+        let mut failed_close = d::completion::Completion::default();
+        failed_close.step("borrowed reader close", Err(test_view_borrow_resource()));
+        let failed_close = d::completion::complete::<()>(
+            Err(test_view_borrow_resource()), failed_close,
+        ).unwrap_err();
+        for (cached_exact, error, poisoned) in [
+            (true, test_view_borrow_resource(), false),
+            (true, shared, false),
+            (false, test_view_borrow_resource(), true),
+            (true, unknown, true),
+            (true, failed_close, true),
+            (true, ModelError::Cause(Box::new(test_view_borrow_resource())), true),
+            (true, ModelError::Conflict("borrowed installation incarnation changed"), true),
+            (true, ModelError::infrastructure(d::Infrastructure::Unconfirmed, "borrowed reader close unknown"), true),
+        ] {
+            let uncertain = !error.permits_storage_cleanup();
+            let (owner, lease) = test_view_borrow_lease();
+            let error = lease.finish_cached_view_borrow::<()>(Err(error), cached_exact).unwrap_err();
+            let state = owner.state.lock().unwrap();
+            assert_eq!(state.active, 0);
+            assert_eq!(state.failed, poisoned, "{error:?}");
+            assert_eq!(state.uncertain, uncertain, "{error:?}");
+            assert_eq!(state.failures.len(), usize::from(poisoned));
+        }
+        // Ordinary producer/write leases retain their strict resource policy.
+        let (owner, lease) = test_view_borrow_lease();
+        lease.finish_with::<()>(Err(test_view_borrow_resource())).unwrap_err();
+        assert!(owner.state.lock().unwrap().failed);
+        // No local-error exemption is earned by dropping a pending borrow.
+        let (owner, lease) = test_view_borrow_lease();
+        drop(lease);
+        let state = owner.state.lock().unwrap();
+        assert!(state.failed && state.uncertain);
+        assert_eq!(state.active, 0);
+    }
     #[tokio::test(flavor = "multi_thread")]
     async fn last_use_finalization_invalidates_original_session_after_closed_attempt() {
         let config = RuntimeConfig::read(std::path::Path::new(

@@ -2490,7 +2490,7 @@ async fn membership_prefix_selection_uses_scalar_index_and_exact_owners() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn local_membership_preparation_refusal_does_not_poison_later_consumer() {
+async fn local_current_observation_refusal_does_not_poison_later_consumer() {
     let native_operation_budget =
         lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::ModelError;
@@ -2530,18 +2530,26 @@ async fn local_membership_preparation_refusal_does_not_poison_later_consumer() {
         .unwrap();
     let view = &views[relation.name()];
 
-    // Setup and the cache entry fit, but the next reservation refuses before any
-    // candidate query is launched. This is a local refusal, not a failed native effect.
+    // Earn the exact installed view under its source owner's budget before testing
+    // a consumer-local current-observation reservation. First physical earning is a separate
+    // prerequisite and must not consume the tiny budget intended for this refusal.
+    store
+        .installed_view(view, &native_operation_budget)
+        .await
+        .unwrap();
+
+    // Consumer setup fits, but the required fresh current-installation observation
+    // refuses before its query or membership preparation. No native effect has failed.
     let refused = ResourceBudget::fixed(4096).unwrap();
     let error = match store.scan_rows(view, &relation, None, None, &refused).await {
         Err(error) => error,
-        Ok(_) => panic!("the preparation's local budget must refuse"),
+        Ok(_) => panic!("the current observation's local budget must refuse"),
     };
     assert!(
         matches!(
             error.primary(),
             Some(ModelError::Resource {
-                owner: "native-membership-preparation",
+                owner: "earned borrowed current installation observation",
                 ..
             })
         ),
@@ -2551,7 +2559,7 @@ async fn local_membership_preparation_refusal_does_not_poison_later_consumer() {
     assert_eq!(
         refused.reserved(),
         0,
-        "failed entry and setup reservations are released"
+        "failed observation and setup reservations are released"
     );
     store
         .check()
