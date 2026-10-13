@@ -1096,8 +1096,9 @@ async fn receiving_capture_attempts(
     Ok(attempts.into_iter().collect())
 }
 
-// Root authority comes from the pre-close source holds, not a globally unique epoch.
-// Only untouched existing jobs whose complete original roots match that evidence advance.
+// Source discovery authority comes from pre-close holds, not a globally unique epoch.
+// Discovered jobs need complete original recipes; the publication continuation is
+// supplied directly by this caller's checked retirement of its exact handle.
 async fn advance_source_cleanup<Context>(
     fixture: &SmallPublication,
     reader: &NativeReader<Context>,
@@ -1145,12 +1146,14 @@ async fn advance_source_cleanup<Context>(
             }
         }
     }
+    let discovery_phase = lctx_native::phase::Phase::begin("cold_source_job_discovery");
     let mut proven = 0;
     // This job is not discovered from an epoch: it is the actual checked result
     // of retiring this fixture's exact publication through backup::retire.
     charge.grow(publication.retained.iter().chain(&publication.remaining)
         .map(|value| value.capacity().saturating_add(128)).sum::<usize>().saturating_add(512))?;
     let mut checked_progress = vec![(publication.identity, publication)];
+    let mut checked_jobs = std::collections::BTreeSet::from([checked_progress[0].0]);
     for job in jobs {
         let mut variables = Variables::new();
         variables.insert("job", job.clone());
@@ -1241,27 +1244,9 @@ async fn advance_source_cleanup<Context>(
                 .try_into()
                 .map_err(|_| ModelError::Schema("cold control cleanup job width"))?,
         );
-        let mut progress =
-            lctx_native::control::resume_retirement(reader.client(), identity, 4096).await?;
-        loop {
-            if progress.remaining.is_empty() {
-                break;
-            }
-            let next =
-                lctx_native::control::resume_retirement(reader.client(), identity, 4096).await?;
-            if next == progress {
-                return Err(ModelError::Conflict(
-                    "cold control source cleanup made no progress",
-                ));
-            }
-            progress = next;
-        }
         proven += 1;
-        eprintln!("advanced exact source cleanup job: identity={} retired={} examined={} retained={}",
-            identity.hex(), progress.retired, progress.examined, progress.retained.len());
-        charge.grow(progress.retained.iter().chain(&progress.remaining)
-            .map(|value| value.capacity().saturating_add(128)).sum::<usize>().saturating_add(512))?;
-        checked_progress.push((identity, progress));
+        charge.grow(512)?;
+        checked_jobs.insert(identity);
     }
     if proven == 0 {
         let copies = evidence
@@ -1276,10 +1261,46 @@ async fn advance_source_cleanup<Context>(
             fixture.source_attempt, evidence.epoch, evidence.roots
         );
     }
+    discovery_phase.finish(lctx_native::phase::Terminal::Passed);
+    // Each exact invocation has one serial resume chain. Distinct jobs may
+    // overlap: the production object/item/incarnation guards retain or supersede
+    // that overlap. Drain every accepted chain before inspecting any error or
+    // starting a cross-job fixed point; fail-fast cancellation would lose owners.
+    charge.grow(checked_jobs.len().saturating_mul(1024))?;
+    let retirement_phase = lctx_native::phase::Phase::begin("cold_source_job_retirement");
+    let results = futures::future::join_all(checked_jobs.into_iter().map(|identity| async move {
+        let mut progress = lctx_native::control::resume_retirement(reader.client(), identity, 4096).await?;
+        while !progress.remaining.is_empty() {
+            let next = lctx_native::control::resume_retirement(reader.client(), identity, 4096).await?;
+            if next == progress {
+                return Err(ModelError::Conflict("cold control source cleanup made no progress"));
+            }
+            progress = next;
+        }
+        Ok::<_, ModelError>((identity, progress))
+    })).await;
+    let mut completion = completion::Completion::default();
+    checked_progress.clear();
+    for result in results {
+        match result {
+            Ok((identity, progress)) => {
+                eprintln!("advanced exact source cleanup job: identity={} retired={} examined={} retained={}",
+                    identity.hex(), progress.retired, progress.examined, progress.retained.len());
+                charge.grow(progress.retained.iter().chain(&progress.remaining)
+                    .map(|value| value.capacity().saturating_add(128)).sum::<usize>().saturating_add(512))?;
+                checked_progress.push((identity, progress));
+            }
+            Err(error) => completion.step("cold source exact job advancement", Err(error)),
+        }
+    }
+    let advancement = completion::complete(Ok(()), completion);
+    retirement_phase.finish_result(&advancement);
+    advancement?;
     // `remaining` is only pending/retiring work. Retained roots are independently
     // retryable on this same authenticated invocation; another captured job may
     // have released their holder later in the first pass. Reach a useful fixed
     // point over only the invocations whose complete original roots we proved.
+    let fixed_point_phase = lctx_native::phase::Phase::begin("cold_source_retirement_fixed_point");
     loop {
         let mut changed = false;
         let mut retained = false;
@@ -1308,6 +1329,7 @@ async fn advance_source_cleanup<Context>(
             return Err(ModelError::Conflict("cold source captured cleanup remains held"));
         }
     }
+    fixed_point_phase.finish(lctx_native::phase::Terminal::Passed);
     Ok(())
 }
 
