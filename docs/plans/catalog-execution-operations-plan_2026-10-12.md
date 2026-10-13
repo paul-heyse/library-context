@@ -136,6 +136,14 @@ executor shutdown/discard can settle disposal while preserving the failed/Unknow
 Unknown local/native executor drainage retains the current obligation; cancellation is not disposal.
 Generic sweeps do not retire native databases.
 
+**Accepted refinement, 2026-10-13 (ADR-0167):** exact owned campaign disposal may transfer a strict
+private dead ordinary-maintenance marker after fresh current participant and executor authentication,
+journaled under existing storage/coordination exclusion. Missing historical marker-child ancestry is
+not an independent prerequisite. Specialized recovery/SOURCE_JOIN and original Unknown remain intact.
+Future ordinary maintenance enrolls managed children before spawn; explicitly supplied older run
+references add current-quiescence obligations without claims about their target or ancestry. Required
+runtime disposal and source/host acceptance are recorded only in coordinator §6.
+
 Token substitution journals the original placeholder before mutation. Restore on ordinary errors
 and after authenticated worker drainage using exact campaign/generation/run/binding/storage/private
 path checks and atomic recovery. Retain the existing recovery consumer until restoration; never

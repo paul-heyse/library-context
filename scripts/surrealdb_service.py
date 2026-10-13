@@ -1860,6 +1860,20 @@ def _campaign_disposal_projection(receipt: Mapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _release_disposal_participants(installation: Installation, receipt: Mapping[str, Any]) -> None:
+    """Terminal disposal no longer needs the supplementary historical run locally."""
+    from storage_lifecycle import Storage
+
+    for reference in receipt.get("participant_runs", []):
+        path = Path(reference["run_path"])
+        storage = Storage()
+        owned = storage.get(reference["storage_receipt"])
+        consumer = f"lifecycle-disposal-participant:{installation.id}:{path.name}"
+        if owned.get("owner") != {"kind": "run", "path": str(path)} or owned.get("path") != str(path) or consumer not in owned.get("obligations", {}):
+            raise FixtureBlocked("ownership", "disposal participant storage consumer differs")
+        storage.release(reference["storage_receipt"], consumer, "checked terminal campaign disposal")
+
+
 def dispose_campaign(installation: Installation, identity: str, *, participant_runs: Sequence[str] = ()) -> dict[str, Any]:
     """Drain and discard one explicitly owned target, retaining only current disposition."""
     lifecycle_campaign(installation, identity)
@@ -1890,6 +1904,11 @@ def dispose_campaign(installation: Installation, identity: str, *, participant_r
             if receipt_path.is_symlink():
                 raise FixtureBlocked("identity", "campaign disposal receipt cannot be a symlink")
             _campaign_disposal_receipt(current, receipt)
+        if current.record.get("phase") == "disposed" and not participant_runs:
+            if not receipt or receipt.get("outcome") != "passed":
+                raise FixtureBlocked("disposal", "campaign disposition is incomplete")
+            _release_disposal_participants(current, receipt)
+            return receipt
         import runs
         supplied = []
         for value in participant_runs:
@@ -1916,6 +1935,7 @@ def dispose_campaign(installation: Installation, identity: str, *, participant_r
         if current.record.get("phase") == "disposed":
             if not receipt or receipt.get("outcome") != "passed":
                 raise FixtureBlocked("disposal", "campaign disposition is incomplete")
+            _release_disposal_participants(current, receipt)
             return receipt
         predecessor = _disposal_predecessor(current, receipt)
         # Both exclusive owner locks are held here. A retained process identity
@@ -1971,6 +1991,11 @@ def dispose_campaign(installation: Installation, identity: str, *, participant_r
             receipt["participant_runs"] = participant_references
             # Additional obligations are durable before their fresh observation.
             private_json(receipt_path, receipt)
+            # Admission excludes retirement while journal and retention become durable.
+            # Keep this consumer through every retry, including final credential cleanup.
+            for reference in participant_references:
+                Storage().retain(reference["storage_receipt"],
+                    f"lifecycle-disposal-participant:{identity}:{Path(reference['run_path']).name}")
         # Fresh native-client and executor observations precede any ownership transfer.
         proof = _campaign_current_quiescence(current, allow_removed_unit=receipt["steps"].get("executor-shutdown") == "passed" and not _unit_path(current.unit).exists(), participant_runs=participant_references)
         if predecessor is not None:
@@ -2161,6 +2186,7 @@ def dispose_campaign(installation: Installation, identity: str, *, participant_r
             # step. An interruption before this point resumes from the receipt.
             current.record["phase"] = "disposed"
             private_json(root / "installation.json", current.record)
+            _release_disposal_participants(current, receipt)
             return receipt
         except BaseException:
             # Keep exact scope, completed steps and closed admission for explicit recovery.
@@ -4252,7 +4278,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if installation.record.get("purpose") == LIFECYCLE_PURPOSE:
                     value["purpose"] = LIFECYCLE_PURPOSE
                     value["development_workers"] = development_workers(installation)
-                    value["disposal"] = read_json(installation.directory / "disposal.json")
+                    disposal = read_json(installation.directory / "disposal.json")
+                    value["disposal"] = _campaign_disposal_projection(disposal) if disposal is not None else None
                     value["native_inspection"] = {
                         "status": "not_inspected",
                         "reason": "host status grants no database admission",

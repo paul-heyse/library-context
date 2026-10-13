@@ -119,7 +119,7 @@ Receipts supply independent expectations, never admission; every destination ear
 Retained, sparse, backup and cold readers migrate with the physical selector codec, preserving
 selected-copy/incarnation, absence and independent incoming/installed admission. Canonical prepared
 runs bind complete dependencies and retain flat six-family v4 identity at actual boundaries.
-Installation schema7 and physical completion v2 replace universal per-view copies/seals; complete
+Installation schema8 and physical completion v2 replace universal per-view copies/seals; complete
 logical meaning and portable format4 remain unchanged. The
 [Catalog execution plan](../../plans/catalog-execution-plan_2026-10-12.md) owns scoped runtime
 acceptance and remaining consumer work; source integration is not whole-plan completion.

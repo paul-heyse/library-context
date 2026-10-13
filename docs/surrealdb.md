@@ -374,6 +374,15 @@ resume reconciles those authenticated owners rather than replaying failed logica
 Unknown local child drainage or cancellation blocks physical disposal. A failed
 native drain stays failed; checked whole-executor shutdown and disposal can settle abandoned
 remote obligations without recovering old data. Local cleanup must already be confirmed.
+Under [ADR-0167](adr/0167-disposal-current-quiescence.md), a dead ordinary-maintenance marker can
+transfer only after fresh current participant and exact executor checks, journaled before transfer.
+Missing historical marker-child ancestry alone is not a requirement; cached cleanup, a dead PID or
+absent enrollment is not proof. Live, foreign, malformed and specialized recovery markers still
+block. Admission stays closed through transfer and exact shutdown. Ordinary maintenance installer
+children are target-enrolled before spawn. For a known older managed command, repeat
+`--participant-run RUN` on disposal to add its independently authenticated current-quiescence
+obligation. That explicit reference supplies no campaign-origin or ancestry claim and replaces none
+of the mandatory attachment, host-participant or executor observations; retries retain it.
 Attachment acknowledgements retain original native outcomes verbatim and release only their
 host obligations. Stop failure preserves data, consumers and the recovery marker. Retry uses
 the same target and completed steps; a completed disposal is idempotent. Credentials are removed

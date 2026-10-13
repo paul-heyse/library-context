@@ -3063,7 +3063,7 @@ def completed_disposal_participant(tmp_path, monkeypatch):
 
 
 def test_campaign_disposal_additional_run_is_quiescence_obligation_without_ancestry_claim(lifecycle_campaign_ready, tmp_path, monkeypatch):
-    installation, _ = lifecycle_campaign_ready
+    installation, actions = lifecycle_campaign_ready
     ordinary_campaign_marker(installation)
     path = completed_disposal_participant(tmp_path, monkeypatch)
     receipt = service.dispose_campaign(installation, installation.id, participant_runs=[path.name])
@@ -3073,6 +3073,13 @@ def test_campaign_disposal_additional_run_is_quiescence_obligation_without_ances
     assert "argv" not in reference and "ancestry" not in reference
     assert receipt["current_quiescence"]["runs"][0]["group"]["status"] == "gone"
     assert receipt["outcome"] == "passed"
+    assert ("storage-release", reference["storage_receipt"],
+        f"lifecycle-disposal-participant:{installation.id}:{path.name}") in actions
+    completed = service.Installation(installation.directory,
+        service.read_json(installation.directory / "installation.json"))
+    monkeypatch.setattr(service, "_campaign_participant_run",
+        lambda path: pytest.fail("terminal disposal must not require retired run contents"))
+    assert service.dispose_campaign(completed, installation.id) == receipt
 
 
 @pytest.mark.parametrize("axis", ["owner", "group", "foreign", "malformed"])
@@ -3119,6 +3126,10 @@ def test_campaign_disposal_additional_run_retry_keeps_reference_and_refuses_repl
     receipt = service.read_json(installation.directory / "disposal.json")
     marker = service.read_json(installation.directory / "maintenance.json")
     assert receipt["maintenance_successor"] == marker
+    from storage_lifecycle import Storage
+    (reference,) = receipt["participant_runs"]
+    consumer = f"lifecycle-disposal-participant:{installation.id}:{path.name}"
+    assert Storage().get(reference["storage_receipt"])["obligations"][consumer]["released_at"] is None
     record = runs.load_record(path)
     record["argv"] = [sys.executable, "-c", "different-command"]
     service.private_json(path / runs.RECORD, record)
@@ -3317,3 +3328,22 @@ def test_campaign_disposal_cli_projection_retains_transfer_identity_without_priv
     assert projected["transferred_maintenance"]["predecessor"] == {"sha256": "a" * 64, "record": {"operation": "maintenance"}}
     assert receipt["maintenance_successor"]["token"] == "successor-secret"
     assert receipt["transferred_maintenance"]["predecessor"]["record"]["token"] == "predecessor-secret"
+
+
+def test_campaign_status_redacts_disposal_transfer_tokens(lifecycle_campaign_ready, monkeypatch, capsys):
+    installation, _ = lifecycle_campaign_ready
+    service.private_json(installation.directory / "disposal.json", {
+        "maintenance_successor": {"operation": "dispose-campaign", "token": "successor-secret"},
+        "transferred_maintenance": {"predecessor": {
+            "sha256": "a" * 64, "bytes": "private-raw-marker",
+            "record": {"operation": "maintenance", "token": "predecessor-secret"},
+        }},
+    })
+    monkeypatch.setattr(service.Installation, "load", classmethod(lambda cls, *args, **kwargs: installation))
+    monkeypatch.setattr(service, "borrowers", lambda inst: [])
+    import storage_service
+    monkeypatch.setattr(storage_service, "dependencies", lambda inst: [])
+    assert service.main(["status"]) == 0
+    output = capsys.readouterr().out
+    assert all(secret not in output for secret in ["successor-secret", "predecessor-secret", "private-raw-marker"])
+    assert json.loads(output)["disposal"]["transferred_maintenance"]["predecessor"]["sha256"] == "a" * 64

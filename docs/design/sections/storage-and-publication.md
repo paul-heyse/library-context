@@ -53,6 +53,16 @@ Checked disposal closes host admission, bounds logical close/drain attempts thro
 managed child ownership, and stops the exact daemon and descendants before discarding its datastore.
 Unknown local drainage or cancellation blocks disposal. Failed logical cleanup need not preserve obsolete data
 after confirmed whole-target shutdown; unknown drainage retains the current obligation.
+**Implemented disposal refinement / focused-Tested, 2026-10-13 (ADR-0167).** Only a strict
+private dead ordinary-maintenance marker on an explicitly owned campaign may transfer under fresh
+current participant and exact executor authentication. Reobserve run groups, attachment commands,
+development/maintenance workers and product-reader leases under existing coordination/storage locks;
+historical cleanup or missing enrollment is not proof. Journal predecessor identity and fresh proof
+before transfer, keep admission closed, and recheck before exact shutdown/discard. Missing historical
+marker-child ancestry alone does not block independently established current quiescence. Live,
+foreign, malformed and specialized recovery markers remain blocking. Future maintenance commands
+enroll target-bound ownership before spawn. Original failed/Unknown outcomes and SOURCE_JOIN recovery
+rules remain unchanged; only disposal obligations settle after actual whole-target discard.
 The [Catalog execution coordinator](../../plans/catalog-execution-plan_2026-10-12.md) owns implementation
 and qualification; actual owned-target disposal passed while preserving failed logical drain and
 native Unknown records. Ordinary product attempts retain logical validation isolation.
@@ -62,7 +72,7 @@ Native upgrades preserve atomic page effects and progress under immutable checke
 authority. Schema evolution in §6.3 owns the complete transition and recovery contract;
 the persisted coordinator retains actual migration receipts and enclosing acceptance.
 
-> Decision: ADR-0145, ADR-0146, ADR-0165
+> Decision: ADR-0145, ADR-0146, ADR-0165, ADR-0167
 
 ### §6.1 Admitted content and native publication
 
@@ -324,7 +334,7 @@ enter the separate owned freeze, including selector/mapping mutation. Drain ever
 mutation before final identity/export. Internal capabilities cannot be serialized into retained authority.
 Complete logical state retains all six v4 families independently of installation-local completion;
 durable admission reuse requires its exact protected physical epoch. Cold recovery and detached
-import earn fresh authority. The physical codec is installation schema7/completion v2; per-view
+import earn fresh authority. The physical codec is installation schema8/completion v2; per-view
 member copies, seals and legacy readers are removed. Whole-inventory attachment prevalidates all
 inputs before one exact receiving CAS. Selector-qualified alias edges prevent union-wide witness
 leakage. Runtime completion remains subject to the coordinator’s focused acceptance.

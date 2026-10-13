@@ -412,6 +412,13 @@ def test_inspection_preserves_independent_terminal_unknown_and_cleanup_axes(
     row["worker_provenance"]["build_info"]["credentials"] = "secret-credential"
     service.private_json(ledger / "record.json", row)
     service.private_json(installation.directory / "maintenance.json", {"operation": "closed"})
+    service.private_json(installation.directory / "disposal.json", {
+        "maintenance_successor": {"operation": "dispose-campaign", "token": "secret-credential-successor"},
+        "transferred_maintenance": {"predecessor": {
+            "sha256": "a" * 64, "bytes": "secret-credential-marker-bytes",
+            "record": {"operation": "maintenance", "token": "secret-credential-predecessor"},
+        }},
+    })
     monkeypatch.setattr(service, "sql", lambda *args, **kwargs: pytest.fail("ordinary inspection must not connect"))
     monkeypatch.setattr(service, "borrow", lambda *args: pytest.fail("ordinary inspection must not seek admission"))
     before = (ledger / "record.json").read_bytes()
@@ -433,6 +440,7 @@ def test_inspection_preserves_independent_terminal_unknown_and_cleanup_axes(
     assert observed["worker_provenance"]["build_info"]["schema"]["profile_identity"] == "c" * 64
     assert observed["routes"]["disposal"][-1] == installation.id
     assert value["native"]["status"] == "not_inspected"
+    assert value["disposal"]["transferred_maintenance"]["predecessor"]["sha256"] == "a" * 64
     assert "secret-credential" not in json.dumps(value)
     assert (ledger / "record.json").read_bytes() == before
     row["worker_provenance"]["worker_sha256"] = "e" * 64

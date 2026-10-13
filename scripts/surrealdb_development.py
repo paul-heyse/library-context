@@ -427,8 +427,11 @@ def inspect_campaign(
             "source": "installation-descriptor",
             "declared": installation.record.get("capabilities"),
         },
-        "disposal": read_json(installation.directory / "disposal.json"),
+        "disposal": None,
     }
+    disposal = read_json(installation.directory / "disposal.json")
+    if disposal is not None:
+        result["disposal"] = service._campaign_disposal_projection(disposal)
     if indexes:
         # Fixed diagnostic reads only. EXPLAIN ANALYZE would execute a workload and
         # is deliberately absent from this read-only preset.

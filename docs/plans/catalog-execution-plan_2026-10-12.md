@@ -235,8 +235,8 @@ bans. No required finding is closed by a conditional avenue's justified rejectio
 
 ## 6. Sole disposition and execution checkpoint
 
-**2026-10-13: operator-requested closeout. CU01–CU04 and overlapping CP04 equivalence are
-source-integrated; focused acceptance is partial.** Work is on shared main over `e98bc2e5`;
+**2026-10-13: remaining-scope execution resumed from `1b45554b`. CU01–CU04 and overlapping CP04
+equivalence are source-integrated; focused acceptance is partial.** Work is on shared main;
 no auxiliary worktree was created. Source integration is not whole-package or CE01 acceptance.
 [ADR-0166](../adr/0166-exact-completed-transport-and-selector-eligibility.md) accepts the operator's
 separate exact-copy carrier and conservative selector eligibility. Semantic format4/v4 stays unchanged;
@@ -246,6 +246,44 @@ dump preparation, CU02's exact input-port positions, CU03's direct identity/froz
 immutable eager recipe response are implemented. CE01's generated-analysis composition, CE02 selected
 current-state regeneration, CE03 older-track reconciliation and whole-plan acceptance remain distinct.
 Shared/operator and old paused targets remain untouched.
+
+The operator approved fresh-current-quiescence transfer of only dead ordinary campaign maintenance
+markers (ADR-0167); missing historical marker-child ancestry is not an independent prerequisite.
+Actual current local and executor drainage remains required; specialized recovery/SOURCE_JOIN and
+original Unknown outcomes are unchanged. Disposal, original-store last-use finality and exact
+attempt/epoch cold assertions precede new native acceptance. Retained `69c2a4` output shows native
+inventory reached output registration about0.41s after entry with only a few seconds left on the
+aggregate deadline; it does not establish inventory reads as the dominant cause. Current source
+work removes an independently demonstrated duplicate complete output map and adds phase boundaries.
+Fresh owned schema8 campaign i install `20261013T210510.943Z-2a149b` passed with confirmed local
+cleanup, installation `c3e1f0a3-8e7e-42a1-924c-eabab61bc866`, configuration
+`catalog-ce-20261013-i/installation.json`, retained reviewed SOURCE_JOIN server generation `ced8e696…`.
+This does not qualify product composition or dispose campaign g.
+
+**Passed current disposal and tooling, 2026-10-13.** Operations source `8599248a` and reviewed
+privacy/participant-retention follow-up implement ADR-0167.67 focused host/token controls passed;
+status/development projection controls passed2+2, participant retention controls passed8, and
+terminal supplementary-run lifetime control passed1 (`3f0a0e`, `8330cb`, `984699`, `7cec89`).
+Checked G disposal `20261013T212545.600Z-45058a` passed every step with confirmed local cleanup;
+ordinary-marker transfer and fresh supplemental `62296c` quiescence were journaled. Exact daemon,
+datastore, attachment, installer, unit, storage and credentials are released. Original native Unknown
+remains unchanged. Current schema8 tooling build `a95f1a`, generated/projection/parser controls
+`22ad64` (4/4), beta Sync/readback `26f90f` and declarative sample `eb0e28` (1 suite/6 cases) passed
+with confirmed local cleanup on owned i. The worker still truthfully reports remote uncertainty
+until that target's checked disposal.
+
+**Current functional corrections.** `ff0c0eb3` and `3d3608f0` migrate actual last-use success owners
+through owned drainage, original native finality and signal completion; generic borrowed artifacts
+remain reusable. Actual original-session invalidation/closed-state preservation passed in `f8a22a`;
+its Facts cold companion failed strict source absence after113s. Its exact source nominations were
+spent while the source publication reader remained pinned, returning terminal retained results.
+The changed control closes/retires publication first, then advances only those exact captured
+source nominations through an independent observer; no arbitrary/global root or new nomination is
+introduced (`f41508` running). `8886ccca` removes the duplicate complete native-inventory output
+map, preserves whole-projection prevalidation and streams through bounded writers; compile and8
+pure projection controls passed. Remaining serial transport/selector/held-alias observations were
+found during current consumer review and are being migrated through existing exact windows before
+final CE01. No timeout cause or measured speedup is inferred from these source corrections.
 
 Independent implementation review found selector-crossing alias witnesses, partially committed
 receiving attachment, and abandoned retained-boundary pin release. Corrections are source-reviewed:
