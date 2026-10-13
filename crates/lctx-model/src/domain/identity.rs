@@ -207,6 +207,51 @@ impl KeySink {
             }
         });
     }
+    /// Hash the same length-delimited JSON bytes without allocating a second complete value.
+    pub(crate) fn json_part<T: Serialize>(
+        &mut self,
+        tag: &[u8],
+        value: &T,
+    ) -> Result<(), super::ModelError> {
+        struct Count(usize);
+        impl std::io::Write for Count {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0 = self
+                    .0
+                    .checked_add(bytes.len())
+                    .ok_or_else(|| std::io::Error::other("canonical JSON length overflow"))?;
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        struct Output<'a>(&'a mut KeySink);
+        impl std::io::Write for Output<'_> {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                if self.0.2.is_none() {
+                    self.0.0.update(bytes);
+                }
+                if let Some(length) = &mut self.0.2 {
+                    *length = length.saturating_add(bytes.len());
+                }
+                if let Some(encoded) = &mut self.0.1 {
+                    encoded.extend_from_slice(bytes);
+                }
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut count = Count(0);
+        serde_json::to_writer(&mut count, value).map_err(super::ModelError::codec)?;
+        let mut output = Output(self);
+        framed_prefix(tag, count.0, |fragment| {
+            std::io::Write::write_all(&mut output, fragment).expect("infallible key sink");
+        });
+        serde_json::to_writer(&mut output, value).map_err(super::ModelError::codec)
+    }
     pub(crate) fn recorded(self) -> Vec<u8> {
         self.1.expect("recording key sink")
     }
@@ -216,10 +261,13 @@ impl KeySink {
 }
 // Both direct hashing and prepared replay use this sole scalar framing recipe.
 fn framed_part(tag: &[u8], bytes: &[u8], mut emit: impl FnMut(&[u8])) {
+    framed_prefix(tag, bytes.len(), &mut emit);
+    emit(bytes);
+}
+fn framed_prefix(tag: &[u8], length: usize, mut emit: impl FnMut(&[u8])) {
     emit(&(tag.len() as u64).to_le_bytes());
     emit(tag);
-    emit(&(bytes.len() as u64).to_le_bytes());
-    emit(bytes);
+    emit(&(length as u64).to_le_bytes());
 }
 
 pub trait Key {
@@ -436,6 +484,21 @@ impl<'de> Deserialize<'de> for Utf8Text {
 #[cfg(test)]
 mod prepared_hash_tests {
     use super::*;
+    #[test]
+    fn streamed_json_preserves_identical_scalar_framing() {
+        let value =
+            serde_json::json!({"nested":[null, true, "résumé 日本語", {"n":-42}], "empty":[]});
+        let mut buffered = KeySink::new("json-control");
+        buffered.part(b"value", &serde_json::to_vec(&value).unwrap());
+        let mut streamed = KeySink::new("json-control");
+        streamed.json_part(b"value", &value).unwrap();
+        assert_eq!(streamed.finish(), buffered.finish());
+        let mut count = KeySink::counting("json-control");
+        count.json_part(b"value", &value).unwrap();
+        let mut recorded = KeySink::recording("json-control", count.encoded_len());
+        recorded.json_part(b"value", &value).unwrap();
+        assert_eq!(recorded.recorded().len(), count.encoded_len());
+    }
     #[test]
     fn content_hashes_preserve_original_framing_and_order() {
         // Independent, explicit byte framing fixes the v3 contract, including empty sequences.

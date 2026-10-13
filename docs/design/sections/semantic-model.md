@@ -68,6 +68,14 @@ and `cpg-flow` own independent native observations; `cpg-core` owns cumulative p
 compilation and artifact admission. `lctx-analytics` supplies pure charged kernels. `lctx-embed`
 is an explicit external effect. Python owns transport and presentation.
 
+**Implemented source / focused acceptance in progress, 2026-10-13 (ADR-0166).** Admitted artifacts
+can outlive the producer's read catalog through the same shared execution owner. It retains original
+spill, bridge, native-call/store, provider-join, cache-session and signal ownership. Workspace and
+borrowed admission delegate the existing checked drainage policy; after the last operation, owned
+drainage and required native cleanup precede original-signal completion with the enclosing report.
+Explicit Workspace drainage remains authoritative. Neither export nor a borrowed seal implicitly
+ends that whole lifetime, and no extra signal registration or retained read catalog is required.
+
 The compiler writes bounded canonical-first native values and pending contribution memberships.
 Completed views bind exact inputs and exclude pending output. Shared-vocabulary contributions
 reuse identical values, reject same-key different payloads within one view and freeze immutable membership at
@@ -104,6 +112,10 @@ relations, roles, empties, coverage and aliases remain model-owned; they do not 
 another durable membership realization or full-state hash. A frozen admitted/published operation
 owns a compound physical boundary with exact per-view selectors; independently retained products
 may earn their own boundary. Internal borrowers retain actual parent capability/pin/resource lifetime.
+The accepted transport/eligibility target (ADR-0166) preserves semantic v4 while binding complete
+root-qualified copy correspondence in a separate envelope and native publication v3 eligibility.
+Receipts supply independent expectations, never admission; every destination earns new authority.
+
 Retained, sparse, backup and cold readers migrate with the physical selector codec, preserving
 selected-copy/incarnation, absence and independent incoming/installed admission. Canonical prepared
 runs bind complete dependencies and retain flat six-family v4 identity at actual boundaries.
@@ -125,7 +137,7 @@ serialization is implied. Source acceptance and focused native/diagnostic contro
 foundations; generated-analysis/native-query and enclosing acceptance retain their exact boundaries
 in the [Catalog execution coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint).
 
-> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108, ADR-0165
+> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108, ADR-0165, ADR-0166
 
 <a id="section-15-2"></a>
 

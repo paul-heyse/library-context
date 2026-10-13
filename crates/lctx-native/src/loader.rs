@@ -233,8 +233,12 @@ impl Loader {
     pub fn for_attempt_views(
         client: Arc<Surreal<Client>>,
         attempt: ContentHash,
-        views: Vec<ContentHash>,
+        mut views: Vec<ContentHash>,
     ) -> Self {
+        // This is a selector set. Binding-key order is a separate semantic inventory;
+        // repeated bindings may legitimately request the same completed view.
+        views.sort_unstable();
+        views.dedup();
         Self {
             client,
             views: Some(views),

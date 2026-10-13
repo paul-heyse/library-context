@@ -355,7 +355,7 @@ async fn publication_control() {
         .await
         .unwrap();
         let export = scratch.path().join("artifact");
-        admitted.export(&export).await.unwrap();
+        let export_receipt = admitted.export(&export).await.unwrap();
         drop(admitted);
         workspace.drain().await.unwrap();
         native.abandon().await.unwrap();
@@ -371,7 +371,9 @@ async fn publication_control() {
             restored,
         )
         .unwrap();
-        let verified = artifact::verify_export(&export, &workspace).await.unwrap();
+        let verified = artifact::verify_export(&export, &workspace, &export_receipt)
+            .await
+            .unwrap();
 
         let definitions = lctx_native::materialization::native_definitions();
         let handle = lctx_publisher::publish(&verified, &config, &definitions)
@@ -560,6 +562,190 @@ struct SmallPublication {
     handle: SnapshotHandle,
     manifest: graph::Manifest,
     source: Vec<u8>,
+    source_attempt: ContentHash,
+    source_cleanup: SourceCleanupRoots,
+}
+struct SourceCleanupRoots {
+    generation: String,
+    epoch: i64,
+    roots: std::collections::BTreeMap<lctx_native::surrealdb::types::RecordId, i64>,
+    _charge: charged::StateCharge,
+}
+
+// Observe the actual attempt's still-held roots before publication releases them.
+async fn source_cleanup_roots(
+    config: &RuntimeConfig,
+    attempt: ContentHash,
+    budget: &resources::ResourceBudget,
+) -> Result<SourceCleanupRoots, ModelError> {
+    use lctx_native::surrealdb::types::{Number, Object, RecordId, Value, Variables};
+    let client = lctx_native::reader::connect(
+        &config.endpoint,
+        &config.writer_credentials(),
+        config.namespace.as_str(),
+        config.database.as_str(),
+    )
+    .await?;
+    let session = lctx_native::reader::SessionFinalizationGuard::new(client.clone());
+    let reader = NativeReader::private(client).with_budget(budget);
+    let result = async {
+        let attempt = RecordId::new("native_attempt", attempt.hex());
+        let mut variables = Variables::new(); variables.insert("attempt", attempt.clone());
+        let rows: Vec<Object> = reader.query_native("SELECT id,generation,epoch FROM $attempt", variables).await?;
+        let [row] = rows.as_slice() else { return Err(ModelError::Schema("cold control source attempt cardinality")); };
+        let (Some(Value::String(generation)), Some(Value::Number(Number::Int(epoch)))) = (row.get("generation"), row.get("epoch")) else {
+            return Err(ModelError::Schema("cold control source attempt context"));
+        };
+        assert_eq!(row.get("id"), Some(&Value::RecordId(attempt.clone())));
+        assert_eq!(generation, &config.service_generation.hex()); assert!(*epoch > 0);
+        let mut evidence = SourceCleanupRoots { generation: generation.clone(), epoch: *epoch,
+            roots: Default::default(), _charge: charged::StateCharge::new(budget, "cold-control-source-roots") };
+        let mut after = Value::None;
+        loop {
+            let mut variables = Variables::new(); variables.insert("attempt", attempt.clone()); variables.insert("after", after.clone());
+            let roots: Vec<RecordId> = reader.query_native(&format!(
+                "SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt AND ($after=NONE OR object>$after) ORDER BY object LIMIT {}",
+                lctx_native::loader::NATIVE_WINDOW_ROWS,
+            ), variables).await?;
+            if roots.is_empty() { break; }
+            assert!(roots.len() <= lctx_native::loader::NATIVE_WINDOW_ROWS);
+            let mut observed = lctx_native::control::inspect_expected_window_read(&reader, &roots, budget).await?;
+            for root in roots {
+                assert!(after == Value::None || after < Value::RecordId(root.clone()));
+                after = Value::RecordId(root.clone()); evidence._charge.grow(512)?;
+                let incarnation = observed.take_required(&root)?.incarnation();
+                assert!(evidence.roots.insert(root, incarnation).is_none());
+            }
+            observed.finish()?;
+        }
+        assert!(!evidence.roots.is_empty());
+        Ok(evidence)
+    }.await;
+    let mut completion = completion::Completion::default();
+    completion.step("source root observation reader drain", reader.close().await);
+    completion.step(
+        "source root observation session close",
+        session.close().await,
+    );
+    completion::complete(result, completion)
+}
+
+// Sealing adds only these two final roots after the pre-close hold inventory.
+// Earn the exact published boundary, then reconcile its marker/staging pointers.
+async fn augment_published_source_roots(
+    evidence: &mut SourceCleanupRoots,
+    source_attempt: ContentHash,
+    reader: &NativeReader<SnapshotHandle>,
+    budget: &resources::ResourceBudget,
+) -> Result<(), ModelError> {
+    use lctx_native::surrealdb::types::{Number, Object, RecordId, Value, Variables};
+    let completed = lctx_native::completed_state::published_completed_state(reader, budget).await?;
+    let data = completed.completion();
+    assert_eq!(data.attempt, source_attempt);
+    assert_eq!(data.generation.hex(), evidence.generation);
+    assert_eq!(data.attempt_epoch, evidence.epoch);
+    let source = RecordId::new("native_attempt", source_attempt.hex());
+    let mut variables = Variables::new();
+    variables.insert("source", source.clone());
+    let sources: Vec<Object> = reader
+        .query_native("SELECT id,generation,epoch,state FROM $source", variables)
+        .await?;
+    let [actual_source] = sources.as_slice() else {
+        return Err(ModelError::Conflict(
+            "cold control published source attempt missing",
+        ));
+    };
+    assert_eq!(
+        actual_source.get("id"),
+        Some(&Value::RecordId(source.clone()))
+    );
+    assert_eq!(
+        actual_source.get("generation"),
+        Some(&Value::String(evidence.generation.clone()))
+    );
+    assert_eq!(
+        actual_source.get("epoch"),
+        Some(&Value::Number(Number::Int(evidence.epoch)))
+    );
+    assert_eq!(
+        actual_source.get("state"),
+        Some(&Value::String("closed".into()))
+    );
+    let marker_id = RecordId::new("publication", reader.handle().publication.hex());
+    let mut marker_observation = lctx_native::control::inspect_expected_window_read(
+        reader,
+        std::slice::from_ref(&marker_id),
+        budget,
+    )
+    .await?;
+    let marker = marker_observation.take_required(&marker_id)?;
+    marker_observation.finish()?;
+    let marker_row = marker
+        .row()
+        .as_object()
+        .ok_or(ModelError::Schema("cold control publication marker"))?;
+    let Some(Value::RecordId(staging_id)) = marker_row.get("staging_root") else {
+        return Err(ModelError::Schema("cold control published staging pointer"));
+    };
+    assert_eq!(staging_id.table.as_str(), "native_publication_staging");
+    assert_eq!(
+        marker_row.get("completion"),
+        Some(&Value::RecordId(data.record()?))
+    );
+    assert_eq!(
+        marker_row.get("admission"),
+        Some(&Value::RecordId(completed.admission_record()?))
+    );
+    assert_eq!(
+        marker_row.get("completion_incarnation"),
+        Some(&Value::Number(Number::Int(completed.incarnation())))
+    );
+    let mut staging_observation = lctx_native::control::inspect_expected_window_read(
+        reader,
+        std::slice::from_ref(staging_id),
+        budget,
+    )
+    .await?;
+    let staging = staging_observation.take_required(staging_id)?;
+    staging_observation.finish()?;
+    let staging_row = staging
+        .row()
+        .as_object()
+        .ok_or(ModelError::Schema("cold control published staging"))?;
+    assert_eq!(staging_row.get("attempt"), Some(&Value::RecordId(source)));
+    assert_eq!(
+        staging_row.get("generation"),
+        Some(&Value::String(evidence.generation.clone()))
+    );
+    assert_eq!(
+        staging_row.get("epoch"),
+        Some(&Value::Number(Number::Int(evidence.epoch)))
+    );
+    assert_eq!(
+        staging_row.get("state"),
+        Some(&Value::String("published".into()))
+    );
+    for field in ["completion", "admission", "derivation", "validity_epoch"] {
+        assert_eq!(staging_row.get(field), marker_row.get(field));
+    }
+    assert_eq!(
+        marker_row.get("staging_incarnation"),
+        Some(&Value::Number(Number::Int(staging.incarnation())))
+    );
+    evidence._charge.grow(1024)?;
+    assert!(
+        evidence
+            .roots
+            .insert(marker_id, marker.incarnation())
+            .is_none()
+    );
+    assert!(
+        evidence
+            .roots
+            .insert(staging_id.clone(), staging.incarnation())
+            .is_none()
+    );
+    Ok(())
 }
 async fn small_publication(case: &str) -> Result<SmallPublication, ModelError> {
     small_publication_from_source(case, Frontier::Normalized, None).await
@@ -577,13 +763,13 @@ async fn small_publication_from_source(
     config.selection = scratch.path().join("selected.json");
     let native =
         lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, frontier).await?;
+    let workspace = Workspace::new(
+        Arc::new(model()?),
+        WorkspaceOptions::default(),
+        native.clone(),
+    )?;
     let mut publication_owns_completion = false;
     let built = async {
-        let workspace = Workspace::new(
-            Arc::new(model()?),
-            WorkspaceOptions::default(),
-            native.clone(),
-        )?;
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let nonce = format!(
             "{case}_{}_{}_{}",
@@ -646,6 +832,8 @@ async fn small_publication_from_source(
         let admitted =
             artifact::admit(&workspace, &captured, frontier, Profile::Catalog, settings).await?;
         let manifest = admitted.manifest().clone();
+        let source_cleanup =
+            source_cleanup_roots(&config, native.attempt(), workspace.budget()).await?;
         // Once entered, publication owns attempt/session completion on either outcome.
         publication_owns_completion = true;
         let handle = lctx_publisher::seal_completed(
@@ -654,23 +842,27 @@ async fn small_publication_from_source(
             &lctx_native::materialization::native_definitions(),
         )
         .await?;
-        Ok((handle, manifest, source))
+        Ok((handle, manifest, source, source_cleanup))
     }
     .await;
-    let mut completion = completion::Completion::default();
+    let mut completion = workspace.drain_owned_report().await;
     if built.is_err() && !publication_owns_completion {
         completion.step(
             "small publication attempt abandonment",
             native.abandon().await,
         );
     }
-    let (handle, manifest, source) = completion::complete(built, completion)?;
+    let signal = workspace.complete_signal(&completion).await;
+    completion.step("small publication workspace finality", signal);
+    let (handle, manifest, source, source_cleanup) = completion::complete(built, completion)?;
     Ok(SmallPublication {
         scratch,
         config,
         handle,
         manifest,
         source,
+        source_attempt: native.attempt(),
+        source_cleanup,
     })
 }
 
@@ -713,14 +905,29 @@ async fn finish_small_publication<const N: usize>(
     cleanup.unwrap();
 }
 
+fn backup_sql_control(
+    path: &std::path::Path,
+    expected: &lctx_model::domain::completed_transport::BackupReceipt,
+) -> (tempfile::TempDir, std::fs::File) {
+    let scratch = tempfile::tempdir().unwrap();
+    let sql = scratch.path().join("claims.sql");
+    let state = scratch.path().join("completed-state");
+    let budget = resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES).unwrap();
+    backup_decode::read_carrier(path, &sql, &state, expected, &budget).unwrap();
+    let file = std::fs::File::open(sql).unwrap();
+    (scratch, file)
+}
+
 fn logical_backup_rows(
     path: &std::path::Path,
+    receipt: &lctx_model::domain::completed_transport::BackupReceipt,
 ) -> std::collections::BTreeMap<
     lctx_native::surrealdb::types::RecordId,
     lctx_native::surrealdb::types::Value,
 > {
     use lctx_native::surrealdb::types::Value;
-    let mut dump = backup_decode::DataDump::new(std::fs::File::open(path).unwrap());
+    let (_scratch, file) = backup_sql_control(path, receipt);
+    let mut dump = backup_decode::DataDump::new(file);
     let mut inventory = std::collections::BTreeMap::new();
     while let Some(item) = dump.next().unwrap() {
         if let backup_decode::Item::Rows(rows) = item {
@@ -781,6 +988,428 @@ async fn retire_publication_completely(
     completion::complete(result, completion)
 }
 
+struct PublicationOwnership {
+    attempts: std::collections::BTreeSet<lctx_native::surrealdb::types::RecordId>,
+    completion_attempt: lctx_native::surrealdb::types::RecordId,
+    completion_epoch: i64,
+}
+
+// The publication owns one staging root. The checked compound completion inventories
+// every retained contributor copy, including candidates outside the selected mappings.
+async fn publication_ownership(
+    reader: &NativeReader<SnapshotHandle>,
+    budget: &resources::ResourceBudget,
+) -> Result<PublicationOwnership, ModelError> {
+    use lctx_native::surrealdb::types::{RecordId, Variables};
+    let completed = lctx_native::completed_state::published_completed_state(reader, budget).await?;
+    let copies = completed
+        .inventory()
+        .copies()
+        .keys()
+        .map(|physical| RecordId::new("compiler_contribution", physical.hex()))
+        .collect::<Vec<_>>();
+    let mut attempts = std::collections::BTreeSet::new();
+    for window in copies.chunks(lctx_native::loader::NATIVE_WINDOW_ROWS) {
+        let mut variables = Variables::new();
+        variables.insert("copies", window.to_vec());
+        let owners: Vec<RecordId> = reader
+            .query_native("SELECT VALUE attempt FROM $copies", variables)
+            .await?;
+        if owners.len() != window.len()
+            || owners
+                .iter()
+                .any(|owner| owner.table.as_str() != "native_attempt")
+        {
+            return Err(ModelError::Conflict(
+                "publication retained copy attempt correspondence",
+            ));
+        }
+        attempts.extend(owners);
+    }
+    Ok(PublicationOwnership {
+        attempts,
+        completion_attempt: RecordId::new("native_attempt", completed.completion().attempt.hex()),
+        completion_epoch: completed.completion().attempt_epoch,
+    })
+}
+
+// Reference lookup for this exact incoming capture, not an admission capability. A
+// converged loser is nominated for retirement and need not enter the winning selector.
+async fn receiving_capture_attempts(
+    reader: &NativeReader<SnapshotHandle>,
+    receipt: &lctx_model::domain::completed_transport::BackupReceipt,
+) -> Result<std::collections::BTreeSet<lctx_native::surrealdb::types::RecordId>, ModelError> {
+    use lctx_native::surrealdb::types::{RecordId, Variables};
+    receipt.validate()?;
+    if receipt.state.inventory_counts.copies == 0 {
+        return Err(ModelError::Schema(
+            "restore cohort requires a portable copy",
+        ));
+    }
+    let mut seed = KeySink::new("completed-import-copy/v1");
+    receipt.state.envelope.encode(&mut seed);
+    seed.part(b"label", &0u64.to_le_bytes());
+    let mut variables = Variables::new();
+    variables.insert("capture", seed.finish().hex());
+    let attempts: Vec<RecordId> = reader
+        .query_native(
+            "SELECT VALUE attempt FROM compiler_contribution WHERE transport_copy=$capture",
+            variables,
+        )
+        .await?;
+    if attempts
+        .iter()
+        .any(|attempt| attempt.table.as_str() != "native_attempt")
+    {
+        return Err(ModelError::Schema("incoming capture attempt identity"));
+    }
+    Ok(attempts.into_iter().collect())
+}
+
+// Root authority comes from the pre-close source holds, not a globally unique epoch.
+// Only untouched existing jobs whose complete original roots match that evidence advance.
+async fn advance_source_cleanup(
+    fixture: &SmallPublication,
+    reader: &NativeReader<SnapshotHandle>,
+    budget: &resources::ResourceBudget,
+) -> Result<(), ModelError> {
+    use lctx_native::surrealdb::types::{Number, Object, RecordId, RecordIdKey, Value, Variables};
+    let evidence = &fixture.source_cleanup;
+    let integer = |row: &Object, field: &str| -> Result<i64, ModelError> {
+        match row.get(field) {
+            Some(Value::Number(Number::Int(value))) => Ok(*value),
+            _ => Err(ModelError::Schema("cold control cleanup integer")),
+        }
+    };
+    let mut charge = charged::StateCharge::new(budget, "cold-control-source-cleanup-jobs");
+    let mut jobs = std::collections::BTreeSet::new();
+    for root in evidence.roots.keys() {
+        let mut after = Value::None;
+        loop {
+            let mut variables = Variables::new();
+            variables.insert("root", root.clone());
+            variables.insert("after", after.clone());
+            variables.insert("generation", evidence.generation.clone());
+            variables.insert("epoch", evidence.epoch);
+            let rows: Vec<Object> = reader.query_native(&format!(
+                "SELECT id,object,job FROM native_retirement_item WITH INDEX object_retirements WHERE object=$root AND job.generation=$generation AND job.epoch=$epoch AND ($after=NONE OR id>$after) ORDER BY id LIMIT {}",
+                lctx_native::loader::NATIVE_WINDOW_ROWS,
+            ), variables).await?;
+            if rows.is_empty() {
+                break;
+            }
+            assert!(rows.len() <= lctx_native::loader::NATIVE_WINDOW_ROWS);
+            for row in rows {
+                let (Some(Value::RecordId(id)), Some(Value::RecordId(job))) =
+                    (row.get("id"), row.get("job"))
+                else {
+                    return Err(ModelError::Schema("cold control source cleanup nomination"));
+                };
+                assert_eq!(row.get("object"), Some(&Value::RecordId(root.clone())));
+                assert_eq!(job.table.as_str(), "native_retirement");
+                assert!(after == Value::None || after < Value::RecordId(id.clone()));
+                after = Value::RecordId(id.clone());
+                charge.grow(512)?;
+                jobs.insert(job.clone());
+            }
+        }
+    }
+    let mut proven = 0;
+    for job in jobs {
+        let mut variables = Variables::new();
+        variables.insert("job", job.clone());
+        let rows: Vec<Object> = reader
+            .query_native("SELECT * FROM $job", variables.clone())
+            .await?;
+        let [row] = rows.as_slice() else {
+            return Err(ModelError::Conflict("cold control cleanup job missing"));
+        };
+        assert_eq!(
+            row.get("generation"),
+            Some(&Value::String(evidence.generation.clone()))
+        );
+        assert_eq!(integer(row, "epoch")?, evidence.epoch);
+        if row.get("state") != Some(&Value::String("open".into()))
+            || integer(row, "examined")? != 0
+            || integer(row, "retired")? != 0
+            || row.get("lineage") != Some(&Value::RecordId(job.clone()))
+            || row
+                .get("predecessor")
+                .is_some_and(|value| *value != Value::None)
+            || row
+                .get("successor")
+                .is_some_and(|value| *value != Value::None)
+        {
+            eprintln!("source cleanup candidate already advanced or closed: {row:?}");
+            continue;
+        }
+        let count = usize::try_from(integer(row, "root_count")?).map_err(ModelError::codec)?;
+        if count == 0
+            || count > lctx_native::loader::NATIVE_WINDOW_ROWS
+            || integer(row, "roots_registered")? != count as i64
+        {
+            eprintln!("source cleanup candidate lacks one complete bounded original page: {row:?}");
+            continue;
+        }
+        let items: Vec<Object> = reader.query_native(&format!(
+            "SELECT object,incarnation,state FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job ORDER BY id LIMIT {}",
+            lctx_native::loader::NATIVE_WINDOW_ROWS + 1,
+        ), variables).await?;
+        if items.len() != count
+            || items
+                .iter()
+                .any(|item| item.get("state") != Some(&Value::String("pending".into())))
+        {
+            eprintln!("source cleanup candidate is not untouched: job={job:?} items={items:?}");
+            continue;
+        }
+        let mut originals = std::collections::BTreeSet::new();
+        let mut complete_subset = true;
+        for item in &items {
+            let Some(Value::RecordId(root)) = item.get("object") else {
+                return Err(ModelError::Schema("cold control cleanup original root"));
+            };
+            let Some(incarnation) = evidence.roots.get(root) else {
+                complete_subset = false;
+                break;
+            };
+            if integer(item, "incarnation")? != *incarnation {
+                return Err(ModelError::Conflict(
+                    "cold control source root incarnation changed",
+                ));
+            }
+            assert!(originals.insert(root.clone()));
+        }
+        if !complete_subset {
+            eprintln!(
+                "source cleanup candidate includes unowned original roots: job={job:?} items={items:?}"
+            );
+            continue;
+        }
+        let originals = originals.into_iter().collect::<Vec<_>>();
+        let digest = ContentHash::of(
+            &serde_json::to_vec(&("native-retirement/v4", &originals))
+                .map_err(ModelError::codec)?,
+        );
+        assert_eq!(
+            row.get("root_digest"),
+            Some(&Value::String(digest.hex())),
+            "complete original root recipe"
+        );
+        let RecordIdKey::String(key) = &job.key else {
+            return Err(ModelError::Schema("cold control cleanup job key"));
+        };
+        let identity = ContentHash(
+            hex::decode(key)
+                .map_err(ModelError::codec)?
+                .try_into()
+                .map_err(|_| ModelError::Schema("cold control cleanup job width"))?,
+        );
+        let mut progress =
+            lctx_native::control::resume_retirement(reader.client(), identity, 4096).await?;
+        loop {
+            if progress.remaining.is_empty() {
+                break;
+            }
+            let next =
+                lctx_native::control::resume_retirement(reader.client(), identity, 4096).await?;
+            if next == progress {
+                return Err(ModelError::Conflict(
+                    "cold control source cleanup made no progress",
+                ));
+            }
+            progress = next;
+        }
+        proven += 1;
+        eprintln!("advanced exact source cleanup job: {progress:?}");
+    }
+    if proven == 0 {
+        let copies = evidence
+            .roots
+            .keys()
+            .filter(|root| root.table.as_str() == "compiler_contribution")
+            .cloned()
+            .collect::<Vec<_>>();
+        cold_remaining_holders(&reader.shared_client(), &copies, budget).await?;
+        panic!(
+            "no untouched complete nomination matched pre-close source roots: source={:?} epoch={} roots={:?}",
+            fixture.source_attempt, evidence.epoch, evidence.roots
+        );
+    }
+    Ok(())
+}
+
+// Read-only failure evidence identifies actual remaining holders without inventing release authority.
+async fn cold_remaining_holders(
+    client: &Arc<
+        lctx_native::surrealdb::Surreal<lctx_native::surrealdb::engine::remote::grpc::Client>,
+    >,
+    rows: &[lctx_native::surrealdb::types::RecordId],
+    budget: &resources::ResourceBudget,
+) -> Result<(), ModelError> {
+    use lctx_native::surrealdb::types::{Object, Value, Variables};
+    let reader = NativeReader::private(client.clone()).with_budget(budget);
+    let result = async {
+        for object in rows {
+            let mut after = Value::None;
+            loop {
+                let mut variables = Variables::new(); variables.insert("object", object.clone()); variables.insert("after", after.clone());
+                let holds: Vec<Object> = reader.query_native(&format!("SELECT id,owner,object,owner.* AS owner_row FROM native_hold WITH INDEX object_holds WHERE object=$object AND ($after=NONE OR id>$after) ORDER BY id LIMIT {}", lctx_native::loader::NATIVE_WINDOW_ROWS), variables).await?;
+                if holds.is_empty() { break; }
+                for hold in holds {
+                    let Some(Value::RecordId(id)) = hold.get("id") else { return Err(ModelError::Schema("cold control remaining hold identity")); };
+                    assert!(after == Value::None || after < Value::RecordId(id.clone())); after = Value::RecordId(id.clone());
+                    eprintln!("cold source remaining incoming hold: {hold:?}");
+                }
+            }
+        }
+        Ok(())
+    }.await;
+    let mut completion = completion::Completion::default();
+    completion.step(
+        "cold source holder observation reader drain",
+        reader.close().await,
+    );
+    completion::complete(result, completion)
+}
+
+#[tokio::test]
+async fn facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_ownership() {
+    use lctx_native::surrealdb::types::{Number, RecordId, Value, Variables};
+    let mut fixture = small_publication_from_source(
+        "facts_backup_cold_concurrent",
+        Frontier::Facts,
+        Some(b"VALUE = 7\n"),
+    )
+    .await
+    .unwrap();
+    let definitions = lctx_native::materialization::native_definitions();
+    let budget =
+        resources::ResourceBudget::fixed(WorkspaceOptions::default().memory_bytes).unwrap();
+    let mut source_owner = None;
+    let mut restored_owner = None;
+    let mut observer_owner = None;
+    let outcome = AssertUnwindSafe(async {
+        assert_eq!(fixture.manifest.frontier, Frontier::Facts);
+        assert_eq!(fixture.manifest.profile, Profile::Catalog);
+        assert_eq!(fixture.manifest.originals.len(), 1);
+        source_owner = Some(NativeReader::connect(&fixture.config.endpoint,
+            &fixture.config.writer_credentials(), fixture.handle.clone()).await.unwrap().with_budget(&budget));
+        augment_published_source_roots(&mut fixture.source_cleanup, fixture.source_attempt,
+            source_owner.as_ref().unwrap(), &budget).await.unwrap();
+        let before = publication_ownership(source_owner.as_ref().unwrap(), &budget).await.unwrap();
+        assert!(!before.attempts.is_empty()); assert!(before.completion_epoch > 0);
+        let backup = fixture.scratch.path().join("facts.backup");
+        // This returned result remains the independent expectation across retirement and
+        // both restores. Neither the carrier header nor a sidecar supplies the expectation.
+        let receipt = lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &backup, &definitions).await.unwrap();
+        assert_eq!(receipt.source, fixture.handle);
+        assert_eq!(receipt.manifest, fixture.manifest.content());
+        assert_eq!(receipt.state.semantic, fixture.manifest.completed_state);
+        let incoming_before = receiving_capture_attempts(source_owner.as_ref().unwrap(), &receipt).await.unwrap();
+        let claims = logical_backup_rows(&backup, &receipt);
+        for table in ["original", "original_blob", "original_chunk", "compiler_contribution", "compiler_membership"] {
+            assert!(claims.keys().any(|id| id.table.as_str() == table), "Facts fixture must exercise {table}");
+        }
+        assert!(before.attempts.contains(&RecordId::new("native_attempt", fixture.source_attempt.hex())));
+        advance_source_cleanup(&fixture, source_owner.as_ref().unwrap(), &budget).await.unwrap();
+        close_reader_owner(&mut source_owner).await.unwrap();
+        retire_publication_completely(&fixture.config, &fixture.handle).await.unwrap();
+        observer_owner = Some(lctx_native::reader::connect(&fixture.config.endpoint,
+            &fixture.config.writer_credentials(), fixture.config.namespace.as_str(),
+            fixture.config.database.as_str()).await.unwrap());
+        let observer = observer_owner.as_ref().unwrap();
+        let mut absent = vec![RecordId::new("publication", fixture.handle.publication.hex())];
+        absent.extend(claims.keys().filter(|id| matches!(id.table.as_str(),
+            "original" | "original_blob" | "original_chunk" | "compiler_contribution" | "compiler_membership")).cloned());
+        for window in absent.chunks(lctx_native::loader::NATIVE_WINDOW_ROWS) {
+            let mut variables = Variables::new(); variables.insert("rows", window.to_vec());
+            let mut response = observer.query("SELECT VALUE id FROM $rows").bind(variables).await.unwrap().check().unwrap();
+            let remaining: Vec<RecordId> = response.take(0).unwrap();
+            if !remaining.is_empty() {
+                cold_remaining_holders(observer, &remaining, &budget).await.unwrap();
+                panic!("cold ingress cannot borrow retired source rows: {remaining:?}; actual incoming holds printed above");
+            }
+        }
+        assert!(NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(),
+            fixture.handle.clone()).await.is_err(), "source publication must be unavailable before restore");
+        assert!(!fixture.config.selection.exists());
+        assert!(!fixture.config.selection.with_extension("serving.json").exists());
+        let (first, second) = tokio::join!(
+            lctx_publisher::backup::restore_publication(&fixture.config, &backup,
+                fixture.handle.publication, &definitions, &receipt),
+            lctx_publisher::backup::restore_publication(&fixture.config, &backup,
+                fixture.handle.publication, &definitions, &receipt),
+        );
+        let first = first.unwrap(); let second = second.unwrap();
+        assert_eq!(first, fixture.handle); assert_eq!(second, first);
+        let (first_audit, second_audit) = tokio::join!(
+            lctx_publisher::inspection::audit(&fixture.config, &first, &definitions),
+            lctx_publisher::inspection::audit(&fixture.config, &second, &definitions),
+        );
+        first_audit.unwrap(); second_audit.unwrap();
+        restored_owner = Some(NativeReader::connect(&fixture.config.endpoint,
+            &fixture.config.writer_credentials(), first).await.unwrap().with_budget(&budget));
+        let reader = restored_owner.as_ref().unwrap();
+        let after = publication_ownership(reader, &budget).await.unwrap();
+        let incoming_after = receiving_capture_attempts(reader, &receipt).await.unwrap();
+        let fresh = incoming_after.difference(&incoming_before).cloned().collect::<Vec<_>>();
+        assert_eq!(fresh.len(), 2, "both receiving calls create fresh independently admitted attempts for the exact incoming capture");
+        assert!(fresh.iter().all(|attempt| !before.attempts.contains(attempt)), "source attempts cannot become receiving owners");
+        assert_ne!(after.completion_attempt, before.completion_attempt);
+        assert_ne!(after.completion_epoch, before.completion_epoch);
+        assert!(fresh.contains(&after.completion_attempt));
+        let mut variables = Variables::new(); variables.insert("attempts", fresh);
+        let attempts: Vec<lctx_native::surrealdb::types::Object> = reader.query_native("SELECT * FROM $attempts", variables).await.unwrap();
+        assert_eq!(attempts.len(), 2);
+        let mut epochs = std::collections::BTreeSet::new();
+        for attempt in attempts {
+            assert_eq!(attempt.get("state"), Some(&Value::String("closed".into())));
+            assert_eq!(attempt.get("admitted"), Some(&Value::Bool(true)));
+            assert_eq!(attempt.get("generation"), Some(&Value::String(fixture.config.service_generation.hex())));
+            let Some(Value::Number(Number::Int(epoch))) = attempt.get("epoch") else { panic!("fresh restored attempt epoch"); };
+            assert!(*epoch > 0); assert_ne!(*epoch, before.completion_epoch);
+            assert!(epochs.insert(*epoch), "restore calls must not share an attempt epoch");
+        }
+        assert!(epochs.contains(&after.completion_epoch));
+        let actual = lctx_publisher::inspection::show(reader).await.unwrap();
+        assert_eq!(actual.manifest.content(), fixture.manifest.content());
+        assert_eq!(actual.manifest.originals, fixture.manifest.originals);
+        for original in &fixture.manifest.originals {
+            assert_eq!(reader.original_bytes(original.source, 0, usize::try_from(original.byte_len).unwrap()).await.unwrap(),
+                fixture.source, "every original byte is reconstructed from the externally expected backup after source retirement");
+        }
+        assert!(!fixture.config.selection.exists(), "restore must not adopt operator selection");
+        assert!(!fixture.config.selection.with_extension("serving.json").exists());
+    }).catch_unwind().await;
+    let mut completion = completion::Completion::default();
+    if let Some(observer) = observer_owner {
+        completion.step(
+            "Facts cold restore observer invalidation",
+            observer.invalidate().await.map_err(ModelError::codec),
+        );
+    }
+    let cleanup = completion::complete(Ok(()), completion);
+    let outcome = match outcome {
+        Err(primary) => {
+            if let Err(secondary) = cleanup {
+                eprintln!(
+                    "Facts backup assertion failed; observer cleanup also failed: {secondary:#?}"
+                );
+            }
+            Err(primary)
+        }
+        Ok(()) => {
+            AssertUnwindSafe(async {
+                cleanup.unwrap();
+            })
+            .catch_unwind()
+            .await
+        }
+    };
+    finish_small_publication(&fixture, outcome, [&mut source_owner, &mut restored_owner]).await;
+}
+
 #[tokio::test]
 async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_retirement() {
     use lctx_native::surrealdb::types::{RecordId, Value};
@@ -801,8 +1430,8 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
     .unwrap();
     let outcome = AssertUnwindSafe(async {
         let baseline = fixture.scratch.path().join("baseline.surql");
-        lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &baseline, &definitions).await.unwrap();
-        let expected = logical_backup_rows(&baseline);
+        let baseline_receipt = lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &baseline, &definitions).await.unwrap();
+        let expected = logical_backup_rows(&baseline, &baseline_receipt);
         for table in ["entity", "original", "original_blob", "original_chunk", "lex_occurs"] {
             assert!(expected.keys().any(|id| id.table.as_str() == table), "selected fixture must exercise {table}");
         }
@@ -824,9 +1453,9 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
                 retire_publication_completely(&churn.config, &churn.handle).await
             },
         );
-        backed_up.unwrap();
+        let output_receipt = backed_up.unwrap();
         churned.unwrap();
-        assert_eq!(logical_backup_rows(&output), expected,
+        assert_eq!(logical_backup_rows(&output, &output_receipt), expected,
             "unrelated retained payloads, publications and actual derived claims cannot enter the selected dump");
         // The unrelated publication remains live across export and selected retirement.
         lctx_publisher::inspection::audit(&unrelated.config, &unrelated.handle, &definitions).await.unwrap();
@@ -842,7 +1471,7 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
         assert!(NativeReader::connect(&fixture.config.endpoint, &fixture.config.writer_credentials(), fixture.handle.clone()).await.is_err(),
             "source publication must be unavailable before independent admission");
         let restored = lctx_publisher::backup::restore_publication(
-            &fixture.config, &output, fixture.handle.publication, &definitions,
+            &fixture.config, &output, fixture.handle.publication, &definitions, &output_receipt,
         ).await.unwrap();
         assert_eq!(restored, fixture.handle);
         assert!(!fixture.config.selection.exists(), "restore does not adopt an operator selection");
@@ -857,12 +1486,12 @@ async fn selected_backup_excludes_unrelated_retention_and_restores_after_source_
             assert_eq!(bytes, fixture.source, "independent cold restore recovers every original byte");
         }
         let restored_dump = fixture.scratch.path().join("restored.surql");
-        lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &restored_dump, &definitions).await.unwrap();
+        let restored_receipt = lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &restored_dump, &definitions).await.unwrap();
         // Fresh physical contributors/bindings are intentionally new. Graph payloads,
         // originals and actual derived integrity claims retain their exact source values.
         let content = |rows: std::collections::BTreeMap<RecordId, Value>| rows.into_iter()
             .filter(|(id, _)| !id.table.as_str().starts_with("compiler_")).collect::<std::collections::BTreeMap<_, _>>();
-        assert_eq!(content(logical_backup_rows(&restored_dump)), content(expected));
+        assert_eq!(content(logical_backup_rows(&restored_dump, &restored_receipt)), content(expected));
         lctx_publisher::inspection::audit(&unrelated.config, &unrelated.handle, &definitions).await.unwrap();
     }).catch_unwind().await;
     let mut completion = finalize_reader_owners([&mut restored_owner]).await;
@@ -921,13 +1550,11 @@ async fn selected_backup_restores_fresh_ownership_while_foreign_window_binding_c
         let pins_query = "SELECT VALUE owner FROM native_hold WITH INDEX object_holds WHERE object=$publication AND record::table(owner)='native_pin' ORDER BY owner";
         let selected_pins: Vec<RecordId> = reader.query_native(pins_query, publication.clone()).await.unwrap();
         assert_eq!(selected_pins.len(), 1, "the selected reader owns one exact publication pin");
-        let owners_query = "SELECT VALUE object.attempt FROM native_hold WITH INDEX owner_holds WHERE owner=$publication AND record::table(object)='compiler_contribution'";
-        let original_owners: Vec<RecordId> = reader.query_native(owners_query, publication.clone()).await.unwrap();
-        let original_owners = original_owners.into_iter().collect::<std::collections::BTreeSet<_>>();
+        let original_owners = publication_ownership(reader, &budget).await.unwrap().attempts;
         assert!(!original_owners.is_empty());
         let baseline = fixture.scratch.path().join("before-foreign.surql");
-        lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &baseline, &definitions).await.unwrap();
-        let expected = logical_backup_rows(&baseline);
+        let baseline_receipt = lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &baseline, &definitions).await.unwrap();
+        let expected = logical_backup_rows(&baseline, &baseline_receipt);
         let mut entities = Vec::new();
         let mut assertions = Vec::new();
         for (id, row) in &expected {
@@ -980,20 +1607,21 @@ async fn selected_backup_restores_fresh_ownership_while_foreign_window_binding_c
             row.get("window") == foreign_claim.get("window") && row.get("unit_payload") == Some(&Value::RecordId(unit.clone())))),
             "A already has an occurrence for the exact shared unit and window");
         let output = fixture.scratch.path().join("with-foreign.surql");
-        lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &output, &definitions).await.unwrap();
-        let backed_up = logical_backup_rows(&output);
+        let output_receipt = lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &output, &definitions).await.unwrap();
+        let backed_up = logical_backup_rows(&output, &output_receipt);
         assert_eq!(backed_up, expected, "B's binding and its actual search claim cannot enter A's selected backup");
         assert!(!backed_up.contains_key(&foreign_payload));
         assert!(!backed_up.contains_key(foreign_claim_id));
+        let incoming_before = receiving_capture_attempts(reader, &output_receipt).await.unwrap();
         let restored = lctx_publisher::backup::restore_publication(&fixture.config, &output,
-            fixture.handle.publication, &definitions).await.unwrap();
+            fixture.handle.publication, &definitions, &output_receipt).await.unwrap();
         assert_eq!(restored, fixture.handle);
         assert!(!fixture.config.selection.exists(), "independent restore does not select the publication");
         lctx_publisher::inspection::audit(&fixture.config, &restored, &definitions).await.unwrap();
-        let after_owners: Vec<RecordId> = reader.query_native(owners_query, publication.clone()).await.unwrap();
-        let after_owners = after_owners.into_iter().collect::<std::collections::BTreeSet<_>>();
-        let fresh = after_owners.difference(&original_owners).cloned().collect::<Vec<_>>();
+        let after_owners = receiving_capture_attempts(reader, &output_receipt).await.unwrap();
+        let fresh = after_owners.difference(&incoming_before).cloned().collect::<Vec<_>>();
         assert_eq!(fresh.len(), 1, "restore must independently admit a fresh physical attempt owner");
+        assert!(fresh.iter().all(|attempt| !original_owners.contains(attempt)));
         let mut owner_vars = Variables::new(); owner_vars.insert("attempts", fresh);
         let attempts: Vec<lctx_native::surrealdb::types::Object> = reader.query_native("SELECT * FROM $attempts", owner_vars).await.unwrap();
         assert_eq!(attempts.len(), 1);
@@ -1073,143 +1701,172 @@ async fn backup_omissions_and_concurrent_cold_restores_preserve_fresh_ownership(
     let mut viewer_owner = None;
     let mut restored_viewer_owner = None;
     let outcome = AssertUnwindSafe(async {
-        viewer_owner = Some(NativeReader::connect(&config.endpoint,
-            &config.writer_credentials(), handle.clone()).await.unwrap());
+        viewer_owner = Some(
+            NativeReader::connect(
+                &config.endpoint,
+                &config.writer_credentials(),
+                handle.clone(),
+            )
+            .await
+            .unwrap(),
+        );
         let viewer = viewer_owner.as_ref().unwrap();
         config.select(&handle).unwrap();
-    let backup = fixture.scratch.path().join("snapshot.surql");
-    lctx_publisher::backup::backup(&config, &handle, &backup, &definitions)
-        .await
-        .unwrap();
-    assert!(
-        lctx_publisher::backup::backup(&config, &handle, &backup, &definitions)
-            .await
-            .is_err()
-    );
-    // A logical backup closes exactly the requested publication, even though the
-    // engine snapshot includes unrelated shared-service content.
-    let mut dump = backup_decode::DataDump::new(std::fs::File::open(&backup).unwrap());
-    let mut exported_publications = Vec::new();
-    while let Some(item) = dump.next().unwrap() {
-        if let backup_decode::Item::Rows(rows) = item {
-            for row in rows {
-                if let lctx_native::surrealdb::types::Value::Object(object) = row {
-                    if let Some(lctx_native::surrealdb::types::Value::RecordId(id)) = object.get("id") {
-                        if id.table.as_str() == "publication" {
-                            exported_publications.push(id.clone());
+        let backup = fixture.scratch.path().join("snapshot.surql");
+        let backup_receipt =
+            lctx_publisher::backup::backup(&config, &handle, &backup, &definitions)
+                .await
+                .unwrap();
+        assert!(
+            lctx_publisher::backup::backup(&config, &handle, &backup, &definitions)
+                .await
+                .is_err()
+        );
+        // A logical backup closes exactly the requested publication, even though the
+        // engine snapshot includes unrelated shared-service content.
+        let (_decoded_backup, sql) = backup_sql_control(&backup, &backup_receipt);
+        let mut dump = backup_decode::DataDump::new(sql);
+        let mut exported_publications = Vec::new();
+        while let Some(item) = dump.next().unwrap() {
+            if let backup_decode::Item::Rows(rows) = item {
+                for row in rows {
+                    if let lctx_native::surrealdb::types::Value::Object(object) = row {
+                        if let Some(lctx_native::surrealdb::types::Value::RecordId(id)) =
+                            object.get("id")
+                        {
+                            if id.table.as_str() == "publication" {
+                                exported_publications.push(id.clone());
+                            }
                         }
                     }
                 }
             }
         }
-    }
-    assert_eq!(exported_publications, vec![lctx_native::surrealdb::types::RecordId::new("publication", handle.publication.hex())]);
-    omitted_backup_payloads_are_refused(&config, &handle, &backup, &definitions).await;
-    let selected_before_restore = std::fs::read(&config.selection).unwrap();
-    let serving_before_restore =
-        std::fs::read(config.selection.with_extension("serving.json")).unwrap();
-    let mut ownership = surrealdb_vars();
-    ownership.insert(
-        "publication",
-        lctx_native::surrealdb::types::RecordId::new("publication", handle.publication.hex()),
-    );
-    // Publication roots retain each physical contributor. Observe only this exact
-    // publication's owners, so unrelated concurrent validation attempts cannot enter the check.
-    let ownership_query = "SELECT VALUE object.attempt FROM native_hold WITH INDEX owner_holds WHERE owner=$publication AND record::table(object)='compiler_contribution'";
-    let before: Vec<lctx_native::surrealdb::types::RecordId> = viewer
-        .query_native(ownership_query, ownership.clone())
-        .await
-        .unwrap();
-    let before = before
-        .into_iter()
-        .collect::<std::collections::BTreeSet<_>>();
-    let (first, second) = tokio::join!(
-        lctx_publisher::backup::restore_publication(
-            &config,
-            &backup,
-            handle.publication,
-            &definitions,
-        ),
-        lctx_publisher::backup::restore_publication(
-            &config,
-            &backup,
-            handle.publication,
-            &definitions,
-        ),
-    );
-    let restored = first.unwrap();
-    let concurrent = second.unwrap();
-    assert_eq!(
-        restored, handle,
-        "restore retains the immutable publication identity"
-    );
-    assert_eq!(
-        concurrent, restored,
-        "concurrent equal restores converge on one handle"
-    );
-    let (first_audit, second_audit) = tokio::join!(
-        lctx_publisher::inspection::audit(&config, &restored, &definitions),
-        lctx_publisher::inspection::audit(&config, &concurrent, &definitions),
-    );
-    first_audit.unwrap();
-    second_audit.unwrap();
-    assert_eq!(
-        std::fs::read(&config.selection).unwrap(),
-        selected_before_restore
-    );
-    assert_eq!(
-        std::fs::read(config.selection.with_extension("serving.json")).unwrap(),
-        serving_before_restore,
-    );
-    assert_eq!(config.selected().unwrap(), handle); // Restore never selects its imported handle.
-    let after: Vec<lctx_native::surrealdb::types::RecordId> = viewer
-        .query_native(ownership_query, ownership)
-        .await
-        .unwrap();
-    let after = after.into_iter().collect::<std::collections::BTreeSet<_>>();
-    let fresh = after.difference(&before).cloned().collect::<Vec<_>>();
-    assert_eq!(
-        fresh.len(),
-        2,
-        "each restore creates a fresh mutable attempt owner"
-    );
-    let mut ownership = surrealdb_vars();
-    ownership.insert("attempts", fresh);
-    let attempts: Vec<lctx_native::surrealdb::types::Object> = viewer
-        .query_native("SELECT * FROM $attempts", ownership)
-        .await
-        .unwrap();
-    assert_eq!(attempts.len(), 2);
-    let mut epochs = std::collections::BTreeSet::new();
-    for attempt in attempts {
-        use lctx_native::surrealdb::types::{Number, Value};
-        assert_eq!(attempt.get("state"), Some(&Value::String("closed".into())));
-        assert_eq!(attempt.get("admitted"), Some(&Value::Bool(true)));
         assert_eq!(
-            attempt.get("generation"),
-            Some(&Value::String(config.service_generation.hex()))
+            exported_publications,
+            vec![lctx_native::surrealdb::types::RecordId::new(
+                "publication",
+                handle.publication.hex()
+            )]
         );
-        let Some(Value::Number(Number::Int(epoch))) = attempt.get("epoch") else {
-            panic!("fresh restore attempt epoch");
-        };
-        assert!(*epoch > 0);
-        assert!(
-            epochs.insert(*epoch),
-            "restores cannot borrow another attempt's epoch"
+        omitted_backup_payloads_are_refused(
+            &config,
+            &handle,
+            &backup,
+            &definitions,
+            &backup_receipt,
+        )
+        .await;
+        let selected_before_restore = std::fs::read(&config.selection).unwrap();
+        let serving_before_restore =
+            std::fs::read(config.selection.with_extension("serving.json")).unwrap();
+        // Observe the exact independent import capture. The publication retains one
+        // immutable winner; its converged candidate is separately nominated for retirement.
+        let before = receiving_capture_attempts(viewer, &backup_receipt)
+            .await
+            .unwrap();
+        let (first, second) = tokio::join!(
+            lctx_publisher::backup::restore_publication(
+                &config,
+                &backup,
+                handle.publication,
+                &definitions,
+                &backup_receipt,
+            ),
+            lctx_publisher::backup::restore_publication(
+                &config,
+                &backup,
+                handle.publication,
+                &definitions,
+                &backup_receipt,
+            ),
         );
-    }
+        let restored = first.unwrap();
+        let concurrent = second.unwrap();
+        assert_eq!(
+            restored, handle,
+            "restore retains the immutable publication identity"
+        );
+        assert_eq!(
+            concurrent, restored,
+            "concurrent equal restores converge on one handle"
+        );
+        let (first_audit, second_audit) = tokio::join!(
+            lctx_publisher::inspection::audit(&config, &restored, &definitions),
+            lctx_publisher::inspection::audit(&config, &concurrent, &definitions),
+        );
+        first_audit.unwrap();
+        second_audit.unwrap();
+        assert_eq!(
+            std::fs::read(&config.selection).unwrap(),
+            selected_before_restore
+        );
+        assert_eq!(
+            std::fs::read(config.selection.with_extension("serving.json")).unwrap(),
+            serving_before_restore,
+        );
+        assert_eq!(config.selected().unwrap(), handle); // Restore never selects its imported handle.
+        let after = receiving_capture_attempts(viewer, &backup_receipt)
+            .await
+            .unwrap();
+        let fresh = after.difference(&before).cloned().collect::<Vec<_>>();
+        assert_eq!(
+            fresh.len(),
+            2,
+            "each restore creates a fresh mutable attempt owner"
+        );
+        let mut ownership = surrealdb_vars();
+        ownership.insert("attempts", fresh);
+        let attempts: Vec<lctx_native::surrealdb::types::Object> = viewer
+            .query_native("SELECT * FROM $attempts", ownership)
+            .await
+            .unwrap();
+        assert_eq!(attempts.len(), 2);
+        let mut epochs = std::collections::BTreeSet::new();
+        for attempt in attempts {
+            use lctx_native::surrealdb::types::{Number, Value};
+            assert_eq!(attempt.get("state"), Some(&Value::String("closed".into())));
+            assert_eq!(attempt.get("admitted"), Some(&Value::Bool(true)));
+            assert_eq!(
+                attempt.get("generation"),
+                Some(&Value::String(config.service_generation.hex()))
+            );
+            let Some(Value::Number(Number::Int(epoch))) = attempt.get("epoch") else {
+                panic!("fresh restore attempt epoch");
+            };
+            assert!(*epoch > 0);
+            assert!(
+                epochs.insert(*epoch),
+                "restores cannot borrow another attempt's epoch"
+            );
+        }
 
-        restored_viewer_owner = Some(NativeReader::connect(&config.endpoint,
-            &config.writer_credentials(), restored.clone()).await.unwrap());
+        restored_viewer_owner = Some(
+            NativeReader::connect(
+                &config.endpoint,
+                &config.writer_credentials(),
+                restored.clone(),
+            )
+            .await
+            .unwrap(),
+        );
         let restored_viewer = restored_viewer_owner.as_ref().unwrap();
         assert_eq!(fixture.manifest.originals.len(), 1);
         for original in &fixture.manifest.originals {
-            let bytes = restored_viewer.original_bytes(original.source, 0,
-                usize::try_from(original.byte_len.min(256 << 10)).unwrap()).await.unwrap();
+            let bytes = restored_viewer
+                .original_bytes(
+                    original.source,
+                    0,
+                    usize::try_from(original.byte_len.min(256 << 10)).unwrap(),
+                )
+                .await
+                .unwrap();
             assert_eq!(bytes.as_ref(), &fixture.source[..bytes.len()]);
         }
         assert_eq!(viewer.handle(), &handle);
-    }).catch_unwind().await;
+    })
+    .catch_unwind()
+    .await;
     finish_small_publication(
         &fixture,
         outcome,
@@ -1467,14 +2124,17 @@ async fn omitted_backup_payloads_are_refused(
     handle: &SnapshotHandle,
     backup: &std::path::Path,
     definitions: &str,
+    expected: &lctx_model::domain::completed_transport::BackupReceipt,
 ) {
     use lctx_native::surrealdb::types::ToSql;
     use std::io::Write;
     for table in ["entity", "assertion", "compiler_record"] {
         let input = backup.with_file_name(format!("omitted-{table}.surql"));
-        let mut altered = std::io::BufWriter::new(std::fs::File::create(&input).unwrap());
+        let (source_spool, source_sql) = backup_sql_control(backup, expected);
+        let altered_sql = source_spool.path().join("altered.sql");
+        let mut altered = std::io::BufWriter::new(std::fs::File::create(&altered_sql).unwrap());
         writeln!(altered, "OPTION IMPORT;").unwrap();
-        let mut dump = backup_decode::DataDump::new(std::fs::File::open(backup).unwrap());
+        let mut dump = backup_decode::DataDump::new(source_sql);
         let mut removed = 0;
         while let Some(item) = dump.next().unwrap() {
             match item {
@@ -1510,11 +2170,24 @@ async fn omitted_backup_payloads_are_refused(
             removed > 0,
             "normalized fixture must exercise omitted {table} payloads"
         );
+        std::fs::File::create(&input).unwrap();
+        let budget = resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES).unwrap();
+        let mut malformed_receipt = expected.clone();
+        // The control's trusted malformed producer deliberately changes only SQL claims;
+        // the independently retained completed-state expectation remains unchanged.
+        malformed_receipt.carrier = backup_decode::write_carrier(
+            &altered_sql,
+            &source_spool.path().join("completed-state"),
+            &input,
+            &budget,
+        )
+        .unwrap();
         let error = lctx_publisher::backup::restore_publication(
             config,
             &input,
             handle.publication,
             definitions,
+            &malformed_receipt,
         )
         .await
         .unwrap_err();

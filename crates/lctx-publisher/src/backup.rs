@@ -1,6 +1,7 @@
 //! Trusted local logical transport. Imported metadata never becomes a serving realization.
 use lctx_model::domain::{
     ModelError,
+    completed_transport::BackupReceipt,
     completion::{Completion, RemoteState, complete},
     serving::SnapshotHandle,
 };
@@ -11,78 +12,210 @@ use std::path::Path;
 /// Write only the exact recoverable closure through one transaction-bound native snapshot.
 /// Staged bytes become visible only after checked EOF, explicit cancel and session invalidation.
 pub async fn backup(
-    config: &RuntimeConfig, handle: &SnapshotHandle, output: &Path, native_definitions: &str,
-) -> Result<(), ModelError> {
-    if handle.database.namespace != config.namespace || handle.database.database != config.database || handle.service_generation != config.service_generation {
+    config: &RuntimeConfig,
+    handle: &SnapshotHandle,
+    output: &Path,
+    native_definitions: &str,
+) -> Result<BackupReceipt, ModelError> {
+    if handle.database.namespace != config.namespace
+        || handle.database.database != config.database
+        || handle.service_generation != config.service_generation
+    {
         return Err(ModelError::Conflict("backup installation identity"));
     }
-    if output.exists() { return Err(ModelError::Conflict("backup destination already exists")); }
-    let config = config.clone(); let handle = handle.clone(); let output = output.to_owned(); let definitions = native_definitions.to_owned();
+    if output.exists() {
+        return Err(ModelError::Conflict("backup destination already exists"));
+    }
+    let config = config.clone();
+    let handle = handle.clone();
+    let output = output.to_owned();
+    let definitions = native_definitions.to_owned();
     // Caller cancellation transfers the whole read/export finalizer to its owned driver.
-    crate::owned_read::run("selected backup", move |cancel| async move { backup_owned(&config, &handle, &output, &definitions, &cancel).await }).await
+    crate::owned_read::run("selected backup", move |cancel| async move {
+        backup_owned(&config, &handle, &output, &definitions, &cancel).await
+    })
+    .await
 }
-async fn backup_owned(config: &RuntimeConfig, handle: &SnapshotHandle, output: &Path, native_definitions: &str, cancel: &crate::owned_read::Cancellation) -> Result<(), ModelError> {
-    let parent = output.parent().filter(|path| !path.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let viewer = NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle.clone()).await?;
+async fn backup_owned(
+    config: &RuntimeConfig,
+    handle: &SnapshotHandle,
+    output: &Path,
+    native_definitions: &str,
+    cancel: &crate::owned_read::Cancellation,
+) -> Result<BackupReceipt, ModelError> {
+    let parent = output
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let viewer = NativeReader::connect(
+        &config.endpoint,
+        &config.writer_credentials(),
+        handle.clone(),
+    )
+    .await?;
     let mut pin_guard = viewer.protect_terminal_close();
     let staged = match tempfile::NamedTempFile::new_in(parent) {
         Ok(file) => file,
         Err(error) => {
-            let mut completion = Completion::default(); completion.step("backup setup reader pin release", pin_guard.close(&viewer).await);
+            let mut completion = Completion::default();
+            completion.step(
+                "backup setup reader pin release",
+                pin_guard.close(&viewer).await,
+            );
             return complete(Err(ModelError::codec(error)), completion);
         }
     };
     let mut transaction = None;
     let mut exporter = None;
+    let mut sources = None;
     let result = async {
         cancel.check()?;
-        let budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)?;
-        let completed=lctx_native::completed_state::published_completed_state(&viewer,&budget).await?;
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+            lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+        )?;
+        let completed =
+            lctx_native::completed_state::published_completed_state(&viewer, &budget).await?;
         let metadata = recovery_metadata(config, handle)?;
         // One dedicated exporter session, with one external transaction across all metadata,
         // closure and content reads. There is no independent export or per-page snapshot.
-        exporter = Some(lctx_native::reader::connect(&config.endpoint, &config.writer_credentials(), config.namespace.as_str(), config.database.as_str()).await?);
+        exporter = Some(
+            lctx_native::reader::connect(
+                &config.endpoint,
+                &config.writer_credentials(),
+                config.namespace.as_str(),
+                config.database.as_str(),
+            )
+            .await?,
+        );
         cancel.check()?;
-        let version = exporter.as_ref().expect("owned exporter").version().await.map_err(ModelError::codec)?.to_string();
+        let version = exporter
+            .as_ref()
+            .expect("owned exporter")
+            .version()
+            .await
+            .map_err(ModelError::codec)?
+            .to_string();
         cancel.check()?;
         let session = match std::sync::Arc::try_unwrap(exporter.take().expect("owned exporter")) {
             Ok(session) => session,
-            Err(session) => { exporter = Some(session); return Err(ModelError::Conflict("backup export session ownership")); }
+            Err(session) => {
+                exporter = Some(session);
+                return Err(ModelError::Conflict("backup export session ownership"));
+            }
         };
         let snapshot = match session.begin().retain_on_error().await {
             Ok(snapshot) => std::sync::Arc::new(snapshot),
             Err((error, session)) => {
                 let mut completion = Completion::default();
                 let invalidated = session.invalidate().await.map_err(ModelError::codec);
-                if invalidated.is_err() { viewer.retain_unknown(); completion.remote = RemoteState::Unknown; }
+                if invalidated.is_err() {
+                    viewer.retain_unknown();
+                    completion.remote = RemoteState::Unknown;
+                }
                 completion.step("backup failed-begin session invalidation", invalidated);
                 return complete(Err(ModelError::codec(error)), completion);
             }
         };
         transaction = Some(snapshot.clone());
-        crate::selected_backup::export(&snapshot, &completed, &version, handle, native_definitions, staged.path(), &budget, cancel).await?;
+        sources = Some(tempfile::tempdir().map_err(ModelError::codec)?);
+        let directory = sources.as_ref().expect("owned backup source spools");
+        let sql = directory.path().join("claims.sql");
+        let state = directory.path().join("completed-state");
+        std::fs::File::create(&sql).map_err(ModelError::codec)?;
+        let (manifest, state_receipt) = crate::selected_backup::export(
+            &snapshot,
+            &completed,
+            &version,
+            handle,
+            native_definitions,
+            &sql,
+            &state,
+            &budget,
+            cancel,
+        )
+        .await?;
         cancel.check()?;
         use std::io::Write;
-        let mut file = std::fs::OpenOptions::new().append(true).open(staged.path()).map_err(ModelError::codec)?;
-        writeln!(file, "\n-- lctx-backup-recovery: {}", serde_json::to_string(&metadata).map_err(ModelError::codec)?).map_err(ModelError::codec)
-    }.await;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&sql)
+            .map_err(ModelError::codec)?;
+        writeln!(
+            file,
+            "\n-- lctx-backup-recovery: {}",
+            serde_json::to_string(&metadata).map_err(ModelError::codec)?
+        )
+        .map_err(ModelError::codec)?;
+        file.flush().map_err(ModelError::codec)?;
+        drop(file);
+        let carrier = crate::backup_import::write_carrier(&sql, &state, staged.path(), &budget)?;
+        let receipt = BackupReceipt {
+            recipe: 1,
+            source: handle.clone(),
+            manifest,
+            definitions: lctx_model::domain::ContentHash::of(native_definitions.as_bytes()),
+            state: state_receipt,
+            carrier,
+        };
+        receipt.validate()?;
+        Ok(receipt)
+    }
+    .await;
     let mut completion = Completion::default();
     if let Some(session) = exporter {
         let invalidated = session.invalidate().await.map_err(ModelError::codec);
-        if invalidated.is_err() { viewer.retain_unknown(); completion.remote = RemoteState::Unknown; }
-        completion.step("backup pre-begin exporter session invalidation", invalidated);
+        if invalidated.is_err() {
+            viewer.retain_unknown();
+            completion.remote = RemoteState::Unknown;
+        }
+        completion.step(
+            "backup pre-begin exporter session invalidation",
+            invalidated,
+        );
     }
     if let Some(transaction) = transaction {
         let cancelled = transaction.cancel_ref().await.map_err(ModelError::codec);
-        if cancelled.is_err() { viewer.retain_unknown(); completion.remote = RemoteState::Unknown; }
+        if cancelled.is_err() {
+            viewer.retain_unknown();
+            completion.remote = RemoteState::Unknown;
+        }
         completion.step("backup snapshot explicit cancellation", cancelled);
-        let invalidated = transaction.invalidate_session().await.map_err(ModelError::codec);
-        if invalidated.is_err() { viewer.retain_unknown(); completion.remote = RemoteState::Unknown; }
+        let invalidated = transaction
+            .invalidate_session()
+            .await
+            .map_err(ModelError::codec);
+        if invalidated.is_err() {
+            viewer.retain_unknown();
+            completion.remote = RemoteState::Unknown;
+        }
         completion.step("backup snapshot session invalidation", invalidated);
     }
-    completion.step("backup retained manifest pin release", pin_guard.close(&viewer).await);
-    let result = result.and_then(|()| cancel.check());
-    complete_backup(staged, output, result, complete(Ok(()), completion), |parent| std::fs::File::open(parent)?.sync_all())
+    completion.step(
+        "backup retained manifest pin release",
+        pin_guard.close(&viewer).await,
+    );
+    if let Some(sources) = sources {
+        completion.cleanup(
+            sources.path().display().to_string(),
+            sources.close().map_err(ModelError::codec),
+        );
+    }
+    let mut receipt = None;
+    let result = result.and_then(|value| {
+        cancel.check().map(|()| {
+            receipt = Some(value);
+        })
+    });
+    complete_backup(
+        staged,
+        output,
+        result,
+        complete(Ok(()), completion),
+        |parent| std::fs::File::open(parent)?.sync_all(),
+    )?;
+    receipt.ok_or(ModelError::Conflict(
+        "backup checked completion receipt absent",
+    ))
 }
 
 fn recovery_metadata(
@@ -194,22 +327,31 @@ fn complete_backup(
     complete(result, completion)
 }
 
-/// Restore exactly one claimed publication through current typed admission. A dump with
-/// multiple publications requires `restore_publication`; no imported runtime authority survives.
+/// Restore the exact publication bound by an independently retained backup receipt.
+/// Incoming claims earn fresh typed admission; imported metadata grants no runtime authority.
 pub async fn restore(
     config: &RuntimeConfig,
     input: &Path,
     native_definitions: &str,
+    expected: &BackupReceipt,
 ) -> Result<SnapshotHandle, ModelError> {
-    crate::restore::restore(config, input, None, native_definitions).await
+    crate::restore::restore(config, input, None, native_definitions, expected).await
 }
 pub async fn restore_publication(
     config: &RuntimeConfig,
     input: &Path,
     publication: lctx_model::domain::ContentHash,
     native_definitions: &str,
+    expected: &BackupReceipt,
 ) -> Result<SnapshotHandle, ModelError> {
-    crate::restore::restore(config, input, Some(publication), native_definitions).await
+    crate::restore::restore(
+        config,
+        input,
+        Some(publication),
+        native_definitions,
+        expected,
+    )
+    .await
 }
 
 /// Retire an explicitly named, unselected manifest and a bounded reachable closure.
@@ -228,7 +370,9 @@ async fn retirement_selection_guard(
 ) -> Result<lctx_native::config::SelectionGuard, ModelError> {
     let guard = config.lock_selection().await?;
     cancel.check()?;
-    if retry.stopped() { return Err(ModelError::Conflict("retirement admission cancelled")); }
+    if retry.stopped() {
+        return Err(ModelError::Conflict("retirement admission cancelled"));
+    }
     Ok(guard)
 }
 /// Explicit selection clearance and durable invocation addresses remain separate
@@ -253,14 +397,20 @@ pub async fn retire_named(
     {
         return Err(ModelError::Conflict("retirement installation identity"));
     }
-    let config = config.clone(); let handle = handle.clone();
+    let config = config.clone();
+    let handle = handle.clone();
     crate::owned_read::run("native publication retirement", move |cancel| async move {
         let retry = lctx_native::control::RetryCancellation::default();
-        let signal = lctx_native::signal::SignalRegistration::retry("native publication retirement", retry.clone())?;
+        let signal = lctx_native::signal::SignalRegistration::retry(
+            "native publication retirement",
+            retry.clone(),
+        )?;
         let mut completion = Completion::default();
         let result = lctx_native::control::with_retry_cancellation(retry.clone(), async {
             cancel.check()?;
-            if retry.stopped() { return Err(ModelError::Conflict("retirement admission cancelled")); }
+            if retry.stopped() {
+                return Err(ModelError::Conflict("retirement admission cancelled"));
+            }
             let _guard = retirement_selection_guard(&config, &cancel, &retry).await?;
             // This validates the actual marker, not merely equality between two
             // portable config/handle fields, before clearing any local authority.
@@ -268,49 +418,89 @@ pub async fn retire_named(
             let session = lctx_native::reader::SessionFinalizationGuard::new(client.clone());
             let result = async {
                 cancel.check()?;
-                if retry.stopped() { return Err(ModelError::Conflict("retirement admission cancelled")); }
+                if retry.stopped() {
+                    return Err(ModelError::Conflict("retirement admission cancelled"));
+                }
                 if clear_selection {
                     config.clear_selection_locked(&handle, &_guard)?;
-                } else if config.selection.try_exists().map_err(ModelError::codec)? && config.selected()? == handle {
+                } else if config.selection.try_exists().map_err(ModelError::codec)?
+                    && config.selected()? == handle
+                {
                     return Err(ModelError::Conflict("cannot retire selected publication"));
                 }
                 let root = RecordId::new("publication", handle.publication.hex());
                 let root_key = serde_json::to_string(&root).map_err(ModelError::codec)?;
-                let identity = match job { Some(identity) => identity, None => lctx_native::control::fresh_identity("retirement-invocation")? };
-                let mut progress = lctx_native::control::retire_reachable_named(&client, identity, config.service_generation, vec![root], 4096).await?;
+                let identity = match job {
+                    Some(identity) => identity,
+                    None => lctx_native::control::fresh_identity("retirement-invocation")?,
+                };
+                let mut progress = lctx_native::control::retire_reachable_named(
+                    &client,
+                    identity,
+                    config.service_generation,
+                    vec![root],
+                    4096,
+                )
+                .await?;
                 completion.committed("native retirement invocation", progress.identity.hex());
                 loop {
                     if progress.retained.contains(&root_key) {
-                        return Err(ModelError::Conflict("publication remains reachable or pinned"));
+                        return Err(ModelError::Conflict(
+                            "publication remains reachable or pinned",
+                        ));
                     }
-                    if progress.remaining.is_empty() { return Ok(progress); }
+                    if progress.remaining.is_empty() {
+                        return Ok(progress);
+                    }
                     cancel.check()?;
-                    if retry.stopped() { return Err(ModelError::Conflict("retirement continuation cancelled")); }
-                    progress = lctx_native::control::resume_retirement(&client, progress.identity, 4096).await?;
+                    if retry.stopped() {
+                        return Err(ModelError::Conflict("retirement continuation cancelled"));
+                    }
+                    progress =
+                        lctx_native::control::resume_retirement(&client, progress.identity, 4096)
+                            .await?;
                 }
-            }.await;
-            if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+            }
+            .await;
+            if result
+                .as_ref()
+                .err()
+                .is_some_and(|error| !error.permits_storage_cleanup())
+            {
                 completion.local = lctx_model::domain::completion::LocalState::Outstanding;
                 completion.remote = RemoteState::Unknown;
             } else {
                 let closed = session.close().await;
-                if closed.is_err() { completion.local = lctx_model::domain::completion::LocalState::Outstanding; }
+                if closed.is_err() {
+                    completion.local = lctx_model::domain::completion::LocalState::Outstanding;
+                }
                 completion.step("retirement session invalidation", closed);
             }
             result
-        }).await;
-        if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+        })
+        .await;
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(|error| !error.permits_storage_cleanup())
+        {
             completion.local = lctx_model::domain::completion::LocalState::Outstanding;
             completion.remote = RemoteState::Unknown;
         }
         // The receipt describes actual owner finality, independently of a known
         // refusal or successful committed retirement pages.
         if completion.local == lctx_model::domain::completion::LocalState::Terminal
-            && completion.remote == RemoteState::Confirmed && completion.failures.is_empty() {
-            completion.step("retirement signal owner", signal.complete(&Completion::default()).await);
+            && completion.remote == RemoteState::Confirmed
+            && completion.failures.is_empty()
+        {
+            completion.step(
+                "retirement signal owner",
+                signal.complete(&Completion::default()).await,
+            );
         }
         complete(result, completion)
-    }).await
+    })
+    .await
 }
 
 #[cfg(test)]
@@ -332,7 +522,8 @@ mod tests {
             "database":"validation", "cache_database":"validation", "authentication":"database",
             "service_generation": lctx_model::domain::ContentHash::of(b"fixture"),
             "selection":scratch.path().join("selected.json"), "reuse":null, "serving_limits":null,
-        })).unwrap();
+        }))
+        .unwrap();
         std::fs::write(&config.selection, b"exact selected pointer bytes").unwrap();
         let held = config.lock_selection().await.unwrap();
         let cancel = crate::owned_read::Cancellation::default();
@@ -341,11 +532,15 @@ mod tests {
         std::future::poll_fn(|context| {
             assert!(std::future::Future::poll(waiting.as_mut(), context).is_pending());
             std::task::Poll::Ready(())
-        }).await;
+        })
+        .await;
         cancel.flag().store(true, Ordering::Release);
         drop(held);
         assert!(waiting.await.is_err());
-        assert_eq!(std::fs::read(&config.selection).unwrap(), b"exact selected pointer bytes");
+        assert_eq!(
+            std::fs::read(&config.selection).unwrap(),
+            b"exact selected pointer bytes"
+        );
         config.lock_selection().await.unwrap(); // The refused operation released its guard.
     }
 
@@ -637,6 +832,4 @@ mod tests {
             b"-- partial streamed dump\n"
         );
     }
-
-
 }

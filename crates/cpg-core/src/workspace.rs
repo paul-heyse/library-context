@@ -14,8 +14,7 @@ use futures::{
     future::{BoxFuture, Shared},
 };
 use lctx_model::domain::{
-    Batch, ContentHash, ModelError, Record, Relation, ValidatedModel,
-    analysis,
+    Batch, ContentHash, ModelError, Record, Relation, ValidatedModel, analysis,
     batching::TransferLimits,
     charged::StateCharge,
     resources::{Reservation, ResourceBudget, ResourcePool},
@@ -36,6 +35,17 @@ type ChargedBatch = Result<(RecordBatch, Box<dyn Reservation>), ModelError>;
 pub use lctx_compiler_store::admission::{AdmissionOptions as WorkspaceOptions, Cancellation};
 struct WorkspaceFiles {
     directory: tempfile::TempDir,
+}
+/// Execution ownership survives a compiler catalog handoff without retaining that catalog.
+struct WorkspaceExecutionOwner {
+    _files: Arc<WorkspaceFiles>,
+    cancellation: Cancellation,
+    bridge: Arc<crate::native_bridge::NativeBridge>,
+    native_calls: Arc<crate::native_calls::NativeCalls>,
+    native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
+    provider_drains: Arc<Mutex<Vec<ProviderDrain>>>,
+    product_cache: Arc<Mutex<Option<Arc<lctx_compiler_store::NativeProductCache>>>>,
+    signal: Arc<lctx_native::signal::SignalRegistration>,
 }
 #[derive(PartialEq, Eq)]
 struct CompilationCompletion {
@@ -72,11 +82,12 @@ fn capture_identity(
 /// The attempt owns one runtime, spill directory, buffer budget, and completed relation registry.
 pub struct Workspace {
     files: Arc<WorkspaceFiles>,
+    execution: Arc<WorkspaceExecutionOwner>,
     context: SessionContext,
     options: WorkspaceOptions,
     budget: ResourceBudget,
     scope_programs: Arc<lctx_model::domain::scope_program::ScopeProgramRuntime>,
-    product_cache: Mutex<Option<Arc<lctx_compiler_store::NativeProductCache>>>,
+    product_cache: Arc<Mutex<Option<Arc<lctx_compiler_store::NativeProductCache>>>>,
     admitted_product_reuse: AtomicBool,
     model: Arc<ValidatedModel>,
     native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
@@ -98,11 +109,66 @@ pub struct Workspace {
         >,
     >,
     cancellation: Cancellation,
-    signal: lctx_native::signal::SignalRegistration,
     completion_gate: tokio::sync::Mutex<()>,
     compilation_complete: Mutex<Option<CompilationCompletion>>,
-    provider_drains: Mutex<Vec<ProviderDrain>>,
+    provider_drains: Arc<Mutex<Vec<ProviderDrain>>>,
     admission_memo: Arc<lctx_compiler_store::admission::AdmissionMemo>,
+}
+impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner {
+    fn drain_owned_report(&self) -> BoxFuture<'_, lctx_model::domain::completion::Completion> {
+        async move {
+            use lctx_model::domain::completion::{Completion, LocalState};
+            self.cancellation.cancel();
+            let mut completion = Completion::default();
+            let drains = match self.provider_drains.lock() {
+                Ok(drains) => drains.clone(),
+                Err(_) => {
+                    completion.local = LocalState::Outstanding;
+                    completion.step("provider drain ownership", Err(poisoned()));
+                    Vec::new()
+                }
+            };
+            for task in drains {
+                completion.step("provider join", task.await.map_err(ModelError::SharedCause));
+            }
+            completion.step("provider bridge drain", self.bridge.drain().await);
+            completion.step("native calls drain", self.native_calls.drain().await);
+            completion.step(
+                "native store drain",
+                lctx_model::domain::completion::complete(Ok(()), self.native.drain_report().await),
+            );
+            let cache = match self.product_cache.lock() {
+                Ok(mut cache) => cache.take(),
+                Err(_) => {
+                    completion.local = LocalState::Outstanding;
+                    completion.step("product cache ownership", Err(poisoned()));
+                    None
+                }
+            };
+            if let Some(cache) = cache {
+                if completion.local == LocalState::Terminal
+                    && completion.remote == lctx_model::domain::completion::RemoteState::Confirmed
+                    && completion
+                        .failures
+                        .iter()
+                        .all(|failure| failure.error.permits_storage_cleanup())
+                {
+                    completion.step("product cache session close", cache.close().await);
+                } else {
+                    cache.retain_unknown();
+                    completion.local = LocalState::Outstanding;
+                }
+            }
+            completion
+        }
+        .boxed()
+    }
+    fn complete_signal<'a>(
+        &'a self,
+        completion: &'a lctx_model::domain::completion::Completion,
+    ) -> BoxFuture<'a, Result<(), ModelError>> {
+        self.signal.complete(completion).boxed()
+    }
 }
 impl Workspace {
     pub fn new(
@@ -149,8 +215,11 @@ impl Workspace {
             StateCharge::new(&budget, "compiler-completed-owners"),
         ));
         let cancellation = Cancellation::default();
-        let token=cancellation.clone();
-        let signal=lctx_native::signal::SignalRegistration::new("compiler workspace",move||token.cancel())?;
+        let token = cancellation.clone();
+        let signal = Arc::new(lctx_native::signal::SignalRegistration::new(
+            "compiler workspace",
+            move || token.cancel(),
+        )?);
         let bridge = Arc::new(crate::native_bridge::NativeBridge::new(
             cancellation.clone(),
         )?);
@@ -159,14 +228,28 @@ impl Workspace {
             cancellation.clone(),
             &budget,
         ));
+        let files = Arc::new(WorkspaceFiles { directory });
+        let provider_drains = Arc::new(Mutex::default());
+        let product_cache = Arc::new(Mutex::default());
+        let execution = Arc::new(WorkspaceExecutionOwner {
+            _files: files.clone(),
+            cancellation: cancellation.clone(),
+            bridge: bridge.clone(),
+            native_calls: native_calls.clone(),
+            native: native.clone(),
+            provider_drains: provider_drains.clone(),
+            product_cache: product_cache.clone(),
+            signal: signal.clone(),
+        });
         Ok(Arc::new(Self {
-            files: Arc::new(WorkspaceFiles { directory }),
+            files,
+            execution,
             context: SessionContext::new_with_config_rt(config, runtime.clone()),
             options,
             scope_programs: lctx_model::domain::scope_program::ScopeProgramRuntime::new(
                 &model, &budget,
             )?,
-            product_cache: Mutex::default(),
+            product_cache,
             admitted_product_reuse: AtomicBool::new(true),
             budget,
             model,
@@ -178,10 +261,9 @@ impl Workspace {
             completed: Mutex::default(),
             frozen_shared: Mutex::default(),
             cancellation,
-            signal,
             completion_gate: tokio::sync::Mutex::new(()),
             compilation_complete: Mutex::default(),
-            provider_drains: Mutex::default(),
+            provider_drains,
             admission_memo,
         }))
     }
@@ -222,6 +304,9 @@ impl Workspace {
             owner.cancellation.clone(),
             &budget,
         ));
+        Arc::get_mut(&mut owner.execution)
+            .expect("new execution owner has no borrowers")
+            .native_calls = owner.native_calls.clone();
         owner.scope_programs =
             lctx_model::domain::scope_program::ScopeProgramRuntime::new(&owner.model, &budget)?;
         owner.budget = budget;
@@ -244,20 +329,76 @@ impl Workspace {
         Ok(workspace)
     }
     /// Restore the exact current and frozen bindings after independent native state import.
-    pub async fn restore(&self, profile:Profile)->Result<(),ModelError>{
+    pub async fn restore(&self, profile: Profile) -> Result<(), ModelError> {
         self.writable()?;
-        if !self.completed.lock().map_err(|_|poisoned())?.is_empty() || !self.frozen_shared.lock().map_err(|_|poisoned())?.is_empty(){return Err(ModelError::Conflict("native restoration requires an empty workspace"));}
-        let runtime=self.admission_engine()?;runtime.restore(profile).await?;
-        let (contributions,bindings,_transfer)=runtime.completed_inventory()?;
-        let mut owners=BTreeMap::new();let mut owner_charge=StateCharge::new(&self.budget,"compiler-completed-owners");
-        for contribution in contributions{owner_charge.grow(serde_json::to_vec(&contribution).map_err(ModelError::codec)?.len().saturating_mul(4).saturating_add(256))?;owners.insert(contribution.spec.identity()?,contribution);}
-        let mut completed=BTreeMap::new();let mut frozen=BTreeMap::new();
-        for binding in bindings{
-            let relation=self.model.relation(binding.source.relation()).ok_or(ModelError::Schema("restored compiler relation"))?.clone();let name=relation.name();
-            let source=Arc::new(CompletedRelation{relation,producer:binding.source.producer().into(),implementation:binding.source.implementation(),configuration:binding.configuration,contract:binding.source.model(),rows:binding.view.rows,view:binding.view,native:self.native.clone(),bridge:self.bridge.clone(),budget:self.budget.clone(),batch_rows:self.options.batch_rows,cancellation:self.cancellation.clone(),inputs:Arc::from([]),profile,contribution:lctx_model::domain::stages::is_epoch_shared(name),snapshot:binding.source,_files:self.files.clone()});
-            if let Some(boundary)=binding.boundary{let boundary=lctx_model::domain::stages::PublicationBoundary::ALL.into_iter().find(|b|b.name()==boundary).ok_or(ModelError::Schema("restored compiler boundary"))?;frozen.insert((boundary,name),source);}else{completed.insert(name,source);}
+        if !self.completed.lock().map_err(|_| poisoned())?.is_empty()
+            || !self
+                .frozen_shared
+                .lock()
+                .map_err(|_| poisoned())?
+                .is_empty()
+        {
+            return Err(ModelError::Conflict(
+                "native restoration requires an empty workspace",
+            ));
         }
-        *self.completed_owners.lock().map_err(|_|poisoned())?=(owners,owner_charge);*self.completed.lock().map_err(|_|poisoned())?=completed;*self.frozen_shared.lock().map_err(|_|poisoned())?=frozen;Ok(())
+        let runtime = self.admission_engine()?;
+        runtime.restore(profile).await?;
+        let (contributions, bindings, _transfer) = runtime.completed_inventory()?;
+        let mut owners = BTreeMap::new();
+        let mut owner_charge = StateCharge::new(&self.budget, "compiler-completed-owners");
+        for contribution in contributions {
+            owner_charge.grow(
+                serde_json::to_vec(&contribution)
+                    .map_err(ModelError::codec)?
+                    .len()
+                    .saturating_mul(4)
+                    .saturating_add(256),
+            )?;
+            owners.insert(contribution.spec.identity()?, contribution);
+        }
+        let mut completed = BTreeMap::new();
+        let mut frozen = BTreeMap::new();
+        for binding in bindings {
+            let relation = self
+                .model
+                .relation(binding.source.relation())
+                .ok_or(ModelError::Schema("restored compiler relation"))?
+                .clone();
+            let name = relation.name();
+            let source = Arc::new(CompletedRelation {
+                relation,
+                producer: binding.source.producer().into(),
+                implementation: binding.source.implementation(),
+                configuration: binding.configuration,
+                contract: binding.source.model(),
+                rows: binding.view.rows,
+                view: binding.view,
+                native: self.native.clone(),
+                bridge: self.bridge.clone(),
+                budget: self.budget.clone(),
+                batch_rows: self.options.batch_rows,
+                cancellation: self.cancellation.clone(),
+                inputs: Arc::from([]),
+                profile,
+                contribution: lctx_model::domain::stages::is_epoch_shared(name),
+                snapshot: binding.source,
+                _files: self.files.clone(),
+            });
+            if let Some(boundary) = binding.boundary {
+                let boundary = lctx_model::domain::stages::PublicationBoundary::ALL
+                    .into_iter()
+                    .find(|b| b.name() == boundary)
+                    .ok_or(ModelError::Schema("restored compiler boundary"))?;
+                frozen.insert((boundary, name), source);
+            } else {
+                completed.insert(name, source);
+            }
+        }
+        *self.completed_owners.lock().map_err(|_| poisoned())? = (owners, owner_charge);
+        *self.completed.lock().map_err(|_| poisoned())? = completed;
+        *self.frozen_shared.lock().map_err(|_| poisoned())? = frozen;
+        Ok(())
     }
     fn writable(&self) -> Result<(), ModelError> {
         if self.content_frozen.load(Ordering::Acquire) {
@@ -298,10 +439,22 @@ impl Workspace {
     /// Fence the complete native completion/binding/visibility handoff before admission.
     /// The permanent mutation fence also applies to restored workspaces, which do not
     /// invent a normal compilation attestation.
-    pub(crate) async fn freeze_for_admission(&self,request:Option<(&cpg_extract::bundle::CapturedInputs,lctx_model::domain::admission::Frontier,Profile,ContentHash)>)->Result<(),ModelError>{
-        let _gate=self.completion_gate.lock().await;self.cancellation.check()?;
-        if let Some((captures,frontier,profile,settings))=request{self.require_compilation(captures,frontier,profile,settings)?;}
-        self.content_frozen.store(true,Ordering::Release);Ok(())
+    pub(crate) async fn freeze_for_admission(
+        &self,
+        request: Option<(
+            &cpg_extract::bundle::CapturedInputs,
+            lctx_model::domain::admission::Frontier,
+            Profile,
+            ContentHash,
+        )>,
+    ) -> Result<(), ModelError> {
+        let _gate = self.completion_gate.lock().await;
+        self.cancellation.check()?;
+        if let Some((captures, frontier, profile, settings)) = request {
+            self.require_compilation(captures, frontier, profile, settings)?;
+        }
+        self.content_frozen.store(true, Ordering::Release);
+        Ok(())
     }
     pub(crate) fn captures(
         &self,
@@ -336,18 +489,39 @@ impl Workspace {
         }
         Ok(())
     }
-    pub fn facts_availability(&self,profile:Profile)->Result<Arc<lctx_model::domain::admission::ScopedAvailability>,ModelError>{
-        let runtime=self.admission_runtime(profile)?;self.bridge.call(async move{runtime.facts_availability_async(profile).await})
+    pub fn facts_availability(
+        &self,
+        profile: Profile,
+    ) -> Result<Arc<lctx_model::domain::admission::ScopedAvailability>, ModelError> {
+        let runtime = self.admission_runtime(profile)?;
+        self.bridge
+            .call(async move { runtime.facts_availability_async(profile).await })
     }
-    pub async fn facts_availability_async(&self,profile:Profile)->Result<Arc<lctx_model::domain::admission::ScopedAvailability>,ModelError>{self.admission_runtime(profile)?.facts_availability_async(profile).await}
+    pub async fn facts_availability_async(
+        &self,
+        profile: Profile,
+    ) -> Result<Arc<lctx_model::domain::admission::ScopedAvailability>, ModelError> {
+        self.admission_runtime(profile)?
+            .facts_availability_async(profile)
+            .await
+    }
     /// Expected-domain consumers share the exact selected compact producer owners.
     /// Their own captured sources still reconstruct and validate scope membership.
-    pub async fn coverage_admission<'a>(&self,sources:&'a analysis::sources::CapturedSources)
-        ->Result<analysis::expected::CoverageAdmission<'a>,ModelError>{
-        let profile=sources.profile().ok_or(ModelError::Conflict("coverage admission captured profile absent"))?;
-        let owners=self.admission_runtime(profile)?.uniform_owners_async(profile).await?;
-        let mut admission=analysis::expected::CoverageAdmission::new(sources,self.budget())?;
-        for owner in owners.owners(){admission.admit_uniform_owner(owner)?;}
+    pub async fn coverage_admission<'a>(
+        &self,
+        sources: &'a analysis::sources::CapturedSources,
+    ) -> Result<analysis::expected::CoverageAdmission<'a>, ModelError> {
+        let profile = sources.profile().ok_or(ModelError::Conflict(
+            "coverage admission captured profile absent",
+        ))?;
+        let owners = self
+            .admission_runtime(profile)?
+            .uniform_owners_async(profile)
+            .await?;
+        let mut admission = analysis::expected::CoverageAdmission::new(sources, self.budget())?;
+        for owner in owners.owners() {
+            admission.admit_uniform_owner(owner)?;
+        }
         Ok(admission)
     }
     /// Semantic content over the actual completed typed streams, independent of IPC bytes.
@@ -450,16 +624,73 @@ impl Workspace {
         }
         Ok(())
     }
-    async fn validate_scope(&self,profile:Profile,admission:bool,selected:Option<&CompletedInputs>)->Result<ContentHash,ModelError>{
+    async fn validate_scope(
+        &self,
+        profile: Profile,
+        admission: bool,
+        selected: Option<&CompletedInputs>,
+    ) -> Result<ContentHash, ModelError> {
         let owned;
-        let inputs=if let Some(inputs)=selected{inputs}else{let relations=self.completed_relations()?;owned={let mut inputs=self.inputs("artifact-admission",profile,relations.iter().map(|r|r.name()))?;self.bind_admission_epochs(&mut inputs)?;inputs};&owned};
-        let session=inputs.session(self).await?;
-        let bytes=inputs.relations.values().map(|binding|serde_json::to_vec(&binding.source.view).map(|v|v.len().saturating_mul(8).saturating_add(1024)).map_err(ModelError::codec)).try_fold(0usize,|total,bytes|bytes.map(|bytes|total.saturating_add(bytes)))?;
-        let _selection=self.budget.reserve("compiler-admission-selected-metadata",bytes)?;
-        let bindings=inputs.ordered_bindings().into_iter().map(|(_,bound)|lctx_compiler_store::admission::SelectedBinding{role:bound.role,requested:bound.requested,resolved:bound.resolved,binding:lctx_model::domain::completed::CompletedBinding{boundary:bound.resolved.map(|b|b.name().into()),source:bound.snapshot(),view:bound.view.clone(),configuration:None}}).collect();
-        self.admission_runtime(profile)?.validate_compiler_selection(profile,admission,bindings,&session,inputs).await
+        let inputs = if let Some(inputs) = selected {
+            inputs
+        } else {
+            let relations = self.completed_relations()?;
+            owned = {
+                let mut inputs = self.inputs(
+                    "artifact-admission",
+                    profile,
+                    relations.iter().map(|r| r.name()),
+                )?;
+                self.bind_admission_epochs(&mut inputs)?;
+                inputs
+            };
+            &owned
+        };
+        let session = inputs.session(self).await?;
+        let bytes = inputs
+            .relations
+            .values()
+            .map(|binding| {
+                serde_json::to_vec(&binding.source.view)
+                    .map(|v| v.len().saturating_mul(8).saturating_add(1024))
+                    .map_err(ModelError::codec)
+            })
+            .try_fold(0usize, |total, bytes| {
+                bytes.map(|bytes| total.saturating_add(bytes))
+            })?;
+        let _selection = self
+            .budget
+            .reserve("compiler-admission-selected-metadata", bytes)?;
+        let bindings = inputs
+            .ordered_bindings()
+            .into_iter()
+            .map(
+                |(_, bound)| lctx_compiler_store::admission::SelectedBinding {
+                    role: bound.role,
+                    requested: bound.requested,
+                    resolved: bound.resolved,
+                    binding: lctx_model::domain::completed::CompletedBinding {
+                        boundary: bound.resolved.map(|b| b.name().into()),
+                        source: bound.snapshot(),
+                        view: bound.view.clone(),
+                        configuration: None,
+                    },
+                },
+            )
+            .collect();
+        self.admission_runtime(profile)?
+            .validate_compiler_selection(profile, admission, bindings, &session, inputs)
+            .await
     }
-    pub async fn admit_frontier(&self,frontier:lctx_model::domain::admission::Frontier,profile:Profile)->Result<(),ModelError>{self.admission_runtime(profile)?.admit_frontier(frontier,profile).await}
+    pub async fn admit_frontier(
+        &self,
+        frontier: lctx_model::domain::admission::Frontier,
+        profile: Profile,
+    ) -> Result<(), ModelError> {
+        self.admission_runtime(profile)?
+            .admit_frontier(frontier, profile)
+            .await
+    }
     async fn validation_views(
         &self,
         session: &SessionContext,
@@ -480,12 +711,14 @@ impl Workspace {
             session
                 .register_table(
                     &table,
-                    self.native.table_provider(
-                        &source.view,
-                        source.relation.clone(),
-                        self.budget.clone(),
-                        self.options.batch_rows,
-                    ).await?,
+                    self.native
+                        .table_provider(
+                            &source.view,
+                            source.relation.clone(),
+                            self.budget.clone(),
+                            self.options.batch_rows,
+                        )
+                        .await?,
                 )
                 .map_err(ModelError::codec)?;
             tables.insert((*boundary, *name), table);
@@ -580,20 +813,61 @@ impl Workspace {
         }
         Ok(())
     }
-    fn admission_engine(&self)->Result<Arc<lctx_compiler_store::admission::AdmissionRuntime>,ModelError>{
-        lctx_compiler_store::admission::AdmissionRuntime::borrow_runtime(self.model.clone(),self.options,self.budget.clone(),self.native.clone(),self.cancellation.clone(),self.native_calls.clone(),self.admission_memo.clone(),self.context.copied_config(),self.context.runtime_env(),self.files.clone())
+    fn admission_engine(
+        &self,
+    ) -> Result<Arc<lctx_compiler_store::admission::AdmissionRuntime>, ModelError> {
+        lctx_compiler_store::admission::AdmissionRuntime::borrow_runtime(
+            self.model.clone(),
+            self.options,
+            self.budget.clone(),
+            self.native.clone(),
+            self.cancellation.clone(),
+            self.native_calls.clone(),
+            self.admission_memo.clone(),
+            self.context.copied_config(),
+            self.context.runtime_env(),
+            self.execution.clone(),
+        )
     }
-    pub(crate) fn admission_runtime(&self,profile:Profile)->Result<Arc<lctx_compiler_store::admission::AdmissionRuntime>,ModelError>{
-        let runtime=self.admission_engine()?;
-        let owners=self.completed_owners.lock().map_err(|_|poisoned())?;
-        let mut bytes=owners.1.reserved().saturating_mul(3);
-        let current=self.completed.lock().map_err(|_|poisoned())?;let frozen=self.frozen_shared.lock().map_err(|_|poisoned())?;
-        for source in current.values().chain(frozen.values()){bytes=bytes.saturating_add(serde_json::to_vec(&source.view).map_err(ModelError::codec)?.len().saturating_mul(8).saturating_add(1024));}
-        let _transfer=self.budget.reserve("compiler-admission-handoff",bytes)?;
-        let contributions=owners.0.values().cloned().collect();let mut bindings=Vec::new();
-        for source in current.values(){bindings.push(lctx_model::domain::completed::CompletedBinding{boundary:None,source:source.snapshot(),view:source.view.clone(),configuration:None});}
-        for ((boundary,_),source) in frozen.iter(){bindings.push(lctx_model::domain::completed::CompletedBinding{boundary:Some(boundary.name().into()),source:source.snapshot(),view:source.view.clone(),configuration:None});}
-        runtime.install_completed(profile,contributions,bindings)?;Ok(runtime)
+    pub(crate) fn admission_runtime(
+        &self,
+        profile: Profile,
+    ) -> Result<Arc<lctx_compiler_store::admission::AdmissionRuntime>, ModelError> {
+        let runtime = self.admission_engine()?;
+        let owners = self.completed_owners.lock().map_err(|_| poisoned())?;
+        let mut bytes = owners.1.reserved().saturating_mul(3);
+        let current = self.completed.lock().map_err(|_| poisoned())?;
+        let frozen = self.frozen_shared.lock().map_err(|_| poisoned())?;
+        for source in current.values().chain(frozen.values()) {
+            bytes = bytes.saturating_add(
+                serde_json::to_vec(&source.view)
+                    .map_err(ModelError::codec)?
+                    .len()
+                    .saturating_mul(8)
+                    .saturating_add(1024),
+            );
+        }
+        let _transfer = self.budget.reserve("compiler-admission-handoff", bytes)?;
+        let contributions = owners.0.values().cloned().collect();
+        let mut bindings = Vec::new();
+        for source in current.values() {
+            bindings.push(lctx_model::domain::completed::CompletedBinding {
+                boundary: None,
+                source: source.snapshot(),
+                view: source.view.clone(),
+                configuration: None,
+            });
+        }
+        for ((boundary, _), source) in frozen.iter() {
+            bindings.push(lctx_model::domain::completed::CompletedBinding {
+                boundary: Some(boundary.name().into()),
+                source: source.snapshot(),
+                view: source.view.clone(),
+                configuration: None,
+            });
+        }
+        runtime.install_completed(profile, contributions, bindings)?;
+        Ok(runtime)
     }
     pub(crate) fn native_call<T: Send + 'static>(
         &self,
@@ -621,48 +895,23 @@ impl Workspace {
     pub fn cancellation(&self) -> Cancellation {
         self.cancellation.clone()
     }
-    /// Drain abandoned provider threads before discarding attempt-owned native state.
+    /// Join execution before the enclosing owner reconciles or abandons native state.
+    pub async fn drain_owned_report(&self) -> lctx_model::domain::completion::Completion {
+        use lctx_compiler_store::admission::ExecutionOwner;
+        self.execution.drain_owned_report().await
+    }
+    /// Settle the original signal lifetime using the enclosing cleanup outcome.
+    pub async fn complete_signal(
+        &self,
+        completion: &lctx_model::domain::completion::Completion,
+    ) -> Result<(), ModelError> {
+        use lctx_compiler_store::admission::ExecutionOwner;
+        self.execution.complete_signal(completion).await
+    }
     pub async fn drain_report(&self) -> lctx_model::domain::completion::Completion {
-        use lctx_model::domain::completion::{Completion, LocalState};
-        self.cancellation.cancel();
-        let mut completion = Completion::default();
-        let drains = match self.provider_drains.lock() {
-            Ok(drains) => drains.clone(),
-            Err(_) => {
-                completion.local = LocalState::Outstanding;
-                completion.step("provider drain ownership", Err(poisoned()));
-                Vec::new()
-            }
-        };
-        for task in drains {
-            completion.step("provider join", task.await.map_err(ModelError::SharedCause));
-        }
-        completion.step("provider bridge drain", self.bridge.drain().await);
-        completion.step("native calls drain", self.native_calls.drain().await);
-        completion.step(
-            "native store drain",
-            lctx_model::domain::completion::complete(Ok(()), self.native.drain_report().await),
-        );
-        let cache=match self.product_cache.lock(){
-            Ok(mut cache)=>cache.take(),
-            Err(_)=>{
-                completion.local=LocalState::Outstanding;
-                completion.step("product cache ownership",Err(poisoned()));
-                None
-            }
-        };
-        if let Some(cache)=cache {
-            if completion.local==LocalState::Terminal
-                && completion.remote==lctx_model::domain::completion::RemoteState::Confirmed
-                && completion.failures.iter().all(|failure|failure.error.permits_storage_cleanup()) {
-                completion.step("product cache session close",cache.close().await);
-            } else {
-                cache.retain_unknown();
-                completion.local=LocalState::Outstanding;
-            }
-        }
-        let signal=self.signal.complete(&completion).await;
-        completion.step("compiler workspace signal finality",signal);
+        let mut completion = self.drain_owned_report().await;
+        let signal = self.complete_signal(&completion).await;
+        completion.step("compiler workspace signal finality", signal);
         completion
     }
     pub async fn drain(&self) -> Result<(), ModelError> {
@@ -1685,12 +1934,15 @@ impl CompletedInputs {
         workspace: &Workspace,
         source: &CompletedRelation,
     ) -> Result<Arc<dyn datafusion::catalog::TableProvider>, ModelError> {
-        let provider = workspace.native.table_provider(
-            &source.view,
-            source.relation.clone(),
-            workspace.budget.clone(),
-            workspace.options.batch_rows,
-        ).await?;
+        let provider = workspace
+            .native
+            .table_provider(
+                &source.view,
+                source.relation.clone(),
+                workspace.budget.clone(),
+                workspace.options.batch_rows,
+            )
+            .await?;
         match &self.producing_scope {
             Some(scope) => lctx_compiler_store::compiler_provider::bind_producing(&provider, scope),
             None => Ok(provider),
@@ -1881,7 +2133,10 @@ impl ProducerIngress {
     async fn settle(mut state: ProducerIngressState) -> Result<(), ModelError> {
         let mut completion = lctx_model::domain::completion::Completion::default();
         if let Some(sequence) = state.pending.take() {
-            completion.step("final native ingress acknowledgement", sequence.await_committed().await.map(drop));
+            completion.step(
+                "final native ingress acknowledgement",
+                sequence.await_committed().await.map(drop),
+            );
         }
         if let Some(driver) = state.driver.take() {
             completion.step("native ingress accepted queue drain", driver.finish().await);
@@ -1897,27 +2152,52 @@ impl ProducerIngress {
         budget: ResourceBudget,
     ) -> Result<(), ModelError> {
         let mut state = self.state.lock().await;
-        if state.closed { return Err(ModelError::Conflict("producer ingress closed")); }
+        if state.closed {
+            return Err(ModelError::Conflict("producer ingress closed"));
+        }
         if state.driver.is_none() {
             let create = async { native.ingress(producer, &budget) };
-            state.driver = Some(match scope { Some(scope) => scope.run(create).await?, None => create.await? });
+            state.driver = Some(match scope {
+                Some(scope) => scope.run(create).await?,
+                None => create.await?,
+            });
         }
         let previous = state.pending.take();
-        let accepted = state.driver.as_mut().expect("created ingress").accept(batch).await;
+        let accepted = state
+            .driver
+            .as_mut()
+            .expect("created ingress")
+            .accept(batch)
+            .await;
         let result = match accepted {
-            Ok(sequence) => { state.pending = Some(sequence); Ok(()) }
+            Ok(sequence) => {
+                state.pending = Some(sequence);
+                Ok(())
+            }
             Err(error) => Err(error),
         };
         let mut completion = lctx_model::domain::completion::Completion::default();
         if let Some(previous) = previous {
-            completion.step("preceding native ingress acknowledgement", previous.await_committed().await.map(drop));
+            completion.step(
+                "preceding native ingress acknowledgement",
+                previous.await_committed().await.map(drop),
+            );
         }
         let result = lctx_model::domain::completion::complete(result, completion);
         if result.is_err() {
-            let draining = std::mem::replace(&mut *state, ProducerIngressState { closed: true, ..Default::default() });
+            let draining = std::mem::replace(
+                &mut *state,
+                ProducerIngressState {
+                    closed: true,
+                    ..Default::default()
+                },
+            );
             drop(state);
             let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.step("failed producer ingress drain", Self::settle(draining).await);
+            completion.step(
+                "failed producer ingress drain",
+                Self::settle(draining).await,
+            );
             return lctx_model::domain::completion::complete(result, completion);
         }
         Ok(())
@@ -1931,7 +2211,13 @@ impl ProducerIngress {
     }
     async fn finish(&self) -> Result<(), ModelError> {
         let mut state = self.state.lock().await;
-        let draining = std::mem::replace(&mut *state, ProducerIngressState { closed: true, ..Default::default() });
+        let draining = std::mem::replace(
+            &mut *state,
+            ProducerIngressState {
+                closed: true,
+                ..Default::default()
+            },
+        );
         drop(state);
         Self::settle(draining).await
     }
@@ -2020,12 +2306,25 @@ struct Writer<R: Record> {
 }
 /// Explicit empty output of a whole unrequested owner. This writer has no row ingress
 /// or downcast to a typed mutable buffer; it can only complete a zero-row membership.
-struct EmptyWriter {relation:Relation,contribution:bool}
+struct EmptyWriter {
+    relation: Relation,
+    contribution: bool,
+}
 impl ErasedWriter for EmptyWriter {
-    fn as_any_mut(&mut self)->&mut dyn Any{self}
-    fn close(self:Box<Self>,_model:Arc<ValidatedModel>,_budget:ResourceBudget)
-        ->BoxFuture<'static,Result<PendingRelation,ModelError>>{
-        Box::pin(async move {Ok(PendingRelation{relation:self.relation,contribution:self.contribution})})
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn close(
+        self: Box<Self>,
+        _model: Arc<ValidatedModel>,
+        _budget: ResourceBudget,
+    ) -> BoxFuture<'static, Result<PendingRelation, ModelError>> {
+        Box::pin(async move {
+            Ok(PendingRelation {
+                relation: self.relation,
+                contribution: self.contribution,
+            })
+        })
     }
 }
 impl<R: Record> Writer<R> {
@@ -2063,8 +2362,14 @@ impl<R: Record> Writer<R> {
                 self.producing_scope.clone(),
                 budget.clone(),
             );
-            let ingress=self.ingress.clone();
-            Some(async move { write.await?; ingress.acknowledge().await }.boxed())
+            let ingress = self.ingress.clone();
+            Some(
+                async move {
+                    write.await?;
+                    ingress.acknowledge().await
+                }
+                .boxed(),
+            )
         };
         Ok(PreparedClose {
             pending,
@@ -2116,10 +2421,20 @@ pub struct ProducerOutput {
     ingress: Arc<ProducerIngress>,
     failed: AtomicBool,
     product_capture: Mutex<Option<lctx_model::domain::compilation_product::ProductRequest>>,
-    captured_request: std::sync::OnceLock<Result<(lctx_model::domain::producer_contract::request::CapturedRequest, Box<dyn Reservation>), Arc<ModelError>>>,
+    captured_request: std::sync::OnceLock<
+        Result<
+            (
+                lctx_model::domain::producer_contract::request::CapturedRequest,
+                Box<dyn Reservation>,
+            ),
+            Arc<ModelError>,
+        >,
+    >,
 }
 impl ProducerOutput {
-    pub(crate) fn implementation_identity(&self) -> ContentHash { self.implementation }
+    pub(crate) fn implementation_identity(&self) -> ContentHash {
+        self.implementation
+    }
     pub fn inputs(&self) -> &CompletedInputs {
         &self.inputs
     }
@@ -2173,13 +2488,17 @@ impl ProducerOutput {
     /// The same registration operation serves sync/async declarations and empty completion.
     /// The gate retains single native registration; the ID precedes typed writer visibility.
     fn contribution_spec(&self) -> lctx_model::domain::completed::ContributionSpec {
-        if let Some(Ok((request,_)))=self.captured_request.get() {
+        if let Some(Ok((request, _))) = self.captured_request.get() {
             return request.contribution().clone();
         }
         lctx_model::domain::completed::ContributionSpec {
             captured_binding: self.captured_binding.clone(),
             producer: self.name.into(),
-            profile: lctx_model::domain::producer_contract::output_profile(self.name, self.captured_binding.as_ref(), self.profile),
+            profile: lctx_model::domain::producer_contract::output_profile(
+                self.name,
+                self.captured_binding.as_ref(),
+                self.profile,
+            ),
             model: self.workspace.model.digest(),
             implementation: self.implementation,
             configuration: self.configuration,
@@ -2251,13 +2570,27 @@ impl ProducerOutput {
     }
     /// Declare the remaining actual stage outputs empty after its whole-owner request
     /// policy and captured domain have been reconstructed. Existing writers are retained.
-    pub(crate) async fn declare_empty_outputs(&self)->Result<(),ModelError>{
-        self.check()?;self.registration_request().await?;
-        let mut writers=self.writers.lock().map_err(|_|poisoned())?;
+    pub(crate) async fn declare_empty_outputs(&self) -> Result<(), ModelError> {
+        self.check()?;
+        self.registration_request().await?;
+        let mut writers = self.writers.lock().map_err(|_| poisoned())?;
         for name in &self.allowed {
-            if writers.contains_key(name){continue;}
-            let relation=self.workspace.model.relation(name).ok_or(ModelError::Schema("empty owner output relation"))?.clone();
-            writers.insert(relation.name(),Box::new(EmptyWriter{relation,contribution:lctx_model::domain::stages::is_epoch_shared(name)}));
+            if writers.contains_key(name) {
+                continue;
+            }
+            let relation = self
+                .workspace
+                .model
+                .relation(name)
+                .ok_or(ModelError::Schema("empty owner output relation"))?
+                .clone();
+            writers.insert(
+                relation.name(),
+                Box::new(EmptyWriter {
+                    relation,
+                    contribution: lctx_model::domain::stages::is_epoch_shared(name),
+                }),
+            );
         }
         Ok(())
     }
@@ -2442,22 +2775,27 @@ impl ProducerOutput {
     }
     pub fn finish(self, outcome: ProviderOutcome) -> BoxFuture<'static, Result<(), ModelError>> {
         Box::pin(async move {
-            if let Err(error)=self.mark_finished(outcome){
-                let mut completion=lctx_model::domain::completion::Completion::default();
-                completion.step("refused producer ingress drain",self.finish_ingress().await);
-                return lctx_model::domain::completion::complete(Err(error),completion);
+            if let Err(error) = self.mark_finished(outcome) {
+                let mut completion = lctx_model::domain::completion::Completion::default();
+                completion.step(
+                    "refused producer ingress drain",
+                    self.finish_ingress().await,
+                );
+                return lctx_model::domain::completion::complete(Err(error), completion);
             }
             self.complete().await
         })
     }
-    pub(crate) async fn finish_ingress(&self)->Result<(),ModelError>{self.ingress.finish().await}
+    pub(crate) async fn finish_ingress(&self) -> Result<(), ModelError> {
+        self.ingress.finish().await
+    }
     pub fn complete(self) -> BoxFuture<'static, Result<(), ModelError>> {
-        let ingress=self.ingress.clone();
+        let ingress = self.ingress.clone();
         Box::pin(async move {
-            let result=self.complete_inner().await;
-            let mut completion=lctx_model::domain::completion::Completion::default();
-            completion.step("producer accepted ingress drain",ingress.finish().await);
-            lctx_model::domain::completion::complete(result,completion)
+            let result = self.complete_inner().await;
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step("producer accepted ingress drain", ingress.finish().await);
+            lctx_model::domain::completion::complete(result, completion)
         })
     }
     fn complete_inner(self) -> BoxFuture<'static, Result<(), ModelError>> {
@@ -2764,8 +3102,10 @@ impl cpg_extract::bundle::ProviderSink for ProducerOutput {
         ProducerOutput::contribute(self, batch)
     }
     fn finish(&self, outcome: ProviderOutcome) -> Result<(), ModelError> {
-        let ingress=self.ingress.clone();
-        self.workspace.bridge.call(async move{ingress.finish().await})?;
+        let ingress = self.ingress.clone();
+        self.workspace
+            .bridge
+            .call(async move { ingress.finish().await })?;
         self.mark_finished(outcome)
     }
 }
@@ -2776,6 +3116,52 @@ mod tests {
     use lctx_model::domain::input::Package;
     fn model() -> Arc<ValidatedModel> {
         Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap())
+    }
+    #[tokio::test]
+    async fn borrowed_admission_runtime_retains_producer_lifetime_until_explicit_drain() {
+        use lctx_model::domain::serving::Name;
+        let native = lctx_compiler_store::compiler::NativeCompilerStore::from_existing(
+            Arc::new(lctx_native::surrealdb::Surreal::init()),
+            Name::new("planning").unwrap(),
+            Name::new("planning").unwrap(),
+        );
+        let workspace = Workspace::new(model(), WorkspaceOptions::default(), native).unwrap();
+        let producer = Arc::downgrade(&workspace);
+        let files = Arc::downgrade(&workspace.files);
+        let bridge = Arc::downgrade(&workspace.bridge);
+        let signal = Arc::downgrade(&workspace.execution.signal);
+        let cancellation = workspace.cancellation();
+        let borrowed = workspace.admission_engine().unwrap();
+        drop(workspace.admission_engine().unwrap());
+        cancellation.check().unwrap();
+        drop(workspace);
+        assert!(
+            producer.upgrade().is_none(),
+            "the read catalog is not retained"
+        );
+        assert!(files.upgrade().is_some());
+        assert!(signal.upgrade().is_some());
+        cancellation.check().unwrap();
+        borrowed.cancellation().check().unwrap();
+        let completion = borrowed.drain_owned_report().await;
+        assert!(completion.failures.is_empty(), "{completion:?}");
+        assert_eq!(
+            completion.local,
+            lctx_model::domain::completion::LocalState::Terminal
+        );
+        assert_eq!(
+            completion.remote,
+            lctx_model::domain::completion::RemoteState::Confirmed
+        );
+        assert!(
+            borrowed.cancellation().check().is_err(),
+            "explicit drainage still cancels"
+        );
+        borrowed.complete_signal(&completion).await.unwrap();
+        drop(borrowed);
+        assert!(files.upgrade().is_none());
+        assert!(bridge.upgrade().is_none());
+        assert!(signal.upgrade().is_none());
     }
     #[tokio::test]
     async fn native_transfer_window_configuration_does_not_authorize_an_unconnected_provider() {
@@ -2808,9 +3194,24 @@ mod tests {
             config.target_partitions(),
             SessionConfig::default().target_partitions()
         );
-        let view = CompletedView::new(Release::NAME.into(), [ContentHash::of(b"unconnected-planning")].into(), 0).unwrap();
-        assert!(native.table_provider(&view,Relation::of::<Release>(),workspace.budget.clone(),7).await.is_err(),
-            "even an empty optimizer input needs earned native authority before construction");
+        let view = CompletedView::new(
+            Release::NAME.into(),
+            [ContentHash::of(b"unconnected-planning")].into(),
+            0,
+        )
+        .unwrap();
+        assert!(
+            native
+                .table_provider(
+                    &view,
+                    Relation::of::<Release>(),
+                    workspace.budget.clone(),
+                    7
+                )
+                .await
+                .is_err(),
+            "even an empty optimizer input needs earned native authority before construction"
+        );
     }
     #[tokio::test]
     async fn logical_templates_share_only_fixed_ports_program_and_input_order() {
@@ -4277,15 +4678,41 @@ mod empty_execution_admission_controls {
     }
 }
 
-impl lctx_compiler_store::admission::AdmissionResources for Workspace{fn admission_resources(self:&Arc<Self>)->Result<Arc<lctx_compiler_store::admission::AdmissionRuntime>,ModelError>{self.admission_engine()}}
-impl lctx_compiler_store::admission::NativeRuntime for Workspace{
- fn budget(&self)->&ResourceBudget{&self.budget}
- fn native_call<T:Send+'static>(&self,future:impl Future<Output=Result<T,ModelError>>+Send+'static)->BoxFuture<'_,Result<T,ModelError>>{self.native_calls.call(future)}
+impl lctx_compiler_store::admission::AdmissionResources for Workspace {
+    fn admission_resources(
+        self: &Arc<Self>,
+    ) -> Result<Arc<lctx_compiler_store::admission::AdmissionRuntime>, ModelError> {
+        self.admission_engine()
+    }
 }
-impl lctx_compiler_store::admission::InputTables for CompletedInputs{
- fn table_for(&self,input:&lctx_model::domain::ValidationInput)->Result<String,ModelError>{self.validation_table(input)}
- fn contains_relation(&self,name:&str)->bool{self.relations.keys().any(|(candidate,_)|*candidate==name)}
+impl lctx_compiler_store::admission::NativeRuntime for Workspace {
+    fn budget(&self) -> &ResourceBudget {
+        &self.budget
+    }
+    fn native_call<T: Send + 'static>(
+        &self,
+        future: impl Future<Output = Result<T, ModelError>> + Send + 'static,
+    ) -> BoxFuture<'_, Result<T, ModelError>> {
+        self.native_calls.call(future)
+    }
 }
-impl lctx_compiler_store::admission::ValidationPlanner for CompletedInputs{
- fn query<'a>(&'a self,session:&'a SessionContext,input:&'a lctx_model::domain::ValidationInput,sql:&'a str)->BoxFuture<'a,Result<datafusion::dataframe::DataFrame,ModelError>>{self.query_template(session,input,sql).boxed()}
+impl lctx_compiler_store::admission::InputTables for CompletedInputs {
+    fn table_for(&self, input: &lctx_model::domain::ValidationInput) -> Result<String, ModelError> {
+        self.validation_table(input)
+    }
+    fn contains_relation(&self, name: &str) -> bool {
+        self.relations
+            .keys()
+            .any(|(candidate, _)| *candidate == name)
+    }
+}
+impl lctx_compiler_store::admission::ValidationPlanner for CompletedInputs {
+    fn query<'a>(
+        &'a self,
+        session: &'a SessionContext,
+        input: &'a lctx_model::domain::ValidationInput,
+        sql: &'a str,
+    ) -> BoxFuture<'a, Result<datafusion::dataframe::DataFrame, ModelError>> {
+        self.query_template(session, input, sql).boxed()
+    }
 }

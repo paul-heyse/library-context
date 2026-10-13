@@ -242,7 +242,7 @@ async fn cold_native_restore_retains_foreign_execution_and_exact_supplier_invent
             .completed_state(&native_operation_budget)
             .await
             .unwrap(),
-        state
+        state.semantic
     );
     assert_eq!(restored.native().bindings().await.unwrap(), bindings);
     assert_eq!(rows::<Provider>(&restored), vec![captured_supplier]);

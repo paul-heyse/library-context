@@ -3,9 +3,7 @@ use lctx_model::domain::{
     ModelError,
     resources::{MAX_ROW_BYTES, TRANSFER_BYTES},
 };
-use lctx_native::surrealdb::types::{
-    Bytes, Number, Object, RecordId, RecordIdKey, ToSql, Value,
-};
+use lctx_native::surrealdb::types::{Bytes, Number, Object, RecordId, RecordIdKey, ToSql, Value};
 use std::io::Read;
 use surrealdb_sql::{Data, Expr, Literal, TopLevelExpr};
 
@@ -19,9 +17,12 @@ pub(crate) const MAX_DUMP_RECORD_BYTES: usize = MAX_ROW_BYTES * 16;
 pub(crate) fn dump_tables() -> impl Iterator<Item = lctx_compiler_store::compiler::RecoveryTable> {
     lctx_compiler_store::compiler::recovery_table_inventory()
 }
-pub(crate) fn table_codec(name: &str) -> Result<lctx_compiler_store::compiler::RecoveryTable, ModelError> {
-    lctx_compiler_store::compiler::classify_recovery_table(name)
-        .ok_or(ModelError::Schema("dump table outside immutable content inventory"))
+pub(crate) fn table_codec(
+    name: &str,
+) -> Result<lctx_compiler_store::compiler::RecoveryTable, ModelError> {
+    lctx_compiler_store::compiler::classify_recovery_table(name).ok_or(ModelError::Schema(
+        "dump table outside immutable content inventory",
+    ))
 }
 
 #[derive(Debug)]
@@ -59,9 +60,15 @@ pub(crate) fn definition_metadata(
 fn require_literal_value(value: &Value) -> Result<(), ModelError> {
     match value {
         Value::None | Value::Null | Value::Bool(_) | Value::String(_) | Value::Bytes(_) => Ok(()),
-        Value::Number(Number::Float(value)) if !value.is_finite() => Err(ModelError::Schema("dump unsupported literal family")),
+        Value::Number(Number::Float(value)) if !value.is_finite() => {
+            Err(ModelError::Schema("dump unsupported literal family"))
+        }
         Value::Number(_) => Ok(()),
-        Value::RecordId(id) if matches!(id.key, RecordIdKey::String(_) | RecordIdKey::Number(_)) => Ok(()),
+        Value::RecordId(id)
+            if matches!(id.key, RecordIdKey::String(_) | RecordIdKey::Number(_)) =>
+        {
+            Ok(())
+        }
         Value::Array(values) => values.iter().try_for_each(require_literal_value),
         Value::Object(values) => values.values().try_for_each(require_literal_value),
         _ => Err(ModelError::Schema("dump unsupported literal family")),
@@ -69,21 +76,193 @@ fn require_literal_value(value: &Value) -> Result<(), ModelError> {
 }
 /// The single typed data-only SQL lowering used by selected export and local compaction.
 pub(crate) fn write_row(
-    writer: &mut impl std::io::Write, row: Value,
+    writer: &mut impl std::io::Write,
+    row: Value,
     charge: &mut dyn lctx_model::domain::resources::Reservation,
 ) -> Result<(), ModelError> {
-    let Value::Object(object) = &row else { return Err(ModelError::Schema("dump record object")); };
-    let Some(Value::RecordId(id)) = object.get("id") else { return Err(ModelError::Schema("dump literal record identity")); };
+    let Value::Object(object) = &row else {
+        return Err(ModelError::Schema("dump record object"));
+    };
+    let Some(Value::RecordId(id)) = object.get("id") else {
+        return Err(ModelError::Schema("dump literal record identity"));
+    };
     let relation = table_codec(id.table.as_str())?.relation;
     require_literal_value(&row)?;
     // Admit the actual value before SQL escaping and geometric String growth. A
     // tiny record must not reserve the maximum legal dump statement allowance.
-    let bound = lctx_native::loader::native_bytes(&row).saturating_mul(32).saturating_add(512);
+    let bound = lctx_native::loader::native_bytes(&row)
+        .saturating_mul(32)
+        .saturating_add(512);
     charge.try_resize(bound)?;
-    let encoded = Value::Array(vec![row].into()).to_sql(); charge.try_resize(encoded.capacity())?;
-    if encoded.len().saturating_add(8) > MAX_DUMP_RECORD_BYTES { return Err(ModelError::Schema("data dump statement bound")); }
-    writeln!(writer, "INSERT {}{encoded};", if relation { "RELATION " } else { "" }).map_err(ModelError::codec)?; charge.try_resize(0)?; Ok(())
+    let encoded = Value::Array(vec![row].into()).to_sql();
+    charge.try_resize(encoded.capacity())?;
+    if encoded.len().saturating_add(8) > MAX_DUMP_RECORD_BYTES {
+        return Err(ModelError::Schema("data dump statement bound"));
+    }
+    writeln!(
+        writer,
+        "INSERT {}{encoded};",
+        if relation { "RELATION " } else { "" }
+    )
+    .map_err(ModelError::codec)?;
+    charge.try_resize(0)?;
+    Ok(())
 }
+const CARRIER_MAGIC: &[u8] = b"LCTX-BACKUP/1\n";
+const CARRIER_BUFFER: usize = 65536;
+
+/// Two inert, length-delimited sections: literal SQL claims and the completed-state codec.
+/// The returned digest binds every byte, including section framing and strict EOF.
+pub(crate) fn write_carrier(
+    sql: &std::path::Path,
+    state: &std::path::Path,
+    output: &std::path::Path,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Result<lctx_model::domain::ContentHash, ModelError> {
+    use std::io::Write;
+    let _charge = budget.reserve("backup-carrier-buffer", CARRIER_BUFFER)?;
+    let output = std::fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(output)
+        .map_err(ModelError::codec)?;
+    let mut output = HashedOutput {
+        output,
+        hash: lctx_model::domain::ContentHasher::default(),
+    };
+    output.write_all(CARRIER_MAGIC).map_err(ModelError::codec)?;
+    for path in [sql, state] {
+        let mut input = std::fs::File::open(path).map_err(ModelError::codec)?;
+        let length = input.metadata().map_err(ModelError::codec)?.len();
+        output
+            .write_all(&length.to_le_bytes())
+            .map_err(ModelError::codec)?;
+        copy_section(&mut input, &mut output, length)?;
+        let mut tail = [0];
+        if input.read(&mut tail).map_err(ModelError::codec)? != 0 {
+            return Err(ModelError::Conflict("backup carrier source grew"));
+        }
+    }
+    output.flush().map_err(ModelError::codec)?;
+    Ok(output.hash.finish())
+}
+
+#[cfg(test)]
+pub(crate) fn carrier_digest(
+    path: &std::path::Path,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Result<lctx_model::domain::ContentHash, ModelError> {
+    let _charge = budget.reserve("backup-carrier-digest-buffer", CARRIER_BUFFER)?;
+    let mut input = std::fs::File::open(path).map_err(ModelError::codec)?;
+    let mut hash = lctx_model::domain::ContentHasher::default();
+    let mut buffer = [0; CARRIER_BUFFER];
+    loop {
+        let count = input.read(&mut buffer).map_err(ModelError::codec)?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&buffer[..count]);
+    }
+    Ok(hash.finish())
+}
+
+pub(crate) fn read_carrier(
+    input: &std::path::Path,
+    sql: &std::path::Path,
+    state: &std::path::Path,
+    expected: &lctx_model::domain::completed_transport::BackupReceipt,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Result<(), ModelError> {
+    expected.validate()?;
+    // A self-consistent incoming header is insufficient. Only the independently retained
+    // source result supplies this expectation, checked before any destination effects.
+    let _charge = budget.reserve("restore-carrier-buffer", CARRIER_BUFFER)?;
+    let input = std::fs::File::open(input).map_err(ModelError::codec)?;
+    let length = input.metadata().map_err(ModelError::codec)?.len();
+    let mut input = HashedInput {
+        input,
+        hash: lctx_model::domain::ContentHasher::default(),
+    };
+    let mut magic = [0; CARRIER_MAGIC.len()];
+    input.read_exact(&mut magic).map_err(ModelError::codec)?;
+    if magic != CARRIER_MAGIC {
+        return Err(ModelError::Schema("backup carrier codec"));
+    }
+    let mut remaining = length
+        .checked_sub(CARRIER_MAGIC.len() as u64)
+        .ok_or(ModelError::Schema("backup carrier framing"))?;
+    for path in [sql, state] {
+        let mut size = [0; 8];
+        input.read_exact(&mut size).map_err(ModelError::codec)?;
+        remaining = remaining
+            .checked_sub(8)
+            .ok_or(ModelError::Schema("backup carrier framing"))?;
+        let size = u64::from_le_bytes(size);
+        remaining = remaining
+            .checked_sub(size)
+            .ok_or(ModelError::Schema("backup carrier section length"))?;
+        let mut output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .map_err(ModelError::codec)?;
+        copy_section(&mut input, &mut output, size)?;
+        use std::io::Write;
+        output.flush().map_err(ModelError::codec)?;
+    }
+    let mut tail = [0];
+    if remaining != 0 || input.read(&mut tail).map_err(ModelError::codec)? != 0 {
+        return Err(ModelError::Schema("backup carrier trailing bytes"));
+    }
+    if input.hash.finish() != expected.carrier {
+        return Err(ModelError::Conflict("backup carrier expected digest"));
+    }
+    Ok(())
+}
+struct HashedOutput<W> {
+    output: W,
+    hash: lctx_model::domain::ContentHasher,
+}
+impl<W: std::io::Write> std::io::Write for HashedOutput<W> {
+    fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
+        let count = self.output.write(input)?;
+        self.hash.update(&input[..count]);
+        Ok(count)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.output.flush()
+    }
+}
+struct HashedInput<R> {
+    input: R,
+    hash: lctx_model::domain::ContentHasher,
+}
+impl<R: Read> Read for HashedInput<R> {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        let count = self.input.read(output)?;
+        self.hash.update(&output[..count]);
+        Ok(count)
+    }
+}
+fn copy_section(
+    input: &mut impl Read,
+    output: &mut impl std::io::Write,
+    mut remaining: u64,
+) -> Result<(), ModelError> {
+    let mut buffer = [0; CARRIER_BUFFER];
+    while remaining != 0 {
+        let amount = remaining.min(CARRIER_BUFFER as u64) as usize;
+        input
+            .read_exact(&mut buffer[..amount])
+            .map_err(ModelError::codec)?;
+        output
+            .write_all(&buffer[..amount])
+            .map_err(ModelError::codec)?;
+        remaining -= amount as u64;
+    }
+    Ok(())
+}
+
 struct Units<R> {
     input: R,
     parser: surrealdb_syn::parser::StatementStream,
@@ -316,6 +495,118 @@ fn literal(expr: Expr) -> Result<Value, ModelError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn carrier_expectation(
+        carrier: lctx_model::domain::ContentHash,
+    ) -> lctx_model::domain::completed_transport::BackupReceipt {
+        use lctx_model::domain::{
+            ContentHash,
+            completed::CompletedStateIdentity,
+            completed_identity::{CompletedFamilyHasher, CompletedFamilyRoots},
+            completed_transport::*,
+            serving::{DatabaseIdentity, Name, SnapshotHandle},
+        };
+        let families = CompletedFamilyRoots::new(
+            lctx_model::domain::recovery_closure::COMPLETED_FAMILIES
+                .map(|family| CompletedFamilyHasher::new(family).unwrap().finish()),
+        )
+        .unwrap();
+        let semantic = CompletedStateIdentity::from_roots(&families).unwrap();
+        let state = CompletedTransportEnvelope {
+            version: 1,
+            semantic,
+            roots: vec![],
+            copies: vec![],
+            families,
+        }
+        .receipt()
+        .unwrap();
+        let mut source = SnapshotHandle {
+            publication: ContentHash([0; 32]),
+            semantic: ContentHash::of(b"manifest"),
+            eligibility: state.eligibility,
+            realization: ContentHash::of(b"realization"),
+            view: ContentHash::of(b"views"),
+            service_generation: ContentHash::of(b"generation"),
+            definition_epoch: ContentHash::of(b"definitions"),
+            database: DatabaseIdentity {
+                namespace: Name::new("carrier_control").unwrap(),
+                database: Name::new("carrier_control").unwrap(),
+            },
+        };
+        source.publication = source.expected_publication();
+        BackupReceipt {
+            recipe: 1,
+            source,
+            manifest: ContentHash::of(b"manifest"),
+            definitions: ContentHash::of(b"definitions"),
+            state,
+            carrier,
+        }
+    }
+    #[test]
+    fn backup_carrier_checks_independent_digest_strict_lengths_and_eof() {
+        let scratch = tempfile::tempdir().unwrap();
+        let sql = scratch.path().join("source.sql");
+        let state = scratch.path().join("source-state");
+        let output = scratch.path().join("backup");
+        let sql_bytes = vec![42; CARRIER_BUFFER + 17];
+        let state_bytes = vec![7; CARRIER_BUFFER * 2 + 3];
+        std::fs::write(&sql, &sql_bytes).unwrap();
+        std::fs::write(&state, &state_bytes).unwrap();
+        std::fs::File::create(&output).unwrap();
+        let budget =
+            lctx_model::domain::resources::ResourceBudget::fixed(8 * CARRIER_BUFFER).unwrap();
+        let digest = write_carrier(&sql, &state, &output, &budget).unwrap();
+        let expected = carrier_expectation(digest);
+        let decoded_sql = scratch.path().join("decoded.sql");
+        let decoded_state = scratch.path().join("decoded-state");
+        read_carrier(&output, &decoded_sql, &decoded_state, &expected, &budget).unwrap();
+        assert_eq!(std::fs::read(decoded_sql).unwrap(), sql_bytes);
+        assert_eq!(std::fs::read(decoded_state).unwrap(), state_bytes);
+        let baseline = std::fs::read(&output).unwrap();
+        for fault in [
+            "wrong-expectation",
+            "overflow-length",
+            "short-tail",
+            "extra-tail",
+            "wrong-codec",
+        ] {
+            let mut bytes = baseline.clone();
+            let mut expected = expected.clone();
+            match fault {
+                "wrong-expectation" => {
+                    expected.carrier =
+                        lctx_model::domain::ContentHash::of(b"wrong retained expectation")
+                }
+                "overflow-length" => bytes[CARRIER_MAGIC.len()..CARRIER_MAGIC.len() + 8]
+                    .copy_from_slice(&u64::MAX.to_le_bytes()),
+                "short-tail" => {
+                    bytes.pop();
+                }
+                "extra-tail" => bytes.push(1),
+                _ => bytes[0] ^= 1,
+            }
+            std::fs::write(&output, &bytes).unwrap();
+            if fault != "wrong-expectation" {
+                expected.carrier = carrier_digest(&output, &budget).unwrap();
+            }
+            let destination = scratch.path().join(fault);
+            std::fs::create_dir(&destination).unwrap();
+            assert!(
+                read_carrier(
+                    &output,
+                    &destination.join("sql"),
+                    &destination.join("state"),
+                    &expected,
+                    &budget
+                )
+                .is_err(),
+                "accepted {fault}"
+            );
+        }
+        assert_eq!(budget.reserved(), 0);
+    }
+
     fn decode(sql: &str) -> Result<Vec<Item>, ModelError> {
         let mut dump = DataDump::new(sql.as_bytes());
         let mut result = Vec::new();
@@ -343,32 +634,72 @@ mod tests {
         let mut output = b"OPTION IMPORT;\n".to_vec();
         write_row(&mut output, row.clone(), charge.as_mut()).unwrap();
         let mut decoded = DataDump::new(output.as_slice());
-        let Some(Item::Rows(rows)) = decoded.next().unwrap() else { panic!("literal rows"); };
+        let Some(Item::Rows(rows)) = decoded.next().unwrap() else {
+            panic!("literal rows");
+        };
         assert_eq!(rows, [row]);
         assert_eq!(charge.size(), 0);
         object.insert("escaped", "large".repeat(4096));
         let mut refused_output = Vec::new();
-        assert!(matches!(write_row(&mut refused_output, Value::Object(object), charge.as_mut()), Err(ModelError::Resource { .. })));
-        assert!(refused_output.is_empty(), "resource refusal precedes any dump effect");
+        assert!(matches!(
+            write_row(&mut refused_output, Value::Object(object), charge.as_mut()),
+            Err(ModelError::Resource { .. })
+        ));
+        assert!(
+            refused_output.is_empty(),
+            "resource refusal precedes any dump effect"
+        );
     }
     #[test]
     fn every_recovery_family_uses_the_actual_data_only_codec_and_relation_kind() {
-        let budget = lctx_model::domain::resources::ResourceBudget::fixed(MAX_DUMP_RECORD_BYTES * 2).unwrap();
+        let budget =
+            lctx_model::domain::resources::ResourceBudget::fixed(MAX_DUMP_RECORD_BYTES * 2)
+                .unwrap();
         let mut charge = budget.reserve("family-codec-control", 0).unwrap();
         for table in dump_tables() {
-            let mut object = Object::new(); object.insert("id", RecordId::new(table.name, "claim"));
-            object.insert("unexpected_actual_field", "preserve; quoted ' source anomaly");
-            object.insert("bytes", Bytes::from(vec![0, 255, 59])); object.insert("explicit_null", Value::Null);
+            let mut object = Object::new();
+            object.insert("id", RecordId::new(table.name, "claim"));
+            object.insert(
+                "unexpected_actual_field",
+                "preserve; quoted ' source anomaly",
+            );
+            object.insert("bytes", Bytes::from(vec![0, 255, 59]));
+            object.insert("explicit_null", Value::Null);
             let expected = Value::Object(object);
-            let mut output = b"OPTION IMPORT;\n".to_vec(); write_row(&mut output, expected.clone(), charge.as_mut()).unwrap();
+            let mut output = b"OPTION IMPORT;\n".to_vec();
+            write_row(&mut output, expected.clone(), charge.as_mut()).unwrap();
             let text = String::from_utf8(output).unwrap();
-            let decoded = decode(&text).unwrap(); let [Item::Rows(rows)] = decoded.as_slice() else { panic!("one family row"); };
-            assert_eq!(rows, &vec![expected], "typed source preservation: {:?}", table.kind);
-            let wrong = if table.relation { text.replace("INSERT RELATION ", "INSERT ") } else { text.replace("INSERT ", "INSERT RELATION ") };
-            assert!(decode(&wrong).is_err(), "wrong native codec kind: {}", table.name);
+            let decoded = decode(&text).unwrap();
+            let [Item::Rows(rows)] = decoded.as_slice() else {
+                panic!("one family row");
+            };
+            assert_eq!(
+                rows,
+                &vec![expected],
+                "typed source preservation: {:?}",
+                table.kind
+            );
+            let wrong = if table.relation {
+                text.replace("INSERT RELATION ", "INSERT ")
+            } else {
+                text.replace("INSERT ", "INSERT RELATION ")
+            };
+            assert!(
+                decode(&wrong).is_err(),
+                "wrong native codec kind: {}",
+                table.name
+            );
         }
-        for excluded in ["native_pin", "compiler_attempt", "entity_anchor", "lexical_document"] {
-            assert!(table_codec(excluded).is_err(), "no unowned cache/control codec: {excluded}");
+        for excluded in [
+            "native_pin",
+            "compiler_attempt",
+            "entity_anchor",
+            "lexical_document",
+        ] {
+            assert!(
+                table_codec(excluded).is_err(),
+                "no unowned cache/control codec: {excluded}"
+            );
         }
     }
     #[test]

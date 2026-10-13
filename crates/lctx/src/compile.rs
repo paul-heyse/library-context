@@ -69,30 +69,45 @@ pub async fn compile(
                     .map_err(Into::into);
             }
         };
-        let cache_setup:Result<(),lctx_model::domain::ModelError>=async {
-            let cache=lctx_compiler_store::NativeProductCache::connect(&runtime).await?.map(Arc::new);
-            if let Err(error)=workspace.set_product_cache(cache.clone()) {
-                let mut terminal=lctx_model::domain::completion::Completion::default();
-                if let Some(cache)=cache {
-                    if error.permits_storage_cleanup(){terminal.step("rejected product cache session close",cache.close().await);}
-                    else {cache.retain_unknown();}
+        let cache_setup: Result<(), lctx_model::domain::ModelError> = async {
+            let cache = lctx_compiler_store::NativeProductCache::connect(&runtime)
+                .await?
+                .map(Arc::new);
+            if let Err(error) = workspace.set_product_cache(cache.clone()) {
+                let mut terminal = lctx_model::domain::completion::Completion::default();
+                if let Some(cache) = cache {
+                    if error.permits_storage_cleanup() {
+                        terminal.step("rejected product cache session close", cache.close().await);
+                    } else {
+                        cache.retain_unknown();
+                    }
                 }
-                return lctx_model::domain::completion::complete(Err(error),terminal);
+                return lctx_model::domain::completion::complete(Err(error), terminal);
             }
             Ok(())
-        }.await;
-        if let Err(error)=cache_setup {
+        }
+        .await;
+        if let Err(error) = cache_setup {
             store.fail();
-            let mut completion=workspace.drain_report().await;
+            let mut completion = workspace.drain_report().await;
             if error.permits_storage_cleanup()
-                && completion.local==lctx_model::domain::completion::LocalState::Terminal
-                && completion.remote==lctx_model::domain::completion::RemoteState::Confirmed
-                && completion.failures.iter().all(|failure|failure.error.permits_storage_cleanup()) {
-                completion.step("compile cache setup abandon",store.abandon().await);
+                && completion.local == lctx_model::domain::completion::LocalState::Terminal
+                && completion.remote == lctx_model::domain::completion::RemoteState::Confirmed
+                && completion
+                    .failures
+                    .iter()
+                    .all(|failure| failure.error.permits_storage_cleanup())
+            {
+                completion.step("compile cache setup abandon", store.abandon().await);
             } else {
-                completion.storage.push(lctx_model::domain::completion::StorageState::Orphan(format!("attempt:{}",store.attempt().hex())));
+                completion
+                    .storage
+                    .push(lctx_model::domain::completion::StorageState::Orphan(
+                        format!("attempt:{}", store.attempt().hex()),
+                    ));
             }
-            return lctx_model::domain::completion::complete::<_>(Err(error),completion).map_err(Into::into);
+            return lctx_model::domain::completion::complete::<_>(Err(error), completion)
+                .map_err(Into::into);
         }
         Ok((runtime, store, workspace))
     }
@@ -162,8 +177,8 @@ pub async fn compile(
         cpg_core::artifact::admit(&workspace, &captured, frontier, profile, configuration).await?;
     let output=match target {
         Target::Artifact(destination,_)=>{
-            artifact.export(destination).await?;
-            serde_json::to_string_pretty(&serde_json::json!({"artifact":destination,"frontier":frontier.name(),"profile":profile.name(),"content":artifact.manifest().content().hex(),"published":false}))?
+            let receipt=artifact.export(destination).await?;
+            serde_json::to_string_pretty(&serde_json::json!({"artifact":destination,"frontier":frontier.name(),"profile":profile.name(),"content":artifact.manifest().content().hex(),"published":false,"receipt":receipt}))?
         }
         Target::Native(_)=>{
             let handle=lctx_publisher::seal_completed(&artifact,&runtime,&lctx_serving::native_definitions()).await?;
@@ -196,7 +211,7 @@ pub async fn compile(
                 completion
                     .storage
                     .push(lctx_model::domain::completion::StorageState::Orphan(
-                        format!("attempt:{}",store.attempt().hex()),
+                        format!("attempt:{}", store.attempt().hex()),
                     ));
             }
         }

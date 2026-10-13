@@ -245,7 +245,7 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
         .export_state(file.path(), &native_operation_budget)
         .await
         .unwrap();
-    assert_eq!(state.backing_rows, 2);
+    assert_eq!(state.semantic.backing_rows, 2);
     if maximum_chunk {
         assert!(
             std::fs::read_to_string(file.path())
@@ -271,7 +271,7 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
             .completed_state(&native_operation_budget)
             .await
             .unwrap(),
-        state
+        state.semantic
     );
     let batches = restored
         .scan_batches(
@@ -379,7 +379,7 @@ async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool)
             .completed_state(&native_operation_budget)
             .await
             .unwrap(),
-        state
+        state.semantic
     );
     store.abandon().await.unwrap();
     // Frozen export cannot reopen its source for a later conflicting write.

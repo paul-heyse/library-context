@@ -415,6 +415,26 @@ impl InstallationAudit {
         self.logical_contribution_observations
             .load(std::sync::atomic::Ordering::Relaxed)
     }
+    /// Complete local inventory beneath the caller's independently protected contributor.
+    pub(crate) async fn local_alias_run(
+        &self,
+        reader: &NativeReader<()>,
+        expected: &ExpectedRecord,
+        budget: &ResourceBudget,
+    ) -> Result<crate::ordered_rows::PreparedRows, ModelError> {
+        self.ensure_context(reader, budget).await?;
+        if let Some((_, aliases)) =
+            prepare_local_aliases(reader, expected, budget, self, false).await?
+        {
+            return Ok(aliases);
+        }
+        self.local_aliases
+            .get(expected.record())
+            .map(|entry| entry.1.clone())
+            .ok_or(ModelError::Conflict(
+                "complete local alias preparation absent",
+            ))
+    }
     pub fn alias_observations(&self) -> u64 {
         self.alias_observations
             .load(std::sync::atomic::Ordering::Relaxed)
@@ -3065,7 +3085,8 @@ async fn audit_aliases_inner(
                         NativeReader::private(owner.client.clone()).with_budget(&worker_budget);
                     let result = async {
                         let expected = worker_expected(&reader, &input, &worker_budget).await?;
-                        prepare_local_aliases(&reader, &expected, &worker_budget, &owner).await
+                        prepare_local_aliases(&reader, &expected, &worker_budget, &owner, true)
+                            .await
                     }
                     .await;
                     let mut terminal = Completion::default();
@@ -3108,6 +3129,7 @@ async fn prepare_local_aliases(
     expected: &ExpectedRecord,
     budget: &ResourceBudget,
     audit: &InstallationAudit,
+    include_seeds: bool,
 ) -> Result<
     Option<(
         crate::ordered_rows::PreparedRows,
@@ -3126,23 +3148,25 @@ async fn prepare_local_aliases(
     }
     let mut seeds = SortedRows::with_budget(budget)?;
     let mut aliases = SortedRows::with_budget(budget)?;
-    let mut variables = Variables::new();
-    variables.insert("owner", owner.clone());
-    let mut members=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],
+    if include_seeds {
+        let mut variables = Variables::new();
+        variables.insert("owner", owner.clone());
+        let mut members=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],
             vec!["SELECT node AS id FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner".into()])?)?;
-    let result = async {
-        while let Some(row) = members.next().await? {
-            seeds.push(row)?;
+        let result = async {
+            while let Some(row) = members.next().await? {
+                seeds.push(row)?;
+            }
+            Ok::<_, ModelError>(())
         }
-        Ok::<_, ModelError>(())
+        .await;
+        let mut completion = Completion::default();
+        completion.step(
+            "installed seed membership drainage",
+            members.drain_transport().await,
+        );
+        complete(result, completion)?;
     }
-    .await;
-    let mut completion = Completion::default();
-    completion.step(
-        "installed seed membership drainage",
-        members.drain_transport().await,
-    );
-    complete(result, completion)?;
     let mut variables = Variables::new();
     variables.insert("owner", owner.clone());
     let mut holds = reader.stream_prepared(crate::prepared::PreparedQuery::new(

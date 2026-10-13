@@ -1,22 +1,22 @@
 //! Actual admitted Catalog compilation, native publication, ten tools and original bytes.
 #[path = "../../cpg-core/tests/fixtures/native.rs"]
 mod native_fixture;
-#[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
-mod runtime;
 #[path = "fixtures/native_library.rs"]
 mod native_library;
-use native_library::library_fixture_tree;
-use lctx_model::domain::embedding::{EmbedFuture, Embedder};
+#[path = "../../cpg-core/tests/fixtures/catalog_runtime.rs"]
+mod runtime;
 use cpg_core::{
     artifact,
     compilation::{self, PreparedCompilation},
     embedding_service::FakeEmbedder,
     workspace::{Workspace, WorkspaceOptions},
 };
+use lctx_model::domain::embedding::{EmbedFuture, Embedder};
 use lctx_model::domain::{admission::Frontier, serving::*, stages::Profile, *};
-use lctx_serving::NativeService;
 use lctx_native::phase::{Phase, Terminal};
 use lctx_native::{NativeReader, RecordSelection, RuntimeConfig};
+use lctx_serving::NativeService;
+use native_library::library_fixture_tree;
 use std::{io::Write, os::unix::fs::OpenOptionsExt, sync::Arc};
 use tracing::{Instrument, instrument::WithSubscriber};
 
@@ -135,18 +135,38 @@ async fn compiled_catalog_serves_ten_tools_with_attributed_originals_and_foreign
 async fn absent_library_returns_unknown_library_without_broad_view_lowering() {
     let viewer = lctx_native::config::ViewerConfig::read(std::path::Path::new(
         &std::env::var_os("LCTX_NATIVE_SERVING_CONFIG").expect("retained admitted serving fixture"),
-    )).unwrap();
+    ))
+    .unwrap();
     let handle = viewer.selected().unwrap();
-    let reader = NativeReader::connect(&viewer.endpoint, &viewer.credentials(), handle).await.unwrap();
+    let reader = NativeReader::connect(&viewer.endpoint, &viewer.credentials(), handle)
+        .await
+        .unwrap();
     let service = NativeService::new(reader.clone(), ResourceLimits::default()).unwrap();
-    let result = service.execute("browse_library", r#"{"library":"lctx-absent-library-revealing-control"}"#).await;
+    let result = service
+        .execute(
+            "browse_library",
+            r#"{"library":"lctx-absent-library-revealing-control"}"#,
+        )
+        .await;
     service.close().await;
     drop(service);
     let mut terminal = completion::Completion::default();
     terminal.step("absent library reader close", reader.close().await);
-    terminal.step("absent library session invalidation", reader.client().invalidate().await.map_err(ModelError::codec));
-    let error = completion::complete(Ok(result), terminal).unwrap().unwrap_err();
-    assert_eq!(error.public_failure(),PublicFailure::new(FailureKind::UnknownLibrary));
+    terminal.step(
+        "absent library session invalidation",
+        reader
+            .client()
+            .invalidate()
+            .await
+            .map_err(ModelError::codec),
+    );
+    let error = completion::complete(Ok(result), terminal)
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        error.public_failure(),
+        PublicFailure::new(FailureKind::UnknownLibrary)
+    );
 }
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires exclusive just service maintenance --native-clients"]
@@ -813,11 +833,11 @@ async fn catalog_journey() {
     // embedder or mutable-cache parameter and reconstructs search arrays from these exact bytes.
     tools_phase.finish(Terminal::Passed);
     let backup = scratch.path().join("canonical-values.surql");
-    lctx_publisher::backup::backup(&config, &handle, &backup, &lctx_serving::native_definitions())
+    let backup_receipt=lctx_publisher::backup::backup(&config, &handle, &backup, &lctx_serving::native_definitions())
         .await
         .unwrap();
     let restored =
-        lctx_publisher::backup::restore_publication(&config, &backup, handle.publication, &lctx_serving::native_definitions())
+        lctx_publisher::backup::restore_publication(&config, &backup, handle.publication, &lctx_serving::native_definitions(), &backup_receipt)
             .await
             .unwrap();
     assert_eq!(restored.semantic, handle.semantic);

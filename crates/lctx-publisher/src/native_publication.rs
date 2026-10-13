@@ -1,16 +1,15 @@
 //! Private publication workflow over nominal semantic admission owners.
-use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_compiler_store::artifact::{AdmittedArtifact, RestoredAdmission, VerifiedExport};
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{
     ContentHash, Key, KeySink, ModelError,
     completed::CompletedBinding,
+    completed_transport::EligibilityIdentity,
     completion::{Completion, complete},
     graph::{Assertion, Entity, Manifest},
     serving::{DatabaseIdentity, SnapshotHandle},
 };
-use lctx_native::{
-    Loader, NativeReader, RuntimeConfig,  phase::Phase,
-};
+use lctx_native::{Loader, NativeReader, RuntimeConfig, phase::Phase};
 use std::sync::Arc;
 
 /// Only semantic admission owners can enter the private publication workflow.
@@ -28,7 +27,11 @@ impl Admission<'_> {
         }
     }
     fn budget(&self) -> &lctx_model::domain::resources::ResourceBudget {
-        match self { Self::Completed(owner) => owner.budget(), Self::Export(owner) => owner.budget(), Self::Restored(owner) => owner.budget() }
+        match self {
+            Self::Completed(owner) => owner.budget(),
+            Self::Export(owner) => owner.budget(),
+            Self::Restored(owner) => owner.budget(),
+        }
     }
     fn manifest(&self) -> &Manifest {
         match self {
@@ -46,13 +49,15 @@ pub(crate) struct Publication<'a> {
     bindings: Vec<CompletedBinding>,
     unchanged: Option<SnapshotHandle>,
     definition_epoch: ContentHash,
-    session:lctx_native::reader::SessionFinalizationGuard,
+    eligibility: EligibilityIdentity,
+    incoming: Option<lctx_native::completed_state::HeldFrozenCompletedState>,
+    session: lctx_native::reader::SessionFinalizationGuard,
 }
 impl<'a> Publication<'a> {
     pub(crate) async fn new(
         admission: Admission<'a>,
         config: &RuntimeConfig,
-        definitions:&str,
+        definitions: &str,
     ) -> Result<Self, ModelError> {
         admission.native().check_publication_target(config)?;
         let bindings = canonical_bindings(admission.native().bindings().await?)?;
@@ -66,41 +71,128 @@ impl<'a> Publication<'a> {
             admission.native().database().as_str(),
         )
         .await;
-        let client = match connected {Ok(client)=>client,Err(error)=>return lease.finish_with(Err(error))};
-        let mut session=Some(lctx_native::reader::SessionFinalizationGuard::new(client.clone()));
-        let result:Result<Self,ModelError>=async {
+        let client = match connected {
+            Ok(client) => client,
+            Err(error) => return lease.finish_with(Err(error)),
+        };
+        let mut session = Some(lctx_native::reader::SessionFinalizationGuard::new(
+            client.clone(),
+        ));
+        let result: Result<Self, ModelError> = async {
             lctx_native::materialization::validate_native_definitions(definitions)?;
-            let attempt=admission.native().attempt();let budget=admission.budget();
-            let loader=Loader::for_attempt_views(client.clone(),attempt,bindings.iter()
-                .filter(|binding|binding.boundary.is_none()).map(|binding|binding.view.identity).collect()).with_budget(budget);
-            let realization=crate::definitions::verify_epoch(&loader,definitions).await?;
-            let loader=loader.with_derivation(realization);
-            let handle=publication_handle(admission.manifest(),&bindings,admission.native().database(),config,realization,crate::definitions::epoch_identity(definitions))?;
-            let unchanged=if matches!(&admission,Admission::Completed(_)) {
-                lctx_native::control::staging::find_existing_publication(&loader,&handle,admission.manifest(),&bindings,budget).await?.map(|marker|marker.handle)
-            }else{None};
-            let loader=if unchanged.is_some(){loader}else{
-                let completed=lctx_native::completed_state::hold_admitted_completed_state_for_attempt(client.clone(),attempt,budget).await?;
-                let staging=lctx_native::control::staging::DerivedStaging::begin(&client,completed,realization,budget).await?;
-                loader.with_staging(Arc::new(staging))?.prepare_completed_reader().await?
+            let attempt = admission.native().attempt();
+            let budget = admission.budget();
+            let loader = Loader::for_attempt_views(
+                client.clone(),
+                attempt,
+                bindings
+                    .iter()
+                    .filter(|binding| binding.boundary.is_none())
+                    .map(|binding| binding.view.identity)
+                    .collect(),
+            )
+            .with_budget(budget);
+            let realization = crate::definitions::verify_epoch(&loader, definitions).await?;
+            let loader = loader.with_derivation(realization);
+            let completed =
+                lctx_native::completed_state::hold_admitted_completed_state_for_attempt(
+                    client.clone(),
+                    attempt,
+                    budget,
+                )
+                .await?;
+            let eligibility = lctx_native::completed_transport::eligibility_frozen(
+                client.clone(),
+                &completed,
+                budget,
+            )
+            .await?;
+            let handle = publication_handle(
+                admission.manifest(),
+                &bindings,
+                admission.native().database(),
+                config,
+                realization,
+                crate::definitions::epoch_identity(definitions),
+                eligibility,
+            )?;
+            let unchanged = if matches!(&admission, Admission::Completed(_)) {
+                lctx_native::control::staging::find_existing_publication(
+                    &loader,
+                    &handle,
+                    admission.manifest(),
+                    &bindings,
+                    &completed,
+                    budget,
+                )
+                .await?
+                .map(|marker| marker.handle)
+            } else {
+                None
             };
-            Ok(Self{admission,loader,bindings,unchanged,definition_epoch:crate::definitions::epoch_identity(definitions),session:session.take().expect("publication session owner")})
-        }.await;
-        if let Err(error)=&result {
-            if !error.permits_storage_cleanup(){return lease.finish_with(result);}
-            let mut completion=Completion::default();
-            completion.step("failed publication setup session invalidation",session.as_ref().expect("failed setup session owner").close().await);
-            return lease.finish_with(complete(result,completion));
+            let (loader, incoming) = if unchanged.is_some() {
+                (loader, Some(completed))
+            } else {
+                let staging = lctx_native::control::staging::DerivedStaging::begin(
+                    &client,
+                    completed,
+                    realization,
+                    budget,
+                )
+                .await?;
+                (
+                    loader
+                        .with_staging(Arc::new(staging))?
+                        .prepare_completed_reader()
+                        .await?,
+                    None,
+                )
+            };
+            Ok(Self {
+                admission,
+                loader,
+                bindings,
+                unchanged,
+                eligibility,
+                incoming,
+                definition_epoch: crate::definitions::epoch_identity(definitions),
+                session: session.take().expect("publication session owner"),
+            })
+        }
+        .await;
+        if let Err(error) = &result {
+            if !error.permits_storage_cleanup() {
+                return lease.finish_with(result);
+            }
+            let mut completion = Completion::default();
+            completion.step(
+                "failed publication setup session invalidation",
+                session
+                    .as_ref()
+                    .expect("failed setup session owner")
+                    .close()
+                    .await,
+            );
+            return lease.finish_with(complete(result, completion));
         }
         lease.finish_with(result)
     }
-    pub(crate) fn is_unchanged(&self)->bool{self.unchanged.is_some()}
-    pub(crate) fn loader(&self) -> &Loader { &self.loader }
+    pub(crate) fn is_unchanged(&self) -> bool {
+        self.unchanged.is_some()
+    }
+    pub(crate) fn loader(&self) -> &Loader {
+        &self.loader
+    }
     fn store(&self) -> &Arc<NativeCompilerStore> {
         self.admission.native()
     }
-    pub(crate) async fn invalidate(&self,primary:&ModelError)->Result<(),ModelError>{
-        if !primary.permits_storage_cleanup(){return Err(ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed,"publication session retained after uncertain operation"));}
+    pub(crate) async fn invalidate(&self, primary: &ModelError) -> Result<(), ModelError> {
+        if !primary.permits_storage_cleanup() {
+            return Err(ModelError::infrastructure(
+                lctx_model::domain::Infrastructure::Unconfirmed,
+                "publication session retained after uncertain operation",
+            ));
+        }
         self.loader.close_reader().await?;
         self.session.close().await
     }
@@ -140,7 +232,9 @@ impl<'a> Publication<'a> {
         definitions: &str,
     ) -> Result<SnapshotHandle, ModelError> {
         lctx_native::materialization::validate_native_definitions(definitions)?;
-        if crate::definitions::epoch_identity(definitions)!=self.definition_epoch{return Err(ModelError::Conflict("publication executable epoch changed"));}
+        if crate::definitions::epoch_identity(definitions) != self.definition_epoch {
+            return Err(ModelError::Conflict("publication executable epoch changed"));
+        }
         let manifest = self.admission.manifest();
         manifest.validate()?;
         self.store().check_publication_target(config)?;
@@ -149,19 +243,75 @@ impl<'a> Publication<'a> {
         let lease = self.store().begin_finalization().await?;
         let phase = Phase::begin("publication_seal");
         let result = async {
-            let expected=publication_handle(manifest,&self.bindings,self.store().database(),config,self.loader.derivation()?,self.definition_epoch)?;
+            if let Some(incoming) = &self.incoming {
+                let actual = lctx_native::completed_transport::eligibility_frozen(
+                    self.loader.shared_client(),
+                    incoming,
+                    self.admission.budget(),
+                )
+                .await?;
+                if actual != self.eligibility {
+                    return Err(ModelError::Conflict(
+                        "incoming publication eligibility changed",
+                    ));
+                }
+            }
+            let expected = publication_handle(
+                manifest,
+                &self.bindings,
+                self.store().database(),
+                config,
+                self.loader.derivation()?,
+                self.definition_epoch,
+                self.eligibility,
+            )?;
             // Encode before the acknowledgement so a later local error cannot lose it.
-            let committed_identity=serde_json::to_string(&expected).map_err(ModelError::codec)?;
-            let handle=if let Some(handle)=&self.unchanged {
-                if handle!=&expected{return Err(ModelError::Conflict("unchanged publication complete identity"));}
-                let checked=lctx_native::control::staging::find_existing_publication(&self.loader,handle,manifest,&self.bindings,self.admission.budget()).await?
-                    .ok_or(ModelError::Conflict("unchanged publication disappeared"))?;
+            let committed_identity = serde_json::to_string(&expected).map_err(ModelError::codec)?;
+            let handle = if let Some(handle) = &self.unchanged {
+                if handle != &expected {
+                    return Err(ModelError::Conflict(
+                        "unchanged publication complete identity",
+                    ));
+                }
+                let checked = lctx_native::control::staging::find_existing_publication(
+                    &self.loader,
+                    handle,
+                    manifest,
+                    &self.bindings,
+                    self.incoming
+                        .as_ref()
+                        .ok_or(ModelError::Conflict("unchanged publication incoming owner"))?,
+                    self.admission.budget(),
+                )
+                .await?
+                .ok_or(ModelError::Conflict("unchanged publication disappeared"))?;
                 checked.handle
-            }else{
-                let staging=self.loader.staging().ok_or(ModelError::Conflict("publication staging owner missing"))?;
-                staging.publish(&self.loader,&expected,manifest,&self.bindings,self.admission.budget()).await?.handle
+            } else {
+                let staging = self
+                    .loader
+                    .staging()
+                    .ok_or(ModelError::Conflict("publication staging owner missing"))?;
+                staging
+                    .publish(
+                        &self.loader,
+                        &expected,
+                        manifest,
+                        &self.bindings,
+                        self.admission.budget(),
+                    )
+                    .await?
+                    .handle
             };
-            finalize_marker(&self.loader,&handle,self.store().attempt(),config,&lease,committed_identity,&self.session).await
+            finalize_marker(
+                &self.loader,
+                &handle,
+                self.store().attempt(),
+                config,
+                &lease,
+                committed_identity,
+                &self.session,
+            )
+            .await
         }
         .await;
         let result = lease.finish_with(result);
@@ -170,32 +320,62 @@ impl<'a> Publication<'a> {
     }
 }
 
-pub(crate) fn publication_handle(manifest:&Manifest,views:&[CompletedBinding],database:&lctx_model::domain::serving::Name,
-    config:&RuntimeConfig,realization:ContentHash,definition_epoch:ContentHash)->Result<SnapshotHandle,ModelError>{
-    let view=view_identity(views)?;
-    Ok(SnapshotHandle{publication:publication_identity(manifest.content(),realization,view,config.service_generation,definition_epoch),
-        view,service_generation:config.service_generation,definition_epoch,semantic:manifest.content(),realization,
-        database:DatabaseIdentity{namespace:config.namespace.clone(),database:database.clone()}})
+pub(crate) fn publication_handle(
+    manifest: &Manifest,
+    views: &[CompletedBinding],
+    database: &lctx_model::domain::serving::Name,
+    config: &RuntimeConfig,
+    realization: ContentHash,
+    definition_epoch: ContentHash,
+    eligibility: EligibilityIdentity,
+) -> Result<SnapshotHandle, ModelError> {
+    let view = view_identity(views)?;
+    Ok(SnapshotHandle {
+        publication: publication_identity(
+            manifest.content(),
+            realization,
+            view,
+            config.service_generation,
+            definition_epoch,
+            eligibility,
+        ),
+        view,
+        eligibility,
+        service_generation: config.service_generation,
+        definition_epoch,
+        semantic: manifest.content(),
+        realization,
+        database: DatabaseIdentity {
+            namespace: config.namespace.clone(),
+            database: database.clone(),
+        },
+    })
 }
 /// Marker acknowledgement precedes every fallible finalizer and is retained in both owners.
-async fn finalize_marker(loader:&Loader,handle:&SnapshotHandle,attempt:ContentHash,config:&RuntimeConfig,
-    lease:&lctx_compiler_store::compiler::OperationLease,committed_identity:String,session:&lctx_native::reader::SessionFinalizationGuard)->Result<SnapshotHandle,ModelError>{
-    let client=loader.client();
+async fn finalize_marker(
+    loader: &Loader,
+    handle: &SnapshotHandle,
+    attempt: ContentHash,
+    config: &RuntimeConfig,
+    lease: &lctx_compiler_store::compiler::OperationLease,
+    committed_identity: String,
+    session: &lctx_native::reader::SessionFinalizationGuard,
+) -> Result<SnapshotHandle, ModelError> {
+    let client = loader.client();
     lease.record_committed(committed_identity.clone());
     let mut completion = Completion::default();
     completion.committed("published unselected manifest", committed_identity);
-    let reader_closed=loader.close_reader().await;
-    let may_finalize=reader_closed.is_ok();
-    completion.step("publication completed reader close",reader_closed);
-    if !may_finalize { return complete(Ok(handle.clone()),completion); }
+    let reader_closed = loader.close_reader().await;
+    let may_finalize = reader_closed.is_ok();
+    completion.step("publication completed reader close", reader_closed);
+    if !may_finalize {
+        return complete(Ok(handle.clone()), completion);
+    }
     if let Err(error) = lctx_native::control::close_attempt(client, attempt, "closed").await {
         return complete(Err(error), completion);
     }
     let readback_phase = Phase::begin("publication_readback");
-    completion.step(
-        "publication session invalidation",
-        session.close().await,
-    );
+    completion.step("publication session invalidation", session.close().await);
     let readback = NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
@@ -204,8 +384,8 @@ async fn finalize_marker(loader:&Loader,handle:&SnapshotHandle,attempt:ContentHa
     .await;
     let readback = match readback {
         Ok(reader) => {
-            let mut owner=reader.protect_terminal_close();
-            owner.close(&reader).await.map(|_|handle.clone())
+            let mut owner = reader.protect_terminal_close();
+            owner.close(&reader).await.map(|_| handle.clone())
         }
         Err(error) => Err(error),
     };
@@ -235,11 +415,13 @@ fn publication_identity(
     view: ContentHash,
     generation: ContentHash,
     definition_epoch: ContentHash,
+    eligibility: EligibilityIdentity,
 ) -> ContentHash {
-    let mut publication = KeySink::new("native-publication/v2");
+    let mut publication = KeySink::new("native-publication/v3");
     semantic.encode(&mut publication);
     realization.encode(&mut publication);
     view.encode(&mut publication);
+    eligibility.0.encode(&mut publication);
     generation.encode(&mut publication);
     definition_epoch.encode(&mut publication);
     publication.finish()
@@ -298,13 +480,16 @@ mod tests {
             let service_generation = ContentHash::of(b"generation");
             let definition_epoch = ContentHash::of(b"epoch");
             let view = view_identity(bindings).unwrap();
+            let eligibility = EligibilityIdentity(ContentHash::of(b"eligibility"));
             SnapshotHandle {
+                eligibility,
                 publication: publication_identity(
                     semantic,
                     realization,
                     view,
                     service_generation,
                     definition_epoch,
+                    eligibility,
                 ),
                 view,
                 semantic,

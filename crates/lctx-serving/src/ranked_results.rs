@@ -1,10 +1,15 @@
 //! Session-owned immutable rankings. Continuations borrow charged rows without discovery.
-use lctx_model::domain::{ContentHash, KeySink, charged::StateCharge, resources::ResourceBudget, serving::*};
+use lctx_model::domain::{
+    ContentHash, KeySink, charged::StateCharge, resources::ResourceBudget, serving::*,
+};
 use serde::Serialize;
 use std::io::{self, Write};
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex, atomic::{AtomicU64, Ordering}},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant, SystemTime},
 };
 
@@ -71,22 +76,39 @@ struct Limited<'a> {
 }
 impl Write for Limited<'_> {
     fn write(&mut self, value: &[u8]) -> io::Result<usize> {
-        let end = self.bytes.len().checked_add(value.len())
+        let end = self
+            .bytes
+            .len()
+            .checked_add(value.len())
             .filter(|end| *end <= self.cap)
             .ok_or_else(|| io::Error::other("ranked result retention bytes"))?;
         if end > self.bytes.capacity() {
             let old = self.bytes.capacity();
-            let capacity = end.max(old.saturating_add(old.clamp(64, 8192))).min(self.cap);
+            let capacity = end
+                .max(old.saturating_add(old.clamp(64, 8192)))
+                .min(self.cap);
             self.charge.grow(capacity - old).map_err(io::Error::other)?;
-            self.bytes.try_reserve_exact(capacity - self.bytes.len()).map_err(io::Error::other)?;
+            self.bytes
+                .try_reserve_exact(capacity - self.bytes.len())
+                .map_err(io::Error::other)?;
         }
         self.bytes.extend_from_slice(value);
         Ok(value.len())
     }
-    fn flush(&mut self) -> io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
-fn encode<T: Serialize>(value: &T, cap: usize, charge: &mut StateCharge) -> Result<Vec<u8>, WireError> {
-    let mut writer = Limited { bytes: Vec::new(), cap, charge };
+fn encode<T: Serialize>(
+    value: &T,
+    cap: usize,
+    charge: &mut StateCharge,
+) -> Result<Vec<u8>, WireError> {
+    let mut writer = Limited {
+        bytes: Vec::new(),
+        cap,
+        charge,
+    };
     serde_json::to_writer(&mut writer, value).map_err(|_| retention_refused())?;
     Ok(writer.bytes)
 }
@@ -111,80 +133,173 @@ pub(crate) struct RankedAssembly<'request, 'cache, T> {
     ranking: Vec<Option<ranking::RankedHit>>,
 }
 impl<T: Serialize> RankedAssembly<'_, '_, T> {
-    pub(crate) fn push_ref_at(&mut self, ordinal: usize, hit: &ranking::RankedHit, key: ContentHash, item: &T) -> Result<(), WireError>
-    where T: Clone {
-        if ordinal >= self.count || self.seen >= self.count
-            || (self.count > 1 && !self.rows[ordinal].is_empty()) { return Err(unavailable()); }
+    pub(crate) fn push_ref_at(
+        &mut self,
+        ordinal: usize,
+        hit: &ranking::RankedHit,
+        key: ContentHash,
+        item: &T,
+    ) -> Result<(), WireError>
+    where
+        T: Clone,
+    {
+        if ordinal >= self.count
+            || self.seen >= self.count
+            || (self.count > 1 && !self.rows[ordinal].is_empty())
+        {
+            return Err(unavailable());
+        }
         if self.count > 1 {
-            self.rows[ordinal] = encode(&RowRef { ranking: hit, key, item },
-                MAX_BYTES.saturating_sub(self.charge.reserved()), &mut self.charge)?;
+            self.rows[ordinal] = encode(
+                &RowRef {
+                    ranking: hit,
+                    key,
+                    item,
+                },
+                MAX_BYTES.saturating_sub(self.charge.reserved()),
+                &mut self.charge,
+            )?;
         }
         if ordinal < self.size {
             self.owner.admit_copy(&(hit, item))?;
-            self.items[ordinal] = Some(item.clone()); self.ranking[ordinal] = Some(hit.clone());
+            self.items[ordinal] = Some(item.clone());
+            self.ranking[ordinal] = Some(hit.clone());
         }
         self.seen += 1;
         Ok(())
     }
-    pub(crate) fn push(&mut self, hit: ranking::RankedHit, key: ContentHash, item: T) -> Result<(), WireError> {
+    pub(crate) fn push(
+        &mut self,
+        hit: ranking::RankedHit,
+        key: ContentHash,
+        item: T,
+    ) -> Result<(), WireError> {
         self.push_at(self.seen, hit, key, item)
     }
-    pub(crate) fn push_at(&mut self, ordinal: usize, hit: ranking::RankedHit, key: ContentHash, item: T) -> Result<(), WireError> {
-        if ordinal >= self.count || self.seen >= self.count
-            || (self.count > 1 && !self.rows[ordinal].is_empty()) { return Err(unavailable()); }
+    pub(crate) fn push_at(
+        &mut self,
+        ordinal: usize,
+        hit: ranking::RankedHit,
+        key: ContentHash,
+        item: T,
+    ) -> Result<(), WireError> {
+        if ordinal >= self.count
+            || self.seen >= self.count
+            || (self.count > 1 && !self.rows[ordinal].is_empty())
+        {
+            return Err(unavailable());
+        }
         if self.count > 1 {
-            self.rows[ordinal] = encode(&RowRef { ranking: &hit, key, item: &item },
-                MAX_BYTES.saturating_sub(self.charge.reserved()), &mut self.charge)?;
+            self.rows[ordinal] = encode(
+                &RowRef {
+                    ranking: &hit,
+                    key,
+                    item: &item,
+                },
+                MAX_BYTES.saturating_sub(self.charge.reserved()),
+                &mut self.charge,
+            )?;
         }
         if ordinal < self.size {
             self.owner.admit_copy(&item)?;
-            self.items[ordinal] = Some(item); self.ranking[ordinal] = Some(hit);
+            self.items[ordinal] = Some(item);
+            self.ranking[ordinal] = Some(hit);
         }
         self.seen += 1;
         Ok(())
     }
     pub(crate) fn finish(self) -> Result<(SectionPage<T>, Vec<ranking::RankedHit>), WireError> {
-        if self.seen != self.count { return Err(unavailable()); }
+        if self.seen != self.count {
+            return Err(unavailable());
+        }
         let continuation = if self.count > 1 {
             let mut key = KeySink::new("native-ranked-result/v1");
-            for row in &self.rows { key.part(b"row", row); }
+            for row in &self.rows {
+                key.part(b"row", row);
+            }
             let digest = key.finish();
             let sequence = self.owner.cache.sequence.fetch_add(1, Ordering::Relaxed) + 1;
             let mut key = KeySink::new("native-ranked-entry/v1");
             key.part(b"session", &self.owner.cache.session.0);
-            key.part(b"sequence", &sequence.to_le_bytes()); key.part(b"digest", &digest.0);
+            key.part(b"sequence", &sequence.to_le_bytes());
+            key.part(b"digest", &digest.0);
             let result = key.finish();
-            self.owner.scratch.grow(size_of::<Cursor>().saturating_mul(8).saturating_add(self.metadata.saturating_mul(8)))
+            self.owner
+                .scratch
+                .grow(
+                    size_of::<Cursor>()
+                        .saturating_mul(8)
+                        .saturating_add(self.metadata.saturating_mul(8)),
+                )
                 .map_err(|_| retention_refused())?;
-            let token = Cursor { binding: self.expected.clone(), after: CursorPosition::Ranked {
-                session: self.owner.cache.session, result, digest, offset: self.size.min(self.count) as u64,
-            }}.encode()?;
-            self.owner.pending = Some(Pending { result, entry: Entry {
-                binding: self.expected, digest, channels: self.channels, rows: self.rows, template: Vec::new(),
-                created: Instant::now(), charge: self.charge,
-            }});
+            let token = Cursor {
+                binding: self.expected.clone(),
+                after: CursorPosition::Ranked {
+                    session: self.owner.cache.session,
+                    result,
+                    digest,
+                    offset: self.size.min(self.count) as u64,
+                },
+            }
+            .encode()?;
+            self.owner.pending = Some(Pending {
+                result,
+                entry: Entry {
+                    binding: self.expected,
+                    digest,
+                    channels: self.channels,
+                    rows: self.rows,
+                    template: Vec::new(),
+                    created: Instant::now(),
+                    charge: self.charge,
+                },
+            });
             Optional(Some(token))
-        } else { Optional::default() };
+        } else {
+            Optional::default()
+        };
         let omitted = self.count.saturating_sub(self.size) as u64;
-        Ok((SectionPage { availability: Availability::Available {}, items: self.items.into_iter().flatten().collect(), continuation,
-            omitted, truncated: omitted > 0 }, self.ranking.into_iter().flatten().collect()))
+        Ok((
+            SectionPage {
+                availability: Availability::Available {},
+                items: self.items.into_iter().flatten().collect(),
+                continuation,
+                omitted,
+                truncated: omitted > 0,
+            },
+            self.ranking.into_iter().flatten().collect(),
+        ))
     }
 }
 impl RankedResults {
     pub(crate) fn new(shared: &ResourceBudget) -> Self {
         let mut key = KeySink::new("native-ranked-session/v1");
         key.part(b"process", &std::process::id().to_le_bytes());
-        key.part(b"time", &SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default().as_nanos().to_le_bytes());
-        key.part(b"sequence", &SESSION.fetch_add(1, Ordering::Relaxed).to_le_bytes());
+        key.part(
+            b"time",
+            &SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+                .to_le_bytes(),
+        );
+        key.part(
+            b"sequence",
+            &SESSION.fetch_add(1, Ordering::Relaxed).to_le_bytes(),
+        );
         Self {
-            session: key.finish(), state: Mutex::new(State::default()),
-            sequence: AtomicU64::new(0), shared: shared.clone(), lifetime: LIFETIME,
+            session: key.finish(),
+            state: Mutex::new(State::default()),
+            sequence: AtomicU64::new(0),
+            shared: shared.clone(),
+            lifetime: LIFETIME,
         }
     }
     pub(crate) fn request<'a>(&'a self, budget: &ResourceBudget) -> RankedRequest<'a> {
         RankedRequest {
-            cache: self, pending: None, borrowed: None,
+            cache: self,
+            pending: None,
+            borrowed: None,
             scratch: StateCharge::new(budget, "native-ranked-request"),
         }
     }
@@ -216,14 +331,22 @@ impl State {
             if retained.entry.created.elapsed() >= lifetime {
                 self.bytes -= retained.entry.charge.reserved();
                 false
-            } else { true }
+            } else {
+                true
+            }
         });
     }
     fn make_room(&mut self, bytes: usize) -> Result<(), WireError> {
-        if bytes > MAX_BYTES { return Err(retention_refused()); }
+        if bytes > MAX_BYTES {
+            return Err(retention_refused());
+        }
         while self.bytes + bytes > MAX_BYTES || self.entries.len() >= MAX_ENTRIES {
-            let id = self.entries.iter().min_by_key(|(_, e)| e.used)
-                .map(|(id, _)| *id).ok_or_else(retention_refused)?;
+            let id = self
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.used)
+                .map(|(id, _)| *id)
+                .ok_or_else(retention_refused)?;
             self.remove(id);
         }
         Ok(())
@@ -240,9 +363,15 @@ struct JsonShape {
 }
 impl JsonShape {
     fn allowance(&self, copies: usize) -> Result<usize, WireError> {
-        self.tokens.checked_mul(2 * size_of::<serde_json::Value>() + 64)
-            .and_then(|bytes| self.bytes.checked_mul(2).and_then(|strings| bytes.checked_add(strings)))
-            .and_then(|bytes| bytes.checked_mul(copies)).ok_or_else(retention_refused)
+        self.tokens
+            .checked_mul(2 * size_of::<serde_json::Value>() + 64)
+            .and_then(|bytes| {
+                self.bytes
+                    .checked_mul(2)
+                    .and_then(|strings| bytes.checked_add(strings))
+            })
+            .and_then(|bytes| bytes.checked_mul(copies))
+            .ok_or_else(retention_refused)
     }
 }
 pub(crate) fn allocation_allowance(value: &impl Serialize) -> Result<usize, WireError> {
@@ -252,25 +381,46 @@ pub(crate) fn allocation_allowance(value: &impl Serialize) -> Result<usize, Wire
 }
 impl Write for JsonShape {
     fn write(&mut self, raw: &[u8]) -> io::Result<usize> {
-        self.bytes = self.bytes.checked_add(raw.len()).ok_or_else(|| io::Error::other("ranked scratch size"))?;
+        self.bytes = self
+            .bytes
+            .checked_add(raw.len())
+            .ok_or_else(|| io::Error::other("ranked scratch size"))?;
         for &byte in raw {
             if self.string {
-                if self.escaped { self.escaped = false; }
-                else if byte == b'\\' { self.escaped = true; }
-                else if byte == b'"' { self.string = false; }
+                if self.escaped {
+                    self.escaped = false;
+                } else if byte == b'\\' {
+                    self.escaped = true;
+                } else if byte == b'"' {
+                    self.string = false;
+                }
                 continue;
             }
             match byte {
-                b'"' => { self.tokens += 1; self.string = true; self.atom = false; },
-                b'[' | b'{' => { self.tokens += 1; self.atom = false; },
-                b']' | b'}' | b',' | b':' | b' ' | b'\n' | b'\r' | b'\t' => { self.atom = false; },
-                _ if !self.atom => { self.tokens += 1; self.atom = true; },
-                _ => {},
+                b'"' => {
+                    self.tokens += 1;
+                    self.string = true;
+                    self.atom = false;
+                }
+                b'[' | b'{' => {
+                    self.tokens += 1;
+                    self.atom = false;
+                }
+                b']' | b'}' | b',' | b':' | b' ' | b'\n' | b'\r' | b'\t' => {
+                    self.atom = false;
+                }
+                _ if !self.atom => {
+                    self.tokens += 1;
+                    self.atom = true;
+                }
+                _ => {}
             }
         }
         Ok(raw.len())
     }
-    fn flush(&mut self) -> io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 impl<'cache> RankedRequest<'cache> {
     /// Admit JSON tree/DTO scratch before parsing. The allocation-free counter includes
@@ -279,46 +429,100 @@ impl<'cache> RankedRequest<'cache> {
     fn admit_json(&mut self, raw: &[u8], copies: usize) -> Result<(), WireError> {
         let mut shape = JsonShape::default();
         shape.write_all(raw).map_err(|_| retention_refused())?;
-        self.scratch.grow(shape.allowance(copies)?).map_err(|_| retention_refused())
+        self.scratch
+            .grow(shape.allowance(copies)?)
+            .map_err(|_| retention_refused())
     }
     /// Admit packet/ranking copies while they still borrow their source, before cloning.
     pub(crate) fn admit_copy<T: Serialize>(&mut self, value: &T) -> Result<(), WireError> {
         let mut shape = JsonShape::default();
         serde_json::to_writer(&mut shape, value)?;
-        self.scratch.grow(shape.allowance(1)?).map_err(|_| retention_refused())
+        self.scratch
+            .grow(shape.allowance(1)?)
+            .map_err(|_| retention_refused())
     }
     /// Assemble frozen encoded authority incrementally; only the requested page keeps DTOs.
-    pub(crate) fn begin<'request, T: Serialize>(&'request mut self, count: usize, request: &Request,
-        snapshot: &SnapshotHandle, channels: &ChannelState) -> Result<RankedAssembly<'request, 'cache, T>, WireError> {
-        if request.page().cursor.0.is_some() || self.pending.is_some() { return Err(unavailable()); }
-        let expected = crate::pagination::binding(request, snapshot, channels,
-            request.tool().name(), "results", None)?;
+    pub(crate) fn begin<'request, T: Serialize>(
+        &'request mut self,
+        count: usize,
+        request: &Request,
+        snapshot: &SnapshotHandle,
+        channels: &ChannelState,
+    ) -> Result<RankedAssembly<'request, 'cache, T>, WireError> {
+        if request.page().cursor.0.is_some() || self.pending.is_some() {
+            return Err(unavailable());
+        }
+        let expected = crate::pagination::binding(
+            request,
+            snapshot,
+            channels,
+            request.tool().name(),
+            "results",
+            None,
+        )?;
         let size = request.page().size as usize;
         let mut charge = StateCharge::new(&self.cache.shared, "native-ranked-retention");
         let metadata = channels_name_bytes(channels)
-            + expected.group.as_str().len() + expected.section.as_str().len()
+            + expected.group.as_str().len()
+            + expected.section.as_str().len()
             + expected.snapshot.database.namespace.as_str().len()
             + expected.snapshot.database.database.as_str().len();
         if count > 1 {
-            let base = (size_of::<Entry>() + 2 * size_of::<usize>() + size_of::<Retained>()
-                + size_of::<ContentHash>() + 32).checked_add(count.checked_mul(size_of::<Vec<u8>>())
-                .ok_or_else(retention_refused)?).ok_or_else(retention_refused)?;
-            if base > MAX_BYTES { return Err(retention_refused()); }
-            charge.grow(base.checked_add(metadata).ok_or_else(retention_refused)?).map_err(|_| retention_refused())?;
+            let base = (size_of::<Entry>()
+                + 2 * size_of::<usize>()
+                + size_of::<Retained>()
+                + size_of::<ContentHash>()
+                + 32)
+                .checked_add(
+                    count
+                        .checked_mul(size_of::<Vec<u8>>())
+                        .ok_or_else(retention_refused)?,
+                )
+                .ok_or_else(retention_refused)?;
+            if base > MAX_BYTES {
+                return Err(retention_refused());
+            }
+            charge
+                .grow(base.checked_add(metadata).ok_or_else(retention_refused)?)
+                .map_err(|_| retention_refused())?;
         }
         let returned = size.min(count);
-        self.scratch.grow(returned.saturating_mul(size_of::<Option<T>>() + size_of::<T>() + size_of::<Option<ranking::RankedHit>>() + size_of::<ranking::RankedHit>()))
+        self.scratch
+            .grow(returned.saturating_mul(
+                size_of::<Option<T>>()
+                    + size_of::<T>()
+                    + size_of::<Option<ranking::RankedHit>>()
+                    + size_of::<ranking::RankedHit>(),
+            ))
             .map_err(|_| retention_refused())?;
-        Ok(RankedAssembly { owner: self, expected, channels: channels.clone(), count, size, seen: 0,
-            metadata, charge, rows: (0..if count > 1 { count } else { 0 }).map(|_| Vec::new()).collect(),
-            items: (0..returned).map(|_| None).collect(), ranking: (0..returned).map(|_| None).collect() })
+        Ok(RankedAssembly {
+            owner: self,
+            expected,
+            channels: channels.clone(),
+            count,
+            size,
+            seen: 0,
+            metadata,
+            charge,
+            rows: (0..if count > 1 { count } else { 0 })
+                .map(|_| Vec::new())
+                .collect(),
+            items: (0..returned).map(|_| None).collect(),
+            ranking: (0..returned).map(|_| None).collect(),
+        })
     }
     /// First-page discovery supplies its order once. Nothing is retained in the map yet.
-    pub(crate) fn page<T: Serialize>(&mut self, values: Vec<(ranking::RankedHit, ContentHash, T)>,
-        request: &Request, snapshot: &SnapshotHandle, channels: &ChannelState)
-        -> Result<(SectionPage<T>, Vec<ranking::RankedHit>), WireError> {
+    pub(crate) fn page<T: Serialize>(
+        &mut self,
+        values: Vec<(ranking::RankedHit, ContentHash, T)>,
+        request: &Request,
+        snapshot: &SnapshotHandle,
+        channels: &ChannelState,
+    ) -> Result<(SectionPage<T>, Vec<ranking::RankedHit>), WireError> {
         let mut assembly = self.begin(values.len(), request, snapshot, channels)?;
-        for (hit, key, item) in values { assembly.push(hit, key, item)?; }
+        for (hit, key, item) in values {
+            assembly.push(hit, key, item)?;
+        }
         assembly.finish()
     }
     /// Final packing determines whether a transient first-page cursor is needed.
@@ -337,28 +541,46 @@ impl<'cache> RankedRequest<'cache> {
     /// Prepare the complete metadata template privately. Publication is a separate final step,
     /// so a packing/template/deadline failure leaves no retained partial entry.
     pub(crate) fn attach(&mut self, encoded_response: &EncodedJson) -> Result<(), WireError> {
-        if self.pending.is_none() { return Ok(()); }
+        if self.pending.is_none() {
+            return Ok(());
+        }
         self.admit_json(encoded_response.as_str().as_bytes(), 1)?;
         let mut template: serde_json::Value = serde_json::from_str(encoded_response.as_str())?;
-        let token = template.pointer("/results/continuation").and_then(|v| v.as_str())
+        let token = template
+            .pointer("/results/continuation")
+            .and_then(|v| v.as_str())
             .ok_or_else(unavailable)?;
-        let cursor: Cursor = serde_json::from_slice(&hex::decode(token).map_err(|_| unavailable())?)?;
+        let cursor: Cursor =
+            serde_json::from_slice(&hex::decode(token).map_err(|_| unavailable())?)?;
         let pending = self.pending.as_mut().expect("pending checked");
         match cursor.after {
-            CursorPosition::Ranked { session, result, digest, .. }
-                if session == self.cache.session && result == pending.result
-                    && digest == pending.entry.digest && cursor.binding == pending.entry.binding => {},
+            CursorPosition::Ranked {
+                session,
+                result,
+                digest,
+                ..
+            } if session == self.cache.session
+                && result == pending.result
+                && digest == pending.entry.digest
+                && cursor.binding == pending.entry.binding => {}
             _ => return Err(unavailable()),
         }
         template["results"]["items"] = serde_json::json!([]);
         template["ranking"] = serde_json::json!([]);
-        pending.entry.template = encode(&template,
-            MAX_BYTES.saturating_sub(pending.entry.charge.reserved()), &mut pending.entry.charge)?;
+        pending.entry.template = encode(
+            &template,
+            MAX_BYTES.saturating_sub(pending.entry.charge.reserved()),
+            &mut pending.entry.charge,
+        )?;
         Ok(())
     }
     pub(crate) fn publish(&mut self) -> Result<(), WireError> {
-        let Some(pending) = self.pending.take() else { return Ok(()); };
-        if pending.entry.template.is_empty() { return Err(unavailable()); }
+        let Some(pending) = self.pending.take() else {
+            return Ok(());
+        };
+        if pending.entry.template.is_empty() {
+            return Err(unavailable());
+        }
         let bytes = pending.entry.charge.reserved();
         // Allocate immutable ownership before taking the map lock.
         let entry = Arc::new(pending.entry);
@@ -367,7 +589,9 @@ impl<'cache> RankedRequest<'cache> {
         state.make_room(bytes)?;
         state.next += 1;
         let used = state.next;
-        state.entries.insert(pending.result, Retained { entry, used });
+        state
+            .entries
+            .insert(pending.result, Retained { entry, used });
         state.bytes += bytes;
         Ok(())
     }
@@ -380,15 +604,32 @@ impl<'cache> RankedRequest<'cache> {
         vector: Option<&crate::service::QueryVector>,
         limits: &ResourceLimits,
     ) -> Result<Option<Response>, WireError> {
-        let Some(token) = &request.page().cursor.0 else { return Ok(None); };
-        self.admit_json(token.as_str().as_bytes(), 1)?;
-        let cursor: Cursor = serde_json::from_slice(&hex::decode(token.as_str()).map_err(|_| unavailable())?)?;
-        let CursorPosition::Ranked { session, result, digest, offset } = cursor.after else {
-            if matches!(request, Request::SearchOperations(_) | Request::SearchEvidence(_)
-                | Request::SearchCapabilities(_)) { return Err(unavailable()); }
+        let Some(token) = &request.page().cursor.0 else {
             return Ok(None);
         };
-        if session != self.cache.session { return Err(unavailable()); }
+        self.admit_json(token.as_str().as_bytes(), 1)?;
+        let cursor: Cursor =
+            serde_json::from_slice(&hex::decode(token.as_str()).map_err(|_| unavailable())?)?;
+        let CursorPosition::Ranked {
+            session,
+            result,
+            digest,
+            offset,
+        } = cursor.after
+        else {
+            if matches!(
+                request,
+                Request::SearchOperations(_)
+                    | Request::SearchEvidence(_)
+                    | Request::SearchCapabilities(_)
+            ) {
+                return Err(unavailable());
+            }
+            return Ok(None);
+        };
+        if session != self.cache.session {
+            return Err(unavailable());
+        }
         let entry = self.cache.lookup(result)?;
         if let Some(v) = vector {
             let query = match request {
@@ -397,25 +638,45 @@ impl<'cache> RankedRequest<'cache> {
                 Request::SearchCapabilities(r) => r.query.as_str(),
                 _ => return Err(unavailable()),
             };
-            if v.recipe.validate().is_err() || v.input
-                != lctx_model::domain::embedding::value::input_hash(&v.recipe.text(query)) {
+            if v.recipe.validate().is_err()
+                || v.input
+                    != lctx_model::domain::embedding::value::input_hash(&v.recipe.text(query))
+            {
                 return Err(unavailable());
             }
             let supplied = VectorChannel::Available {
-                spec: v.spec, query_vector: lctx_model::domain::embedding::value::value_digest(&v.vector),
-                query_recipe: v.recipe.identity(), projection: v.projection,
+                spec: v.spec,
+                query_vector: lctx_model::domain::embedding::value::value_digest(&v.vector),
+                query_recipe: v.recipe.identity(),
+                projection: v.projection,
             };
-            if supplied != entry.channels.vector { return Err(unavailable()); }
+            if supplied != entry.channels.vector {
+                return Err(unavailable());
+            }
         }
-        let expected = crate::pagination::binding(request, snapshot, &entry.channels,
-            request.tool().name(), "results", None)?;
+        let expected = crate::pagination::binding(
+            request,
+            snapshot,
+            &entry.channels,
+            request.tool().name(),
+            "results",
+            None,
+        )?;
         Cursor::decode(token, &expected)?;
-        if entry.binding != expected || entry.digest != digest { return Err(unavailable()); }
+        if entry.binding != expected || entry.digest != digest {
+            return Err(unavailable());
+        }
         let start = usize::try_from(offset).map_err(|_| unavailable())?;
-        if start >= entry.rows.len() { return Err(unavailable()); }
-        let end = start.saturating_add(request.page().size as usize).min(entry.rows.len());
+        if start >= entry.rows.len() {
+            return Err(unavailable());
+        }
+        let end = start
+            .saturating_add(request.page().size as usize)
+            .min(entry.rows.len());
         self.admit_json(&entry.template, 1)?;
-        for row in &entry.rows[start..end] { self.admit_json(row, 1)?; }
+        for row in &entry.rows[start..end] {
+            self.admit_json(row, 1)?;
+        }
         let mut template: serde_json::Value = serde_json::from_slice(&entry.template)?;
         let mut items = Vec::with_capacity(end - start);
         let mut ranking = Vec::with_capacity(end - start);
@@ -428,23 +689,40 @@ impl<'cache> RankedRequest<'cache> {
         template["ranking"] = serde_json::Value::Array(ranking);
         template["results"]["omitted"] = serde_json::json!(entry.rows.len() - end);
         template["results"]["truncated"] = serde_json::json!(end < entry.rows.len());
-        template["results"]["continuation"] = serde_json::json!(Cursor {
-            binding: expected, after: CursorPosition::Ranked { session, result, digest, offset: end as u64 }
-        }.encode()?.as_str());
+        template["results"]["continuation"] = serde_json::json!(
+            Cursor {
+                binding: expected,
+                after: CursorPosition::Ranked {
+                    session,
+                    result,
+                    digest,
+                    offset: end as u64
+                }
+            }
+            .encode()?
+            .as_str()
+        );
         template["extent"] = serde_json::json!({"extent":"ranked","returned":end-start});
         // Serialization is incremental and charged to request scratch, never the retained pool.
-        let raw = encode(&template, limits.response_bytes(request.page().expanded) as usize,
-            &mut self.scratch)?;
+        let raw = encode(
+            &template,
+            limits.response_bytes(request.page().expanded) as usize,
+            &mut self.scratch,
+        )?;
         let raw = std::str::from_utf8(&raw).map_err(|_| unavailable())?;
         // decode_response simultaneously holds the DTO and its closed-shape JSON controls.
         self.admit_json(raw.as_bytes(), 3)?;
-        let response = decode_response(request.tool().name(), raw, request.page().expanded, limits)?;
+        let response =
+            decode_response(request.tool().name(), raw, request.page().expanded, limits)?;
         self.borrowed = Some(entry);
         Ok(Some(response))
     }
 }
 fn channels_name_bytes(channels: &ChannelState) -> usize {
-    match &channels.vector { VectorChannel::Degraded { reason } => reason.as_str().len(), _ => 0 }
+    match &channels.vector {
+        VectorChannel::Degraded { reason } => reason.as_str().len(),
+        _ => 0,
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -455,16 +733,27 @@ mod tests {
             Self::new(&ResourceBudget::fixed(MAX_BYTES * 4).unwrap())
         }
     }
-    fn budget() -> ResourceBudget { ResourceBudget::fixed(64 * 1024 * 1024).unwrap() }
-    fn resume(cache: &RankedResults, request: &Request, handle: &SnapshotHandle,
-        vector: Option<&crate::service::QueryVector>) -> Result<Option<Response>, WireError> {
-        cache.request(&budget()).resume(request, handle, vector, &ResourceLimits::default())
+    fn budget() -> ResourceBudget {
+        ResourceBudget::fixed(64 * 1024 * 1024).unwrap()
+    }
+    fn resume(
+        cache: &RankedResults,
+        request: &Request,
+        handle: &SnapshotHandle,
+        vector: Option<&crate::service::QueryVector>,
+    ) -> Result<Option<Response>, WireError> {
+        cache
+            .request(&budget())
+            .resume(request, handle, vector, &ResourceLimits::default())
     }
     fn id<T>(n: u8) -> Id<T> {
         serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
     }
     fn handle() -> SnapshotHandle {
         SnapshotHandle {
+            eligibility: lctx_model::domain::completed_transport::EligibilityIdentity(
+                lctx_model::domain::ContentHash::of(b"fixture-eligibility"),
+            ),
             publication: lctx_model::domain::ContentHash::of(b"fixture-publication"),
             view: lctx_model::domain::ContentHash::of(b"fixture-view"),
             service_generation: lctx_model::domain::ContentHash::of(b"fixture-service_generation"),
@@ -551,24 +840,41 @@ mod tests {
             })
             .collect()
     }
-    fn draft(pending: &mut RankedRequest<'_>, request: &Request, channels: &ChannelState,
-        payload: usize) -> Response {
+    fn draft(
+        pending: &mut RankedRequest<'_>,
+        request: &Request,
+        channels: &ChannelState,
+        payload: usize,
+    ) -> Response {
         let mut values = values();
         for (_, _, item) in &mut values {
             if payload > 0 {
                 item.delivered_windows.push(DeliveredWindow {
-                    window: id(1), part: id(1), purpose: retrieval::PartPurpose::Primary,
-                    member: Nullable(None), analysis: id(1), binding: Nullable(None),
-                    subject: Nullable(None), basis: Nullable(None), qualification: Nullable(None),
-                    text: Text::new("x".repeat(payload)).unwrap(), source_maps: vec![],
+                    window: id(1),
+                    part: id(1),
+                    purpose: retrieval::PartPurpose::Primary,
+                    member: Nullable(None),
+                    analysis: id(1),
+                    binding: Nullable(None),
+                    subject: Nullable(None),
+                    basis: Nullable(None),
+                    qualification: Nullable(None),
+                    text: Text::new("x".repeat(payload)).unwrap(),
+                    source_maps: vec![],
                 });
             }
         }
         let (results, ranking) = pending.page(values, request, &handle(), channels).unwrap();
         Response::SearchEvidence(SearchEvidenceResponse {
-            delivery: Optional::default(), snapshot: handle(), domains: vec![],
-            extent: SelectionExtent::Ranked { returned: results.items.len() as u64 },
-            results, channels: channels.clone(), ranking,
+            delivery: Optional::default(),
+            snapshot: handle(),
+            domains: vec![],
+            extent: SelectionExtent::Ranked {
+                returned: results.items.len() as u64,
+            },
+            results,
+            channels: channels.clone(),
+            ranking,
         })
     }
     fn next(request: &mut Request, response: &Response) {
@@ -616,10 +922,7 @@ mod tests {
         let mut request = request();
         let first = response(&cache, &request);
         next(&mut request, &first);
-        assert!(
-            resume(&RankedResults::default(), &request, &handle(), None)
-                .is_err()
-        );
+        assert!(resume(&RankedResults::default(), &request, &handle(), None).is_err());
         for _ in 0..MAX_ENTRIES {
             response(&cache, &self::request());
         }
@@ -705,32 +1008,65 @@ mod tests {
         let cache = RankedResults::default();
         let budget = budget();
         let mut request = request();
-        let limits = ResourceLimits { default_response_bytes: 128 * 1024, ..Default::default() };
+        let limits = ResourceLimits {
+            default_response_bytes: 128 * 1024,
+            ..Default::default()
+        };
         let mut initial = cache.request(&budget);
         let mut first = draft(&mut initial, &request, &channels(), 40 * 1024);
         crate::delivery::finalize(&request, &mut first, &limits).unwrap();
         initial.complete(&mut first);
-        let encoded = first.encode_json(&budget, limits.default_response_bytes as usize).unwrap();
+        let encoded = first
+            .encode_json(&budget, limits.default_response_bytes as usize)
+            .unwrap();
         initial.attach(&encoded).unwrap();
         initial.publish().unwrap();
         drop(initial);
         next(&mut request, &first);
         let mut replay = cache.request(&budget);
-        let mut second = replay.resume(&request, &handle(), None, &limits).unwrap().unwrap();
+        let mut second = replay
+            .resume(&request, &handle(), None, &limits)
+            .unwrap()
+            .unwrap();
         assert!(second.to_json().unwrap().len() > 40 * 1024);
         crate::delivery::finalize(&request, &mut second, &limits).unwrap();
-        let envelope = second.encode_mcp_result(&budget, limits.default_response_bytes as usize).unwrap();
-        lctx_model::domain::serving::resources::admit_final_mcp_bytes(envelope.as_str().as_bytes(), false, &limits).unwrap();
+        let envelope = second
+            .encode_mcp_result(&budget, limits.default_response_bytes as usize)
+            .unwrap();
+        lctx_model::domain::serving::resources::admit_final_mcp_bytes(
+            envelope.as_str().as_bytes(),
+            false,
+            &limits,
+        )
+        .unwrap();
         let smaller = ResourceLimits::default();
-        assert!(matches!(cache.request(&budget).resume(&request, &handle(), None, &smaller),
-            Err(WireError::ResourceRefused(_))));
+        assert!(matches!(
+            cache
+                .request(&budget)
+                .resume(&request, &handle(), None, &smaller),
+            Err(WireError::ResourceRefused(_))
+        ));
         // Structured bytes fitting their cap never waive MCP framing/metadata admission.
-        let structured = second.encode_json(&budget, limits.default_response_bytes as usize).unwrap();
+        let structured = second
+            .encode_json(&budget, limits.default_response_bytes as usize)
+            .unwrap();
         let exact = ResourceLimits {
-            default_response_bytes: structured.as_str().len() as u64, ..limits.clone()
+            default_response_bytes: structured.as_str().len() as u64,
+            ..limits.clone()
         };
-        assert!(second.encode_mcp_result(&budget, exact.default_response_bytes as usize).is_err());
-        assert!(lctx_model::domain::serving::resources::admit_final_mcp_bytes(envelope.as_str().as_bytes(), false, &exact).is_err());
+        assert!(
+            second
+                .encode_mcp_result(&budget, exact.default_response_bytes as usize)
+                .is_err()
+        );
+        assert!(
+            lctx_model::domain::serving::resources::admit_final_mcp_bytes(
+                envelope.as_str().as_bytes(),
+                false,
+                &exact
+            )
+            .is_err()
+        );
         assert!(crate::delivery::finalize(&request, &mut second, &exact).is_err());
     }
     #[test]
@@ -744,7 +1080,10 @@ mod tests {
             let mut response = draft(&mut pending, &request, &channels(), 40 * 1024);
             assert!(shared.reserved() > 0);
             assert!(cache.state.lock().unwrap().entries.is_empty());
-            assert!(crate::delivery::finalize(&request, &mut response, &ResourceLimits::default()).is_err());
+            assert!(
+                crate::delivery::finalize(&request, &mut response, &ResourceLimits::default())
+                    .is_err()
+            );
             // This is the same owned-state release as dropping a cancelled service future.
         }
         assert_eq!(request_budget.reserved(), 0);
@@ -775,7 +1114,12 @@ mod tests {
         next(&mut request, &first);
         let before = cache.shared.reserved();
         let tiny = ResourceBudget::fixed(1).unwrap();
-        assert!(cache.request(&tiny).resume(&request, &handle(), None, &ResourceLimits::default()).is_err());
+        assert!(
+            cache
+                .request(&tiny)
+                .resume(&request, &handle(), None, &ResourceLimits::default())
+                .is_err()
+        );
         assert_eq!(tiny.reserved(), 0);
         assert_eq!(cache.shared.reserved(), before);
         assert!(resume(&cache, &request, &handle(), None).unwrap().is_some());
@@ -783,7 +1127,12 @@ mod tests {
         assert_eq!(cache.shared.reserved(), 0);
         let tiny = ResourceBudget::fixed(1).unwrap();
         let refused = RankedResults::new(&tiny);
-        assert!(refused.request(&budget()).page(values(), &self::request(), &handle(), &channels()).is_err());
+        assert!(
+            refused
+                .request(&budget())
+                .page(values(), &self::request(), &handle(), &channels())
+                .is_err()
+        );
         assert_eq!(tiny.reserved(), 0);
         assert!(refused.state.lock().unwrap().entries.is_empty());
     }
@@ -795,10 +1144,15 @@ mod tests {
         next(&mut request, &first);
         let budget = budget();
         let mut active = cache.request(&budget);
-        let mut page = active.resume(&request, &handle(), None, &ResourceLimits::default()).unwrap().unwrap();
+        let mut page = active
+            .resume(&request, &handle(), None, &ResourceLimits::default())
+            .unwrap()
+            .unwrap();
         assert!(cache.state.try_lock().is_ok());
         let borrowed_bytes = active.borrowed.as_ref().unwrap().charge.reserved();
-        for _ in 0..MAX_ENTRIES { response(&cache, &self::request()); }
+        for _ in 0..MAX_ENTRIES {
+            response(&cache, &self::request());
+        }
         assert!(resume(&cache, &request, &handle(), None).is_err());
         cache.clear();
         assert_eq!(cache.shared.reserved(), borrowed_bytes);
@@ -815,21 +1169,34 @@ mod tests {
         use crate::preparation::PreparedCache;
         use tokio::sync::Semaphore;
         let cache = Arc::new(RankedResults::default());
-        let prepared = PreparedCache::new(handle(), &cache.shared, &ResourceLimits::default(),
-            Arc::new(Semaphore::new(2)), Arc::new(Semaphore::new(2))).unwrap();
+        let prepared = PreparedCache::new(
+            handle(),
+            &cache.shared,
+            &ResourceLimits::default(),
+            Arc::new(Semaphore::new(2)),
+            Arc::new(Semaphore::new(2)),
+        )
+        .unwrap();
         let mut request = request();
         let first = response(&cache, &request);
         next(&mut request, &first);
         let budget = budget();
         let lease = prepared.admit_request().unwrap();
         let mut active = cache.request(&budget);
-        active.resume(&request, &handle(), None, &ResourceLimits::default()).unwrap();
+        active
+            .resume(&request, &handle(), None, &ResourceLimits::default())
+            .unwrap();
         let closing = {
             let prepared = prepared.clone();
             let cache = cache.clone();
-            tokio::spawn(async move { prepared.close().await; cache.clear(); })
+            tokio::spawn(async move {
+                prepared.close().await;
+                cache.clear();
+            })
         };
-        while prepared.admit_request().is_ok() { tokio::task::yield_now().await; }
+        while prepared.admit_request().is_ok() {
+            tokio::task::yield_now().await;
+        }
         assert!(!closing.is_finished());
         assert!(!cache.state.lock().unwrap().entries.is_empty());
         drop(active);
@@ -845,11 +1212,14 @@ mod tests {
         let cache = RankedResults::new(&shared);
         let request_budget = budget();
         let mut request = cache.request(&request_budget);
-        let large = values().into_iter().map(|(ranking, key, item)| {
-            (ranking, key, (item, "x".repeat(8000)))
-        }).collect();
-        assert!(matches!(request.page(large, &self::request(), &handle(), &channels()),
-            Err(WireError::ResourceRefused(_))));
+        let large = values()
+            .into_iter()
+            .map(|(ranking, key, item)| (ranking, key, (item, "x".repeat(8000))))
+            .collect();
+        assert!(matches!(
+            request.page(large, &self::request(), &handle(), &channels()),
+            Err(WireError::ResourceRefused(_))
+        ));
         assert_eq!(shared.reserved(), 0);
         assert!(cache.state.lock().unwrap().entries.is_empty());
         let tiny = ResourceBudget::fixed(1).unwrap();
@@ -872,28 +1242,74 @@ mod tests {
     fn grouped_incremental_assembly_preserves_frozen_order_and_clones_only_page() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         #[derive(Serialize)]
-        struct Packet { value: u8, #[serde(skip)] copies: Arc<AtomicUsize> }
+        struct Packet {
+            value: u8,
+            #[serde(skip)]
+            copies: Arc<AtomicUsize>,
+        }
         impl Clone for Packet {
-            fn clone(&self) -> Self { self.copies.fetch_add(1, Ordering::SeqCst); Self { value: self.value, copies: self.copies.clone() } }
+            fn clone(&self) -> Self {
+                self.copies.fetch_add(1, Ordering::SeqCst);
+                Self {
+                    value: self.value,
+                    copies: self.copies.clone(),
+                }
+            }
         }
         let cache = RankedResults::default();
         let budget = budget();
         let mut request = cache.request(&budget);
         let values = values();
         let copies = Arc::new(AtomicUsize::new(0));
-        let packets = (0..3).map(|value| Packet { value, copies: copies.clone() }).collect::<Vec<_>>();
-        let mut assembly = request.begin(3, &self::request(), &handle(), &channels()).unwrap();
-        for ordinal in [2, 0, 1] { assembly.push_ref_at(ordinal, &values[ordinal].0, values[ordinal].1, &packets[ordinal]).unwrap(); }
+        let packets = (0..3)
+            .map(|value| Packet {
+                value,
+                copies: copies.clone(),
+            })
+            .collect::<Vec<_>>();
+        let mut assembly = request
+            .begin(3, &self::request(), &handle(), &channels())
+            .unwrap();
+        for ordinal in [2, 0, 1] {
+            assembly
+                .push_ref_at(
+                    ordinal,
+                    &values[ordinal].0,
+                    values[ordinal].1,
+                    &packets[ordinal],
+                )
+                .unwrap();
+        }
         let (page, ranking) = assembly.finish().unwrap();
-        assert_eq!(copies.load(Ordering::SeqCst), 1, "off-page packets are encoded without DTO clones");
+        assert_eq!(
+            copies.load(Ordering::SeqCst),
+            1,
+            "off-page packets are encoded without DTO clones"
+        );
         assert_eq!(page.items[0].value, 0);
         assert_eq!(ranking[0].context, values[0].0.context);
         let entry = &request.pending.as_ref().unwrap().entry;
-        let expected = values.iter().zip(&packets).map(|((ranking, key, _), item)| serde_json::to_vec(&RowRef { ranking, key: *key, item }).unwrap()).collect::<Vec<_>>();
-        assert_eq!(entry.rows, expected, "grouped preparation cannot change frozen ranked order");
-        assert!(cache.state.lock().unwrap().entries.is_empty(), "assembly grants no published continuation");
+        let expected = values
+            .iter()
+            .zip(&packets)
+            .map(|((ranking, key, _), item)| {
+                serde_json::to_vec(&RowRef {
+                    ranking,
+                    key: *key,
+                    item,
+                })
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            entry.rows, expected,
+            "grouped preparation cannot change frozen ranked order"
+        );
+        assert!(
+            cache.state.lock().unwrap().entries.is_empty(),
+            "assembly grants no published continuation"
+        );
         drop(request);
         assert_eq!(budget.reserved(), 0);
     }
-
 }

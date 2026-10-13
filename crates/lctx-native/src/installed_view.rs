@@ -9,8 +9,8 @@ pub use earned::{EarnedContributionSet, SelectedViewDescriptor, select_live_view
 use lctx_model::domain::{self as d, ContentHash, Key, KeySink, ModelError};
 pub(crate) use live::recovery_view;
 pub use live::{
-    InstalledMember, SelectedMembers, attach_live_view, attach_live_views, hold_frozen_view,
-    hold_physical_view, hold_published_view,
+    InstalledMember, SelectedMembers, attach_live_view, attach_live_views,
+    attach_live_views_retaining, hold_frozen_view, hold_physical_view, hold_published_view,
 };
 pub(crate) use receiving::protect_receiving_views;
 use serde::{Deserialize, Serialize};

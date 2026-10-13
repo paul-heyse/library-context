@@ -23,6 +23,7 @@ pub mod compilation_product;
 pub mod compiler_scope_program;
 pub mod completed;
 pub mod completed_identity;
+pub mod completed_transport;
 pub mod completion;
 pub mod composition;
 pub mod conditions;

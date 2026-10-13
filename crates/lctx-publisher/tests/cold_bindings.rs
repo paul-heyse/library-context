@@ -373,7 +373,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         .export_state(export.path(), &native_operation_budget)
         .await
         .unwrap();
-    assert_eq!(state.format_version, 4);
+    assert_eq!(state.semantic.format_version, 4);
     let obsolete = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(
         obsolete.path(),
@@ -392,8 +392,8 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     assert!(
         error
             .to_string()
-            .contains("unsupported completed-state transport format"),
-        "old header must refuse before malformed descriptor decoding: {error}"
+            .contains("unknown variant `format_version`"),
+        "obsolete outer shape must refuse before malformed descriptor decoding: {error}"
     );
     assert!(error.permits_storage_cleanup());
     let cleanup = refused.abandon().await.unwrap_err();
@@ -431,7 +431,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             && failure
                 .error
                 .to_string()
-                .contains("unsupported completed-state transport format")
+                .contains("unknown variant `format_version`")
     }));
 
     let restored = workspace(&config).await;
@@ -478,7 +478,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             .completed_state(&native_operation_budget)
             .await
             .unwrap(),
-        state
+        state.semantic
     );
     for name in [
         "input_revisions",

@@ -1,6 +1,9 @@
 fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
     use lctx_model::domain::serving::{DatabaseIdentity, Name, SnapshotHandle};
     let mut handle = SnapshotHandle {
+        eligibility: lctx_model::domain::completed_transport::EligibilityIdentity(
+            lctx_model::domain::ContentHash::of(b"fixture-eligibility"),
+        ),
         publication: lctx_model::domain::ContentHash([0; 32]),
         view: lctx_model::domain::ContentHash([byte; 32]),
         service_generation: lctx_model::domain::ContentHash([byte; 32]),

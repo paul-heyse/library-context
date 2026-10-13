@@ -23,6 +23,8 @@ pub struct SnapshotHandle {
     pub realization: ContentHash,
     /// Exact ordered completed-view inventory admitted by this publication.
     pub view: ContentHash,
+    /// Independently checked selector-local alias eligibility, separate from semantic v4.
+    pub eligibility: crate::domain::completed_transport::EligibilityIdentity,
     /// Installed physical storage/schema generation, independent of client build provenance.
     pub service_generation: ContentHash,
     /// Immutable answer-affecting executable definition epoch.
@@ -31,10 +33,11 @@ pub struct SnapshotHandle {
 }
 impl SnapshotHandle {
     pub fn expected_publication(&self) -> ContentHash {
-        let mut sink = KeySink::new("native-publication/v2");
+        let mut sink = KeySink::new("native-publication/v3");
         self.semantic.encode(&mut sink);
         self.realization.encode(&mut sink);
         self.view.encode(&mut sink);
+        self.eligibility.0.encode(&mut sink);
         self.service_generation.encode(&mut sink);
         self.definition_epoch.encode(&mut sink);
         sink.finish()
@@ -60,11 +63,12 @@ impl SnapshotHandle {
 }
 impl Key for SnapshotHandle {
     fn encode(&self, sink: &mut KeySink) {
-        sink.part(b"snapshot-handle/v2", &[]);
+        sink.part(b"snapshot-handle/v3", &[]);
         self.publication.encode(sink);
         self.semantic.encode(sink);
         self.realization.encode(sink);
         self.view.encode(sink);
+        self.eligibility.0.encode(sink);
         self.service_generation.encode(sink);
         self.definition_epoch.encode(sink);
         sink.part(b"namespace", self.database.namespace.as_str().as_bytes());

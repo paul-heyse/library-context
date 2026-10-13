@@ -211,15 +211,24 @@ impl RuntimeConfig {
         }
         if guard.selection.try_exists().map_err(ModelError::codec)? {
             if self.selected()? != *expected {
-                return Err(ModelError::Conflict("selected publication changed before retirement"));
+                return Err(ModelError::Conflict(
+                    "selected publication changed before retirement",
+                ));
             }
             std::fs::remove_file(&guard.selection).map_err(ModelError::codec)?;
         }
-        sync_parent(guard.selection.parent().ok_or(ModelError::Schema("selection parent"))?)
-            .map_err(|error| ModelError::infrastructure(
+        sync_parent(
+            guard
+                .selection
+                .parent()
+                .ok_or(ModelError::Schema("selection parent"))?,
+        )
+        .map_err(|error| {
+            ModelError::infrastructure(
                 lctx_model::domain::Infrastructure::Unconfirmed,
                 format!("selection was removed; directory durability is uncertain: {error}"),
-            ))
+            )
+        })
     }
     fn commit_selection(
         &self,
@@ -344,6 +353,9 @@ mod selection_controls {
     }
     fn handle(label: &str) -> SnapshotHandle {
         SnapshotHandle {
+            eligibility: lctx_model::domain::completed_transport::EligibilityIdentity(
+                lctx_model::domain::ContentHash::of(b"fixture-eligibility"),
+            ),
             semantic: ContentHash::of(label.as_bytes()),
             realization: ContentHash::of(b"realization"),
             publication: ContentHash::of(label.as_bytes()),
@@ -373,7 +385,10 @@ mod selection_controls {
         cfg.clear_selection_locked(&expected, &guard).unwrap();
         assert!(!cfg.selection.exists());
         cfg.clear_selection_locked(&expected, &guard).unwrap();
-        assert!(cfg.selection.with_extension("serving.json").exists(), "clear touches only the exact pointer");
+        assert!(
+            cfg.selection.with_extension("serving.json").exists(),
+            "clear touches only the exact pointer"
+        );
     }
     #[tokio::test]
     async fn retirement_retry_requires_durable_pointer_absence_after_unconfirmed_unlink() {
@@ -383,17 +398,28 @@ mod selection_controls {
         cfg.select(&expected).unwrap();
         let guard = cfg.lock_selection().await.unwrap();
         let refuse_sync = |_: &Path| Err(std::io::Error::other("directory sync refused"));
-        let first = cfg.clear_selection(&expected, &guard, refuse_sync).unwrap_err();
+        let first = cfg
+            .clear_selection(&expected, &guard, refuse_sync)
+            .unwrap_err();
         assert!(!first.permits_storage_cleanup());
-        assert!(!cfg.selection.exists(), "unlink happened before durability failure");
-        let retry = cfg.clear_selection(&expected, &guard, refuse_sync).unwrap_err();
-        assert!(!retry.permits_storage_cleanup(), "missing pointer alone cannot acknowledge prior unlink");
+        assert!(
+            !cfg.selection.exists(),
+            "unlink happened before durability failure"
+        );
+        let retry = cfg
+            .clear_selection(&expected, &guard, refuse_sync)
+            .unwrap_err();
+        assert!(
+            !retry.permits_storage_cleanup(),
+            "missing pointer alone cannot acknowledge prior unlink"
+        );
         let synced = std::cell::Cell::new(false);
         cfg.clear_selection(&expected, &guard, |parent| {
             std::fs::File::open(parent)?.sync_all()?;
             synced.set(true);
             Ok(())
-        }).unwrap();
+        })
+        .unwrap();
         assert!(synced.get());
     }
     #[tokio::test]

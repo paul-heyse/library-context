@@ -280,7 +280,7 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .export_state(file.path(), &native_operation_budget)
         .await
         .unwrap();
-    assert_eq!(state.backing_rows, 1);
+    assert_eq!(state.semantic.backing_rows, 1);
     let restored =
         NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
             .await
@@ -496,46 +496,47 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
             .completed_state(&native_operation_budget)
             .await
             .unwrap(),
-        state
+        state.semantic
     );
 
     // External transport must reject the row before trusting even an outer state identity.
-    #[derive(serde::Serialize, serde::Deserialize)]
-    struct Envelope {
-        table: String,
-        row: Value,
-    }
     let text = std::fs::read_to_string(file.path()).unwrap();
-    let mut lines = text.lines();
-    let header = lines.next().unwrap();
-    lctx_model::domain::completed::CompletedStateHeader::decode(header.as_bytes()).unwrap();
-    let mut envelopes = lines
-        .map(|line| serde_json::from_str::<Envelope>(line).unwrap())
+    let mut frames = text
+        .lines()
+        .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
         .collect::<Vec<_>>();
     let mut changed_backing_rows = 0;
-    for envelope in &mut envelopes {
-        if envelope.table == "compiler_record" {
-            changed_backing_rows += 1;
-            let Value::Object(object) = &mut envelope.row else {
+    for frame in &mut frames {
+        if frame
+            .get("row")
+            .and_then(|row| row.get("table"))
+            .and_then(|value| value.as_str())
+            == Some("compiler_record")
+        {
+            let mut row: Value = serde_json::from_value(frame["row"]["row"].clone()).unwrap();
+            let Value::Object(object) = &mut row else {
                 panic!("backing object");
             };
             let Some(Value::Object(body)) = object.get_mut("body") else {
                 panic!("backing body");
             };
             body.insert("value", Value::Number(Number::Float(2.0)));
+            frame["row"]["row"] = serde_json::to_value(row).unwrap();
+            changed_backing_rows += 1;
         }
     }
     assert_eq!(
         changed_backing_rows, 1,
         "external mutation changes one selected backing envelope"
     );
-    let text = header.to_string()
-        + "\n"
-        + &envelopes
+    std::fs::write(
+        file.path(),
+        frames
             .iter()
-            .map(|row| serde_json::to_string(row).unwrap() + "\n")
-            .collect::<String>();
-    std::fs::write(file.path(), text).unwrap();
+            .map(|frame| serde_json::to_string(frame).unwrap() + "\n")
+            .collect::<String>(),
+    )
+    .unwrap();
     let altered =
         NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
             .await
@@ -871,13 +872,11 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             .await
             .unwrap();
         let file = tempfile::NamedTempFile::new().unwrap();
-        assert_eq!(
-            store
-                .export_state(file.path(), &native_operation_budget)
-                .await
-                .unwrap(),
-            state
-        );
+        let receipt = store
+            .export_state(file.path(), &native_operation_budget)
+            .await
+            .unwrap();
+        assert_eq!(receipt.semantic, state);
         restored_owner = Some(
             NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
                 .await
@@ -897,7 +896,7 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             .await
             .unwrap();
         restored
-            .import_state(file.path(), &state, &native_operation_budget)
+            .import_state(file.path(), &receipt, &native_operation_budget)
             .await
             .unwrap();
         assert_eq!(
@@ -3009,4 +3008,402 @@ async fn held_installation_scope_reuses_whole_blob_and_contributor_across_roots(
         std::panic::resume_unwind(panic);
     }
     cleaned.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cold_transport_distinct_empty_copies_keep_root_qualified_dependency_choices() {
+    use lctx_model::domain::{
+        self as d, analytics::QualityStep, completed_transport::CompletedTransportEnvelope,
+    };
+    let budget = ResourceBudget::fixed(256 << 20).unwrap();
+    let config = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+            .expect("owned schema8 validation runtime"),
+    ))
+    .unwrap();
+    let source = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
+        .await
+        .unwrap();
+    let target = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
+        .await
+        .unwrap();
+    let admin = fixture_client(&target, &config).await;
+    let result=async {
+        let package=Relation::of::<Package>();let release=Relation::of::<d::input::Release>();let quality=Relation::of::<QualityStep>();
+        let mut base=spec(&format!("copy-base-{}",source.attempt().hex()),&package);base.model=d::model()?.digest();
+        let physical=source.begin_contribution(base.clone()).await?;
+        let base_views=source.complete_contribution(physical,ProviderOutcome::Complete,std::slice::from_ref(&package),&BTreeMap::new(),&budget).await?;
+        let base_view=base_views[package.name()].clone();
+        let input=d::analysis::sources::SourceSnapshot::of_completed_view(&package,base.model,&base_view)?;
+        let mut roots=vec![base_view.clone()];
+        for relation in [&release,&quality] {
+            let mut dependent=spec(&format!("copy-dependent-{}-{}",source.attempt().hex(),relation.name()),relation);dependent.model=base.model;dependent.inputs=vec![input.clone()];
+            let owner=source.begin_contribution(dependent).await?;
+            let views=source.complete_contribution(owner,ProviderOutcome::Complete,std::slice::from_ref(relation),&BTreeMap::new(),&budget).await?;
+            roots.push(views[relation.name()].clone());
+        }
+        for view in &roots {
+            let relation=if view.relation==package.name(){&package}else if view.relation==release.name(){&release}else{&quality};
+            source.bind(CompletedBinding{boundary:None,source:d::analysis::sources::SourceSnapshot::of_completed_view(relation,base.model,view)?,view:view.clone(),configuration:None}).await?;
+        }
+        source.freeze_content(&budget).await?;
+        let file=tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
+        let original=source.export_state(file.path(),&budget).await?;
+        let mut frames=std::fs::read_to_string(file.path()).map_err(ModelError::codec)?.lines().map(serde_json::from_str::<serde_json::Value>).collect::<Result<Vec<_>,_>>().map_err(ModelError::codec)?;
+        let mut envelope:CompletedTransportEnvelope=serde_json::from_value(frames[0]["header"]["envelope"].clone()).map_err(ModelError::codec)?;
+        let base_logical=*base_view.contributions.iter().next().ok_or(ModelError::Schema("base logical"))?;
+        let base_label=envelope.copies.iter().find(|copy|copy.descriptor.identity().ok()==Some(base_logical)).ok_or(ModelError::Schema("base transport copy"))?.label;
+        let mut duplicate=envelope.copies[base_label as usize].clone();duplicate.label=envelope.copies.len() as u64;let duplicate_label=duplicate.label;envelope.copies.push(duplicate);
+        let root=envelope.roots.iter_mut().find(|root|root.view.relation==quality.name()).ok_or(ModelError::Schema("qualified dependency root"))?;
+        root.slots.iter_mut().find(|slot|slot.logical==base_logical).ok_or(ModelError::Schema("qualified dependency slot"))?.copy=duplicate_label;
+        // Deterministic labels reflect first use; adding a physical copy never changes v4.
+        let old=envelope.copies;let mut labels=BTreeMap::new();let mut copies=vec![];
+        for root in &mut envelope.roots {for slot in &mut root.slots {
+            let next=labels.len() as u64;let label=*labels.entry(slot.copy).or_insert(next);
+            if label==copies.len() as u64 {let mut copy=old[slot.copy as usize].clone();copy.label=label;copies.push(copy);}
+            slot.copy=label;
+        }}
+        envelope.copies=copies;let expected=envelope.receipt()?;
+        assert_eq!(original.semantic,expected.semantic);assert_eq!(original.eligibility,expected.eligibility);assert_ne!(original.envelope,expected.envelope);
+        assert!(envelope.copies.iter().all(|copy|copy.membership.rows==0&&copy.aliases.rows==0));
+        frames[0]["header"]["envelope"]=serde_json::to_value(&envelope).map_err(ModelError::codec)?;
+        let last=frames.len()-1;frames[last]["end"]["receipt"]=serde_json::to_value(&expected).map_err(ModelError::codec)?;
+        let encoded=frames.iter().map(|frame|serde_json::to_string(frame).map(|line|line+"\n")).collect::<Result<String,_>>().map_err(ModelError::codec)?;
+        std::fs::write(file.path(),encoded).map_err(ModelError::codec)?;
+        target.import_state(file.path(),&expected,&budget).await?;
+        let release_view=roots.iter().find(|view|view.relation==release.name()).unwrap();let quality_view=roots.iter().find(|view|view.relation==quality.name()).unwrap();
+        let one=target.installed_view(release_view,&budget).await?;let two=target.installed_view(quality_view,&budget).await?;
+        let selected=|held:&lctx_native::installed_view::HeldInstalledView|held.completion().mappings.iter().find(|mapping|mapping.view==base_view.identity&&mapping.logical==base_logical).map(|mapping|mapping.physical).unwrap();
+        assert_ne!(selected(&one),selected(&two),"root-qualified dependency copies must remain distinct");
+        assert_ne!(selected(&one),physical);assert_ne!(selected(&two),physical);
+        let mut response=admin.query("SELECT id FROM compiler_contribution WITH INDEX attempt_contributions WHERE attempt=$attempt ORDER BY id").bind(("attempt",lctx_native::surrealdb::types::RecordId::new("native_attempt",target.attempt().hex()))).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let actual:Vec<lctx_native::surrealdb::types::Value>=response.take(0).map_err(ModelError::codec)?;assert_eq!(actual.len(),4,"one fresh owner per declared copy label");
+        target.freeze_content(&budget).await?;let roundtrip=tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
+        assert_eq!(target.export_state(roundtrip.path(),&budget).await?,expected,"fresh physical owners reproduce the exact portable correspondence");
+        Ok::<_,ModelError>(())
+    }.await;
+    let mut terminal = d::completion::Completion::default();
+    terminal.step("distinct-copy target close", target.abandon().await);
+    terminal.step("distinct-copy source close", source.abandon().await);
+    terminal.step(
+        "distinct-copy observer close",
+        admin.invalidate().await.map_err(ModelError::codec),
+    );
+    d::completion::complete(result, terminal).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cold_transport_permuted_copy_alias_chain_keeps_local_absence() {
+    use lctx_model::domain::{
+        self as d, Key, KeySink, graph::Entity, normalized::entities::EntityRef, value::Place,
+    };
+    use lctx_native::surrealdb::types::{Object, RecordId, Value};
+    let budget = ResourceBudget::fixed(256 << 20).unwrap();
+    let config = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+            .expect("owned schema8 validation runtime"),
+    ))
+    .unwrap();
+    let source = NativeCompilerStore::begin(&config, d::admission::Frontier::Normalized)
+        .await
+        .unwrap();
+    let target = NativeCompilerStore::begin(&config, d::admission::Frontier::Normalized)
+        .await
+        .unwrap();
+    let source_admin = fixture_client(&source, &config).await;
+    let target_admin = fixture_client(&target, &config).await;
+    let result = async {
+        let package_relation = Relation::of::<Package>();
+        let place_relation = Relation::of::<Place>();
+        let endpoint_relation = Relation::of::<EntityRef>();
+        let nonce = source.attempt();
+        let package = Package {
+            name: format!("alias-chain-{}", nonce.hex()),
+        };
+        let mut package_spec = spec(
+            &format!("alias-chain-base-{}", nonce.hex()),
+            &package_relation,
+        );
+        package_spec.model = d::model()?.digest();
+        package_spec.outputs.insert(endpoint_relation.name().into());
+        let package_owner = source.begin_contribution(package_spec.clone()).await?;
+        source
+            .write_batch(
+                &package_owner,
+                &package_relation,
+                &Package::encode(std::slice::from_ref(&package))?,
+                &budget,
+            )
+            .await?;
+        let place = Place {
+            root: serde_json::from_value(
+                serde_json::to_value(
+                    <[u8; 16]>::try_from(&nonce.0[..16]).map_err(ModelError::codec)?,
+                )
+                .map_err(ModelError::codec)?,
+            )
+            .map_err(ModelError::codec)?,
+            path: serde_json::from_value(
+                serde_json::to_value(
+                    <[u8; 16]>::try_from(&nonce.0[16..]).map_err(ModelError::codec)?,
+                )
+                .map_err(ModelError::codec)?,
+            )
+            .map_err(ModelError::codec)?,
+        };
+        let endpoint = EntityRef::Place { place: place.id() };
+        let mut probe_spec = spec(
+            &format!("alias-chain-probe-{}", nonce.hex()),
+            &place_relation,
+        );
+        probe_spec.model = package_spec.model;
+        let probe_owner = source.begin_contribution(probe_spec).await?;
+        source
+            .write_batch(
+                &probe_owner,
+                &place_relation,
+                &Place::encode(std::slice::from_ref(&place))?,
+                &budget,
+            )
+            .await?;
+        source
+            .complete_contribution(
+                probe_owner,
+                ProviderOutcome::Complete,
+                std::slice::from_ref(&place_relation),
+                &BTreeMap::new(),
+                &budget,
+            )
+            .await?;
+        let a = lctx_native::loader::entity_payload_id(&Entity::from(place.clone()))?;
+        let b = lctx_native::loader::entity_payload_id(&Entity::from(endpoint.clone()))?;
+        let c = lctx_native::loader::entity_payload_id(&Entity::from(package.clone()))?;
+        let alias = |source: &RecordId, target: &RecordId| -> Result<Value, ModelError> {
+            let mut sink = KeySink::new("native-place-alias/v1");
+            sink.part(
+                b"source",
+                &serde_json::to_vec(source).map_err(ModelError::codec)?,
+            );
+            sink.part(
+                b"target",
+                &serde_json::to_vec(target).map_err(ModelError::codec)?,
+            );
+            let mut row = Object::new();
+            row.insert("id", RecordId::new("compiler_alias", sink.finish().hex()));
+            row.insert("source", source.clone());
+            row.insert("target", target.clone());
+            Ok(Value::Object(row))
+        };
+        // Completion independently earns dependency selectors as well as the
+        // composed root. Give this dependency copy B as an explicit membership,
+        // so its owned B→C edge is reachable from its own complete output seeds.
+        // The Place copy independently owns only A→B; neither copy gets the
+        // other's alias merely because the composed root can reach both.
+        source
+            .write_batch(
+                &package_owner,
+                &endpoint_relation,
+                &<EntityRef as d::Record>::encode(std::slice::from_ref(&endpoint))?,
+                &budget,
+            )
+            .await?;
+        let first = alias(&a, &b)?;
+        let later = alias(&b, &c)?;
+        let Some(Value::RecordId(first_id)) = first.as_object().and_then(|row| row.get("id"))
+        else {
+            return Err(ModelError::Schema("first chain alias id"));
+        };
+        let Some(Value::RecordId(later_id)) = later.as_object().and_then(|row| row.get("id"))
+        else {
+            return Err(ModelError::Schema("later chain alias id"));
+        };
+        lctx_native::control::ensure_rows(
+            &source_admin,
+            Some(source.attempt()),
+            vec![later.clone()],
+        )
+        .await?;
+        lctx_native::control::hold_many(
+            &source_admin,
+            Some(source.attempt()),
+            vec![
+                (
+                    RecordId::new("compiler_contribution", package_owner.hex()),
+                    later_id.clone(),
+                ),
+                (
+                    RecordId::new("compiler_contribution", package_owner.hex()),
+                    c.clone(),
+                ),
+                (later_id.clone(), b.clone()),
+            ],
+        )
+        .await?;
+        // Establish the package copy's entire alias incidence before completion.
+        // Its target and the chain's source already have canonical backing from
+        // ordinary producing writes; no completed contributor is mutated.
+        let package_views = source
+            .complete_contribution(
+                package_owner,
+                ProviderOutcome::Complete,
+                &[package_relation.clone(), endpoint_relation.clone()],
+                &BTreeMap::new(),
+                &budget,
+            )
+            .await?;
+        let package_view = package_views[package_relation.name()].clone();
+        let mut place_spec = spec(
+            &format!("alias-chain-root-{}", nonce.hex()),
+            &place_relation,
+        );
+        place_spec.model = package_spec.model;
+        place_spec.inputs = vec![d::analysis::sources::SourceSnapshot::of_completed_view(
+            &package_relation,
+            package_spec.model,
+            &package_view,
+        )?];
+        let mut descriptor = source.completed_contribution(probe_owner).await?;
+        let mut iteration = 0u64;
+        let place_view = loop {
+            let mut sink = KeySink::new("alias-chain-order-control/v1");
+            nonce.encode(&mut sink);
+            sink.part(b"iteration", &iteration.to_le_bytes());
+            place_spec.implementation = sink.finish();
+            descriptor.spec = place_spec.clone();
+            let candidate = d::completed::CompletedView::new(
+                place_relation.name().into(),
+                [descriptor.identity()?].into(),
+                1,
+            )?;
+            if candidate.identity > package_view.identity {
+                break candidate;
+            }
+            iteration += 1;
+        };
+        let place_owner = source.begin_contribution(place_spec.clone()).await?;
+        source
+            .write_batch(
+                &place_owner,
+                &place_relation,
+                &Place::encode(std::slice::from_ref(&place))?,
+                &budget,
+            )
+            .await?;
+        let actual = source
+            .complete_contribution(
+                place_owner,
+                ProviderOutcome::Complete,
+                std::slice::from_ref(&place_relation),
+                &BTreeMap::new(),
+                &budget,
+            )
+            .await?;
+        assert_eq!(actual[place_relation.name()], place_view);
+        source
+            .bind(CompletedBinding {
+                boundary: None,
+                source: d::analysis::sources::SourceSnapshot::of_completed_view(
+                    &place_relation,
+                    place_spec.model,
+                    &place_view,
+                )?,
+                view: place_view.clone(),
+                configuration: None,
+            })
+            .await?;
+        source.freeze_content(&budget).await?;
+        let file = tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
+        let expected = source.export_state(file.path(), &budget).await?;
+        let decoded =
+            lctx_native::completed_transport::read_transport(file.path(), &expected, &budget)?;
+        assert_eq!(decoded.copies().len(), 2);
+        assert_eq!(decoded.copies()[0].physical, ContentHash([0; 32]));
+        assert_eq!(
+            decoded.envelope().copies[0].descriptor.outputs[endpoint_relation.name()].rows,
+            1,
+            "dependency reachability is earned from explicit B membership"
+        );
+        assert_eq!(
+            decoded.envelope().copies[0].membership.rows,
+            2,
+            "dependency copy retains B and C, including the independent-selector premise"
+        );
+        assert_eq!(
+            decoded.envelope().copies[1].membership.rows,
+            1,
+            "Place copy retains only its A membership"
+        );
+        let mut earlier = decoded.copies()[0].aliases.cursor_with_budget(&budget)?;
+        assert_eq!(earlier.next_row()?.as_ref(), Some(&later));
+        assert!(earlier.next_row()?.is_none());
+        let mut following = decoded.copies()[1].aliases.cursor_with_budget(&budget)?;
+        assert_eq!(following.next_row()?.as_ref(), Some(&first));
+        assert!(following.next_row()?.is_none());
+        target
+            .import_entities(&[
+                Entity::from(place),
+                Entity::from(endpoint),
+                Entity::from(package),
+            ])
+            .await?;
+        target.import_state(file.path(), &expected, &budget).await?;
+        let selected = target.installed_view(&place_view, &budget).await?;
+        let logical_package = *package_view.contributions.iter().next().unwrap();
+        let logical_place = *place_view.contributions.iter().next().unwrap();
+        let owner = |logical| {
+            selected
+                .completion()
+                .mappings
+                .iter()
+                .find(|mapping| mapping.logical == logical)
+                .map(|mapping| RecordId::new("compiler_contribution", mapping.physical.hex()))
+                .unwrap()
+        };
+        let package_copy = owner(logical_package);
+        let place_copy = owner(logical_place);
+        let reader = lctx_native::NativeReader::private(target_admin.clone()).with_budget(&budget);
+        let exact = lctx_native::control::inspect_hold_window_read(
+            &reader,
+            &[
+                (package_copy.clone(), later_id.clone()),
+                (package_copy, first_id.clone()),
+                (place_copy.clone(), first_id.clone()),
+                (place_copy, later_id.clone()),
+            ],
+            &budget,
+        )
+        .await;
+        let mut terminal = d::completion::Completion::default();
+        terminal.step(
+            "alias chain exact absence reader close",
+            reader.close().await,
+        );
+        let exact = d::completion::complete(exact, terminal)?;
+        let package_copy = owner(logical_package);
+        let place_copy = owner(logical_place);
+        assert!(exact.contains(&package_copy, later_id)?);
+        assert!(!exact.contains(&package_copy, first_id)?);
+        assert!(exact.contains(&place_copy, first_id)?);
+        assert!(!exact.contains(&place_copy, later_id)?);
+        target.freeze_content(&budget).await?;
+        let roundtrip = tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
+        assert_eq!(
+            target.export_state(roundtrip.path(), &budget).await?,
+            expected
+        );
+        Ok::<_, ModelError>(())
+    }
+    .await;
+    let mut terminal = d::completion::Completion::default();
+    terminal.step("alias chain target close", target.abandon().await);
+    terminal.step("alias chain source close", source.abandon().await);
+    terminal.step(
+        "alias chain target observer close",
+        target_admin.invalidate().await.map_err(ModelError::codec),
+    );
+    terminal.step(
+        "alias chain source observer close",
+        source_admin.invalidate().await.map_err(ModelError::codec),
+    );
+    d::completion::complete(result, terminal).unwrap();
 }

@@ -772,7 +772,11 @@ fn ranked_tail(request: &Request, response: &mut Response) -> Result<bool, WireE
 }
 /// Shared fresh/resumed-page entry point. Core/signatures/interpretation are never pruned.
 /// The actual Python transport additionally admits the complete JSON-RPC envelope and metadata.
-pub fn finalize(request: &Request, response: &mut Response, limits: &ResourceLimits) -> Result<(), WireError> {
+pub fn finalize(
+    request: &Request,
+    response: &mut Response,
+    limits: &ResourceLimits,
+) -> Result<(), WireError> {
     if request.tool() != response.tool() {
         return Err(WireError::Invalid("delivery request/response route".into()));
     }
@@ -973,6 +977,9 @@ mod packing_tests {
         )
         .unwrap();
         let snapshot = SnapshotHandle {
+            eligibility: lctx_model::domain::completed_transport::EligibilityIdentity(
+                lctx_model::domain::ContentHash::of(b"fixture-eligibility"),
+            ),
             publication: lctx_model::domain::ContentHash::of(b"fixture-publication"),
             view: lctx_model::domain::ContentHash::of(b"fixture-view"),
             service_generation: lctx_model::domain::ContentHash::of(b"fixture-service_generation"),

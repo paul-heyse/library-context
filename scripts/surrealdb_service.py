@@ -2916,11 +2916,11 @@ def _installer_cli(
 
 def _current_schema(value: Mapping[str, Any]) -> None:
     if (
-        value.get("schema_version") != 7
+        value.get("schema_version") != 8
         or not isinstance(value.get("schema"), str)
         or not re.fullmatch(r"[0-9a-f]{64}", value["schema"])
     ):
-        raise FixtureBlocked("schema", "installer must declare the current native format7 schema")
+        raise FixtureBlocked("schema", "installer must declare the current native format8 schema")
 
 
 def _owned_daemon_start(installation: Installation) -> None:

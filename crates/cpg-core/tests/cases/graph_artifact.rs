@@ -14,6 +14,15 @@ async fn compiled(
     memory: Option<usize>,
     batch_rows: usize,
 ) -> artifact::AdmittedArtifact {
+    compiled_case(profile, frontier, memory, batch_rows, "catalog_core").await
+}
+async fn compiled_case(
+    profile: Profile,
+    frontier: Frontier,
+    memory: Option<usize>,
+    batch_rows: usize,
+    case: &str,
+) -> artifact::AdmittedArtifact {
     let workspace = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
         WorkspaceOptions {
@@ -24,7 +33,7 @@ async fn compiled(
         crate::native_fixture::store(),
     )
     .unwrap();
-    let captured = runtime::capture("catalog_core", profile, workspace.budget());
+    let captured = runtime::capture(case, profile, workspace.budget());
     let prepared = matches!(frontier, Frontier::Analysis | Frontier::Catalog).then(|| {
         PreparedCompilation::new(
             frontier,
@@ -56,6 +65,83 @@ async fn compiled(
     )
     .await
     .unwrap()
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn focused_facts_export_requires_retained_receipt_and_exact_originals() {
+    use lctx_model::domain::ModelError;
+    let admitted = compiled_case(
+        Profile::Catalog,
+        Frontier::Facts,
+        None,
+        4096,
+        "native_signature",
+    )
+    .await;
+    let manifest = admitted.manifest().clone();
+    let root = tempfile::tempdir().unwrap();
+    let output = root.path().join("facts");
+    let expected = admitted.export(&output).await.unwrap();
+    let marker = std::fs::read(output.join("manifest.json")).unwrap();
+    assert!(admitted.export(&output).await.is_err());
+    assert_eq!(std::fs::read(output.join("manifest.json")).unwrap(), marker);
+    let mut finality = admitted.drain_owned_report().await;
+    finality.step(
+        "export source attempt finalization",
+        admitted.native().abandon().await,
+    );
+    let signal = admitted.complete_signal(&finality).await;
+    finality.step("export source execution finality", signal);
+    lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
+    drop(admitted);
+    let importer = || {
+        Workspace::new(
+            Arc::new(lctx_model::domain::model().unwrap()),
+            WorkspaceOptions::default(),
+            crate::native_fixture::store(),
+        )
+        .unwrap()
+    };
+    let receiving = importer();
+    let verified = artifact::verify_export(&output, &receiving, &expected)
+        .await
+        .unwrap();
+    assert_eq!(verified.manifest(), &manifest);
+    assert_eq!(verified.originals().count(), 1);
+    use std::io::Read;
+    let (_, mut reader) = verified.originals().next().unwrap().unwrap();
+    let mut actual = Vec::new();
+    reader.read_to_end(&mut actual).unwrap();
+    assert_eq!(
+        actual,
+        std::fs::read(runtime::root("native_signature").join("native_signature.py")).unwrap()
+    );
+    drop(verified);
+    // An unrelated caller expectation cannot be replaced by the incoming manifest/header.
+    let mut wrong = expected.clone();
+    wrong.manifest = ContentHash::of(b"independent different artifact");
+    assert!(matches!(
+        artifact::verify_export(&output, &receiving, &wrong).await,
+        Err(ModelError::Conflict(
+            "artifact independent receipt manifest"
+        ))
+    ));
+    let original = output.join(format!(
+        "original-{}.bin",
+        manifest.originals[0].source.0.hex()
+    ));
+    std::fs::write(&original, b"changed independent source bytes").unwrap();
+    assert!(matches!(
+        artifact::verify_export(&output, &receiving, &expected).await,
+        Err(ModelError::Conflict("artifact original bytes"))
+    ));
+    let mut finality = receiving.drain_owned_report().await;
+    finality.step(
+        "artifact receiving attempt finalization",
+        receiving.native().abandon().await,
+    );
+    let signal = receiving.complete_signal(&finality).await;
+    finality.step("artifact receiving execution finality", signal);
+    lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
 }
 async fn admit_frontier_and_export_exact_originals(profile: Profile, frontier: Frontier) {
     let admitted = compiled(profile, frontier, None, 4096).await;
@@ -598,11 +684,13 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     };
     let root = tempfile::tempdir().unwrap();
     let output = root.path().join("graph");
-    admitted.export(&output).await.unwrap();
+    let export_receipt = admitted.export(&output).await.unwrap();
     admitted.verify_export(&output, &importer()).await.unwrap();
     let manifest = admitted.manifest().clone();
     drop(admitted);
-    let verified = artifact::verify_export(&output, &importer()).await.unwrap();
+    let verified = artifact::verify_export(&output, &importer(), &export_receipt)
+        .await
+        .unwrap();
     assert_eq!(verified.manifest(), &manifest);
     assert_eq!(
         verified
@@ -634,11 +722,22 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     let write_manifest = |value: &Manifest| {
         std::fs::write(&marker, serde_json::to_vec(value).unwrap()).unwrap();
     };
+    // These deliberate invalid-producer candidates supply a caller-known manifest while
+    // retaining the actual producer state receipt. Semantic admission must still refuse them.
+    let mut candidate_receipt = export_receipt.clone();
     let mut changed = manifest.clone();
     changed.semantic_contract = ContentHash::of(b"another model");
     write_manifest(&changed);
+    // A mutated incoming manifest cannot replace the independently retained producer receipt.
     assert!(matches!(
-        artifact::verify_export(&output, &importer()).await,
+        artifact::verify_export(&output, &importer(), &export_receipt).await,
+        Err(lctx_model::domain::ModelError::Conflict(
+            "artifact independent receipt manifest"
+        ))
+    ));
+    candidate_receipt.manifest = changed.content();
+    assert!(matches!(
+        artifact::verify_export(&output, &importer(), &candidate_receipt).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact semantic contract"
         ))
@@ -646,8 +745,9 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     changed = manifest.clone();
     changed.families[0].rows += 1;
     write_manifest(&changed);
+    candidate_receipt.manifest = changed.content();
     assert!(matches!(
-        artifact::verify_export(&output, &importer()).await,
+        artifact::verify_export(&output, &importer(), &candidate_receipt).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact graph family"
         ))
@@ -659,8 +759,9 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
         content: ContentHash::of(b"extra"),
     });
     write_manifest(&changed);
+    candidate_receipt.manifest = changed.content();
     assert!(matches!(
-        artifact::verify_export(&output, &importer()).await,
+        artifact::verify_export(&output, &importer(), &candidate_receipt).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact graph families"
         ))
@@ -668,8 +769,9 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     changed = manifest.clone();
     changed.originals.pop().unwrap();
     write_manifest(&changed);
+    candidate_receipt.manifest = changed.content();
     assert!(matches!(
-        artifact::verify_export(&output, &importer()).await,
+        artifact::verify_export(&output, &importer(), &candidate_receipt).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact source membership"
         ))
@@ -678,8 +780,9 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     assert!(!changed.projections.is_empty());
     changed.projections[0].definition = ContentHash::of(b"another projection");
     write_manifest(&changed);
+    candidate_receipt.manifest = changed.content();
     assert!(matches!(
-        artifact::verify_export(&output, &importer()).await,
+        artifact::verify_export(&output, &importer(), &candidate_receipt).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact projection definition"
         ))
@@ -692,13 +795,15 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
         values: ContentHash::of(b"unconsumed values"),
     });
     write_manifest(&changed);
+    candidate_receipt.manifest = changed.content();
     assert!(matches!(
-        artifact::verify_export(&output, &importer()).await,
+        artifact::verify_export(&output, &importer(), &candidate_receipt).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact embedding membership"
         ))
     ));
     write_manifest(&manifest);
+    candidate_receipt = export_receipt.clone();
     let entity_file = output.join("entities.arrow");
     let original_entities = std::fs::read(&entity_file).unwrap();
     let batches = FileReader::try_new(File::open(&entity_file).unwrap(), None)
@@ -732,7 +837,7 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     noncanonical[0] = RecordBatch::try_new(first.schema(), columns).unwrap();
     write_batches(&noncanonical);
     assert!(matches!(
-        artifact::verify_export(&output, &importer()).await,
+        artifact::verify_export(&output, &importer(), &candidate_receipt).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact canonical payload"
         ))
@@ -779,7 +884,8 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     changed = manifest.clone();
     changed.families[0] = family.finish();
     write_manifest(&changed);
-    let error = artifact::verify_export(&output, &importer())
+    candidate_receipt.manifest = changed.content();
+    let error = artifact::verify_export(&output, &importer(), &candidate_receipt)
         .await
         .err()
         .unwrap();
@@ -789,21 +895,28 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
     );
     std::fs::write(&entity_file, &original_entities).unwrap();
     write_manifest(&manifest);
+    candidate_receipt = export_receipt.clone();
     let original = &manifest.originals[0];
     let file = output.join(format!("original-{}.bin", original.source.0.hex()));
     let bytes = std::fs::read(&file).unwrap();
     std::fs::write(&file, b"tampered").unwrap();
     assert!(matches!(
-        artifact::verify_export(&output, &importer()).await,
+        artifact::verify_export(&output, &importer(), &candidate_receipt).await,
         Err(lctx_model::domain::ModelError::Conflict(
             "artifact original bytes"
         ))
     ));
     std::fs::write(&file, &bytes).unwrap();
     std::fs::remove_file(&file).unwrap();
-    assert!(artifact::verify_export(&output, &importer()).await.is_err());
+    assert!(
+        artifact::verify_export(&output, &importer(), &candidate_receipt)
+            .await
+            .is_err()
+    );
     std::fs::write(&file, &bytes).unwrap();
-    artifact::verify_export(&output, &importer()).await.unwrap();
+    artifact::verify_export(&output, &importer(), &candidate_receipt)
+        .await
+        .unwrap();
 }
 
 // The graph copy is edited independently of its retained native state. Consumers below
@@ -812,6 +925,7 @@ async fn export_without_syntax_support() -> (
     tempfile::TempDir,
     std::path::PathBuf,
     artifact::VerifiedExport,
+    lctx_model::domain::completed_transport::ArtifactExportReceipt,
 ) {
     use datafusion::arrow::{
         array::{Array, BinaryArray, FixedSizeBinaryArray, UInt32Array},
@@ -821,7 +935,7 @@ async fn export_without_syntax_support() -> (
     };
     use lctx_model::domain::{
         Record,
-        graph::{Assertion, FamilyHasher, Manifest},
+        graph::{Assertion, FamilyHasher},
         source::SyntaxSupport,
     };
     use std::fs::File;
@@ -838,8 +952,10 @@ async fn export_without_syntax_support() -> (
     };
     let directory = tempfile::tempdir().unwrap();
     let output = directory.path().join("graph");
-    admitted.export(&output).await.unwrap();
-    let verified = artifact::verify_export(&output, &importer()).await.unwrap();
+    let export_receipt = admitted.export(&output).await.unwrap();
+    let verified = artifact::verify_export(&output, &importer(), &export_receipt)
+        .await
+        .unwrap();
     let file = output.join("assertions.arrow");
     let reader = FileReader::try_new(File::open(&file).unwrap(), None).unwrap();
     let schema = reader.schema();
@@ -897,8 +1013,7 @@ async fn export_without_syntax_support() -> (
     writer.finish().unwrap();
     drop(writer);
     std::fs::rename(replacement, &file).unwrap();
-    let mut manifest: Manifest =
-        serde_json::from_slice(&std::fs::read(output.join("manifest.json")).unwrap()).unwrap();
+    let mut manifest = verified.manifest().clone();
     *manifest
         .families
         .iter_mut()
@@ -910,19 +1025,23 @@ async fn export_without_syntax_support() -> (
         serde_json::to_vec(&manifest).unwrap(),
     )
     .unwrap();
-    (directory, output, verified)
+    // This fixture explicitly accepts its constructed graph manifest, but retains the actual
+    // source state expectation so independent graph/state admission still detects disagreement.
+    let mut candidate_receipt = export_receipt;
+    candidate_receipt.manifest = manifest.content();
+    (directory, output, verified, candidate_receipt)
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn detached_transport_refuses_graph_and_retained_membership_disagreement() {
-    let (_directory, output, _verified) = export_without_syntax_support().await;
+    let (_directory, output, _verified, expected_receipt) = export_without_syntax_support().await;
     let importer = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
         WorkspaceOptions::default(),
         crate::native_fixture::store(),
     )
     .unwrap();
-    let error = artifact::verify_export(&output, &importer)
+    let error = artifact::verify_export(&output, &importer, &expected_receipt)
         .await
         .err()
         .expect("graph/state mismatch admitted");
@@ -958,7 +1077,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
         collections::{BTreeMap, BTreeSet},
         fs::File,
     };
-    let (directory, output, verified) = export_without_syntax_support().await;
+    let (directory, output, verified, _expected_receipt) = export_without_syntax_support().await;
     let candidate = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
         WorkspaceOptions::default(),
@@ -1143,7 +1262,7 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
             .completed_state(&native_operation_budget)
             .await
             .unwrap(),
-        state
+        state.semantic
     );
     let restored = importer
         .native()
@@ -1174,7 +1293,7 @@ async fn detached_frontier_without_producer_replay(profile: Profile, frontier: F
     let admitted = compiled(profile, frontier, None, 128).await;
     let directory = tempfile::tempdir().unwrap();
     let export = directory.path().join("export");
-    admitted.export(&export).await.unwrap();
+    let export_receipt = admitted.export(&export).await.unwrap();
     let semantic = admitted.manifest().content();
     drop(admitted);
     // This workspace has no providers, captured inputs, producer receipts or grants.
@@ -1187,7 +1306,7 @@ async fn detached_frontier_without_producer_replay(profile: Profile, frontier: F
         crate::native_fixture::store(),
     )
     .unwrap();
-    let imported = artifact::verify_export(&export, &importer)
+    let imported = artifact::verify_export(&export, &importer, &export_receipt)
         .await
         .unwrap_or_else(|error| panic!("{profile:?}/{frontier:?}: {error}"));
     assert_eq!(imported.manifest().content(), semantic);
@@ -1195,13 +1314,11 @@ async fn detached_frontier_without_producer_replay(profile: Profile, frontier: F
 
 #[tokio::test(flavor = "multi_thread")]
 async fn remediation_detached_admission_refuses_equal_count_foreign_outcome_domain() {
-    use lctx_model::domain::graph::Manifest;
     let admitted = compiled(Profile::Catalog, Frontier::Facts, None, 128).await;
     let directory = tempfile::tempdir().unwrap();
     let export = directory.path().join("export");
-    admitted.export(&export).await.unwrap();
-    let mut manifest: Manifest =
-        serde_json::from_slice(&std::fs::read(export.join("manifest.json")).unwrap()).unwrap();
+    let export_receipt = admitted.export(&export).await.unwrap();
+    let mut manifest = admitted.manifest().clone();
     let count = manifest.outcomes.len();
     let key = manifest.outcomes[0].key.clone();
     manifest.outcomes[0].key.domain = ContentHash::of(b"foreign-outcome-domain");
@@ -1226,7 +1343,10 @@ async fn remediation_detached_admission_refuses_equal_count_foreign_outcome_doma
         crate::native_fixture::store(),
     )
     .unwrap();
-    let error = match artifact::verify_export(&export, &importer).await {
+    // Caller-known invalid producer metadata does not waive destination semantic admission.
+    let mut expected_receipt = export_receipt;
+    expected_receipt.manifest = manifest.content();
+    let error = match artifact::verify_export(&export, &importer, &expected_receipt).await {
         Ok(_) => panic!("foreign outcome domain admitted"),
         Err(error) => error,
     };
@@ -1349,7 +1469,12 @@ mod enriched_graph_adversaries {
     }
     /// Delete the selected Enriched frames and only graph rows that actually refer to removed
     /// endpoints. Kept identities, payloads and role-labelled edges remain byte-for-byte exact.
-    fn remove_frames(path: &Path, entities: &[Entity], assertions: &[Assertion]) {
+    fn remove_frames(
+        path: &Path,
+        entities: &[Entity],
+        assertions: &[Assertion],
+        mut manifest: Manifest,
+    ) -> Manifest {
         let mut removed = entities
             .iter()
             .filter(|entity| matches!(entity, Entity::EnrichedExecutionRun(_)))
@@ -1382,8 +1507,6 @@ mod enriched_graph_adversaries {
                 break;
             }
         }
-        let mut manifest: Manifest =
-            serde_json::from_slice(&std::fs::read(path.join("manifest.json")).unwrap()).unwrap();
         for (file, family, kind) in [
             ("entities.arrow", GraphFamily::Entities, 0),
             ("assertions.arrow", GraphFamily::Assertions, 1),
@@ -1442,6 +1565,7 @@ mod enriched_graph_adversaries {
             serde_json::to_vec(&manifest).unwrap(),
         )
         .unwrap();
+        manifest
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1537,7 +1661,8 @@ mod enriched_graph_adversaries {
         let admitted = compiled(Profile::Catalog, Frontier::Analysis, None, 128).await;
         let directory = tempfile::tempdir().unwrap();
         let export = directory.path().join("export");
-        admitted.export(&export).await.unwrap();
+        let export_receipt = admitted.export(&export).await.unwrap();
+        let manifest = admitted.manifest().clone();
         drop(admitted);
         let importer = || {
             Workspace::new(
@@ -1547,9 +1672,15 @@ mod enriched_graph_adversaries {
             )
             .unwrap()
         };
-        artifact::verify_export(&export, &importer()).await.unwrap();
+        artifact::verify_export(&export, &importer(), &export_receipt)
+            .await
+            .unwrap();
         let (entities, assertions) = graph(&export);
-        remove_frames(&export, &entities, &assertions);
+        let candidate_manifest = remove_frames(&export, &entities, &assertions, manifest);
+        // The caller deliberately accepts this fixture-known graph candidate while retaining
+        // the real producer state receipt; independent semantic admission remains required.
+        let mut expected_receipt = export_receipt.clone();
+        expected_receipt.manifest = candidate_manifest.content();
         let (entities, assertions) = graph(&export);
         let rows = compact(&entities, &assertions);
         assert!(rows.frames.is_empty() && rows.inputs.is_empty());
@@ -1581,7 +1712,7 @@ mod enriched_graph_adversaries {
                 );
             }
         }
-        let error = match artifact::verify_export(&export, &importer()).await {
+        let error = match artifact::verify_export(&export, &importer(), &expected_receipt).await {
             Ok(_) => panic!("absent Enriched frame family admitted"),
             Err(error) => error,
         };
@@ -1604,7 +1735,7 @@ async fn detached_behavioral_upper_place_endpoints(frontier: Frontier) {
     let admitted = compiled(Profile::Behavioral, frontier, None, 128).await;
     let directory = tempfile::tempdir().unwrap();
     let export = directory.path().join("export");
-    admitted.export(&export).await.unwrap();
+    let export_receipt = admitted.export(&export).await.unwrap();
     let semantic = admitted.manifest().content();
     drop(admitted);
     let importer = Workspace::new(
@@ -1616,7 +1747,7 @@ async fn detached_behavioral_upper_place_endpoints(frontier: Frontier) {
         crate::native_fixture::store(),
     )
     .unwrap();
-    let imported = artifact::verify_export(&export, &importer)
+    let imported = artifact::verify_export(&export, &importer, &export_receipt)
         .await
         .unwrap_or_else(|error| panic!("Behavioral/{frontier:?}: {error}"));
     assert_eq!(imported.manifest().content(), semantic);

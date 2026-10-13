@@ -100,6 +100,7 @@ Compilation uses an authenticated persistent SurrealDB runtime configured by `--
 `lctx compile <library> --through facts|normalized|analysis|catalog --profile catalog|behavioral`
 returns an unselected native snapshot. Add `--artifact-only --output <directory>` to export the
 complete graph, originals and retained compiler state from the same native compiler instead.
-External `publish-artifact` independently admits the current format. See the
+Artifact export returns a caller-retained receipt; external `publish-artifact --expect-receipt PATH`
+requires it and independently admits the current format. See the
 [SurrealDB runbook](docs/surrealdb.md) for configuration and explicit selection.
 Operator activation and real-library pilots remain separate from owned fixture acceptance.

@@ -1,21 +1,20 @@
 //! Ordinary restore lowers untrusted dump values through typed native ingress.
 //! Temporary files isolate parsing and large data, never a disposable database or raw SQL session.
-use lctx_compiler_store::compiler::NativeCompilerStore;
 use crate::{
-    backup_import::{dump_tables, table_codec, DataDump, Item, definition_metadata},
+    backup_import::{DataDump, Item, definition_metadata, dump_tables, table_codec},
     native_publication::{Admission, Publication},
 };
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{
     ContentHash, ModelError,
-    completed::{CompletedBinding, CompletedStateHeader},
+    completed::CompletedBinding,
     graph::{Assertion, Entity, Manifest, semantic_contract},
+    recovery_closure::{RECOVERY_FAMILIES, RecoveryFamily},
     resources::{Reservation, ResourceBudget},
     serving::SnapshotHandle,
-    recovery_closure::{RecoveryFamily, RECOVERY_FAMILIES},
 };
 use lctx_native::{
     RuntimeConfig,
-    
     surrealdb::types::{Bytes, RecordId, Value},
 };
 use std::{
@@ -25,11 +24,10 @@ use std::{
     sync::Arc,
 };
 
-const STATE_TABLES: &[&str] = &lctx_compiler_store::compiler::STATE_TABLES;
 const SPOOL_BUFFER_BYTES: usize = 64 * 1024;
 
 /// Flush explicitly, then disarm BufWriter's best-effort Drop flush even after failure.
-fn finish_spool<W: Write>(mut writer: std::io::BufWriter<W>) -> Result<(), ModelError> {
+pub(crate) fn finish_spool<W: Write>(mut writer: std::io::BufWriter<W>) -> Result<(), ModelError> {
     let result = writer.flush().map_err(ModelError::codec);
     let (_sink, _unflushed) = writer.into_parts();
     result
@@ -385,6 +383,123 @@ fn identity_charge(id: &RecordId) -> Result<usize, ModelError> {
         .saturating_add(256))
 }
 
+/// Compact graph demand derived separately for each root-qualified copy selection.
+struct DumpGraph {
+    nodes: BTreeSet<RecordId>,
+    aliases: BTreeSet<RecordId>,
+    _charge: Box<dyn Reservation>,
+}
+impl DumpGraph {
+    fn from_transport(
+        transport: &lctx_native::completed_transport::DecodedTransport,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let mut charge = budget.reserve("restore-root-qualified-dump-graph", 0)?;
+        let mut copies = BTreeMap::new();
+        let mut aliases = BTreeSet::new();
+        for copy in transport.copies() {
+            let mut members = BTreeSet::new();
+            let mut edges = Vec::new();
+            let mut rows = copy.memberships.cursor_with_budget(budget)?;
+            while let Some(row) = rows.next_row()? {
+                let Some(Value::RecordId(node)) = object(&row)?.get("node") else {
+                    return Err(ModelError::Schema("restore transport member node"));
+                };
+                charge.try_resize(charge.size().saturating_add(identity_charge(node)?))?;
+                members.insert(node.clone());
+            }
+            let mut rows = copy.aliases.cursor_with_budget(budget)?;
+            while let Some(row) = rows.next_row()? {
+                let row_object = object(&row)?;
+                let (Some(Value::RecordId(source)), Some(Value::RecordId(target))) =
+                    (row_object.get("source"), row_object.get("target"))
+                else {
+                    return Err(ModelError::Schema("restore transport alias endpoints"));
+                };
+                charge.try_resize(
+                    charge
+                        .size()
+                        .saturating_add(identity_charge(source)?)
+                        .saturating_add(identity_charge(target)?)
+                        .saturating_add(identity_charge(record_id(&row)?)?),
+                )?;
+                edges.push((source.clone(), target.clone()));
+                aliases.insert(record_id(&row)?.clone());
+            }
+            copies.insert(copy.label, (members, edges));
+        }
+        let mut nodes = BTreeSet::new();
+        for root in &transport.envelope().roots {
+            let mut root_charge = budget.reserve(
+                "restore-one-root-alias-closure",
+                root.slots.len().saturating_mul(64),
+            )?;
+            let labels = root
+                .slots
+                .iter()
+                .map(|slot| slot.copy)
+                .collect::<BTreeSet<_>>();
+            let mut selected = BTreeSet::new();
+            let mut adjacency = BTreeMap::<RecordId, Vec<RecordId>>::new();
+            for label in labels {
+                let (members, edges) = copies.get(&label).ok_or(ModelError::Conflict(
+                    "restore selected copy inventory absent",
+                ))?;
+                for node in members {
+                    root_charge.try_resize(
+                        root_charge
+                            .size()
+                            .saturating_add(identity_charge(node)?.saturating_mul(3)),
+                    )?;
+                    selected.insert(node.clone());
+                }
+                for (source, target) in edges {
+                    root_charge.try_resize(
+                        root_charge
+                            .size()
+                            .saturating_add(identity_charge(source)?)
+                            .saturating_add(identity_charge(target)?),
+                    )?;
+                    adjacency
+                        .entry(source.clone())
+                        .or_default()
+                        .push(target.clone());
+                }
+            }
+            let mut pending = selected.iter().cloned().collect::<Vec<_>>();
+            while let Some(source) = pending.pop() {
+                for target in adjacency.get(&source).into_iter().flatten() {
+                    if !selected.contains(target) {
+                        root_charge.try_resize(
+                            root_charge
+                                .size()
+                                .saturating_add(identity_charge(target)?.saturating_mul(3)),
+                        )?;
+                        selected.insert(target.clone());
+                        pending.push(target.clone());
+                    }
+                }
+            }
+            for node in selected {
+                if !nodes.contains(&node) {
+                    charge.try_resize(charge.size().saturating_add(identity_charge(&node)?))?;
+                    nodes.insert(node);
+                }
+            }
+        }
+        drop(copies);
+        let retained = nodes.iter().chain(&aliases).try_fold(0usize, |total, id| {
+            Ok::<_, ModelError>(total.saturating_add(identity_charge(id)?))
+        })?;
+        charge.try_resize(retained)?;
+        Ok(Self {
+            nodes,
+            aliases,
+            _charge: charge,
+        })
+    }
+}
+
 /// Charged claimed graph selection within one fully decoded dump. This is preparation,
 /// never an admission capability: restore still validates typed/cold state independently.
 struct PreparedClosure {
@@ -392,21 +507,23 @@ struct PreparedClosure {
     manifest: Manifest,
     bindings: Vec<CompletedBinding>,
     originals: BTreeMap<RecordId, lctx_model::domain::graph::Original>,
-    layouts: BTreeMap<RecordId,lctx_native::originals::Layout>,
-    blobs: BTreeMap<RecordId,lctx_native::originals::Blob>,
+    layouts: BTreeMap<RecordId, lctx_native::originals::Layout>,
+    blobs: BTreeMap<RecordId, lctx_native::originals::Blob>,
     binding_rows: BTreeSet<RecordId>,
     owners: BTreeSet<RecordId>,
-    owner_specs: BTreeMap<RecordId, lctx_model::domain::completed::CompletedContribution>,
+    aliases: BTreeSet<RecordId>,
     views: BTreeSet<String>,
     nodes: BTreeSet<RecordId>,
     derived_rows: BTreeSet<RecordId>,
     _charge: Box<dyn Reservation>,
+    _graph_charge: Box<dyn Reservation>,
 }
 impl PreparedClosure {
     fn prepare(
         dump: &Dump,
         selected: Option<ContentHash>,
         budget: &ResourceBudget,
+        graph: DumpGraph,
     ) -> Result<Self, ModelError> {
         let (handle, manifest, bindings) = dump.publication(selected)?;
         if manifest.semantic_contract != semantic_contract(&lctx_model::domain::model()?) {
@@ -453,6 +570,7 @@ impl PreparedClosure {
                         serde_json::to_vec(&descriptor)
                             .map_err(ModelError::codec)?
                             .len()
+                            .saturating_mul(32)
                             + identity_charge(&owner)?,
                     ),
                 )?;
@@ -471,9 +589,15 @@ impl PreparedClosure {
                     "restore completed view record identity",
                 ));
             }
-            selection_charge.try_resize(selection_charge.size().saturating_add(
-                serde_json::to_vec(&view).map_err(ModelError::codec)?.len() + 256,
-            ))?;
+            selection_charge.try_resize(
+                selection_charge.size().saturating_add(
+                    serde_json::to_vec(&view)
+                        .map_err(ModelError::codec)?
+                        .len()
+                        .saturating_mul(32)
+                        + 256,
+                ),
+            )?;
             if view_inventory
                 .insert(view.identity, view.clone())
                 .is_some_and(|actual| actual != view)
@@ -482,85 +606,67 @@ impl PreparedClosure {
             }
         }
         let mut owners = BTreeSet::new();
-        let mut owner_specs = BTreeMap::new();
         let mut views = BTreeSet::new();
-        let mut traversal = lctx_model::domain::recovery_closure::RecoveryTraversal::new(bindings.clone())?;
+        let mut traversal =
+            lctx_model::domain::recovery_closure::RecoveryTraversal::new(bindings.clone())?;
         while let Some(view) = traversal.next_view()? {
-            let actual = view_inventory.get(&view.identity).cloned().ok_or(ModelError::Conflict("restore exact dependency view"))?;
+            let actual = view_inventory
+                .get(&view.identity)
+                .cloned()
+                .ok_or(ModelError::Conflict("restore exact dependency view"))?;
             let mut descriptors = Vec::new();
             for logical in &view.contributions {
-                let (descriptor, physical) = contributions.get(logical).ok_or(ModelError::Schema("restore dependency contributor absent"))?;
-                let owner = physical.first().ok_or(ModelError::Schema("restore physical contributor absent"))?.clone();
-                if !owners.contains(&owner) {
-                    selection_charge.try_resize(selection_charge.size()
-                        .saturating_add(identity_charge(&owner)?.saturating_mul(2))
-                        .saturating_add(serde_json::to_vec(descriptor).map_err(ModelError::codec)?.len()))?;
-                    owners.insert(owner.clone()); owner_specs.insert(owner, descriptor.clone());
+                let (descriptor, physical) = contributions
+                    .get(logical)
+                    .ok_or(ModelError::Schema("restore dependency contributor absent"))?;
+                for owner in physical {
+                    if !owners.contains(owner) {
+                        selection_charge.try_resize(
+                            selection_charge
+                                .size()
+                                .saturating_add(identity_charge(owner)?),
+                        )?;
+                        owners.insert(owner.clone());
+                    }
                 }
                 descriptors.push(descriptor.clone());
             }
-            traversal.include_view(&view, actual, descriptors, |id| view_inventory.get(&id).cloned()
-                .ok_or(ModelError::Schema("restore transitive dependency view absent")))?;
+            traversal.include_view(&view, actual, descriptors, |id| {
+                view_inventory.get(&id).cloned().ok_or(ModelError::Schema(
+                    "restore transitive dependency view absent",
+                ))
+            })?;
         }
         let closure = traversal.finish()?;
         views.extend(closure.views().keys().map(ContentHash::hex));
-        let mut nodes = BTreeSet::new();
-        for row in dump.rows("compiler_membership")? {
-            let row = row?;
-            let row = object(&row)?;
-            if row.get("contribution").is_some_and(
-                |owner| matches!(owner,Value::RecordId(owner) if owners.contains(owner)),
-            ) {
-                if let Some(Value::RecordId(node)) = row.get("node") {
-                    if !nodes.contains(node) {
-                        selection_charge.try_resize(
-                            selection_charge
-                                .size()
-                                .saturating_add(identity_charge(node)?.saturating_mul(3)),
-                        )?;
-                        nodes.insert(node.clone());
-                    }
-                }
-            }
-        }
-        let mut aliases: BTreeMap<RecordId, BTreeSet<RecordId>> = BTreeMap::new();
-        for row in dump.rows("compiler_alias")? {
-            let row = row?;
-            let row = object(&row)?;
-            let (Some(Value::RecordId(source)), Some(Value::RecordId(target))) =
-                (row.get("source"), row.get("target"))
-            else {
-                return Err(ModelError::Schema("restore alias endpoints"));
-            };
-            selection_charge.try_resize(selection_charge.size().saturating_add(
-                identity_charge(source)?.saturating_add(identity_charge(target)?),
-            ))?;
-            aliases
-                .entry(source.clone())
-                .or_default()
-                .insert(target.clone());
-        }
-        let mut pending = nodes.iter().cloned().collect::<Vec<_>>();
-        while let Some(source) = pending.pop() {
-            if let Some(targets) = aliases.get(&source) {
-                for target in targets {
-                    if !nodes.contains(target) {
-                        selection_charge.try_resize(
-                            selection_charge
-                                .size()
-                                .saturating_add(identity_charge(target)?.saturating_mul(3)),
-                        )?;
-                        nodes.insert(target.clone());
-                        pending.push(target.clone());
-                    }
-                }
-            }
-        }
-        drop(aliases);
+        // Correspondence and root-local alias closure come exclusively from the independently
+        // checked completed transport; raw SQL cannot choose a logical owner's physical copy.
+        let DumpGraph {
+            nodes,
+            aliases,
+            _charge: graph_charge,
+        } = graph;
+        // The compiler-record pass establishes demands without reopening source tables.
+        let mut demanded = manifest
+            .originals
+            .iter()
+            .map(|original| RecordId::new("original", original.source.0.hex()))
+            .collect::<BTreeSet<_>>();
+        selection_charge.try_resize(
+            selection_charge
+                .size()
+                .saturating_add(demanded.len().saturating_mul(512)),
+        )?;
         // A shared store must never supply rows omitted from an untrusted backup. Establish
         // the complete selected payload inventory from this dump before creating a native attempt.
         let mut present = BTreeSet::new();
-        for table in [RecoveryFamily::GraphPayloads, RecoveryFamily::TypedBacking].into_iter().flat_map(lctx_compiler_store::compiler::recovery_tables) {
+        for table in [RecoveryFamily::GraphPayloads, RecoveryFamily::TypedBacking]
+            .into_iter()
+            .flat_map(lctx_compiler_store::compiler::recovery_tables)
+        {
+            if *table == "entity" {
+                continue;
+            }
             for row in dump.rows(table)? {
                 let row = row?;
                 let id = record_id(&row)?;
@@ -569,10 +675,31 @@ impl PreparedClosure {
                     if !present.insert(id.clone()) {
                         return Err(ModelError::Conflict("restore duplicate selected payload"));
                     }
+                    if *table == "compiler_record" {
+                        if let Some(Value::Object(body)) = object(&row)?.get("body") {
+                            if let Some(Value::RecordId(source)) = body.get("original") {
+                                hash_record(source, "original")?;
+                                if !demanded.contains(source) {
+                                    selection_charge.try_resize(
+                                        selection_charge
+                                            .size()
+                                            .saturating_add(identity_charge(source)?),
+                                    )?;
+                                    demanded.insert(source.clone());
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
-        if present != nodes {
+        if present
+            != nodes
+                .iter()
+                .filter(|id| id.table.as_str() != "entity")
+                .cloned()
+                .collect()
+        {
             return Err(ModelError::Conflict(
                 "restore selected payload absent from dump",
             ));
@@ -600,14 +727,9 @@ impl PreparedClosure {
                     "restore duplicate selected physical binding",
                 ));
             }
-            binding_copies
-                .entry(binding.key())
-                .and_modify(|selected| {
-                    if id < selected {
-                        *selected = id.clone();
-                    }
-                })
-                .or_insert_with(|| id.clone());
+            if binding_copies.insert(binding.key(), id.clone()).is_some() {
+                return Err(ModelError::Conflict("restore duplicate logical binding"));
+            }
         }
         if binding_copies.keys().copied().collect::<BTreeSet<_>>()
             != bindings.iter().map(CompletedBinding::key).collect()
@@ -618,26 +740,15 @@ impl PreparedClosure {
         }
         drop(physical_binding_ids);
         let binding_rows = binding_copies.into_values().collect();
-        selection_charge.try_resize(
-            selection_charge
-                .size()
-                .saturating_add(manifest.originals.len().saturating_mul(512)),
+        let (originals, layouts, blobs) = prepare_originals(
+            dump,
+            &manifest.originals,
+            &demanded,
+            &nodes,
+            selection_charge.as_mut(),
+            budget,
         )?;
-        let mut originals = manifest.originals.iter().map(|original| (RecordId::new("original", original.source.0.hex()), original.clone())).collect::<BTreeMap<_, _>>();
-        for row in dump.rows("compiler_record")? {
-            let row = row?; if !nodes.contains(record_id(&row)?) { continue; }
-            if let Some(Value::Object(body)) = object(&row)?.get("body") { if let Some(Value::RecordId(source)) = body.get("original") {
-                if originals.contains_key(source) { continue; }
-                let header = dump.rows("original")?.find_map(|row| match row { Ok(row) if record_id(&row).ok() == Some(source) => Some(Ok(row)), Err(error) => Some(Err(error)), _ => None }).transpose()?.ok_or(ModelError::Conflict("restore transitive original header absent"))?;
-                let source_key = hash_record(source, "original")?;
-                let obj = object(&header)?;
-                let Some(Value::String(content)) = obj.get("content") else { return Err(ModelError::Schema("restore original content")); };
-                let content = hash_hex(content)?;
-                let Some(Value::Number(lctx_native::surrealdb::types::Number::Int(length))) = obj.get("byte_len") else { return Err(ModelError::Schema("restore original byte length")); };
-                selection_charge.try_resize(selection_charge.size().saturating_add(512))?;
-                originals.insert(source.clone(), lctx_model::domain::graph::Original { source: lctx_model::domain::graph::EntityId(source_key), content, byte_len: u64::try_from(*length).map_err(ModelError::codec)? });
-            } }
-        }
+        drop(demanded);
         let mut derived_rows = BTreeSet::new();
         // Family dispatch selects actual source claims, never producer-expected roles or
         // occurrences. Endpoint rows follow the actual claimed edge for cold comparison.
@@ -645,54 +756,63 @@ impl PreparedClosure {
             let fields = match family {
                 RecoveryFamily::GraphRoles => Some(("in", "out", true)),
                 RecoveryFamily::SearchOccurrences => Some(("unit_payload", "in", false)),
-                RecoveryFamily::ExternalEndpoints | RecoveryFamily::SearchDocuments | RecoveryFamily::SearchVectors => None,
-                RecoveryFamily::Contributions | RecoveryFamily::Memberships | RecoveryFamily::Views | RecoveryFamily::TypedBacking |
-                RecoveryFamily::Bindings | RecoveryFamily::Aliases | RecoveryFamily::GraphPayloads | RecoveryFamily::OriginalHeaders | RecoveryFamily::OriginalChunks => None,
+                RecoveryFamily::ExternalEndpoints
+                | RecoveryFamily::SearchDocuments
+                | RecoveryFamily::SearchVectors => None,
+                RecoveryFamily::Contributions
+                | RecoveryFamily::Memberships
+                | RecoveryFamily::Views
+                | RecoveryFamily::TypedBacking
+                | RecoveryFamily::Bindings
+                | RecoveryFamily::Aliases
+                | RecoveryFamily::GraphPayloads
+                | RecoveryFamily::OriginalHeaders
+                | RecoveryFamily::OriginalChunks => None,
             };
-            let Some((source_field, endpoint_field, external_only)) = fields else { continue; };
+            let Some((source_field, endpoint_field, external_only)) = fields else {
+                continue;
+            };
             for table in lctx_compiler_store::compiler::recovery_tables(family) {
-                for row in dump.rows(table)? { let row = row?; let obj = object(&row)?;
-                    if matches!(obj.get(source_field), Some(Value::RecordId(source)) if nodes.contains(source)) {
+                for row in dump.rows(table)? {
+                    let row = row?;
+                    let obj = object(&row)?;
+                    if matches!(obj.get(source_field), Some(Value::RecordId(source)) if nodes.contains(source))
+                    {
                         let mut ids = vec![record_id(&row)?.clone()];
                         if let Some(Value::RecordId(endpoint)) = obj.get(endpoint_field) {
-                            if !external_only || endpoint.table.as_str() == "external" { ids.push(endpoint.clone()); }
+                            if !external_only || endpoint.table.as_str() == "external" {
+                                ids.push(endpoint.clone());
+                            }
                         }
-                        for id in ids { if !derived_rows.contains(&id) { selection_charge.try_resize(selection_charge.size().saturating_add(identity_charge(&id)?))?; derived_rows.insert(id); } }
+                        for id in ids {
+                            if !derived_rows.contains(&id) {
+                                selection_charge.try_resize(
+                                    selection_charge
+                                        .size()
+                                        .saturating_add(identity_charge(&id)?),
+                                )?;
+                                derived_rows.insert(id);
+                            }
+                        }
                     }
                 }
             }
-        }
-        let mut layouts=BTreeMap::new();let mut blobs=BTreeMap::new();
-        for (source,original) in &originals {
-            let header=dump.rows("original")?.find_map(|row|match row {Ok(row) if record_id(&row).ok()==Some(source)=>Some(Ok(row)),Err(error)=>Some(Err(error)),_=>None}).transpose()?.ok_or(ModelError::Conflict("restore original layout absent"))?;
-            let layout=lctx_native::originals::decode_layout(header)?;
-            if layout.blob.content!=original.content || layout.blob.byte_len!=original.byte_len || !nodes.contains(&layout.artifact) {return Err(ModelError::Conflict("restore original exact source authority"));}
-            let artifact=dump.rows("entity")?.find_map(|row|match row {Ok(row) if record_id(&row).ok()==Some(&layout.artifact)=>Some(Ok(row)),Err(error)=>Some(Err(error)),_=>None}).transpose()?.ok_or(ModelError::Conflict("restore original source payload absent"))?;
-            let entity:Entity=serde_json::from_slice(bytes(object(&artifact)?,"canonical")?).map_err(ModelError::codec)?;entity.validate()?;
-            let Entity::Source(source_row)=entity else{return Err(ModelError::Schema("restore original source kind"));};layout.validate_source(&source_row)?;
-            if !blobs.contains_key(&layout.blob.id()) {
-                selection_charge.try_resize(selection_charge.size().saturating_add(1024))?;
-                let header=dump.rows("original_blob")?.find_map(|row|match row {Ok(row) if record_id(&row).ok()==Some(&layout.blob.id())=>Some(Ok(row)),Err(error)=>Some(Err(error)),_=>None}).transpose()?.ok_or(ModelError::Conflict("restore original blob absent"))?;
-                let (blob,completed)=lctx_native::originals::decode_blob(header)?;
-                if blob!=layout.blob || !completed{return Err(ModelError::Conflict("restore original blob incomplete"));}
-                blobs.insert(blob.id(),blob);
-            }
-            selection_charge.try_resize(selection_charge.size().saturating_add(1024))?;
-            layouts.insert(source.clone(),layout);
         }
         let prepared = Self {
             handle,
             manifest,
             bindings,
             originals,
-            layouts,blobs,
+            layouts,
+            blobs,
             binding_rows,
             owners,
-            owner_specs,
+            aliases,
             views,
             nodes,
             derived_rows,
             _charge: selection_charge,
+            _graph_charge: graph_charge,
         };
         prepared.validate_inventory(dump, budget)?;
         Ok(prepared)
@@ -701,21 +821,45 @@ impl PreparedClosure {
         use lctx_compiler_store::compiler::RecoveryTableKind;
         let obj = object(row)?;
         let id = record_id(row)?;
-        if id.table.as_str() != table { return Err(ModelError::Schema("restore row table/key")); }
+        if id.table.as_str() != table {
+            return Err(ModelError::Schema("restore row table/key"));
+        }
         Ok(match table_codec(table)?.kind {
-            RecoveryTableKind::PublicationRoot => id == &RecordId::new("publication", self.handle.publication.hex()),
+            RecoveryTableKind::PublicationRoot => {
+                id == &RecordId::new("publication", self.handle.publication.hex())
+            }
             RecoveryTableKind::InstallationWitness => false,
             RecoveryTableKind::Content(family) => match family {
                 RecoveryFamily::Contributions => self.owners.contains(id),
-                RecoveryFamily::Memberships => obj.get("contribution").is_some_and(|v| matches!(v, Value::RecordId(owner) if self.owners.contains(owner))),
-                RecoveryFamily::Views => match &id.key { lctx_native::surrealdb::types::RecordIdKey::String(id) => self.views.contains(id), _ => false },
-                RecoveryFamily::GraphPayloads | RecoveryFamily::TypedBacking => self.nodes.contains(id),
+                RecoveryFamily::Memberships => obj.get("contribution").is_some_and(
+                    |v| matches!(v, Value::RecordId(owner) if self.owners.contains(owner)),
+                ),
+                RecoveryFamily::Views => match &id.key {
+                    lctx_native::surrealdb::types::RecordIdKey::String(id) => {
+                        self.views.contains(id)
+                    }
+                    _ => false,
+                },
+                RecoveryFamily::GraphPayloads | RecoveryFamily::TypedBacking => {
+                    self.nodes.contains(id)
+                }
                 RecoveryFamily::Bindings => self.binding_rows.contains(id),
-                RecoveryFamily::Aliases => obj.get("source").is_some_and(|v| matches!(v,Value::RecordId(source) if self.nodes.contains(source))),
-                RecoveryFamily::OriginalHeaders => if table=="original" {self.layouts.contains_key(id)} else {self.blobs.contains_key(id)},
-                RecoveryFamily::OriginalChunks => obj.get("blob").is_some_and(|v| matches!(v,Value::RecordId(blob) if self.blobs.contains_key(blob))),
-                RecoveryFamily::GraphRoles | RecoveryFamily::ExternalEndpoints | RecoveryFamily::SearchOccurrences |
-                RecoveryFamily::SearchDocuments | RecoveryFamily::SearchVectors => self.derived_rows.contains(id),
+                RecoveryFamily::Aliases => self.aliases.contains(id),
+                RecoveryFamily::OriginalHeaders => {
+                    if table == "original" {
+                        self.layouts.contains_key(id)
+                    } else {
+                        self.blobs.contains_key(id)
+                    }
+                }
+                RecoveryFamily::OriginalChunks => obj.get("blob").is_some_and(
+                    |v| matches!(v,Value::RecordId(blob) if self.blobs.contains_key(blob)),
+                ),
+                RecoveryFamily::GraphRoles
+                | RecoveryFamily::ExternalEndpoints
+                | RecoveryFamily::SearchOccurrences
+                | RecoveryFamily::SearchDocuments
+                | RecoveryFamily::SearchVectors => self.derived_rows.contains(id),
             },
         })
     }
@@ -723,11 +867,19 @@ impl PreparedClosure {
         let mut charge = budget.reserve("restore-selected-physical-inventory", 0)?;
         let mut ids = BTreeSet::new();
         let mut binding_keys = BTreeSet::new();
-        for table in dump_tables().filter(|table| match table.kind {
-            lctx_compiler_store::compiler::RecoveryTableKind::PublicationRoot => true,
-            lctx_compiler_store::compiler::RecoveryTableKind::InstallationWitness => false,
-            lctx_compiler_store::compiler::RecoveryTableKind::Content(family) => !family.is_integrity_claim() && family != RecoveryFamily::OriginalChunks,
-        }).map(|table| table.name) {
+        for table in dump_tables()
+            .filter(|table| match table.kind {
+                lctx_compiler_store::compiler::RecoveryTableKind::PublicationRoot => true,
+                lctx_compiler_store::compiler::RecoveryTableKind::InstallationWitness => false,
+                lctx_compiler_store::compiler::RecoveryTableKind::Content(family) => {
+                    !family.is_integrity_claim() && family != RecoveryFamily::OriginalChunks
+                }
+            })
+            .map(|table| table.name)
+            .filter(|table| !matches!(*table, "original" | "original_blob" | "entity"))
+        {
+            // Original headers, blob descriptors and selected entity presence/duplicates
+            // were checked to EOF by the typed preparation pass above.
             for row in dump.rows(table)? {
                 let row = row?;
                 if self.keep_row(table, &row)? {
@@ -740,21 +892,6 @@ impl PreparedClosure {
                         return Err(ModelError::Conflict(
                             "restore duplicate selected physical row",
                         ));
-                    }
-                    if table == "original" {
-                        let obj = object(&row)?;
-                        let original = &self.originals[record_id(&row)?];
-                        if obj.get("content") != Some(&Value::String(original.content.hex()))
-                            || obj.get("byte_len")
-                                != Some(&Value::Number(
-                                    lctx_native::surrealdb::types::Number::Int(
-                                        i64::try_from(original.byte_len)
-                                            .map_err(ModelError::codec)?,
-                                    ),
-                                ))
-                        {
-                            return Err(ModelError::Conflict("restore original header"));
-                        }
                     }
                     if table == "compiler_binding" {
                         let binding: CompletedBinding =
@@ -770,27 +907,320 @@ impl PreparedClosure {
                 "restore required binding absent from dump",
             ));
         }
-        for source in self.layouts.keys() {if !ids.contains(source){return Err(ModelError::Conflict("restore original layout absent"));}}
-        for (blob_id,blob) in &self.blobs {
-            if !ids.contains(blob_id){return Err(ModelError::Conflict("restore original blob absent"));}
-            let mut file=tempfile::tempfile().map_err(ModelError::codec)?;
-            let mut seen=BTreeSet::new();let mut total=0u64;
-            for row in dump.original_rows(blob_id)?.into_iter().flatten(){
-                let piece=lctx_native::originals::decode_piece(row?,blob)?;
+        for (blob_id, blob) in &self.blobs {
+            let mut file = tempfile::tempfile().map_err(ModelError::codec)?;
+            let mut seen = BTreeSet::new();
+            let mut total = 0u64;
+            for row in dump.original_rows(blob_id)?.into_iter().flatten() {
+                let piece = lctx_native::originals::decode_piece(row?, blob)?;
                 charge.try_resize(charge.size().saturating_add(256))?;
-                if !seen.insert(piece.start){return Err(ModelError::Conflict("restore duplicate original piece"));}
-                file.seek(std::io::SeekFrom::Start(piece.start)).map_err(ModelError::codec)?;
+                if !seen.insert(piece.start) {
+                    return Err(ModelError::Conflict("restore duplicate original piece"));
+                }
+                file.seek(std::io::SeekFrom::Start(piece.start))
+                    .map_err(ModelError::codec)?;
                 file.write_all(&piece.bytes).map_err(ModelError::codec)?;
-                total=total.checked_add(piece.bytes.len() as u64).ok_or(ModelError::Schema("restore original piece total"))?;
+                total = total
+                    .checked_add(piece.bytes.len() as u64)
+                    .ok_or(ModelError::Schema("restore original piece total"))?;
             }
-            if total!=blob.byte_len || seen.len() as u64!=blob.piece_count(){return Err(ModelError::Conflict("restore original length"));}
+            if total != blob.byte_len || seen.len() as u64 != blob.piece_count() {
+                return Err(ModelError::Conflict("restore original length"));
+            }
             file.rewind().map_err(ModelError::codec)?;
-            let mut hasher=lctx_model::domain::ContentHasher::default();let mut window=[0u8;65536];
-            loop {let count=file.read(&mut window).map_err(ModelError::codec)?;if count==0{break;}hasher.update(&window[..count]);}
-            if hasher.finish()!=blob.content{return Err(ModelError::Conflict("restore original full content"));}
+            let mut hasher = lctx_model::domain::ContentHasher::default();
+            let mut window = [0u8; 65536];
+            loop {
+                let count = file.read(&mut window).map_err(ModelError::codec)?;
+                if count == 0 {
+                    break;
+                }
+                hasher.update(&window[..count]);
+            }
+            if hasher.finish() != blob.content {
+                return Err(ModelError::Conflict("restore original full content"));
+            }
         }
         Ok(())
     }
+}
+
+/// Transient identity checking is independent of selected retention. Each table is fully
+/// consumed, including unselected headers and the tail after the last demanded record.
+struct DumpIdentityCheck {
+    sorted: lctx_native::ordered_rows::SortedRows,
+    ordinal: u64,
+}
+impl DumpIdentityCheck {
+    fn new(budget: &ResourceBudget) -> Result<Self, ModelError> {
+        Ok(Self {
+            sorted: lctx_native::ordered_rows::SortedRows::with_budget_and_row_bytes(budget, 4096)?,
+            ordinal: 0,
+        })
+    }
+    fn include(&mut self, table: &str, row: &Value) -> Result<(), ModelError> {
+        let id = record_id(row)?;
+        if id.table.as_str() != table {
+            return Err(ModelError::Schema("restore source table identity"));
+        }
+        // A distinct ordinal deliberately makes even byte-identical duplicate IDs a
+        // collision. The existing sorter owns bounded runs/spill and duplicate checks.
+        let mut identity = lctx_native::surrealdb::types::Object::new();
+        identity.insert("id", id.clone());
+        identity.insert("ordinal", self.ordinal.to_string());
+        self.ordinal = self
+            .ordinal
+            .checked_add(1)
+            .ok_or(ModelError::Schema("restore source identity count"))?;
+        self.sorted.push(Value::Object(identity))
+    }
+    fn finish(self) -> Result<(), ModelError> {
+        self.sorted.finish().map(|_| ())
+    }
+}
+
+type OriginalPreparation = (
+    BTreeMap<RecordId, lctx_model::domain::graph::Original>,
+    BTreeMap<RecordId, lctx_native::originals::Layout>,
+    BTreeMap<RecordId, lctx_native::originals::Blob>,
+);
+fn prepare_originals(
+    dump: &Dump,
+    declared: &[lctx_model::domain::graph::Original],
+    demanded: &BTreeSet<RecordId>,
+    nodes: &BTreeSet<RecordId>,
+    charge: &mut dyn Reservation,
+    budget: &ResourceBudget,
+) -> Result<OriginalPreparation, ModelError> {
+    charge.try_resize(
+        charge
+            .size()
+            .saturating_add(declared.len().saturating_mul(128)),
+    )?;
+    let declared = declared
+        .iter()
+        .map(|original| (original.source, original))
+        .collect::<BTreeMap<_, _>>();
+    let mut originals = BTreeMap::new();
+    let mut layouts = BTreeMap::new();
+    let mut required_blobs = BTreeMap::new();
+    let mut artifacts = BTreeMap::<RecordId, Vec<RecordId>>::new();
+    {
+        let mut identities = DumpIdentityCheck::new(budget)?;
+        for row in dump.rows("original")? {
+            let row = row?;
+            identities.include("original", &row)?;
+            // Decode even unretained headers: selecting a subset cannot conceal corruption.
+            let layout = lctx_native::originals::decode_layout(row)?;
+            let source = hash_record(&layout.id, "original")?;
+            if !demanded.contains(&layout.id) {
+                continue;
+            }
+            if !nodes.contains(&layout.artifact) {
+                return Err(ModelError::Conflict(
+                    "restore original exact source authority",
+                ));
+            }
+            let original = lctx_model::domain::graph::Original {
+                source: lctx_model::domain::graph::EntityId(source),
+                content: layout.blob.content,
+                byte_len: layout.blob.byte_len,
+            };
+            if declared
+                .get(&original.source)
+                .is_some_and(|expected| *expected != &original)
+            {
+                return Err(ModelError::Conflict("restore original header"));
+            }
+            charge.try_resize(
+                charge
+                    .size()
+                    .saturating_add(2048)
+                    .saturating_add(identity_charge(&layout.id)?)
+                    .saturating_add(identity_charge(&layout.artifact)?),
+            )?;
+            artifacts
+                .entry(layout.artifact.clone())
+                .or_default()
+                .push(layout.id.clone());
+            if let Some(actual) = required_blobs.insert(layout.blob.id(), layout.blob.clone()) {
+                if actual != layout.blob {
+                    return Err(ModelError::Conflict("restore original blob collision"));
+                }
+            }
+            originals.insert(layout.id.clone(), original);
+            layouts.insert(layout.id.clone(), layout);
+        }
+        identities.finish()?;
+    }
+    if layouts.keys().cloned().collect::<BTreeSet<_>>() != *demanded {
+        return Err(ModelError::Conflict("restore original layout absent"));
+    }
+    {
+        let mut identities = DumpIdentityCheck::new(budget)?;
+        let mut present = BTreeSet::new();
+        for row in dump.rows("entity")? {
+            let row = row?;
+            identities.include("entity", &row)?;
+            let id = record_id(&row)?;
+            if nodes.contains(id) {
+                present.insert(id.clone());
+            }
+            let Some(sources) = artifacts.get(id) else {
+                continue;
+            };
+            let entity: Entity = serde_json::from_slice(bytes(object(&row)?, "canonical")?)
+                .map_err(ModelError::codec)?;
+            entity.validate()?;
+            if id != &lctx_native::loader::entity_payload_id(&entity)? {
+                return Err(ModelError::Conflict(
+                    "restore original canonical source address",
+                ));
+            }
+            let Entity::Source(source) = entity else {
+                return Err(ModelError::Schema("restore original source kind"));
+            };
+            for original in sources {
+                layouts[original].validate_source(&source)?;
+            }
+        }
+        identities.finish()?;
+        if present
+            != nodes
+                .iter()
+                .filter(|id| id.table.as_str() == "entity")
+                .cloned()
+                .collect()
+        {
+            return Err(ModelError::Conflict(
+                "restore selected payload absent from dump",
+            ));
+        }
+    }
+    drop(artifacts);
+    let mut blobs = BTreeMap::new();
+    {
+        let mut identities = DumpIdentityCheck::new(budget)?;
+        for row in dump.rows("original_blob")? {
+            let row = row?;
+            identities.include("original_blob", &row)?;
+            let (blob, completed) = lctx_native::originals::decode_blob(row)?;
+            let Some(expected) = required_blobs.get(&blob.id()) else {
+                continue;
+            };
+            if expected != &blob || !completed {
+                return Err(ModelError::Conflict("restore original blob incomplete"));
+            }
+            charge.try_resize(charge.size().saturating_add(1024))?;
+            blobs.insert(blob.id(), blob);
+        }
+        identities.finish()?;
+    }
+    if blobs.len() != required_blobs.len() {
+        return Err(ModelError::Conflict("restore original blob absent"));
+    }
+    Ok((originals, layouts, blobs))
+}
+
+/// Compare the actual SQL claims against the independently checked transport union.
+/// Physical addresses are source-local claims; they never choose destination copies.
+fn compare_dump_state(
+    dump: &Dump,
+    prepared: &PreparedClosure,
+    transport: &lctx_native::completed_transport::DecodedTransport,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let mut charge = budget.reserve("restore-dump-logical-owner-comparison", 0)?;
+    let mut owners = BTreeMap::new();
+    let mut descriptors = BTreeMap::<ContentHash, usize>::new();
+    for row in dump.rows("compiler_contribution")? {
+        let row = row?;
+        if !prepared.keep_row("compiler_contribution", &row)? {
+            return Err(ModelError::Conflict("restore foreign dump contribution"));
+        }
+        let descriptor: lctx_model::domain::completed::CompletedContribution =
+            serde_json::from_slice(bytes(object(&row)?, "descriptor")?)
+                .map_err(ModelError::codec)?;
+        charge.try_resize(
+            charge
+                .size()
+                .saturating_add(lctx_native::loader::native_bytes(&row).saturating_mul(32))
+                .saturating_add(1024),
+        )?;
+        *descriptors.entry(descriptor.identity()?).or_default() += 1;
+        if owners
+            .insert(record_id(&row)?.clone(), descriptor)
+            .is_some()
+        {
+            return Err(ModelError::Conflict("restore duplicate dump contributor"));
+        }
+    }
+    let mut expected = BTreeMap::<ContentHash, usize>::new();
+    for copy in &transport.envelope().copies {
+        *expected.entry(copy.descriptor.identity()?).or_default() += 1;
+    }
+    if descriptors != expected {
+        return Err(ModelError::Conflict(
+            "restore exact physical copy descriptor inventory",
+        ));
+    }
+    for (index, table) in lctx_compiler_store::compiler::STATE_TABLES
+        .iter()
+        .enumerate()
+    {
+        let mut sorted = lctx_native::ordered_rows::SortedRows::with_budget_and_row_bytes(
+            budget,
+            lctx_model::domain::resources::MAX_ROW_BYTES,
+        )?;
+        for row in dump.rows(table)? {
+            let row = row?;
+            if !prepared.keep_row(table, &row)? {
+                return Err(ModelError::Conflict("restore foreign completed dump row"));
+            }
+            sorted.push(lctx_native::completed_logical_rows::normalize(
+                table, &row, &owners,
+            )?)?;
+        }
+        let rows = sorted.finish()?.into_prepared();
+        let mut hash = lctx_model::domain::completed_identity::CompletedFamilyHasher::new(
+            lctx_model::domain::recovery_closure::COMPLETED_FAMILIES[index],
+        )?;
+        let mut cursor = rows.frame_cursor(budget)?;
+        while let Some((_, bytes)) = cursor.next_frame()? {
+            hash.row(bytes)?;
+        }
+        if hash.finish() != transport.envelope().families.roots()[index] {
+            return Err(ModelError::Conflict("restore actual dump semantic family"));
+        }
+    }
+    for table in dump_tables()
+        .filter(|table| {
+            !matches!(
+                table.kind,
+                lctx_compiler_store::compiler::RecoveryTableKind::Content(
+                    RecoveryFamily::OriginalChunks
+                )
+            )
+        })
+        .map(|table| table.name)
+    {
+        for row in dump.rows(table)? {
+            let row = row?;
+            if !prepared.keep_row(table, &row)? {
+                return Err(ModelError::Conflict(
+                    "restore foreign row outside selected dump closure",
+                ));
+            }
+        }
+    }
+    if dump
+        .original_chunks
+        .keys()
+        .any(|blob| !prepared.blobs.contains_key(blob))
+    {
+        return Err(ModelError::Conflict("restore foreign original chunk owner"));
+    }
+    Ok(())
 }
 
 pub(crate) async fn restore(
@@ -798,134 +1228,211 @@ pub(crate) async fn restore(
     input: &Path,
     selected: Option<ContentHash>,
     definitions: &str,
+    expected: &lctx_model::domain::completed_transport::BackupReceipt,
 ) -> Result<SnapshotHandle, ModelError> {
+    expected.validate()?;
+    if expected.definitions != ContentHash::of(definitions.as_bytes()) {
+        return Err(ModelError::Conflict("restore expected definition content"));
+    }
+    if selected.is_some_and(|publication| publication != expected.source.publication) {
+        return Err(ModelError::Conflict(
+            "restore expected publication selection",
+        ));
+    }
     let options = lctx_compiler_store::admission::AdmissionOptions::default();
     let budget = ResourceBudget::fixed(options.memory_bytes)?;
-    let dump = Dump::decode(input, &budget)?;
+    let carrier = tempfile::tempdir().map_err(ModelError::codec)?;
     let result = async {
-        let prepared = PreparedClosure::prepare(&dump, selected, &budget)?;
-        dump.compare_definitions(config).await?;
-        let native = NativeCompilerStore::begin(config, prepared.manifest.frontier).await?;
-        // Keep standalone admission ownership through publication success or error cleanup.
-        let mut runtime = None;
+        let sql = carrier.path().join("claims.sql");
+        let state = carrier.path().join("completed-state");
+        crate::backup_import::read_carrier(input, &sql, &state, expected, &budget)?;
+        let transport =
+            lctx_native::completed_transport::read_transport(&state, &expected.state, &budget)?;
+        let dump = Dump::decode(&sql, &budget)?;
         let result = async {
-            let owner = lctx_compiler_store::admission::AdmissionRuntime::with_budget(
-                Arc::new(lctx_model::domain::model()?), options, budget.clone(), native.clone(),
-            )?;
-            runtime = Some(owner.clone());
-            let admitted = reconstruct(&dump, &owner, &prepared, &budget).await?;
-            let publication = Publication::new(Admission::Restored(&admitted), config, definitions).await?;
+            let graph = DumpGraph::from_transport(&transport, &budget)?;
+            let prepared =
+                PreparedClosure::prepare(&dump, Some(expected.source.publication), &budget, graph)?;
+            if prepared.handle != expected.source
+                || prepared.manifest.content() != expected.manifest
+                || prepared.manifest.completed_state != expected.state.semantic
+                || prepared
+                    .bindings
+                    .iter()
+                    .map(|binding| binding.view.identity)
+                    .collect::<BTreeSet<_>>()
+                    != transport
+                        .envelope()
+                        .roots
+                        .iter()
+                        .map(|root| root.view.identity)
+                        .collect()
+            {
+                return Err(ModelError::Conflict(
+                    "restore expected publication/manifest/transport roots",
+                ));
+            }
+            compare_dump_state(&dump, &prepared, &transport, &budget)?;
+            dump.compare_definitions(config).await?;
+            let native = NativeCompilerStore::begin(config, prepared.manifest.frontier).await?;
+            // Keep standalone admission ownership through publication success or error cleanup.
+            let mut runtime = None;
             let result = async {
-                publication.materialize_search().await?;
-                compare_derived_claims(&dump, &prepared, publication.loader(), &budget).await?;
-                publication.seal(config, definitions).await
+                let owner = lctx_compiler_store::admission::AdmissionRuntime::with_budget(
+                    Arc::new(lctx_model::domain::model()?),
+                    options,
+                    budget.clone(),
+                    native.clone(),
+                )?;
+                runtime = Some(owner.clone());
+                let admitted =
+                    reconstruct(&dump, &owner, &prepared, &budget, &state, &expected.state).await?;
+                let publication =
+                    Publication::new(Admission::Restored(&admitted), config, definitions).await?;
+                let result = async {
+                    publication.materialize_search().await?;
+                    compare_derived_claims(&dump, &prepared, publication.loader(), &budget).await?;
+                    publication.seal(config, definitions).await
+                }
+                .await;
+                let mut completion = lctx_model::domain::completion::Completion::default();
+                if let Err(error) = &result {
+                    completion.step(
+                        "restore publication session invalidation",
+                        publication.invalidate(error).await,
+                    );
+                }
+                lctx_model::domain::completion::complete(result, completion)
             }
             .await;
-            let mut completion = lctx_model::domain::completion::Completion::default();
-            if let Err(error)=&result {
+            let mut completion = crate::publication_completion(&native, &result).await;
+            if let Some(runtime) = runtime {
                 completion.step(
-                    "restore publication session invalidation",
-                    publication.invalidate(error).await,
+                    "restored admission owned drain",
+                    lctx_model::domain::completion::complete(
+                        Ok(()),
+                        runtime.drain_owned_report().await,
+                    ),
                 );
+                let settled = runtime.complete_signal(&completion).await;
+                completion.step("restored admission signal finality", settled);
             }
             lctx_model::domain::completion::complete(result, completion)
         }
         .await;
-        let mut completion = crate::publication_completion(&native, &result).await;
-        if let Some(runtime) = runtime {
-            completion.step("restored admission owned drain", lctx_model::domain::completion::complete(Ok(()), runtime.drain_owned_report().await));
-            let settled = runtime.complete_signal(&completion).await;
-            completion.step("restored admission signal finality", settled);
-        }
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.cleanup(
+            dump._directory.path().display().to_string(),
+            dump._directory.close().map_err(ModelError::codec),
+        );
         lctx_model::domain::completion::complete(result, completion)
     }
     .await;
     let mut completion = lctx_model::domain::completion::Completion::default();
     completion.cleanup(
-        dump._directory.path().display().to_string(),
-        dump._directory.close().map_err(ModelError::codec),
+        carrier.path().display().to_string(),
+        carrier.close().map_err(ModelError::codec),
     );
     lctx_model::domain::completion::complete(result, completion)
 }
 
-/// Assemble selected portable state synchronously; independent native admission follows.
-fn write_completed_state<W: Write>(
+fn hash_hex(value: &str) -> Result<ContentHash, ModelError> {
+    Ok(ContentHash(
+        hex::decode(value)
+            .map_err(ModelError::codec)?
+            .try_into()
+            .map_err(|_| ModelError::Schema("restore hash width"))?,
+    ))
+}
+fn hash_record(value: &RecordId, table: &str) -> Result<ContentHash, ModelError> {
+    if value.table.as_str() != table {
+        return Err(ModelError::Schema("restore hashed table identity"));
+    }
+    let lctx_native::surrealdb::types::RecordIdKey::String(key) = &value.key else {
+        return Err(ModelError::Schema("restore hashed record key"));
+    };
+    hash_hex(key)
+}
+async fn compare_derived_claims(
     dump: &Dump,
     prepared: &PreparedClosure,
+    loader: &lctx_native::Loader,
     budget: &ResourceBudget,
-    mut writer: W,
 ) -> Result<(), ModelError> {
-    serde_json::to_writer(&mut writer, &CompletedStateHeader::current())
-        .map_err(ModelError::codec)?;
-    writer.write_all(b"\n").map_err(ModelError::codec)?;
-    let mut binding_keys = BTreeSet::new();
-    for table in STATE_TABLES {
-        let mut sorted = lctx_native::ordered_rows::SortedRows::with_budget_and_row_bytes(
-            budget,
-            lctx_model::domain::resources::MAX_ROW_BYTES,
-        )?;
-        for row in dump.rows(table)? {
-            let row = row?;
-            let obj = object(&row)?;
-            let keep = prepared.keep_row(table, &row)?
-                && (*table != "compiler_binding" || {
-                    let descriptor: CompletedBinding =
-                        serde_json::from_slice(bytes(obj, "descriptor")?)
-                            .map_err(ModelError::codec)?;
-                    binding_keys.insert(descriptor.key())
-                });
-            if keep {
-                sorted.push(lctx_compiler_store::compiler::normalize_transport_row(
-                    table,
-                    &row,
-                    &prepared.owner_specs,
-                )?)?;
-            }
-        }
-        let mut sorted = sorted.finish()?;
-        while let Some(row) = sorted.next_row()? {
-            serde_json::to_writer(&mut writer, &serde_json::json!({"table":table,"row":row}))
-                .map_err(ModelError::codec)?;
-            writer.write_all(b"\n").map_err(ModelError::codec)?;
-        }
-    }
-    Ok(())
-}
-
-fn hash_hex(value: &str) -> Result<ContentHash, ModelError> { Ok(ContentHash(hex::decode(value).map_err(ModelError::codec)?.try_into().map_err(|_| ModelError::Schema("restore hash width"))?)) }
-fn hash_record(value: &RecordId, table: &str) -> Result<ContentHash, ModelError> {
-    if value.table.as_str() != table { return Err(ModelError::Schema("restore hashed table identity")); }
-    let lctx_native::surrealdb::types::RecordIdKey::String(key) = &value.key else { return Err(ModelError::Schema("restore hashed record key")); }; hash_hex(key)
-}
-async fn compare_derived_claims(dump: &Dump, prepared: &PreparedClosure, loader: &lctx_native::Loader, budget: &ResourceBudget) -> Result<(), ModelError> {
-    let views = prepared.views.iter().map(|view| hash_hex(view)).collect::<Result<Vec<_>, _>>()?;
-    let staging=loader.staging().ok_or(ModelError::Conflict("restore derived comparison staging owner"))?;
-    let all=lctx_native::NativeReader::for_completed_views(loader.reader().shared_client(),
-        staging.completed_owner(),&views,budget).await?.with_derivation(loader.derivation()?);
-    let mut graph_tables = Vec::new(); let mut search_tables = Vec::new();
+    let views = prepared
+        .views
+        .iter()
+        .map(|view| hash_hex(view))
+        .collect::<Result<Vec<_>, _>>()?;
+    let staging = loader.staging().ok_or(ModelError::Conflict(
+        "restore derived comparison staging owner",
+    ))?;
+    let all = lctx_native::NativeReader::for_completed_views(
+        loader.reader().shared_client(),
+        staging.completed_owner(),
+        &views,
+        budget,
+    )
+    .await?
+    .with_derivation(loader.derivation()?);
+    let mut graph_tables = Vec::new();
+    let mut search_tables = Vec::new();
     for family in RECOVERY_FAMILIES.iter().copied() {
         match family {
-            RecoveryFamily::GraphRoles | RecoveryFamily::ExternalEndpoints => graph_tables.extend_from_slice(lctx_compiler_store::compiler::recovery_tables(family)),
-            RecoveryFamily::SearchOccurrences | RecoveryFamily::SearchDocuments | RecoveryFamily::SearchVectors => search_tables.extend_from_slice(lctx_compiler_store::compiler::recovery_tables(family)),
-            RecoveryFamily::Contributions | RecoveryFamily::Memberships | RecoveryFamily::Views | RecoveryFamily::TypedBacking |
-            RecoveryFamily::Bindings | RecoveryFamily::Aliases | RecoveryFamily::GraphPayloads | RecoveryFamily::OriginalHeaders | RecoveryFamily::OriginalChunks => {},
+            RecoveryFamily::GraphRoles | RecoveryFamily::ExternalEndpoints => graph_tables
+                .extend_from_slice(lctx_compiler_store::compiler::recovery_tables(family)),
+            RecoveryFamily::SearchOccurrences
+            | RecoveryFamily::SearchDocuments
+            | RecoveryFamily::SearchVectors => search_tables
+                .extend_from_slice(lctx_compiler_store::compiler::recovery_tables(family)),
+            RecoveryFamily::Contributions
+            | RecoveryFamily::Memberships
+            | RecoveryFamily::Views
+            | RecoveryFamily::TypedBacking
+            | RecoveryFamily::Bindings
+            | RecoveryFamily::Aliases
+            | RecoveryFamily::GraphPayloads
+            | RecoveryFamily::OriginalHeaders
+            | RecoveryFamily::OriginalChunks => {}
         }
     }
-    let result=async { for (tables, actual) in [
-        (graph_tables, lctx_native::reconciliation::actual_roles(&all, budget)?),
-        (search_tables, lctx_native::derived_search::actual_search_rows(&loader.reader().with_budget(budget), budget)?),
-    ] {
-        let mut claimed = lctx_native::ordered_rows::SortedRows::with_budget(budget)?;
-        for table in tables { for row in dump.rows(table)? { let row = row?; if prepared.keep_row(table, &row)? { claimed.push(row)?; } } }
-        let mut actual = actual;
-        claimed.finish()?.reconcile(&mut actual).await?;
-    } Ok(()) }.await;
-    let mut completion=lctx_model::domain::completion::Completion::default();
-    let released=all.release_preparation().await;
-    if released.is_err(){all.retain_unknown();}
-    completion.step("restore derived comparison preparation release",released);
-    completion.step("restore derived comparison reader close",all.close().await);
-    lctx_model::domain::completion::complete(result,completion)
+    let result = async {
+        for (tables, actual) in [
+            (
+                graph_tables,
+                lctx_native::reconciliation::actual_roles(&all, budget)?,
+            ),
+            (
+                search_tables,
+                lctx_native::derived_search::actual_search_rows(
+                    &loader.reader().with_budget(budget),
+                    budget,
+                )?,
+            ),
+        ] {
+            let mut claimed = lctx_native::ordered_rows::SortedRows::with_budget(budget)?;
+            for table in tables {
+                for row in dump.rows(table)? {
+                    let row = row?;
+                    if prepared.keep_row(table, &row)? {
+                        claimed.push(row)?;
+                    }
+                }
+            }
+            let mut actual = actual;
+            claimed.finish()?.reconcile(&mut actual).await?;
+        }
+        Ok(())
+    }
+    .await;
+    let mut completion = lctx_model::domain::completion::Completion::default();
+    let released = all.release_preparation().await;
+    if released.is_err() {
+        all.retain_unknown();
+    }
+    completion.step("restore derived comparison preparation release", released);
+    completion.step("restore derived comparison reader close", all.close().await);
+    lctx_model::domain::completion::complete(result, completion)
 }
 
 async fn reconstruct(
@@ -933,6 +1440,8 @@ async fn reconstruct(
     runtime: &Arc<lctx_compiler_store::admission::AdmissionRuntime>,
     prepared: &PreparedClosure,
     budget: &ResourceBudget,
+    state: &Path,
+    expected: &lctx_model::domain::completed_transport::CompletedTransportReceipt,
 ) -> Result<lctx_compiler_store::artifact::RestoredAdmission, ModelError> {
     let native = runtime.native();
     let manifest = &prepared.manifest;
@@ -983,48 +1492,46 @@ async fn reconstruct(
         drop(assertions);
         batch_charge.try_resize(0)?;
     }
-    for (blob_id,blob) in &prepared.blobs {
-        let mut file=tempfile::tempfile().map_err(ModelError::codec)?;
-        let mut seen=BTreeSet::new();let mut total=0u64;
-        let mut chunks_charge=budget.reserve("restore-original-chunk-positions",0)?;
-        for row in dump.original_rows(blob_id)?.into_iter().flatten(){
-            let piece=lctx_native::originals::decode_piece(row?,blob)?;
-            if !seen.insert(piece.start){return Err(ModelError::Conflict("restore duplicate original piece"));}
+    for (blob_id, blob) in &prepared.blobs {
+        let mut file = tempfile::tempfile().map_err(ModelError::codec)?;
+        let mut seen = BTreeSet::new();
+        let mut total = 0u64;
+        let mut chunks_charge = budget.reserve("restore-original-chunk-positions", 0)?;
+        for row in dump.original_rows(blob_id)?.into_iter().flatten() {
+            let piece = lctx_native::originals::decode_piece(row?, blob)?;
+            if !seen.insert(piece.start) {
+                return Err(ModelError::Conflict("restore duplicate original piece"));
+            }
             chunks_charge.try_resize(seen.len().saturating_mul(64))?;
-            file.seek(std::io::SeekFrom::Start(piece.start)).map_err(ModelError::codec)?;
-            file.write_all(&piece.bytes).map_err(ModelError::codec)?;total+=piece.bytes.len() as u64;
+            file.seek(std::io::SeekFrom::Start(piece.start))
+                .map_err(ModelError::codec)?;
+            file.write_all(&piece.bytes).map_err(ModelError::codec)?;
+            total += piece.bytes.len() as u64;
         }
-        if total!=blob.byte_len{return Err(ModelError::Conflict("restore original length"));}
-        for (source,layout) in &prepared.layouts {
-            if &layout.blob.id()!=blob_id {continue;}
-            let original=&prepared.originals[source];
+        if total != blob.byte_len {
+            return Err(ModelError::Conflict("restore original length"));
+        }
+        for (source, layout) in &prepared.layouts {
+            if &layout.blob.id() != blob_id {
+                continue;
+            }
+            let original = &prepared.originals[source];
             file.rewind().map_err(ModelError::codec)?;
             // Destination admission earns completion and full-byte warm replay afresh.
-            native.import_original_stream(original.source.0,original.content,original.byte_len,&mut file,budget).await?;
+            native
+                .import_original_stream(
+                    original.source.0,
+                    original.content,
+                    original.byte_len,
+                    &mut file,
+                    budget,
+                )
+                .await?;
         }
     }
-    let _state_buffer = budget.reserve("restore-completed-state-buffer", SPOOL_BUFFER_BYTES)?;
-    let mut state = tempfile::NamedTempFile::new().map_err(ModelError::codec)?;
-    let mut writer = std::io::BufWriter::with_capacity(SPOOL_BUFFER_BYTES, &mut state);
-    let assembled = write_completed_state(dump, prepared, budget, &mut writer);
-    let mut completion = lctx_model::domain::completion::Completion::default();
-    completion.step("restore completed-state spool flush", finish_spool(writer));
-    let assembled = lctx_model::domain::completion::complete(assembled, completion);
-    let result = async {
-        assembled?;
-        native
-            .import_state(state.path(), &manifest.completed_state, budget)
-            .await?;
-        runtime.restore(manifest.profile).await?;
-        lctx_compiler_store::artifact::verify_restored(runtime, manifest).await
-    }
-    .await;
-    let mut completion = lctx_model::domain::completion::Completion::default();
-    completion.cleanup(
-        state.path().display().to_string(),
-        state.close().map_err(ModelError::codec),
-    );
-    lctx_model::domain::completion::complete(result, completion)
+    native.import_state(state, expected, budget).await?;
+    runtime.restore(manifest.profile).await?;
+    lctx_compiler_store::artifact::verify_restored(runtime, manifest).await
 }
 
 #[cfg(test)]
@@ -1047,42 +1554,145 @@ mod definition_tests {
     use lctx_native::surrealdb::types::Object;
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn cold_restore_compares_inert_role_and_occurrence_claims_against_regenerated_native_rows() {
+    async fn cold_restore_compares_inert_role_and_occurrence_claims_against_regenerated_native_rows()
+     {
         let config = super::cold_claim_fixture::config();
-        let package = Package { name: format!("cold-claim-{}", lctx_native::control::fresh_identity("cold-claim").unwrap().hex()) };
-        let release = lctx_model::domain::input::Release { package: package.id(), version: "1".into() };
+        let package = Package {
+            name: format!(
+                "cold-claim-{}",
+                lctx_native::control::fresh_identity("cold-claim")
+                    .unwrap()
+                    .hex()
+            ),
+        };
+        let release = lctx_model::domain::input::Release {
+            package: package.id(),
+            version: "1".into(),
+        };
         let entities = vec![Entity::from(package), Entity::from(release)];
-        let fixture = super::cold_claim_fixture::reader(&config, &entities, &[]).await.unwrap();
+        let fixture = super::cold_claim_fixture::reader(&config, &entities, &[])
+            .await
+            .unwrap();
         let control_budget = budget();
         // This partial fixture completes views without creating publication bindings.
         // Preserve its exact selected views rather than reconstructing an empty selection.
         let selected = fixture.view_bindings();
-        let Some(Value::Array(selected)) = selected.get("lctx_views") else { panic!("scoped fixture selected native views"); };
-        let views = selected.iter().map(|value| {
-            let Value::RecordId(id) = value else { panic!("scoped fixture native view ID"); };
-            hash_record(id, "compiler_view").unwrap()
-        }).collect::<Vec<_>>();
-        assert_eq!(views.len(), 2, "Package and Release completed relation views");
-        let loader = lctx_native::Loader::for_views(fixture.shared_client(), views.clone()).with_budget(&control_budget);
-        let mut actual = lctx_native::reconciliation::actual_roles(&loader.reader(), &control_budget).unwrap();
-        let mut baseline = Vec::new(); while let Some(row) = actual.next().await.unwrap() { baseline.push(row); } actual.drain_transport().await.unwrap();
-        assert_eq!(baseline.len(), 1, "one actual Package reference is independently generated from Release canonical data");
+        let Some(Value::Array(selected)) = selected.get("lctx_views") else {
+            panic!("scoped fixture selected native views");
+        };
+        let views = selected
+            .iter()
+            .map(|value| {
+                let Value::RecordId(id) = value else {
+                    panic!("scoped fixture native view ID");
+                };
+                hash_record(id, "compiler_view").unwrap()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            views.len(),
+            2,
+            "Package and Release completed relation views"
+        );
+        let loader = lctx_native::Loader::for_views(fixture.shared_client(), views.clone())
+            .with_budget(&control_budget);
+        let mut actual =
+            lctx_native::reconciliation::actual_roles(&loader.reader(), &control_budget).unwrap();
+        let mut baseline = Vec::new();
+        while let Some(row) = actual.next().await.unwrap() {
+            baseline.push(row);
+        }
+        actual.drain_transport().await.unwrap();
+        assert_eq!(
+            baseline.len(),
+            1,
+            "one actual Package reference is independently generated from Release canonical data"
+        );
         for fault in ["baseline", "missing", "changed", "extra", "occurrence"] {
             let mut claims = baseline.clone();
-            if fault == "missing" { claims.clear(); }
-            if fault == "changed" { let Value::Object(row) = &mut claims[0] else { unreachable!() }; row.insert("field", "forged-role"); }
-            if fault == "extra" { let mut extra = claims[0].clone(); let Value::Object(row) = &mut extra else { unreachable!() }; row.insert("id", RecordId::new("reference", "unexpected-late-role")); claims.push(extra); }
-            if fault == "occurrence" { let mut extra = row("lex_occurs", "unexpected-late-occurrence"); extra.insert("unit_payload", lctx_native::loader::entity_payload_id(&entities[0]).unwrap()); extra.insert("in", RecordId::new("search_source", "unexpected-value")); claims.push(Value::Object(extra)); }
-            let scratch = tempfile::tempdir().unwrap(); let path = scratch.path().join("claims.surql"); let mut file = std::fs::File::create(&path).unwrap(); writeln!(file, "OPTION IMPORT;").unwrap();
-            let budget = budget(); let mut encoded = budget.reserve("cold-claim-encoded", 0).unwrap();
-            for claim in &claims { crate::backup_import::write_row(&mut file, claim.clone(), encoded.as_mut()).unwrap(); } drop(file);
+            if fault == "missing" {
+                claims.clear();
+            }
+            if fault == "changed" {
+                let Value::Object(row) = &mut claims[0] else {
+                    unreachable!()
+                };
+                row.insert("field", "forged-role");
+            }
+            if fault == "extra" {
+                let mut extra = claims[0].clone();
+                let Value::Object(row) = &mut extra else {
+                    unreachable!()
+                };
+                row.insert("id", RecordId::new("reference", "unexpected-late-role"));
+                claims.push(extra);
+            }
+            if fault == "occurrence" {
+                let mut extra = row("lex_occurs", "unexpected-late-occurrence");
+                extra.insert(
+                    "unit_payload",
+                    lctx_native::loader::entity_payload_id(&entities[0]).unwrap(),
+                );
+                extra.insert("in", RecordId::new("search_source", "unexpected-value"));
+                claims.push(Value::Object(extra));
+            }
+            let scratch = tempfile::tempdir().unwrap();
+            let path = scratch.path().join("claims.surql");
+            let mut file = std::fs::File::create(&path).unwrap();
+            writeln!(file, "OPTION IMPORT;").unwrap();
+            let budget = budget();
+            let mut encoded = budget.reserve("cold-claim-encoded", 0).unwrap();
+            for claim in &claims {
+                crate::backup_import::write_row(&mut file, claim.clone(), encoded.as_mut())
+                    .unwrap();
+            }
+            drop(file);
             let dump = Dump::decode(&path, &budget).unwrap();
             let fake = claimed_fixture();
-            let prepared = PreparedClosure { handle: fake.handle, manifest: Manifest::decode(bytes(object(fake.rows.iter().find(|row| record_id(row).unwrap().table.as_str() == "publication").unwrap()).unwrap(), "manifest").unwrap()).unwrap(), bindings: vec![], originals: BTreeMap::new(), layouts:BTreeMap::new(),blobs:BTreeMap::new(), binding_rows: BTreeSet::new(), owners: BTreeSet::new(), owner_specs: BTreeMap::new(), views: views.iter().map(|view| view.hex()).collect(), nodes: entities.iter().map(|entity| lctx_native::loader::entity_payload_id(entity).unwrap()).collect(), derived_rows: claims.iter().map(|claim| record_id(claim).unwrap().clone()).collect(), _charge: budget.reserve("cold-claim-test-selection", 1024).unwrap() };
+            let prepared = PreparedClosure {
+                handle: fake.handle,
+                manifest: Manifest::decode(
+                    bytes(
+                        object(
+                            fake.rows
+                                .iter()
+                                .find(|row| record_id(row).unwrap().table.as_str() == "publication")
+                                .unwrap(),
+                        )
+                        .unwrap(),
+                        "manifest",
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+                bindings: vec![],
+                originals: BTreeMap::new(),
+                layouts: BTreeMap::new(),
+                blobs: BTreeMap::new(),
+                binding_rows: BTreeSet::new(),
+                owners: BTreeSet::new(),
+                aliases: BTreeSet::new(),
+                views: views.iter().map(|view| view.hex()).collect(),
+                nodes: entities
+                    .iter()
+                    .map(|entity| lctx_native::loader::entity_payload_id(entity).unwrap())
+                    .collect(),
+                derived_rows: claims
+                    .iter()
+                    .map(|claim| record_id(claim).unwrap().clone())
+                    .collect(),
+                _charge: budget.reserve("cold-claim-test-selection", 1024).unwrap(),
+                _graph_charge: budget.reserve("cold-claim-test-graph", 1024).unwrap(),
+            };
             let compared = compare_derived_claims(&dump, &prepared, &loader, &budget).await;
-            assert_eq!(compared.is_ok(), fault == "baseline", "source claim {fault}: {compared:?}");
+            assert_eq!(
+                compared.is_ok(),
+                fault == "baseline",
+                "source claim {fault}: {compared:?}"
+            );
         }
-        drop(loader); fixture.close().await.unwrap();
+        drop(loader);
+        fixture.close().await.unwrap();
     }
     #[test]
     fn buffered_spool_reports_final_flush_failure_without_drop_retry() {
@@ -1212,11 +1822,6 @@ mod definition_tests {
         let mut binding_row = descriptor_row("compiler_binding", "selected-binding", &binding);
         binding_row.insert("attempt", RecordId::new("native_attempt", "claimed"));
         rows.push(Value::Object(binding_row));
-        rows.push(Value::Object(descriptor_row(
-            "compiler_binding",
-            "z-equivalent-binding",
-            &binding,
-        )));
         let mut nodes = BTreeSet::from([
             RecordId::new("entity", "seed"),
             RecordId::new("entity", "root"),
@@ -1267,14 +1872,34 @@ mod definition_tests {
             rows.push(Value::Object(value));
         }
         let original = b"original; bytes remain exact";
-        let input:lctx_model::domain::Id<lctx_model::domain::input::InputRevision>=serde_json::from_value(serde_json::to_value([3u8;16]).unwrap()).unwrap();
-        let source_row=lctx_model::domain::source::SourceArtifact::from_bytes(input,"claimed.py".into(),original).unwrap();
-        let layout=lctx_native::originals::Layout::source(&source_row).unwrap();
-        let source=lctx_model::domain::graph::EntityId::of(source_row.id()).0;
+        let input: lctx_model::domain::Id<lctx_model::domain::input::InputRevision> =
+            serde_json::from_value(serde_json::to_value([3u8; 16]).unwrap()).unwrap();
+        let source_row = lctx_model::domain::source::SourceArtifact::from_bytes(
+            input,
+            "claimed.py".into(),
+            original,
+        )
+        .unwrap();
+        let layout = lctx_native::originals::Layout::source(&source_row).unwrap();
+        let source = lctx_model::domain::graph::EntityId::of(source_row.id()).0;
         nodes.insert(layout.artifact.clone());
-        let mut artifact=Object::new();artifact.insert("id",layout.artifact.clone());artifact.insert("canonical",Bytes::from(serde_json::to_vec(&Entity::Source(source_row)).unwrap()));rows.push(Value::Object(artifact));
-        let mut member=row("compiler_membership","source-artifact-member");member.insert("contribution",RecordId::new("compiler_contribution","a-root"));member.insert("node",layout.artifact.clone());rows.push(Value::Object(member));
-        rows.push(layout.value());rows.push(layout.blob.value(true));rows.push(layout.blob.piece(0,original).unwrap());
+        let mut artifact = Object::new();
+        artifact.insert("id", layout.artifact.clone());
+        artifact.insert(
+            "canonical",
+            Bytes::from(serde_json::to_vec(&Entity::Source(source_row)).unwrap()),
+        );
+        rows.push(Value::Object(artifact));
+        let mut member = row("compiler_membership", "source-artifact-member");
+        member.insert(
+            "contribution",
+            RecordId::new("compiler_contribution", "a-root"),
+        );
+        member.insert("node", layout.artifact.clone());
+        rows.push(Value::Object(member));
+        rows.push(layout.value());
+        rows.push(layout.blob.value(true));
+        rows.push(layout.blob.piece(0, original).unwrap());
         let manifest = Manifest {
             admission_contract: ContentHash::of(b"claimed-only"),
             completed_state: lctx_model::domain::completed::CompletedStateIdentity {
@@ -1304,6 +1929,9 @@ mod definition_tests {
         };
         let mut handle = SnapshotHandle {
             publication: ContentHash([0; 32]),
+            eligibility: lctx_model::domain::completed_transport::EligibilityIdentity(
+                ContentHash::of(b"claimed-eligibility"),
+            ),
             semantic: manifest.content(),
             realization: ContentHash::of(b"claimed-realization"),
             view: crate::native_publication::view_identity(std::slice::from_ref(&binding)).unwrap(),
@@ -1342,6 +1970,20 @@ mod definition_tests {
             nodes,
         }
     }
+    // These deliberately provisional graph selections test dump lookup/claim validation,
+    // not transport correspondence or admission. The current wire has its own codec controls.
+    fn claimed_graph(fixture: &ClaimedFixture, budget: &ResourceBudget) -> DumpGraph {
+        DumpGraph {
+            nodes: fixture.nodes.clone(),
+            aliases: fixture
+                .rows
+                .iter()
+                .filter(|row| record_id(row).unwrap().table.as_str() == "compiler_alias")
+                .map(|row| record_id(row).unwrap().clone())
+                .collect(),
+            _charge: budget.reserve("claimed-graph-control", 8192).unwrap(),
+        }
+    }
     fn write_claimed(path: &Path, rows: &[Value]) {
         use lctx_native::surrealdb::types::ToSql;
         let mut file = std::fs::File::create(path).unwrap();
@@ -1360,181 +2002,465 @@ mod definition_tests {
         }
     }
     fn budget() -> ResourceBudget {
-        ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)
-            .unwrap()
+        ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap()
     }
     #[test]
-    fn selected_state_assembly_preserves_maximum_declared_projection_chunk() {
+    fn transport_graph_keeps_alias_chains_within_each_roots_copy_selection() {
         use lctx_model::domain::{
-            EvidenceBytes, Id,
-            projection::{ProjectionSnapshotChunk, ProjectionSourceAssessment, snapshot},
-            resources::{MAX_ROW_BYTES, TRANSFER_BYTES},
+            completed_identity::{CompletedFamilyHasher, CompletedFamilyRoots},
+            completed_transport::*,
         };
-        let assessment: Id<ProjectionSourceAssessment> =
-            serde_json::from_value(serde_json::to_value([7u8; 16]).unwrap()).unwrap();
-        let header = snapshot::header(assessment, snapshot::CHUNK_BYTES).unwrap();
-        let chunk = ProjectionSnapshotChunk {
-            snapshot: header.id(),
-            ordinal: 0,
-            payload: EvidenceBytes(vec![255; snapshot::CHUNK_BYTES]),
-        };
-        let relation = Relation::of::<ProjectionSnapshotChunk>();
-        let batch = ProjectionSnapshotChunk::encode(&[chunk]).unwrap();
-        let body = lctx_native::codec::batch_bodies(&relation, &batch)
-            .unwrap()
-            .pop()
-            .unwrap();
-        let mut fixture = claimed_fixture();
-        // Compaction-only claimed rows omit fields consumed by portable normalization.
-        for (index, row) in fixture.rows.iter_mut().enumerate() {
-            if record_id(row).unwrap().table.as_str() == "compiler_membership" {
-                let Value::Object(object) = row else { unreachable!() };
-                object.insert("relation", Package::NAME);
-                object.insert("semantic_key", format!("{index:032x}"));
-            }
-        }
-        let backing_id = RecordId::new("compiler_record", "extra");
-        let backing = fixture
-            .rows
-            .iter_mut()
-            .find(|row| record_id(row).unwrap() == &backing_id)
-            .unwrap();
-        let Value::Object(object) = backing else {
-            panic!("claimed physical backing");
-        };
-        object.insert("canonical", Bytes::from(serde_json::to_vec(&body).unwrap()));
-        let expected = backing.clone();
-        assert!(serde_json::to_vec(&expected).unwrap().len() > TRANSFER_BYTES);
-        let scratch = tempfile::tempdir().unwrap();
-        let input = scratch.path().join("selected.surql");
-        write_claimed(&input, &fixture.rows);
         let budget = budget();
-        {
-            let dump = Dump::decode(&input, &budget).unwrap();
-            let prepared =
-                PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget).unwrap();
-            let reserved = budget.reserved();
-            let mut encoded = Vec::new();
-            write_completed_state(&dump, &prepared, &budget, &mut encoded).unwrap();
-            assert_eq!(
-                budget.reserved(),
-                reserved,
-                "ordering reservations released"
+        let mut descriptor = CompletedContribution {
+            assurance:
+                lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,
+            spec: ContributionSpec {
+                captured_binding: None,
+                producer: "transport-graph-control".into(),
+                profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
+                model: lctx_model::domain::model().unwrap().digest(),
+                implementation: ContentHash::of(b"graph control"),
+                configuration: None,
+                inputs: vec![],
+                outputs: BTreeSet::from(["packages".into(), "releases".into()]),
+            },
+            outcome: 0,
+            outputs: BTreeMap::new(),
+        };
+        for relation in ["packages", "releases"] {
+            descriptor.outputs.insert(
+                relation.into(),
+                OutputContent {
+                    rows: 1,
+                    content: ContentHash::of(relation.as_bytes()),
+                },
             );
-            let mut observed = None;
-            for line in encoded
-                .split(|byte| *byte == b'\n')
-                .skip(1)
-                .filter(|line| !line.is_empty())
-            {
-                assert!(
-                    line.len() + 1 <= MAX_ROW_BYTES,
-                    "whole import envelope remains bounded"
-                );
-                let row: serde_json::Value = serde_json::from_slice(line).unwrap();
-                if row["table"] == "compiler_record" {
-                    let value: Value = serde_json::from_value(row["row"].clone()).unwrap();
-                    if record_id(&value).unwrap() == &backing_id {
-                        assert!(line.len() > TRANSFER_BYTES);
-                        assert!(
-                            observed.replace(value).is_none(),
-                            "exactly one selected backing"
-                        );
-                    }
-                }
-            }
-            assert_eq!(observed, Some(expected));
         }
-        assert_eq!(budget.reserved(), 0);
+        let logical = descriptor.identity().unwrap();
+        let mut views = [
+            CompletedView::new("packages".into(), BTreeSet::from([logical]), 1).unwrap(),
+            CompletedView::new("releases".into(), BTreeSet::from([logical]), 1).unwrap(),
+        ];
+        views.sort_by_key(|view| view.identity);
+        let shared = RecordId::new("entity", "shared");
+        let middle = RecordId::new("entity", "middle");
+        let foreign = RecordId::new("entity", "foreign");
+        let mut member = Object::new();
+        member.insert(
+            "id",
+            lctx_native::completed_rows::membership_id(logical, "packages", &[1; 16]),
+        );
+        member.insert(
+            "contribution",
+            RecordId::new("compiler_contribution", logical.hex()),
+        );
+        member.insert("relation", "packages");
+        member.insert("semantic_key", hex::encode([1; 16]));
+        member.insert("node", shared.clone());
+        member.insert("content", ContentHash::of(b"shared").hex());
+        let member = Value::Object(member);
+        let alias = |source: RecordId, target: RecordId| {
+            let mut sink = lctx_model::domain::KeySink::new("native-place-alias/v1");
+            sink.part(b"source", &serde_json::to_vec(&source).unwrap());
+            sink.part(b"target", &serde_json::to_vec(&target).unwrap());
+            let mut row = Object::new();
+            row.insert("id", RecordId::new("compiler_alias", sink.finish().hex()));
+            row.insert("source", source);
+            row.insert("target", target);
+            Value::Object(row)
+        };
+        let aliases = [
+            alias(shared.clone(), middle.clone()),
+            alias(middle.clone(), foreign.clone()),
+        ];
+        let inventory = |kind, rows: &[Value]| {
+            let mut hash = TransportInventoryHasher::new(kind);
+            for row in rows {
+                hash.row(&serde_json::to_vec(row).unwrap()).unwrap();
+            }
+            hash.finish()
+        };
+        let copies = (0..2)
+            .map(|label| TransportCopy {
+                label,
+                descriptor: descriptor.clone(),
+                membership: inventory(
+                    TransportInventoryKind::Memberships,
+                    std::slice::from_ref(&member),
+                ),
+                aliases: inventory(
+                    TransportInventoryKind::Aliases,
+                    std::slice::from_ref(&aliases[label as usize]),
+                ),
+            })
+            .collect::<Vec<_>>();
+        let roots = views
+            .iter()
+            .enumerate()
+            .map(|(label, view)| TransportRoot {
+                view: view.clone(),
+                dependencies: vec![],
+                slots: vec![TransportSlot {
+                    view: view.identity,
+                    logical,
+                    copy: label as u64,
+                }],
+            })
+            .collect();
+        let mut family_rows: [Vec<Value>; 6] = std::array::from_fn(|_| vec![]);
+        family_rows[0].push(Value::Object(descriptor_row(
+            "compiler_contribution",
+            &logical.hex(),
+            &descriptor,
+        )));
+        family_rows[1].push(member.clone());
+        for view in &views {
+            family_rows[2].push(Value::Object(descriptor_row(
+                "compiler_view",
+                &view.identity.hex(),
+                view,
+            )));
+        }
+        family_rows[5].extend(aliases.clone());
+        let mut family_roots = Vec::new();
+        for (index, rows) in family_rows.iter_mut().enumerate() {
+            rows.sort_by_key(|row| record_id(row).unwrap().clone());
+            let mut hash = CompletedFamilyHasher::new(
+                lctx_model::domain::recovery_closure::COMPLETED_FAMILIES[index],
+            )
+            .unwrap();
+            for row in rows {
+                hash.row(&serde_json::to_vec(row).unwrap()).unwrap();
+            }
+            family_roots.push(hash.finish());
+        }
+        let families = CompletedFamilyRoots::new(family_roots.try_into().unwrap()).unwrap();
+        let envelope = CompletedTransportEnvelope {
+            version: 1,
+            semantic: lctx_model::domain::completed::CompletedStateIdentity::from_roots(&families)
+                .unwrap(),
+            roots,
+            copies,
+            families,
+        };
+        let receipt = envelope.receipt().unwrap();
+        let scratch = tempfile::tempdir().unwrap();
+        let path = scratch.path().join("wire");
+        let mut wire = std::fs::File::create(&path).unwrap();
+        let mut frame = |value: serde_json::Value| {
+            serde_json::to_writer(&mut wire, &value).unwrap();
+            wire.write_all(b"\n").unwrap();
+        };
+        frame(serde_json::json!({"header":{"envelope":envelope}}));
+        for (index, rows) in family_rows.iter().enumerate() {
+            for row in rows {
+                frame(
+                    serde_json::json!({"row":{"table":lctx_compiler_store::compiler::STATE_TABLES[index],"row":row}}),
+                );
+            }
+        }
+        for label in 0..2 {
+            frame(serde_json::json!({"copy_membership":{"copy":label,"row":member}}));
+            frame(serde_json::json!({"copy_alias":{"copy":label,"row":aliases[label]}}));
+        }
+        frame(serde_json::json!({"end":{"receipt":receipt}}));
+        drop(wire);
+        let decoded =
+            lctx_native::completed_transport::read_transport(&path, &receipt, &budget).unwrap();
+        let graph = DumpGraph::from_transport(&decoded, &budget).unwrap();
+        assert_eq!(graph.nodes, BTreeSet::from([shared, middle]));
+        assert!(
+            !graph.nodes.contains(&foreign),
+            "a second root's unreachable source must not continue the first root's alias chain"
+        );
     }
+
+    fn original_lookup_fixture() -> (
+        Vec<Value>,
+        Vec<Original>,
+        BTreeSet<RecordId>,
+        BTreeSet<RecordId>,
+    ) {
+        let input = serde_json::from_value(serde_json::to_value([11u8; 16]).unwrap()).unwrap();
+        let mut rows = Vec::new();
+        let mut declared = Vec::new();
+        let mut demands = BTreeSet::new();
+        let mut nodes = BTreeSet::new();
+        let mut blobs = BTreeSet::new();
+        for (index, path, bytes) in [
+            (0, "late.py", b"shared bytes".as_slice()),
+            (1, "first.py", b"other bytes".as_slice()),
+            (2, "same.py", b"shared bytes".as_slice()),
+        ] {
+            let source =
+                lctx_model::domain::source::SourceArtifact::from_bytes(input, path.into(), bytes)
+                    .unwrap();
+            let layout = lctx_native::originals::Layout::source(&source).unwrap();
+            let mut entity = Object::new();
+            entity.insert("id", layout.artifact.clone());
+            entity.insert(
+                "canonical",
+                Bytes::from(serde_json::to_vec(&Entity::Source(source)).unwrap()),
+            );
+            rows.push(Value::Object(entity));
+            rows.push(layout.value());
+            if blobs.insert(layout.blob.id()) {
+                rows.push(layout.blob.value(true));
+            }
+            nodes.insert(layout.artifact.clone());
+            demands.insert(layout.id.clone());
+            if index == 0 {
+                declared.push(Original {
+                    source: EntityId(hash_record(&layout.id, "original").unwrap()),
+                    content: layout.blob.content,
+                    byte_len: layout.blob.byte_len,
+                });
+            }
+        }
+        rows.reverse();
+        (rows, declared, demands, nodes)
+    }
+    #[test]
+    fn original_lookup_identity_runs_spill_and_refuse_duplicate_after_complete_prefix() {
+        for duplicate in [false, true] {
+            let budget = ResourceBudget::fixed(1024 * 1024).unwrap();
+            let mut identities = DumpIdentityCheck::new(&budget).unwrap();
+            for index in 0..10_000 {
+                identities
+                    .include(
+                        "entity",
+                        &Value::Object(row("entity", &format!("{index:064x}"))),
+                    )
+                    .unwrap();
+            }
+            let result = if duplicate {
+                identities
+                    .include(
+                        "entity",
+                        &Value::Object(row("entity", &format!("{:064x}", 0))),
+                    )
+                    .and_then(|()| identities.finish())
+            } else {
+                identities.finish()
+            };
+            assert_eq!(
+                result.is_ok(),
+                !duplicate,
+                "complete identity runs, duplicate={duplicate}: {result:?}"
+            );
+            assert_eq!(budget.reserved(), 0);
+        }
+    }
+
+    #[test]
+    fn original_lookup_prepares_shuffled_selected_headers_sources_and_reused_blobs_once() {
+        let (rows, declared, demands, nodes) = original_lookup_fixture();
+        let scratch = tempfile::tempdir().unwrap();
+        let path = scratch.path().join("lookup.surql");
+        write_claimed(&path, &rows);
+        let budget = budget();
+        let dump = Dump::decode(&path, &budget).unwrap();
+        let mut charge = budget.reserve("lookup-control", 0).unwrap();
+        let (originals, layouts, blobs) =
+            prepare_originals(&dump, &declared, &demands, &nodes, charge.as_mut(), &budget)
+                .unwrap();
+        assert_eq!(originals.len(), 3);
+        assert_eq!(layouts.len(), 3);
+        assert_eq!(blobs.len(), 2);
+        assert_eq!(
+            originals[&RecordId::new("original", declared[0].source.0.hex())],
+            declared[0]
+        );
+        assert!(
+            charge.size() >= 3 * 2048,
+            "retained typed metadata is charged"
+        );
+    }
+    #[test]
+    fn original_lookup_rejects_missing_duplicate_foreign_and_corrupt_unretained_records() {
+        for fault in [
+            "missing-header",
+            "missing-source",
+            "missing-blob",
+            "duplicate-header",
+            "duplicate-source",
+            "duplicate-blob",
+            "corrupt-unretained",
+            "foreign-artifact",
+        ] {
+            let (mut rows, declared, demands, nodes) = original_lookup_fixture();
+            let table = if fault.contains("source") {
+                "entity"
+            } else if fault.contains("blob") {
+                "original_blob"
+            } else {
+                "original"
+            };
+            let index = rows
+                .iter()
+                .position(|value| record_id(value).unwrap().table.as_str() == table)
+                .unwrap();
+            if fault.starts_with("missing") {
+                rows.remove(index);
+            } else if fault.starts_with("duplicate") {
+                rows.push(rows[index].clone());
+            } else if fault == "corrupt-unretained" {
+                let mut row = rows[index].clone();
+                let Value::Object(value) = &mut row else {
+                    unreachable!()
+                };
+                value.insert(
+                    "id",
+                    RecordId::new("original", ContentHash::of(b"unretained").hex()),
+                );
+                value.insert("unexpected", true);
+                rows.push(row);
+            } else {
+                let Value::Object(value) = &mut rows[index] else {
+                    unreachable!()
+                };
+                value.insert("artifact", RecordId::new("entity", "foreign"));
+            }
+            let scratch = tempfile::tempdir().unwrap();
+            let path = scratch.path().join("fault.surql");
+            write_claimed(&path, &rows);
+            let budget = budget();
+            let dump = Dump::decode(&path, &budget).unwrap();
+            let mut charge = budget.reserve("lookup-control", 0).unwrap();
+            assert!(
+                prepare_originals(&dump, &declared, &demands, &nodes, charge.as_mut(), &budget)
+                    .is_err(),
+                "accepted {fault}"
+            );
+        }
+    }
+    #[test]
+    fn original_lookup_consumes_late_spool_failure_after_all_demands() {
+        let (rows, declared, demands, nodes) = original_lookup_fixture();
+        let scratch = tempfile::tempdir().unwrap();
+        let path = scratch.path().join("late.surql");
+        write_claimed(&path, &rows);
+        let budget = budget();
+        let dump = Dump::decode(&path, &budget).unwrap();
+        let mut spool = std::fs::OpenOptions::new()
+            .append(true)
+            .open(dump._directory.path().join("original"))
+            .unwrap();
+        spool.write_all(b"{broken late spool\n").unwrap();
+        drop(spool);
+        let mut charge = budget.reserve("lookup-control", 0).unwrap();
+        assert!(
+            prepare_originals(&dump, &declared, &demands, &nodes, charge.as_mut(), &budget)
+                .is_err()
+        );
+    }
+
     #[test]
     fn every_recovery_family_dispatches_exact_restore_selection_without_table_fallback() {
-        let fixture = claimed_fixture(); let scratch = tempfile::tempdir().unwrap(); let input = scratch.path().join("families.surql");
-        write_claimed(&input, &fixture.rows); let budget = budget(); let dump = Dump::decode(&input, &budget).unwrap();
-        let mut prepared = PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget).unwrap();
+        let fixture = claimed_fixture();
+        let scratch = tempfile::tempdir().unwrap();
+        let input = scratch.path().join("families.surql");
+        write_claimed(&input, &fixture.rows);
+        let budget = budget();
+        let dump = Dump::decode(&input, &budget).unwrap();
+        let mut prepared = PreparedClosure::prepare(
+            &dump,
+            Some(fixture.handle.publication),
+            &budget,
+            claimed_graph(&fixture, &budget),
+        )
+        .unwrap();
         for family in RECOVERY_FAMILIES.iter().copied() {
             for table in lctx_compiler_store::compiler::recovery_tables(family) {
                 let mut selected = row(table, "family-control");
                 match family {
-                    RecoveryFamily::Contributions => { selected.insert("id", prepared.owners.first().unwrap().clone()); },
-                    RecoveryFamily::Memberships => { selected.insert("contribution", prepared.owners.first().unwrap().clone()); },
-                    RecoveryFamily::Views => { selected.insert("id", RecordId::new(*table, prepared.views.first().unwrap().clone())); },
-                    RecoveryFamily::TypedBacking | RecoveryFamily::GraphPayloads => { prepared.nodes.insert(RecordId::new(*table, "family-control")); },
-                    RecoveryFamily::Bindings => { prepared.binding_rows.insert(RecordId::new(*table, "family-control")); },
-                    RecoveryFamily::Aliases => { selected.insert("source", prepared.nodes.first().unwrap().clone()); },
-                    RecoveryFamily::OriginalHeaders => { selected.insert("id", if *table=="original" {prepared.layouts.keys().next().unwrap().clone()} else {prepared.blobs.keys().next().unwrap().clone()}); },
-                    RecoveryFamily::OriginalChunks => { selected.insert("blob", prepared.blobs.keys().next().unwrap().clone()); },
-                    RecoveryFamily::GraphRoles | RecoveryFamily::ExternalEndpoints | RecoveryFamily::SearchOccurrences |
-                    RecoveryFamily::SearchDocuments | RecoveryFamily::SearchVectors => { prepared.derived_rows.insert(RecordId::new(*table, "family-control")); },
+                    RecoveryFamily::Contributions => {
+                        selected.insert("id", prepared.owners.first().unwrap().clone());
+                    }
+                    RecoveryFamily::Memberships => {
+                        selected.insert("contribution", prepared.owners.first().unwrap().clone());
+                    }
+                    RecoveryFamily::Views => {
+                        selected.insert(
+                            "id",
+                            RecordId::new(*table, prepared.views.first().unwrap().clone()),
+                        );
+                    }
+                    RecoveryFamily::TypedBacking | RecoveryFamily::GraphPayloads => {
+                        prepared
+                            .nodes
+                            .insert(RecordId::new(*table, "family-control"));
+                    }
+                    RecoveryFamily::Bindings => {
+                        prepared
+                            .binding_rows
+                            .insert(RecordId::new(*table, "family-control"));
+                    }
+                    RecoveryFamily::Aliases => {
+                        prepared
+                            .aliases
+                            .insert(RecordId::new(*table, "family-control"));
+                    }
+                    RecoveryFamily::OriginalHeaders => {
+                        selected.insert(
+                            "id",
+                            if *table == "original" {
+                                prepared.layouts.keys().next().unwrap().clone()
+                            } else {
+                                prepared.blobs.keys().next().unwrap().clone()
+                            },
+                        );
+                    }
+                    RecoveryFamily::OriginalChunks => {
+                        selected.insert("blob", prepared.blobs.keys().next().unwrap().clone());
+                    }
+                    RecoveryFamily::GraphRoles
+                    | RecoveryFamily::ExternalEndpoints
+                    | RecoveryFamily::SearchOccurrences
+                    | RecoveryFamily::SearchDocuments
+                    | RecoveryFamily::SearchVectors => {
+                        prepared
+                            .derived_rows
+                            .insert(RecordId::new(*table, "family-control"));
+                    }
                 }
-                assert!(prepared.keep_row(table, &Value::Object(selected)).unwrap(), "explicit family selector: {family:?}/{table}");
+                assert!(
+                    prepared.keep_row(table, &Value::Object(selected)).unwrap(),
+                    "explicit family selector: {family:?}/{table}"
+                );
                 let mut unrelated = row(table, "unselected-control");
-                unrelated.insert("contribution", RecordId::new("compiler_contribution", "unselected"));
+                unrelated.insert(
+                    "contribution",
+                    RecordId::new("compiler_contribution", "unselected"),
+                );
                 unrelated.insert("source", RecordId::new("original", "unselected"));
-                unrelated.insert("blob", RecordId::new("original_blob","unselected"));
-                assert!(!prepared.keep_row(table, &Value::Object(unrelated)).unwrap(), "exact exclusion: {family:?}/{table}");
+                unrelated.insert("blob", RecordId::new("original_blob", "unselected"));
+                assert!(
+                    !prepared.keep_row(table, &Value::Object(unrelated)).unwrap(),
+                    "exact exclusion: {family:?}/{table}"
+                );
             }
         }
-        assert!(prepared.keep_row("native_pin", &Value::Object(row("native_pin", "control"))).is_err());
-        let publication = fixture.rows.iter().find(|row| record_id(row).unwrap().table.as_str() == "publication" && record_id(row).unwrap().key == lctx_native::surrealdb::types::RecordIdKey::String(fixture.handle.publication.hex())).unwrap();
-        assert!(prepared.keep_row("publication", publication).unwrap(), "publication envelope remains separate from completed content");
-    }
-    #[test]
-    fn claimed_closure_preserves_transitive_outputs_aliases_originals_and_physical_ids() {
-        let fixture = claimed_fixture();
-        let scratch = tempfile::tempdir().unwrap();
-        let input = scratch.path().join("raw.surql");
-        write_claimed(&input, &fixture.rows);
-        let dump = Dump::decode(&input, &budget()).unwrap();
-        let prepared = PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget()).unwrap();
-        let selected = fixture.rows.iter().filter(|row| {
-            prepared.keep_row(record_id(row).unwrap().table.as_str(), row).unwrap()
-        }).cloned().collect::<Vec<_>>();
-        let definitions = &dump.definitions;
-        assert_eq!(
-            definitions,
-            &BTreeSet::from(["DEFINE FIELD canonical ON entity TYPE bytes PERMISSIONS FULL".to_owned()])
+        assert!(
+            prepared
+                .keep_row("native_pin", &Value::Object(row("native_pin", "control")))
+                .is_err()
         );
-        for row in &selected {
-            assert!(
-                fixture.rows.contains(row),
-                "compaction changed a physical row"
-            );
-        }
-        let ids = selected
+        let publication = fixture
+            .rows
             .iter()
-            .map(|row| record_id(row).unwrap().clone())
-            .collect::<BTreeSet<_>>();
-        assert!(fixture.nodes.is_subset(&ids));
-        assert!(ids.contains(&RecordId::new("compiler_membership", "other-output-member")));
-        assert!(!ids.contains(&RecordId::new("compiler_contribution", "z-equal-seed")));
-        assert!(!ids.contains(&RecordId::new("compiler_contribution", "z-equal-root")));
-        assert!(!ids.contains(&RecordId::new(
-            "compiler_membership",
-            "unrelated-owner-member"
-        )));
-        assert!(!ids.contains(&RecordId::new("entity", "unrelated")));
-        assert_eq!(
-            ids.iter()
-                .filter(|id| id.table.as_str() == "publication")
-                .count(),
-            1
+            .find(|row| {
+                record_id(row).unwrap().table.as_str() == "publication"
+                    && record_id(row).unwrap().key
+                        == lctx_native::surrealdb::types::RecordIdKey::String(
+                            fixture.handle.publication.hex(),
+                        )
+            })
+            .unwrap();
+        assert!(
+            prepared.keep_row("publication", publication).unwrap(),
+            "publication envelope remains separate from completed content"
         );
-        assert_eq!(
-            ids.iter()
-                .filter(|id| id.table.as_str() == "compiler_binding")
-                .count(),
-            1
-        );
-        assert!(ids.contains(&RecordId::new("compiler_binding", "selected-binding")));
-        assert_eq!(
-            ids.iter()
-                .filter(|id| id.table.as_str() == "original_chunk")
-                .count(),
-            1
-        );
-        assert_eq!(prepared.handle, fixture.handle);
-        assert_eq!(prepared.nodes, fixture.nodes);
     }
     #[test]
     fn claimed_closure_refuses_missing_payload_binding_original_and_selected_duplicates() {
@@ -1547,7 +2473,16 @@ mod definition_tests {
             RecordId::new("compiler_record", "extra"),
             RecordId::new("compiler_record", "alias-b"),
             RecordId::new("compiler_binding", "selected-binding"),
-            lctx_native::originals::chunk_id(&lctx_native::originals::Blob::new(ContentHash::of(b"original; bytes remain exact"),b"original; bytes remain exact".len() as u64).unwrap().id(),0).unwrap(),
+            lctx_native::originals::chunk_id(
+                &lctx_native::originals::Blob::new(
+                    ContentHash::of(b"original; bytes remain exact"),
+                    b"original; bytes remain exact".len() as u64,
+                )
+                .unwrap()
+                .id(),
+                0,
+            )
+            .unwrap(),
         ] {
             let rows = fixture
                 .rows
@@ -1562,8 +2497,13 @@ mod definition_tests {
             write_claimed(&input, &rows);
             let dump = Dump::decode(&input, &budget()).unwrap();
             assert!(
-                PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget())
-                    .is_err(),
+                PreparedClosure::prepare(
+                    &dump,
+                    Some(fixture.handle.publication),
+                    &budget(),
+                    claimed_graph(&fixture, &budget())
+                )
+                .is_err(),
                 "accepted omitted {missing:?}"
             );
         }
@@ -1585,8 +2525,13 @@ mod definition_tests {
             write_claimed(&input, &duplicate);
             let dump = Dump::decode(&input, &budget()).unwrap();
             assert!(
-                PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget())
-                    .is_err(),
+                PreparedClosure::prepare(
+                    &dump,
+                    Some(fixture.handle.publication),
+                    &budget(),
+                    claimed_graph(&fixture, &budget())
+                )
+                .is_err(),
                 "accepted duplicate {duplicate_id:?}"
             );
         }
@@ -1606,8 +2551,13 @@ mod definition_tests {
             write_claimed(&input, &rows);
             let dump = Dump::decode(&input, &budget()).unwrap();
             assert!(
-                PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget())
-                    .is_err()
+                PreparedClosure::prepare(
+                    &dump,
+                    Some(fixture.handle.publication),
+                    &budget(),
+                    claimed_graph(&fixture, &budget())
+                )
+                .is_err()
             );
         }
         for corruption in 0..4 {
@@ -1644,131 +2594,16 @@ mod definition_tests {
             write_claimed(&input, &rows);
             let dump = Dump::decode(&input, &budget()).unwrap();
             assert!(
-                PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget())
-                    .is_err(),
+                PreparedClosure::prepare(
+                    &dump,
+                    Some(fixture.handle.publication),
+                    &budget(),
+                    claimed_graph(&fixture, &budget())
+                )
+                .is_err(),
                 "accepted original corruption {corruption}"
             );
         }
-    }
-    #[test]
-    fn claimed_closure_keeps_unexpected_selected_members_aliases_and_definition_metadata() {
-        let mut fixture = claimed_fixture();
-        let mut member = row("compiler_membership", "unexpected-selected-member");
-        member.insert(
-            "contribution",
-            RecordId::new("compiler_contribution", "a-root"),
-        );
-        member.insert("node", RecordId::new("entity", "unrelated"));
-        fixture.rows.push(Value::Object(member));
-        let mut alias = row("compiler_alias", "unexpected-selected-alias");
-        alias.insert("source", RecordId::new("entity", "root"));
-        alias.insert("target", RecordId::new("entity", "unrelated"));
-        fixture.rows.push(Value::Object(alias));
-        let scratch = tempfile::tempdir().unwrap();
-        let input = scratch.path().join("raw.surql");
-        write_claimed(&input, &fixture.rows);
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(&input)
-            .unwrap();
-        writeln!(
-            file,
-            "DEFINE FIELD unrelated ON unselected TYPE string ASSERT $value != '' PERMISSIONS NONE;"
-        )
-        .unwrap();
-        drop(file);
-        let compact = Dump::decode(&input, &budget()).unwrap();
-        let prepared = PreparedClosure::prepare(&compact, Some(fixture.handle.publication), &budget()).unwrap();
-        assert_eq!(compact.definitions.len(), 2);
-        assert!(
-            compact
-                .definitions
-                .iter()
-                .any(|definition| definition.contains("unrelated ON unselected"))
-        );
-        let ids = compact
-            .rows("compiler_membership")
-            .unwrap()
-            .chain(compact.rows("compiler_alias").unwrap())
-            .map(Result::unwrap)
-            .filter(|row| prepared.keep_row(record_id(row).unwrap().table.as_str(), row).unwrap())
-            .map(|row| record_id(&row).unwrap().clone())
-            .collect::<BTreeSet<_>>();
-        assert!(ids.contains(&RecordId::new(
-            "compiler_membership",
-            "unexpected-selected-member"
-        )));
-        assert!(ids.contains(&RecordId::new(
-            "compiler_alias",
-            "unexpected-selected-alias"
-        )));
-        // Preparation preserves questionable claimed state; it does not normalize it into
-        // admission. The existing completed-state hash and cold admission still decide validity.
-    }
-    #[test]
-    fn claimed_alias_metadata_reserves_large_physical_keys_before_retaining_them() {
-        let mut fixture = claimed_fixture();
-        let mut alias = row("compiler_alias", "large-unselected-alias");
-        alias.insert("source", RecordId::new("entity", "s".repeat(512 * 1024)));
-        alias.insert("target", RecordId::new("entity", "t".repeat(512 * 1024)));
-        fixture.rows.push(Value::Object(alias));
-        let scratch = tempfile::tempdir().unwrap();
-        let input = scratch.path().join("raw.surql");
-        write_claimed(&input, &fixture.rows);
-        let budget = ResourceBudget::fixed(
-            crate::backup_import::MAX_DUMP_RECORD_BYTES * 4
-                + SPOOL_BUFFER_BYTES * (dump_tables().count() + 1)
-                + 96 * 1024,
-        )
-        .unwrap();
-        let dump = Dump::decode(&input, &budget).unwrap();
-        // Parsing buffers have been released. Apply pressure to the actual shared
-        // pool now, so this control reaches alias retention rather than relying on
-        // the historical number of spool families to leave only a small remainder.
-        let _pressure = budget.reserve("alias-retention-pressure-control",
-            budget.limit().saturating_sub(budget.reserved()).saturating_sub(96 * 1024)).unwrap();
-        let error = PreparedClosure::prepare(&dump, Some(fixture.handle.publication), &budget)
-            .err()
-            .expect("large unselected adjacency keys still require storage admission");
-        assert!(matches!(error, ModelError::Resource { .. }), "{error}");
-    }
-    #[tokio::test]
-    async fn missing_claimed_payload_refuses_before_native_connection_or_attempt() {
-        let fixture = claimed_fixture();
-        let scratch = tempfile::tempdir().unwrap();
-        let input = scratch.path().join("missing.surql");
-        let rows = fixture
-            .rows
-            .iter()
-            .filter(|row| record_id(row).unwrap() != &RecordId::new("entity", "root"))
-            .cloned()
-            .collect::<Vec<_>>();
-        write_claimed(&input, &rows);
-        let cfg = RuntimeConfig {
-            reuse: None,
-            serving_limits: None,
-            endpoint: "not-a-connectable-native-endpoint".into(),
-            username: "unused".into(),
-            password: "unused".into(),
-            viewer_username: "viewer".into(),
-            viewer_password: "unused".into(),
-            namespace: Name::new("library_context").unwrap(),
-            database: Name::new("validation").unwrap(),
-            service_generation: fixture.handle.service_generation,
-            authentication: lctx_native::AuthenticationScope::Database,
-            cache_database: Name::new("validation").unwrap(),
-            selection: scratch.path().join("unselected.json"),
-        };
-        let error = restore(&cfg, &input, Some(fixture.handle.publication), "")
-            .await
-            .unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("restore selected payload absent from dump"),
-            "{error}"
-        );
-        assert!(!cfg.selection.exists());
     }
     #[test]
     fn claimed_dump_checks_unselected_executable_tail_and_preserves_input_on_failure() {

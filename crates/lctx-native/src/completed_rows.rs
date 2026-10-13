@@ -152,6 +152,18 @@ pub fn validate_state_row(table: &str, row: &Value) -> Result<Option<OriginalBac
                             attempt,
                             descriptor.identity().expect("validated completion"),
                         );
+                        if let Some(Value::String(copy)) = object.get("transport_copy") {
+                            let Ok(bytes) = hex::decode(copy) else {
+                                return true;
+                            };
+                            let Ok(bytes) = <[u8; 32]>::try_from(bytes) else {
+                                return true;
+                            };
+                            return id.key
+                                != RecordIdKey::String(
+                                    attempt_contribution(attempt, ContentHash(bytes)).hex(),
+                                );
+                        }
                         id.key != RecordIdKey::String(producing.hex())
                             && id.key != RecordIdKey::String(detached.hex())
                     })

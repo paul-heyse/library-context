@@ -2,6 +2,9 @@
 fn snapshot_for(byte: u8) -> lctx_model::domain::serving::SnapshotHandle {
     use lctx_model::domain::serving::{DatabaseIdentity, Name, SnapshotHandle};
     let mut handle = SnapshotHandle {
+        eligibility: lctx_model::domain::completed_transport::EligibilityIdentity(
+            lctx_model::domain::ContentHash::of(b"fixture-eligibility"),
+        ),
         publication: lctx_model::domain::ContentHash([0; 32]),
         view: lctx_model::domain::ContentHash([byte; 32]),
         service_generation: lctx_model::domain::ContentHash([byte; 32]),
@@ -249,6 +252,12 @@ fn continuation_rejects_each_invalidated_boundary() {
         },
         SnapshotHandle {
             view: ContentHash::of(b"other completed views"),
+            ..original.snapshot.clone()
+        },
+        SnapshotHandle {
+            eligibility: lctx_model::domain::completed_transport::EligibilityIdentity(
+                ContentHash::of(b"other selector eligibility"),
+            ),
             ..original.snapshot.clone()
         },
         SnapshotHandle {
@@ -634,7 +643,16 @@ fn packet_mapping_and_snapshot_schema_have_current_nominal_owners() {
     assert_eq!(snapshot["additionalProperties"], false);
     assert_eq!(
         snapshot["required"],
-        json!(["publication", "semantic", "realization", "view", "service_generation", "definition_epoch", "database"])
+        json!([
+            "publication",
+            "semantic",
+            "realization",
+            "view",
+            "eligibility",
+            "service_generation",
+            "definition_epoch",
+            "database"
+        ])
     );
     let packet = operation_response(1);
     let raw = decode_response(

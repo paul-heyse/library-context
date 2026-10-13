@@ -27,6 +27,7 @@ pub mod binding_descriptor;
 pub mod completed_logical_rows;
 pub mod completed_rows;
 pub mod completed_state;
+pub mod completed_transport;
 pub mod control;
 pub mod derivation;
 pub mod installation;

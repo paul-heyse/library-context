@@ -237,11 +237,19 @@ impl AdmissionMemo {
         })
     }
 }
+/// Shared execution finality retained independently from a producer's read catalog.
+pub trait ExecutionOwner: Send + Sync {
+    fn drain_owned_report(&self) -> BoxFuture<'_, lctx_model::domain::completion::Completion>;
+    fn complete_signal<'a>(
+        &'a self,
+        completion: &'a lctx_model::domain::completion::Completion,
+    ) -> BoxFuture<'a, Result<(), ModelError>>;
+}
 /// The restored/publication owner has only exact completed bindings, a private spillable session,
 /// typed model validators, resource/cancellation ownership and the native attempt.
 pub struct AdmissionRuntime {
     _directory: Option<tempfile::TempDir>,
-    _borrowed_files: Option<Arc<dyn Send + Sync>>,
+    borrowed_execution: Option<Arc<dyn ExecutionOwner>>,
     context: SessionContext,
     options: AdmissionOptions,
     budget: ResourceBudget,
@@ -336,7 +344,7 @@ impl AdmissionRuntime {
         ));
         Ok(Arc::new(Self {
             _directory: Some(directory),
-            _borrowed_files: None,
+            borrowed_execution: None,
             bindings_charge: Mutex::new(StateCharge::new(&budget, "compiler-completed-bindings")),
             context: SessionContext::new_with_config_rt(config, runtime),
             options,
@@ -352,7 +360,7 @@ impl AdmissionRuntime {
             memo,
         }))
     }
-    /// Borrow only runtime services and a lifetime guard. No caller catalog is copied.
+    /// Borrow runtime services and their checked execution owner. No caller catalog is copied.
     pub fn borrow_runtime(
         model: Arc<ValidatedModel>,
         options: AdmissionOptions,
@@ -363,7 +371,7 @@ impl AdmissionRuntime {
         memo: Arc<AdmissionMemo>,
         config: SessionConfig,
         runtime: Arc<datafusion::execution::runtime_env::RuntimeEnv>,
-        files: Arc<dyn Send + Sync>,
+        execution: Arc<dyn ExecutionOwner>,
     ) -> Result<Arc<Self>, ModelError> {
         if options.memory_bytes != budget.limit()
             || options.memory_bytes == 0
@@ -381,7 +389,7 @@ impl AdmissionRuntime {
         let bindings_charge = Mutex::new(StateCharge::new(&budget, "compiler-completed-bindings"));
         Ok(Arc::new(Self {
             _directory: None,
-            _borrowed_files: Some(files),
+            borrowed_execution: Some(execution),
             context: SessionContext::new_with_config_rt(config, runtime),
             options,
             budget,
@@ -659,6 +667,9 @@ impl AdmissionRuntime {
     }
     /// Drain execution ownership without ending a surrounding publication's signal lifetime.
     pub async fn drain_owned_report(&self) -> lctx_model::domain::completion::Completion {
+        if let Some(execution) = &self.borrowed_execution {
+            return execution.drain_owned_report().await;
+        }
         let mut completion = lctx_model::domain::completion::Completion::default();
         completion.step("native calls drain", self.native_calls.drain().await);
         completion.step(
@@ -672,7 +683,9 @@ impl AdmissionRuntime {
         &self,
         completion: &lctx_model::domain::completion::Completion,
     ) -> Result<(), ModelError> {
-        if let Some(signal) = &self.signal {
+        if let Some(execution) = &self.borrowed_execution {
+            execution.complete_signal(completion).await
+        } else if let Some(signal) = &self.signal {
             signal.complete(completion).await
         } else {
             Ok(())

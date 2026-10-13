@@ -1232,7 +1232,7 @@ pub async fn published_completed_state(
             .saturating_mul(32)
             .saturating_add(65536),
     )?;
-    Ok(PublishedCompletedState {
+    let result = PublishedCompletedState {
         inner: std::sync::Arc::new(PublishedCompletedInner {
             completion: data,
             completion_incarnation: expected.incarnation(),
@@ -1243,7 +1243,13 @@ pub async fn published_completed_state(
             reader: reader.clone(),
             _charge: charge,
         }),
-    })
+    };
+    if crate::completed_transport::eligibility_published(&result, budget).await?
+        != reader.handle().eligibility
+    {
+        return Err(ModelError::Conflict("published exact selector eligibility"));
+    }
+    Ok(result)
 }
 
 // Semantic execution belongs to compiler storage (ADR-0151). Native completion

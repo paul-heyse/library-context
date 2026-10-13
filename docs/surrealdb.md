@@ -126,7 +126,7 @@ semantic authority. Mutable caches cannot own published consumed vector values.
 
 Ordinary publication commits an immutable manifest over admitted views and a named executable
 definition epoch. It does not seal the database or re-import its own export. Handles bind publication,
-semantic/realization identity, exact view inventory and service generation. Definitions cannot change
+semantic/realization identity, exact view inventory, selector-local eligibility and service generation. Definitions cannot change
 beneath a pin. New publication does not select it; changing selection affects new sessions only.
 Failure may retain compatible completed work. Unknown effects reconcile by durable operation ID;
 no arbitrary pending task resumes and process exit cannot authorize shared-data deletion.
@@ -135,12 +135,17 @@ no arbitrary pending task resumes and process exit cannot authorize shared-data 
 lctx store check
 lctx compile fastmcp --through catalog --runtime-config /absolute/main-runtime.json
 lctx compile fastmcp --through catalog --artifact-only --output build/admitted
-lctx publish-artifact build/admitted
+lctx publish-artifact build/admitted --expect-receipt build/admitted-receipt.json
 lctx snapshot select build/native/handle.json
 lctx snapshot show
 # Model-declared relation, scoped to the selected publication; arbitrary SQL is not exposed:
 lctx snapshot query packages --limit 5
 ```
+
+Artifact-only compilation emits a `receipt` object in its success JSON. Retain that object as
+`build/admitted-receipt.json` independently of the exported directory and supply it on later
+publication. The receiver checks actual bytes and independently earns admission; an incoming
+manifest or adjacent sidecar cannot establish its own expectation.
 
 These examples document interfaces, not authorization for real-library qualification or selection.
 Build the current native Python extension before clients run. Running clients retain their exact
@@ -174,10 +179,16 @@ coverage and declared losses. They are distinct from recovery backups.
 
 ```sh
 lctx snapshot export --projection <name> --input <32-hex-id> --context <32-hex-id> --output graph.json
-lctx snapshot backup --handle build/native/handle.json --output main.surql
-lctx snapshot restore main.surql --publication <64-hex-publication-digest>
+lctx snapshot backup --handle build/native/handle.json --output main.lctx-backup
+lctx snapshot restore main.lctx-backup --expect-receipt backup-receipt.json
 lctx snapshot retire build/native/handle.json --readers-stopped
 ```
+
+Backup success JSON likewise returns `receipt`; retain that object as `backup-receipt.json`.
+Restore requires it explicitly. The current bounded data-only carrier contains SQL integrity claims
+and separately bound completed-copy correspondence, with complete framing and EOF checks. Semantic
+v4 is unchanged; exact copy labels, local alias inventories and fresh destination ownership remain
+separate. Old raw-SQL backup framing is not accepted; regenerate current development data as needed.
 
 Logical backup retains the requested publication pin and selects its recoverable closure through
 bounded indexed reads in one external database transaction. The manifest, exact completed views,

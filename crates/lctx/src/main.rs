@@ -100,6 +100,9 @@ enum Cmd {
     /// Publish an exported trusted compiler artifact without selecting it.
     PublishArtifact {
         artifact: PathBuf,
+        /// Independently retained export receipt JSON, never inferred from the artifact.
+        #[arg(long)]
+        expect_receipt: PathBuf,
         #[arg(long, default_value_os_t = newnative::default_config())]
         runtime_config: PathBuf,
         #[arg(long, default_value_t = lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)]
@@ -148,16 +151,19 @@ enum SnapshotCommand {
     List,
     /// Stream one explicit snapshot through canonical/original and realization verification.
     Audit { handle: PathBuf },
-    /// Back up a published snapshot to a new local SQL dump, excluding credentials/history.
+    /// Back up a published snapshot to a new data-only transport, excluding credentials/history.
     Backup {
         #[arg(long)]
         output: PathBuf,
         #[arg(long)]
         handle: Option<PathBuf>,
     },
-    /// Restore a trusted current-format SQL dump into a fresh, unselected published snapshot.
+    /// Restore a receipt-bound current transport into a fresh, unselected published snapshot.
     Restore {
         input: PathBuf,
+        /// Independently retained backup receipt JSON.
+        #[arg(long)]
+        expect_receipt: PathBuf,
         /// Publication digest to recover from a multi-publication backup.
         #[arg(long,value_parser=content_hash)]
         publication: Option<lctx_model::domain::ContentHash>,
@@ -452,7 +458,12 @@ fn flow_workspace_options(
     }
 }
 
-fn flow_file(file: &Path, python: &str, platform: &str, runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
+fn flow_file(
+    file: &Path,
+    python: &str,
+    platform: &str,
+    runtime: &tokio::runtime::Runtime,
+) -> anyhow::Result<()> {
     if python != "3.14.7" || platform != "linux" {
         return Err(anyhow::anyhow!(
             "the flow probe uses the pinned 3.14.7/linux context"
@@ -803,12 +814,17 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
         }
         Cmd::PublishArtifact {
             artifact,
+            expect_receipt,
             runtime_config,
             memory_bytes,
         } => {
             let config = newnative::config(&runtime_config)?;
-            let handle =
-                runtime.block_on(newnative::publish(&artifact, &config, memory_bytes))?;
+            let handle = runtime.block_on(newnative::publish(
+                &artifact,
+                &expect_receipt,
+                &config,
+                memory_bytes,
+            ))?;
             println!("{}", serde_json::to_string_pretty(&handle)?);
             Ok(())
         }
@@ -834,15 +850,26 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                     );
                 }
                 SnapshotCommand::Backup { output, handle } => {
-                    runtime.block_on(newnative::backup(&config, handle.as_deref(), &output))?;
+                    let receipt =
+                        runtime.block_on(newnative::backup(&config, handle.as_deref(), &output))?;
                     println!(
                         "{}",
-                        serde_json::to_string_pretty(&serde_json::json!({"output":output}))?
+                        serde_json::to_string_pretty(
+                            &serde_json::json!({"output":output,"receipt":receipt})
+                        )?
                     );
                 }
-                SnapshotCommand::Restore { input, publication } => {
-                    let handle =
-                        runtime.block_on(newnative::restore(&config, &input, publication))?;
+                SnapshotCommand::Restore {
+                    input,
+                    publication,
+                    expect_receipt,
+                } => {
+                    let handle = runtime.block_on(newnative::restore(
+                        &config,
+                        &input,
+                        publication,
+                        &expect_receipt,
+                    ))?;
                     println!("{}", serde_json::to_string_pretty(&handle)?);
                 }
                 SnapshotCommand::Retire {
@@ -851,8 +878,13 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                     clear_selection,
                     job,
                 } => {
-                    let progress =
-                        runtime.block_on(newnative::retire(&config, &handle, readers_stopped, clear_selection, job))?;
+                    let progress = runtime.block_on(newnative::retire(
+                        &config,
+                        &handle,
+                        readers_stopped,
+                        clear_selection,
+                        job,
+                    ))?;
                     println!("{}", serde_json::to_string_pretty(&progress)?);
                 }
                 SnapshotCommand::Export {
@@ -924,10 +956,13 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
             command,
         } => {
             if matches!(&command, StoreCommand::Schema) {
-                println!("{}", serde_json::to_string(&serde_json::json!({
-                    "schema_version":lctx_native::control::SCHEMA_VERSION,
-                    "schema":lctx_compiler_store::compiler::base_schema_identity().hex(),
-                }))?);
+                println!(
+                    "{}",
+                    serde_json::to_string(&serde_json::json!({
+                        "schema_version":lctx_native::control::SCHEMA_VERSION,
+                        "schema":lctx_compiler_store::compiler::base_schema_identity().hex(),
+                    }))?
+                );
                 return Ok(());
             }
             let config = newnative::config(&runtime_config)?;
@@ -950,27 +985,65 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                 StoreCommand::Schema => unreachable!("metadata command returned above"),
                 StoreCommand::History { command } => {
                     let receipt = runtime.block_on(async {
-                        use lctx_model::domain::{ModelError, completion::{Completion, complete}};
+                        use lctx_model::domain::{
+                            ModelError,
+                            completion::{Completion, complete},
+                        };
                         let client = lctx_native::maintenance::maintenance_client(&config).await?;
                         let result = async {
                             match command {
                                 HistoryCommand::Qualify { evidence } => {
-                                    lctx_native::control::qualify_history_inventory(&client, evidence).await?;
+                                    lctx_native::control::qualify_history_inventory(
+                                        &client, evidence,
+                                    )
+                                    .await?;
                                     Ok(serde_json::json!({"inventory":evidence.hex()}))
                                 }
-                                HistoryCommand::Cut => serde_json::to_value(lctx_native::control::cut_era(&client).await?).map_err(ModelError::codec),
-                                HistoryCommand::Compact { limit } => serde_json::to_value(lctx_native::control::compact_history(&client, limit).await?).map_err(ModelError::codec),
-                                HistoryCommand::Resume { identity, expected_revision, limit } => serde_json::to_value(lctx_native::control::resume_history_compaction(&client, identity, expected_revision, limit).await?).map_err(ModelError::codec),
+                                HistoryCommand::Cut => serde_json::to_value(
+                                    lctx_native::control::cut_era(&client).await?,
+                                )
+                                .map_err(ModelError::codec),
+                                HistoryCommand::Compact { limit } => serde_json::to_value(
+                                    lctx_native::control::compact_history(&client, limit).await?,
+                                )
+                                .map_err(ModelError::codec),
+                                HistoryCommand::Resume {
+                                    identity,
+                                    expected_revision,
+                                    limit,
+                                } => serde_json::to_value(
+                                    lctx_native::control::resume_history_compaction(
+                                        &client,
+                                        identity,
+                                        expected_revision,
+                                        limit,
+                                    )
+                                    .await?,
+                                )
+                                .map_err(ModelError::codec),
                             }
-                        }.await;
+                        }
+                        .await;
                         let mut completion = Completion::default();
-                        completion.step("history maintenance session invalidation",client.invalidate().await.map_err(ModelError::codec));
+                        completion.step(
+                            "history maintenance session invalidation",
+                            client.invalidate().await.map_err(ModelError::codec),
+                        );
                         complete(result, completion)
                     })?;
-                    println!("{}", serde_json::to_string(&serde_json::json!({"ready":false,"receipt":receipt}))?);
+                    println!(
+                        "{}",
+                        serde_json::to_string(
+                            &serde_json::json!({"ready":false,"receipt":receipt})
+                        )?
+                    );
                     return Ok(());
                 }
-                StoreCommand::Recover { cleanup, retirement, limit } => {
+                StoreCommand::Recover {
+                    cleanup,
+                    retirement,
+                    limit,
+                } => {
                     let receipts = runtime.block_on(async {
                         use lctx_model::domain::{ModelError, completion::{Completion, complete}};
                         anyhow::ensure!(!cleanup.is_empty() || !retirement.is_empty(), "recover requires named obligations");
@@ -995,7 +1068,7 @@ fn run(runtime: &tokio::runtime::Runtime) -> anyhow::Result<()> {
                         completion.step("recovery maintenance session invalidation",client.invalidate().await.map_err(ModelError::codec));
                         Ok::<_, anyhow::Error>(complete(result,completion)?)
                     })?;
-                    println!("{}",serde_json::json!({"ready":false,"receipts":receipts}));
+                    println!("{}", serde_json::json!({"ready":false,"receipts":receipts}));
                     return Ok(());
                 }
                 StoreCommand::Drain => {
@@ -1040,21 +1113,38 @@ fn main() -> ExitCode {
     cpg_extract::logging::init_logging();
     let signal_runtime = match tokio::runtime::Runtime::new() {
         Ok(runtime) => runtime,
-        Err(error) => { eprintln!("lctx: cannot own process signals: {error}"); return ExitCode::from(1); }
+        Err(error) => {
+            eprintln!("lctx: cannot own process signals: {error}");
+            return ExitCode::from(1);
+        }
     };
-    let signal = match signal_runtime.block_on(async { lctx_native::signal::SignalRegistration::process(|| {}) }) {
+    let signal = match signal_runtime
+        .block_on(async { lctx_native::signal::SignalRegistration::process(|| {}) })
+    {
         Ok(signal) => signal,
-        Err(error) => { eprintln!("lctx: cannot own process signals: {error}"); return ExitCode::from(1); }
+        Err(error) => {
+            eprintln!("lctx: cannot own process signals: {error}");
+            return ExitCode::from(1);
+        }
     };
     // The command runs to its owned completion; a signal fences/cancels its
     // actual native/Workspace owners instead of dropping the command future.
     let result = run(&signal_runtime);
     let mut signal_completion = lctx_model::domain::completion::Completion::default();
-    signal_completion.step("CLI signal listener join", signal_runtime.block_on(signal.complete(&Default::default())));
+    signal_completion.step(
+        "CLI signal listener join",
+        signal_runtime.block_on(signal.complete(&Default::default())),
+    );
     let result = match result {
-        Ok(()) => lctx_model::domain::completion::complete(Ok(()), signal_completion).map_err(Into::into),
+        Ok(()) => {
+            lctx_model::domain::completion::complete(Ok(()), signal_completion).map_err(Into::into)
+        }
         Err(error) if signal_completion.failures.is_empty() => Err(error),
-        Err(error) => lctx_model::domain::completion::complete(Err(newnative::operation_error(error)), signal_completion).map_err(Into::into),
+        Err(error) => lctx_model::domain::completion::complete(
+            Err(newnative::operation_error(error)),
+            signal_completion,
+        )
+        .map_err(Into::into),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -1105,25 +1195,173 @@ mod tests {
 
     #[test]
     fn maintenance_upgrade_and_recovery_require_exact_identities() {
-        let identity="ab".repeat(32);
-        assert!(parse(&["store","schema"]).is_ok());
-        assert!(parse(&["store","upgrade"]).is_err());
-        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity]).is_err());
-        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity,"--execution-contract","/owned/execution.json"]).is_ok());
-        assert!(parse(&["store","upgrade","--expected-schema","wrong","--operation",&identity]).is_err());
-        assert!(parse(&["store","upgrade-contract","--expected-schema",&identity,"--operation",&identity,"--execution",&identity]).is_ok());
-        assert!(parse(&["store","upgrade-contract","--expected-schema",&identity,"--operation",&identity]).is_err());
-        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity,"--stop-after-pages","1"]).is_err());
-        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity,"--execution-contract","/owned/execution.json","--stop-after-pages","1"]).is_ok());
-        assert!(parse(&["store","upgrade","--expected-schema",&identity,"--operation",&identity,"--execution-contract","/owned/execution.json","--stop-after-pages","0"]).is_err());
-        assert!(parse(&["store","upgrade-qualify","--expected-schema",&identity,"--operation",&identity,"--execution-contract","/owned/execution.json"]).is_ok());
-        assert!(parse(&["store","upgrade-qualify","--expected-schema",&identity,"--operation",&identity]).is_err());
-        assert!(parse(&["store","history","qualify","--evidence",&identity]).is_ok());
-        assert!(parse(&["store","history","resume","--identity",&identity]).is_err());
-        assert!(parse(&["store","history","resume","--identity",&identity,"--expected-revision","0"]).is_ok());
-        assert!(parse(&["store","history","resume","--identity",&identity,"--expected-revision","-1"]).is_err());
-        assert!(parse(&["store","history","resume"]).is_err());
-        assert!(parse(&["store","recover","--cleanup",&identity,"--retirement",&identity]).is_ok());
+        let identity = "ab".repeat(32);
+        assert!(parse(&["store", "schema"]).is_ok());
+        assert!(parse(&["store", "upgrade"]).is_err());
+        assert!(
+            parse(&[
+                "store",
+                "upgrade",
+                "--expected-schema",
+                &identity,
+                "--operation",
+                &identity
+            ])
+            .is_err()
+        );
+        assert!(
+            parse(&[
+                "store",
+                "upgrade",
+                "--expected-schema",
+                &identity,
+                "--operation",
+                &identity,
+                "--execution-contract",
+                "/owned/execution.json"
+            ])
+            .is_ok()
+        );
+        assert!(
+            parse(&[
+                "store",
+                "upgrade",
+                "--expected-schema",
+                "wrong",
+                "--operation",
+                &identity
+            ])
+            .is_err()
+        );
+        assert!(
+            parse(&[
+                "store",
+                "upgrade-contract",
+                "--expected-schema",
+                &identity,
+                "--operation",
+                &identity,
+                "--execution",
+                &identity
+            ])
+            .is_ok()
+        );
+        assert!(
+            parse(&[
+                "store",
+                "upgrade-contract",
+                "--expected-schema",
+                &identity,
+                "--operation",
+                &identity
+            ])
+            .is_err()
+        );
+        assert!(
+            parse(&[
+                "store",
+                "upgrade",
+                "--expected-schema",
+                &identity,
+                "--operation",
+                &identity,
+                "--stop-after-pages",
+                "1"
+            ])
+            .is_err()
+        );
+        assert!(
+            parse(&[
+                "store",
+                "upgrade",
+                "--expected-schema",
+                &identity,
+                "--operation",
+                &identity,
+                "--execution-contract",
+                "/owned/execution.json",
+                "--stop-after-pages",
+                "1"
+            ])
+            .is_ok()
+        );
+        assert!(
+            parse(&[
+                "store",
+                "upgrade",
+                "--expected-schema",
+                &identity,
+                "--operation",
+                &identity,
+                "--execution-contract",
+                "/owned/execution.json",
+                "--stop-after-pages",
+                "0"
+            ])
+            .is_err()
+        );
+        assert!(
+            parse(&[
+                "store",
+                "upgrade-qualify",
+                "--expected-schema",
+                &identity,
+                "--operation",
+                &identity,
+                "--execution-contract",
+                "/owned/execution.json"
+            ])
+            .is_ok()
+        );
+        assert!(
+            parse(&[
+                "store",
+                "upgrade-qualify",
+                "--expected-schema",
+                &identity,
+                "--operation",
+                &identity
+            ])
+            .is_err()
+        );
+        assert!(parse(&["store", "history", "qualify", "--evidence", &identity]).is_ok());
+        assert!(parse(&["store", "history", "resume", "--identity", &identity]).is_err());
+        assert!(
+            parse(&[
+                "store",
+                "history",
+                "resume",
+                "--identity",
+                &identity,
+                "--expected-revision",
+                "0"
+            ])
+            .is_ok()
+        );
+        assert!(
+            parse(&[
+                "store",
+                "history",
+                "resume",
+                "--identity",
+                &identity,
+                "--expected-revision",
+                "-1"
+            ])
+            .is_err()
+        );
+        assert!(parse(&["store", "history", "resume"]).is_err());
+        assert!(
+            parse(&[
+                "store",
+                "recover",
+                "--cleanup",
+                &identity,
+                "--retirement",
+                &identity
+            ])
+            .is_ok()
+        );
     }
 
     #[test]
@@ -1235,8 +1473,16 @@ mod tests {
         assert!(artifact_only);
         assert_eq!(output, Some(PathBuf::from("graph")));
         assert_eq!(runtime_config, Some(PathBuf::from("native.json")));
+        assert!(parse(&["publish-artifact", "graph"]).is_err());
         assert!(matches!(
-            parse(&["publish-artifact", "graph"]).unwrap().command,
+            parse(&[
+                "publish-artifact",
+                "graph",
+                "--expect-receipt",
+                "receipt.json"
+            ])
+            .unwrap()
+            .command,
             Cmd::PublishArtifact { .. }
         ));
         assert!(matches!(
@@ -1294,7 +1540,17 @@ mod tests {
         assert!(parse(&["snapshot", "list"]).is_ok());
         assert!(parse(&["snapshot", "audit"]).is_err());
         assert!(parse(&["snapshot", "audit", "handle.json"]).is_ok());
-        assert!(parse(&["snapshot", "restore", "dump.sql"]).is_ok());
+        assert!(parse(&["snapshot", "restore", "dump.sql"]).is_err());
+        assert!(
+            parse(&[
+                "snapshot",
+                "restore",
+                "dump.sql",
+                "--expect-receipt",
+                "receipt.json"
+            ])
+            .is_ok()
+        );
         assert!(parse(&["snapshot", "retire", "handle.json"]).is_err());
         assert!(parse(&["snapshot", "retire", "handle.json", "--readers-stopped"]).is_ok());
         assert!(

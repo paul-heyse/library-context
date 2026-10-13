@@ -418,6 +418,28 @@ pub async fn attach_live_views(
     contributors: Vec<crate::control::ExpectedRecord>,
     budget: &ResourceBudget,
 ) -> Result<Vec<HeldInstalledView>, ModelError> {
+    attach_live_views_inner(client, attempt, sources, contributors, vec![], budget).await
+}
+/// Retain an original candidate copy for bookkeeping while equivalent receiver roots
+/// keep their own selectors. The original protected cap, never descriptor equality,
+/// authorizes the extra exact contributor and its existing dependency hold chain.
+pub async fn attach_live_views_retaining(
+    client: Arc<Surreal<Client>>,
+    attempt: ContentHash,
+    sources: &[Arc<HeldInstalledView>],
+    extras: Vec<(crate::control::ExpectedRecord, Arc<HeldInstalledView>)>,
+    budget: &ResourceBudget,
+) -> Result<Vec<HeldInstalledView>, ModelError> {
+    attach_live_views_inner(client, attempt, sources, vec![], extras, budget).await
+}
+async fn attach_live_views_inner(
+    client: Arc<Surreal<Client>>,
+    attempt: ContentHash,
+    sources: &[Arc<HeldInstalledView>],
+    contributors: Vec<crate::control::ExpectedRecord>,
+    extras: Vec<(crate::control::ExpectedRecord, Arc<HeldInstalledView>)>,
+    budget: &ResourceBudget,
+) -> Result<Vec<HeldInstalledView>, ModelError> {
     let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let audit = InstallationAudit::new(client.clone(), budget).await?;
     let prepared = async {
@@ -508,6 +530,50 @@ pub async fn attach_live_views(
             return Err(ModelError::Conflict(
                 "attached contributor outside selected inventory",
             ));
+        }
+        for (expected, source) in &extras {
+            source.ensure_current(&reader, budget).await?;
+            let descriptor: d::completed::CompletedContribution =
+                super::audit::descriptor(expected.row())?;
+            let logical = descriptor.identity()?;
+            if !source.completion().mappings.iter().any(|mapping| {
+                RecordId::new("compiler_contribution", mapping.physical.hex()) == *expected.record()
+                    && mapping.incarnation == expected.incarnation()
+                    && mapping.logical == logical
+            }) {
+                return Err(ModelError::Conflict(
+                    "extra candidate is outside original protected root",
+                ));
+            }
+            if let Some(actual) = selected.get(expected.record()) {
+                if actual.incarnation() != expected.incarnation() || actual.row() != expected.row()
+                {
+                    return Err(ModelError::Conflict(
+                        "extra candidate exact selected collision",
+                    ));
+                }
+            } else {
+                inventory_charge.grow(
+                    crate::loader::native_bytes(expected.row())
+                        .saturating_mul(32)
+                        .saturating_add(2048),
+                )?;
+                let actual = crate::control::inspect_expected_read(
+                    &reader,
+                    expected.record().clone(),
+                    budget,
+                )
+                .await?
+                .ok_or(ModelError::Conflict("extra candidate exact record missing"))?;
+                if actual.incarnation() != expected.incarnation() || actual.row() != expected.row()
+                {
+                    return Err(ModelError::Conflict("extra candidate exact record changed"));
+                }
+                selected.insert(expected.record().clone(), actual);
+            }
+        }
+        for (_, source) in &extras {
+            source.ensure_current(&reader, budget).await?;
         }
         for source in sources {
             source.ensure_current(&reader, budget).await?;

@@ -95,13 +95,20 @@ message size. The pinned native encoder bounds the full lowered payload and inte
 remote intent; workspace reservations retain their separate lifetime and interpretation.
 The [Catalog execution coordinator](../../plans/catalog-execution-plan_2026-10-12.md) owns the full
 consumer cutover and narrow functional acceptance. Internal capabilities now share operation-owned
-contributor preparation. Installation schema7 and physical completion v2 replace per-view member
+contributor preparation. Physical completion v2 replaces per-view member
 copies/seals with exact compound contributor/selector inventories; semantic transport format4 and
 flat v4 identity remain unchanged. No old-format reader is retained. Export independently checks
 prepared actual family identity against the frozen boundary before encoding portable output.
-Nonempty portable-alias import currently refuses: the v4 union does not bind contributor-local
-alias incidence, so source reachability cannot reconstruct selector eligibility. Independently bound
-carrier/identity design and selected logical-backup migration remain open at the coordinator.
+**Accepted target / implementation in progress, 2026-10-13 (ADR-0166).** Semantic v4 stays unchanged.
+Portable transport binds complete root-qualified selector/copy correspondence and explicit local
+membership/alias inventories in a separate capture envelope. Independently supplied export/backup
+receipts bind incoming bytes; fresh destinations independently earn native and semantic admission.
+SnapshotHandle/publication v3 additionally bind canonical selector eligibility, excluding physical
+addresses and incidental sharing. Equal-content/different-eligibility publications coexist; equivalent
+fresh copies may converge only after independently protected comparison. Same-root retained collisions
+are checked before effects under coherent local ownership; distinct roots keep their own dependency
+mappings. Installation schema8 supports distinct detached copies of one logical descriptor. Changed
+codecs have no legacy reader. The coordinator owns implementation and focused acceptance.
 Same-request retained-product replay validates and reuses its original boundary after unrelated
 source incidence changes. Current acceptance receipts and remaining scope live in the coordinator.
 
@@ -145,7 +152,7 @@ Remove transition-only converters and frozen historical fixtures after cutover. 
 need minimal revealing functional cases, not historical campaigns or performance benchmarks.
 The efficiency coordinator owns migration/regeneration dispositions and current acceptance.
 
-> Decision: ADR-0151, ADR-0161, ADR-0165
+> Decision: ADR-0151, ADR-0161, ADR-0165, ADR-0166
 
 Immutable payload identity includes model/codec, relation, nominal key and full content digest.
 Hash hits compare canonical bytes. Nominal anchors contain identity without view existence.
@@ -300,7 +307,7 @@ stopped-run cleanup uncertainty; host process cleanup does not establish native 
 Logical content backups reference separately protected cold-service recovery
 assets; recovery metadata is not authority to restore live clients or execute imported commands.
 
-> Decision: ADR-0145, ADR-0088, ADR-0126, ADR-0165
+> Decision: ADR-0145, ADR-0088, ADR-0126, ADR-0165, ADR-0166
 
 ### §6.2 Readers
 
@@ -322,7 +329,7 @@ member copies, seals and legacy readers are removed. Whole-inventory attachment 
 inputs before one exact receiving CAS. Selector-qualified alias edges prevent union-wide witness
 leakage. Runtime completion remains subject to the coordinator’s focused acceptance.
 
-> Decision: ADR-0152, ADR-0165
+> Decision: ADR-0152, ADR-0165, ADR-0166
 
 **Accepted campaign recovery target / implementation in progress, 2026-10-11.** An explicit
 joint named-attachment recovery retains original Unknown/not_observed receipts and composes checked server execution
