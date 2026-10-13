@@ -14,7 +14,7 @@ use lctx_model::domain::{
     recovery_closure::{RecoveryClosure, RecoveryTraversal},
     resources::ResourceBudget,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use surrealdb::types::{RecordId, Value, Variables};
 #[cfg(test)]
 tokio::task_local! { static LATE_MEMBERSHIP_FAILURE:bool; }
@@ -3137,11 +3137,36 @@ async fn prepare_local_aliases(
     )>,
     ModelError,
 > {
+    let mut window = crate::loader::NATIVE_WINDOW_ROWS;
+    loop {
+        match prepare_local_aliases_window(reader, expected, budget, audit, include_seeds, window)
+            .await
+        {
+            // Every attempt is effect-free and owns its provisional sorters. Only a
+            // terminal local capacity refusal permits replay of the same exact source.
+            Err(error) if window > 1 && terminal_local_resource(&error) => {
+                window = (window / 2).max(1);
+            }
+            result => return result,
+        }
+    }
+}
+async fn prepare_local_aliases_window(
+    reader: &NativeReader<()>,
+    expected: &ExpectedRecord,
+    budget: &ResourceBudget,
+    audit: &InstallationAudit,
+    include_seeds: bool,
+    window: usize,
+) -> Result<
+    Option<(
+        crate::ordered_rows::PreparedRows,
+        crate::ordered_rows::PreparedRows,
+    )>,
+    ModelError,
+> {
     use crate::ordered_rows::SortedRows;
-    use d::{
-        KeySink,
-        completion::{Completion, complete},
-    };
+    use d::completion::{Completion, complete};
     let owner = expected.record().clone();
     if audit.local_aliases.contains_key(&owner) {
         return Ok(None);
@@ -3177,73 +3202,24 @@ async fn prepare_local_aliases(
         ],
     )?)?;
     let result = async {
-        while let Some(pointer) = holds.next().await? {
-            let Some(Value::RecordId(id)) = pointer.as_object().and_then(|row| row.get("id"))
-            else {
-                return Err(ModelError::Schema("installed held alias pointer"));
-            };
-            if id.table.as_str() != "compiler_alias" {
-                continue;
+        loop {
+            let mut charge = StateCharge::new(budget, "installed held alias window IDs");
+            charge.grow(window.saturating_mul(std::mem::size_of::<RecordId>()))?;
+            let mut ids = BTreeSet::new();
+            while ids.len() < window {
+                let Some(pointer) = holds.next().await? else { break };
+                let Some(Value::RecordId(id)) = pointer.as_object().and_then(|row| row.get("id"))
+                else {
+                    return Err(ModelError::Schema("installed held alias pointer"));
+                };
+                if id.table.as_str() == "compiler_alias" && !ids.contains(id) {
+                    charge.grow(crate::selection::node_bytes(id).saturating_add(256))?;
+                    ids.insert(id.clone());
+                }
             }
-            let expected = crate::control::inspect_expected_read(reader, id.clone(), budget)
-                .await?
-                .ok_or(ModelError::Conflict("installed held alias missing"))?;
-            let object = expected
-                .row()
-                .as_object()
-                .ok_or(ModelError::Schema("installed alias object"))?;
-            let Some(Value::RecordId(source)) = object.get("source") else {
-                return Err(ModelError::Schema("installed alias source"));
-            };
-            let Some(Value::RecordId(target)) = object.get("target") else {
-                return Err(ModelError::Schema("installed alias target"));
-            };
-            if source.table.as_str() != "entity" || target.table.as_str() != "entity" {
-                return Err(ModelError::Conflict("installed alias entity family"));
-            }
-            let mut sink = KeySink::new("native-place-alias/v1");
-            sink.part(
-                b"source",
-                &serde_json::to_vec(source).map_err(ModelError::codec)?,
-            );
-            sink.part(
-                b"target",
-                &serde_json::to_vec(target).map_err(ModelError::codec)?,
-            );
-            let mut canonical = surrealdb::types::Object::new();
-            canonical.insert("id", RecordId::new("compiler_alias", sink.finish().hex()));
-            canonical.insert("source", source.clone());
-            canonical.insert("target", target.clone());
-            if expected.row() != &Value::Object(canonical) {
-                return Err(ModelError::Conflict("installed exact alias envelope"));
-            }
-            crate::completed_state::require_hold(reader, &id, source).await?;
-            let backing = crate::control::inspect_expected_read(reader, target.clone(), budget)
-                .await?
-                .ok_or(ModelError::Conflict("installed alias target missing"))?;
-            crate::completed_state::require_hold(reader, &owner, target).await?;
-            let (endpoints, original, _decode) =
-                canonical_backing_endpoints(backing.row(), budget)?;
-            if original.is_some() {
-                return Err(ModelError::Conflict(
-                    "installed entity alias has original metadata",
-                ));
-            }
-            for window in endpoints.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
-                let expected = window
-                    .iter()
-                    .map(|row| {
-                        let Some(Value::RecordId(id)) =
-                            row.as_object().and_then(|row| row.get("id"))
-                        else {
-                            return Err(ModelError::Schema("installed alias endpoint identity"));
-                        };
-                        Ok((id.clone(), row.clone()))
-                    })
-                    .collect::<Result<BTreeMap<_, _>, ModelError>>()?;
-                audit_endpoint_window(reader, &owner, &expected, budget).await?;
-            }
-            aliases.push(expected.row().clone())?;
+            if ids.is_empty() { break }
+            let ids = ids.into_iter().collect::<Vec<_>>();
+            audit_local_alias_window(reader, &owner, &ids, budget, &mut aliases).await?;
         }
         Ok::<_, ModelError>(())
     }
@@ -3279,6 +3255,111 @@ async fn prepare_local_aliases(
         .saturating_add(1024),
     )?;
     Ok(Some((seeds, aliases)))
+}
+
+struct AliasWindowRequests {
+    targets: BTreeSet<RecordId>,
+    holds: BTreeSet<(RecordId, RecordId)>,
+    charge: StateCharge,
+}
+impl AliasWindowRequests {
+    fn new(budget: &ResourceBudget) -> Self {
+        Self {
+            targets: BTreeSet::new(),
+            holds: BTreeSet::new(),
+            charge: StateCharge::new(budget, "installed alias target and incidence identities"),
+        }
+    }
+    fn hold(&mut self, owner: &RecordId, object: &RecordId) -> Result<(), ModelError> {
+        if !self.holds.contains(&(owner.clone(), object.clone())) {
+            self.charge.grow(crate::selection::node_bytes(owner)
+                .saturating_add(crate::selection::node_bytes(object))
+                .saturating_add(512))?;
+            self.holds.insert((owner.clone(), object.clone()));
+        }
+        Ok(())
+    }
+    fn observe(&mut self, row: &Value, owner: &RecordId) -> Result<(), ModelError> {
+        use d::KeySink;
+        let object = row.as_object().ok_or(ModelError::Schema("installed alias object"))?;
+        let Some(Value::RecordId(id)) = object.get("id") else {
+            return Err(ModelError::Schema("installed alias identity"));
+        };
+        let Some(Value::RecordId(source)) = object.get("source") else {
+            return Err(ModelError::Schema("installed alias source"));
+        };
+        let Some(Value::RecordId(target)) = object.get("target") else {
+            return Err(ModelError::Schema("installed alias target"));
+        };
+        if source.table.as_str() != "entity" || target.table.as_str() != "entity" {
+            return Err(ModelError::Conflict("installed alias entity family"));
+        }
+        let mut sink = KeySink::new("native-place-alias/v1");
+        sink.part(b"source", &serde_json::to_vec(source).map_err(ModelError::codec)?);
+        sink.part(b"target", &serde_json::to_vec(target).map_err(ModelError::codec)?);
+        let mut canonical = surrealdb::types::Object::new();
+        canonical.insert("id", RecordId::new("compiler_alias", sink.finish().hex()));
+        canonical.insert("source", source.clone());
+        canonical.insert("target", target.clone());
+        if row != &Value::Object(canonical) {
+            return Err(ModelError::Conflict("installed exact alias envelope"));
+        }
+        if !self.targets.contains(target) {
+            self.charge.grow(crate::selection::node_bytes(target).saturating_add(256))?;
+            self.targets.insert(target.clone());
+        }
+        self.hold(id, source)?;
+        self.hold(owner, target)
+    }
+}
+
+async fn audit_local_alias_window(
+    reader: &NativeReader<()>,
+    owner: &RecordId,
+    ids: &[RecordId],
+    budget: &ResourceBudget,
+    aliases: &mut crate::ordered_rows::SortedRows,
+) -> Result<(), ModelError> {
+    let mut actual = crate::control::inspect_expected_window_read(reader, ids, budget).await?;
+    let mut requests = AliasWindowRequests::new(budget);
+    for id in ids {
+        let expected = actual.take_required(id)?;
+        requests.observe(expected.row(), owner)?;
+        let (row, arena) = expected.into_owned_row();
+        aliases.push_owned(row, arena)?;
+    }
+    actual.finish()?;
+    // Each target and heterogeneous incidence is observed once per bounded alias page.
+    // Keep the request charge through both point sets and endpoint validation.
+    requests.charge.grow(requests.targets.len().saturating_mul(std::mem::size_of::<RecordId>())
+        .saturating_add(requests.holds.len().saturating_mul(std::mem::size_of::<(RecordId, RecordId)>())) )?;
+    let targets = requests.targets.into_iter().collect::<Vec<_>>();
+    let holds = requests.holds.into_iter().collect::<Vec<_>>();
+    let mut backing = crate::control::inspect_expected_window_read(reader, &targets, budget).await?;
+    for window in holds.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
+        let mut actual = crate::control::inspect_hold_window_read(reader, window, budget).await?;
+        for (owner, object) in window {
+            actual.take_required(owner, object)?;
+        }
+        actual.finish()?;
+    }
+    for target in &targets {
+        let expected = backing.take_required(target)?;
+        let (endpoints, original, _decode) = canonical_backing_endpoints(expected.row(), budget)?;
+        if original.is_some() {
+            return Err(ModelError::Conflict("installed entity alias has original metadata"));
+        }
+        for window in endpoints.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
+            let expected = window.iter().map(|row| {
+                let Some(Value::RecordId(id)) = row.as_object().and_then(|row| row.get("id")) else {
+                    return Err(ModelError::Schema("installed alias endpoint identity"));
+                };
+                Ok((id.clone(), row.clone()))
+            }).collect::<Result<BTreeMap<_, _>, ModelError>>()?;
+            audit_endpoint_window(reader, owner, &expected, budget).await?;
+        }
+    }
+    backing.finish()
 }
 fn audit_alias_reachability(
     seeds: crate::ordered_rows::PreparedRows,
@@ -4287,6 +4368,62 @@ mod shared_preparation_controls {
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     };
+    fn exact_alias(source: &RecordId, target: &RecordId) -> Value {
+        let mut sink = d::KeySink::new("native-place-alias/v1");
+        sink.part(b"source", &serde_json::to_vec(source).unwrap());
+        sink.part(b"target", &serde_json::to_vec(target).unwrap());
+        let mut object = surrealdb::types::Object::new();
+        object.insert("id", RecordId::new("compiler_alias", sink.finish().hex()));
+        object.insert("source", source.clone());
+        object.insert("target", target.clone());
+        Value::Object(object)
+    }
+    #[test]
+    fn alias_window_requests_deduplicate_targets_and_keep_exact_heterogeneous_holds() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let owner = RecordId::new("compiler_contribution", "owner");
+        let source = RecordId::new("entity", "source");
+        let other = RecordId::new("entity", "other");
+        let target = RecordId::new("entity", "target");
+        let alias = exact_alias(&source, &target);
+        let second = exact_alias(&other, &target);
+        let mut requests = AliasWindowRequests::new(&budget);
+        requests.observe(&alias, &owner).unwrap();
+        let retained = budget.reserved();
+        requests.observe(&alias, &owner).unwrap();
+        assert_eq!(budget.reserved(), retained);
+        requests.observe(&second, &owner).unwrap();
+        assert_eq!(requests.targets, BTreeSet::from([target.clone()]));
+        let id = |row: &Value| match row.as_object().unwrap().get("id").unwrap() {
+            Value::RecordId(id) => id.clone(),
+            _ => panic!("alias ID"),
+        };
+        assert_eq!(requests.holds, BTreeSet::from([
+            (id(&alias), source), (id(&second), other), (owner, target),
+        ]));
+        drop(requests);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn alias_window_requests_refuse_foreign_endpoints_and_noncanonical_envelopes() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let owner = RecordId::new("compiler_contribution", "owner");
+        let source = RecordId::new("entity", "source");
+        let target = RecordId::new("entity", "target");
+        let mut requests = AliasWindowRequests::new(&budget);
+        assert!(matches!(requests.observe(
+            &exact_alias(&RecordId::new("compiler_record", "foreign"), &target), &owner),
+            Err(ModelError::Conflict("installed alias entity family"))));
+        let mut forged = exact_alias(&source, &target);
+        if let Value::Object(object) = &mut forged {
+            object.insert("id", RecordId::new("compiler_alias", "wrong"));
+        }
+        assert!(matches!(requests.observe(&forged, &owner),
+            Err(ModelError::Conflict("installed exact alias envelope"))));
+        assert!(requests.targets.is_empty());
+        assert!(requests.holds.is_empty());
+        assert_eq!(budget.reserved(), 0);
+    }
     #[test]
     fn backing_window_resource_retry_never_erases_completion_or_context() {
         let resource = || ModelError::Resource {
