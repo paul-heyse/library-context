@@ -346,8 +346,8 @@ parent completion checks remain independent. This changes repeated preparation, 
 canonical endpoints as well as selected backing nodes. Import uses the same charged full canonical
 backing reconstruction as native assurance, exact requested ID/EOF reconciliation and bounded
 immutable endpoint installation; its stream and private reader close explicitly. It cannot inherit
-source-installation edges. Nonempty portable aliases currently refuse because their independently
-expected union identity cannot bind contributor incidence; coordinator §6 owns that open design gap.
+source-installation edges. Portable alias ingress uses the independently expected codec1 copy envelope (ADR-0166),
+with fresh schema8 destination owners and actual installed admission; coordinator §6 owns acceptance.
 
 **Same-operation source borrowing (Implemented, acceptance pending, 2026-10-13).** A registry-owned
 opaque internal selector retains a real source pin over its already audited immutable completed rows

@@ -105,8 +105,9 @@ installed-definition controls in the same package. No second semantic schema or 
 authority is introduced. A transformation gap must be explicit; a narrow native application of the
 same generated asset on the same owned target is preferable to silently dropping definitions.
 
-**CP04 source integration, 2026-10-13.** The native installer and host readiness now require
-schema7. Generated completion definitions target the v2 compound contributor/selector inventories;
+**CP04/CU03 source integration, 2026-10-13.** The native installer and host readiness now require
+schema8. The detached-copy discriminator preserves multiple copies of one completed logical
+descriptor. Generated completion definitions target the v2 compound contributor/selector inventories;
 compiler definitions add `contribution_nodes` alongside `contribution_rows`. Fixed index inspection
 and the declarative sample query canonical contribution membership rather than removed per-view
 member tables. Exact generation and owned-target readback outcomes belong to coordinator §6; a
@@ -210,3 +211,9 @@ All required adaptations complete before CE01's scoped integrated acceptance. CE
 actual selected project state under real drainage; CE03 then reconciles older plans. A platform
 non-adoption closes only its fit decision, never a mandatory finding or required functional assertion.
 No progress ledger or new evidence registry belongs in this companion.
+
+At operator closeout2026-10-13, schema8 host controls and checked owned campaign disposals retain
+their exact outcomes in coordinator §6. Owned g's failed diagnostic left ordinary maintenance
+closed; reviewed server-recipe and predecessor-child proof requirements still apply. Its protected
+service/attachment obligation is not settled by other targets' successful disposals. No shared or
+operator target was changed, and no source-recipe or maintenance-owner guard was weakened.

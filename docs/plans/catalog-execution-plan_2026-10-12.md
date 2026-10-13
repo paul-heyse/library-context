@@ -235,13 +235,17 @@ bans. No required finding is closed by a conditional avenue's justified rejectio
 
 ## 6. Sole disposition and execution checkpoint
 
-**2026-10-13: CP00–CP04 substantially source-integrated; runtime and cold-alias gaps remain open.** Work is
-on shared main over `f9828825`; no auxiliary worktree was created. The completion companion records
-schema7/physical v2, direct canonical membership, operation-owned contribution preparations and
-per-selector alias eligibility. Semantic format4/v4 identity stays unchanged. CU01/CU03 physical
-codec/export seams and affected OP01/OP02 diagnostics/generated assets migrate with this source.
-This does not close full CU01/CU02/CU04, CE02 selected-state regeneration, CE03 older-track
-reconciliation or whole-plan acceptance. Shared/operator and old paused targets remain untouched.
+**2026-10-13: operator-requested closeout. CU01–CU04 and overlapping CP04 equivalence are
+source-integrated; focused acceptance is partial.** Work is on shared main over `e98bc2e5`;
+no auxiliary worktree was created. Source integration is not whole-package or CE01 acceptance.
+[ADR-0166](../adr/0166-exact-completed-transport-and-selector-eligibility.md) accepts the operator's
+separate exact-copy carrier and conservative selector eligibility. Semantic format4/v4 stays unchanged;
+SnapshotHandle/publication v3 binds typed eligibility, and schema8 distinguishes fresh imported copies.
+Required caller-retained artifact/backup receipts replace inferred incoming expectations. CU01's demanded
+dump preparation, CU02's exact input-port positions, CU03's direct identity/frozen export and CU04's
+immutable eager recipe response are implemented. CE01's generated-analysis composition, CE02 selected
+current-state regeneration, CE03 older-track reconciliation and whole-plan acceptance remain distinct.
+Shared/operator and old paused targets remain untouched.
 
 Independent implementation review found selector-crossing alias witnesses, partially committed
 receiving attachment, and abandoned retained-boundary pin release. Corrections are source-reviewed:
@@ -256,13 +260,13 @@ asserted timeout cause.
 | Source-qualified finding | Current disposition and responsible route | Closure/evidence boundary |
 |---|---|---|
 | catalog#F01 | Implemented/source-reviewed; focused acceptance pending; CP01/CP02/CP04 | Internal views stop full reconstruction; exact final union independently checked; actual CE01 journey |
-| catalog#F02 | Internal source route reviewed; native reuse/attachment equivalence, portable-alias incidence and acceptance open; CP00/CP04 | Earned protected internal selection, complete retained/cold/physical-consumer migration and removed needless lifecycles |
+| catalog#F02 | Native reuse/retained collision and exact portable incidence implemented/source-reviewed; focused acceptance in progress; CP00/CP04/CU03 | Protected independent eligibility, root-qualified copy closure, fresh receiving authority and complete cold/physical consumers; enclosing CE01 remains separate |
 | catalog#F03 | Implemented bounded windows; full inventory-demand source-reviewed/actual controls pending; CP03/CP04 | Actual bounded set windows for remaining demand, exact correspondence and receiving CAS/finality |
 | catalog#F04 | Directed selection implemented; 25 pure controls passed2026-10-13; cross-boundary equivalence and enclosing native acceptance open; CP03/CP04 | Prepared directed frontier, composed exact aliases, unreachable-source refusal, spill and safe reuse |
-| catalog#F05 | Open; CU01 | Former deferral trigger activated by combined planning; selected dump preparation and independent restoration |
-| catalog#F06 | Open; CU02 | Former deferral trigger activated; exact input-port partition positions and independent checker topology |
-| catalog#F07 | Direct identity/frozen export implemented in CP04; independent transport acceptance pending; CU03 | Former deferral trigger activated; direct logical fold, frozen export once, actual independent destination admission |
-| catalog#F08 | Open, low priority; CU04 | Former deferral trigger activated; immutable checked Spec, one Rust response, pure adapter parity; required before CE03 |
+| catalog#F05 | Implemented/source-reviewed; backup reached; cold restoration open at closeout; CU01 | Demanded typed metadata, one combined original/payload pass, complete EOF/conflict checks, independently supplied receipt and fresh restoration |
+| catalog#F06 | Closed at source/focused-Tested strength2026-10-13; CU02 | Exact input-port position/gather controls passed, duplicate physical rows and source order preserved, independent compact/spill checker topology unchanged |
+| catalog#F07 | Implemented/source-reviewed; focused transport bodies passed, enclosing acceptance partial; CU03 | Direct unchanged v4 fold, opaque frozen/published preparation once, root-qualified exact copies and receiving semantic/eligibility admission |
+| catalog#F08 | Closed at source/focused-Tested strength2026-10-13; CU04 | Factory-checked recursively immutable Spec, one eager versioned Rust response; all11 pure adapter controls passed after native extension refresh |
 | lifecycle#F01 | Open, implementation/source evidence available; CP04/CE01 | Populated generated-analysis/admitted-publication/native-query assertions remain not_run |
 | lifecycle#F02 | Closed at source/focused-Tested strength, inherited 2026-10-12; CP03 preserves it | Existing actual originals/audit, exact-view and late-terminal controls; not proof all catalog#F03 scalar sites migrated |
 | lifecycle#F03 | Partial, protected batch preparation source-accepted and cold-batch Tested; CP02/CP04 | Existing scoped reuse survives; catalog#F01/F02 and enclosing functional acceptance remain open |
@@ -274,7 +278,7 @@ asserted timeout cause.
 | foundations-follow-up#IF06 | Closed at inherited source/focused-control strength; OP01 | Borrowed server observation authenticates original executable owner; no new release authority |
 | foundations-follow-up#IF08 | Closed at inherited source/focused-control strength; OP02 | Durable token journal, authenticated restoration and actual beta SIGTERM recovery; disposal separate |
 | foundations-follow-up#IF09 | Closed at inherited source/focused-control/checked-disposal strength; OP02 | Bounded journaled logical children and authenticated whole-executor discard; original failed outcomes preserved |
-| completion#IF10 | Native target source-integrated; cold-alias gap and focused acceptance open through catalog#F01/F02/F03 | Reusable canonical ordered runs, exact final logical union and independently necessary physical boundaries; actual current-source composition remains required |
+| completion#IF10 | Native target and exact cold-alias incidence source-integrated; focused acceptance in progress through catalog#F01/F02/F03 | Reusable canonical ordered runs, exact final logical union and independently necessary physical boundaries; actual current-source composition remains required |
 
 Follow-up evidence owners are the
 [foundation review](../design_review/reviews/design_review_surrealdb-lifecycle-foundations-integrated_2026-10-12.md)
@@ -284,7 +288,207 @@ IF07/IF09 follow-ups. The completion review refines IF05/IF07 and introduces IF1
 preserve that provenance without inventing additional review findings. CP00's new decision does not
 erase the original limited acceptance.
 
-### Current CP00–CP04 receipts, 2026-10-13
+### CU01–CU04 execution, 2026-10-13
+
+Baseline `e98bc2e5` was clean; all changes in this slice are on shared main. No worktree, dependency
+move, operator selection, external embedding, MCP-submitted query or benchmark campaign is part of
+this execution. The accepted envelope/eligibility decision has no legacy-reader/data preservation
+obligation; CE02 still owns actual selected-state regeneration. The current source review accepts
+native eligibility before reuse/convergence, root-local retained collision serialization, exact
+copy/alias reconstruction, independently supplied receipts and checked exporter finality. It also
+accepted the final public observation-window call and physical-row sorter correction. This is
+Interface-checked evidence, not an enclosing runtime pass.
+
+- **Passed** guard-free `just ready`, `20261013T172759.801Z-356d02`; then CU04
+  `uv run --no-sync pytest python/lctx_mcp/tests/test_embedder.py -q` under run-owned `--basetemp`,
+  `20261013T173232.444Z-4710d2`, all11 passed/local cleanup confirmed. Rust owns the unchanged hashes;
+  no external encoder or MCP request ran.
+- **Passed** affected host schema/installer selection, `20261013T170432.951Z-58766c`,
+  `uv run --no-sync pytest tests/scripts/test_surrealdb_service.py -q -k
+  'current_installer_schema or installer_handoff or installer_generation'` under run-owned
+  `--basetemp`, all24 passed/local cleanup confirmed. Initial host setup used another user's
+  `/tmp/pytest-of-paul` and failed before bodies; the run-owned destination repaired that prerequisite
+  without changing another owner's directory.
+- **Passed** current CLI/serving/cpg test-target compile,
+  `20261013T175509.346Z-973db5`, `cargo check --locked --release -p lctx -p lctx-serving -p cpg-core
+  --tests`, local cleanup confirmed. Subsequent sorter/fixture changes are covered by their explicit
+  native rerun; no claim of whole-workspace compilation follows.
+- **Partial** focused pure Rust `20261013T173232.621Z-a58152`:46 passed/2 failed. The passes include
+  independently specified transport/eligibility distinctions, streamed JSON framing parity, both CU02
+  gather/topology cases, compact maximum Bytes framing, oversize refusal, demanded original/spill/
+  late-error and backup-carrier controls. Failures were stale SnapshotHandle required-field and frame
+  fixture expectations; both corrected bodies passed in `20261013T174828.943Z-f17a04`.
+- **Partial** `f17a04`:5/7 bodies passed, including distinct-root equal-descriptor fresh copies,
+  retained same-root equal/unequal eligibility, small cross-pool transport and the two pure corrections.
+  The alias-chain fixture mutated completed incidence, and maximum import's family sorter incorrectly
+  used the narrow1MiB default. Fixture setup and the existing64MiB physical-row profile are corrected;
+  no row, workspace or timeout limit was raised. Its enclosing fixture failed/native cleanup remained
+  Unknown. Exact owned campaign a (`83262d69-adb2-4286-acb3-391c752a94b5`) checked-disposal
+  `20261013T175441.904Z-c53c12` passed executor/datastore/attachment/installer/unit/storage/credential
+  removal; logical drain independently failed. Original failed/Unknown outcomes are unchanged.
+- Schema generator `20261013T170702.102Z-d2aa4c` **passed**. Owned schema8 installs
+  `20261013T172759.626Z-071b67` and `20261013T175509.590Z-a87e22` **passed**. Campaign b is
+  `e9a7b4ea-1431-48bb-a832-5e16eefb8ff9`, using `catalog-cu-20261013-b/installation.json`; its
+  subsequent checked disposal is recorded below.
+
+- **Passed** CLI receipt/parser controls `20261013T180310.881Z-98edbd`,
+  `cargo nextest run --locked --release -p lctx --bin lctx -E
+  'test(native_commands_keep_artifact_and_selection_boundaries_explicit) |
+  test(each_command_takes_its_own_options)'`,2/2/local cleanup confirmed.
+- **Partial/failed** native/backup `20261013T175908.710Z-aa28ee`,6 cases: maximum full transport
+  decoder and actual maximum fresh import passed their bodies; alias-chain and cold-binding fixtures
+  failed. The first requires independently reachable dependency seeds as well as the composed root;
+  the corrected fixture adds its typed EntityRef output before completion, retaining cross-copy
+  chain/order/absence assertions. The second expected the removed decoder's diagnostic; current
+  Serde rejects the obsolete outer tag before later malformed bytes and native effects. Both are
+  corrected. Two existing Normalized backup journeys timed out before backup assertions; logs reached
+  artifact admission, not independent restoration. Neither is a passed CU01/CE01 case. Enclosing
+  fixture failed/native Unknown, attachment `0e9fe09a-f75c-41ef-990c-797ae18b95ae`.
+- **Partial/failed** composition `20261013T175908.991Z-69c2a4`: facts availability/refusal body
+  passed; existing detached Normalized artifact and Catalog journeys timed out. Catalog completed
+  normalization/configuration and entered `analysis_native_inventory`; cancellation then reported
+  `native transaction retry cancelled`. Generated analysis, admission, publication and linked-query
+  assertions remain unproven. This is a phase boundary, not an elapsed-time attribution or design
+  speed verdict. Enclosing fixture failed/native Unknown, attachment
+  `a94530b7-97be-484a-9e35-0fae8e60d1ed`; host workers drained/local cleanup confirmed.
+- **Passed** checked whole-target disposal `20261013T181257.608Z-6e30d8` for campaign b, including
+  executor/datastore/attachment/installer/unit/storage/credentials; logical validation drain failed
+  independently. Original failed/Unknown receipts remain unchanged. Owned schema8 campaign c
+  `e267f0b6-1792-4249-9180-a2da0ca6b9b4` installation `20261013T181326.182Z-b006a1` **passed**.
+  Its narrowed controls use actual Facts compilation/admission for artifact/backup contracts, exact
+  originals, source retirement and concurrent fresh restore; original Normalized/Catalog outcomes
+  stay separate. The alias fixture initially failed compile on ambiguous EntityRef::encode
+  (`20261013T181448.173Z-11360a`); explicit Record::encode corrects that test-only call.
+
+- **Partial/failed** narrowed c `20261013T182430.029Z-6db885`,7 cases:5 bodies passed (maximum
+  decode/import, distinct-root copies, reversed local alias chain with exact absence and cold binding
+  admission). Facts artifact and backup cases exposed real lifecycle/selection defects: the artifact
+  outlived Workspace but lost its original cancellation owners; publication supplied binding-key
+  order to a reader requiring a sorted unique selector set. Both diagnoses were source-reviewed.
+  Enclosing fixture failed/native Unknown, attachment `7abe9ac2-87fc-4b4d-84c6-98a0d40278d4`.
+  Separate retained collision `20261013T182711.755Z-d6ac39` **passed**1 body plus enclosing fixture,
+  normal release selection. Checked campaign c disposal `20261013T182859.683Z-1649e2` **passed**;
+  logical drain independently failed. Corrected test-target build `20261013T182002.394Z-31b139`
+  **passed**, following the test-only EntityRef encode correction.
+- **Partial/failed** narrowed d `20261013T183404.821Z-269b5e`,9 cases:8 bodies passed, including
+  actual Facts artifact export/independent admission, exact originals, wrong-receipt/tamper refusal,
+  retained collision and all previous primitives. Backup stopped before backup at publication
+  inventory construction: published preparation incorrectly closed a borrowed transport view of
+  the parent reader/pin. It now drains only its own operations and leaves shared closure to the
+  enclosing owner; unconfirmed results retain the parent's Unknown. Independent review accepted
+  that correction. The tuple-only runtime retention in this revision prevented cancellation but
+  could not finish the original bridge/signal after Workspace disappeared. Its pure test manually
+  drained weak references, so that pass does not close production finality. The accepted correction
+  now extracts the complete existing execution owner, including provider/cache obligations, and exposes
+  explicit two-phase finalization through the admitted artifact without retaining the read catalog.
+  Neither export nor a borrowed seal automatically finishes that lifetime. Enclosing fixture remained
+  failed/native Unknown, attachment `cc71f7bb-171a-43da-ac23-f161116458a5`.
+  Owned d installation `20261013T183011.544Z-0aaeb6` **passed**; checked disposal
+  `20261013T184543.345Z-87743f` **passed** with logical drain independently failed.
+- **Passed** current bridge compile `20261013T190729.990Z-4dfc58`,
+  `cargo check --locked --release -p lctx-semantics`, local cleanup confirmed. Independent source
+  review accepts the shared execution-owner extraction and both borrowed-reader corrections.
+  The replacement production finalizer control and actual Facts callers are awaiting their focused
+  rerun; the earlier manual weak-reference control is not substituted for that evidence.
+  Owned e installation `20261013T185539.619Z-5d8cec` was **blocked75** before service effects by the
+  absent local CLI after build cleanup. CLI build `20261013T190028.381Z-78f37a` then **failed** on
+  missing borrowed-preparation result type annotations; those annotations are corrected. Current
+  rebuild and test-target preparation use normal concurrency and unchanged bounds.
+- **Passed** current CLI build `20261013T190833.578Z-774eab` and selected test-target build
+  `20261013T191506.274Z-be7d4a`, local cleanup confirmed. Owned e installation
+  `20261013T191652.226Z-ca9685` **passed**, exact target `2214dfcc-3d93-49af-aa32-49388d3485e1`.
+  Focused `20261013T191805.817Z-7f76ef` was **partial/failed**:8/9 bodies passed, including the
+  production shared-owner finalizer, actual Facts artifact independent admission/originals and every
+  selected copy/alias/binding/maximum primitive. Backup reached its own SearchOccurrences selection
+  and failed on binding-key order/duplicate view requests. That consumer now sorts/deduplicates its
+  selector set without changing the full binding inventory; independent source review accepts both
+  nearby selection calls. Enclosing fixture failed/native Unknown, attachment
+  `a51a08de-1eb5-4462-ba07-9685433f11df`; host cleanup confirmed/no survivors. Checked e disposal
+  `20261013T192602.369Z-130287` **passed**, including logical drainage in both databases and all
+  executor/datastore/attachment/installer/unit/storage/credential steps. This settles its target
+  obligations without rewriting the original failed/Unknown receipt.
+- **Passed** corrected backup test-target build `20261013T192620.152Z-14a765`, local cleanup
+  confirmed, and owned f installation `20261013T192630.245Z-c6ea23`, exact target
+  `e0a33b16-4d42-4094-b78e-c9a4a9c8ba62`. Backup rerun `20261013T192728.717Z-9bef79`
+  **failed** after successful backup and publication retirement, before cold restore: source
+  contributions/memberships remained after publication retirement. The initial warm-product
+  explanation was a source lead, subsequently overturned below; an empty `remaining` list does
+  not imply an empty `retained` list. Shared execution drainage closes sessions, not unrelated
+  retention or every nominated collection job. The cold control retains strict source-row absence
+  and is being corrected around the exact source ownership/nominations. No production retention
+  policy or benchmark premise changes. Enclosing fixture
+  failed/native Unknown, attachment `c419cf9d-ebde-4fbf-8698-21fd332fb114`; host cleanup confirmed.
+  Checked f disposal `20261013T193429.319Z-4a7954` **passed**, including both logical drains and all
+  physical target/attachment/credential steps; original failed/Unknown receipts remain unchanged.
+- **Passed** cold-premise test-target build `20261013T193712.184Z-34cd23`. The initial source review
+  accepted its exact product-release mechanism but did not establish that Facts creates products.
+  Runtime `20261013T193741.794Z-45c683` **failed** on an empty product inventory; cold restore was
+  not reached. Source reinspection confirms Facts does not arm product capture. The warm-owner
+  explanation and that helper are withdrawn, not treated as an implementation defect or a reason
+  to change production retention. Enclosing fixture failed/native Unknown, attachment
+  `bbb911ea-95d4-4e0b-b321-088e8d2dc651`; local cleanup confirmed/no survivors. Owned g installation
+  `20261013T193503.367Z-015c2c` **passed**, target `846bad4f-f1fa-467f-986a-429a62e0973b`;
+  its blocked disposal remains an explicit obligation below.
+- Owned g diagnostic `20261013T194424.092Z-62296c` was **blocked75** before diagnostic execution
+  by the unreleased attachment, leaving ordinary maintenance closed. Exact named recovery
+  `20261013T194527.981Z-f70df0` was **blocked75** by the required reviewed registered-drain server
+  recipe; the borrowed405 generation is not that recipe. Checked disposal
+  `20261013T194748.053Z-f8fabf` was **blocked75** by the unresolved ordinary maintenance marker.
+  All three commands have confirmed local cleanup. No SQL diagnostic ran; actual remaining holder
+  rows have not been observed. No guard, server recipe, marker or original Unknown was bypassed.
+  Host status at closeout confirms its daemon is active, maintenance=true, development_workers=[],
+  and attachment `bbb911ea-95d4-4e0b-b321-088e8d2dc651` protected. Its service/datastore remain
+  protected with admission held closed; host observation grants no database inspection.
+- The next cold-test hypothesis is intermediate source view roots: terminal attempt cleanup
+  nominates exact outgoing roots but does not advance every collection job, whereas publication
+  retirement traverses its own closure. The replacement test captures the source's held roots and
+  incarnations, requires each untouched existing job's complete original root set and digest to
+  match that evidence, and advances only those jobs. Epoch is a filter, never uniqueness or release
+  authority. Incoming-holder diagnostics remain on failure, and strict source absence, independent
+  dual restoration, fresh ownership, originals and no-selection assertions remain unchanged.
+  Initial replacement build `20261013T195344.103Z-a81169` **passed**. Independent review then found
+  that publication adds staging/marker roots after the initial capture; the final small augmentation
+  validates exact published marker/staging roots against source identity and incarnations. Independent
+  final source review accepts it; its runtime is **not_run** at operator closeout.
+- **Passed** final frozen helper compile `20261013T195902.726Z-b2e940`,
+  `cargo nextest run --locked --release --no-run -p lctx-publisher --test publication -E
+  'test(facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_ownership)'`;
+  local cleanup confirmed/no survivors. This compiles the final late-root augmentation, not a test
+  execution. All subagent work is frozen; no new native journey or quality campaign follows.
+
+**Closeout / resumption boundary.** No native journey is launched after the operator's closeout
+request. The helper and subagent source work are frozen. Owned h installation
+`20261013T195514.888Z-29d2a7` passed (target `2146dff7-43f8-4936-aeac-88207f379548`);
+no native test ran on h, and checked disposal `20261013T195745.242Z-91da95` passed every step,
+including both logical drains. No worktree exists outside main. CU01 cold restoration remains open; successful backup and8 focused
+component bodies do not replace it. On resumption, first reconcile owned g through an authenticated
+supported recovery/disposal route. A dead ordinary marker alone cannot prove predecessor child
+drainage; the managed diagnostic's direct child differs from the marker's descendant owner, and
+the persisted record does not supply that exact binding. Do not loosen SOURCE_JOIN or remove the
+marker manually. Then exercise the corrected cold control on an explicitly owned target and record
+actual remaining holders if it still fails. Catalog analysis/admission/publication/query CE01,
+CE02 regeneration and CE03 older-plan reconciliation remain separately open.
+
+Scoped `just turn-end --paths …` completed ADR-index generation and formatting; build-features was
+skipped because no Cargo manifest changed. This is housekeeping, not quality qualification. Final
+`just adr-lint` still **failed** on14 pre-existing architectural-reference/decision mismatches;
+ADR-0166's affected reader Decision link was corrected, with no remaining166 diagnostic. Unrelated
+reference repairs and Ruff advisories remain outside this closeout. No broad checks were started.
+
+Publication convergence independently validates incoming and winning eligibility but retains one
+immutable winning root. Unselected losing staging is nominated by checked attempt closure; it is not
+additional winning selector authority or a reason to retain needless historical copies. The old
+publication→contribution freshness query no longer represents this physical contract. Its replacement
+observes fresh receiving attempts through the exact incoming capture discriminator, separately from
+winning published inventory and without weakening two-attempt/epoch assertions. Narrow Facts controls
+isolate CU01/CU03 behavior from unrelated normalization; they cannot establish enclosing CE01.
+
+All cited managed receipts/logs retain `citation:catalog-execution-patterns-target`. The existing run
+record owns the full exact command and cleanup axes; there is no duplicate raw evidence folder.
+Broad qualification/quality campaigns, CE02 regeneration and CE03 reconciliation remain **not_run**
+by this slice. Their obligations are not closed by source review, a component pass or target discard.
+
+### CP00–CP04 receipts preceding CU execution, 2026-10-13
 
 Managed run IDs retain the exact command, output and independent local cleanup outcome. Current
 checks use release, normal available parallelism and unchanged test bounds. Source review is not

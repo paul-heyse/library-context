@@ -1,6 +1,6 @@
 # Catalog execution: consumer preparation
 
-**Accepted direction / Proposed implementation, 2026-10-12.** Companion to the
+**Accepted direction / source-integrated, 2026-10-13.** Companion to the
 [coordinator](catalog-execution-plan_2026-10-12.md), the sole disposition/checkpoint owner.
 This document owns Catalog-review F05–F08 and their affected consumers. The combined planning
 request activates their former deferral triggers. They remain distinct closure obligations even
@@ -96,11 +96,12 @@ input and expected result. Compare borrowed and gathered routes only where both 
 actual consumers. Cancellation and last-borrower drop preserve ownership. The genuine generated
 analysis/native-query journey remains the enclosing functional evidence.
 
-**CP04 physical-codec seam integrated in source, 2026-10-13.** Cold completion descriptors and
-native recovery now use the compound v2 contributor/selector inventory, while independent portable
-state remains format4. Existing cold/export consumers explicitly freeze their source before export;
-no mutable export or old physical-format reader is retained. CU01's dump lookup preparation and
-CU02's partition-position implementation remain separate required work.
+**CP04 physical-codec seam integrated in source, 2026-10-13.** Native recovery retains the compound
+v2 contributor/selector inventory; codec1 now captures exact root-qualified copies independently of
+semantic format4. Cold/export consumers explicitly freeze their source before export. CU01 prepares
+dump-owned demanded metadata, and CU02 prepares exact per-port positions over the immutable union.
+No mutable export or old physical-format reader is retained. Coordinator §6 owns their independent
+focused acceptance and the enclosing composition boundary.
 
 ## 4. CU03 — logical identity without a transport detour (Catalog F07)
 
@@ -196,73 +197,61 @@ unmeasured. These corrections introduce no new daemon, scheduler, evidence regis
 profiler. CE01 reviews their composition, CE02 regenerates current state where needed, and CE03
 reconciles the older tracks only after required delivery and acceptance.
 
-**Open cold-alias incidence contract (2026-10-13).** The six-family v4 union hashes aliases but
-not their contributor ownership. Exact native selectors already preserve that distinction; portable
-import cannot infer it from a shared source. Nonempty alias ingress refuses explicitly until a bound
-carrier/identity decision is implemented across export, artifact and selected dump restoration.
-Bind a carrier independently of its own header; require exact logical owner IDs and refuse ambiguous
-physical copies with different alias incidence unless the envelope represents those copies/selectors.
-Do not silently widen eligibility or change the v4 recipe. Coordinator §6 owns disposition and evidence.
+**Accepted separate transport/eligibility contract, 2026-10-13 (ADR-0166).** The operator
+selected the separate envelope. Semantic format4 and six-family v4 remain unchanged. A new outer
+codec1 binds full root descriptors, one dependency descriptor per root/view, ordered root-qualified
+slots and dense first-use portable copy labels. Complete per-copy membership/local-alias inventories
+include explicit zero counts; actual canonical family streams, counts and terminal EOF are checked
+independently. Distinct equal-descriptor copies are preserved. No first-logical-copy restoration or
+global source-alias expansion survives.
 
-The bounded independent design assessment proposes a separate model-owned transport envelope while
-preserving v4 semantic roots. It must bind exact view→portable-copy mappings, full descriptors and
-complete copy→alias inventories (explicit empties), ordered counts/EOF and codec identity. Equal
-logical descriptors with differing local alias sets require distinct portable copy labels and fresh
-destination owners; neither logical-owner union nor restore's first matching physical copy is safe.
-Aliases retain their canonical semantic-family binding. Labels confer correspondence, not authority.
+Eligibility is a separate conservative sufficient equivalence over complete root/view/contribution
+descriptors and root-qualified local aliases. It ignores copy labels, physical IDs and incidental
+sharing. SnapshotHandle/publication v3 bind this identity: equivalent fresh copies can converge;
+equal-v4/different-eligibility states coexist as different publications. Both actual incoming and
+winning protected boundaries are checked. Same-root retained collisions compare before native effects
+under root-local serialization; different roots retain independent dependency copy choices. An extra
+incoming product copy, when required by the retained-product contract, needs its actual earned source
+selection and exact receiving CAS; it grants no wider receiver selector.
 
-The expected envelope identity must come from a trusted export/backup result retained by its caller,
-not the incoming header or sidecar itself. Detached export and selected backup therefore need an
-explicit returned transport receipt and import/restore an independently supplied expectation, or a
-new externally expected artifact/publication handle. Source pins/backup snapshot and charged ordered
-runs survive through full EOF, file sync/staged commit and checked finalizers before receipt release.
-Destination creates fresh contributions, endpoint/alias holds and exact view mappings, then independently
-earns current physical and semantic admission; never import native holds, guards, attempts or pins.
-Partial/Unknown ingress retains existing obligations. This remains **Proposed** pending the operator's
-identity direction and concrete API migration; a self-consistent incoming digest is insufficient.
+`CompletedTransportReceipt` carries semantic, eligibility, envelope, recipe/codec and inventory counts.
+`ArtifactExportReceipt` binds the manifest and state receipt; `BackupReceipt` binds exact source handle,
+manifest, definitions, state and carrier. Producers return receipts only after checked EOF, delivery,
+file/directory sync and owned finalizers. Detached import/restore explicitly require independently
+retained expectations; incoming headers/sidecars never supply trust. CLI artifact compilation and
+backup emit receipt JSON; publish-artifact/restore require `--expect-receipt PATH`.
 
-Qualification must distinguish v4 content equality from selector-local alias eligibility. Deduplication,
-unchanged-publication reuse and caches claiming the latter need the combined identity or an actual
-independently validated physical boundary. If product semantic equality must imply that eligibility,
-a new semantic identity version is the coherent alternative. Required revealing cases are swapped owner
-incidence with equal v4 union, equal descriptors/different copies, shared/reconvergent sources and
-cross-contributor chains, explicit empty and missing/foreign copy inventories, fresh destination
-identity with exact selector absence, and both artifact/selected-backup admission plus failed EOF/drain.
-Coordinator §6 owns the decision; this advice does not authorize an old-format reader or close CU03.
+Fresh receiving attempts allocate one native contribution per portable copy label using a
+capture/label discriminator (installation schema8), recreate endpoint/alias/dependency holds and
+independently earn physical and semantic admission. Source attempts, pins, guards and incarnations
+are not imported authority. The selected backup carrier is bounded data-only SQL claims plus exact
+completed transport; SQL is parsed, never executed. Legacy framing/readers and restore normalization
+are removed. Current supported state may be regenerated; unrelated shared/operator state is untouched.
 
-The read-only caller map establishes the bounded migration for that proposed option:
+CU01 demanded-original/source/blob preparation, CU02 both scoped position/gather consumers, CU03
+compiler/artifact/selected-backup/cold consumers and CU04 checked immutable recipe response are
+source-integrated in the current execution. Source review addressed full-view cloning, mismatched
+complete-frame bounds and cold dependency-hold ordering. Standard externally tagged Serde frames
+avoid generic buffering of native Bytes; decoder admission accounts for the actual compact byte
+representation. This is resource-contract reasoning, not a measured allocation or speed claim.
 
-| Owner | Required contract change |
-|---|---|
-| Model `domain/completed.rs` | Separate envelope/receipt types and codec, ordered copy/selector inventories, counts and EOF; preserve semantic v4 |
-| Compiler `compiler.rs` | Preserve portable copy labels and entire selector mappings instead of collapsing copies; export returns semantic/envelope receipt; import requires independent expectation and rebinds fresh destination owners |
-| Compiler `artifact.rs` | Carry returned receipt through export, verification, `VerifiedExport` and detached readmission; live verification may derive expectation from its protected source |
-| Publisher `selected_backup.rs` | Capture full selected-copy correspondence and alias inventories under the existing publication pin and single transaction snapshot |
-| Publisher `backup.rs` / `backup_import` | Return receipt only after EOF, checked snapshot/session/pin finalizers, staged sync/publication and parent sync; decode bounded data-only framing and require expectation on restore |
-| Publisher `restore.rs` | Replace first matching physical copy and global source expansion with verified envelope correspondence; pass it through lower completed-state import |
-| CLI compile / native artifact and backup routes | Expose returned export/backup receipt and accept explicitly retained expectations across later processes; incoming manifests/sidecars alone cannot supply trust |
+The [coordinator §6](catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint)
+alone owns current acceptance, failed and successful receipts, remaining native/integrated checks and
+cleanup. Source integration and independent review do not close these packages by themselves.
 
-Direct transport, detached artifact and selected-backup tests all need the decisive equal-v4/
-different-incidence cases, including root-qualified dependency copy choices and explicit empties.
-No source attempts/pins/holds become destination authority. Snapshot/publication identity currently
-does not bind this incidence. This map specifies work; it does not establish approval or completion
-of the proposed external contract.
+Admitted artifacts retain a shared execution owner when their producer Workspace ends, without
+retaining its read catalog. The owner includes the original bridge/signal, spill files, native
+calls/store, provider joins and cache session. Workspace and borrowed admission reuse one checked
+drainage policy. After the last artifact operation, callers drain owned work, include any required
+native reconciliation/abandonment, then complete the original signal with the enclosing report.
+Explicit Workspace drainage remains authoritative; export or a borrowed seal does not implicitly
+finish the entire lifetime. Published preparation borrows the retained reader/pin and drains its own
+operations; only the enclosing owner closes that shared reader after its borrowers end.
 
-**Additional current equivalence gaps (static review, 2026-10-13).** This obligation also affects
-native consumers, not just cold framing. `Publication::new` computes the semantic/binding/definition
-handle and discovers an unchanged publication before acquiring the incoming admitted physical
-completion. Native `find_existing_publication` and both staging convergence branches independently
-validate the winning boundary but never compare its selector-local alias eligibility with the incoming
-one. A protected winner is not evidence that it is equivalent to that incoming selection.
-
-`NativeCompilerStore::attach_held_product` separately skips incoming mappings for an already known
-logical view and retains the existing installed capability with `or_insert`. Independent candidate
-validation does not establish equivalence to that existing receiver selection. Original-request replay
-and terminal recovery keep their exact original boundary and do not have this substitution gap.
-
-The selected identity direction must cover publication handle/reuse/convergence and receiver collision
-handling in addition to the caller map above. Compare independently protected effective eligibility,
-bind the relevant envelope identity, or refuse unequal physical selections; semantic v4 equality alone
-is insufficient. Receiver compatibility checks must precede native effects and remain coherent under
-concurrent attachments, without partial metadata publication. Until delivered and functionally checked,
-these native equivalence obligations remain open CP04 work even when first-publication controls pass.
+At operator closeout2026-10-13, source is integrated and independently reviewed, while acceptance
+remains partial at coordinator §6. Actual Facts artifact transport/originals and the production
+shared-owner finalizer passed focused bodies; backup reached successfully. Cold restoration still
+needs its corrected exact source-nomination premise exercised. Facts does not arm warm-product
+capture; publication retirement alone need not advance intermediate source-view cleanup jobs. The
+final test preserves strict physical absence, receipts, fresh dual admission, originals and no
+selection. Its late publication/staging-root augmentation is source-reviewed, not native-Tested.
