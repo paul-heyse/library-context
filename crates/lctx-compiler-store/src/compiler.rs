@@ -50,6 +50,38 @@ use surrealdb::{
 use tokio::sync::Notify;
 use tracing::{Instrument, instrument::WithSubscriber};
 
+/// One declaration operation may receive the same singleton and cumulative view.
+/// Validate the complete input before native work, retaining borrowed first occurrences.
+fn distinct_declaration_views<'a>(
+    supplied: &[&'a CompletedView],
+    budget: &ResourceBudget,
+) -> Result<(Vec<&'a CompletedView>, Box<dyn Reservation>), ModelError> {
+    let mut retained = budget.reserve(
+        "semantic declaration distinct view references",
+        supplied.len().saturating_mul(
+            size_of::<ContentHash>()
+                .saturating_add(2 * size_of::<&CompletedView>())
+                .saturating_add(64),
+        ),
+    )?;
+    let mut seen = BTreeMap::<ContentHash, &CompletedView>::new();
+    let mut unique = Vec::with_capacity(supplied.len());
+    for view in supplied {
+        view.validate()?;
+        if let Some(previous) = seen.get(&view.identity) {
+            if *previous != *view {
+                return Err(ModelError::Conflict("semantic declaration view descriptor collision"));
+            }
+        } else {
+            seen.insert(view.identity, view);
+            unique.push(*view);
+        }
+    }
+    drop(seen);
+    retained.try_resize(unique.capacity().saturating_mul(size_of::<&CompletedView>()))?;
+    Ok((unique, retained))
+}
+
 #[derive(Clone)]
 pub enum NativePredicate {
     Keys(Vec<[u8; 16]>),
@@ -1887,6 +1919,7 @@ impl NativeCompilerStore {
         views: &[&CompletedView],
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        let (views, _distinct_charge) = distinct_declaration_views(views, budget)?;
         let reader = crate::NativeReader::private(self.client.clone()).with_budget(budget);
         let reader = if let Some(flag) = self.read_cancellation()? {
             reader.with_read_cancellation(flag)
@@ -8474,6 +8507,38 @@ fn hydrate_original_row(value: Value) -> Result<Value, ModelError> {
 #[cfg(test)]
 mod completion_tests {
     use super::*;
+    #[test]
+    fn declaration_views_deduplicate_exact_singletons_without_copying_or_changing_order() {
+        let budget = ResourceBudget::fixed(16384).unwrap();
+        let contribution = ContentHash::of(b"declaration-duplicate-control");
+        let package = CompletedView::new("packages".into(), [contribution].into(), 3).unwrap();
+        let release = CompletedView::new("releases".into(), [contribution].into(), 5).unwrap();
+        let identical_package = package.clone();
+        let supplied = [&release, &package, &identical_package, &release, &package];
+        let (unique, retained) = distinct_declaration_views(&supplied, &budget).unwrap();
+        assert_eq!(unique, [&release, &package]);
+        assert!(std::ptr::eq(unique[0], &release));
+        assert!(std::ptr::eq(unique[1], &package));
+        assert!(retained.size() > 0);
+        assert_eq!(budget.reserved(), retained.size());
+        assert_eq!(supplied.len(), 5, "the caller's semantic inventory is unchanged");
+        drop(unique);
+        drop(retained);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn declaration_views_refuse_invalid_later_duplicates_and_budget_before_native_work() {
+        let budget = ResourceBudget::fixed(16384).unwrap();
+        let view = CompletedView::new("packages".into(), [ContentHash::of(b"declaration-refusal-control")].into(), 0).unwrap();
+        let mut different = view.clone();
+        different.rows = 1;
+        let error = distinct_declaration_views(&[&view, &view, &different], &budget).err().unwrap();
+        assert!(matches!(error, ModelError::Conflict("completed view identity")));
+        assert_eq!(budget.reserved(), 0, "refused input publishes no prepared declaration");
+        let small = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(distinct_declaration_views(&[&view], &small), Err(ModelError::Resource { .. })));
+        assert_eq!(small.reserved(), 0);
+    }
     fn test_view_borrow_lease() -> (Arc<OperationAdmission>, OperationLease) {
         let owner = Arc::new(OperationAdmission::default());
         owner.state.lock().unwrap().active = 1;
