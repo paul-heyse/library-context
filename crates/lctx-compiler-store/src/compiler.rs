@@ -8481,6 +8481,47 @@ fn hydrate_original_row(value: Value) -> Result<Value, ModelError> {
 #[cfg(test)]
 mod completion_tests {
     use super::*;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn last_use_finalization_invalidates_original_session_after_closed_attempt() {
+        let config = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+                .expect("owned schema8 validation runtime"),
+        )).unwrap();
+        let store = NativeCompilerStore::begin(&config, Frontier::Facts).await.unwrap();
+        let observer = reader::connect(
+            &config.endpoint, &config.writer_credentials(),
+            store.namespace().as_str(), store.database().as_str(),
+        ).await.unwrap();
+        let result = async {
+            store.client.query("INFO FOR DB").await.map_err(reader::sdk_error)?
+                .check().map_err(reader::sdk_error)?;
+            // A separate publisher session can close the attempt while the original
+            // compiler session is still authenticated. Drain alone does not close it.
+            crate::control::close_attempt(&observer, store.attempt(), "closed").await?;
+            d::completion::complete(Ok(()), store.drain_report().await)?;
+            store.client.query("INFO FOR DB").await.map_err(reader::sdk_error)?
+                .check().map_err(reader::sdk_error)?;
+            assert!(!store.admission.source_finalization.lock().await.session_closed);
+            store.abandon().await?;
+            let source = store.admission.source_finalization.lock().await;
+            assert!(source.attempt_closed && source.session_closed);
+            drop(source);
+            let response = store.client.query("INFO FOR DB").await;
+            assert!(response.and_then(|response| response.check()).is_err(),
+                "original compiler session must no longer authenticate database inspection");
+            let mut response = observer.query("SELECT VALUE state FROM $attempt")
+                .bind(("attempt", RecordId::new("native_attempt", store.attempt().hex())))
+                .await.map_err(reader::sdk_error)?.check().map_err(reader::sdk_error)?;
+            let states: Vec<String> = response.take(0).map_err(ModelError::codec)?;
+            assert_eq!(states, ["closed"], "last-use finality preserves prior terminal state");
+            store.abandon().await?;
+            Ok::<_, ModelError>(())
+        }.await;
+        let mut terminal = d::completion::Completion::default();
+        terminal.step("last-use control original store finality", store.abandon().await);
+        terminal.step("last-use control observer finality", observer.invalidate().await.map_err(ModelError::codec));
+        d::completion::complete(result, terminal).unwrap();
+    }
     fn local_store() -> Arc<NativeCompilerStore> {
         NativeCompilerStore::from_existing(
             Arc::new(Surreal::init()),

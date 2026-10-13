@@ -1089,9 +1089,9 @@ async fn receiving_capture_attempts(
 
 // Root authority comes from the pre-close source holds, not a globally unique epoch.
 // Only untouched existing jobs whose complete original roots match that evidence advance.
-async fn advance_source_cleanup(
+async fn advance_source_cleanup<Context>(
     fixture: &SmallPublication,
-    reader: &NativeReader<SnapshotHandle>,
+    reader: &NativeReader<Context>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     use lctx_native::surrealdb::types::{Number, Object, RecordId, RecordIdKey, Value, Variables};
@@ -1136,6 +1136,7 @@ async fn advance_source_cleanup(
         }
     }
     let mut proven = 0;
+    let mut checked_progress = Vec::new();
     for job in jobs {
         let mut variables = Variables::new();
         variables.insert("job", job.clone());
@@ -1242,7 +1243,11 @@ async fn advance_source_cleanup(
             progress = next;
         }
         proven += 1;
-        eprintln!("advanced exact source cleanup job: {progress:?}");
+        eprintln!("advanced exact source cleanup job: identity={} retired={} examined={} retained={}",
+            identity.hex(), progress.retired, progress.examined, progress.retained.len());
+        charge.grow(progress.retained.iter().chain(&progress.remaining)
+            .map(|value| value.capacity().saturating_add(128)).sum::<usize>().saturating_add(512))?;
+        checked_progress.push((identity, progress));
     }
     if proven == 0 {
         let copies = evidence
@@ -1256,6 +1261,28 @@ async fn advance_source_cleanup(
             "no untouched complete nomination matched pre-close source roots: source={:?} epoch={} roots={:?}",
             fixture.source_attempt, evidence.epoch, evidence.roots
         );
+    }
+    // `remaining` is only pending/retiring work. Retained roots are independently
+    // retryable on this same authenticated invocation; another captured job may
+    // have released their holder later in the first pass. Reach a useful fixed
+    // point over only the invocations whose complete original roots we proved.
+    loop {
+        let mut changed = false;
+        let mut retained = false;
+        for (identity, previous) in &mut checked_progress {
+            if previous.remaining.is_empty() && previous.retained.is_empty() { continue; }
+            let next = lctx_native::control::resume_retirement(reader.client(), *identity, 4096).await?;
+            changed |= next.retired > previous.retired
+                || next.remaining != previous.remaining || next.retained != previous.retained;
+            retained |= !next.remaining.is_empty() || !next.retained.is_empty();
+            charge.grow(next.retained.iter().chain(&next.remaining)
+                .map(|value| value.capacity().saturating_add(128)).sum::<usize>().saturating_add(512))?;
+            *previous = next;
+        }
+        if !retained { break; }
+        if !changed {
+            return Err(ModelError::Conflict("cold source captured cleanup remains held"));
+        }
     }
     Ok(())
 }
@@ -1275,7 +1302,7 @@ async fn cold_remaining_holders(
             let mut after = Value::None;
             loop {
                 let mut variables = Variables::new(); variables.insert("object", object.clone()); variables.insert("after", after.clone());
-                let holds: Vec<Object> = reader.query_native(&format!("SELECT id,owner,object,owner.* AS owner_row FROM native_hold WITH INDEX object_holds WHERE object=$object AND ($after=NONE OR id>$after) ORDER BY id LIMIT {}", lctx_native::loader::NATIVE_WINDOW_ROWS), variables).await?;
+                let holds: Vec<Object> = reader.query_native(&format!("SELECT id,owner,object,owner.state AS owner_state,owner.attempt AS owner_attempt,owner.relation AS owner_relation FROM native_hold WITH INDEX object_holds WHERE object=$object AND ($after=NONE OR id>$after) ORDER BY id LIMIT {}", lctx_native::loader::NATIVE_WINDOW_ROWS), variables).await?;
                 if holds.is_empty() { break; }
                 for hold in holds {
                     let Some(Value::RecordId(id)) = hold.get("id") else { return Err(ModelError::Schema("cold control remaining hold identity")); };
@@ -1333,13 +1360,20 @@ async fn facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_owne
             assert!(claims.keys().any(|id| id.table.as_str() == table), "Facts fixture must exercise {table}");
         }
         assert!(before.attempts.contains(&RecordId::new("native_attempt", fixture.source_attempt.hex())));
-        advance_source_cleanup(&fixture, source_owner.as_ref().unwrap(), &budget).await.unwrap();
         close_reader_owner(&mut source_owner).await.unwrap();
         retire_publication_completely(&fixture.config, &fixture.handle).await.unwrap();
         observer_owner = Some(lctx_native::reader::connect(&fixture.config.endpoint,
             &fixture.config.writer_credentials(), fixture.config.namespace.as_str(),
             fixture.config.database.as_str()).await.unwrap());
         let observer = observer_owner.as_ref().unwrap();
+        // Consume source-owned nominations after the publication and its reader
+        // release their holds. The helper also revisits retained roots on the same
+        // exact invocations after later captured jobs release their dependencies.
+        let cleanup_reader = NativeReader::private(observer.clone()).with_budget(&budget);
+        let cleanup = advance_source_cleanup(&fixture, &cleanup_reader, &budget).await;
+        let mut cleanup_completion = completion::Completion::default();
+        cleanup_completion.step("cold source cleanup reader finality", cleanup_reader.close().await);
+        completion::complete(cleanup, cleanup_completion).unwrap();
         let mut absent = vec![RecordId::new("publication", fixture.handle.publication.hex())];
         absent.extend(claims.keys().filter(|id| matches!(id.table.as_str(),
             "original" | "original_blob" | "original_chunk" | "compiler_contribution" | "compiler_membership")).cloned());

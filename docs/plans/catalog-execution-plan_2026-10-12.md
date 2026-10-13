@@ -276,10 +276,12 @@ until that target's checked disposal.
 through owned drainage, original native finality and signal completion; generic borrowed artifacts
 remain reusable. Actual original-session invalidation/closed-state preservation passed in `f8a22a`;
 its Facts cold companion failed strict source absence after113s. Its exact source nominations were
-spent while the source publication reader remained pinned, returning terminal retained results.
-The changed control closes/retires publication first, then advances only those exact captured
-source nominations through an independent observer; no arbitrary/global root or new nomination is
-introduced (`f41508` running). `8886ccca` removes the duplicate complete native-inventory output
+attempted while the source publication reader remained pinned. Moving advancement after reader
+close/publication retirement (`f41508`) still failed strict absence after178s: the helper incorrectly
+treated an empty pending queue as completion although `resume_retirement` separately retains
+retryable held roots. The latest control (`c7f4ed`) revisits only the same initially proven exact
+captured invocations to a useful fixed point, preserving full original roots/digest/incarnations;
+no arbitrary/global root or new nomination is introduced. `8886ccca` removes the duplicate complete native-inventory output
 map, preserves whole-projection prevalidation and streams through bounded writers; compile and8
 pure projection controls passed. Remaining serial transport/selector/held-alias observations were
 found during current consumer review and are being migrated through existing exact windows before
@@ -299,7 +301,7 @@ asserted timeout cause.
 |---|---|---|
 | catalog#F01 | Implemented/source-reviewed; focused acceptance pending; CP01/CP02/CP04 | Internal views stop full reconstruction; exact final union independently checked; actual CE01 journey |
 | catalog#F02 | Native reuse/retained collision and exact portable incidence implemented/source-reviewed; focused acceptance in progress; CP00/CP04/CU03 | Protected independent eligibility, root-qualified copy closure, fresh receiving authority and complete cold/physical consumers; enclosing CE01 remains separate |
-| catalog#F03 | Implemented bounded windows; full inventory-demand source-reviewed/actual controls pending; CP03/CP04 | Actual bounded set windows for remaining demand, exact correspondence and receiving CAS/finality |
+| catalog#F03 | Implemented primitives; remaining consumer migration/source review and actual controls in progress; CP03/CP04 | Transport/retained-selector/held-alias set demand now windows (`ae14125d`, `c3eceeb8`); operation-registry first-miss preparation and retry accounting remain under correction; exact correspondence/CAS/finality required |
 | catalog#F04 | Directed selection implemented; 25 pure controls passed2026-10-13; cross-boundary equivalence and enclosing native acceptance open; CP03/CP04 | Prepared directed frontier, composed exact aliases, unreachable-source refusal, spill and safe reuse |
 | catalog#F05 | Implemented/source-reviewed; backup reached; cold restoration open at closeout; CU01 | Demanded typed metadata, one combined original/payload pass, complete EOF/conflict checks, independently supplied receipt and fresh restoration |
 | catalog#F06 | Closed at source/focused-Tested strength2026-10-13; CU02 | Exact input-port position/gather controls passed, duplicate physical rows and source order preserved, independent compact/spill checker topology unchanged |
