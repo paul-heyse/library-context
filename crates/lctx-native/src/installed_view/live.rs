@@ -72,6 +72,47 @@ pub async fn install_live_view(
     terminal.step("live installation audit pin release", audit.close().await);
     complete(result, terminal)
 }
+
+// Allocation admission, not allocator measurement. ExpectedRecord separately
+// retains its native row reservation. This owner retains only typed completion
+// fields and its known native_attempt RecordId (a 64-hex key).
+fn retained_live_descriptor_bytes(completion: &InstalledViewCompletion) -> usize {
+    std::mem::size_of::<HeldInstalledView>()
+        .saturating_add(completion.view.relation.capacity())
+        // Keep conservative sparse B-tree node allowance, including a small root.
+        .saturating_add(completion.view.contributions.len().saturating_mul(256))
+        .saturating_add(512)
+        .saturating_add(completion.mappings.capacity().saturating_mul(
+            std::mem::size_of::<ContributorRealization>(),
+        ))
+        .saturating_add(256)
+}
+fn settle_live_descriptor_charge(
+    charge: &mut StateCharge,
+    completion: &InstalledViewCompletion,
+) -> Result<(), ModelError> {
+    let retained = retained_live_descriptor_bytes(completion);
+    if retained > charge.reserved() {
+        charge.grow(retained - charge.reserved())?;
+    } else {
+        charge.release(charge.reserved() - retained);
+    }
+    Ok(())
+}
+
+fn live_completion_serialization_bytes(
+    view: &d::completed::CompletedView,
+    mappings: &[ContributorRealization],
+) -> usize {
+    // Each mapping has three 32-byte JSON sequences, field names and an i64.
+    // 1024 admits their worst decimal widths plus serializer Vec growth. The
+    // fixed part covers six family roots, IDs and fixed fields; relation escaping
+    // and contribution-set serialization/validation have independent bounds.
+    mappings.len().saturating_mul(1024)
+        .saturating_add(view.contributions.len().saturating_mul(512))
+        .saturating_add(view.relation.len().saturating_mul(6))
+        .saturating_add(65536)
+}
 pub async fn install_live_view_scoped(
     client: Arc<Surreal<Client>>,
     attempt: ContentHash,
@@ -96,10 +137,22 @@ pub async fn install_live_view_scoped(
             view: view.clone(),
             mappings: mappings.to_vec(),
         };
-        let closure = super::audit::inspect_closure(&reader, view, mappings, budget).await?;
-        super::audit::audit_memberships_scoped(&reader, &closure, budget, audit).await?;
-        let aliases = super::audit::audit_aliases(&reader, &closure, budget).await?;
-        let roots = super::audit::logical_roots(&reader, &closure, &[], &aliases, budget).await?;
+        let phase = crate::phase::Phase::begin("live_view_inspect_closure");
+        let result = super::audit::inspect_closure(&reader, view, mappings, budget).await;
+        phase.finish_result(&result);
+        let closure = result?;
+        let phase = crate::phase::Phase::begin("live_view_audit_memberships");
+        let result = super::audit::audit_memberships_scoped(&reader, &closure, budget, audit).await;
+        phase.finish_result(&result);
+        result?;
+        let phase = crate::phase::Phase::begin("live_view_audit_aliases");
+        let result = super::audit::audit_aliases_scoped(&reader, &closure, budget, audit).await;
+        phase.finish_result(&result);
+        let aliases = result?;
+        let phase = crate::phase::Phase::begin("live_view_logical_roots");
+        let result = super::audit::logical_roots_scoped(&reader, &closure, &[], &aliases, budget, audit).await;
+        phase.finish_result(&result);
+        let roots = result?;
         let realization = realization_id(view, mappings)?;
         let root = RecordId::new("compiler_view_realization", realization.hex());
         let members = root_members(&reader, &selection, realization, budget).await?;
@@ -169,6 +222,7 @@ pub async fn install_live_view_scoped(
                     budget,
                 )
                 .await?;
+                settle_live_descriptor_charge(&mut charge, &original.completion)?;
                 return Ok(HeldInstalledView {
                     client: client.clone(),
                     completion: original.completion,
@@ -240,6 +294,10 @@ pub async fn install_live_view_scoped(
                 .checked_add(1)
                 .ok_or(ModelError::Schema("live seal revision overflow"))?,
         };
+        let serialization = budget.reserve(
+            "live installed completion serialization scratch",
+            live_completion_serialization_bytes(view, mappings),
+        )?;
         let value = completion.value()?;
         charge.grow(
             crate::loader::native_bytes(&value)
@@ -260,6 +318,7 @@ pub async fn install_live_view_scoped(
             budget,
         )
         .await?;
+        drop(serialization);
         let expected = crate::control::inspect_expected_read(&reader, completion.record()?, budget)
             .await?
             .ok_or(ModelError::Conflict("live completed view disappeared"))?;
@@ -268,6 +327,9 @@ pub async fn install_live_view_scoped(
         }
         let held =
             crate::control::hold_live_view_expected(&client, &owner, expected, budget).await?;
+        // Construction and serialized-value reservations cease only after every
+        // checked native effect has returned. Keep both actual retained copies.
+        settle_live_descriptor_charge(&mut charge, &completion)?;
         Ok(HeldInstalledView {
             client: client.clone(),
             completion,
@@ -1079,6 +1141,58 @@ mod tests {
             membership_content: ContentHash::of(b"membership"),
             frozen_revision: 1,
         }
+    }
+    #[test]
+    fn live_descriptor_settlement_keeps_typed_capacity_and_independent_native_row() {
+        let mut completion = completion();
+        completion.view = d::completed::CompletedView::new(
+            "packages".into(),
+            [ContentHash([254;32]), ContentHash([255;32])].into(),
+            2,
+        ).unwrap();
+        completion.view.relation.reserve(256);
+        completion.mappings = Vec::with_capacity(64);
+        for logical in &completion.view.contributions {
+            completion.mappings.push(ContributorRealization {
+                view: completion.view.identity,
+                logical: *logical,
+                physical: *logical,
+                incarnation: i64::MAX,
+            });
+        }
+        completion.realization = realization_id(&completion.view, &completion.mappings).unwrap();
+        completion.validate().unwrap();
+        let budget = ResourceBudget::fixed(2 << 20).unwrap();
+        let baseline = budget.reserve("unrelated live allocation", 128).unwrap();
+        // Model the independently retained ExpectedRecord allocation: settlement
+        // must leave this reservation untouched. This is pure allocation evidence,
+        // not a fabricated native capability or persistence assertion.
+        let row_bytes = crate::loader::native_bytes(&completion.value().unwrap())
+            .saturating_mul(32).saturating_add(65536);
+        let expected_row = budget.reserve("native owned expected inspection", row_bytes).unwrap();
+        let mut charge = StateCharge::new(&budget, "live installed view retained descriptor");
+        charge.grow(512 << 10).unwrap();
+        let retained = retained_live_descriptor_bytes(&completion);
+        assert!(retained >= completion.mappings.capacity() * std::mem::size_of::<ContributorRealization>()
+            + completion.view.relation.capacity() + 2 * 256);
+        let serialization = live_completion_serialization_bytes(&completion.view, &completion.mappings);
+        assert!(serialization >= serde_json::to_vec(&completion).unwrap().len() * 2,
+            "pre-serialization admission includes serializer capacity growth");
+        settle_live_descriptor_charge(&mut charge, &completion).unwrap();
+        assert_eq!(charge.reserved(), retained);
+        assert_eq!(budget.reserved(), baseline.size() + row_bytes + retained);
+        drop(charge);
+        assert_eq!(budget.reserved(), baseline.size() + row_bytes);
+        drop(expected_row);
+        assert_eq!(budget.reserved(), baseline.size());
+        drop(baseline);
+        assert_eq!(budget.reserved(), 0);
+
+        let insufficient = ResourceBudget::fixed(retained - 1).unwrap();
+        let mut charge = StateCharge::new(&insufficient, "live installed view retained descriptor");
+        assert!(matches!(settle_live_descriptor_charge(&mut charge, &completion),
+            Err(ModelError::Resource { .. })));
+        assert_eq!(insufficient.reserved(), 0, "refusal leaves no unowned reservation");
     }
     #[test]
     fn receiving_installation_requires_exact_generation_and_validity_even_for_foreign_sessions() {

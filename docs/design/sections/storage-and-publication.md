@@ -234,6 +234,18 @@ are established. Rust/native acceptance and actual compaction remain open in the
 Compiler/audit selection follows one model closure declaration with native/dump adapters, while
 actual stored rows and cold admission remain independent checks. An audit owns its read owner,
 pin and session until admitted tails drain, including failed preparation and cancellation.
+**Implemented/source-accepted, 2026-10-12:** coherent compiler completion batches share that
+protected audit across singleton and union outputs; full-descriptor deduplication never replaces
+each view's exact membership, alias, incarnation and terminal checks. The protected audit retains
+terminal-validated logical contributor fragments and one complete exact contributor-set alias
+preparation; each independently inspected root still sorts/hashes all six families afresh.
+Exact typed declared-view lowering avoids a second native read; cold reconstruction remains
+independent. Cache payloads and conservative sparse-tree metadata remain admitted until drop.
+Installed-view construction
+scratch is admitted before serialization and released after the checked final hold. Retained typed
+descriptor capacity and independently owned expected native rows remain charged through their
+actual lifetimes. The [lifecycle coordinator](../../plans/surrealdb-lifecycle-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint)
+owns current focused runtime acceptance; these changes introduce no cross-operation witness.
 **Implemented, qualification pending2026-10-11:** full selected-membership preparation and
 completed-state metadata scans submit at most128 exact owner/view roots per indexed native
 crossing, charging each input window before binding. Complete external ordering, deduplication,

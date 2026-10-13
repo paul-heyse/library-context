@@ -138,6 +138,15 @@ pub(super) async fn transaction(
     bindings: Variables,
     recover: bool,
 ) -> Result<(), ModelError> {
+    transaction_named(client, sql, bindings, recover, "control").await
+}
+pub(super) async fn transaction_named(
+    client: &Surreal<Client>,
+    sql: &str,
+    bindings: Variables,
+    recover: bool,
+    stage: &'static str,
+) -> Result<(), ModelError> {
     let cancellation = if recover {
         RetryCancellationContext::default()
     } else {
@@ -145,9 +154,22 @@ pub(super) async fn transaction(
     };
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    // Identifies generated SQL shape and exact operation/stage without logging
+    // SQL, payloads, credentials or caller-provided binding values.
+    let query_digest = ContentHash::of(sql.as_bytes()).hex();
+    let operation = bindings.get("__effect").or_else(|| bindings.get("effect"))
+        .and_then(|value| match value {
+            Value::RecordId(id) if id.table.as_str() == "native_effect" => match &id.key {
+                surrealdb::types::RecordIdKey::String(key) => Some(key.as_str()),
+                _ => None,
+            },
+            _ => None,
+        });
+    let started = std::time::Instant::now();
     let mut retries = 0u32;
     loop {
         if cancellation.0.iter().any(RetryCancellation::stopped) {
+            tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="cancelled_before_issue", "native transaction terminal");
             return Err(ModelError::Invalid(
                 "native transaction retry cancelled".into(),
             ));
@@ -159,14 +181,22 @@ pub(super) async fn transaction(
             Err(error) => Err(crate::loader::write_failure(error)),
         };
         let Err(error) = result else {
+            if retries > 0 {
+                tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="committed", "native transaction terminal");
+            }
             return Ok(());
         };
         if !retryable_transaction(&error) {
+            // This error may still reconcile as committed or remote Unknown.
+            tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="error_returned", "native transaction terminal");
             return Err(error);
         }
         let wait = delay(retries, sequence);
         retries = retries.saturating_add(1);
-        tracing::debug!(target:"lctx_phase", retries, delay_us=wait.as_micros(), recovery=recover, "native transaction conflict; retaining original request");
+        // Logarithmic observations bound conflict logging during sustained contention.
+        if retries.is_power_of_two() {
+            tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, delay_us=wait.as_micros(), recovery=recover, elapsed_ms=started.elapsed().as_millis(), conflict="transaction_conflict", "native transaction conflict; retaining original request");
+        }
         let stopped = if !cancellation.0.is_empty() {
             let stops = cancellation
                 .0
@@ -179,6 +209,7 @@ pub(super) async fn transaction(
             false
         };
         if stopped {
+            tracing::info!(target:"lctx_phase", sequence, stage, operation, %query_digest, retries, recovery=recover, elapsed_ms=started.elapsed().as_millis(), status="cancelled_after_conflict", "native transaction terminal");
             let mut completion = lctx_model::domain::completion::Completion::default();
             completion.step(
                 "native transaction retry cancellation",

@@ -47,6 +47,14 @@ fn availability(admission: &ScopedAvailability, family: FactFamily) -> Vec<Avail
 fn budget() -> ResourceBudget {
     ResourceBudget::fixed(1 << 30).unwrap()
 }
+async fn finish_workspace(workspace: &Workspace) -> Result<(), ModelError> {
+    let mut completion = completion::Completion::default();
+    completion.step("facts control workspace execution drainage", workspace.drain().await);
+    // Drain owns admitted execution; abandonment separately acknowledges the
+    // actual fixture attempt and its session before the test's owner disappears.
+    completion.step("facts control native attempt/session finalization", workspace.native().abandon().await);
+    completion::complete(Ok(()), completion)
+}
 fn captured(
     source: &[u8],
     document: bool,
@@ -133,8 +141,23 @@ async fn syntax_failure_and_no_document_scope_have_distinct_availability() {
 
 #[tokio::test]
 async fn real_pyrefly_document_predecessor_uses_exact_completed_native_views() {
+    real_pyrefly_document_predecessor(Profile::ALL).await;
+}
+
+// Keep the smallest real completion/predecessor case independently selectable.
+// Behavioral adds a different provider contract and is not needed to localize
+// Catalog contribution completion.
+#[tokio::test]
+async fn real_catalog_pyrefly_document_predecessor_uses_exact_completed_native_views() {
+    use tracing::instrument::WithSubscriber;
+    real_pyrefly_document_predecessor([Profile::Catalog])
+        .with_subscriber(cpg_extract::logging::dispatch())
+        .await;
+}
+
+async fn real_pyrefly_document_predecessor(profiles: impl IntoIterator<Item = Profile>) {
         let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
-    for profile in Profile::ALL {
+    for profile in profiles {
         let resources=budget();
         let capture=captured(b"def f(x):\n    \"\"\"Return x.\"\"\"\n    return x\n",true,profile,&resources);
         let workspace=Workspace::with_budget(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:resources.limit(),batch_rows:17,..Default::default()},resources,crate::native_fixture::store()).unwrap();
@@ -152,7 +175,7 @@ async fn real_pyrefly_document_predecessor_uses_exact_completed_native_views() {
         assert!(view.view().contributions.contains(&predecessor.identity().unwrap()));
         let native=workspace.native().completed_state(&native_operation_budget).await.unwrap();
         assert_eq!(native.contributions,4);
-        workspace.drain().await.unwrap();
+        finish_workspace(&workspace).await.unwrap();
     }
 }
 
@@ -168,10 +191,17 @@ fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
 
 #[tokio::test]
 async fn availability_reuses_exact_admission_and_refuses_changed_invalid_membership() {
+    use tracing::instrument::WithSubscriber;
+    async {
     use input::{InputRevision,ArtifactUse,SourceRole};
     use source::{SourceArtifact,CoverageScope};
     let profile=Profile::Catalog;
-    let resources=ResourceBudget::fixed(16<<20).unwrap();
+    // This checks semantic authority across two retained full provider profiles,
+    // not low-memory admission. Their 340 Pyrefly singleton completion-row
+    // reservation floors alone exceed 16 MiB, before other state or scratch.
+    // Use this file's existing full-compilation budget; production bounds and
+    // independent resource-refusal controls remain unchanged.
+    let resources=budget();
     let captures=Arc::new(CapturedInputs::new(vec![],cpg_extract::native_context::NativeContextConfig::committed(profile,&resources).unwrap()));
     let workspace=compile(captures,resources.clone(),profile).await;
     let admitted=workspace.facts_availability_async(profile).await.unwrap();
@@ -217,9 +247,12 @@ async fn availability_reuses_exact_admission_and_refuses_changed_invalid_members
         let error=invalid.facts_availability_async(profile).await.unwrap_err();
         assert!(error.to_string().contains("missing completed declared producer"),"an undeclared contribution cannot supply captured facts authority: {error}");
     }
-    invalid.drain().await.unwrap();
-    other.drain().await.unwrap();
-    workspace.drain().await.unwrap();
+    finish_workspace(&invalid).await.unwrap();
+    finish_workspace(&other).await.unwrap();
+    finish_workspace(&workspace).await.unwrap();
+    }
+    .with_subscriber(cpg_extract::logging::dispatch())
+    .await;
 }
 
 #[path = "fixtures/native.rs"]

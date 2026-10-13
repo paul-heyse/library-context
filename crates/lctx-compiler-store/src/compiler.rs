@@ -1208,11 +1208,57 @@ impl NativeCompilerStore {
         self: &Arc<Self>,
         views: &[&CompletedView],
         budget: &ResourceBudget,
-    ) -> Result<(), ModelError> {
-        for view in views {
-            self.installed_view(view, budget).await?;
-        }
-        Ok(())
+    ) -> Result<(u64, u64, u64, u64), ModelError> {
+        // Membership, blob, logical contributor and exact alias-set observations.
+        let lease = self.admit(false, "exact installed view batch acquisition", true)?;
+        let result = lease.within(async {
+            let mut audit = None;
+            let result = async {
+                let mut seen = BTreeMap::<ContentHash, &CompletedView>::new();
+                let mut charge = d::charged::StateCharge::new(budget, "installed batch descriptor correspondence");
+                charge.grow(512)?;
+                for view in views {
+                    if let Some(previous) = seen.get(&view.identity) {
+                        if *previous != *view {
+                            return Err(ModelError::Conflict("installed batch view descriptor collision"));
+                        }
+                        continue;
+                    }
+                    charge.grow(std::mem::size_of::<(ContentHash, &CompletedView)>() + 64)?;
+                    seen.insert(view.identity, view);
+                    let fresh_live = !self.read_only.load(Ordering::Acquire)
+                        && self.physical_completed.lock()
+                            .map_err(|_| ModelError::Conflict("physical batch audit owner"))?.is_none()
+                        && !self.installed_views.lock()
+                            .map_err(|_| ModelError::Conflict("installed batch audit owner"))?
+                            .contains_key(&view.identity);
+                    if fresh_live && audit.is_none() {
+                        audit = Some(lctx_native::installed_view::InstallationAudit::new(
+                            self.client.clone(), budget,
+                        ).await?);
+                    }
+                    self.installed_view_inner_scoped(view, budget, audit.as_mut()).await?;
+                }
+                Ok(())
+            }.await;
+            let mut terminal = d::completion::Completion::default();
+            let observations = audit.as_ref().map_or((0, 0, 0, 0), |audit| {
+                let (contributors, blobs) = audit.observations();
+                (contributors, blobs, audit.logical_contribution_observations(), audit.alias_observations())
+            });
+            if let Some(audit) = audit.as_mut() {
+                if result.as_ref().err().is_some_and(|error: &ModelError| !error.permits_storage_cleanup()) {
+                    audit.retain_unknown();
+                }
+                let (contribution_observations, blob_observations) = audit.observations();
+                let logical_contribution_observations = audit.logical_contribution_observations();
+                let alias_observations = audit.alias_observations();
+                tracing::info!(target:"lctx_phase", contribution_observations, blob_observations, logical_contribution_observations, alias_observations, views=views.len(), "installed completion batch observations");
+                terminal.step("compiler completion batch installation audit pin release", audit.close().await);
+            }
+            d::completion::complete(result, terminal).map(|()| observations)
+        }).await;
+        lease.finish_with(result)
     }
     /// Establishes exact physical view authority while unrelated producers remain open.
     /// Candidate discovery never selects a global logical match. Only this store's
@@ -4724,9 +4770,14 @@ impl NativeCompilerStore {
             .ok_or(ModelError::Conflict("unknown native contribution"))?
             .ownership = ContributionOwnership::Completed;
         self.remember_contributor(logical, id)?;
+        let _singletons_charge = budget.reserve(
+            "completion singleton view descriptors",
+            descriptor.outputs.keys().map(|relation| std::mem::size_of::<CompletedView>()
+                + relation.len() + 768).fold(0usize, usize::saturating_add),
+        )?;
+        let mut singletons = Vec::with_capacity(descriptor.outputs.len());
         for (relation, output) in &descriptor.outputs {
-            let singleton = CompletedView::new(relation.clone(), [logical].into(), output.rows)?;
-            self.installed_view(&singleton, budget).await?;
+            singletons.push(CompletedView::new(relation.clone(), [logical].into(), output.rows)?);
         }
         let mut views = BTreeMap::new();
         for relation in outputs {
@@ -4745,7 +4796,14 @@ impl NativeCompilerStore {
             let view = CompletedView::new(relation.name().into(), contributions, count)?;
             views.insert(relation.name().to_string(), view);
         }
-        self.registered_or_install_views(&views.values().collect::<Vec<_>>(), budget)
+        let _installation_charge = budget.reserve(
+            "completion installed view references",
+            singletons.len().saturating_add(views.len())
+                .saturating_mul(std::mem::size_of::<&CompletedView>()),
+        )?;
+        let mut installation = Vec::with_capacity(singletons.len().saturating_add(views.len()));
+        installation.extend(singletons.iter().chain(views.values()));
+        self.registered_or_install_views(&installation, budget)
             .await?;
         Ok(views)
     }
@@ -8663,8 +8721,10 @@ mod compiler_scope_tests {
             .await
             .unwrap();
         let client = check_installation(&config).await.unwrap();
-        let reader = crate::NativeReader::private(client.clone());
+        let reader = crate::NativeReader::private(client.clone())
+            .with_budget(&native_operation_budget);
         let mut forged_id = None;
+        let mut forged_retirement_root = None;
         let result = async {
             let nonce = crate::control::fresh_identity("batched-empty-views")?;
             let relation = Relation::of::<d::analytics::QualityStep>();
@@ -8686,6 +8746,17 @@ mod compiler_scope_tests {
             let base_views = native.complete_contribution(base, ProviderOutcome::Complete,
                 std::slice::from_ref(&relation), &BTreeMap::new(), &native_operation_budget).await?;
             let base_view = base_views[relation.name()].clone();
+            let base_held = native.installed_view(&base_view, &native_operation_budget).await?;
+            let base_realization = RecordId::new("compiler_view_realization", base_held.completion().realization.hex());
+            let base_completion = base_held.completion().record()?;
+            if base_held.completion().mappings.len() != 1
+                || base_held.completion().mappings.iter().any(|mapping|
+                    mapping.view != base_view.identity || mapping.physical != base
+                        || !base_view.contributions.contains(&mapping.logical) || mapping.incarnation <= 0)
+            {
+                return Err(ModelError::Conflict("base view exact test-owned contributor mapping"));
+            }
+            drop(base_held);
             let outputs = [Relation::of::<d::analytics::RankScore>(),
                 Relation::of::<d::analytics::CommunityRun>()];
             let spec = ContributionSpec {
@@ -8702,6 +8773,16 @@ mod compiler_scope_tests {
             let views = native.complete_contribution(empty, ProviderOutcome::Complete,
                 &outputs, &BTreeMap::new(), &native_operation_budget).await?;
             let input_after = input_hold_snapshot(&reader, empty, base_view.identity).await?;
+            // Reconstruct both roots through the actual compiler batch consumer.
+            // Exact persisted roots/mappings/holds remain; discard only this local
+            // acceleration cache so a new protected audit must earn observations.
+            native.installed_views.lock()
+                .map_err(|_| ModelError::Conflict("cold batch installed cache"))?.clear();
+            let references = views.values().collect::<Vec<_>>();
+            let observations = native.registered_or_install_views(&references, &native_operation_budget).await?;
+            if observations != (2, 0, 2, 1) {
+                return Err(ModelError::Invalid(format!("compiler batch repeated unique contributors: {observations:?}")));
+            }
             let replay = native.complete_contribution(empty, ProviderOutcome::Complete,
                 &outputs, &BTreeMap::new(), &native_operation_budget).await?;
             let input_replayed = input_hold_snapshot(&reader, empty, base_view.identity).await?;
@@ -8720,17 +8801,47 @@ mod compiler_scope_tests {
             let mut expected = std::collections::BTreeSet::from([
                 (contributor.clone(), base_id.clone()),
                 (base_id.clone(), base_contributor.clone()),
-                (attempt.clone(), base_id.clone()),
                 (attempt.clone(), base_contributor.clone()),
                 (attempt.clone(), contributor.clone()),
+                (attempt.clone(), base_realization.clone()),
+                (attempt.clone(), base_completion.clone()),
+                (base_completion, base_realization.clone()),
+                (base_realization.clone(), base_id.clone()),
+                (base_realization, base_contributor.clone()),
             ]);
             for view in &empty_ids {
-                expected.insert((attempt.clone(), view.clone()));
                 expected.insert((view.clone(), contributor.clone()));
             }
             let mut vars = Variables::new();
             let mut realizations=Vec::new();
-            for view in views.values(){realizations.push(RecordId::new("compiler_view_realization",native.installed_view(view,&native_operation_budget).await?.completion().realization.hex()));}
+            for view in views.values() {
+                let held = native.installed_view(view, &native_operation_budget).await?;
+                let selected = held.completion().mappings.iter().map(|mapping|
+                    (mapping.view, mapping.logical, mapping.physical),
+                ).collect::<std::collections::BTreeSet<_>>();
+                let expected_selected = view.contributions.iter().map(|logical|
+                    (view.identity, *logical, empty),
+                ).chain(base_view.contributions.iter().map(|logical|
+                    (base_view.identity, *logical, base),
+                )).collect::<std::collections::BTreeSet<_>>();
+                if selected != expected_selected || held.completion().mappings.len() != selected.len()
+                    || held.completion().mappings.iter().any(|mapping| mapping.incarnation <= 0)
+                {
+                    return Err(ModelError::Conflict("empty view exact test-owned closure mappings"));
+                }
+                let root = RecordId::new("compiler_view_realization", held.completion().realization.hex());
+                let completion = held.completion().record()?;
+                // The attempt retains native realizations and completion witnesses;
+                // the realization retains its canonical view and exact physical
+                // closure. Canonical declarations are not direct attempt roots.
+                expected.insert((attempt.clone(), root.clone()));
+                expected.insert((attempt.clone(), completion.clone()));
+                expected.insert((completion, root.clone()));
+                expected.insert((root.clone(), RecordId::new("compiler_view", view.identity.hex())));
+                expected.insert((root.clone(), contributor.clone()));
+                expected.insert((root.clone(), base_contributor.clone()));
+                realizations.push(root);
+            }
             vars.insert("realizations",realizations);
             vars.insert("owners", expected.iter().map(|(owner,_)| owner.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>());
             vars.insert("objects", expected.iter().map(|(_,object)| object.clone()).collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>());
@@ -8757,16 +8868,99 @@ mod compiler_scope_tests {
             let remembered = native.known_views.lock()
                 .map_err(|_| ModelError::Conflict("native view owner"))?
                 .contains_key(&forged.identity);
+            // Refusal happens after the attempted realization owns its canonical
+            // declaration and members. Capture that exact test-owned partial root
+            // while the attempt's hold can still authenticate cleanup authority.
+            let mut vars = Variables::new();
+            vars.insert("view", RecordId::new("compiler_view", forged.identity.hex()));
+            vars.insert("attempt", RecordId::new("native_attempt", native.attempt().hex()));
+            let incoming: Vec<RecordId> = reader.query_native(
+                "SELECT VALUE owner FROM native_hold WITH INDEX object_holds WHERE object=$view", vars.clone(),
+            ).await?;
+            let [partial] = incoming.as_slice() else {
+                return Err(ModelError::Conflict("forged view exact partial owner"));
+            };
+            if partial.table.as_str() != "compiler_view_realization" {
+                return Err(ModelError::Conflict("forged view partial owner family"));
+            }
+            vars.insert("root", partial.clone());
+            let sealed: Vec<bool> = reader.query_native(
+                "SELECT VALUE sealed FROM $root", vars.clone(),
+            ).await?;
+            let held: Vec<RecordId> = reader.query_native(
+                "SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt AND object=$root", vars,
+            ).await?;
+            if sealed != [false] || held.len() != 1 {
+                return Err(ModelError::Conflict("forged view partial root not owned and unsealed"));
+            }
+            forged_retirement_root = Some(partial.clone());
             Ok::<_, ModelError>((views, members, edges, expected, eligibility, refusal, remembered))
         }.await;
         let mut completion = d::completion::Completion::default();
-        let abandoned = native.abandon().await;
+        let abandoned = async {
+            let original = result.as_ref().ok().and_then(|result| result.5.as_ref().err());
+            match native.abandon().await {
+                Ok(()) if original.is_some() => return Err(ModelError::Conflict(
+                    "batched view acknowledged refusal lost during finalization"
+                )),
+                Ok(()) => {},
+                Err(error) => {
+                    // An acknowledged installation refusal remains in the caller's
+                    // receipt after successful attempt/session finalization. Require
+                    // that exact cause in both operation projections; unrelated or
+                    // uncertain cleanup failures must still fail this control.
+                    let acknowledged = if let (Some(original), ModelError::Completion(outcome)) =
+                        (original, &error)
+                    {
+                        matches!(original, ModelError::SharedCause(expected)
+                            if matches!(expected.as_ref(), ModelError::Conflict(
+                                "completed root actual distinct membership count"
+                            )))
+                            && outcome.primary.is_none()
+                            && outcome.completion.local == d::completion::LocalState::Terminal
+                            && outcome.completion.remote == d::completion::RemoteState::Confirmed
+                            && outcome.completion.storage.is_empty()
+                            && outcome.completion.committed.is_empty()
+                            && outcome.completion.failures.iter().map(|failure| failure.step).eq([
+                                "install exact predecessor view",
+                                "exact installed view batch acquisition",
+                            ])
+                            && outcome.completion.failures.iter().all(|failure| {
+                                matches!((&failure.error, original),
+                                    (ModelError::SharedCause(actual), ModelError::SharedCause(expected))
+                                        if Arc::ptr_eq(actual, expected))
+                            })
+                    } else {
+                        false
+                    };
+                    if !acknowledged {
+                        return Err(error);
+                    }
+                }
+            }
+            // Observe the actual attempt through the independent test session;
+            // a confirmed operation refusal alone is not a close acknowledgement.
+            let mut vars = Variables::new();
+            vars.insert("attempt", RecordId::new("native_attempt", native.attempt().hex()));
+            let states: Vec<String> = reader.query_native(
+                "SELECT VALUE state FROM $attempt", vars,
+            ).await?;
+            if states != ["abandoned"] {
+                return Err(ModelError::Conflict("batched view attempt not abandoned"));
+            }
+            Ok(())
+        }.await;
         let can_retire = abandoned.is_ok();
         completion.step("batched view attempt finalization", abandoned);
         if let Some(id) = forged_id {
             if can_retire {
                 let retired = async {
-                    let mut progress = crate::control::retire_reachable(&client, vec![id.clone()], 4096).await?;
+                    let root = forged_retirement_root.as_ref()
+                        .ok_or(ModelError::Conflict("forged view missing authenticated partial root"))?;
+                    // Retire the captured partial owner first. Its outgoing hold
+                    // release nominates the canonical view without mistaking the
+                    // still-owned child for an independently releasable root.
+                    let mut progress = crate::control::retire_reachable(&client, vec![root.clone()], 4096).await?;
                     // Newly nominated child IDs can precede this advancement's keyset
                     // cursor. Finish the exact invocation before checking its cleanup.
                     let required = serde_json::to_string(&id).map_err(ModelError::codec)?;
@@ -8783,16 +8977,20 @@ mod compiler_scope_tests {
                     }
                     let mut vars = Variables::new();
                     vars.insert("view", id.clone());
+                    vars.insert("root", root.clone());
                     let view: Vec<RecordId> = reader.query_native(
                         "SELECT VALUE id FROM $view", vars.clone(),
+                    ).await?;
+                    let partial: Vec<RecordId> = reader.query_native(
+                        "SELECT VALUE id FROM $root", vars.clone(),
                     ).await?;
                     let members:Vec<RecordId>=reader.query_native(
                         "SELECT VALUE object FROM native_hold WITH INDEX owner_holds WHERE owner=$view AND record::table(object)='compiler_view_member'",vars.clone(),
                     ).await?;
                     let holds: Vec<RecordId> = reader.query_native(
-                        "SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$view", vars,
+                        "SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner IN [$view,$root]", vars,
                     ).await?;
-                    if !view.is_empty() || !members.is_empty() || !holds.is_empty() {
+                    if !view.is_empty() || !partial.is_empty() || !members.is_empty() || !holds.is_empty() {
                         return Err(ModelError::Conflict("forged view cleanup remains reachable"));
                     }
                     Ok(())
@@ -8819,7 +9017,7 @@ mod compiler_scope_tests {
         );
         assert_eq!(
             edges, expected,
-            "both ownership edge kinds and the exact prerequisite chain are retained"
+            "exact attempt, completion, realization, canonical and prerequisite ownership chains are retained"
         );
         assert!(
             eligibility.iter().all(|item| !item.eligible
@@ -8830,8 +9028,8 @@ mod compiler_scope_tests {
             "contributors and their source view remain protected"
         );
         assert!(matches!(
-            refusal,
-            Err(ModelError::Conflict("exact view cardinality"))
+            refusal.as_ref().err().and_then(ModelError::primary),
+            Some(ModelError::Conflict("completed root actual distinct membership count"))
         ));
         assert!(
             !remembered,

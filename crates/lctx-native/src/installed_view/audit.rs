@@ -29,11 +29,15 @@ pub struct InstallationAudit {
     client: std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
     pin: std::sync::Arc<crate::control::ReaderPin>,
     contributors: BTreeMap<RecordId, (i64, Value)>,
+    logical_contributors: BTreeMap<RecordId, LogicalContributorRows>,
+    aliases: Option<ScopedAliasRows>,
     blobs: BTreeMap<RecordId, i64>,
     budget: ResourceBudget,
     charge: StateCharge,
     blob_observations: u64,
     contribution_observations: u64,
+    logical_contribution_observations: u64,
+    alias_observations: u64,
     closed: bool,
 }
 impl InstallationAudit {
@@ -45,11 +49,15 @@ impl InstallationAudit {
             pin: crate::control::ReaderPin::acquire(client.clone(), &[]).await?,
             client,
             contributors: BTreeMap::new(),
+            logical_contributors: BTreeMap::new(),
+            aliases: None,
             blobs: BTreeMap::new(),
             budget: budget.clone(),
             charge: StateCharge::new(budget, "installation audit retained observations"),
             blob_observations: 0,
             contribution_observations: 0,
+            logical_contribution_observations: 0,
+            alias_observations: 0,
             closed: false,
         })
     }
@@ -79,6 +87,25 @@ impl InstallationAudit {
     pub fn observations(&self) -> (u64, u64) {
         (self.contribution_observations, self.blob_observations)
     }
+    /// Full contributor normalization preparations, independent of root hashes.
+    pub fn logical_contribution_observations(&self) -> u64 {
+        self.logical_contribution_observations
+    }
+    pub fn alias_observations(&self) -> u64 {
+        self.alias_observations
+    }
+}
+struct LogicalContributorRows {
+    contribution: crate::ordered_rows::PreparedRows,
+    memberships: crate::ordered_rows::PreparedRows,
+    backing: crate::ordered_rows::PreparedRows,
+}
+struct ScopedAliasRows {
+    // Ordered exact physical contributors and positive incarnations. Full native
+    // rows remain independently retained by InstallationAudit::contributors.
+    owners: Vec<(ContentHash, i64)>,
+    rows: crate::ordered_rows::PreparedRows,
+    _charge: StateCharge,
 }
 impl Drop for InstallationAudit {
     fn drop(&mut self) {
@@ -95,6 +122,35 @@ pub(crate) struct InspectedClosure {
     pub(crate) contributors: BTreeMap<ContentHash, ExpectedRecord>,
     pub(crate) mappings: Vec<ContributorRealization>,
     _charge: StateCharge,
+}
+/// Heap admission for a retained typed contribution, independently of any
+/// ExpectedRecord native row or temporary descriptor serialization.
+fn contribution_heap(value: &CompletedContribution) -> usize {
+    use d::HeapSize;
+    value
+        .spec
+        .producer
+        .capacity()
+        .saturating_add(value.spec.inputs.heap_bytes())
+        .saturating_add(value.spec.outputs.heap_bytes())
+        .saturating_add(
+            value
+                .spec
+                .captured_binding
+                .as_ref()
+                .map_or(0, |binding| binding.heap_bytes()),
+        )
+        .saturating_add(
+            value
+                .outputs
+                .iter()
+                .map(|(name, _)| {
+                    std::mem::size_of::<(String, d::completed::OutputContent)>()
+                        + 32
+                        + name.capacity()
+                })
+                .fold(0, usize::saturating_add),
+        )
 }
 pub(crate) fn descriptor<T: serde::de::DeserializeOwned>(row: &Value) -> Result<T, ModelError> {
     let Some(Value::Bytes(bytes)) = row.as_object().and_then(|row| row.get("descriptor")) else {
@@ -244,39 +300,12 @@ pub(crate) async fn inspect_closure(
     mappings: &[ContributorRealization],
     budget: &ResourceBudget,
 ) -> Result<InspectedClosure, ModelError> {
-    use d::HeapSize;
     fn view_heap(view: &CompletedView) -> usize {
         view.relation.capacity().saturating_add(
             view.contributions
                 .len()
                 .saturating_mul(std::mem::size_of::<ContentHash>() + 32),
         )
-    }
-    fn contribution_heap(value: &CompletedContribution) -> usize {
-        value
-            .spec
-            .producer
-            .capacity()
-            .saturating_add(value.spec.inputs.heap_bytes())
-            .saturating_add(value.spec.outputs.heap_bytes())
-            .saturating_add(
-                value
-                    .spec
-                    .captured_binding
-                    .as_ref()
-                    .map_or(0, |binding| binding.heap_bytes()),
-            )
-            .saturating_add(
-                value
-                    .outputs
-                    .iter()
-                    .map(|(name, _)| {
-                        std::mem::size_of::<(String, d::completed::OutputContent)>()
-                            + 32
-                            + name.capacity()
-                    })
-                    .fold(0, usize::saturating_add),
-            )
     }
     fn pending_capacity(count: usize) -> Result<usize, ModelError> {
         count
@@ -1355,6 +1384,21 @@ mod tests {
             assert!(format!("{failed:?}").contains("late independent membership audit control"),"{failed:?}");
             assert_eq!(audit.observations(),(0,0),"valid provisional membership never becomes a complete observation before its physical terminal");
             audit_memberships_scoped(&reader,&closure,&budget,&mut audit).await.unwrap();assert_eq!(audit.observations(),(1,0));
+            let aliases = audit_aliases_scoped(&reader, &closure, &budget, &mut audit).await.unwrap();
+            let cold_aliases = audit_aliases(&reader, &closure, &budget).await.unwrap();
+            let cold = logical_roots(&reader, &closure, &[], &cold_aliases, &budget).await.unwrap();
+            let failed = LATE_MEMBERSHIP_FAILURE.scope(true,
+                logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &mut audit),
+            ).await.unwrap_err();
+            assert!(format!("{failed:?}").contains("late logical contributor fragment control"), "{failed:?}");
+            assert_eq!(audit.logical_contribution_observations(), 0);
+            assert!(audit.logical_contributors.is_empty(), "provisional normalized rows cannot publish a fragment before terminal success");
+            assert_eq!(logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &mut audit).await.unwrap(), cold);
+            assert_eq!(logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &mut audit).await.unwrap(), cold);
+            assert_eq!(audit.logical_contribution_observations(), 1, "one exact physical contributor is prepared once within its pin");
+            let reused = audit_aliases_scoped(&reader, &closure, &budget, &mut audit).await.unwrap();
+            assert_eq!(logical_roots_scoped(&reader, &closure, &[], &reused, &budget, &mut audit).await.unwrap(), cold);
+            assert_eq!(audit.alias_observations(), 1);
         }).catch_unwind().await;
         let mut cleanup = d::completion::Completion::default();
         cleanup.step("terminal audit reader close", reader.close().await);
@@ -1681,6 +1725,49 @@ mod tests {
 
 /// Only alias rows owned by the supplied completed contributor set are closure
 /// authority. Global aliases with the same source are intentionally never queried.
+pub(crate) async fn audit_aliases_scoped(
+    reader: &NativeReader<()>,
+    closure: &InspectedClosure,
+    budget: &ResourceBudget,
+    audit: &mut InstallationAudit,
+) -> Result<crate::ordered_rows::PreparedRows, ModelError> {
+    audit.check(reader, budget)?;
+    let mut charge = StateCharge::new(budget, "installed alias exact contributor set");
+    charge.grow(closure.contributors.len().saturating_mul(std::mem::size_of::<(ContentHash, i64)>())
+        .saturating_add(std::mem::size_of::<ScopedAliasRows>()))?;
+    let mut owners = Vec::with_capacity(closure.contributors.len());
+    for (physical, expected) in &closure.contributors {
+        let (incarnation, row) = audit.contributors.get(expected.record())
+            .ok_or(ModelError::Conflict("alias reuse requires complete protected contributor audit"))?;
+        if *incarnation != expected.incarnation() || row != expected.row() {
+            return Err(ModelError::Conflict("alias exact contributor premise changed"));
+        }
+        owners.push((*physical, *incarnation));
+    }
+    if let Some(previous) = &audit.aliases {
+        if previous.owners == owners {
+            // inspect_closure and audit_memberships_scoped supplied current full
+            // native rows for every selected physical owner. Exact set equality,
+            // rather than a subset or digest, preserves whole-set reachability.
+            return Ok(previous.rows.clone());
+        }
+    }
+    let rows = audit_aliases(reader, closure, budget).await?;
+    // Publish only after both streams, all alias/backing checks, and whole-set
+    // reachability succeeded, with every pinned immutable owner still exact.
+    for expected in closure.contributors.values() {
+        let current = crate::control::inspect_expected_read(reader, expected.record().clone(), budget).await?
+            .ok_or(ModelError::Conflict("alias protected contributor missing"))?;
+        if current.incarnation() != expected.incarnation() || current.row() != expected.row() {
+            return Err(ModelError::Conflict("alias protected contributor changed"));
+        }
+    }
+    audit.check(reader, budget)?;
+    audit.aliases = Some(ScopedAliasRows { owners, rows: rows.clone(), _charge: charge });
+    audit.alias_observations += 1;
+    Ok(rows)
+}
+
 pub(crate) async fn audit_aliases(
     reader: &NativeReader<()>,
     closure: &InspectedClosure,
@@ -1935,12 +2022,104 @@ pub(crate) async fn logical_roots(
     .await
 }
 
+/// Reuse only normalized row fragments beneath this operation's exact protected
+/// contributors. Every root still merges and hashes its own six complete families.
+pub(crate) async fn logical_roots_scoped(
+    reader: &NativeReader<()>,
+    closure: &InspectedClosure,
+    bindings: &[d::completed::CompletedBinding],
+    aliases: &crate::ordered_rows::PreparedRows,
+    budget: &ResourceBudget,
+    audit: &mut InstallationAudit,
+) -> Result<d::completed_identity::CompletedFamilyRoots, ModelError> {
+    audit.check(reader, budget)?;
+    logical_roots_many_inner(reader, std::slice::from_ref(closure), bindings, aliases, budget, Some(audit)).await
+}
+
+async fn prepare_logical_contributor(
+    reader: &NativeReader<()>,
+    expected: &ExpectedRecord,
+    owners: &BTreeMap<RecordId, CompletedContribution>,
+    budget: &ResourceBudget,
+) -> Result<LogicalContributorRows, ModelError> {
+    use crate::ordered_rows::SortedRows;
+    use d::completion::{Completion, complete};
+    let mut contribution = SortedRows::with_budget_and_row_bytes(budget, d::resources::MAX_ROW_BYTES)?;
+    let mut memberships = SortedRows::with_budget_and_row_bytes(budget, d::resources::MAX_ROW_BYTES)?;
+    let mut backing = SortedRows::with_budget_and_row_bytes(budget, d::resources::MAX_ROW_BYTES)?;
+    let mut backing_ids = SortedRows::with_budget(budget)?;
+    {
+        let _decode = budget.reserve("logical contributor fragment normalization",
+            crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(65536))?;
+        validate_state_row("compiler_contribution", expected.row())?;
+        contribution.push(crate::completed_logical_rows::normalize("compiler_contribution", expected.row(), owners)?)?;
+    }
+    let mut variables = Variables::new();
+    variables.insert("owner", expected.record().clone());
+    let statements = vec!["SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner".into()];
+    #[cfg(test)]
+    let statements = {
+        let mut statements = statements;
+        if LATE_MEMBERSHIP_FAILURE.try_with(|enabled| *enabled).unwrap_or(false) {
+            statements.push("THROW 'late logical contributor fragment control'".into());
+        }
+        statements
+    };
+    let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(variables, vec![], statements)?)?;
+    let result = async {
+        while let Some(row) = rows.next().await? {
+            validate_state_row("compiler_membership", &row)?;
+            if row.as_object().and_then(|row| row.get("contribution")) != Some(&Value::RecordId(expected.record().clone())) {
+                return Err(ModelError::Conflict("logical fragment foreign physical membership"));
+            }
+            memberships.push(crate::completed_logical_rows::normalize("compiler_membership", &row, owners)?)?;
+            let Some(Value::RecordId(node)) = row.as_object().and_then(|row| row.get("node")) else {
+                return Err(ModelError::Schema("logical backing member node"));
+            };
+            if node.table.as_str() == "compiler_record" {
+                let mut pointer = surrealdb::types::Object::new();
+                pointer.insert("id", node.clone());
+                backing_ids.push(Value::Object(pointer))?;
+            }
+        }
+        Ok::<_, ModelError>(())
+    }.await;
+    let mut terminal = Completion::default();
+    terminal.step("installed logical fragment membership drainage", rows.drain_transport().await);
+    complete(result, terminal)?;
+    let mut backing_ids = backing_ids.finish()?;
+    while let Some(pointer) = backing_ids.next_row()? {
+        let Some(Value::RecordId(id)) = pointer.as_object().and_then(|row| row.get("id")) else {
+            return Err(ModelError::Schema("logical backing identity"));
+        };
+        let actual = crate::control::inspect_expected_read(reader, id.clone(), budget).await?
+            .ok_or(ModelError::Conflict("logical backing missing"))?;
+        validate_state_row("compiler_record", actual.row())?;
+        backing.push(crate::completed_logical_rows::normalize("compiler_record", actual.row(), owners)?)?;
+    }
+    Ok(LogicalContributorRows {
+        contribution: contribution.finish()?.into_prepared(),
+        memberships: memberships.finish()?.into_prepared(),
+        backing: backing.finish()?.into_prepared(),
+    })
+}
+
 pub(crate) async fn logical_roots_many(
     reader: &NativeReader<()>,
     closures: &[InspectedClosure],
     bindings: &[d::completed::CompletedBinding],
     aliases: &crate::ordered_rows::PreparedRows,
     budget: &ResourceBudget,
+) -> Result<d::completed_identity::CompletedFamilyRoots, ModelError> {
+    logical_roots_many_inner(reader, closures, bindings, aliases, budget, None).await
+}
+async fn logical_roots_many_inner(
+    reader: &NativeReader<()>,
+    closures: &[InspectedClosure],
+    bindings: &[d::completed::CompletedBinding],
+    aliases: &crate::ordered_rows::PreparedRows,
+    budget: &ResourceBudget,
+    mut audit: Option<&mut InstallationAudit>,
 ) -> Result<d::completed_identity::CompletedFamilyRoots, ModelError> {
     use crate::ordered_rows::SortedRows;
     use d::{
@@ -1963,16 +2142,17 @@ pub(crate) async fn logical_roots_many(
                     ));
                 }
             } else {
-                // Sizing serializes a temporary copy. Admit it before allocation;
-                // ExpectedRecord independently owns the original native-row charge.
-                let _sizing = budget.reserve(
-                    "installed normalization owner descriptor sizing",
-                    crate::loader::native_bytes(expected.row())
-                        .saturating_mul(32)
-                        .saturating_add(65536),
+                // This map retains typed clones, not serialized descriptors. Reuse
+                // the closure's typed heap admission before cloning; ExpectedRecord
+                // independently retains and charges the original native row. Its
+                // key is the inspected compiler_contribution record's 64-hex ID.
+                owner_charge.grow(
+                    std::mem::size_of::<(RecordId, CompletedContribution)>()
+                        .saturating_add(32)
+                        .saturating_add(expected.record().table.as_str().len())
+                        .saturating_add(64)
+                        .saturating_add(contribution_heap(descriptor)),
                 )?;
-                let encoded = serde_json::to_vec(descriptor).map_err(ModelError::codec)?;
-                owner_charge.grow(encoded.len().saturating_mul(16).saturating_add(1024))?;
                 owners.insert(expected.record().clone(), descriptor.clone());
             }
         }
@@ -1985,6 +2165,44 @@ pub(crate) async fn logical_roots_many(
     for closure in closures {
         for mapping in &closure.mappings {
             let expected = &closure.contributors[&mapping.physical];
+            if let Some(audit) = audit.as_deref_mut() {
+                audit.check(reader, budget)?;
+                let (incarnation, row) = audit.contributors.get(expected.record())
+                    .ok_or(ModelError::Conflict("logical fragment requires complete protected contributor audit"))?;
+                if *incarnation != expected.incarnation() || row != expected.row() {
+                    return Err(ModelError::Conflict("logical fragment exact contributor premise changed"));
+                }
+                if !audit.logical_contributors.contains_key(expected.record()) {
+                    let prepared = prepare_logical_contributor(reader, expected, &owners, budget).await?;
+                    let current = crate::control::inspect_expected_read(reader, expected.record().clone(), budget).await?
+                        .ok_or(ModelError::Conflict("logical fragment protected contributor missing"))?;
+                    if current.incarnation() != expected.incarnation() || current.row() != expected.row() {
+                        return Err(ModelError::Conflict("logical fragment protected contributor changed"));
+                    }
+                    audit.check(reader, budget)?;
+                    // The pinned std BTreeMap allocates eleven inline key/value
+                    // slots even for a singleton leaf. Admit a full worst-case
+                    // internal node per entry: every nonempty node has at least
+                    // one key, so allocated nodes never exceed retained entries.
+                    // Twelve edges plus header/alignment slack also cover splits;
+                    // PreparedRows payloads keep their own independent charges.
+                    audit.charge.grow(std::mem::size_of::<(RecordId, LogicalContributorRows)>()
+                        .saturating_mul(11)
+                        .saturating_add(std::mem::size_of::<usize>().saturating_mul(12))
+                        .saturating_add(256)
+                        .saturating_add(crate::selection::node_bytes(expected.record())))?;
+                    audit.logical_contributors.insert(expected.record().clone(), prepared);
+                    audit.logical_contribution_observations += 1;
+                }
+                let prepared = &audit.logical_contributors[expected.record()];
+                for (family, fragment) in [(0, &prepared.contribution), (1, &prepared.memberships), (3, &prepared.backing)] {
+                    let mut cursor = fragment.cursor_with_budget(budget)?;
+                    while let Some(row) = cursor.next_row()? {
+                        families[family].push(row)?;
+                    }
+                }
+                continue;
+            }
             families[0].push(crate::completed_logical_rows::normalize(
                 "compiler_contribution",
                 expected.row(),
@@ -2025,6 +2243,24 @@ pub(crate) async fn logical_roots_many(
     }
     for closure in closures {
         for view in closure.logical.views().values() {
+            if audit.is_some() {
+                // inspect_closure already independently read and physically decoded
+                // this exact native row, and RecoveryTraversal compared the full
+                // typed descriptor with the requested view. Logical lowering uses
+                // only that descriptor and its derived identity, never native extras.
+                // Admit serialization scratch before constructing its logical row.
+                let _decode = budget.reserve("logical validated view normalization",
+                    view.relation.len().saturating_mul(6)
+                        .saturating_add(view.contributions.len().saturating_mul(512))
+                        .saturating_add(65536))?;
+                let mut row = surrealdb::types::Object::new();
+                row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
+                row.insert("descriptor", surrealdb::types::Bytes::from(serde_json::to_vec(view).map_err(ModelError::codec)?));
+                families[2].push(crate::completed_logical_rows::normalize(
+                    "compiler_view", &Value::Object(row), &owners,
+                )?)?;
+                continue;
+            }
             let mut variables = Variables::new();
             variables.insert("view", RecordId::new("compiler_view", view.identity.hex()));
             let _read =

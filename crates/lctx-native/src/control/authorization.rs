@@ -630,7 +630,7 @@ async fn execute_owner(
     );
     coordination::preflight(&query, &bindings)?;
     coordination::preflight(&intent, &intent_bindings)?;
-    if let Err(error) = super::run_transaction(client, &intent, intent_bindings).await {
+    if let Err(error) = super::retry::transaction_named(client, &intent, intent_bindings, false, "intent").await {
         let mut completion = lctx_model::domain::completion::Completion::default();
         completion.step(
             "native intent reconciliation",
@@ -638,7 +638,7 @@ async fn execute_owner(
         );
         return lctx_model::domain::completion::complete(Err(request.error(error)), completion);
     }
-    let result = match super::run_transaction(client, &query, bindings).await {
+    let result = match super::retry::transaction_named(client, &query, bindings, false, "payload").await {
         Ok(()) => Ok(()),
         Err(error) => match reconcile_request(client, request).await {
             Ok(EffectDisposition::Committed) => Ok(()),
@@ -665,7 +665,7 @@ async fn execute_owner(
         let release_sql = format!(
             "BEGIN; {ERA_GUARD} fn::native_touch($effect); fn::native_touch($reference); DELETE $reference RETURN NONE; COMMIT;"
         );
-        if let Err(error) = super::run_recovery_transaction(client, &release_sql, release).await {
+        if let Err(error) = super::retry::transaction_named(client, &release_sql, release, true, "outcome_reference_release").await {
             let mut completion = lctx_model::domain::completion::Completion::default();
             completion.committed("native effect committed", request.operation.hex());
             return lctx_model::domain::completion::complete(Err(request.error(error)), completion);
