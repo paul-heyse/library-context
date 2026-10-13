@@ -288,9 +288,9 @@ fn reused(receipt: &Receipt) -> bool {
         .hit_log
         .contains("admitted compiled product attached")
 }
-/// Observe the actual attachment event for each operation, rather than allowing an
-/// unrelated package or normalization hit to stand in for compact-owner reuse.
-async fn compact_reuse(receipt: &Receipt, expected_hits: bool) -> std::collections::BTreeMap<String, ContentHash> {
+/// Observe current compact completions and each operation's absence of attachment,
+/// independently of eligible package or normalization hits in the same compilation.
+async fn compact_completion_identities(receipt: &Receipt) -> std::collections::BTreeMap<String, ContentHash> {
     use lctx_model::domain::{analysis::owner::AnalysisOwner, uniform_outcome::UniformNotRequested};
     let expected = AnalysisOwner::ALL.into_iter().filter(|owner|owner.can_be_wholly_unrequested())
         .map(|owner|owner.name()).collect::<BTreeSet<_>>();
@@ -310,10 +310,8 @@ async fn compact_reuse(receipt: &Receipt, expected_hits: bool) -> std::collectio
         let attached = receipt.hit_log.lines().any(|line|line.contains("admitted compiled product attached")
             && line.split_whitespace().any(|field|field.strip_prefix("operation=")
                 .is_some_and(|name|name.trim_matches('"')==owner.name())));
-        // This is the expected Catalog contract, independent of the classifier under test.
-        let rows_reuse = owner != AnalysisOwner::Embedding;
-        assert_eq!(attached, expected_hits && rows_reuse,
-            "actual compact attachment for {} (Embedding retains its Fresh policy): {}", owner.name(), receipt.hit_log);
+        assert!(!attached,
+            "current unrequested compact metadata must be produced without attachment for {}: {}", owner.name(), receipt.hit_log);
     }
     identities
 }
@@ -463,18 +461,18 @@ async fn matrix(profile: Profile, frontier: Frontier) {
         "deleted declarations must not survive through retained products"
     );
     if profile == Profile::Catalog {
-        let original = compact_reuse(&off, false).await;
-        assert_eq!(compact_reuse(&cold, false).await, original);
-        assert_eq!(compact_reuse(&warm, true).await, original);
-        assert_eq!(compact_reuse(&reload, true).await, original);
-        let changed_owners = compact_reuse(&changed, false).await;
-        assert_eq!(compact_reuse(&changed_off, false).await, changed_owners);
+        let original = compact_completion_identities(&off).await;
+        assert_eq!(compact_completion_identities(&cold).await, original);
+        assert_eq!(compact_completion_identities(&warm).await, original);
+        assert_eq!(compact_completion_identities(&reload).await, original);
+        let changed_owners = compact_completion_identities(&changed).await;
+        assert_eq!(compact_completion_identities(&changed_off).await, changed_owners);
         for (name, identity) in &original {
             assert_ne!(changed_owners.get(name), Some(identity),
                 "changed actual input/domain cannot inherit {}'s previous compact completion", name);
         }
-        assert_eq!(compact_reuse(&deleted, true).await, original);
-        assert_eq!(compact_reuse(&deleted_off, false).await, original);
+        assert_eq!(compact_completion_identities(&deleted).await, original);
+        assert_eq!(compact_completion_identities(&deleted_off).await, original);
     }
     for receipt in [
         off,
@@ -517,4 +515,42 @@ async fn optional_analytic_preparation_cold_and_warm_preserve_exact_outputs() {
     for receipt in [cold, warm] {
         receipt.workspace.native().abandon().await.unwrap();
     }
+}
+
+#[test]
+fn known_uniform_metadata_is_fresh_without_changing_requested_rows_eligibility() {
+    let budget = resources::ResourceBudget::fixed(16 << 20).unwrap();
+    let catalog = models::Catalog::parse("external.toml",
+        include_str!("../../../lctx-model/models/external.toml")).unwrap();
+    let prepared = PreparedCompilation::new(Frontier::Catalog, settings(), &catalog, None, &budget).unwrap();
+    for owner in [UpperStage::Local, UpperStage::Base, UpperStage::Completion,
+        UpperStage::SourceCalls, UpperStage::Enriched, UpperStage::Models,
+        UpperStage::Summary, UpperStage::Embedding, UpperStage::Analytic] {
+        assert!(uniform::unrequested(owner, Profile::Catalog, &prepared));
+        assert!(matches!(owner.reuse(Effect::Pure, Profile::Catalog, &prepared), reuse::Eligibility::Fresh(_)),
+            "actual unrequested dispatch must not perform a reuse lookup for {owner:?}");
+    }
+    // No output cardinality enters this decision. Requested owners keep their existing
+    // Rows policy even if their actual computation later produces an empty relation.
+    for profile in [Profile::Catalog, Profile::Behavioral] {
+        for owner in [UpperStage::Text, UpperStage::CatalogCore, UpperStage::CatalogEvidence,
+            UpperStage::Structural, UpperStage::Selection, UpperStage::Synthesis, UpperStage::Retrieval] {
+            assert!(!uniform::unrequested(owner, profile, &prepared));
+            assert!(matches!(owner.reuse(Effect::Pure, profile, &prepared), reuse::Eligibility::Rows));
+        }
+    }
+    for owner in [UpperStage::Enriched, UpperStage::Models, UpperStage::Summary] {
+        assert!(!uniform::unrequested(owner, Profile::Behavioral, &prepared));
+        assert!(matches!(owner.reuse(Effect::Pure, Profile::Behavioral, &prepared), reuse::Eligibility::Rows));
+    }
+    for owner in [UpperStage::Local, UpperStage::Base, UpperStage::Completion, UpperStage::SourceCalls] {
+        assert!(!uniform::unrequested(owner, Profile::Behavioral, &prepared));
+        assert!(matches!(owner.reuse(Effect::Pure, Profile::Behavioral, &prepared), reuse::Eligibility::Fresh(_)),
+            "the existing private-kernel Fresh policy remains unchanged");
+    }
+    let mut requested = settings();
+    requested.pagerank = true;
+    let prepared = PreparedCompilation::new(Frontier::Catalog, requested, &catalog, None, &budget).unwrap();
+    assert!(!uniform::unrequested(UpperStage::Analytic, Profile::Catalog, &prepared));
+    assert!(matches!(UpperStage::Analytic.reuse(Effect::Pure, Profile::Catalog, &prepared), reuse::Eligibility::Rows));
 }

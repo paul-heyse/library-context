@@ -49,10 +49,15 @@ pub(crate) enum UpperStage {
     CatalogFrontier,
 }
 impl UpperStage {
-    fn reuse(self, effect: Effect, profile: Profile) -> reuse::Eligibility {
+    fn reuse(self, effect: Effect, profile: Profile, prepared: &PreparedCompilation) -> reuse::Eligibility {
         use reuse::Eligibility::*;
         if effect != Effect::Pure {
             return Fresh("external effects retain their existing owner");
+        }
+        // This owner only reconstructs compact metadata from the current selected inputs.
+        // Avoid lookup: a miss would arm independent retention for work cheaper to reproduce.
+        if uniform::unrequested(self, profile, prepared) {
+            return Fresh("unrequested uniform metadata is produced from current inputs");
         }
         match self {
             Self::Text | Self::CatalogCore | Self::CatalogEvidence | Self::Selection
@@ -804,7 +809,7 @@ async fn compile_driver(
             prepared.ok_or_else(|| ModelError::Invalid("missing upper configuration".into()))?;
         let phase = Phase::begin(declaration.name);
         let result = async {
-            let eligibility = binding.reuse(declaration.effect, profile);
+            let eligibility = binding.reuse(declaration.effect, profile, prepared);
             let hit = if eligibility.reason().is_none() { output.reuse_product().await? } else { None };
             tracing::debug!(operation = declaration.name, hit = hit.is_some(),
                 inputs = selected_dependencies.len(), reason = eligibility.reason(),
