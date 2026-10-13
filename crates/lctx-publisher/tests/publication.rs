@@ -1301,12 +1301,26 @@ async fn advance_source_cleanup<Context>(
     // have released their holder later in the first pass. Reach a useful fixed
     // point over only the invocations whose complete original roots we proved.
     let fixed_point_phase = lctx_native::phase::Phase::begin("cold_source_retirement_fixed_point");
+    charge.grow(checked_progress.len().saturating_mul(1024))?;
     loop {
         let mut changed = false;
         let mut retained = false;
-        for (identity, previous) in &mut checked_progress {
-            if previous.remaining.is_empty() && previous.retained.is_empty() { continue; }
-            let next = lctx_native::control::resume_retirement(reader.client(), *identity, 4096).await?;
+        let round = futures::future::join_all(checked_progress.iter()
+            .filter(|(_, progress)| !progress.remaining.is_empty() || !progress.retained.is_empty())
+            .map(|(identity, _)| async move {
+                (*identity, lctx_native::control::resume_retirement(reader.client(), *identity, 4096).await)
+            })).await;
+        let mut completion = completion::Completion::default();
+        for (identity, result) in round {
+            let next = match result {
+                Ok(next) => next,
+                Err(error) => {
+                    completion.step("cold source exact fixed-point job", Err(error));
+                    continue;
+                }
+            };
+            let (_, previous) = checked_progress.iter_mut().find(|(id, _)| *id == identity)
+                .expect("only prevalidated exact invocation IDs enter this round");
             changed |= next.retired > previous.retired
                 || next.remaining != previous.remaining || next.retained != previous.retained;
             retained |= !next.remaining.is_empty() || !next.retained.is_empty();
@@ -1314,6 +1328,7 @@ async fn advance_source_cleanup<Context>(
                 .map(|value| value.capacity().saturating_add(128)).sum::<usize>().saturating_add(512))?;
             *previous = next;
         }
+        completion::complete(Ok(()), completion)?;
         if !retained { break; }
         if !changed {
             if checked_progress.iter().any(|(_, progress)| !progress.remaining.is_empty()) {

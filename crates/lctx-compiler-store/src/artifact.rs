@@ -1064,6 +1064,16 @@ impl RestoredAdmission {
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
+    pub async fn entities(
+        &self,
+    ) -> Result<futures::stream::BoxStream<'static, Result<Entity, ModelError>>, ModelError> {
+        crate::native_canonical::entities(self.workspace.clone()).await
+    }
+    pub async fn assertions(
+        &self,
+    ) -> Result<futures::stream::BoxStream<'static, Result<Assertion, ModelError>>, ModelError> {
+        crate::native_canonical::assertions(self.workspace.clone()).await
+    }
 }
 
 /// Admit a detached native realization against its exact restored completed bindings.

@@ -1290,6 +1290,7 @@ pub(crate) async fn restore(
                 let publication =
                     Publication::new(Admission::Restored(&admitted), config, definitions).await?;
                 let result = async {
+                    publication.materialize_references().await?;
                     publication.materialize_search().await?;
                     compare_derived_claims(&dump, &prepared, publication.loader(), &budget).await?;
                     publication.seal(config, definitions).await
@@ -1439,6 +1440,11 @@ async fn compare_derived_claims(
                 )?,
             ),
         ] {
+            let phase = lctx_native::phase::Phase::begin(if tables.contains(&"participant") {
+                "restore_graph_claim_comparison"
+            } else {
+                "restore_search_claim_comparison"
+            });
             let mut claimed = lctx_native::ordered_rows::SortedRows::with_budget(budget)?;
             for table in tables {
                 for row in dump.rows(table)? {
@@ -1449,7 +1455,9 @@ async fn compare_derived_claims(
                 }
             }
             let mut actual = actual;
-            claimed.finish()?.reconcile(&mut actual).await?;
+            let compared = claimed.finish()?.reconcile(&mut actual).await;
+            phase.finish_result(&compared);
+            compared?;
         }
         Ok(())
     }

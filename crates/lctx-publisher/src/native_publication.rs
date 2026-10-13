@@ -11,6 +11,7 @@ use lctx_model::domain::{
 };
 use lctx_native::{Loader, NativeReader, RuntimeConfig, phase::Phase};
 use std::sync::Arc;
+use futures::TryStreamExt;
 
 /// Only semantic admission owners can enter the private publication workflow.
 pub(crate) enum Admission<'a> {
@@ -19,6 +20,20 @@ pub(crate) enum Admission<'a> {
     Restored(&'a RestoredAdmission),
 }
 impl Admission<'_> {
+    async fn entities(&self) -> Result<futures::stream::BoxStream<'static, Result<Entity, ModelError>>, ModelError> {
+        match self {
+            Self::Completed(owner) => owner.entities().await,
+            Self::Export(owner) => owner.native_entities().await,
+            Self::Restored(owner) => owner.entities().await,
+        }
+    }
+    async fn assertions(&self) -> Result<futures::stream::BoxStream<'static, Result<Assertion, ModelError>>, ModelError> {
+        match self {
+            Self::Completed(owner) => owner.assertions().await,
+            Self::Export(owner) => owner.native_assertions().await,
+            Self::Restored(owner) => owner.assertions().await,
+        }
+    }
     fn native(&self) -> &Arc<NativeCompilerStore> {
         match self {
             Self::Completed(owner) => owner.native(),
@@ -214,6 +229,37 @@ impl<'a> Publication<'a> {
             .begin_derived_operation("publication assertion references")?;
         let result = self.loader.assertion_references(assertions).await;
         lease.finish_with(result)
+    }
+
+    /// Every admitted entry point regenerates roles from actual canonical content.
+    /// Backup claims are independently compared later, never loaded as authority.
+    pub(crate) async fn materialize_references(&self) -> Result<(), ModelError> {
+        let phase = Phase::begin("publication_references");
+        let result = async {
+            let mut entities = Vec::new();
+            let mut rows = self.admission.entities().await?;
+            while let Some(row) = rows.try_next().await? {
+                entities.push(row);
+                if entities.len() >= 128 {
+                    self.entity_references(&entities).await?;
+                    entities.clear();
+                }
+            }
+            self.entity_references(&entities).await?;
+            let mut assertions = Vec::new();
+            let mut rows = self.admission.assertions().await?;
+            while let Some(row) = rows.try_next().await? {
+                assertions.push(row);
+                if assertions.len() >= 128 {
+                    self.assertion_references(&assertions).await?;
+                    assertions.clear();
+                }
+            }
+            self.assertion_references(&assertions).await?;
+            Ok::<(), ModelError>(())
+        }.await;
+        phase.finish_result(&result);
+        result
     }
 
     pub(crate) async fn materialize_search(&self) -> Result<(), ModelError> {

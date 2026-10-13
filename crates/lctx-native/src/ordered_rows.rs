@@ -1616,10 +1616,24 @@ impl OrderedRows {
             loop {
                 match (self.next_row()?, actual.next().await?) {
                     (None, None) => return Ok(()),
-                    (Some(expected), Some(actual))
-                        if serde_json::to_vec(&expected).map_err(ModelError::codec)?
-                            == serde_json::to_vec(&actual).map_err(ModelError::codec)? => {}
-                    _ => {
+                    (Some(expected), Some(actual)) => {
+                        let expected_bytes = serde_json::to_vec(&expected).map_err(ModelError::codec)?;
+                        let actual_bytes = serde_json::to_vec(&actual).map_err(ModelError::codec)?;
+                        if expected_bytes == actual_bytes { continue; }
+                        let id = |row: &Value| match row {
+                            Value::Object(object) => object.get("id").cloned(),
+                            _ => None,
+                        };
+                        tracing::warn!(target: "lctx_phase",
+                            expected_id = ?id(&expected), actual_id = ?id(&actual),
+                            expected_digest = %lctx_model::domain::ContentHash::of(&expected_bytes).hex(),
+                            actual_digest = %lctx_model::domain::ContentHash::of(&actual_bytes).hex(),
+                            "ordered native comparison row mismatch");
+                        return Err(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt));
+                    }
+                    (expected, actual) => {
+                        tracing::warn!(target: "lctx_phase", expected_present = expected.is_some(),
+                            actual_present = actual.is_some(), "ordered native comparison length mismatch");
                         return Err(ModelError::Serving(
                             lctx_model::domain::serving::FailureKind::Corrupt,
                         ));

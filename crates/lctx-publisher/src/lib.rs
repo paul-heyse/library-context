@@ -1,6 +1,5 @@
 //! Publication consumes trusted verified compiler exports, without replaying producers.
 use lctx_compiler_store::artifact::VerifiedExport;
-use futures::TryStreamExt;
 use lctx_model::domain::{
     ModelError,
     completion::{Completion, RemoteState, StorageState, complete},
@@ -75,33 +74,7 @@ pub async fn publish(
     };
     let result = async {
         if publication.is_unchanged(){return publication.seal(config,native_definitions).await;}
-        let phase = lctx_native::phase::Phase::begin("publication_references");
-        let references = async {
-            let mut entities = Vec::new();
-            let mut rows = export.native_entities().await?;
-            while let Some(row) = rows.try_next().await? {
-                entities.push(row);
-                if entities.len() >= 128 {
-                    publication.entity_references(&entities).await?;
-                    entities.clear();
-                }
-            }
-            publication.entity_references(&entities).await?;
-            let mut assertions = Vec::new();
-            let mut rows = export.native_assertions().await?;
-            while let Some(row) = rows.try_next().await? {
-                assertions.push(row);
-                if assertions.len() >= 128 {
-                    publication.assertion_references(&assertions).await?;
-                    assertions.clear();
-                }
-            }
-            publication.assertion_references(&assertions).await?;
-            Ok::<(), ModelError>(())
-        }
-        .await;
-        phase.finish_result(&references);
-        references?;
+        publication.materialize_references().await?;
         publication.materialize_search().await?;
         publication.seal(config, native_definitions).await
     }
@@ -134,33 +107,7 @@ pub async fn seal_completed(
     };
     let result = async {
         if publication.is_unchanged(){return publication.seal(config,native_definitions).await;}
-        let phase = lctx_native::phase::Phase::begin("publication_references");
-        let references = async {
-            let mut entities = Vec::new();
-            let mut rows = artifact.entities().await?;
-            while let Some(row) = rows.try_next().await? {
-                entities.push(row);
-                if entities.len() >= 128 {
-                    publication.entity_references(&entities).await?;
-                    entities.clear();
-                }
-            }
-            publication.entity_references(&entities).await?;
-            let mut assertions = Vec::new();
-            let mut rows = artifact.assertions().await?;
-            while let Some(row) = rows.try_next().await? {
-                assertions.push(row);
-                if assertions.len() >= 128 {
-                    publication.assertion_references(&assertions).await?;
-                    assertions.clear();
-                }
-            }
-            publication.assertion_references(&assertions).await?;
-            Ok::<(), ModelError>(())
-        }
-        .await;
-        phase.finish_result(&references);
-        references?;
+        publication.materialize_references().await?;
         publication.materialize_search().await?;
         publication.seal(config, native_definitions).await
     }

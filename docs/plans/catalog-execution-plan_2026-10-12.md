@@ -296,8 +296,29 @@ Captured diagnostics show only canonical assertion/entity/anchor payloads still 
 helper incorrectly required a globally empty shared frontier. The reviewed correction permits a
 stable retained frontier only with no pending work, then keeps mandatory exact source publication,
 original/blob/chunk/contribution/member absence and old-publication refusal before either restore.
-This qualifies source ownership/originals cold with coexisting canonical payloads, not a globally
-empty graph. `f3b46c` is the focused rerun. No foreign holder is reclaimed, deadline/budget increased,
+This targets source ownership/originals cold with coexisting canonical payloads, not a globally
+empty graph. `f3b46c` proved exact source absence and reached two independent restored admissions,
+then timed out363.215s during publication completion. Parallel fixed-point rounds retain the same
+unique prevalidated IDs and drain every call before errors or another round. `28fb83` then failed
+291.496s with Corrupt after both restored admissions/search stages, before seal. Source review found
+a concrete restore omission: canonical payload imports did not regenerate general graph reference
+roles, while ordinary publication did. All three admitted publication variants now share that bounded
+canonical-stream regeneration before search and independent claim comparison. `7023de` passed
+strict source absence, both independent restored admissions, both regenerated reference phases and
+both full-row/EOF graph and search comparisons. It failed258.633s during terminal publication
+cleanup with `native cleanup nominated incarnation changed`; one unselected committed marker was
+retained before that failure. Final dual-owner/original-byte assertions remain unproven. The original
+Unknown attachment `29a12fc2-e727-41d3-b6f5-239af5bafc97` remains protected with local cleanup
+confirmed. Source review identifies full native-guard equality as an unnecessary nomination premise:
+the durable item consumes exact object/positive incarnation, while the exact incoming hold stays
+present until atomic nomination/release. Independent review supports checking the locked actual
+guard's active/not-retired state and captured incarnation, preserving exact cleanup/origin/owner/
+epoch/hold-page CAS, generic expectations, incidence and original-blob fencing. This correction and
+revealing same-incarnation/independent-holder and atomic refusal controls are in progress; the
+failing receipt alone does not identify which guard field changed or exclude ABA.
+The Corrupt primary/full-row/EOF checks remain, with narrow graph/search and ID/digest diagnostics.
+Diagnostic-only `501425` was cancelled before any body once source established the omission; it is
+neither a product pass nor a body failure. No foreign holder is reclaimed, deadline/budget increased,
 or exact source-absence assertion removed. No arbitrary/global root or new nomination is introduced.
 `8886ccca` removes the duplicate complete native-inventory output
 map, preserves whole-projection prevalidation and streams through bounded writers; compile and8
@@ -324,15 +345,39 @@ Independent review then found that cancelling final worker drainage could detach
 close; compile and7 pure controls passed (`690e7d18…`). Actual `d5b3e9` passed held cross-root reuse
 and exact-empty lifetime bodies, but its third tiny-consumer case refused before the intended
 membership preparation at first physical view earning. The fixture now explicitly earns that source
-with its unchanged256MiB owner before the unchanged4096-byte consumer; `ce95bf` reruns the original
-membership-refusal/zero-reservation/healthy-retry assertions. The failed enclosing fixture retains
-Unknown attachment `77f387e3-cec2-461a-8e12-ef53569d9fb1`; local cleanup was confirmed.
+with its unchanged256MiB owner before the unchanged4096-byte consumer. `ce95bf` still refused at
+the mandatory8192-byte borrowed-current observation, before membership preparation. The honest
+renamed public control keeps4096/32MiB bounds, exact Resource classification, zero reservation and
+healthy exact retry/finality. `79b835` exposed a production defect: the nested cached-view read lease
+poisoned native authority for that confirmed local refusal. `9db0dffc` retains the actual cached Arc
+under the admitted lease, observes/closes that exact borrowed source, and exempts only bare or
+SharedCause-wrapped Resource. Fresh earning, mutations, Conflict/Cause/Completion/Unknown and
+cancelled leases remain strict. Compile, pure lease matrix `457a0c` and actual renamed control
+`089b5c` passed with enclosing exit0/confirmed local cleanup. This is cached-current Resource/no-
+poison evidence, not native membership-sorter failure qualification. Original failed attachments
+`77f387e3-cec2-461a-8e12-ef53569d9fb1`, `ac235689-7985-45a6-aae5-2f7b79a86500` and
+`6edb6dd1-8016-41ad-8e73-ae2972dc92cb` remain protected; their local processes drained.
 Reference validation's vacuous-query demand is separately being reduced only for internally earned
 native empties or actual captured empty batches; external self-consistent metadata must never bypass
 real table validation. Actual registered native providers now qualify an exact private reference
 snapshot; finite/unrecognized tables execute real SQL without native-reference memo reuse. Actual
-provider control `34eb13` and pure countercontrols are pending. Neither correction is asserted as
-the Catalog timeout's dominant cause.
+provider control `ed595a` passed with enclosing exit0/cleanup, alongside4 pure controls
+(`5d8f61fd…`), after correcting test-only invalid zero-contributor metadata and explicit catalog
+replacement/borrowed-test-owner drainage. Original `34eb13` Unknown attachment
+`84c7acd5-6590-4209-af26-b0e91d87f973` remains protected. `7983fd7e` is source-accepted.
+Catalog `791c07` progressed through normalization/admission, analysis inventory and source-call
+preparation into Catalog evidence, then timed out370.033s; its original Unknown attachment is
+`27d2d3f5-aa95-4f98-8645-3e00df9394fd`. This does not close final admission/publication/query
+acceptance or establish a speed ratio. A source-led follow-up found exact singleton/cumulative
+view declarations repeated before mapping/hold effects; `6d65c20c` validates every full descriptor
+and collision before effects, then maps/declares/holds each unique exact view once. Compile and2
+pure controls passed (`a9661ac0…`); current Catalog composition remains required. CU02 follow-up
+found that its position/gather primitive had not migrated Evidence/Selection/Synthesis rich union
+copies, ScopeIndex compact copies, or LocalSemantics' deliberately merged input ports. They are now
+being migrated to borrowed ordered keys and nominal point lookup, preserving charged owned builder
+data and each port policy. Buffered per-row pushes are not per-row database effects. Serial final-
+writer acknowledgements are a separate ownership lead, not an established timeout cause; cancellable
+worker drainage remains protected.
 
 Independent implementation review found selector-crossing alias witnesses, partially committed
 receiving attachment, and abandoned retained-boundary pin release. Corrections are source-reviewed:
@@ -351,7 +396,7 @@ asserted timeout cause.
 | catalog#F03 | Implemented primitives; remaining consumer migration/source review and actual controls in progress; CP03/CP04 | Transport/retained-selector/held-alias set demand now windows (`ae14125d`, `c3eceeb8`); operation-registry first-miss preparation and retry accounting remain under correction; exact correspondence/CAS/finality required |
 | catalog#F04 | Directed selection implemented; 25 pure controls passed2026-10-13; cross-boundary equivalence and enclosing native acceptance open; CP03/CP04 | Prepared directed frontier, composed exact aliases, unreachable-source refusal, spill and safe reuse |
 | catalog#F05 | Implemented/source-reviewed; backup reached; cold restoration open at closeout; CU01 | Demanded typed metadata, one combined original/payload pass, complete EOF/conflict checks, independently supplied receipt and fresh restoration |
-| catalog#F06 | Closed at source/focused-Tested strength2026-10-13; CU02 | Exact input-port position/gather controls passed, duplicate physical rows and source order preserved, independent compact/spill checker topology unchanged |
+| catalog#F06 | Position/gather primitive focused-Tested; actual rich-consumer migration in progress2026-10-13; CU02 | Borrowed ordered keys and nominal point lookup must replace rich union rescans in Evidence/Selection/Synthesis/ScopeIndex/LocalSemantics, preserving exact vs merged port policy, compact/spill topology and output semantics |
 | catalog#F07 | Implemented/source-reviewed; focused transport bodies passed, enclosing acceptance partial; CU03 | Direct unchanged v4 fold, opaque frozen/published preparation once, root-qualified exact copies and receiving semantic/eligibility admission |
 | catalog#F08 | Closed at source/focused-Tested strength2026-10-13; CU04 | Factory-checked recursively immutable Spec, one eager versioned Rust response; all11 pure adapter controls passed after native extension refresh |
 | lifecycle#F01 | Open, implementation/source evidence available; CP04/CE01 | Populated generated-analysis/admitted-publication/native-query assertions remain not_run |
