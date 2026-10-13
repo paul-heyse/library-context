@@ -76,6 +76,85 @@ pub fn inventory(
     }
     Ok(hash.finish())
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SelectedCopyRequest {
+    label: CopyLabel,
+    physical: ContentHash,
+    incarnation: i64,
+    logical: ContentHash,
+}
+fn selected_requests(
+    roots: &[(CompletedView, Vec<ContributorRealization>)],
+    budget: &d::resources::ResourceBudget,
+) -> Result<(Vec<SelectedCopyRequest>, BTreeMap<ContentHash, CopyLabel>, Vec<ContentHash>, StateCharge), ModelError> {
+    let mut copies: Vec<SelectedCopyRequest> = Vec::new();
+    let mut labels: BTreeMap<ContentHash, CopyLabel> = BTreeMap::new();
+    let mut views = std::collections::BTreeSet::new();
+    let mut charge = StateCharge::new(budget, "transport exact observation requests");
+    for (root, mappings) in roots {
+        root.validate()?;
+        for mapping in mappings {
+            let request = SelectedCopyRequest { label: labels.get(&mapping.physical).copied().unwrap_or(copies.len() as CopyLabel),
+                physical: mapping.physical, incarnation: mapping.incarnation, logical: mapping.logical };
+            if let Some(label) = labels.get(&mapping.physical) {
+                if copies[usize::try_from(*label).map_err(ModelError::codec)?] != request {
+                    return Err(ModelError::Conflict("transport selected physical mapping contradiction"));
+                }
+            } else {
+                charge.grow(std::mem::size_of::<SelectedCopyRequest>().saturating_add(256))?;
+                labels.insert(mapping.physical, copies.len() as CopyLabel);
+                copies.push(request);
+            }
+            if mapping.view != root.identity && !views.contains(&mapping.view) {
+                charge.grow(std::mem::size_of::<ContentHash>().saturating_add(128))?;
+                views.insert(mapping.view);
+            }
+        }
+    }
+    charge.grow(views.len().saturating_mul(std::mem::size_of::<ContentHash>()))?;
+    Ok((copies, labels, views.into_iter().collect(), charge))
+}
+async fn prepare_transport_copy(
+    reader: &NativeReader<()>,
+    request: SelectedCopyRequest,
+    expected: crate::control::ExpectedRecord,
+    include_memberships: bool,
+    audit: &InstallationAudit,
+    charge: &mut StateCharge,
+    budget: &d::resources::ResourceBudget,
+) -> Result<(TransportCopy, PreparedTransportCopy), ModelError> {
+    crate::completed_rows::validate_state_row("compiler_contribution", expected.row())?;
+    charge.grow(crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(2048))?;
+    let descriptor: CompletedContribution = crate::installed_view::audit::descriptor(expected.row())?;
+    if expected.incarnation() != request.incarnation || descriptor.identity()? != request.logical {
+        return Err(ModelError::Conflict("transport exact copy descriptor/incarnation"));
+    }
+    let mut members = SortedRows::with_budget(budget)?;
+    if include_memberships {
+        let owner = expected.record().clone();
+        let mut vars = Variables::new(); vars.insert("owner", owner.clone());
+        let mut stream = reader.stream_prepared(crate::prepared::PreparedQuery::new(vars, vec![], vec![
+            "SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner".into(),
+        ])?)?.with_row_bytes(d::resources::MAX_ROW_BYTES);
+        let owners = [(owner, descriptor.clone())].into();
+        let observed = async {
+            while let Some(row) = stream.next().await? {
+                crate::completed_rows::validate_state_row("compiler_membership", &row)?;
+                members.push(crate::completed_logical_rows::normalize("compiler_membership", &row, &owners)?)?;
+            }
+            Ok(())
+        }.await;
+        let mut terminal = d::completion::Completion::default();
+        terminal.step("transport local membership EOF/drain", stream.drain_transport().await);
+        d::completion::complete(observed, terminal)?;
+    }
+    let memberships = members.finish()?.into_prepared();
+    let aliases = audit.local_alias_run(reader, &expected, budget).await?;
+    Ok((TransportCopy { label: request.label, descriptor,
+        membership: inventory(&memberships, TransportInventoryKind::Memberships, budget)?,
+        aliases: inventory(&aliases, TransportInventoryKind::Aliases, budget)? },
+        PreparedTransportCopy { label: request.label, physical: request.physical, memberships, aliases }))
+}
 async fn selected_inventory(
     reader: &NativeReader<()>,
     roots: &[(CompletedView, Vec<ContributorRealization>)],
@@ -83,58 +162,90 @@ async fn selected_inventory(
     budget: &d::resources::ResourceBudget,
 ) -> Result<SelectionInventory, ModelError> {
     let audit = InstallationAudit::new(reader.shared_client(), budget).await?;
-    let result=async {
-        let mut result=SelectionInventory{roots:vec![],copies:vec![],prepared:vec![],_charge:StateCharge::new(budget,"portable root-qualified correspondence")};
-        let mut labels=BTreeMap::new();
-        let mut descriptors:BTreeMap<ContentHash,CompletedView>=BTreeMap::new();
-        for (root,mappings) in roots {
-            root.validate()?;
-            let mut slots=vec![];let mut dependencies=BTreeMap::new();
+    let result = async {
+        let (requests, labels, views, _requests) = selected_requests(roots, budget)?;
+        let mut result = SelectionInventory { roots: vec![], copies: vec![], prepared: vec![],
+            _charge: StateCharge::new(budget, "portable root-qualified correspondence") };
+        let mut descriptors = BTreeMap::new();
+        let mut offset = 0;
+        let mut width = crate::loader::NATIVE_WINDOW_ROWS;
+        while offset < requests.len() {
+            let count = width.min(requests.len() - offset);
+            let _page = match if count > 1 { budget.reserve("transport exact copy page identities", count.saturating_mul(512)).map(Some) } else { Ok(None) } {
+                Err(ModelError::Resource { .. }) if count > 1 => { width = (count / 2).max(1); continue; }
+                other => other?,
+            };
+            let ids = requests[offset..offset + count].iter().map(|request|
+                RecordId::new("compiler_contribution", request.physical.hex())).collect::<Vec<_>>();
+            let mut observed = match crate::control::inspect_expected_window_read(reader, &ids, budget).await {
+                Err(ModelError::Resource { .. }) if count > 1 => { width = (count / 2).max(1); continue; }
+                other => other?,
+            };
+            let start = offset;
+            let mut retry = false;
+            for (index, id) in ids.iter().enumerate() {
+                let expected = observed.take_required(id)?;
+                let retained = result._charge.reserved();
+                let prepared = prepare_transport_copy(reader, requests[start + index], expected, include_memberships, &audit, &mut result._charge, budget).await;
+                match prepared {
+                    Ok((copy, prepared)) => { result.copies.push(copy); result.prepared.push(prepared); offset += 1; }
+                    Err(ModelError::Resource { .. }) if count > 1 => {
+                        result._charge.release(result._charge.reserved().saturating_sub(retained));
+                        width = (count / 2).max(1); retry = true; break;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            if retry { continue; }
+            observed.finish()?;
+            width = crate::loader::NATIVE_WINDOW_ROWS;
+        }
+        offset = 0;
+        width = crate::loader::NATIVE_WINDOW_ROWS;
+        while offset < views.len() {
+            let count = width.min(views.len() - offset);
+            let _page = match if count > 1 { budget.reserve("transport exact view page identities", count.saturating_mul(512)).map(Some) } else { Ok(None) } {
+                Err(ModelError::Resource { .. }) if count > 1 => { width = (count / 2).max(1); continue; }
+                other => other?,
+            };
+            let ids = views[offset..offset + count].iter().map(|view| RecordId::new("compiler_view", view.hex())).collect::<Vec<_>>();
+            let mut observed = match crate::control::inspect_expected_window_read(reader, &ids, budget).await {
+                Err(ModelError::Resource { .. }) if count > 1 => { width = (count / 2).max(1); continue; }
+                other => other?,
+            };
+            let mut retry = false;
+            for id in &ids {
+                let expected = observed.take_required(id)?;
+                let bytes = crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(2048);
+                match result._charge.grow(bytes) {
+                    Err(ModelError::Resource { .. }) if count > 1 => { width = (count / 2).max(1); retry = true; break; }
+                    other => other?,
+                }
+                let view: CompletedView = crate::installed_view::audit::descriptor(expected.row())?;
+                view.validate()?;
+                if view.identity != views[offset] { return Err(ModelError::Conflict("transport dependency view descriptor")); }
+                descriptors.insert(view.identity, view);
+                offset += 1;
+            }
+            if retry { continue; }
+            observed.finish()?;
+            width = crate::loader::NATIVE_WINDOW_ROWS;
+        }
+        for (root, mappings) in roots {
+            let mut slots = vec![];
+            let mut dependencies = BTreeMap::new();
             result._charge.grow(view_heap(root))?;
             for mapping in mappings {
                 result._charge.grow(2048)?;
-                let label=if let Some(label)=labels.get(&(mapping.physical,mapping.incarnation)) {*label} else {
-                    let owner=RecordId::new("compiler_contribution",mapping.physical.hex());
-                    let expected=crate::control::inspect_expected_read(reader,owner.clone(),budget).await?.ok_or(ModelError::Conflict("transport exact copy missing"))?;
-                    crate::completed_rows::validate_state_row("compiler_contribution",expected.row())?;
-                    result._charge.grow(crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(2048))?;
-                    let descriptor:CompletedContribution=crate::installed_view::audit::descriptor(expected.row())?;
-                    if expected.incarnation()!=mapping.incarnation || descriptor.identity()?!=mapping.logical {return Err(ModelError::Conflict("transport exact copy descriptor/incarnation"));}
-
-                    let mut members=SortedRows::with_budget(budget)?;
-                    if include_memberships {
-                    let mut vars=Variables::new();vars.insert("owner",owner.clone());
-                    let mut stream=reader.stream_prepared(crate::prepared::PreparedQuery::new(vars,vec![],vec!["SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner".into()])?)?.with_row_bytes(d::resources::MAX_ROW_BYTES);
-                    let owners=[(owner.clone(),descriptor.clone())].into();
-                    let observed=async {
-                        while let Some(row)=stream.next().await? {
-                            crate::completed_rows::validate_state_row("compiler_membership",&row)?;
-                            members.push(crate::completed_logical_rows::normalize("compiler_membership",&row,&owners)?)?;
-                        }
-                        Ok(())
-                    }.await;
-                    let mut terminal=d::completion::Completion::default();terminal.step("transport local membership EOF/drain",stream.drain_transport().await);d::completion::complete(observed,terminal)?;
-                    }
-                    let memberships=members.finish()?.into_prepared();
-                    let aliases=audit.local_alias_run(reader,&expected,budget).await?;
-                    let label=result.copies.len() as u64;
-                    result.copies.push(TransportCopy{label,descriptor,membership:inventory(&memberships,TransportInventoryKind::Memberships,budget)?,aliases:inventory(&aliases,TransportInventoryKind::Aliases,budget)?});
-                    result.prepared.push(PreparedTransportCopy{label,physical:mapping.physical,memberships,aliases});
-                    labels.insert((mapping.physical,mapping.incarnation),label);label
-                };
-                if mapping.view!=root.identity && !dependencies.contains_key(&mapping.view) {
-                    if !descriptors.contains_key(&mapping.view) {
-                        let expected=crate::control::inspect_expected_read(reader,RecordId::new("compiler_view",mapping.view.hex()),budget).await?.ok_or(ModelError::Conflict("transport dependency view missing"))?;
-                        result._charge.grow(crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(2048))?;
-                        let view:CompletedView=crate::installed_view::audit::descriptor(expected.row())?;view.validate()?;
-                        if view.identity!=mapping.view {return Err(ModelError::Conflict("transport dependency view descriptor"));}
-                        descriptors.insert(mapping.view,view);
-                    }
-                    let view=&descriptors[&mapping.view];result._charge.grow(view_heap(view))?;dependencies.insert(mapping.view,view.clone());
+                let label = labels[&mapping.physical];
+                if mapping.view != root.identity && !dependencies.contains_key(&mapping.view) {
+                    let view = &descriptors[&mapping.view];
+                    result._charge.grow(view_heap(view))?;
+                    dependencies.insert(mapping.view, view.clone());
                 }
-                slots.push(TransportSlot{view:mapping.view,logical:mapping.logical,copy:label});
+                slots.push(TransportSlot { view: mapping.view, logical: mapping.logical, copy: label });
             }
-            result.roots.push(TransportRoot{view:root.clone(),dependencies:dependencies.into_values().collect(),slots});
+            result.roots.push(TransportRoot { view: root.clone(), dependencies: dependencies.into_values().collect(), slots });
         }
         Ok(result)
     }.await;
@@ -263,15 +374,9 @@ pub async fn eligibility_frozen(
 ) -> Result<EligibilityIdentity, ModelError> {
     let reader = NativeReader::private(client).with_budget(budget);
     let result = async {
-        for reference in completed.inventory().references() {
-            crate::completed_state::verify_installed_ref(
-                &reader,
-                completed.completion(),
-                reference,
-                budget,
-            )
-            .await?;
-        }
+        crate::completed_state::verify_installed_refs(
+            &reader, completed.completion(), completed.inventory().references(), budget,
+        ).await?;
         let prepared = inventory_projection(&reader, completed.inventory(), false, budget).await?;
         eligibility_projection(&prepared.roots, &prepared.copies)
     }
@@ -287,15 +392,9 @@ pub async fn prepare_physical(
 ) -> Result<PreparedTransport, ModelError> {
     let reader = NativeReader::private(client).with_budget(budget);
     let result = async {
-        for reference in completed.inventory().references() {
-            crate::completed_state::verify_installed_ref(
-                &reader,
-                completed.completion(),
-                reference,
-                budget,
-            )
-            .await?;
-        }
+        crate::completed_state::verify_installed_refs(
+            &reader, completed.completion(), completed.inventory().references(), budget,
+        ).await?;
         let prepared = inventory_projection(&reader, completed.inventory(), true, budget).await?;
         let envelope = CompletedTransportEnvelope {
             version: 1,
@@ -325,15 +424,9 @@ pub async fn prepare_published(
         .transport_reader()
         .with_budget(budget);
     let result: Result<PreparedTransport, ModelError> = async {
-        for reference in completed.inventory().references() {
-            crate::completed_state::verify_installed_ref(
-                &reader,
-                completed.completion(),
-                reference,
-                budget,
-            )
-            .await?;
-        }
+        crate::completed_state::verify_installed_refs(
+            &reader, completed.completion(), completed.inventory().references(), budget,
+        ).await?;
         let prepared = inventory_projection(&reader, completed.inventory(), true, budget).await?;
         let envelope = CompletedTransportEnvelope {
             version: 1,
@@ -371,15 +464,9 @@ pub async fn eligibility_published(
         .transport_reader()
         .with_budget(budget);
     let result: Result<EligibilityIdentity, ModelError> = async {
-        for reference in completed.inventory().references() {
-            crate::completed_state::verify_installed_ref(
-                &reader,
-                completed.completion(),
-                reference,
-                budget,
-            )
-            .await?;
-        }
+        crate::completed_state::verify_installed_refs(
+            &reader, completed.completion(), completed.inventory().references(), budget,
+        ).await?;
         let prepared = inventory_projection(&reader, completed.inventory(), false, budget).await?;
         eligibility_projection(&prepared.roots, &prepared.copies)
     }
@@ -961,6 +1048,44 @@ mod tests {
             sorted.push(row).unwrap();
         }
         sorted.finish().unwrap().into_prepared()
+    }
+    #[test]
+    fn selected_observation_requests_keep_first_copy_labels_and_exact_shared_incidence() {
+        let budget = d::resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let (transport, _) = fixture(false, &budget);
+        let mut roots = transport.envelope().roots.iter().enumerate().map(|(index, root)| {
+            (root.view.clone(), vec![ContributorRealization { view: root.view.identity,
+                logical: transport.envelope().copies[0].descriptor.identity().unwrap(),
+                physical: ContentHash([if index == 0 { 9 } else { 1 }; 32]), incarnation: 3 }])
+        }).collect::<Vec<_>>();
+        let (copies, labels, views, charge) = selected_requests(&roots, &budget).unwrap();
+        assert!(charge.reserved() > 0);
+        assert_eq!(copies.iter().map(|copy| copy.physical).collect::<Vec<_>>(), vec![ContentHash([9; 32]), ContentHash([1; 32])]);
+        assert_eq!(labels[&ContentHash([9; 32])], 0);
+        assert_eq!(labels[&ContentHash([1; 32])], 1);
+        assert!(views.is_empty());
+        roots[1].1[0].physical = roots[0].1[0].physical;
+        let (copies, labels, _, _) = selected_requests(&roots, &budget).unwrap();
+        assert_eq!(copies.len(), 1);
+        assert_eq!(labels[&ContentHash([9; 32])], 0);
+        roots[1].1[0].incarnation += 1;
+        assert!(selected_requests(&roots, &budget).is_err());
+        roots[1].1[0].incarnation -= 1;
+        roots[1].1[0].logical = ContentHash([8; 32]);
+        assert!(selected_requests(&roots, &budget).is_err());
+    }
+    #[test]
+    fn selected_observation_dependency_targets_are_exact_and_deduplicated() {
+        let budget = d::resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let (transport, _) = fixture(false, &budget);
+        let root = transport.envelope().roots[0].view.clone();
+        let dependency = transport.envelope().roots[1].view.identity;
+        let logical = transport.envelope().copies[0].descriptor.identity().unwrap();
+        let mapping = ContributorRealization { view: dependency, logical, physical: ContentHash([7; 32]), incarnation: 2 };
+        let roots = vec![(root, vec![mapping.clone(), mapping])];
+        let (copies, _, views, _) = selected_requests(&roots, &budget).unwrap();
+        assert_eq!(copies.len(), 1);
+        assert_eq!(views, vec![dependency]);
     }
     fn alias(source: &str, target: &str) -> Value {
         let source = RecordId::new("entity", source);
