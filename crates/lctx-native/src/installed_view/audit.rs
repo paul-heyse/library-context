@@ -79,11 +79,17 @@ impl SharedCharge {
 struct WorkOwner {
     flights: std::sync::Mutex<BTreeMap<(u8, ContentHash), WorkFlight>>,
     workers: std::sync::Mutex<Vec<PreparationWorker>>,
+    draining: tokio::sync::Mutex<WorkerDrain>,
     next: std::sync::atomic::AtomicU64,
     accepting: std::sync::atomic::AtomicBool,
     close_gate: tokio::sync::Mutex<()>,
 }
 type PreparationWorker = (u64, tokio::task::JoinHandle<()>, std::sync::Arc<Box<dyn d::resources::Reservation>>);
+#[derive(Default)]
+struct WorkerDrain {
+    workers: Vec<PreparationWorker>,
+    terminal: d::completion::Completion,
+}
 #[derive(Clone)]
 pub struct InstallationAudit {
     client: std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
@@ -187,6 +193,7 @@ impl InstallationAudit {
             work: std::sync::Arc::new(WorkOwner {
                 flights: std::sync::Mutex::new(BTreeMap::new()),
                 workers: std::sync::Mutex::new(Vec::new()),
+                draining: tokio::sync::Mutex::new(WorkerDrain::default()),
                 next: std::sync::atomic::AtomicU64::new(1),
                 accepting: std::sync::atomic::AtomicBool::new(true),
                 close_gate: tokio::sync::Mutex::new(()),
@@ -441,17 +448,24 @@ impl InstallationAudit {
                 .accepting
                 .store(false, std::sync::atomic::Ordering::Release);
         }
-        let mut terminal = d::completion::Completion::default();
+        // The queue belongs to WorkOwner, not to this cancellable close future.
+        // Await by reference and remove only joined handles, so a later close can
+        // resume the exact same workers after its predecessor is dropped.
+        let mut pending = self.work.draining.lock().await;
         loop {
-            let workers = std::mem::take(&mut *self.work.workers.lock().unwrap());
-            if workers.is_empty() {
+            if pending.workers.is_empty() {
+                std::mem::swap(&mut pending.workers, &mut *self.work.workers.lock().unwrap());
+            }
+            if pending.workers.is_empty() {
                 break;
             }
-            for (_, worker, _charge) in workers {
-                if let Err(error) = worker.await {
+            while let Some((_, worker, _)) = pending.workers.last_mut() {
+                let joined = worker.await;
+                let _joined = pending.workers.pop();
+                if let Err(error) = joined {
                     self.retain_unknown();
-                    terminal.remote = d::completion::RemoteState::Unknown;
-                    terminal.step(
+                    pending.terminal.remote = d::completion::RemoteState::Unknown;
+                    pending.terminal.step(
                         "installation audit worker join",
                         Err(ModelError::infrastructure(
                             d::Infrastructure::Unconfirmed,
@@ -461,7 +475,7 @@ impl InstallationAudit {
                 }
             }
         }
-        d::completion::complete(Ok(()), terminal)
+        d::completion::complete(Ok(()), std::mem::take(&mut pending.terminal))
     }
     pub async fn close(&self) -> Result<(), ModelError> {
         let _close = self.work.close_gate.lock().await;
@@ -4725,6 +4739,7 @@ mod shared_preparation_controls {
             work: Arc::new(WorkOwner {
                 flights: std::sync::Mutex::new(BTreeMap::new()),
                 workers: std::sync::Mutex::new(Vec::new()),
+                draining: tokio::sync::Mutex::new(WorkerDrain::default()),
                 next: AtomicU64::new(1),
                 accepting: AtomicBool::new(true),
                 close_gate: tokio::sync::Mutex::new(()),
@@ -4922,6 +4937,63 @@ mod shared_preparation_controls {
         join(&audit).await;
         assert_eq!(audit.work.flights.lock().unwrap().len(), 1);
         assert!(!audit.pin.test_uncertain());
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancelled_close_retains_pending_worker_and_prior_join_failure_until_retry_drains() {
+        let audit = test_audit(1 << 20);
+        let entered = Arc::new(tokio::sync::Barrier::new(2));
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let worker = {
+            let audit = audit.clone(); let entered = entered.clone(); let release = release.clone();
+            tokio::spawn(async move { audit.run_work((6, ContentHash([40; 32])), move |_| async move {
+                entered.wait().await;
+                let _permit = release.acquire().await.unwrap();
+                Ok(())
+            }.boxed()).await })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(30), entered.wait()).await.unwrap();
+        let failed_entered = Arc::new(tokio::sync::Barrier::new(2));
+        let fail = Arc::new(tokio::sync::Semaphore::new(0));
+        let failed = {
+            let audit = audit.clone(); let entered = failed_entered.clone(); let fail = fail.clone();
+            tokio::spawn(async move { audit.run_work((7, ContentHash([41; 32])), move |_| async move {
+                entered.wait().await;
+                let _permit = fail.acquire().await.unwrap();
+                panic!("deterministic drain join failure")
+            }.boxed()).await })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(30), failed_entered.wait()).await.unwrap();
+        failed.abort(); let _ = failed.await;
+        fail.add_permits(1);
+        // Observe terminality without joining/removing the production owner's handle.
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                if audit.work.workers.lock().unwrap().last().unwrap().1.is_finished() { break; }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        let mut first = Box::pin(audit.close_drained());
+        assert!(futures::poll!(first.as_mut()).is_pending());
+        drop(first);
+        {
+            let pending = audit.work.draining.lock().await;
+            assert_eq!(pending.workers.len(), 1);
+            assert_eq!(pending.terminal.failures.len(), 1);
+            assert_eq!(pending.terminal.remote, d::completion::RemoteState::Unknown);
+        }
+        let mut retry = Box::pin(audit.close_drained());
+        assert!(futures::poll!(retry.as_mut()).is_pending());
+        assert!(!worker.is_finished());
+        release.add_permits(1);
+        worker.await.unwrap().unwrap();
+        let error = tokio::time::timeout(std::time::Duration::from_secs(30), retry).await.unwrap().unwrap_err();
+        assert!(!error.permits_storage_cleanup());
+        assert!(format!("{error:?}").contains("installation audit worker join"));
+        assert!(audit.work.draining.lock().await.workers.is_empty());
+        assert!(audit.pin.test_uncertain());
+        // This pure control qualifies worker drainage and retained failure, not native
+        // pin release. Unknown prevents the detached pin's release from being attempted.
+        audit.closed.store(true, Ordering::Release);
     }
 }
 
