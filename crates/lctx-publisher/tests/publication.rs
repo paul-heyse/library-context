@@ -1115,16 +1115,22 @@ async fn advance_source_cleanup<Context>(
     };
     let mut charge = charged::StateCharge::new(budget, "cold-control-source-cleanup-jobs");
     let mut jobs = std::collections::BTreeSet::new();
-    for root in evidence.roots.keys() {
+    let discovery_phase = lctx_native::phase::Phase::begin("cold_source_job_discovery");
+    let _window = budget.reserve("cold-control-root-inquiry-window",
+        lctx_native::loader::NATIVE_WINDOW_ROWS.saturating_mul(1024).saturating_add(4096))?;
+    let mut roots = evidence.roots.keys();
+    loop {
+        let roots = roots.by_ref().take(lctx_native::loader::NATIVE_WINDOW_ROWS).cloned().collect::<Vec<_>>();
+        if roots.is_empty() { break; }
         let mut after = Value::None;
         loop {
             let mut variables = Variables::new();
-            variables.insert("root", root.clone());
+            variables.insert("roots", roots.clone());
             variables.insert("after", after.clone());
             variables.insert("generation", evidence.generation.clone());
             variables.insert("epoch", evidence.epoch);
             let rows: Vec<Object> = reader.query_native(&format!(
-                "SELECT id,object,job FROM native_retirement_item WITH INDEX object_retirements WHERE object=$root AND job.generation=$generation AND job.epoch=$epoch AND ($after=NONE OR id>$after) ORDER BY id LIMIT {}",
+                "SELECT id,object,job FROM native_retirement_item WITH INDEX object_retirements WHERE object IN $roots AND job.generation=$generation AND job.epoch=$epoch AND ($after=NONE OR id>$after) ORDER BY id LIMIT {}",
                 lctx_native::loader::NATIVE_WINDOW_ROWS,
             ), variables).await?;
             if rows.is_empty() {
@@ -1132,12 +1138,14 @@ async fn advance_source_cleanup<Context>(
             }
             assert!(rows.len() <= lctx_native::loader::NATIVE_WINDOW_ROWS);
             for row in rows {
-                let (Some(Value::RecordId(id)), Some(Value::RecordId(job))) =
-                    (row.get("id"), row.get("job"))
+                let (Some(Value::RecordId(id)), Some(Value::RecordId(object)), Some(Value::RecordId(job))) =
+                    (row.get("id"), row.get("object"), row.get("job"))
                 else {
                     return Err(ModelError::Schema("cold control source cleanup nomination"));
                 };
-                assert_eq!(row.get("object"), Some(&Value::RecordId(root.clone())));
+                if roots.binary_search(object).is_err() {
+                    return Err(ModelError::Conflict("cold control foreign source root inquiry"));
+                }
                 assert_eq!(job.table.as_str(), "native_retirement");
                 assert!(after == Value::None || after < Value::RecordId(id.clone()));
                 after = Value::RecordId(id.clone());
@@ -1146,7 +1154,7 @@ async fn advance_source_cleanup<Context>(
             }
         }
     }
-    let discovery_phase = lctx_native::phase::Phase::begin("cold_source_job_discovery");
+    drop(_window);
     let mut proven = 0;
     // This job is not discovered from an epoch: it is the actual checked result
     // of retiring this fixture's exact publication through backup::retire.
@@ -1410,7 +1418,10 @@ async fn facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_owne
         let backup = fixture.scratch.path().join("facts.backup");
         // This returned result remains the independent expectation across retirement and
         // both restores. Neither the carrier header nor a sidecar supplies the expectation.
-        let receipt = lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &backup, &definitions).await.unwrap();
+        let backup_phase = lctx_native::phase::Phase::begin("cold_source_backup");
+        let receipt = lctx_publisher::backup::backup(&fixture.config, &fixture.handle, &backup, &definitions).await;
+        backup_phase.finish_result(&receipt);
+        let receipt = receipt.unwrap();
         assert_eq!(receipt.source, fixture.handle);
         assert_eq!(receipt.manifest, fixture.manifest.content());
         assert_eq!(receipt.state.semantic, fixture.manifest.completed_state);
@@ -1421,7 +1432,10 @@ async fn facts_backup_cold_concurrent_restores_preserve_originals_and_fresh_owne
         }
         assert!(before.attempts.contains(&RecordId::new("native_attempt", fixture.source_attempt.hex())));
         close_reader_owner(&mut source_owner).await.unwrap();
-        let publication_retirement = retire_publication_progress(&fixture.config, &fixture.handle).await.unwrap();
+        let retire_phase = lctx_native::phase::Phase::begin("cold_source_publication_retirement");
+        let publication_retirement = retire_publication_progress(&fixture.config, &fixture.handle).await;
+        retire_phase.finish_result(&publication_retirement);
+        let publication_retirement = publication_retirement.unwrap();
         observer_owner = Some(lctx_native::reader::connect(&fixture.config.endpoint,
             &fixture.config.writer_credentials(), fixture.config.namespace.as_str(),
             fixture.config.database.as_str()).await.unwrap());
