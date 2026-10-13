@@ -11,6 +11,9 @@ pub struct MatryoshkaAdmission {
     pub use_activation: bool,
 }
 
+/// Version of the combined Rust identity response; individual hash recipes are unchanged.
+pub const RECIPE_BUNDLE_VERSION: u32 = 1;
+
 pub const QUERY_TEMPLATE: &str = "Instruct: {task_description}\nQuery:{query}";
 pub const QUERY_TASK: &str = "Given a coding task, retrieve relevant Python library APIs, capability briefs, configuration options, source code, usage examples, and documentation.";
 

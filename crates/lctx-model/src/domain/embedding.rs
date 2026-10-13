@@ -4,14 +4,17 @@ pub mod cache;
 pub mod configuration;
 pub mod consumption;
 pub mod projection;
-pub(crate) mod spec;
 pub mod service;
+pub(crate) mod spec;
 pub use service::{EmbedFuture, Embedder, ServiceUnavailable};
 pub mod text;
 pub mod value;
 use super::*;
 use crate::{Domain, DomainCode};
-pub use spec::{MatryoshkaAdmission, QUERY_TASK, QUERY_TEMPLATE, QueryRecipe, Spec, check_vector};
+pub use spec::{
+    MatryoshkaAdmission, QUERY_TASK, QUERY_TEMPLATE, QueryRecipe, RECIPE_BUNDLE_VERSION, Spec,
+    check_vector,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, DomainCode)]
 #[repr(i16)]

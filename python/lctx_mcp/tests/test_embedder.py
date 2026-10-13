@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
 import httpx2
 import numpy as np
 import pytest
+from lctx_semantics import embedding_recipe_identities
 
+from lctx_mcp import embedder as embedder_module
 from lctx_mcp.embedder import (
     FAKE,
     QWEN,
@@ -41,6 +44,99 @@ def test_the_packaged_specs_are_the_committed_ones() -> None:
         committed = (SPECS / name).read_text(encoding="utf-8")
         spec = Spec.packaged(name)
         assert spec.canonical + "\n" == committed, name
+
+
+def test_one_rust_recipe_response_and_decode_per_immutable_spec(monkeypatch) -> None:
+    identities = embedder_module.embedding_recipe_identities
+    decode = embedder_module.json.loads
+    responses = []
+    calls = []
+    decoded = []
+
+    def count_identities(canonical):
+        calls.append(canonical)
+        response = identities(canonical)
+        responses.append(response)
+        return response
+
+    def count_decode(text, *args, **kwargs):
+        if text in responses:
+            decoded.append(text)
+        return decode(text, *args, **kwargs)
+
+    monkeypatch.setattr(embedder_module, "embedding_recipe_identities", count_identities)
+    monkeypatch.setattr(embedder_module.json, "loads", count_decode)
+    for name in (FAKE, QWEN):
+        spec = Spec.packaged(name)
+        expected = decode(responses[-1])
+        for _ in range(3):
+            assert spec.hash == expected["encoder"]
+            assert spec.query_hash == expected["query"]
+            assert spec.document_hash == expected["document"]
+            assert spec.projection_id == expected["projection"]
+            assert spec.recipe_version == expected["recipe_version"] == 1
+        assert spec._identities.canonical == spec.canonical
+    assert len(calls) == len(decoded) == 2
+    assert calls[0] != calls[1]
+
+
+def test_spec_freezes_nested_fields_and_refuses_bypass_construction() -> None:
+    spec = Spec.packaged(QWEN)
+    expected = embedding_recipe_identities(spec.canonical)
+    with pytest.raises(TypeError):
+        spec.fields["model"] = "changed"
+    with pytest.raises(TypeError):
+        spec.fields["admission"]["use_activation"] = False
+    with pytest.raises(TypeError):
+        spec.fields["admission"]["matryoshka_dimensions"][0] = 1
+    with pytest.raises(FrozenInstanceError):
+        spec.canonical = "{}"
+    with pytest.raises(FrozenInstanceError):
+        spec._identities.encoder = "changed"
+    assert not hasattr(spec, "__dict__")
+    with pytest.raises(TypeError, match=r"Spec\.from_json"):
+        Spec(spec.canonical, {"model": "inconsistent"})
+    with pytest.raises(TypeError, match=r"Spec\.from_json"):
+        Spec()
+    with pytest.raises(TypeError, match=r"Spec\.from_json"):
+        replace(spec, canonical="{}")
+    assert embedding_recipe_identities(spec.canonical) == expected
+    assert spec.query_template == spec.fields["query_template"]
+    assert spec.query_task == spec.fields["query_task"]
+    assert spec.max_query_tokens == spec.fields["max_query_tokens"]
+
+
+def test_spec_canonicalization_errors_precede_identity_preparation(monkeypatch) -> None:
+    calls = []
+
+    def unexpected_identity(canonical):
+        calls.append(canonical)
+        raise AssertionError("identity preparation before canonicalization")
+
+    monkeypatch.setattr(embedder_module, "embedding_recipe_identities", unexpected_identity)
+    with pytest.raises(ValueError, match="invalid canonical embedding specification"):
+        Spec.from_json("{}")
+    with pytest.raises(ValueError, match="invalid canonical embedding specification"):
+        Spec.from_json("not JSON")
+    assert calls == []
+
+
+def test_spec_defensively_owns_every_decoded_field_alias(monkeypatch) -> None:
+    canonical = embedder_module.canonical_embedding_spec((SPECS / QWEN).read_text())
+    decode = json.loads
+    fields = decode(canonical)
+
+    def shared_decode(text, *args, **kwargs):
+        return fields if text == canonical else decode(text, *args, **kwargs)
+
+    monkeypatch.setattr(embedder_module.json, "loads", shared_decode)
+    spec = Spec.from_json(canonical)
+    expected = (spec.model, spec.fields["admission"]["matryoshka_dimensions"], spec.hash)
+    fields["model"] = "changed"
+    fields["admission"]["matryoshka_dimensions"][0] = 1
+    fields["admission"]["use_activation"] = False
+    assert (spec.model, spec.fields["admission"]["matryoshka_dimensions"], spec.hash) == expected
+    assert spec.canonical == canonical
 
 
 def test_request_bodies_are_byte_identical_to_rusts() -> None:

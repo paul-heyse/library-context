@@ -98,7 +98,9 @@ class NativeExecutor:
                 owner.retain(sys.getsizeof(text))
                 try:
                     remaining = max(0.0, deadline - asyncio.get_running_loop().time())
-                    values = await asyncio.wait_for(self.embedder.embed([text], retain=owner.retain), timeout=remaining)
+                    values = await asyncio.wait_for(
+                        self.embedder.embed([text], retain=owner.retain), timeout=remaining
+                    )
                 except EmbedderError:
                     # The backend reports the unavailable vector channel while lexical search runs.
                     values = None
@@ -111,9 +113,9 @@ class NativeExecutor:
                             "spec": list(bytes.fromhex(self.embedder.spec.hash)),
                             "input": list(hashlib.sha256(text.encode()).digest()),
                             "recipe": {
-                                "template": self.embedder.spec.fields["query_template"],
-                                "task": self.embedder.spec.fields["query_task"],
-                                "max_tokens": self.embedder.spec.fields["max_query_tokens"],
+                                "template": self.embedder.spec.query_template,
+                                "task": self.embedder.spec.query_task,
+                                "max_tokens": self.embedder.spec.max_query_tokens,
                             },
                             "projection": list(bytes.fromhex(self.embedder.spec.projection_id)),
                             "vector": vector,
@@ -137,7 +139,9 @@ class NativeExecutor:
             self._close_task = asyncio.create_task(self._drain())
             # Retrieve an abandoned close error; its cached task still returns
             # the identical exception to a later close caller.
-            self._close_task.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+            self._close_task.add_done_callback(
+                lambda task: task.exception() if not task.cancelled() else None
+            )
         await asyncio.wait({self._close_task})
         self._close_task.result()
 

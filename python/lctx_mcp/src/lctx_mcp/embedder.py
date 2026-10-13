@@ -11,9 +11,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from importlib import resources
-from collections.abc import Callable
+from types import MappingProxyType
 from typing import Protocol
 
 import httpx2
@@ -29,18 +30,54 @@ class EmbedderError(RuntimeError):
     """The query could not be embedded: the service is down, or its answer was rejected."""
 
 
-@dataclass(frozen=True)
+def _freeze(value):
+    """Own recursively immutable JSON values; no mutable parsed alias escapes."""
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class _RecipeIdentities:
+    canonical: str
+    recipe_version: int
+    encoder: str
+    query: str
+    document: str
+    projection: str
+
+    @classmethod
+    def from_response(cls, canonical: str, response: str) -> _RecipeIdentities:
+        # Rust owns both the recipe version and all identity meaning.
+        return cls(canonical=canonical, **json.loads(response))
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class Spec:
-    """An embedding spec: its canonical JSON (field order as Rust declares it) and fields."""
+    """Factory-created canonical spec and its immutable Rust recipe response."""
 
     canonical: str
-    fields: dict
+    fields: Mapping
+    _identities: _RecipeIdentities
+
+    def __init__(self, *args, **kwargs) -> None:
+        raise TypeError("use Spec.from_json or Spec.packaged")
 
     @classmethod
     def from_json(cls, text: str) -> Spec:
+        # Preserve Rust canonicalization errors before decoding or preparing identities.
         canonical = canonical_embedding_spec(text)
-        fields = json.loads(canonical)
-        return cls(canonical, fields)
+        fields = _freeze(json.loads(canonical))
+        identities = _RecipeIdentities.from_response(
+            canonical, embedding_recipe_identities(canonical)
+        )
+        spec = object.__new__(cls)
+        object.__setattr__(spec, "canonical", canonical)
+        object.__setattr__(spec, "fields", fields)
+        object.__setattr__(spec, "_identities", identities)
+        return spec
 
     @classmethod
     def packaged(cls, name: str) -> Spec:
@@ -48,21 +85,25 @@ class Spec:
         return cls.from_json(text)
 
     @property
+    def recipe_version(self) -> int:
+        return self._identities.recipe_version
+
+    @property
     def hash(self) -> str:
         """Rust-owned encoder identity, independent of query/document policy."""
-        return json.loads(embedding_recipe_identities(self.canonical))["encoder"]
+        return self._identities.encoder
 
     @property
     def query_hash(self) -> str:
-        return json.loads(embedding_recipe_identities(self.canonical))["query"]
+        return self._identities.query
 
     @property
     def document_hash(self) -> str:
-        return json.loads(embedding_recipe_identities(self.canonical))["document"]
+        return self._identities.document
 
     @property
     def projection_id(self) -> str:
-        return json.loads(embedding_recipe_identities(self.canonical))["projection"]
+        return self._identities.projection
 
     @property
     def model(self) -> str:
@@ -72,10 +113,21 @@ class Spec:
     def dimensions(self) -> int:
         return int(self.fields["dimensions"])
 
+    @property
+    def query_template(self) -> str:
+        return self.fields["query_template"]
+
+    @property
+    def query_task(self) -> str:
+        return self.fields["query_task"]
+
+    @property
+    def max_query_tokens(self) -> int:
+        return int(self.fields["max_query_tokens"])
+
     def query_text(self, query: str) -> str:
         """`Instruct: {task}\\nQuery:{query}`, substituted in Rust's order."""
-        template: str = self.fields["query_template"]
-        return template.replace("{task_description}", self.fields["query_task"]).replace(
+        return self.query_template.replace("{task_description}", self.query_task).replace(
             "{query}", query
         )
 
@@ -153,7 +205,9 @@ def parse_embeddings(spec: Spec, n: int, body: bytes) -> np.ndarray:
 class Embedder(Protocol):
     spec: Spec
 
-    async def embed(self, texts: list[str], *, retain: Callable[[int], None] | None = None) -> np.ndarray: ...
+    async def embed(
+        self, texts: list[str], *, retain: Callable[[int], None] | None = None
+    ) -> np.ndarray: ...
 
     async def aclose(self) -> None: ...
 
@@ -172,18 +226,20 @@ class HttpEmbedder:
         self.spec = spec or Spec.packaged(QWEN)
         self.client = httpx2.AsyncClient(timeout=timeout, transport=transport)
 
-    async def embed(self, texts: list[str], *, retain: Callable[[int], None] | None = None) -> np.ndarray:
+    async def embed(
+        self, texts: list[str], *, retain: Callable[[int], None] | None = None
+    ) -> np.ndarray:
         url = f"{self.url}/v1/embeddings"
         body = request_body(self.spec, texts)
         if retain:
             retain(len(body))
         try:
             async with self.client.stream(
-                    "POST",
-                    url,
-                    content=body,
-                    headers={"content-type": "application/json"},
-                ) as response:
+                "POST",
+                url,
+                content=body,
+                headers={"content-type": "application/json"},
+            ) as response:
                 response.raise_for_status()
                 chunks = []
                 async for chunk in response.aiter_bytes():
@@ -225,7 +281,9 @@ class FakeEmbedder:
     def __init__(self) -> None:
         self.spec = Spec.packaged(FAKE)
 
-    async def embed(self, texts: list[str], *, retain: Callable[[int], None] | None = None) -> np.ndarray:
+    async def embed(
+        self, texts: list[str], *, retain: Callable[[int], None] | None = None
+    ) -> np.ndarray:
         if retain:
             retain(len(texts) * self.spec.dimensions * np.dtype(np.float32).itemsize)
         return np.stack([fake_vector(t, self.spec.dimensions) for t in texts])

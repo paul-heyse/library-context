@@ -63,7 +63,7 @@ fn canonical_embedding_spec(text: &str) -> PyResult<String> {
 #[pyfunction]
 fn embedding_recipe_identities(text: &str) -> PyResult<String> {
     let spec = Spec::parse(text).map_err(|_| PyValueError::new_err("invalid embedding recipes"))?;
-    Ok(serde_json::json!({"encoder":spec.hash().hex(),"document":spec.document_hash().hex(),"query":spec.query_hash().hex(),"projection":lctx_model::domain::Record::id(&lctx_model::domain::embedding::projection::ProjectionDefinition::initial(&spec)).hex()}).to_string())
+    Ok(serde_json::json!({"recipe_version":lctx_model::domain::embedding::RECIPE_BUNDLE_VERSION,"encoder":spec.hash().hex(),"document":spec.document_hash().hex(),"query":spec.query_hash().hex(),"projection":lctx_model::domain::Record::id(&lctx_model::domain::embedding::projection::ProjectionDefinition::initial(&spec)).hex()}).to_string())
 }
 #[pyfunction]
 fn embedding_projection(full: Vec<f32>, dimensions: u32) -> PyResult<Vec<f32>> {
@@ -98,8 +98,14 @@ fn wire_resources() -> PyResult<String> {
 }
 #[pyfunction]
 #[pyo3(signature=(name,raw,expanded=false))]
-fn wire_tool_result(py: Python<'_>, name: &str, raw: &str, expanded: bool) -> PyResult<Py<PyString>> {
-    let encoded = py.detach(|| serving::encode_tool_result(name, raw, expanded))
+fn wire_tool_result(
+    py: Python<'_>,
+    name: &str,
+    raw: &str,
+    expanded: bool,
+) -> PyResult<Py<PyString>> {
+    let encoded = py
+        .detach(|| serving::encode_tool_result(name, raw, expanded))
         .map_err(response_error)?;
     let result = PyString::new(py, encoded.as_str()).unbind();
     drop(encoded);
