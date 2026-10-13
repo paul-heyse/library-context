@@ -130,7 +130,7 @@ local attachment release and generic sweeps never retire native database content
 
 This work does not inspect, reset or activate operator databases or client registrations. Native SurrealDB persistence, publication and serving follow the graph-native coordinator; operator adoption remains held. Compiler, provider and CLI controls use logical validation attempts on the newly owned stable service through `just fixture` or `just verify`. Explicit installation of that service is separate from existing operator databases and requires no adoption of them. Pure model and finite kernel controls need no database.
 
-**Disposable development targets (ADR-0164).** Explicitly authorized schema, permission and
+**Disposable development targets (ADR-0165).** Explicitly authorized schema, permission and
 destructive controls may use a wholly owned remote campaign through existing service/run/storage
 owners. Register exact target purpose, generation and consumer before launch; beta root/private
 sessions never attach to shared or operator targets. Dispose only after authenticated worker and

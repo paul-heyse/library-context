@@ -25,7 +25,7 @@ publication and linked native query assertions. Those stages remain unqualified 
 | Baseline | HEAD `5090aeec2ce60168a41559c6cd38badb6dde5d0f` plus identified preceding-session dirty compiler/native/control/test changes; exact decisive source hashes in the [snapshot](../evidence/2026-10-12_catalog-execution-patterns-target/review-snapshot.json) |
 | Evidence | Source/types/current architectural owners, existing captured controls, pinned library source and selected capability skills, current official documentation discovery; no new product execution |
 | Exclusions | Embedding and MCP runtime execution; operator adoption/selection; shared-service changes; broad qualification, unrelated quality items and docs publication tooling |
-| Disposition | [Lifecycle coordinator §6](../../plans/surrealdb-lifecycle-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint); findings retain this review's F01–F08 IDs |
+| Disposition | [Catalog execution coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint); findings retain this review's F01–F08 IDs |
 
 Recommendations are **Proposed, 2026-10-12** unless a narrower interface claim is explicitly
 Interface-checked. Source diagnoses are **Implemented-path inspection, 2026-10-12**. Existing
@@ -152,7 +152,7 @@ completion consumers; it is not permission to bypass them while leaving their pr
 
 ## 4. Findings and recurring categories
 
-All findings link to the sole [disposition owner](../../plans/surrealdb-lifecycle-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint).
+All findings link to the sole [disposition owner](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint).
 The inventory groups demonstrated instances by cause; it is not a claim that every file or every
 operation has been exhaustively assessed.
 

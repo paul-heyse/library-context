@@ -92,7 +92,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0161](0161-regenerate-unmigratable-design-views.md) | Migrate current views and regenerate unsupported design data | 2026-10-12 | storage-and-publication §5, storage-and-publication §6.1 | Proposed | ADR-0159 |
 | [ADR-0162](0162-shared-ordinary-dev-test-profile.md) | Share the ordinary O2 dev and test family with explicit release acceptance | 2026-10-12 | [§1.2](../design/DESIGN.md#section-1-2), [§4](../design/sections/acquisition-and-extraction.md#section-4), [§15](../design/sections/semantic-model.md#section-15) | Interface-checked | ADR-0137 |
 | [ADR-0163](0163-checked-installer-handoff.md) | Hand off maintenance executables against unchanged native installations | 2026-10-12 | [§6.5](../design/sections/storage-and-publication.md#section-6-5) | Interface-checked |  |
-| [ADR-0164](0164-surrealdb-lifecycle-foundations.md) | Own disposable development targets and protected native lifecycle observations | 2026-10-12 | [§6](../design/sections/storage-and-publication.md#section-6), [§15.1](../design/sections/semantic-model.md#section-15-1) | Proposed |  |
+| [ADR-0165](0165-prepared-completion-and-owned-lifecycle.md) | Prepare protected contributions and realize only independently required boundaries | 2026-10-12 | [§6](../design/sections/storage-and-publication.md#section-6), [§6.1](../design/sections/storage-and-publication.md#section-6-1), [§6.2](../design/sections/storage-and-publication.md#section-6-2), [§15.1](../design/sections/semantic-model.md#section-15-1) | Proposed | ADR-0164 |
 
 ## Proposed: open choices, not accepted decisions
 

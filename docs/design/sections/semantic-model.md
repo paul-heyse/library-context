@@ -98,7 +98,19 @@ Compiler orchestration stays in `cpg-core`; private validated admission and rest
 are owned below it by `lctx-compiler-store` (ADR-0151). The coordinator
 records targeted functional controls and the authorized final UP9 assembled qualification boundary.
 
-**Implemented lifecycle foundations / scoped-Tested, 2026-10-12 (ADR-0164).** Selected access resolves
+**Accepted target / Proposed implementation, 2026-10-12 (ADR-0165).** Semantic relation/dependency
+views compose earned immutable contributions through exact operation-owned selections. Logical
+relations, roles, empties, coverage and aliases remain model-owned; they do not automatically require
+another durable membership realization or full-state hash. A frozen admitted/published operation
+owns a compound physical boundary with exact per-view selectors; independently retained products
+may earn their own boundary. Internal borrowers retain actual parent capability/pin/resource lifetime.
+Retained, sparse, backup and cold readers migrate with the physical selector codec, preserving
+selected-copy/incarnation, absence and independent incoming/installed admission. Canonical prepared
+runs bind complete dependencies and retain flat six-family v4 identity at actual boundaries. This is
+scheduled target work in the [Catalog execution plan](../../plans/catalog-execution-plan_2026-10-12.md),
+not an implemented change to the foundations below.
+
+**Implemented lifecycle foundations / scoped-Tested, 2026-10-12 (ADR-0165).** Selected access resolves
 physical members/aliases under held exact readers. Independent observation may be shared inside
 an operation/preparation scope protecting its exact incarnation and validity premises, while
 each layout/range/root earns its own association and admission. Equal-peer completion uses
@@ -109,9 +121,9 @@ bounded diagnostics preserve optional known native identities and independent co
 through the actual durable writer/host consumers. No retained proof cache or global compile
 serialization is implied. Source acceptance and focused native/diagnostic controls support these
 foundations; generated-analysis/native-query and enclosing acceptance retain their exact boundaries
-in the [lifecycle coordinator §6](../../plans/surrealdb-lifecycle-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint).
+in the [Catalog execution coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint).
 
-> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108, ADR-0164
+> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108, ADR-0165
 
 <a id="section-15-2"></a>
 

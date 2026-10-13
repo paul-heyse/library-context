@@ -43,7 +43,7 @@ scratch service or per-test database fallback. Compiler, store, publisher and se
 existing semantic responsibilities. Patched gRPC preserves progressive streaming, cancellation
 and checked physical terminality. Optional transports must preserve those contracts.
 
-**Implemented lifecycle foundations / scoped-Tested, 2026-10-12 (ADR-0164).** Schema/permission and
+**Implemented lifecycle foundations / scoped-Tested, 2026-10-12 (ADR-0165).** Schema/permission and
 destructive development controls may use an explicitly owned disposable remote campaign,
 reused across its parallel suites. The existing service/run/storage owners issue the exact
 target binding and register campaign purpose, generation and consumer before launch. Beta's
@@ -53,7 +53,7 @@ Checked disposal closes host admission, bounds logical close/drain attempts thro
 managed child ownership, and stops the exact daemon and descendants before discarding its datastore.
 Unknown local drainage or cancellation blocks disposal. Failed logical cleanup need not preserve obsolete data
 after confirmed whole-target shutdown; unknown drainage retains the current obligation.
-The [lifecycle coordinator](../../plans/surrealdb-lifecycle-plan_2026-10-12.md) owns implementation
+The [Catalog execution coordinator](../../plans/catalog-execution-plan_2026-10-12.md) owns implementation
 and qualification; actual owned-target disposal passed while preserving failed logical drain and
 native Unknown records. Ordinary product attempts retain logical validation isolation.
 
@@ -62,7 +62,7 @@ Native upgrades preserve atomic page effects and progress under immutable checke
 authority. Schema evolution in §6.3 owns the complete transition and recovery contract;
 the persisted coordinator retains actual migration receipts and enclosing acceptance.
 
-> Decision: ADR-0145, ADR-0146, ADR-0164
+> Decision: ADR-0145, ADR-0146, ADR-0165
 
 ### §6.1 Admitted content and native publication
 
@@ -74,6 +74,25 @@ orchestration and its completed-input session. Publisher consumes the lower capa
 normal analyzer dependencies. Serving preparation/presentation remain above this boundary. Responsible
 model/ingestion/codec/derivation source and assets stay in conservative semantic fingerprint closures.
 The efficiency coordinator owns implementation and functional acceptance of this split.
+
+**Accepted target / Proposed implementation, 2026-10-12 (ADR-0165).** Independently complete and
+protect actual immutable contributions; internal semantic views borrow exact selections through that
+live owner without automatically allocating durable member copies, sealing or hashing a full root.
+A frozen admitted/published operation earns an independently necessary compound physical boundary;
+logical view descriptors select only their declared relation/contributor closure within it. Separately
+retained products may earn separate boundaries for independent lifetimes. Preserve complete-empty,
+bindings, composed directed aliases, exact physical copy/incarnation and EOF/finality authority.
+Version the physical selector codec/schema/definition identity and migrate all retained/cold consumers.
+
+Operation-owned canonical runs normalize logical IDs before ordering, then compose exact equal-row
+unions without re-sorting unchanged fragments. Full six-family flat v4 identity is earned at actual
+frozen/retained boundaries, with full dependency keys and no provisional cached success. Direct logical
+checksum avoids portable preparation; requested export requires frozen or retained read-only content.
+Detached import/restore independently admit actual incoming and installed state. No portable proof
+cache, DAG identity, universal preparation object or global compile serialization is selected.
+The [Catalog execution coordinator](../../plans/catalog-execution-plan_2026-10-12.md) owns the full
+consumer cutover and narrow functional acceptance. Current implementation below has not adopted
+this representation merely because the target is accepted.
 
 **Source integration / functional acceptance open, 2026-10-11.** Physical completion first
 checks the exact dependency closures, selected copies, backing and member EOF, and all six logical
@@ -115,7 +134,7 @@ Remove transition-only converters and frozen historical fixtures after cutover. 
 need minimal revealing functional cases, not historical campaigns or performance benchmarks.
 The efficiency coordinator owns migration/regeneration dispositions and current acceptance.
 
-> Decision: ADR-0151, ADR-0161
+> Decision: ADR-0151, ADR-0161, ADR-0165
 
 Immutable payload identity includes model/codec, relation, nominal key and full content digest.
 Hash hits compare canonical bytes. Nominal anchors contain identity without view existence.
@@ -238,13 +257,15 @@ pin and session until admitted tails drain, including failed preparation and can
 protected audit across singleton and union outputs; full-descriptor deduplication never replaces
 each view's exact membership, alias, incarnation and terminal checks. The protected audit retains
 terminal-validated logical contributor fragments and one complete exact contributor-set alias
-preparation; each independently inspected root still sorts/hashes all six families afresh.
+preparation. This is the current baseline: each independently inspected root still sorts/hashes all
+six families afresh. ADR-0165 replaces that universal internal-view requirement; its implementation
+and independently required boundary identity remain open in the prioritized coordinator.
 Exact typed declared-view lowering avoids a second native read; cold reconstruction remains
 independent. Cache payloads and conservative sparse-tree metadata remain admitted until drop.
 Installed-view construction
 scratch is admitted before serialization and released after the checked final hold. Retained typed
 descriptor capacity and independently owned expected native rows remain charged through their
-actual lifetimes. The [lifecycle coordinator](../../plans/surrealdb-lifecycle-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint)
+actual lifetimes. The [Catalog execution coordinator](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint)
 owns current focused runtime acceptance; these changes introduce no cross-operation witness.
 **Implemented, qualification pending2026-10-11:** full selected-membership preparation and
 completed-state metadata scans submit at most128 exact owner/view roots per indexed native
@@ -261,20 +282,28 @@ stopped-run cleanup uncertainty; host process cleanup does not establish native 
 Logical content backups reference separately protected cold-service recovery
 assets; recovery metadata is not authority to restore live clients or execute imported commands.
 
-> Decision: ADR-0145, ADR-0088, ADR-0126
+> Decision: ADR-0145, ADR-0088, ADR-0126, ADR-0165
 
 ### §6.2 Readers
 
-**Accepted target / implementation in progress, 2026-10-11.** Retained native attachment holds
-expected physical record bytes and incarnation after receiver preflight. A view-scoped installation
-completion binds its selected dependency closure and exact membership realization before direct
-member absence becomes authoritative. View-local dependency roots are explicit completed views, with no fabricated source/configuration
-binding; actual admitted binding inventories enter the separate attempt freeze. Complete logical state freezes all six families independently
-of installation-local completion; durable admission reuse requires the protected physical epoch.
-Cold recovery and detached import earn fresh authority. Existing conservative checks remain until
-all consumers and actual migration controls qualify the replacement.
+**Accepted target / Proposed refinement, 2026-10-12.** Retained native attachment holds expected
+physical record bytes and incarnation after receiver preflight. An independently necessary boundary
+binds exact contributor/dependency closure and membership realization; each logical selector within
+it earns its own presence/absence meaning. That validated selector plus protected completed boundary
+is the retained view's local realization under ADR-0152, with full exact closure/codec/collision and
+missing/extra guarantees. Boundary completion does not validate an unchecked selector. Internal
+dependency consumption instead uses the live
+earned contribution capability. It grants no detached or independently retained authority. View-local
+roles remain explicit with no fabricated source/configuration binding; admitted binding inventories
+enter the separate owned freeze, including selector/mapping mutation. Drain every identity-bearing
+mutation before final identity/export. Internal capabilities cannot be serialized into retained authority.
+Complete logical state retains all six v4 families independently of installation-local completion;
+durable admission reuse requires its exact protected physical epoch. Cold recovery and detached
+import earn fresh authority. Migrate all consumers with the physical codec; remove old universal
+per-view completion paths after the replacement works. Existing implementation is not relabeled as
+this accepted target by a descriptor or `completed=true` flag.
 
-> Decision: ADR-0152
+> Decision: ADR-0152, ADR-0165
 
 **Accepted campaign recovery target / implementation in progress, 2026-10-11.** An explicit
 joint named-attachment recovery retains original Unknown/not_observed receipts and composes checked server execution
