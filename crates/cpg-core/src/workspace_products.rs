@@ -77,17 +77,40 @@ impl ProducerOutput {
     pub(crate) fn product_request(&self) -> Result<ProductRequest, ModelError> {
         Ok(self.captured_request()?.product().clone())
     }
-    pub(crate) fn captured_request(&self) -> Result<&lctx_model::domain::producer_contract::request::CapturedRequest, ModelError> {
-        self.captured_request.get_or_init(|| {
-            let bytes=self.captured_binding.as_ref().map_or(0,|binding|binding.heap_bytes())
-                .saturating_add(self.allowed.iter().map(|name|name.len()+128).sum::<usize>())
-                .saturating_add(self.inputs.ordered_bindings().len().saturating_mul(4096))
-                .saturating_mul(8).saturating_add(65536);
-            let charge=self.workspace.budget().reserve("captured-provider-request",bytes).map_err(Arc::new)?;
-            self.build_captured_request().map(|request|(request,charge)).map_err(Arc::new)
-        }).as_ref().map(|(request,_)|request).map_err(|error|ModelError::SharedCause(error.clone()))
+    pub(crate) fn captured_request(
+        &self,
+    ) -> Result<&lctx_model::domain::producer_contract::request::CapturedRequest, ModelError> {
+        self.captured_request
+            .get_or_init(|| {
+                let bytes = self
+                    .captured_binding
+                    .as_ref()
+                    .map_or(0, |binding| binding.heap_bytes())
+                    .saturating_add(
+                        self.allowed
+                            .iter()
+                            .map(|name| name.len() + 128)
+                            .sum::<usize>(),
+                    )
+                    .saturating_add(self.inputs.ordered_bindings().len().saturating_mul(4096))
+                    .saturating_mul(8)
+                    .saturating_add(65536);
+                let charge = self
+                    .workspace
+                    .budget()
+                    .reserve("captured-provider-request", bytes)
+                    .map_err(Arc::new)?;
+                self.build_captured_request()
+                    .map(|request| (request, charge))
+                    .map_err(Arc::new)
+            })
+            .as_ref()
+            .map(|(request, _)| request)
+            .map_err(|error| ModelError::SharedCause(error.clone()))
     }
-    fn build_captured_request(&self) -> Result<lctx_model::domain::producer_contract::request::CapturedRequest, ModelError> {
+    fn build_captured_request(
+        &self,
+    ) -> Result<lctx_model::domain::producer_contract::request::CapturedRequest, ModelError> {
         let mut contract = KeySink::new("compiler-product-row-contract/v1");
         for name in &self.allowed {
             let relation = self
@@ -112,7 +135,9 @@ impl ProducerOutput {
             })
             .collect();
         lctx_model::domain::producer_contract::request::CapturedRequest::new(
-            self.contribution_spec(), contract.finish(), dependencies,
+            self.contribution_spec(),
+            contract.finish(),
+            dependencies,
         )
     }
     /// Miss arms terminal retention; admitted native hits hold exact contributors by reference.
@@ -159,18 +184,20 @@ impl ProducerOutput {
             }
             let native = self.workspace.native.clone();
             let budget = self.workspace.budget().clone();
-            let captured=self.captured_request()?.clone();
-            let model=self.workspace.model.clone();
-            let profile=self.profile();
+            let captured = self.captured_request()?.clone();
+            let model = self.workspace.model.clone();
+            let profile = self.profile();
             let retained = if self
                 .workspace
                 .admitted_product_reuse
                 .load(Ordering::Acquire)
             {
                 self.workspace
-                    .native_call(
-                        async move { native.hold_captured_product(&captured,model,profile,&budget).await },
-                    )
+                    .native_call(async move {
+                        native
+                            .hold_captured_product(&captured, model, profile, &budget)
+                            .await
+                    })
                     .await?
             } else {
                 None
@@ -180,60 +207,69 @@ impl ProducerOutput {
                 // Persisted admission does not carry ephemeral Rust verification owners.
                 // Reconstruct those only for consumers that require them, without ingress.
                 if prepare_owner {
-                    let preflight=async {
-                    let mut charge = self
-                        .workspace
-                        .budget
-                        .reserve("admitted-product-application", 0)?;
-                    let mut sections = Vec::with_capacity(inventory.len());
-                    for relation in &inventory {
-                        let mut stream = self
+                    let preflight = async {
+                        let mut charge = self
                             .workspace
-                            .native
-                            .scan_held_candidate_batches(
-                                &candidate,
-                                relation,
-                                self.workspace.budget(),
-                                self.workspace.options.batch_rows,
-                            )
-                            .await?;
-                        let mut batches = Vec::new();
-                        while let Some(batch) =
-                            stream.try_next().await.map_err(crate::sql::model_error)?
-                        {
-                            self.workspace.cancellation.check()?;
-                            charge.try_resize(
-                                charge
-                                    .size()
-                                    .saturating_add(lctx_model::domain::logical_batch_bytes(
-                                        &batch,
-                                    )?)
-                                    .saturating_add(4096),
-                            )?;
-                            batches.push(batch);
+                            .budget
+                            .reserve("admitted-product-application", 0)?;
+                        let mut sections = Vec::with_capacity(inventory.len());
+                        for relation in &inventory {
+                            let mut stream = self
+                                .workspace
+                                .native
+                                .scan_held_candidate_batches(
+                                    &candidate,
+                                    relation,
+                                    self.workspace.budget(),
+                                    self.workspace.options.batch_rows,
+                                )
+                                .await?;
+                            let mut batches = Vec::new();
+                            while let Some(batch) =
+                                stream.try_next().await.map_err(crate::sql::model_error)?
+                            {
+                                self.workspace.cancellation.check()?;
+                                charge.try_resize(
+                                    charge
+                                        .size()
+                                        .saturating_add(lctx_model::domain::logical_batch_bytes(
+                                            &batch,
+                                        )?)
+                                        .saturating_add(4096),
+                                )?;
+                                batches.push(batch);
+                            }
+                            sections.push((relation.clone(), batches));
                         }
-                        sections.push((relation.clone(), batches));
+                        check(Arc::new(ProductCandidate {
+                            sections,
+                            _charge: charge,
+                        }))
+                        .await
                     }
-                    check(Arc::new(ProductCandidate {
-                        sections,
-                        _charge: charge,
-                    }))
-                    .await
-                    }.await;
-                    if let Err(error)=preflight {
-                        if !error.permits_storage_cleanup(){return Err(error);}
-                        let mut terminal=lctx_model::domain::completion::Completion::default();
-                        terminal.step("rejected retained product candidate close",candidate.close().await);
-                        return lctx_model::domain::completion::complete(Err(error),terminal);
+                    .await;
+                    if let Err(error) = preflight {
+                        if !error.permits_storage_cleanup() {
+                            return Err(error);
+                        }
+                        let mut terminal = lctx_model::domain::completion::Completion::default();
+                        terminal.step(
+                            "rejected retained product candidate close",
+                            candidate.close().await,
+                        );
+                        return lctx_model::domain::completion::complete(Err(error), terminal);
                     }
                 }
                 // The candidate remains physically held through complete receiver
                 // preflight; only now install receiver views and output ownership.
                 let native = self.workspace.native.clone();
                 let budget = self.workspace.budget().clone();
-                let (id, _, descriptor) = self.workspace.native_call(async move {
-                    native.attach_held_product(candidate, &budget).await
-                }).await?;
+                let (id, _, descriptor) = self
+                    .workspace
+                    .native_call(
+                        async move { native.attach_held_product(candidate, &budget).await },
+                    )
+                    .await?;
                 let mut writers = self.writers.lock().map_err(|_| poisoned())?;
                 if !writers.is_empty()
                     || self.contribution.lock().map_err(|_| poisoned())?.is_some()
@@ -355,8 +391,11 @@ impl Workspace {
     ) -> Result<(), ModelError> {
         let identity = request.identity()?;
         let native = self.native.clone();
-        self.native_call(async move { native.retain_product_identity(identity, id).await })
-            .await?;
+        let budget = self.budget().clone();
+        self.native_call(
+            async move { native.retain_product_identity(identity, id, &budget).await },
+        )
+        .await?;
         let _ = outcome;
         Ok(())
     }
@@ -388,9 +427,10 @@ mod controls {
         .unwrap()
     }
     async fn workspace(config: &lctx_native::RuntimeConfig) -> Arc<Workspace> {
-        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(config, Frontier::Facts)
-            .await
-            .unwrap();
+        let native =
+            lctx_compiler_store::compiler::NativeCompilerStore::begin(config, Frontier::Facts)
+                .await
+                .unwrap();
         Workspace::new(
             Arc::new(lctx_model::domain::model().unwrap()),
             WorkspaceOptions {

@@ -81,7 +81,9 @@ async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisi
             .begin_contribution(completed::ContributionSpec {
                 captured_binding: None,
                 producer: format!("{producer}-{}", nonce.hex()),
-                profile: lctx_model::domain::completed::OutputProfile::Specific(stages::Profile::Catalog),
+                profile: lctx_model::domain::completed::OutputProfile::Specific(
+                    stages::Profile::Catalog,
+                ),
                 model: model().unwrap().digest(),
                 implementation: ContentHash::of(b"exact-relation-control"),
                 configuration: None,
@@ -125,7 +127,10 @@ async fn exact_relation_reads_include_ingress_aliases_and_exclude_foreign_revisi
             selected_views = views.values().cloned().collect();
         }
     }
-    let native = store.reader_for_views(&selected_views,&native_read_budget).await.unwrap();
+    let native = store
+        .reader_for_views(&selected_views, &native_read_budget)
+        .await
+        .unwrap();
     let alias = normalized::entities::EntityRef::Place { place: place.id() };
     let result = async {
         let aliases = native
@@ -249,7 +254,8 @@ async fn prepared_streams_share_authenticated_session_and_keep_it_alive_through_
         Some(&Value::String(cfg["database"].as_str().unwrap().to_owned()))
     );
     // Revealing contrast: cloning Surreal itself recreates a distinct authenticated session.
-    let independent = NativeReader::private(std::sync::Arc::new(client.as_ref().clone())).with_budget(&budget);
+    let independent =
+        NativeReader::private(std::sync::Arc::new(client.as_ref().clone())).with_budget(&budget);
     let other: Value = independent
         .query_native(sql, Variables::new())
         .await
@@ -780,12 +786,12 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
         growth = Some(scoped::reader_at_frontier(&config, admission::Frontier::Normalized, &foreign_growth, &[]).await?);
         let foreign_growth = growth.as_ref().ok_or(ModelError::Schema("foreign growth fixture"))?;
         for relation in [Release::NAME, input::InputRevision::NAME] {
-            let mut vars = Variables::new(); vars.insert("realizations",foreign_growth.realizations()); vars.insert("relation", relation);
-            let members: Vec<RecordId> = foreign_growth.query_native("SELECT VALUE node FROM compiler_view_member WITH INDEX realization_key WHERE realization IN $realizations AND relation=$relation", vars).await?;
+            let mut vars = Variables::new(); vars.insert("contributors",foreign_growth.contributors()); vars.insert("relation", relation);
+            let members: Vec<RecordId> = foreign_growth.query_native("SELECT VALUE node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation", vars).await?;
             assert_eq!(members.len(), 4, "actual unselected same-relation growth for {relation}");
-            let mut vars = Variables::new(); vars.insert("realization", selected.realizations()[0].clone()); vars.insert("relation", relation);
-            let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(vars, vec![], vec!["SELECT node AS id FROM compiler_view_member WITH INDEX realization_key WHERE realization=$realization AND relation=$relation EXPLAIN".into()])?).await?;
-            assert!(format!("{plan:?}").contains("realization_key"), "tiny/empty selected relation prefix plan: {plan:?}");
+            let mut vars = Variables::new(); vars.insert("contributors", selected.contributors()); vars.insert("relation", relation);
+            let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(vars, vec![], vec!["SELECT node AS id FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation EXPLAIN".into()])?).await?;
+            assert!(format!("{plan:?}").contains("contribution_rows"), "tiny/empty selected relation prefix plan: {plan:?}");
         }
         assert_eq!(limited_relation(&reader, Release::NAME).await?, before_tiny, "foreign growth cannot change the exact tiny selected payload");
         assert!(limited_relation(&reader, input::InputRevision::NAME).await?.is_empty(), "foreign growth cannot populate an empty selected relation");
@@ -813,11 +819,9 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
         let union_views=selected.installed.iter().chain(&compatible.installed).cloned().collect::<Vec<_>>();
         // Complete root windows use the same exact union as singleton reads, including
         // every physical membership field; foreign coexisting roots grant no authority.
-        for owners in [true, false] {
-            let (table, index, field, root_table) = if owners {
-                ("compiler_membership", "contribution_rows", "contribution", "compiler_contribution")
-            } else { ("compiler_view_member", "realization_nodes", "realization", "compiler_view_realization") };
-            let roots = if owners { vec![selected.contribution, compatible.contribution].into_iter().map(|root|RecordId::new(root_table,root.hex())).collect() } else { selected.realizations().into_iter().chain(compatible.realizations()).collect::<Vec<_>>() };
+        {
+            let (table,index,field)=("compiler_membership","contribution_rows","contribution");
+            let roots=selected.contributors().into_iter().chain(compatible.contributors()).collect::<Vec<_>>();
             let roots = roots.into_iter().collect::<std::collections::BTreeSet<_>>().into_iter().collect::<Vec<_>>();
             assert!(roots.len() > 1);
             let by_id = |rows: Vec<Value>| -> Result<std::collections::BTreeMap<RecordId, Value>, ModelError> {
@@ -889,9 +893,9 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
             assert_eq!(request.reserved(), 0);
         }
         union.close().await?; drop(union);
-        let mut bindings = Variables::new(); bindings.insert("realization", selected.realizations()[0].clone()); bindings.insert("relation", Package::NAME);
-        let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(bindings, vec![], vec!["SELECT node AS id FROM compiler_view_member WITH INDEX realization_key WHERE realization=$realization AND relation=$relation EXPLAIN".into()])?).await?;
-        assert!(format!("{plan:?}").contains("realization_key"), "actual selected view/relation prefix nomination plan: {plan:?}");
+        let mut bindings = Variables::new(); bindings.insert("contributors", selected.contributors()); bindings.insert("relation", Package::NAME);
+        let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(bindings, vec![], vec!["SELECT node AS id FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation EXPLAIN".into()])?).await?;
+        assert!(format!("{plan:?}").contains("contribution_rows"), "actual selected view/relation prefix nomination plan: {plan:?}");
         let mut bindings = Variables::new(); bindings.insert("type", Package::NAME); bindings.insert("keys", keys.iter().map(hex::encode).collect::<Vec<_>>());
         let plan = reader.query_prepared_native::<Value>(PreparedQuery::new(bindings, vec![], vec!["SELECT id FROM entity WITH INDEX semantic_key WHERE semantic_type=$type AND semantic_key IN $keys EXPLAIN".into()])?).await?;
         assert!(format!("{plan:?}").contains("semantic_key"), "actual key nomination plan: {plan:?}");
@@ -902,12 +906,12 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
         assert!(format!("{plan:?}").contains("by_scope"), "actual scope nomination plan: {plan:?}");
         let views=selected.installed.iter().chain(&foreign.installed).cloned().collect::<Vec<_>>();
         let conflicted = NativeReader::for_installed_views(reader.shared_client(),&views,&retained).await?.with_request_budget(&request);
-        let mut singleton_bindings = Variables::new(); singleton_bindings.insert("realizations",selected.realizations()); singleton_bindings.insert("relation", Unit::NAME); singleton_bindings.insert("key", revision.id().hex());
-        let physical: Vec<RecordId> = reader.query("SELECT VALUE node FROM compiler_view_member WITH INDEX realization_key WHERE realization IN $realizations AND relation=$relation AND semantic_key=$key", singleton_bindings).await?;
+        let mut singleton_bindings = Variables::new(); singleton_bindings.insert("contributors",selected.contributors()); singleton_bindings.insert("relation", Unit::NAME); singleton_bindings.insert("key", revision.id().hex());
+        let physical: Vec<RecordId> = reader.query("SELECT VALUE node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation AND semantic_key=$key", singleton_bindings).await?;
         assert_eq!(physical.len(), 1);
         assert!(conflicted.selected_membership(&physical, &request).await.is_err(), "a singleton search dependency must reject an un-nominated revision in another selected view");
-        let mut shared_bindings = Variables::new(); shared_bindings.insert("realizations",selected.realizations()); shared_bindings.insert("relation", Package::NAME); shared_bindings.insert("key", packages[0].id().hex());
-        let shared: Vec<RecordId> = reader.query("SELECT VALUE node FROM compiler_view_member WITH INDEX realization_key WHERE realization IN $realizations AND relation=$relation AND semantic_key=$key", shared_bindings).await?;
+        let mut shared_bindings = Variables::new(); shared_bindings.insert("contributors",selected.contributors()); shared_bindings.insert("relation", Package::NAME); shared_bindings.insert("key", packages[0].id().hex());
+        let shared: Vec<RecordId> = reader.query("SELECT VALUE node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $contributors AND relation=$relation AND semantic_key=$key", shared_bindings).await?;
         assert_eq!(shared.len(), 1);
         let shared_answers = conflicted.selected_membership(&shared, &request).await?;
         assert!(shared_answers.contains_all(&shared)); assert_eq!(shared_answers.answers[0].witnesses.len(), 2, "identical physical/content admission in two exact views is legitimate"); drop(shared_answers);
@@ -921,8 +925,17 @@ async fn indexed_sparse_reads_preserve_selected_absence_aliases_conflicts_and_bu
     }.await;
     let exact = reader.prepare_selection().await.unwrap().unwrap();
     drop(reader);
-    assert!(retained.reserved()>0,"the immutable selection retains its physical owner and allocation");
-    assert!(matches!(selected.reader.close().await,Err(ModelError::Conflict("native reader clones remain live"))),"an outstanding selected borrower must fence reader closure");
+    assert!(
+        retained.reserved() > 0,
+        "the immutable selection retains its physical owner and allocation"
+    );
+    assert!(
+        matches!(
+            selected.reader.close().await,
+            Err(ModelError::Conflict("native reader clones remain live"))
+        ),
+        "an outstanding selected borrower must fence reader closure"
+    );
     drop(exact);
     let mut terminal = completion::Completion::default();
     terminal.step("sparse selected fixture close", selected.close().await);

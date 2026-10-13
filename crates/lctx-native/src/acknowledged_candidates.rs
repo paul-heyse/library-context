@@ -11,9 +11,11 @@ use futures::{
 };
 use lctx_model::domain::{
     ModelError,
+    completed_identity::{CompletedFamilyHasher, CompletedFamilyRoot},
+    recovery_closure::RecoveryFamily,
     resources::{Reservation, ResourceBudget},
 };
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicBool};
 use surrealdb::types::{RecordIdKey, Value};
 use tokio::sync::{mpsc, oneshot};
 
@@ -25,6 +27,15 @@ enum Input {
     Finish,
     Prepare,
     Next(usize),
+    FoldFamily {
+        family: RecoveryFamily,
+        runs: Vec<PreparedRows>,
+        cancelled: Option<Arc<AtomicBool>>,
+    },
+    UnionRows {
+        runs: Vec<PreparedRows>,
+        cancelled: Option<Arc<AtomicBool>>,
+    },
     #[cfg(test)]
     Pause(oneshot::Sender<()>, std::sync::mpsc::Receiver<()>),
 }
@@ -34,6 +45,7 @@ enum Output {
     PreparedCandidates(PreparedCandidates),
     Candidates(Vec<Candidate>, Box<dyn Reservation>),
     Rows(Vec<Value>, Box<dyn Reservation>),
+    FamilyRoot(CompletedFamilyRoot),
 }
 struct Command {
     input: Input,
@@ -76,8 +88,10 @@ impl Owner {
         physical_row_bytes: Option<usize>,
         prepared: Option<PreparedRows>,
         prepared_candidates: Option<PreparedCandidates>,
+        fold_control: Option<Box<dyn Reservation>>,
         register: Option<Box<dyn FnOnce(BlockingTerminal) + Send>>,
     ) -> Result<Self, ModelError> {
+        let fold_only = fold_control.is_some();
         let (sender, mut receiver) = mpsc::channel::<Command>(1);
         let budget = budget.clone();
         let worker_budget = budget.clone();
@@ -88,7 +102,9 @@ impl Owner {
             tracing::dispatcher::with_default(&dispatch, || {
                 span.in_scope(|| {
                     let _guard = guard;
-                    let _control = match worker_budget.reserve("ordered-command-owner", 2048) {
+                    let _control = match fold_control
+                        .map_or_else(|| worker_budget.reserve("ordered-command-owner", 2048), Ok)
+                    {
                         Ok(reservation) => reservation,
                         Err(error) => {
                             let error = Arc::new(error);
@@ -96,7 +112,9 @@ impl Owner {
                             return Err(error);
                         }
                     };
-                    let initial = if let Some(prepared) = prepared {
+                    let initial = if fold_only {
+                        Ok(Kernel::Taken)
+                    } else if let Some(prepared) = prepared {
                         prepared
                             .cursor_with_budget(&worker_budget)
                             .map(Kernel::OrderedRows)
@@ -205,6 +223,42 @@ impl Owner {
                                     _ => Err(ModelError::Conflict("ordered reading state")),
                                 }
                             }
+                            Input::FoldFamily {
+                                family,
+                                runs,
+                                cancelled,
+                            } => {
+                                if !matches!(kernel, Kernel::Taken) {
+                                    return Err(ModelError::Conflict(
+                                        "canonical fold worker state",
+                                    ));
+                                }
+                                let _hash = worker_budget.reserve(
+                                    "ordered-canonical-family-hash",
+                                    std::mem::size_of::<CompletedFamilyHasher>()
+                                        + std::mem::size_of::<CompletedFamilyRoot>(),
+                                )?;
+                                let mut hash = CompletedFamilyHasher::new(family)?;
+                                PreparedRows::fold_union(
+                                    &runs,
+                                    &worker_budget,
+                                    || crate::prepared::check_read_cancellation(cancelled.as_ref()),
+                                    |_, payload| hash.row(payload),
+                                )?;
+                                crate::prepared::check_read_cancellation(cancelled.as_ref())?;
+                                Ok(Output::FamilyRoot(hash.finish()))
+                            }
+                            Input::UnionRows { runs, cancelled } => {
+                                if !matches!(kernel, Kernel::Taken) {
+                                    return Err(ModelError::Conflict(
+                                        "canonical union worker state",
+                                    ));
+                                }
+                                PreparedRows::union_prepared(&runs, &worker_budget, || {
+                                    crate::prepared::check_read_cancellation(cancelled.as_ref())
+                                })
+                                .map(Output::Prepared)
+                            }
                         })();
                         match result {
                             Ok(output) => {
@@ -270,6 +324,13 @@ impl Owner {
     }
     fn submit(&mut self, input: Input, bytes: usize) -> Result<(), ModelError> {
         let transfer = self.budget.reserve("ordered-command-input", bytes)?;
+        self.submit_reserved(input, transfer)
+    }
+    fn submit_reserved(
+        &mut self,
+        input: Input,
+        transfer: Box<dyn Reservation>,
+    ) -> Result<(), ModelError> {
         let (reply, pending) = oneshot::channel();
         self.sender
             .as_ref()
@@ -362,7 +423,7 @@ impl AsyncCandidateSort {
         budget: &ResourceBudget,
         owner: impl Send + 'static,
     ) -> Result<Self, ModelError> {
-        Owner::new(budget, owner, None, None, None, None)
+        Owner::new(budget, owner, None, None, None, None, None)
             .await
             .map(Self)
     }
@@ -373,9 +434,17 @@ impl AsyncCandidateSort {
         owner: impl Send + 'static,
         register: impl FnOnce(BlockingTerminal) + Send + 'static,
     ) -> Result<Self, ModelError> {
-        Owner::new(budget, owner, None, None, None, Some(Box::new(register)))
-            .await
-            .map(Self)
+        Owner::new(
+            budget,
+            owner,
+            None,
+            None,
+            None,
+            None,
+            Some(Box::new(register)),
+        )
+        .await
+        .map(Self)
     }
     pub async fn push(&mut self, candidate: Candidate) -> Result<(), ModelError> {
         let bytes = candidate_bytes(&candidate)?;
@@ -413,6 +482,7 @@ impl AsyncOrderedCandidates {
             None,
             None,
             Some(prepared),
+            None,
             Some(Box::new(register)),
         )
         .await
@@ -449,6 +519,104 @@ impl AsyncOrderedCandidates {
 }
 pub struct AsyncPhysicalSort(Owner);
 impl AsyncPhysicalSort {
+    /// Build the exact union on the same registered blocking owner used for ordering.
+    /// The returned run has no creation-worker lease and remains reusable independently.
+    pub async fn union_registered(
+        runs: Vec<PreparedRows>,
+        budget: &ResourceBudget,
+        guard: impl Send + 'static,
+        register: impl FnOnce(BlockingTerminal) + Send + 'static,
+        cancellation: Option<Arc<AtomicBool>>,
+    ) -> Result<PreparedRows, ModelError> {
+        let transfer = budget.reserve(
+            "ordered-command-input",
+            std::mem::size_of::<Input>().saturating_add(
+                runs.capacity()
+                    .saturating_mul(std::mem::size_of::<PreparedRows>()),
+            ),
+        )?;
+        let control = budget.reserve("ordered-command-owner", 2048)?;
+        let mut owner = Owner::new(
+            budget,
+            guard,
+            None,
+            None,
+            None,
+            Some(control),
+            Some(Box::new(register)),
+        )
+        .await?;
+        let result = async {
+            owner.submit_reserved(
+                Input::UnionRows {
+                    runs,
+                    cancelled: cancellation,
+                },
+                transfer,
+            )?;
+            match owner.acknowledge().await? {
+                Some(Output::Prepared(rows)) => Ok(rows),
+                _ => Err(ModelError::Schema("canonical union response")),
+            }
+        }
+        .await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step(
+            "canonical ordered union worker drainage",
+            owner.drain().await,
+        );
+        lctx_model::domain::completion::complete(result, completion)
+    }
+    /// Hash an already normalized immutable family on the existing acknowledged
+    /// blocking owner. Registration precedes initialization awaits; the supplied guard
+    /// remains in the worker through command completion and terminal drainage.
+    pub async fn fold_union_registered(
+        family: RecoveryFamily,
+        runs: Vec<PreparedRows>,
+        budget: &ResourceBudget,
+        guard: impl Send + 'static,
+        register: impl FnOnce(BlockingTerminal) + Send + 'static,
+        cancellation: Option<Arc<AtomicBool>>,
+    ) -> Result<CompletedFamilyRoot, ModelError> {
+        // The caller owns allocation of its incoming Vec. Charge the transferred
+        // capacity before creating a command channel, registration box or worker.
+        let transfer = budget.reserve(
+            "ordered-command-input",
+            std::mem::size_of::<Input>().saturating_add(
+                runs.capacity()
+                    .saturating_mul(std::mem::size_of::<PreparedRows>()),
+            ),
+        )?;
+        let control = budget.reserve("ordered-command-owner", 2048)?;
+        let mut owner = Owner::new(
+            budget,
+            guard,
+            None,
+            None,
+            None,
+            Some(control),
+            Some(Box::new(register)),
+        )
+        .await?;
+        let result = async {
+            owner.submit_reserved(
+                Input::FoldFamily {
+                    family,
+                    runs,
+                    cancelled: cancellation,
+                },
+                transfer,
+            )?;
+            match owner.acknowledge().await? {
+                Some(Output::FamilyRoot(root)) => Ok(root),
+                _ => Err(ModelError::Schema("completed family fold response")),
+            }
+        }
+        .await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step("canonical family fold worker drainage", owner.drain().await);
+        lctx_model::domain::completion::complete(result, completion)
+    }
     pub async fn new_registered(
         budget: &ResourceBudget,
         owner: impl Send + 'static,
@@ -469,6 +637,7 @@ impl AsyncPhysicalSort {
             Some(row_bytes),
             None,
             None,
+            None,
             Some(Box::new(register)),
         )
         .await
@@ -480,6 +649,14 @@ impl AsyncPhysicalSort {
     }
     pub async fn prepare(&mut self) -> Result<PreparedRows, ModelError> {
         self.0.prepare().await
+    }
+    /// Consume the creation owner and join its worker on every outcome, retaining the
+    /// primary preparation error alongside any independent drainage failure.
+    pub async fn prepare_terminal(mut self) -> Result<PreparedRows, ModelError> {
+        let result = self.0.prepare().await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step("physical preparation worker drainage", self.0.drain().await);
+        lctx_model::domain::completion::complete(result, completion)
     }
     pub async fn finish(&mut self) -> Result<AsyncOrderedRows, ModelError> {
         self.0.finish().await.map(|owner| AsyncOrderedRows {
@@ -506,6 +683,7 @@ impl AsyncOrderedRows {
             owner,
             Some(crate::ordered_rows::ROW_BYTES),
             Some(prepared),
+            None,
             None,
             Some(Box::new(register)),
         )
@@ -562,6 +740,197 @@ mod tests {
             key: nominal,
             node: RecordId::new("entity", format!("{:03}", 255 - key)),
         }
+    }
+    fn physical(key: &str, value: Value) -> Value {
+        let mut row = surrealdb::types::Object::new();
+        row.insert("id", RecordId::new("entity", key));
+        row.insert("value", value);
+        Value::Object(row)
+    }
+    fn prepared(budget: &ResourceBudget, rows: Vec<Value>) -> PreparedRows {
+        let mut sorted = SortedRows::with_budget(budget).unwrap();
+        for row in rows {
+            sorted.push(row).unwrap();
+        }
+        sorted.finish().unwrap().into_prepared()
+    }
+    #[tokio::test]
+    async fn registered_canonical_fold_returns_root_after_drain_and_refuses_late_conflict() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let first = prepared(
+            &budget,
+            vec![physical("z", Value::Null), physical("a", Value::Null)],
+        );
+        let overlap = prepared(&budget, vec![physical("z", Value::Null)]);
+        let before = budget.reserved();
+        let released = Arc::new(AtomicBool::new(false));
+        let (registered_tx, registered) = oneshot::channel();
+        let root = AsyncPhysicalSort::fold_union_registered(
+            RecoveryFamily::Memberships,
+            vec![overlap, first.clone()],
+            &budget,
+            Guard(released.clone()),
+            move |terminal| {
+                let _ = registered_tx.send(terminal);
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(released.load(Ordering::Acquire));
+        registered.await.unwrap().await.unwrap();
+        let mut expected = CompletedFamilyHasher::new(RecoveryFamily::Memberships).unwrap();
+        for key in ["a", "z"] {
+            expected
+                .row(&serde_json::to_vec(&physical(key, Value::Null)).unwrap())
+                .unwrap();
+        }
+        assert_eq!(root, expected.finish());
+        assert!(
+            budget.reserved() < before,
+            "transferred overlap is released at worker terminal"
+        );
+        let released = Arc::new(AtomicBool::new(false));
+        let union = AsyncPhysicalSort::union_registered(
+            vec![first.clone(), first.clone()],
+            &budget,
+            Guard(released.clone()),
+            |_| {},
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(released.load(Ordering::Acquire));
+        let mut cursor = union.frame_cursor(&budget).unwrap();
+        assert!(cursor.next_frame().unwrap().is_some());
+        assert!(cursor.next_frame().unwrap().is_some());
+        assert!(cursor.next_frame().unwrap().is_none());
+        drop(cursor);
+        drop(union);
+        let conflict = prepared(&budget, vec![physical("z", Value::None)]);
+        let released = Arc::new(AtomicBool::new(false));
+        let error = AsyncPhysicalSort::fold_union_registered(
+            RecoveryFamily::Memberships,
+            vec![first.clone(), conflict],
+            &budget,
+            Guard(released.clone()),
+            |_| {},
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error.primary(),
+            Some(ModelError::Conflict("conflicting physical row identity"))
+        ));
+        assert!(released.load(Ordering::Acquire));
+        let released = Arc::new(AtomicBool::new(false));
+        let error = AsyncPhysicalSort::fold_union_registered(
+            RecoveryFamily::GraphPayloads,
+            vec![],
+            &budget,
+            Guard(released.clone()),
+            |_| {},
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error.primary(),
+            Some(ModelError::Conflict("not a completed logical family"))
+        ));
+        assert!(released.load(Ordering::Acquire));
+        let mut cursor = first.frame_cursor(&budget).unwrap();
+        assert!(cursor.next_frame().unwrap().is_some());
+        assert!(cursor.next_frame().unwrap().is_some());
+        assert!(cursor.next_frame().unwrap().is_none());
+        drop(cursor);
+        drop(first);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn terminal_physical_preparation_joins_failed_finish_before_returning() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let released = Arc::new(AtomicBool::new(false));
+        let mut sort = AsyncPhysicalSort::new_registered(&budget, Guard(released.clone()), |_| {})
+            .await
+            .unwrap();
+        sort.push(physical("a", Value::Null)).await.unwrap();
+        sort.push(physical("a", Value::None)).await.unwrap();
+        let error = match sort.prepare_terminal().await {
+            Ok(_) => panic!("conflicting preparation cannot complete"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error.primary(),
+            Some(ModelError::Conflict("conflicting physical row identity"))
+        ));
+        assert!(released.load(Ordering::Acquire));
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn abandoned_queued_canonical_fold_keeps_guard_until_cancelled_worker_terminal() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let first = prepared(&budget, vec![physical("a", Value::Null)]);
+        let before = budget.reserved();
+        let released = Arc::new(AtomicBool::new(false));
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let control = budget.reserve("ordered-command-owner", 2048).unwrap();
+        let mut owner = Owner::new(
+            &budget,
+            Guard(released.clone()),
+            None,
+            None,
+            None,
+            Some(control),
+            None,
+        )
+        .await
+        .unwrap();
+        let terminal = owner.terminal.clone();
+        let (entered_tx, entered) = oneshot::channel();
+        let (release, gate) = std::sync::mpsc::channel();
+        let (reply, _) = oneshot::channel();
+        owner
+            .sender
+            .as_ref()
+            .unwrap()
+            .try_send(Command {
+                input: Input::Pause(entered_tx, gate),
+                reply,
+                _transfer: None,
+            })
+            .unwrap_or_else(|_| panic!("pause canonical worker"));
+        entered.await.unwrap();
+        owner
+            .submit(
+                Input::FoldFamily {
+                    family: RecoveryFamily::Memberships,
+                    runs: vec![first.clone()],
+                    cancelled: Some(cancelled.clone()),
+                },
+                std::mem::size_of::<PreparedRows>(),
+            )
+            .unwrap();
+        let mut wait = Box::pin(owner.acknowledge());
+        assert!(futures::poll!(&mut wait).is_pending());
+        drop(wait);
+        assert!(!released.load(Ordering::Acquire));
+        cancelled.store(true, Ordering::Release);
+        drop(owner);
+        assert!(!released.load(Ordering::Acquire));
+        assert!(budget.reserved() > before);
+        release.send(()).unwrap();
+        let error = terminal.await.unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+        assert!(released.load(Ordering::Acquire));
+        assert_eq!(budget.reserved(), before);
+        let mut cursor = first.frame_cursor(&budget).unwrap();
+        assert!(cursor.next_frame().unwrap().is_some());
+        assert!(cursor.next_frame().unwrap().is_none());
+        drop(cursor);
+        drop(first);
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test]
     async fn acknowledged_ordering_retains_pending_window_and_owner_until_terminal() {

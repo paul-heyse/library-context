@@ -1,4 +1,5 @@
 //! Partial semantic graphs exercise scoped native kernels, never publication admission.
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{
     ContentHash, ModelError, Relation,
     admission::Frontier,
@@ -8,7 +9,6 @@ use lctx_model::domain::{
     stages::{Profile, ProviderOutcome},
 };
 use lctx_native::{NativeReader, RuntimeConfig};
-use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -36,8 +36,24 @@ impl std::ops::Deref for ScopedFixture {
     }
 }
 impl ScopedFixture {
-    pub fn realizations(&self)->Vec<lctx_native::surrealdb::types::RecordId>{
-        self.installed.iter().map(|view|lctx_native::surrealdb::types::RecordId::new("compiler_view_realization",view.completion().realization.hex())).collect()
+    pub fn contributors(&self) -> Vec<lctx_native::surrealdb::types::RecordId> {
+        self.installed
+            .iter()
+            .flat_map(|view| {
+                view.completion()
+                    .mappings
+                    .iter()
+                    .filter(|mapping| mapping.view == view.completion().view.identity)
+                    .map(|mapping| {
+                        lctx_native::surrealdb::types::RecordId::new(
+                            "compiler_contribution",
+                            mapping.physical.hex(),
+                        )
+                    })
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
     }
     pub async fn close(&self) -> Result<(), ModelError> {
         self.reader.close().await?;
@@ -107,27 +123,41 @@ pub async fn reader_at_frontier(
             groups.remove(relation.name()).unwrap(),
             &budget,
         )?;
-        store.write_batch(&contribution, relation, &batch, &budget).await?;
+        store
+            .write_batch(&contribution, relation, &batch, &budget)
+            .await?;
     }
     let views = store
-        .complete_contribution(contribution,
+        .complete_contribution(
+            contribution,
             ProviderOutcome::Complete,
             &relations,
-            &BTreeMap::new(), &budget)
+            &BTreeMap::new(),
+            &budget,
+        )
         .await?;
     let client = lctx_compiler_store::compiler::check_installation(config).await?;
-    let derivation=ContentHash::of(format!("scoped-native-kernel-fixture/{}",store.attempt().hex()).as_bytes());
+    let derivation = ContentHash::of(
+        format!("scoped-native-kernel-fixture/{}", store.attempt().hex()).as_bytes(),
+    );
     let loader = lctx_native::Loader::for_attempt_views(
         client.clone(),
         store.attempt(),
         views.values().map(|view| view.identity).collect(),
-    ).with_derivation(derivation).with_budget(&budget);
+    )
+    .with_derivation(derivation)
+    .with_budget(&budget);
     loader.entity_references(entities).await?;
     loader.assertion_references(assertions).await?;
-    let descriptors=views.values().cloned().collect::<Vec<_>>();
-    let reader=store.reader_for_views(&descriptors,&budget).await?.with_derivation(derivation);
-    let mut installed=Vec::new();
-    for view in &descriptors {installed.push(store.installed_view(view,&budget).await?);}
+    let descriptors = views.values().cloned().collect::<Vec<_>>();
+    let reader = store
+        .reader_for_views(&descriptors, &budget)
+        .await?
+        .with_derivation(derivation);
+    let mut installed = Vec::new();
+    for view in &descriptors {
+        installed.push(store.installed_view(view, &budget).await?);
+    }
     let views = descriptors.iter().map(|v| v.identity).collect::<Vec<_>>();
     Ok(ScopedFixture {
         reader,

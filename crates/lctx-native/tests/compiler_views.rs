@@ -271,6 +271,10 @@ async fn cold_backing_rejects_valid_body_changes_and_false_typed_keys() {
         .await
         .unwrap();
     store.verify_state(&native_operation_budget).await.unwrap();
+    store
+        .freeze_content(&native_operation_budget)
+        .await
+        .unwrap();
     let file = tempfile::NamedTempFile::new().unwrap();
     let state = store
         .export_state(file.path(), &native_operation_budget)
@@ -862,6 +866,10 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             .unwrap();
         assert_eq!(state.contributions, 2);
         assert_eq!(state.memberships, 3);
+        store
+            .freeze_content(&native_operation_budget)
+            .await
+            .unwrap();
         let file = tempfile::NamedTempFile::new().unwrap();
         assert_eq!(
             store
@@ -1928,7 +1936,8 @@ async fn installed_reader_pins_exact_closure_through_source_abandon_and_releases
         .unwrap();
     let view = &views[relation.name()];
     let held = store.installed_view(view, &budget).await.unwrap();
-    let completion = held.completion().record().unwrap();
+    let completion = RecordId::new("compiler_contribution", physical.hex());
+    let source_pin = held.owner().clone();
     let client = fixture_client(&store, &config).await;
     let reader = lctx_native::NativeReader::for_installed_views(
         client.clone(),
@@ -1942,6 +1951,54 @@ async fn installed_reader_pins_exact_closure_through_source_abandon_and_releases
         .await
         .unwrap();
     let observer = lctx_native::NativeReader::private(client.clone()).with_budget(&budget);
+    held.ensure_borrowed_current(&observer, &budget)
+        .await
+        .unwrap();
+    let closed_borrow =
+        lctx_native::NativeReader::borrow_installed_views(std::slice::from_ref(&held), &budget)
+            .await
+            .unwrap();
+    assert_eq!(
+        closed_borrow
+            .records::<Package>(lctx_native::reader::RecordSelection::Keys(vec![
+                *row.id().bytes()
+            ]))
+            .await
+            .unwrap(),
+        vec![row.clone()]
+    );
+    closed_borrow.close().await.unwrap();
+    drop(closed_borrow);
+    held.ensure_borrowed_current(&observer, &budget)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .scan_batches(view, &relation, None, None, &budget, 32)
+            .await
+            .unwrap()
+            .try_collect::<Vec<_>>()
+            .await
+            .unwrap()
+            .iter()
+            .flat_map(|batch| Package::decode(batch).unwrap())
+            .collect::<Vec<_>>(),
+        vec![row.clone()],
+        "closing an operation-local reader preserves its source pin and SDK session"
+    );
+    let borrowed =
+        lctx_native::NativeReader::borrow_installed_views(std::slice::from_ref(&held), &budget)
+            .await
+            .unwrap();
+    assert_eq!(
+        borrowed
+            .records::<Package>(lctx_native::reader::RecordSelection::Keys(vec![
+                *row.id().bytes()
+            ]))
+            .await
+            .unwrap(),
+        vec![row.clone()]
+    );
     let pins = async {
         let mut bindings = Variables::new();
         bindings.insert("completion", completion.clone());
@@ -1949,11 +2006,30 @@ async fn installed_reader_pins_exact_closure_through_source_abandon_and_releases
     };
     let before = pins.await.unwrap();
     assert_eq!(
-        before.len(),
+        before.iter().filter(|owner| **owner != source_pin).count(),
         2,
-        "reader owns its exact completion independently of source attempt"
+        "both readers own exact contributor closure independently of the source audit pin"
     );
     store.abandon().await.unwrap();
+    assert!(
+        held.ensure_borrowed_current(&observer, &budget)
+            .await
+            .is_err(),
+        "an internal source borrow ends with its actual source pin; independently received readers retain their own authority"
+    );
+    assert!(
+        borrowed.prepare_selection().await.is_err(),
+        "a cached internal selection cannot outlive its actual source pin"
+    );
+    assert!(
+        borrowed
+            .query_native::<i64>("RETURN 1", Variables::new())
+            .await
+            .is_err(),
+        "source close refuses new borrowed queries before using its invalidated SDK session"
+    );
+    borrowed.close().await.unwrap();
+    drop(borrowed);
     for selected in [&reader, &from_store] {
         assert_eq!(
             selected
@@ -2753,7 +2829,7 @@ async fn shared_dependency_view_requires_each_selected_contributors_exact_hold()
     };
     use lctx_native::surrealdb::types::{Object, RecordId, Value};
     let config = RuntimeConfig::read(&std::path::PathBuf::from(
-        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned format-6 native fixture"),
+        std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned format-7 native fixture"),
     ))
     .unwrap();
     let source =
@@ -2764,6 +2840,10 @@ async fn shared_dependency_view_requires_each_selected_contributors_exact_hold()
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
     let nonce = lctx_native::control::fresh_identity("shared-dependency-edge-control").unwrap();
     let mut restore: Option<(Object, Object, Object)> = None;
+    let mut audit = lctx_native::installed_view::InstallationAudit::new(admin.clone(), &budget)
+        .await
+        .unwrap();
+    let mut independent_audit = None;
     let outcome=std::panic::AssertUnwindSafe(async {
         let relation=Relation::of::<Package>();
         let leaf=source.begin_contribution(spec(&format!("leaf-{}",nonce.hex()),&relation)).await.unwrap();
@@ -2779,8 +2859,8 @@ async fn shared_dependency_view_requires_each_selected_contributors_exact_hold()
         }
         let view=previous[relation.name()].clone();assert_eq!(view.contributions.len(),2);assert_eq!(view.rows,0);
         let held=source.installed_view(&view,&budget).await.unwrap();let sealed=held.completion().clone();
-        let original=lctx_native::installed_view::install_live_view(admin.clone(),source.attempt(),&view,&sealed.mappings,&budget).await.unwrap();
-        assert_eq!(original.completion(),&sealed,"reholding a sealed namespace keeps its original immutable seal revision");
+        let original=lctx_native::installed_view::select_live_view_scoped(admin.clone(),source.attempt(),&view,&sealed.mappings,&budget,&mut audit).await.unwrap();
+        assert_eq!(original.completion(),&sealed,"reselection keeps the exact validated logical/physical selector");
         let last=*view.contributions.iter().next_back().unwrap();
         let selected=sealed.mappings.iter().find(|mapping|mapping.view==view.identity && mapping.logical==last).unwrap();
         let contributor=RecordId::new("compiler_contribution",selected.physical.hex());let dependency=RecordId::new("compiler_view",dependency.identity.hex());
@@ -2796,12 +2876,16 @@ async fn shared_dependency_view_requires_each_selected_contributors_exact_hold()
         let (edge,owner_guard,object_guard)=restore.as_ref().unwrap();
         admin.query("BEGIN; IF (SELECT * FROM ONLY $edge.id)!=$edge OR (SELECT * FROM ONLY $owner_guard.id)!=$owner_guard OR (SELECT * FROM ONLY $object_guard.id)!=$object_guard { THROW 'owned dependency control observation changed'; }; fn::native_incidence($edge); DELETE $edge.id RETURN NONE; COMMIT;")
             .bind(("edge",edge.clone())).bind(("owner_guard",owner_guard.clone())).bind(("object_guard",object_guard.clone())).await.unwrap().check().unwrap();
-        let rejected=lctx_native::installed_view::install_live_view(admin.clone(),source.attempt(),&view,&sealed.mappings,&budget).await;
+        // Privileged corruption bypasses the pinned immutable-owner protocol. A
+        // fresh independent audit must inspect every selected owner's exact edge.
+        independent_audit=Some(lctx_native::installed_view::InstallationAudit::new(admin.clone(),&budget).await.unwrap());
+        let fresh=independent_audit.as_ref().unwrap();
+        let rejected=lctx_native::installed_view::select_live_view_scoped(admin.clone(),source.attempt(),&view,&sealed.mappings,&budget,fresh).await;
         // Restore the exact owned incidence before observing the expected refusal.
         restore_dependency_edge(&admin,restore.as_ref().unwrap()).await.unwrap();restore=None;
-        assert!(matches!(&rejected,Err(ModelError::Conflict("completed exact hold incidence missing/duplicate"))),"the second selected physical contributor must independently retain its input: {:?}",rejected.as_ref().err());
-        let restored=lctx_native::installed_view::install_live_view(admin.clone(),source.attempt(),&view,&sealed.mappings,&budget).await.unwrap();
-        assert_eq!(restored.completion(),&sealed,"dependency repair reholds the authentic original seal without resealing");
+        assert!(matches!(rejected.as_ref().err().and_then(ModelError::primary),Some(ModelError::Conflict("native required hold missing"))),"the second selected physical contributor must independently retain its input: {:?}",rejected.as_ref().err());
+        let restored=lctx_native::installed_view::select_live_view_scoped(admin.clone(),source.attempt(),&view,&sealed.mappings,&budget,fresh).await.unwrap();
+        assert_eq!(restored.completion(),&sealed,"dependency repair restores the same exact selector without a per-view seal");
     }).catch_unwind().await;
     let mut completion = Completion::default();
     if let Some(edge) = restore.as_ref() {
@@ -2810,6 +2894,13 @@ async fn shared_dependency_view_requires_each_selected_contributors_exact_hold()
             restore_dependency_edge(&admin, edge).await,
         );
     }
+    if let Some(fresh) = independent_audit.as_ref() {
+        completion.step(
+            "independent corrupted dependency audit close",
+            fresh.close().await,
+        );
+    }
+    completion.step("shared dependency audit close", audit.close().await);
     completion.step(
         "shared dependency control source close",
         source.abandon().await,
@@ -2838,7 +2929,10 @@ async fn restore_dependency_edge(
     ),
 ) -> Result<(), ModelError> {
     let (edge, owner_guard, object_guard) = original;
-    client.query("BEGIN; IF (SELECT * FROM ONLY $owner_guard.id)!=$owner_guard OR (SELECT * FROM ONLY $object_guard.id)!=$object_guard { THROW 'owned dependency restoration endpoints changed'; }; LET $actual=SELECT * FROM ONLY $edge.id; IF $actual!=NONE AND $actual!=$edge { THROW 'owned dependency restoration incidence changed'; }; IF $actual=NONE { fn::native_incidence($edge); CREATE $edge.id CONTENT $edge RETURN NONE; }; COMMIT;")
+    // Fresh audit pins legitimately touch guard revisions. Restoration preserves
+    // exact incidence and endpoint incarnation/retirement state, without treating
+    // another incoming protection as endpoint replacement.
+    client.query("BEGIN; LET $owner_now=SELECT * FROM ONLY $owner_guard.id; LET $object_now=SELECT * FROM ONLY $object_guard.id; IF $owner_now.phase!='active' OR $object_now.phase!='active' OR $owner_now.incarnation!=$owner_guard.incarnation OR $object_now.incarnation!=$object_guard.incarnation OR $owner_now.retired!=$owner_guard.retired OR $object_now.retired!=$object_guard.retired OR $owner_now.retiring_item!=$owner_guard.retiring_item OR $object_now.retiring_item!=$object_guard.retiring_item OR $owner_now.tombstone_revision!=$owner_guard.tombstone_revision OR $object_now.tombstone_revision!=$object_guard.tombstone_revision { THROW 'owned dependency restoration endpoints changed'; }; LET $actual=SELECT * FROM ONLY $edge.id; IF $actual!=NONE AND $actual!=$edge { THROW 'owned dependency restoration incidence changed'; }; IF $actual=NONE { fn::native_incidence($edge); CREATE $edge.id CONTENT $edge RETURN NONE; }; COMMIT;")
         .bind(("edge",edge.clone())).bind(("owner_guard",owner_guard.clone())).bind(("object_guard",object_guard.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
     Ok(())
 }
@@ -2855,7 +2949,7 @@ async fn held_installation_scope_reuses_whole_blob_and_contributor_across_roots(
         input::{InputRevision, Release},
         source::SourceArtifact,
     };
-    use lctx_native::installed_view::{InstallationAudit, install_live_view_scoped};
+    use lctx_native::installed_view::{InstallationAudit, select_live_view_scoped};
     let config = RuntimeConfig::read(std::path::Path::new(
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
     ))
@@ -2888,14 +2982,14 @@ async fn held_installation_scope_reuses_whole_blob_and_contributor_across_roots(
         for relation in &relations{
             let view=&views[relation.name()];let baseline=store.installed_view(view,&budget).await.unwrap();
             let mappings=baseline.completion().mappings.clone();
-            let checked=install_live_view_scoped(admin.clone(),store.attempt(),view,&mappings,&budget,&mut audit).await.unwrap();
+            let checked=select_live_view_scoped(admin.clone(),store.attempt(),view,&mappings,&budget,&mut audit).await.unwrap();
             assert_eq!(checked.completion(),baseline.completion());
             assert_eq!(audit.observations(),(1,1),"all six logical ranges share one full blob observation, and later roots reuse exactly the retained contributor");
             drop(checked);
         }
         audit.close().await.unwrap();
         let view=&views[packages.name()];let baseline=store.installed_view(view,&budget).await.unwrap();
-        assert!(install_live_view_scoped(admin.clone(),store.attempt(),view,&baseline.completion().mappings,&budget,&mut audit).await.is_err(),"a released pin never retains reusable authority");
+        assert!(select_live_view_scoped(admin.clone(),store.attempt(),view,&baseline.completion().mappings,&budget,&mut audit).await.is_err(),"a released pin never retains reusable authority");
     }).catch_unwind().await;
     let mut cleanup = completion::Completion::default();
     cleanup.step("installation observation pin release", audit.close().await);

@@ -67,9 +67,15 @@ pub fn recovery_table_inventory() -> impl Iterator<Item = RecoveryTable> {
                     relation: recovery_relation(family),
                 })
         })
-        .chain(INSTALLATION_WITNESS_TABLES.iter().map(|name| RecoveryTable {
-            name, kind: RecoveryTableKind::InstallationWitness, relation: false,
-        }))
+        .chain(
+            INSTALLATION_WITNESS_TABLES
+                .iter()
+                .map(|name| RecoveryTable {
+                    name,
+                    kind: RecoveryTableKind::InstallationWitness,
+                    relation: false,
+                }),
+        )
         .chain(std::iter::once(RecoveryTable {
             name: "publication",
             kind: RecoveryTableKind::PublicationRoot,
@@ -95,14 +101,20 @@ pub const STATE_TABLES: [&str; 6] = {
 
 /// Attempt-owned replay work is operational state, never completed closure content.
 /// Database checkpoint/recovery retains it together with native holds/effect receipts.
-pub const PENDING_ORIGINAL_TABLES: [&str;3] = ["native_pending_original", "native_pending_original_ordinal", "native_pending_original_piece"];
+pub const PENDING_ORIGINAL_TABLES: [&str; 3] = [
+    "native_pending_original",
+    "native_pending_original_ordinal",
+    "native_pending_original_piece",
+];
 
 /// Exact physical completion/admission and retained canonical binding witnesses are
 /// installation-local. This inventory is deliberately outside COMPLETED_FAMILIES and
 /// STATE_TABLES, whose six logical roots remain the portable semantic authority.
-pub const INSTALLATION_WITNESS_TABLES: [&str; 8] = [
-    "compiler_view_realization", "compiler_view_member", "compiler_view_completion",
-    "native_completed_state", "native_completed_view", "native_completed_admission",
+pub const INSTALLATION_WITNESS_TABLES: [&str; 6] = [
+    "native_completed_contributor",
+    "native_completed_state",
+    "native_completed_view",
+    "native_completed_admission",
     "compiler_binding_descriptor",
     "native_validation_premise",
 ];

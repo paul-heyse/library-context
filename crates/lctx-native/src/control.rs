@@ -114,7 +114,7 @@ fn keyset_range_source(
     Ok(format!("type::record({})", range.to_sql()))
 }
 
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 mod coordination;
 pub use coordination::{ADMISSION_STRIPES, ExpectedObject};
 pub(crate) use coordination::{
@@ -205,8 +205,11 @@ pub use frozen::{advance_validity_epoch_native, freeze_content_native, resume_co
 pub(crate) mod held;
 pub(crate) mod live_view;
 pub use held::completed_admission_plan;
-pub use held::{ExpectedRecord, HeldRecord, hold_expected, inspect_expected};
-pub(crate) use held::{hold_live_view_expected, hold_live_views_expected};
+pub use held::{
+    ExpectedHold, ExpectedHolds, ExpectedRecord, ExpectedRecords, HeldRecord, hold_expected,
+    inspect_expected, inspect_expected_window, inspect_hold_window,
+};
+pub use held::{inspect_expected_window_read, inspect_hold_window_read};
 pub(crate) async fn prepare_maintenance_completion_expectations(
     client: &Surreal<Client>,
     bindings: &mut Variables,
@@ -502,17 +505,8 @@ fn hold_plan(
     let mut guards = Vec::new();
     let mut records = Vec::new();
     for (owner, object) in references {
-        let mut sink = KeySink::new("native-hold/v1");
-        sink.part(
-            b"owner",
-            &serde_json::to_vec(&owner).map_err(ModelError::codec)?,
-        );
-        sink.part(
-            b"object",
-            &serde_json::to_vec(&object).map_err(ModelError::codec)?,
-        );
         let mut row = Object::new();
-        row.insert("id", RecordId::new("native_hold", sink.finish().hex()));
+        row.insert("id", hold_record_id(&owner, &object)?);
         row.insert("owner", owner.clone());
         row.insert("object", object.clone());
         records.extend([object.clone(), owner.clone()]);
@@ -554,7 +548,21 @@ fn hold_plan(
             .map(EffectOwner::Pin)
             .unwrap_or(EffectOwner::Installation)
     };
-    Ok(Some((owner,"FOR $row IN $holds { IF record::table($row.owner)='compiler_contribution' { fn::native_contribution_incidence($row.owner,$row); }; IF record::table($row.owner)='compiler_view_realization' { fn::native_realization_incidence($row.owner,$row); }; IF (SELECT VALUE id FROM ONLY $row.owner)=NONE { THROW 'native attachment owner missing'; }; IF (SELECT VALUE id FROM ONLY $row.object)=NONE { THROW 'native attachment target missing'; }; fn::native_incidence($row); UPSERT $row.id CONTENT $row RETURN NONE; }".to_owned(),bindings)))
+    Ok(Some((owner,"FOR $row IN $holds { IF record::table($row.owner)='compiler_contribution' { fn::native_contribution_incidence($row.owner,$row); }; IF record::table($row.owner)='native_completed_state' { fn::native_completed_incidence($row.owner,$row); }; IF (SELECT VALUE id FROM ONLY $row.owner)=NONE { THROW 'native attachment owner missing'; }; IF (SELECT VALUE id FROM ONLY $row.object)=NONE { THROW 'native attachment target missing'; }; fn::native_incidence($row); UPSERT $row.id CONTENT $row RETURN NONE; }".to_owned(),bindings)))
+}
+
+/// The exact physical incidence address shared by creation and observation.
+pub fn hold_record_id(owner: &RecordId, object: &RecordId) -> Result<RecordId, ModelError> {
+    let mut sink = KeySink::new("native-hold/v1");
+    sink.part(
+        b"owner",
+        &serde_json::to_vec(owner).map_err(ModelError::codec)?,
+    );
+    sink.part(
+        b"object",
+        &serde_json::to_vec(object).map_err(ModelError::codec)?,
+    );
+    Ok(RecordId::new("native_hold", sink.finish().hex()))
 }
 
 /// Parent-private staging composition preserves frozen attempt authority. It cannot

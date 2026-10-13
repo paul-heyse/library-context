@@ -31,7 +31,7 @@ pub(crate) async fn revision(
         .await?;
     Ok(value.unwrap_or(0))
 }
-fn member(realization: ContentHash, row: &Value) -> Result<Value, ModelError> {
+pub(crate) fn member(realization: ContentHash, row: &Value) -> Result<Value, ModelError> {
     let object = row
         .as_object()
         .ok_or(ModelError::Schema("completed root member source"))?;
@@ -44,10 +44,7 @@ fn member(realization: ContentHash, row: &Value) -> Result<Value, ModelError> {
     let key = crate::completed_rows::decode_nominal_key(key)?;
     let mut result = Object::new();
     result.insert("id", installed_view::member_id(realization, relation, &key));
-    result.insert(
-        "realization",
-        RecordId::new("compiler_view_realization", realization.hex()),
-    );
+    result.insert("selector", realization.hex());
     for field in ["relation", "semantic_key", "node", "content"] {
         result.insert(
             field,
@@ -59,127 +56,104 @@ fn member(realization: ContentHash, row: &Value) -> Result<Value, ModelError> {
     }
     Ok(Value::Object(result))
 }
-pub(crate) async fn root_members(
-    reader: &crate::NativeReader<()>,
-    selection: &ViewSelection,
-    realization: ContentHash,
-    budget: &ResourceBudget,
-) -> Result<PreparedRows, ModelError> {
-    let mut result = SortedRows::with_budget(budget)?;
-    for logical in &selection.view.contributions {
-        let mapping = &selection.mappings[selection
-            .mappings
-            .binary_search_by_key(&(selection.view.identity, *logical), |mapping| {
-                (mapping.view, mapping.logical)
-            })
-            .map_err(|_| ModelError::Conflict("root contribution missing exact mapping"))?];
-        let mut variables = Variables::new();
-        variables.insert(
-            "owner",
-            RecordId::new("compiler_contribution", mapping.physical.hex()),
-        );
-        variables.insert("relation", selection.view.relation.clone());
-        let mut rows=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],vec!["SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND relation=$relation".into()])?)?;
-        let outcome = async {
-            while let Some(row) = rows.next().await? {
-                let _scratch = budget.reserve(
-                    "completed root member lowering",
-                    crate::loader::native_bytes(&row)
-                        .saturating_mul(32)
-                        .saturating_add(65536),
-                )?;
-                crate::completed_rows::validate_state_row("compiler_membership", &row)?;
-                result.push(member(realization, &row)?)?;
-            }
-            Ok::<_, ModelError>(())
-        }
-        .await;
-        let mut completion = Completion::default();
-        completion.step(
-            "completed root membership read drain",
-            rows.drain_transport().await,
-        );
-        complete(outcome, completion)?;
-    }
-    Ok(result.finish()?.into_prepared())
-}
-pub(crate) async fn verify_members(
-    reader: &crate::NativeReader<()>,
-    realization: ContentHash,
-    expected: &PreparedRows,
+/// Fold only the exact canonical selector union. The rows are temporary ordered
+/// validation projections; no independently retained per-view member namespace exists.
+pub(crate) fn selected_membership_content(
+    members: &PreparedRows,
     rows: u64,
     budget: &ResourceBudget,
 ) -> Result<ContentHash, ModelError> {
-    let root = RecordId::new("compiler_view_realization", realization.hex());
-    let mut actual = SortedRows::with_budget(budget)?;
-    let mut variables = Variables::new();
-    variables.insert("realization", root.clone());
-    let mut stream=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],vec!["SELECT * FROM compiler_view_member WITH INDEX realization_nodes WHERE realization=$realization".into()])?)?;
-    let outcome = async {
-        let mut count = 0u64;
-        while let Some(row) = stream.next().await? {
-            let _scratch = budget.reserve(
-                "completed actual member envelope",
-                crate::loader::native_bytes(&row)
-                    .saturating_mul(32)
-                    .saturating_add(65536),
-            )?;
-            let Some(Value::RecordId(id)) = row.as_object().and_then(|row| row.get("id")) else {
-                return Err(ModelError::Schema("completed actual member id"));
-            };
-            let Some(Value::RecordId(node)) = row.as_object().and_then(|row| row.get("node"))
-            else {
-                return Err(ModelError::Schema("completed actual member node"));
-            };
-            require_hold(reader, &root, id).await?;
-            require_hold(reader, id, node).await?;
-            actual.push(row)?;
-            count = count
-                .checked_add(1)
-                .ok_or(ModelError::Schema("completed actual member count"))?;
-        }
-        Ok(count)
-    }
-    .await;
-    let mut completion = Completion::default();
-    completion.step(
-        "completed actual member stream drain",
-        stream.drain_transport().await,
-    );
-    let count = complete(outcome, completion)?;
-    let mut actual = actual.finish()?;
-    let mut expected = expected.cursor_with_budget(budget)?;
-    let mut sink = KeySink::new("native-view-membership/v2");
-    let mut checked = 0u64;
-    loop {
-        match (expected.next_row()?, actual.next_row()?) {
-            (None, None) => break,
-            (Some(expected), Some(actual)) if expected == actual => {
-                sink.part(
-                    b"member",
-                    &serde_json::to_vec(&actual).map_err(ModelError::codec)?,
-                );
-                checked = checked
-                    .checked_add(1)
-                    .ok_or(ModelError::Schema("completed member digest count"))?;
-            }
-            _ => {
-                return Err(ModelError::Conflict(
-                    "completed exact root membership (including off-page EOF)",
-                ));
-            }
-        }
-    }
-    if count != rows || checked != rows {
+    let mut sink = KeySink::new("native-selected-membership/v3");
+    let count = PreparedRows::fold_union(
+        std::slice::from_ref(members),
+        budget,
+        || Ok(()),
+        |_, payload| {
+            sink.part(b"member", payload);
+            Ok(())
+        },
+    )?;
+    if count as u64 != rows {
         return Err(ModelError::Conflict(
-            "completed root actual distinct membership count",
+            "compound selector distinct membership count",
         ));
     }
-    sink.part(b"rows", &checked.to_le_bytes());
+    sink.part(b"rows", &(count as u64).to_le_bytes());
     Ok(sink.finish())
 }
-/// Freeze must already have quiesced canonical producers. This earns every exact selected
-/// view's physical closure and all six complete logical roots; it grants no semantic admission.
+/// Cancellation between actual pin acquisition and returned owner construction
+/// retains that pin; only a terminal logical rejection may explicitly release it.
+struct RetainedPinConstruction {
+    pin: Arc<crate::control::ReaderPin>,
+    confirmed: bool,
+}
+impl Drop for RetainedPinConstruction {
+    fn drop(&mut self) {
+        if !self.confirmed {
+            self.pin.retain_unknown();
+        }
+    }
+}
+enum BoundaryMode<'a> {
+    Frozen(&'a FrozenContentFence),
+    Live(crate::control::live_view::LiveViewOwner),
+}
+fn boundary_writer<'a>(
+    client: &'a Surreal<Client>,
+    mode: &BoundaryMode<'_>,
+    budget: &'a ResourceBudget,
+) -> Result<crate::control::completed::WitnessWriter<'a>, ModelError> {
+    match mode {
+        BoundaryMode::Frozen(fence) => {
+            crate::control::completed::witness_writer(client, fence, budget)
+        }
+        BoundaryMode::Live(owner) => {
+            crate::control::live_view::witness_writer(client, owner, budget)
+        }
+    }
+}
+async fn hold_boundary_copies(
+    client: &Surreal<Client>,
+    mode: &BoundaryMode<'_>,
+    root: &RecordId,
+    expected: &[Arc<crate::control::ExpectedRecord>],
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    match mode {
+        BoundaryMode::Frozen(fence) => {
+            crate::control::completed::hold_selected_contributors(
+                client, fence, root, expected, budget,
+            )
+            .await
+        }
+        BoundaryMode::Live(owner) => {
+            crate::control::live_view::hold_contributors(client, owner, root, expected, budget)
+                .await
+        }
+    }
+}
+async fn hold_boundary(
+    client: &Surreal<Client>,
+    mode: &BoundaryMode<'_>,
+    data: &FrozenCompletion,
+    expected: crate::control::ExpectedRecord,
+    budget: &ResourceBudget,
+) -> Result<crate::control::HeldRecord, ModelError> {
+    match mode {
+        BoundaryMode::Frozen(_) => {
+            crate::control::hold_frozen_physical_expected(client, data, expected, budget).await
+        }
+        BoundaryMode::Live(owner) => {
+            crate::control::hold_expected(
+                client,
+                owner.attempt(),
+                RecordId::new("native_attempt", owner.attempt().hex()),
+                expected,
+            )
+            .await
+        }
+    }
+}
 pub async fn complete_frozen_content(
     client: Arc<Surreal<Client>>,
     fence: &FrozenContentFence,
@@ -187,326 +161,249 @@ pub async fn complete_frozen_content(
     selections: &[ViewSelection],
     budget: &ResourceBudget,
 ) -> Result<NativeCompletedState, ModelError> {
-    let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let mut audit = installed_view::InstallationAudit::new(client.clone(), budget).await?;
+    let result =
+        complete_frozen_content_scoped(client, fence, bindings, selections, budget, &mut audit)
+            .await;
+    let mut terminal = Completion::default();
+    terminal.step("frozen boundary owned audit close", audit.close().await);
+    complete(result, terminal)
+}
+pub async fn complete_frozen_content_scoped(
+    client: Arc<Surreal<Client>>,
+    fence: &FrozenContentFence,
+    bindings: &[d::completed::CompletedBinding],
+    selections: &[ViewSelection],
+    budget: &ResourceBudget,
+    audit: &installed_view::InstallationAudit,
+) -> Result<NativeCompletedState, ModelError> {
+    complete_boundary_content(
+        client,
+        fence,
+        bindings,
+        selections,
+        budget,
+        BoundaryMode::Frozen(fence),
+        audit,
+    )
+    .await
+}
+/// Separate retained lifetime, with operation-local preparation reused when supplied.
+pub async fn complete_retained_content(
+    client: Arc<Surreal<Client>>,
+    attempt: ContentHash,
+    bindings: &[d::completed::CompletedBinding],
+    selections: &[ViewSelection],
+    budget: &ResourceBudget,
+) -> Result<NativeRetainedState, ModelError> {
+    let mut audit = installed_view::InstallationAudit::new(client.clone(), budget).await?;
+    let result =
+        complete_retained_content_scoped(client, attempt, bindings, selections, budget, &mut audit)
+            .await;
+    let mut terminal = Completion::default();
+    terminal.step("retained boundary owned audit close", audit.close().await);
+    complete(result, terminal)
+}
+pub async fn complete_retained_content_scoped(
+    client: Arc<Surreal<Client>>,
+    attempt: ContentHash,
+    bindings: &[d::completed::CompletedBinding],
+    selections: &[ViewSelection],
+    budget: &ResourceBudget,
+    audit: &installed_view::InstallationAudit,
+) -> Result<NativeRetainedState, ModelError> {
+    let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = async {
+        let owner = crate::control::live_view::capture(&reader, attempt, budget).await?;
+        // This is captured source metadata, not an assertion that the entire
+        // still-open attempt is frozen. The boundary has its own inventory CAS.
+        let fence = FrozenContentFence {
+            generation: owner.generation(),
+            attempt,
+            attempt_epoch: owner.epoch(),
+            completed_revision: owner.revision(),
+            validity_epoch: owner.validity_epoch(),
+            bindings: d::completed::binding_inventory_identity(bindings)?,
+        };
+        let inner = complete_boundary_content(
+            client.clone(),
+            &fence,
+            bindings,
+            selections,
+            budget,
+            BoundaryMode::Live(owner),
+            audit,
+        )
+        .await?;
+        let pin = crate::control::ReaderPin::acquire(client.clone(), &[]).await?;
+        let mut preservation = RetainedPinConstruction {
+            pin: pin.clone(),
+            confirmed: false,
+        };
+        let transferred = async {
+            let expected =
+                crate::control::inspect_expected_read(&reader, inner.completion.record()?, budget)
+                    .await?
+                    .ok_or(ModelError::Conflict(
+                        "retained boundary disappeared before pin transfer",
+                    ))?;
+            if expected.incarnation() != inner.incarnation()
+                || expected.row() != &inner.completion.value(true)?
+            {
+                return Err(ModelError::Conflict(
+                    "retained boundary changed before pin transfer",
+                ));
+            }
+            crate::control::live_view::transfer_expected(&pin, &expected, budget).await
+        }
+        .await;
+        if let Err(error) = transferred {
+            if !error.permits_storage_cleanup() {
+                return Err(error);
+            }
+            let released = pin.release().await;
+            if released.is_ok() {
+                preservation.confirmed = true;
+            }
+            let mut terminal = Completion::default();
+            terminal.step(
+                "rejected retained boundary construction pin release",
+                released,
+            );
+            return complete(Err(error), terminal);
+        }
+        let retained = NativeRetainedState {
+            inner,
+            pin,
+            closed: false,
+        };
+        preservation.confirmed = true;
+        Ok(retained)
+    }
+    .await;
+    let mut terminal = Completion::default();
+    terminal.step(
+        "retained boundary source capture close",
+        reader.close().await,
+    );
+    complete(result, terminal)
+}
+async fn complete_boundary_content(
+    client: Arc<Surreal<Client>>,
+    fence: &FrozenContentFence,
+    bindings: &[d::completed::CompletedBinding],
+    selections: &[ViewSelection],
+    budget: &ResourceBudget,
+    mode: BoundaryMode<'_>,
+    audit: &installed_view::InstallationAudit,
+) -> Result<NativeCompletedState, ModelError> {
+    let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
+    let result = async {
+        audit.ensure_context(&reader, budget).await?;
         if d::completed::binding_inventory_identity(bindings)? != fence.bindings()
             || selections
                 .windows(2)
                 .any(|pair| pair[0].view.identity >= pair[1].view.identity)
         {
-            return Err(ModelError::Conflict(
-                "completed frozen binding/selection inventory",
-            ));
+            return Err(ModelError::Conflict("compound binding/selector inventory"));
         }
-        audit_attempt_bindings(&reader, fence, bindings, budget).await?;
-        let mut charge = StateCharge::new(budget, "native complete selected physical audits");
-        charge.grow(selections.len().saturating_mul(4096))?;
+        if matches!(mode, BoundaryMode::Frozen(_)) {
+            audit_attempt_bindings(&reader, fence, bindings, budget).await?;
+        }
+        let mut charge = StateCharge::new(budget, "compound exact selected physical audits");
+        charge.grow(selections.len().saturating_mul(8192))?;
         let mut closures = Vec::with_capacity(selections.len());
         let mut references = Vec::with_capacity(selections.len());
-        let mut all_aliases = SortedRows::with_budget(budget)?;
-        // An existing earned completion reuses its original revision/install references.
-        // Independent audit still runs; current revision must never become a new CAS basis.
-        let mut variables = Variables::new();
-        variables.insert(
-            "attempt",
-            RecordId::new("native_attempt", fence.attempt().hex()),
-        );
-        let identity: Option<String> = reader
-            .query_native(
-                "RETURN (SELECT VALUE completed_identity FROM ONLY $attempt)",
-                variables,
-            )
-            .await?;
-        let previous = if let Some(identity) = identity {
-            let hash = ContentHash(
-                hex::decode(identity)
-                    .map_err(ModelError::codec)?
-                    .try_into()
-                    .map_err(|_| ModelError::Schema("completed replay digest width"))?,
-            );
-            let actual = crate::control::inspect_expected_read(
+        let mut copies = std::collections::BTreeMap::<ContentHash, ContributorCopy>::new();
+        let mut alias_runs = Vec::new();
+        let assurance_phase = crate::phase::Phase::begin("native_compound_selection_assurance");
+        let mut inspections = installed_view::audit::ClosureInspectionScope::new(audit, budget)?;
+        inspections
+            .prepare_views(
                 &reader,
-                RecordId::new("native_completed_state", hash.hex()),
+                selections
+                    .iter()
+                    .map(|selection| (&selection.view, selection.mappings.as_slice())),
+                audit,
                 budget,
             )
-            .await?
-            .ok_or(ModelError::Conflict(
-                "completed replay missing physical witness",
-            ))?;
-            charge.grow(
-                crate::loader::native_bytes(actual.row())
-                    .saturating_mul(32)
-                    .saturating_add(65536),
-            )?;
-            let data = FrozenCompletion::from_row(actual.row(), true)?;
-            if data.attempt != fence.attempt()
-                || data.generation != fence.generation()
-                || data.attempt_epoch != fence.attempt_epoch()
-                || data.completed_revision != fence.completed_revision()
-                || data.validity_epoch != fence.validity_epoch()
-                || data.bindings != fence.bindings()
-            {
-                return Err(ModelError::Conflict(
-                    "completed replay exact original fence",
-                ));
-            }
-            let inventory = inspect_inventory(&reader, &data, budget).await?;
-            Some((data, inventory))
-        } else {
-            None
-        };
+            .await?;
         for selection in selections {
-            let closure = installed_view::audit::inspect_closure(
+            let closure = installed_view::audit::inspect_closure_scoped(
                 &reader,
                 &selection.view,
                 &selection.mappings,
                 budget,
+                audit,
+                &mut inspections,
             )
             .await?;
-            installed_view::audit::audit_memberships_scoped(&reader, &closure, budget, &mut audit)
-                .await?;
-            let aliases = installed_view::audit::audit_aliases(&reader, &closure, budget).await?;
-            if bindings
-                .iter()
-                .any(|binding| binding.view.identity == selection.view.identity)
-            {
-                let mut aliases_cursor = aliases.cursor_with_budget(budget)?;
-                while let Some(alias) = aliases_cursor.next_row()? {
-                    all_aliases.push(alias)?;
-                }
-            }
-            let realization = installed_view::realization_id(&selection.view, &selection.mappings)?;
-            let root = RecordId::new("compiler_view_realization", realization.hex());
-            let members = root_members(&reader, selection, realization, budget).await?;
-            let closure_roots =
-                installed_view::audit::logical_roots(&reader, &closure, &[], &aliases, budget)
-                    .await?;
-            if let Some((data, inventory)) = &previous {
-                let reference = inventory.view(selection.view.identity)?;
-                let installed = inventory.installed(selection.view.identity)?;
-                if installed.view != selection.view
-                    || installed.mappings != selection.mappings
-                    || installed.closure != closure_roots
-                    || installed.realization != realization
-                    || verify_members(&reader, realization, &members, selection.view.rows, budget)
-                        .await?
-                        != installed.membership_content
-                {
-                    return Err(ModelError::Conflict(
-                        "completed replay selected audit differs",
-                    ));
-                }
-                verify_installed_ref(&reader, data, reference, budget).await?;
-                references.push(reference.clone());
-                closures.push(closure);
-                continue;
-            }
-            let existing =
-                crate::control::inspect_expected_read(&reader, root.clone(), budget).await?;
-            if let Some(existing) = &existing {
-                if existing.row()
-                    == &installed_view::realization_declaration(
-                        &selection.view,
-                        &selection.mappings,
-                        true,
-                    )?
-                {
-                    // Live production and retained-product attachment already earned
-                    // this exact namespace. Independently audit it, then retain its
-                    // original completion without reinstalling one member pointer.
-                    let current_revision = revision(&reader, &root).await?;
-                    let membership_content =
-                        verify_members(&reader, realization, &members, selection.view.rows, budget)
-                            .await?;
-                    charge.grow(
-                        selection
-                            .mappings
-                            .len()
-                            .saturating_mul(std::mem::size_of::<ContributorRealization>())
-                            .saturating_add(selection.view.contributions.len().saturating_mul(128))
-                            .saturating_add(8192),
-                    )?;
-                    let metadata = InstalledViewCompletion {
-                        generation: fence.generation(),
-                        validity_epoch: fence.validity_epoch(),
-                        realization_incarnation: existing.incarnation(),
-                        version: 1,
-                        view: selection.view.clone(),
-                        realization,
-                        member_codec: installed_view::MEMBER_CODEC,
-                        mappings: selection.mappings.clone(),
-                        closure: closure_roots,
-                        membership_rows: selection.view.rows,
-                        membership_content,
-                        frozen_revision: 0,
-                    };
-                    let original = installed_view::audit::original_held_completion(
-                        &reader,
-                        &RecordId::new("native_attempt", fence.attempt().hex()),
-                        &metadata,
-                        current_revision,
-                        budget,
-                    )
-                    .await?;
-                    let installed = &original.completion;
-                    let persisted = &original.expected;
-                    require_hold(
-                        &reader,
-                        &RecordId::new("native_attempt", fence.attempt().hex()),
-                        persisted.record(),
-                    )
-                    .await?;
-                    require_hold(&reader, persisted.record(), &root).await?;
-                    require_hold(
-                        &reader,
-                        &root,
-                        &RecordId::new("compiler_view", selection.view.identity.hex()),
-                    )
-                    .await?;
-                    for mapping in &selection.mappings {
-                        require_hold(
-                            &reader,
-                            &root,
-                            &RecordId::new("compiler_contribution", mapping.physical.hex()),
-                        )
-                        .await?;
-                    }
-                    crate::control::completed::retain_installed_view(
-                        &client,
-                        fence,
-                        existing,
-                        persisted,
-                        current_revision,
-                        budget,
-                    )
-                    .await?;
-                    references.push(InstalledViewRef {
-                        logical_view: selection.view.identity,
-                        realization,
-                        incarnation: existing.incarnation(),
-                        installation_completion: installed.identity()?,
-                    });
-                    closures.push(closure);
-                    continue;
-                }
-            }
-            let declaration = installed_view::realization_declaration(
-                &selection.view,
-                &selection.mappings,
-                false,
-            )?;
-            let declaration = if let Some(existing) = &existing {
-                if existing.row() != &declaration
-                    && existing.row()
-                        != &installed_view::realization_declaration(
-                            &selection.view,
-                            &selection.mappings,
-                            true,
-                        )?
-                {
-                    return Err(ModelError::Conflict("realization declaration changed"));
-                }
-                existing.row().clone()
-            } else {
-                declaration
-            };
-            crate::control::completed::install_witness(
-                &client,
-                fence,
-                Some(declaration),
-                vec![
-                    (
-                        RecordId::new("native_attempt", fence.attempt().hex()),
-                        root.clone(),
-                    ),
-                    (
-                        root.clone(),
-                        RecordId::new("compiler_view", selection.view.identity.hex()),
-                    ),
-                ],
+            let aliases = installed_view::audit::assure_boundary_closure(
+                &reader,
+                &closure,
                 budget,
+                audit,
+                &mut inspections,
             )
             .await?;
-            for mapping in &selection.mappings {
-                // Contribution predicate writes serialize this audit with every output/
-                // alias incidence accepted before contribution completion.
-                crate::control::completed::hold_selected_contributor(
-                    &client,
-                    fence,
-                    &root,
-                    &closure.contributors[&mapping.physical],
+            if bindings.is_empty()
+                || bindings
+                    .iter()
+                    .any(|binding| binding.view.identity == selection.view.identity)
+            {
+                alias_runs.push(aliases);
+            }
+            for (physical, expected) in &closure.contributors {
+                let descriptor = closure.descriptor_for_copy(physical)?;
+                if let Some(previous) = copies.get(physical) {
+                    if previous.incarnation != expected.incarnation()
+                        || previous.descriptor != *descriptor
+                    {
+                        return Err(ModelError::Conflict(
+                            "compound selected physical copy collision",
+                        ));
+                    }
+                } else {
+                    charge.grow(
+                        std::mem::size_of::<(ContentHash, ContributorCopy)>()
+                            .saturating_add(32)
+                            .saturating_add(installed_view::audit::contribution_heap(descriptor)),
+                    )?;
+                    copies.insert(
+                        *physical,
+                        ContributorCopy {
+                            physical: *physical,
+                            incarnation: expected.incarnation(),
+                            descriptor: descriptor.clone(),
+                        },
+                    );
+                }
+            }
+            let (_members, membership_content) =
+                installed_view::audit::selected_prepared_members_with_content(
+                    &closure,
+                    &selection.view,
                     budget,
+                    audit,
                 )
                 .await?;
-            }
-            crate::control::completed::install_members(&client, fence, &root, &members, budget)
-                .await?;
-            let expected = crate::control::inspect_expected_read(&reader, root.clone(), budget)
-                .await?
-                .ok_or(ModelError::Conflict("realization disappeared before seal"))?;
-            let before = revision(&reader, &root).await?;
-            let membership_content =
-                verify_members(&reader, realization, &members, selection.view.rows, budget).await?;
-            crate::control::completed::seal_realization(&client, fence, &expected, before, budget)
-                .await?;
-            charge.grow(
-                selection
-                    .mappings
-                    .capacity()
-                    .saturating_mul(std::mem::size_of::<ContributorRealization>())
-                    .saturating_add(8192)
-                    .saturating_add(selection.view.contributions.len().saturating_mul(128)),
-            )?;
-            let installed = InstalledViewCompletion {
-                generation: fence.generation(),
-                validity_epoch: fence.validity_epoch(),
-                realization_incarnation: expected.incarnation(),
-                version: 1,
-                view: selection.view.clone(),
-                realization,
-                member_codec: installed_view::MEMBER_CODEC,
-                mappings: selection.mappings.clone(),
-                closure: closure_roots,
-                membership_rows: selection.view.rows,
-                membership_content,
-                frozen_revision: before
-                    .checked_add(1)
-                    .ok_or(ModelError::Schema("realization seal revision overflow"))?,
-            };
-            charge.grow(
-                crate::loader::native_bytes(&installed.value()?)
-                    .saturating_mul(32)
-                    .saturating_add(65536),
-            )?;
-            crate::control::completed::install_witness(
-                &client,
-                fence,
-                Some(installed.value()?),
-                vec![
-                    (
-                        RecordId::new("native_attempt", fence.attempt().hex()),
-                        installed.record()?,
-                    ),
-                    (installed.record()?, root),
-                ],
-                budget,
-            )
-            .await?;
             references.push(InstalledViewRef {
                 logical_view: selection.view.identity,
-                realization,
-                incarnation: expected.incarnation(),
-                installation_completion: installed.identity()?,
+                selector: InstalledViewCompletion {
+                    version: 2,
+                    parent_completion: ContentHash([0; 32]),
+                    generation: fence.generation(),
+                    validity_epoch: fence.validity_epoch(),
+                    view: selection.view.clone(),
+                    mappings: selection.mappings.clone(),
+                    member_codec: installed_view::MEMBER_CODEC,
+                    membership_rows: selection.view.rows,
+                    membership_content,
+                },
             });
             closures.push(closure);
         }
-        charge.grow(
-            closures
-                .iter()
-                .map(|closure| closure.logical.views().len().saturating_mul(128))
-                .sum(),
-        )?;
+        assurance_phase.finish(crate::phase::Terminal::Passed);
         let all_views = closures
             .iter()
             .flat_map(|closure| closure.logical.views().keys().copied())
@@ -517,33 +414,40 @@ pub async fn complete_frozen_content(
             .eq(selections.iter().map(|selection| selection.view.identity))
         {
             return Err(ModelError::Conflict(
-                "complete installed inventory must explicitly include entire dependency closure",
+                "compound inventory must include exact dependency views",
             ));
         }
-        let aliases = all_aliases.finish()?.into_prepared();
-        // Product singleton namespaces are protected physical retention roots. They
-        // must not change portable artifact meaning merely because reuse was enabled.
+        let aliases = PreparedRows::union_prepared(&alias_runs, budget, || Ok(()))?;
         let semantic_closures = closures
-            .into_iter()
+            .iter()
             .zip(selections)
             .filter_map(|(closure, selection)| {
-                bindings
-                    .iter()
-                    .any(|binding| binding.view.identity == selection.view.identity)
-                    .then_some(closure)
+                (bindings.is_empty()
+                    || bindings
+                        .iter()
+                        .any(|binding| binding.view.identity == selection.view.identity))
+                .then_some(closure)
             })
             .collect::<Vec<_>>();
-        let roots = installed_view::audit::logical_roots_many(
+        let family_phase = crate::phase::Phase::begin("native_compound_family_union");
+        let roots = installed_view::audit::logical_roots_many_scoped(
             &reader,
             &semantic_closures,
             bindings,
             &aliases,
             budget,
+            audit,
         )
-        .await?;
-        let mut hasher = RealizationHasher::default();
+        .await;
+        family_phase.finish_result(&roots);
+        let roots = roots?;
+        let mut selector_hasher = RealizationHasher::default();
         for reference in &references {
-            hasher.row(reference)?;
+            selector_hasher.row(reference)?;
+        }
+        let mut contributor_hasher = ContributorHasher::default();
+        for copy in copies.values() {
+            contributor_hasher.row(copy)?;
         }
         let data = FrozenCompletion {
             version: VERSION,
@@ -555,89 +459,160 @@ pub async fn complete_frozen_content(
             completed_state: roots.identity()?,
             roots,
             bindings: fence.bindings(),
-            realization_inventory: hasher.finish(),
+            realization_inventory: selector_hasher.finish(),
+            contributor_inventory: contributor_hasher.finish(),
         };
-        if let Some((previous, inventory)) = previous {
-            if previous != data || inventory.references() != references.as_slice() {
+        let identity = data.identity()?;
+        for reference in &mut references {
+            reference.selector.parent_completion = identity;
+        }
+        let existing =
+            crate::control::inspect_expected_read(&reader, data.record()?, budget).await?;
+        if let Some(existing) = existing
+            .as_ref()
+            .filter(|expected| expected.row() == &data.value(true).unwrap_or(Value::None))
+        {
+            let inventory = {
+                let phase = crate::phase::Phase::begin("native_compound_inventory_receiving");
+                let result = inspect_inventory(&reader, &data, budget).await;
+                phase.finish_result(&result);
+                result?
+            };
+            if inventory.references() != references.as_slice() {
                 return Err(ModelError::Conflict(
-                    "completed replay six roots or exact full inventory differ",
+                    "compound replay exact selector inventory",
                 ));
-            }
-        } else {
-            crate::control::completed::install_witness(
-                &client,
-                fence,
-                Some(data.value(false)?),
-                vec![(
-                    RecordId::new("native_attempt", fence.attempt().hex()),
-                    data.record()?,
-                )],
-                budget,
-            )
-            .await?;
-            for reference in &references {
-                crate::control::completed::install_witness(
-                    &client,
-                    fence,
-                    Some(reference.value(data.identity()?)?),
-                    vec![
-                        (data.record()?, reference.record(data.identity()?)),
-                        (
-                            data.record()?,
-                            RecordId::new(
-                                "compiler_view_completion",
-                                reference.installation_completion.hex(),
-                            ),
-                        ),
-                    ],
-                    budget,
-                )
-                .await?;
-            }
-            for binding in bindings {
-                if selections
-                    .binary_search_by_key(&binding.view.identity, |selection| {
-                        selection.view.identity
-                    })
-                    .is_err()
-                {
-                    return Err(ModelError::Conflict(
-                        "binding view missing from complete installed inventory",
-                    ));
-                }
-                let id = crate::binding_descriptor::record(binding)?;
-                crate::control::completed::install_witness(
-                    &client,
-                    fence,
-                    Some(crate::binding_descriptor::value(binding)?),
-                    vec![
-                        (data.record()?, id.clone()),
-                        (
-                            id,
-                            RecordId::new("compiler_view", binding.view.identity.hex()),
-                        ),
-                    ],
-                    budget,
-                )
-                .await?;
             }
             let expected = crate::control::inspect_expected_read(&reader, data.record()?, budget)
                 .await?
-                .ok_or(ModelError::Conflict("physical completion disappeared"))?;
-            let before = revision(&reader, &data.record()?).await?;
-            let _inventory = inspect_inventory(&reader, &data, budget).await?;
-            crate::control::completed::finish_physical_completion(
-                &client, &data, &expected, before, budget,
-            )
-            .await?;
+                .ok_or(ModelError::Conflict("compound replay disappeared"))?;
+            if expected.incarnation() != existing.incarnation() {
+                return Err(ModelError::Conflict("compound replay ABA"));
+            }
+            let held = hold_boundary(&client, &mode, &data, expected, budget).await?;
+            return Ok(NativeCompletedState {
+                completion: data,
+                held,
+                inventory,
+                _charge: charge,
+            });
         }
-        let actual = crate::control::inspect_expected_read(&reader, data.record()?, budget)
-            .await?
-            .ok_or(ModelError::Conflict("physical completed readback missing"))?;
-        let inventory = inspect_inventory(&reader, &data, budget).await?;
-        let held =
-            crate::control::held::hold_frozen_physical_expected(&client, &data, actual, budget)
+        let parent = data.record()?;
+        let write_phase = crate::phase::Phase::begin("native_compound_child_installation");
+        let mut writer = boundary_writer(&client, &mode, budget)?;
+        writer
+            .push(&data, || {
+                Ok((
+                    data.value(false)?,
+                    vec![(
+                        RecordId::new("native_attempt", fence.attempt().hex()),
+                        parent.clone(),
+                    )],
+                ))
+            })
+            .await?;
+        writer.flush().await?;
+        {
+            let _handles = budget.reserve(
+                "compound exact contributor hold handles",
+                copies
+                    .len()
+                    .saturating_mul(std::mem::size_of::<Arc<crate::control::ExpectedRecord>>())
+                    .saturating_add(4096),
+            )?;
+            let expected = copies
+                .keys()
+                .map(|physical| inspections.expected_copy(physical).map(Arc::clone))
+                .collect::<Result<Vec<_>, _>>()?;
+            hold_boundary_copies(&client, &mode, &parent, &expected, budget).await?;
+        }
+        for copy in copies.values() {
+            writer
+                .push(copy, || {
+                    Ok((
+                        copy.value(identity)?,
+                        vec![(parent.clone(), copy.record(identity))],
+                    ))
+                })
                 .await?;
+        }
+        writer.flush().await?;
+        for reference in &references {
+            writer
+                .push(reference, || {
+                    Ok((
+                        reference.value(identity)?,
+                        vec![
+                            (parent.clone(), reference.record(identity)),
+                            (
+                                parent.clone(),
+                                RecordId::new("compiler_view", reference.logical_view.hex()),
+                            ),
+                        ],
+                    ))
+                })
+                .await?;
+        }
+        for binding in bindings {
+            if selections
+                .binary_search_by_key(&binding.view.identity, |selection| selection.view.identity)
+                .is_err()
+            {
+                return Err(ModelError::Conflict(
+                    "compound binding selected view absent",
+                ));
+            }
+            writer
+                .push(binding, || {
+                    let address = crate::binding_descriptor::record(binding)?;
+                    Ok((
+                        crate::binding_descriptor::value(binding)?,
+                        vec![
+                            (parent.clone(), address.clone()),
+                            (
+                                address,
+                                RecordId::new("compiler_view", binding.view.identity.hex()),
+                            ),
+                        ],
+                    ))
+                })
+                .await?;
+        }
+        writer.flush().await?;
+        drop(writer);
+        write_phase.finish(crate::phase::Terminal::Passed);
+        let expected = crate::control::inspect_expected_read(&reader, data.record()?, budget)
+            .await?
+            .ok_or(ModelError::Conflict(
+                "compound completion disappeared before finality",
+            ))?;
+        let before = revision(&reader, &data.record()?).await?;
+        // Full child inventories and all exact selected-copy incidences precede the
+        // single original-parent revision CAS; no prefix grants completion.
+        let inventory = {
+            let phase = crate::phase::Phase::begin("native_compound_inventory_receiving");
+            let result = inspect_inventory(&reader, &data, budget).await;
+            phase.finish_result(&result);
+            result?
+        };
+        match &mode {
+            BoundaryMode::Frozen(_) => {
+                crate::control::completed::finish_physical_completion(
+                    &client, &data, &expected, before, budget,
+                )
+                .await?
+            }
+            BoundaryMode::Live(owner) => {
+                crate::control::live_view::finish_boundary(
+                    &client, owner, &data, &expected, before, budget,
+                )
+                .await?
+            }
+        }
+        let expected = crate::control::inspect_expected_read(&reader, data.record()?, budget)
+            .await?
+            .ok_or(ModelError::Conflict("compound completed parent absent"))?;
+        let held = hold_boundary(&client, &mode, &data, expected, budget).await?;
         Ok(NativeCompletedState {
             completion: data,
             held,
@@ -653,13 +628,9 @@ pub async fn complete_frozen_content(
     {
         audit.retain_unknown();
     }
-    let mut completion = Completion::default();
-    completion.step(
-        "physical completion earning private reader close",
-        reader.close().await,
-    );
-    completion.step("physical completion audit pin release", audit.close().await);
-    complete(result, completion)
+    let mut terminal = Completion::default();
+    terminal.step("compound completion reader close", reader.close().await);
+    complete(result, terminal)
 }
 
 async fn audit_attempt_bindings(
@@ -721,4 +692,29 @@ async fn audit_attempt_bindings(
         stream.drain_transport().await,
     );
     complete(outcome, completion)
+}
+
+#[cfg(test)]
+mod retained_pin_controls {
+    use super::*;
+    #[tokio::test]
+    async fn abandoned_construction_preserves_actual_pin_while_confirmed_transfer_does_not() {
+        let pin = crate::control::ReaderPin::test_detached(false);
+        {
+            let _construction = RetainedPinConstruction {
+                pin: pin.clone(),
+                confirmed: false,
+            };
+        }
+        assert!(pin.test_uncertain());
+        let transferred = crate::control::ReaderPin::test_detached(false);
+        {
+            let _construction = RetainedPinConstruction {
+                pin: transferred.clone(),
+                confirmed: true,
+            };
+        }
+        assert!(!transferred.test_uncertain());
+        transferred.retain_unknown();
+    }
 }

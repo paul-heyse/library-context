@@ -16,8 +16,9 @@ async fn compile(
             memory_bytes: budget.limit(),
             ..Default::default()
         },
-        budget, crate::native_fixture::store()
-)
+        budget,
+        crate::native_fixture::store(),
+    )
     .unwrap();
     cpg_core::facts::compile_facts(
         &workspace,
@@ -49,10 +50,16 @@ fn budget() -> ResourceBudget {
 }
 async fn finish_workspace(workspace: &Workspace) -> Result<(), ModelError> {
     let mut completion = completion::Completion::default();
-    completion.step("facts control workspace execution drainage", workspace.drain().await);
+    completion.step(
+        "facts control workspace execution drainage",
+        workspace.drain().await,
+    );
     // Drain owns admitted execution; abandonment separately acknowledges the
     // actual fixture attempt and its session before the test's owner disappears.
-    completion.step("facts control native attempt/session finalization", workspace.native().abandon().await);
+    completion.step(
+        "facts control native attempt/session finalization",
+        workspace.native().abandon().await,
+    );
     completion::complete(Ok(()), completion)
 }
 fn captured(
@@ -156,25 +163,84 @@ async fn real_catalog_pyrefly_document_predecessor_uses_exact_completed_native_v
 }
 
 async fn real_pyrefly_document_predecessor(profiles: impl IntoIterator<Item = Profile>) {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     for profile in profiles {
-        let resources=budget();
-        let capture=captured(b"def f(x):\n    \"\"\"Return x.\"\"\"\n    return x\n",true,profile,&resources);
-        let workspace=Workspace::with_budget(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:resources.limit(),batch_rows:17,..Default::default()},resources,crate::native_fixture::store()).unwrap();
-        let providers=cpg_core::facts::providers(ContentHash::of(b"real-native-predecessor"))
-            .into_iter().filter(|provider|[cpg_extract::acquisition::ACQUIRE,cpg_extract::pyrefly_stage::PYREFLY,cpg_extract::document_parser::DOCUMENTS,cpg_extract::assembly::ASSEMBLE].contains(&provider.declaration(profile).name)).collect();
-        cpg_core::facts::compile_facts(&workspace,&capture,profile,providers,Default::default()).await.unwrap();
+        let resources = budget();
+        let capture = captured(
+            b"def f(x):\n    \"\"\"Return x.\"\"\"\n    return x\n",
+            true,
+            profile,
+            &resources,
+        );
+        let workspace = Workspace::with_budget(
+            Arc::new(model().unwrap()),
+            WorkspaceOptions {
+                memory_bytes: resources.limit(),
+                batch_rows: 17,
+                ..Default::default()
+            },
+            resources,
+            crate::native_fixture::store(),
+        )
+        .unwrap();
+        let providers = cpg_core::facts::providers(ContentHash::of(b"real-native-predecessor"))
+            .into_iter()
+            .filter(|provider| {
+                [
+                    cpg_extract::acquisition::ACQUIRE,
+                    cpg_extract::pyrefly_stage::PYREFLY,
+                    cpg_extract::document_parser::DOCUMENTS,
+                    cpg_extract::assembly::ASSEMBLE,
+                ]
+                .contains(&provider.declaration(profile).name)
+            })
+            .collect();
+        cpg_core::facts::compile_facts(
+            &workspace,
+            &capture,
+            profile,
+            providers,
+            Default::default(),
+        )
+        .await
+        .unwrap();
         assert!(!rows::<lctx_model::domain::documents::PassageObservation>(&workspace).is_empty());
-        let completed=workspace.native().contributions(&native_operation_budget).await.unwrap();
-        let predecessor=completed.iter().find(|row|row.spec.producer==cpg_extract::pyrefly_stage::PYREFLY).unwrap();
-        let documents=completed.iter().find(|row|row.spec.producer==cpg_extract::document_parser::DOCUMENTS).unwrap();
-        let relation=lctx_model::domain::syntax::DeclarationObservation::NAME;
-        let source=documents.spec.inputs.iter().find(|source|source.relation()==relation).unwrap();
-        let view=workspace.completed::<lctx_model::domain::syntax::DeclarationObservation>().unwrap();
-        assert_eq!(source.view(),view.view_identity());
-        assert!(view.view().contributions.contains(&predecessor.identity().unwrap()));
-        let native=workspace.native().completed_state(&native_operation_budget).await.unwrap();
-        assert_eq!(native.contributions,4);
+        let completed = workspace
+            .native()
+            .contributions(&native_operation_budget)
+            .await
+            .unwrap();
+        let predecessor = completed
+            .iter()
+            .find(|row| row.spec.producer == cpg_extract::pyrefly_stage::PYREFLY)
+            .unwrap();
+        let documents = completed
+            .iter()
+            .find(|row| row.spec.producer == cpg_extract::document_parser::DOCUMENTS)
+            .unwrap();
+        let relation = lctx_model::domain::syntax::DeclarationObservation::NAME;
+        let source = documents
+            .spec
+            .inputs
+            .iter()
+            .find(|source| source.relation() == relation)
+            .unwrap();
+        let view = workspace
+            .completed::<lctx_model::domain::syntax::DeclarationObservation>()
+            .unwrap();
+        assert_eq!(source.view(), view.view_identity());
+        assert!(
+            view.view()
+                .contributions
+                .contains(&predecessor.identity().unwrap())
+        );
+        let native = workspace
+            .native()
+            .completed_state(&native_operation_budget)
+            .await
+            .unwrap();
+        assert_eq!(native.contributions, 4);
         finish_workspace(&workspace).await.unwrap();
     }
 }
@@ -193,63 +259,164 @@ fn rows<R: Record>(workspace: &Workspace) -> Vec<R> {
 async fn availability_reuses_exact_admission_and_refuses_changed_invalid_membership() {
     use tracing::instrument::WithSubscriber;
     async {
-    use input::{InputRevision,ArtifactUse,SourceRole};
-    use source::{SourceArtifact,CoverageScope};
-    let profile=Profile::Catalog;
-    // This checks semantic authority across two retained full provider profiles,
-    // not low-memory admission. Their 340 Pyrefly singleton completion-row
-    // reservation floors alone exceed 16 MiB, before other state or scratch.
-    // Use this file's existing full-compilation budget; production bounds and
-    // independent resource-refusal controls remain unchanged.
-    let resources=budget();
-    let captures=Arc::new(CapturedInputs::new(vec![],cpg_extract::native_context::NativeContextConfig::committed(profile,&resources).unwrap()));
-    let workspace=compile(captures,resources.clone(),profile).await;
-    let admitted=workspace.facts_availability_async(profile).await.unwrap();
-    assert_eq!(admitted.empty_universe(FactFamily::Flow),Some(Availability::NotRequested));
-    let synchronous=workspace.facts_availability(profile).unwrap();
-    assert!(Arc::ptr_eq(&admitted,&synchronous),"sync and async consumers borrow the same exact admitted authority");
-    let repeated=workspace.facts_availability_async(profile).await.unwrap();
-    assert!(Arc::ptr_eq(&admitted,&repeated));
-    assert!(workspace.facts_availability_async(Profile::Behavioral).await.is_err(),"captured producer profile cannot be relabelled by a cache lookup");
-    let captures=Arc::new(CapturedInputs::new(vec![],cpg_extract::native_context::NativeContextConfig::committed(Profile::Behavioral,&resources).unwrap()));
-    let other=compile(captures,resources.clone(),Profile::Behavioral).await;
-    let behavioral=other.facts_availability_async(Profile::Behavioral).await.unwrap();
-    assert_eq!(behavioral.empty_universe(FactFamily::Flow),Some(Availability::NoScope));
-    assert!(!Arc::ptr_eq(&admitted,&behavioral),"another profile must be independently admitted");
-    let before=workspace.facts_availability_async(profile).await.unwrap();
-    let nominal=serde_json::from_value(serde_json::to_value(vec![1u8;16]).unwrap()).unwrap();
-    let inputs=workspace.inputs("availability-added-scope",profile,[]).unwrap();
-    let output=workspace.output("availability-added-scope",profile,ContentHash::of(b"availability-control"),inputs,[CoverageScope::NAME]);
-    output.declare_async::<CoverageScope>().await.unwrap();
-    output.push(CoverageScope::Input{input:nominal}).await.unwrap();
-    let error=output.finish(stages::ProviderOutcome::Complete).await.unwrap_err();
-    assert!(error.to_string().contains("completed output coverage_scopes already has an owner"),"completed authority cannot be widened: {error}");
-    let unchanged=workspace.facts_availability_async(profile).await.unwrap();
-    assert!(Arc::ptr_eq(&before,&unchanged),"failed membership replacement must preserve the admitted authority");
-    assert!(Arc::ptr_eq(&unchanged,&workspace.facts_availability(profile).unwrap()));
-    // An invalid first completion is a separate attempt, never a replacement of an admitted view.
-    let invalid=Workspace::new(Arc::new(model().unwrap()),WorkspaceOptions{memory_bytes:8<<20,..Default::default()},native_fixture::store()).unwrap();
-    let inputs=invalid.inputs("availability-invalid-use",profile,[]).unwrap();
-    let output=invalid.output("availability-invalid-use",profile,ContentHash::of(b"availability-control"),inputs,[InputRevision::NAME,SourceArtifact::NAME,ArtifactUse::NAME,CoverageScope::NAME,ProviderCoverage::NAME,Provider::NAME,ProviderRun::NAME,RunFamily::NAME,AnalysisContext::NAME]);
-    output.declare_async::<InputRevision>().await.unwrap();
-    output.declare_async::<SourceArtifact>().await.unwrap();
-    output.declare_async::<ArtifactUse>().await.unwrap();
-    output.declare_async::<CoverageScope>().await.unwrap();
-    output.declare_async::<ProviderCoverage>().await.unwrap();
-    output.declare_async::<Provider>().await.unwrap();
-    output.declare_async::<ProviderRun>().await.unwrap();
-    output.declare_async::<RunFamily>().await.unwrap();
-    output.declare_async::<AnalysisContext>().await.unwrap();
-    let artifact=serde_json::from_value(serde_json::to_value(vec![2u8;16]).unwrap()).unwrap();
-    output.push(ArtifactUse{artifact,input:nominal,role:SourceRole::Release}).await.unwrap();
-    output.finish(stages::ProviderOutcome::Complete).await.unwrap();
-    for _ in 0..2 {
-        let error=invalid.facts_availability_async(profile).await.unwrap_err();
-        assert!(error.to_string().contains("missing completed declared producer"),"an undeclared contribution cannot supply captured facts authority: {error}");
-    }
-    finish_workspace(&invalid).await.unwrap();
-    finish_workspace(&other).await.unwrap();
-    finish_workspace(&workspace).await.unwrap();
+        use input::{ArtifactUse, InputRevision, SourceRole};
+        use source::{CoverageScope, SourceArtifact};
+        use uniform_outcome::UniformNotRequested;
+        let profile = Profile::Catalog;
+        // This checks semantic authority across two retained full provider profiles
+        // using the existing full-compilation budget. It does not establish a
+        // low-memory capacity contract; independent resource-refusal controls retain
+        // their own bounds under operation-owned contribution preparation.
+        let resources = budget();
+        let captures = Arc::new(CapturedInputs::new(
+            vec![],
+            cpg_extract::native_context::NativeContextConfig::committed(profile, &resources)
+                .unwrap(),
+        ));
+        let workspace = compile(captures, resources.clone(), profile).await;
+        let admitted = workspace.facts_availability_async(profile).await.unwrap();
+        assert_eq!(
+            admitted.empty_universe(FactFamily::Flow),
+            Some(Availability::NotRequested)
+        );
+        let synchronous = workspace.facts_availability(profile).unwrap();
+        assert!(
+            Arc::ptr_eq(&admitted, &synchronous),
+            "sync and async consumers borrow the same exact admitted authority"
+        );
+        let repeated = workspace.facts_availability_async(profile).await.unwrap();
+        assert!(Arc::ptr_eq(&admitted, &repeated));
+        assert!(
+            workspace
+                .facts_availability_async(Profile::Behavioral)
+                .await
+                .is_err(),
+            "captured producer profile cannot be relabelled by a cache lookup"
+        );
+        let captures = Arc::new(CapturedInputs::new(
+            vec![],
+            cpg_extract::native_context::NativeContextConfig::committed(
+                Profile::Behavioral,
+                &resources,
+            )
+            .unwrap(),
+        ));
+        let other = compile(captures, resources.clone(), Profile::Behavioral).await;
+        let behavioral = other
+            .facts_availability_async(Profile::Behavioral)
+            .await
+            .unwrap();
+        assert_eq!(
+            behavioral.empty_universe(FactFamily::Flow),
+            Some(Availability::NoScope)
+        );
+        assert!(
+            !Arc::ptr_eq(&admitted, &behavioral),
+            "another profile must be independently admitted"
+        );
+        let before = workspace.facts_availability_async(profile).await.unwrap();
+        let nominal = serde_json::from_value(serde_json::to_value(vec![1u8; 16]).unwrap()).unwrap();
+        let inputs = workspace
+            .inputs("availability-added-scope", profile, [])
+            .unwrap();
+        let output = workspace.output(
+            "availability-added-scope",
+            profile,
+            ContentHash::of(b"availability-control"),
+            inputs,
+            [CoverageScope::NAME],
+        );
+        output.declare_async::<CoverageScope>().await.unwrap();
+        output
+            .push(CoverageScope::Input { input: nominal })
+            .await
+            .unwrap();
+        let error = output
+            .finish(stages::ProviderOutcome::Complete)
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("completed output coverage_scopes already has an owner"),
+            "completed authority cannot be widened: {error}"
+        );
+        let unchanged = workspace.facts_availability_async(profile).await.unwrap();
+        assert!(
+            Arc::ptr_eq(&before, &unchanged),
+            "failed membership replacement must preserve the admitted authority"
+        );
+        assert!(Arc::ptr_eq(
+            &unchanged,
+            &workspace.facts_availability(profile).unwrap()
+        ));
+        // An invalid first completion is a separate attempt, never a replacement of an admitted view.
+        let invalid = Workspace::new(
+            Arc::new(model().unwrap()),
+            WorkspaceOptions {
+                memory_bytes: 8 << 20,
+                ..Default::default()
+            },
+            native_fixture::store(),
+        )
+        .unwrap();
+        let inputs = invalid
+            .inputs("availability-invalid-use", profile, [])
+            .unwrap();
+        let output = invalid.output(
+            "availability-invalid-use",
+            profile,
+            ContentHash::of(b"availability-control"),
+            inputs,
+            [
+                InputRevision::NAME,
+                SourceArtifact::NAME,
+                ArtifactUse::NAME,
+                CoverageScope::NAME,
+                ProviderCoverage::NAME,
+                Provider::NAME,
+                ProviderRun::NAME,
+                RunFamily::NAME,
+                AnalysisContext::NAME,
+                UniformNotRequested::NAME,
+            ],
+        );
+        output.declare_async::<InputRevision>().await.unwrap();
+        output.declare_async::<SourceArtifact>().await.unwrap();
+        output.declare_async::<ArtifactUse>().await.unwrap();
+        output.declare_async::<CoverageScope>().await.unwrap();
+        output.declare_async::<ProviderCoverage>().await.unwrap();
+        output.declare_async::<Provider>().await.unwrap();
+        output.declare_async::<ProviderRun>().await.unwrap();
+        output.declare_async::<RunFamily>().await.unwrap();
+        output.declare_async::<AnalysisContext>().await.unwrap();
+        output.declare_async::<UniformNotRequested>().await.unwrap();
+        let artifact =
+            serde_json::from_value(serde_json::to_value(vec![2u8; 16]).unwrap()).unwrap();
+        output
+            .push(ArtifactUse {
+                artifact,
+                input: nominal,
+                role: SourceRole::Release,
+            })
+            .await
+            .unwrap();
+        output
+            .finish(stages::ProviderOutcome::Complete)
+            .await
+            .unwrap();
+        for _ in 0..2 {
+            let error = invalid.facts_availability_async(profile).await.unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("missing completed declared producer"),
+                "an undeclared contribution cannot supply captured facts authority: {error}"
+            );
+        }
+        finish_workspace(&invalid).await.unwrap();
+        finish_workspace(&other).await.unwrap();
+        finish_workspace(&workspace).await.unwrap();
     }
     .with_subscriber(cpg_extract::logging::dispatch())
     .await;

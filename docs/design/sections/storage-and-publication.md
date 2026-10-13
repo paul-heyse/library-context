@@ -75,7 +75,7 @@ normal analyzer dependencies. Serving preparation/presentation remain above this
 model/ingestion/codec/derivation source and assets stay in conservative semantic fingerprint closures.
 The efficiency coordinator owns implementation and functional acceptance of this split.
 
-**Accepted target / Proposed implementation, 2026-10-12 (ADR-0165).** Independently complete and
+**Implemented source / focused qualification in progress, 2026-10-13 (ADR-0165).** Independently complete and
 protect actual immutable contributions; internal semantic views borrow exact selections through that
 live owner without automatically allocating durable member copies, sealing or hashing a full root.
 A frozen admitted/published operation earns an independently necessary compound physical boundary;
@@ -90,13 +90,24 @@ frozen/retained boundaries, with full dependency keys and no provisional cached 
 checksum avoids portable preparation; requested export requires frozen or retained read-only content.
 Detached import/restore independently admit actual incoming and installed state. No portable proof
 cache, DAG identity, universal preparation object or global compile serialization is selected.
+Native control admission separates resident construction/serialization workspace from protobuf
+message size. The pinned native encoder bounds the full lowered payload and intent before any
+remote intent; workspace reservations retain their separate lifetime and interpretation.
 The [Catalog execution coordinator](../../plans/catalog-execution-plan_2026-10-12.md) owns the full
-consumer cutover and narrow functional acceptance. Current implementation below has not adopted
-this representation merely because the target is accepted.
+consumer cutover and narrow functional acceptance. Internal capabilities now share operation-owned
+contributor preparation. Installation schema7 and physical completion v2 replace per-view member
+copies/seals with exact compound contributor/selector inventories; semantic transport format4 and
+flat v4 identity remain unchanged. No old-format reader is retained. Export independently checks
+prepared actual family identity against the frozen boundary before encoding portable output.
+Nonempty portable-alias import currently refuses: the v4 union does not bind contributor-local
+alias incidence, so source reachability cannot reconstruct selector eligibility. Independently bound
+carrier/identity design and selected logical-backup migration remain open at the coordinator.
+Same-request retained-product replay validates and reuses its original boundary after unrelated
+source incidence changes. Current acceptance receipts and remaining scope live in the coordinator.
 
 **Source integration / functional acceptance open, 2026-10-11.** Physical completion first
 checks the exact dependency closures, selected copies, backing and member EOF, and all six logical
-families. Retained product singleton views add protected physical roots; they do not alter artifact
+families. Retained product compound boundaries protect exact singleton output selectors and dependency roots; they do not alter artifact
 meaning unless selected by a semantic binding or its dependencies. Portable completed state format4
 uses the same six-family recipe. Logical contribution ownership includes the complete descriptor,
 including outcome, output digests and mandatory producer assurance. A producing physical owner is
@@ -253,13 +264,20 @@ are established. Rust/native acceptance and actual compaction remain open in the
 Compiler/audit selection follows one model closure declaration with native/dump adapters, while
 actual stored rows and cold admission remain independent checks. An audit owns its read owner,
 pin and session until admitted tails drain, including failed preparation and cancellation.
-**Implemented/source-accepted, 2026-10-12:** coherent compiler completion batches share that
-protected audit across singleton and union outputs; full-descriptor deduplication never replaces
-each view's exact membership, alias, incarnation and terminal checks. The protected audit retains
-terminal-validated logical contributor fragments and one complete exact contributor-set alias
-preparation. This is the current baseline: each independently inspected root still sorts/hashes all
-six families afresh. ADR-0165 replaces that universal internal-view requirement; its implementation
-and independently required boundary identity remain open in the prioritized coordinator.
+**Implemented source / focused acceptance in progress, 2026-10-13:** an operation shares a
+protected contributor audit across actual singleton and union consumers. Exact descriptor, physical
+copy/incarnation and resource-pool keys coalesce registered preparation workers; independent keys
+proceed concurrently. Full-descriptor deduplication never replaces exact selected membership,
+alias, incarnation and terminal checks. Terminal-validated canonical runs compose through a
+non-consuming ordered union with equal-row deduplication and conflicting-payload refusal. Internal
+selection does not hash all six families; independently retained/frozen boundaries earn the full
+flat v4 identity from the selected prepared fragments. The coordinator owns current runtime evidence.
+**Open equivalence boundary,2026-10-13:** equal v4 content does not bind contributor-local alias
+incidence. Cold alias transport currently refuses; unchanged publication/convergence and retained
+attachment still require an independently checked eligibility comparison or bound physical identity
+before substituting another selection. Their current disposition and concrete carrier/receipt callers
+are owned by the Catalog coordinator and consumer companion; an exact winning boundary alone does
+not establish equivalence to an incoming one.
 Exact typed declared-view lowering avoids a second native read; cold reconstruction remains
 independent. Cache payloads and conservative sparse-tree metadata remain admitted until drop.
 Installed-view construction
@@ -286,7 +304,7 @@ assets; recovery metadata is not authority to restore live clients or execute im
 
 ### §6.2 Readers
 
-**Accepted target / Proposed refinement, 2026-10-12.** Retained native attachment holds expected
+**Implemented source / focused acceptance in progress, 2026-10-13.** Retained native attachment holds expected
 physical record bytes and incarnation after receiver preflight. An independently necessary boundary
 binds exact contributor/dependency closure and membership realization; each logical selector within
 it earns its own presence/absence meaning. That validated selector plus protected completed boundary
@@ -299,9 +317,10 @@ enter the separate owned freeze, including selector/mapping mutation. Drain ever
 mutation before final identity/export. Internal capabilities cannot be serialized into retained authority.
 Complete logical state retains all six v4 families independently of installation-local completion;
 durable admission reuse requires its exact protected physical epoch. Cold recovery and detached
-import earn fresh authority. Migrate all consumers with the physical codec; remove old universal
-per-view completion paths after the replacement works. Existing implementation is not relabeled as
-this accepted target by a descriptor or `completed=true` flag.
+import earn fresh authority. The physical codec is installation schema7/completion v2; per-view
+member copies, seals and legacy readers are removed. Whole-inventory attachment prevalidates all
+inputs before one exact receiving CAS. Selector-qualified alias edges prevent union-wide witness
+leakage. Runtime completion remains subject to the coordinator’s focused acceptance.
 
 > Decision: ADR-0152, ADR-0165
 

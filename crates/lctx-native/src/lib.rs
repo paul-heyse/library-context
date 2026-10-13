@@ -1,5 +1,6 @@
 //! Native operations over immutable graph snapshots on a managed remote SurrealDB server.
 pub mod adapter;
+pub(crate) mod alias_topology;
 pub mod cache;
 pub mod codec;
 pub use cache::NativeEmbeddingCache;

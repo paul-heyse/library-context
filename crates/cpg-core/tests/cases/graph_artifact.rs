@@ -236,7 +236,7 @@ async fn incomplete_or_cancelled_compilation_cannot_be_admitted() {
 #[tokio::test(flavor = "multi_thread")]
 async fn artifact_identity_includes_exact_consumed_embedding_values() {
     use cpg_core::embedding_service::FakeEmbedder;
-use lctx_model::domain::embedding::{Embedder};
+    use lctx_model::domain::embedding::Embedder;
     let embedder = FakeEmbedder::new();
     let workspace = Workspace::new(
         Arc::new(lctx_model::domain::model().unwrap()),
@@ -808,7 +808,11 @@ async fn trusted_local_export_verifies_without_live_compiler_token() {
 
 // The graph copy is edited independently of its retained native state. Consumers below
 // distinguish that physical mismatch from a coherently rebuilt semantic candidate.
-async fn export_without_syntax_support() -> (tempfile::TempDir, std::path::PathBuf, artifact::VerifiedExport) {
+async fn export_without_syntax_support() -> (
+    tempfile::TempDir,
+    std::path::PathBuf,
+    artifact::VerifiedExport,
+) {
     use datafusion::arrow::{
         array::{Array, BinaryArray, FixedSizeBinaryArray, UInt32Array},
         compute::take,
@@ -912,17 +916,35 @@ async fn export_without_syntax_support() -> (tempfile::TempDir, std::path::PathB
 #[tokio::test(flavor = "multi_thread")]
 async fn detached_transport_refuses_graph_and_retained_membership_disagreement() {
     let (_directory, output, _verified) = export_without_syntax_support().await;
-    let importer = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions::default(), crate::native_fixture::store()).unwrap();
-    let error = artifact::verify_export(&output, &importer).await.err().expect("graph/state mismatch admitted");
-    assert!(matches!(error.primary(), Some(lctx_model::domain::ModelError::Conflict(
-        "completed membership backing/visibility"))), "{error}");
+    let importer = Workspace::new(
+        Arc::new(lctx_model::domain::model().unwrap()),
+        WorkspaceOptions::default(),
+        crate::native_fixture::store(),
+    )
+    .unwrap();
+    let error = artifact::verify_export(&output, &importer)
+        .await
+        .err()
+        .expect("graph/state mismatch admitted");
+    assert!(
+        matches!(
+            error.primary(),
+            Some(lctx_model::domain::ModelError::Conflict(
+                "completed membership backing/visibility"
+            ))
+        ),
+        "{error}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn remediation_detached_admission_refuses_unsupported_facts_with_consistent_hashes() {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
-    use datafusion::arrow::{array::{Array, BinaryArray}, ipc::reader::FileReader};
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    use datafusion::arrow::{
+        array::{Array, BinaryArray},
+        ipc::reader::FileReader,
+    };
     use futures::TryStreamExt;
     use lctx_model::domain::{
         ModelError, Record,
@@ -932,93 +954,217 @@ async fn remediation_detached_admission_refuses_unsupported_facts_with_consisten
         source::SyntaxSupport,
         stages::ProviderOutcome,
     };
-    use std::{collections::{BTreeMap, BTreeSet}, fs::File};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        fs::File,
+    };
     let (directory, output, verified) = export_without_syntax_support().await;
-    let candidate = Workspace::new(Arc::new(lctx_model::domain::model().unwrap()),
-        WorkspaceOptions::default(), crate::native_fixture::store()).unwrap();
-    let bindings = verified.native().bindings().await.unwrap().into_iter()
-        .filter(|binding| binding.boundary.is_none()).collect::<Vec<_>>();
-    let relations = bindings.iter().map(|binding| candidate.model().relation(&binding.view.relation)
-        .unwrap().clone()).collect::<Vec<_>>();
+    let candidate = Workspace::new(
+        Arc::new(lctx_model::domain::model().unwrap()),
+        WorkspaceOptions::default(),
+        crate::native_fixture::store(),
+    )
+    .unwrap();
+    let bindings = verified
+        .native()
+        .bindings()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|binding| binding.boundary.is_none())
+        .collect::<Vec<_>>();
+    let relations = bindings
+        .iter()
+        .map(|binding| {
+            candidate
+                .model()
+                .relation(&binding.view.relation)
+                .unwrap()
+                .clone()
+        })
+        .collect::<Vec<_>>();
     // A neutral import owns these typed rows; it inherits no captured-provider grant.
     // Completion, rather than authored descriptor edits, computes every exact native hash.
-    let id = candidate.native().begin_contribution(ContributionSpec {
-        captured_binding: None,
-        producer: "unsupported-facts-semantic-import".into(),
-        profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
-        model: candidate.model().digest(),
-        implementation: ContentHash::of(b"detached-support-control/v1"),
-        configuration: None,
-        inputs: vec![],
-        outputs: relations.iter().map(|relation| relation.name().to_owned()).collect::<BTreeSet<_>>(),
-    }).await.unwrap();
+    let id = candidate
+        .native()
+        .begin_contribution(ContributionSpec {
+            captured_binding: None,
+            producer: "unsupported-facts-semantic-import".into(),
+            profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
+            model: candidate.model().digest(),
+            implementation: ContentHash::of(b"detached-support-control/v1"),
+            configuration: None,
+            inputs: vec![],
+            outputs: relations
+                .iter()
+                .map(|relation| relation.name().to_owned())
+                .collect::<BTreeSet<_>>(),
+        })
+        .await
+        .unwrap();
     let mut omitted = 0;
     for (binding, relation) in bindings.iter().zip(&relations) {
         if relation.name() == SyntaxSupport::NAME {
             omitted += binding.view.rows;
             continue; // The declared support output is coherently empty before ingress.
         }
-        let mut batches = verified.native().scan_batches(&binding.view, relation, None, None,
-            candidate.budget(), candidate.options().batch_rows).await.unwrap();
+        let mut batches = verified
+            .native()
+            .scan_batches(
+                &binding.view,
+                relation,
+                None,
+                None,
+                candidate.budget(),
+                candidate.options().batch_rows,
+            )
+            .await
+            .unwrap();
         while let Some(batch) = batches.try_next().await.unwrap() {
-            candidate.native().write_batch(&id, relation, &batch, &native_operation_budget).await.unwrap();
+            candidate
+                .native()
+                .write_batch(&id, relation, &batch, &native_operation_budget)
+                .await
+                .unwrap();
         }
     }
     assert!(omitted > 0);
-    let views = candidate.native().complete_contribution(id, ProviderOutcome::Complete,
-        &relations, &BTreeMap::new(), &native_operation_budget).await.unwrap();
+    let views = candidate
+        .native()
+        .complete_contribution(
+            id,
+            ProviderOutcome::Complete,
+            &relations,
+            &BTreeMap::new(),
+            &native_operation_budget,
+        )
+        .await
+        .unwrap();
     for relation in &relations {
         let view = views[relation.name()].clone();
-        candidate.native().bind(CompletedBinding {
-            boundary: None,
-            source: SourceSnapshot::of_completed_view(relation, candidate.model().digest(), &view).unwrap(),
-            view,
-            configuration: None,
-        }).await.unwrap();
+        candidate
+            .native()
+            .bind(CompletedBinding {
+                boundary: None,
+                source: SourceSnapshot::of_completed_view(
+                    relation,
+                    candidate.model().digest(),
+                    &view,
+                )
+                .unwrap(),
+                view,
+                configuration: None,
+            })
+            .await
+            .unwrap();
     }
-    candidate.native().verify_state(&native_operation_budget).await.unwrap();
+    candidate
+        .native()
+        .verify_state(&native_operation_budget)
+        .await
+        .unwrap();
     let state_path = directory.path().join("coherent-completed-state.jsonl");
-    let state = candidate.native().export_state(&state_path, &native_operation_budget).await.unwrap();
+    candidate
+        .native()
+        .freeze_content(&native_operation_budget)
+        .await
+        .unwrap();
+    let state = candidate
+        .native()
+        .export_state(&state_path, &native_operation_budget)
+        .await
+        .unwrap();
 
-    let importer = Workspace::new(candidate.model().clone(), WorkspaceOptions::default(),
-        crate::native_fixture::store()).unwrap();
+    let importer = Workspace::new(
+        candidate.model().clone(),
+        WorkspaceOptions::default(),
+        crate::native_fixture::store(),
+    )
+    .unwrap();
     // The edited canonical graph and original bytes match the neutral candidate. Decode
     // one exported Arrow batch at a time, retaining no whole-graph resident collection.
     for (file, entities) in [("entities.arrow", true), ("assertions.arrow", false)] {
         let reader = FileReader::try_new(File::open(output.join(file)).unwrap(), None).unwrap();
         for batch in reader {
             let batch = batch.unwrap();
-            let _decode = importer.budget().reserve("detached-support-control-decode",
-                lctx_model::domain::logical_batch_bytes(&batch).unwrap().saturating_mul(4)).unwrap();
-            let payloads = batch.column(2).as_any().downcast_ref::<BinaryArray>().unwrap();
+            let _decode = importer
+                .budget()
+                .reserve(
+                    "detached-support-control-decode",
+                    lctx_model::domain::logical_batch_bytes(&batch)
+                        .unwrap()
+                        .saturating_mul(4),
+                )
+                .unwrap();
+            let payloads = batch
+                .column(2)
+                .as_any()
+                .downcast_ref::<BinaryArray>()
+                .unwrap();
             if entities {
-                let rows = (0..batch.num_rows()).map(|row| serde_json::from_slice::<Entity>(payloads.value(row)).unwrap()).collect::<Vec<_>>();
+                let rows = (0..batch.num_rows())
+                    .map(|row| serde_json::from_slice::<Entity>(payloads.value(row)).unwrap())
+                    .collect::<Vec<_>>();
                 importer.native().import_entities(&rows).await.unwrap();
             } else {
-                let rows = (0..batch.num_rows()).map(|row| serde_json::from_slice::<Assertion>(payloads.value(row)).unwrap()).collect::<Vec<_>>();
+                let rows = (0..batch.num_rows())
+                    .map(|row| serde_json::from_slice::<Assertion>(payloads.value(row)).unwrap())
+                    .collect::<Vec<_>>();
                 importer.native().import_assertions(&rows).await.unwrap();
             }
         }
     }
     for original in &verified.manifest().originals {
-        let mut file = File::open(output.join(format!("original-{}.bin", original.source.0.hex()))).unwrap();
-        importer.native().import_original_stream(original.source.0, original.content,
-            original.byte_len, &mut file, &native_operation_budget).await.unwrap();
+        let mut file =
+            File::open(output.join(format!("original-{}.bin", original.source.0.hex()))).unwrap();
+        importer
+            .native()
+            .import_original_stream(
+                original.source.0,
+                original.content,
+                original.byte_len,
+                &mut file,
+                &native_operation_budget,
+            )
+            .await
+            .unwrap();
     }
     // This performs the full independent cold backing/membership/descriptor audit first.
     // No baseline manifest is relabelled as authority for the neutral owner's new lineage.
-    importer.native().import_state(&state_path, &state, &native_operation_budget).await.unwrap();
+    importer
+        .native()
+        .import_state(&state_path, &state, &native_operation_budget)
+        .await
+        .unwrap();
     importer.restore(Profile::Catalog).await.unwrap();
-    assert_eq!(importer.native().completed_state(&native_operation_budget).await.unwrap(), state);
-    let restored = importer.native().contributions(&native_operation_budget).await.unwrap();
+    assert_eq!(
+        importer
+            .native()
+            .completed_state(&native_operation_budget)
+            .await
+            .unwrap(),
+        state
+    );
+    let restored = importer
+        .native()
+        .contributions(&native_operation_budget)
+        .await
+        .unwrap();
     assert_eq!(restored.len(), 1);
     assert!(restored[0].spec.captured_binding.is_none());
     assert_eq!(restored[0].outputs[SyntaxSupport::NAME].rows, 0);
     // The shared production semantic admission sees an actual assertion with no support.
     // This control establishes necessary semantics, not captured-producer frontier authority.
-    let error = importer.admit_semantics(Profile::Catalog).await.err().expect("unsupported facts admitted");
-    assert!(matches!(error.primary(), Some(ModelError::Invalid(message))
-        if message == "assertion has no attributed support"), "{error}");
+    let error = importer
+        .admit_semantics(Profile::Catalog)
+        .await
+        .err()
+        .expect("unsupported facts admitted");
+    assert!(
+        matches!(error.primary(), Some(ModelError::Invalid(message))
+        if message == "assertion has no attributed support"),
+        "{error}"
+    );
     candidate.drain().await.unwrap();
     importer.drain().await.unwrap();
     verified.native().drain().await.unwrap();

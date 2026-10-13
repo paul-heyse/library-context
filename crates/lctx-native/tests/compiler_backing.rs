@@ -1,4 +1,5 @@
 //! Actual native ownership for attempt-scoped model-declared projection backing.
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{
     ContentHash, EvidenceBytes, Id, ModelError, Record, Relation,
     admission::Frontier,
@@ -10,7 +11,6 @@ use lctx_model::domain::{
     stages::{Profile, ProviderOutcome},
 };
 use lctx_native::RuntimeConfig;
-use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::collections::{BTreeMap, BTreeSet};
 
 async fn fixture_client(
@@ -34,22 +34,22 @@ async fn compiler_backing_nodes(
         lctx_native::surrealdb::Surreal<lctx_native::surrealdb::engine::remote::grpc::Client>,
     >,
     contribution: ContentHash,
+    budget: &lctx_model::domain::resources::ResourceBudget,
 ) -> Vec<lctx_native::surrealdb::types::RecordId> {
     let mut bindings = lctx_native::surrealdb::types::Variables::new();
     bindings.insert(
         "owner",
-        lctx_native::surrealdb::types::RecordId::new(
-            "compiler_contribution",
-            contribution.hex(),
-        ),
+        lctx_native::surrealdb::types::RecordId::new("compiler_contribution", contribution.hex()),
     );
-    lctx_native::NativeReader::private(client.clone())
-        .query_native(
+    let reader = lctx_native::NativeReader::private(client.clone()).with_budget(budget);
+    let result=reader.query_native(
             "SELECT VALUE node FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner AND record::table(node)='compiler_record'",
             bindings,
         )
-        .await
-        .unwrap()
+        .await;
+    let mut terminal = lctx_model::domain::completion::Completion::default();
+    terminal.step("backing-node inspection reader close", reader.close().await);
+    lctx_model::domain::completion::complete(result, terminal).unwrap()
 }
 
 async fn abandon_acknowledged_write_failure(
@@ -109,10 +109,7 @@ async fn abandon_acknowledged_write_failure(
         .query("SELECT VALUE state FROM $attempt")
         .bind((
             "attempt",
-            lctx_native::surrealdb::types::RecordId::new(
-                "native_attempt",
-                store.attempt().hex(),
-            ),
+            lctx_native::surrealdb::types::RecordId::new("native_attempt", store.attempt().hex()),
         ))
         .await
         .unwrap()
@@ -125,7 +122,15 @@ async fn abandon_acknowledged_write_failure(
 
 #[tokio::test(flavor = "multi_thread")]
 async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    projection_backing_transport(snapshot::CHUNK_BYTES, true).await;
+}
+#[tokio::test(flavor = "multi_thread")]
+async fn small_projection_backing_crosses_scan_and_finalization_pools() {
+    projection_backing_transport(3, false).await;
+}
+async fn projection_backing_transport(payload_bytes: usize, maximum_chunk: bool) {
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
@@ -135,8 +140,8 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
     let admin = fixture_client(&store, &config).await;
     let assessment: Id<ProjectionSourceAssessment> =
         serde_json::from_value(serde_json::json!(&store.attempt().0[..16])).unwrap();
-    let header = snapshot::header(assessment, snapshot::CHUNK_BYTES).unwrap();
-    let mut payload = vec![0xff; snapshot::CHUNK_BYTES];
+    let header = snapshot::header(assessment, payload_bytes).unwrap();
+    let mut payload = vec![0xff; payload_bytes];
     payload[..3].copy_from_slice(&[0xff, 0, 0x80]);
     let chunk = ProjectionSnapshotChunk {
         snapshot: header.id(),
@@ -178,10 +183,13 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         .await
         .unwrap();
     let views = store
-        .complete_contribution(contribution,
+        .complete_contribution(
+            contribution,
             ProviderOutcome::Complete,
             &[header_relation.clone(), chunk_relation.clone()],
-            &BTreeMap::new(), &native_operation_budget)
+            &BTreeMap::new(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     for relation in [&header_relation, &chunk_relation] {
@@ -193,6 +201,17 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
                 view,
                 configuration: None,
             })
+            .await
+            .unwrap();
+    }
+    if maximum_chunk {
+        // Full source assurance owns its existing producer pool. The small scan
+        // borrows that actual capability; it does not establish cold 8MiB capacity.
+        store
+            .installed_view(
+                &views[ProjectionSnapshotChunk::NAME],
+                &native_operation_budget,
+            )
             .await
             .unwrap();
     }
@@ -218,20 +237,42 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         .collect::<Vec<_>>();
     assert_eq!(actual, vec![chunk.clone()]);
     let file = tempfile::NamedTempFile::new().unwrap();
-    let state = store.export_state(file.path(), &native_operation_budget).await.unwrap();
+    store
+        .freeze_content(&native_operation_budget)
+        .await
+        .unwrap();
+    let state = store
+        .export_state(file.path(), &native_operation_budget)
+        .await
+        .unwrap();
     assert_eq!(state.backing_rows, 2);
-    assert!(
-        std::fs::read_to_string(file.path())
-            .unwrap()
-            .lines()
-            .any(|line| line.len() > lctx_model::domain::resources::TRANSFER_BYTES),
-        "maximum declared opaque chunk requires one oversized transport envelope"
-    );
+    if maximum_chunk {
+        assert!(
+            std::fs::read_to_string(file.path())
+                .unwrap()
+                .lines()
+                .any(|line| line.len() > lctx_model::domain::resources::TRANSFER_BYTES),
+            "maximum declared opaque chunk requires one oversized transport envelope"
+        );
+    }
     let restored = NativeCompilerStore::begin(&config, Frontier::Normalized)
         .await
         .unwrap();
-    restored.import_state(file.path(), &state, &native_operation_budget).await.unwrap();
-    assert_eq!(restored.completed_state(&native_operation_budget).await.unwrap(), state);
+    restored
+        .import_state(file.path(), &state, &native_operation_budget)
+        .await
+        .unwrap();
+    restored
+        .freeze_content(&native_operation_budget)
+        .await
+        .unwrap();
+    assert_eq!(
+        restored
+            .completed_state(&native_operation_budget)
+            .await
+            .unwrap(),
+        state
+    );
     let batches = restored
         .scan_batches(
             &views[ProjectionSnapshot::NAME],
@@ -255,7 +296,8 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
     );
     restored.abandon().await.unwrap();
     use lctx_native::surrealdb::types::{Bytes, Number, Value, Variables};
-    let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
+    let backing_nodes =
+        compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
     let mut response = admin
         .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record' AND semantic_type='projection_snapshot_chunks'")
         .bind(("nodes", backing_nodes.clone()))
@@ -332,13 +374,24 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         .unwrap()
         .check()
         .unwrap();
-    assert_eq!(store.completed_state(&native_operation_budget).await.unwrap(), state);
+    assert_eq!(
+        store
+            .completed_state(&native_operation_budget)
+            .await
+            .unwrap(),
+        state
+    );
+    store.abandon().await.unwrap();
+    // Frozen export cannot reopen its source for a later conflicting write.
+    let conflict_store = NativeCompilerStore::begin(&config, Frontier::Normalized)
+        .await
+        .unwrap();
     let mut conflicting = chunk.clone();
     conflicting.payload = EvidenceBytes(vec![1, 2, 3]);
     let mut next = spec;
     next.producer = "conflicting-projection-backing".into();
-    let contribution = store.begin_contribution(next).await.unwrap();
-    store
+    let contribution = conflict_store.begin_contribution(next).await.unwrap();
+    conflict_store
         .write_batch(
             &contribution,
             &chunk_relation,
@@ -347,7 +400,7 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         )
         .await
         .unwrap();
-    let result = store
+    let result = conflict_store
         .write_batch(
             &contribution,
             &chunk_relation,
@@ -378,13 +431,14 @@ async fn projection_backing_preserves_typed_keys_payloads_and_cold_state() {
         !failure.has_committed_effect(),
         "refused transaction commits no conflicting effect"
     );
-    abandon_acknowledged_write_failure(&store, &config, &failure).await;
+    abandon_acknowledged_write_failure(&conflict_store, &config, &failure).await;
     admin.invalidate().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_model::domain::{FiniteF64, analytics::QualityStep};
     use lctx_native::surrealdb::types::{Bytes, Number, ToSql, Value};
     let path =
@@ -422,10 +476,13 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         .await
         .unwrap();
     let views = store
-        .complete_contribution(contribution,
+        .complete_contribution(
+            contribution,
             ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &BTreeMap::new(), &native_operation_budget)
+            &BTreeMap::new(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     let view = views[relation.name()].clone();
@@ -438,11 +495,15 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
         })
         .await
         .unwrap();
-    let state = store.completed_state(&native_operation_budget).await.unwrap();
+    let state = store
+        .completed_state(&native_operation_budget)
+        .await
+        .unwrap();
     assert_eq!(state.contributions, 1);
     assert_eq!(state.memberships, 1);
     assert_eq!(state.backing_rows, 1);
-    let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
+    let backing_nodes =
+        compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
     let mut response = admin
         .query("SELECT * FROM $nodes WHERE record::table(id)='compiler_record'")
         .bind(("nodes", backing_nodes.clone()))
@@ -463,15 +524,27 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     let canonical = serde_json::to_vec(&Value::Object(body.clone())).unwrap();
     let content = ContentHash::of(&canonical);
     let nominal = hex::decode(altered.get("semantic_key").unwrap().as_string().unwrap()).unwrap();
-    let negative_node = lctx_native::loader::payload_id(
-        "compiler_record", QualityStep::NAME, &nominal, content,
-    ).unwrap();
+    let negative_node =
+        lctx_native::loader::payload_id("compiler_record", QualityStep::NAME, &nominal, content)
+            .unwrap();
     altered.insert("id", negative_node.clone());
     altered.insert("canonical", Bytes::from(canonical));
     altered.insert("content", content.hex());
-    assert_ne!(saved.get("id"), altered.get("id"), "content-addressed negative zero has its own address");
-    assert_ne!(saved.get("canonical"), altered.get("canonical"), "negative zero changes canonical bytes");
-    assert_eq!(saved.get("semantic_key"), altered.get("semantic_key"), "nominal identity is unchanged");
+    assert_ne!(
+        saved.get("id"),
+        altered.get("id"),
+        "content-addressed negative zero has its own address"
+    );
+    assert_ne!(
+        saved.get("canonical"),
+        altered.get("canonical"),
+        "negative zero changes canonical bytes"
+    );
+    assert_eq!(
+        saved.get("semantic_key"),
+        altered.get("semantic_key"),
+        "nominal identity is unchanged"
+    );
 
     let mut membership = admin.query("SELECT * FROM compiler_membership WITH INDEX contribution_rows WHERE contribution=$owner")
         .bind(("owner", lctx_native::surrealdb::types::RecordId::new("compiler_contribution", contribution.hex())))
@@ -484,65 +557,132 @@ async fn cold_backing_rejects_coherent_negative_zero_before_membership_checks() 
     // This deliberate corruption remains independently owned while both cold validators run.
     // The native state reader selects backing through this exact contributor membership;
     // view descriptors retain the same nominal membership/cardinality.
-    let pin = lctx_native::control::ReaderPin::acquire(admin.clone(), &[]).await.unwrap();
+    let pin = lctx_native::control::ReaderPin::acquire(admin.clone(), &[])
+        .await
+        .unwrap();
     let observations = async {
-        lctx_native::control::ensure_rows(&admin, Some(store.attempt()), vec![Value::Object(altered.clone())]).await?;
+        lctx_native::control::ensure_rows(
+            &admin,
+            Some(store.attempt()),
+            vec![Value::Object(altered.clone())],
+        )
+        .await?;
         pin.protect(negative_node.clone()).await?;
-        let mut mutation = admin.query("UPDATE $id SET node=$node,content=$content RETURN AFTER")
-            .bind(("id", membership_id.clone())).bind(("node", negative_node.clone()))
-            .bind(("content", content.hex())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let mut mutation = admin
+            .query("UPDATE $id SET node=$node,content=$content RETURN AFTER")
+            .bind(("id", membership_id.clone()))
+            .bind(("node", negative_node.clone()))
+            .bind(("content", content.hex()))
+            .await
+            .map_err(ModelError::codec)?
+            .check()
+            .map_err(ModelError::codec)?;
         let changed: Vec<Value> = mutation.take(0).map_err(ModelError::codec)?;
         let verification = store.verify_state(&native_operation_budget).await;
         let completed = store.completed_state(&native_operation_budget).await;
         Ok::<_, ModelError>((changed, verification, completed))
-    }.await;
+    }
+    .await;
     let mut finality = lctx_model::domain::completion::Completion::default();
     let restoration = async {
-        admin.query("UPDATE $id CONTENT $row RETURN NONE")
-            .bind(("id", membership_id.clone())).bind(("row", Value::Object(saved_membership.clone())))
-            .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        admin
+            .query("UPDATE $id CONTENT $row RETURN NONE")
+            .bind(("id", membership_id.clone()))
+            .bind(("row", Value::Object(saved_membership.clone())))
+            .await
+            .map_err(ModelError::codec)?
+            .check()
+            .map_err(ModelError::codec)?;
         Ok(())
-    }.await;
+    }
+    .await;
     let restored = restoration.is_ok();
     finality.step("negative-zero exact membership restoration", restoration);
     // Never retire the replacement while a failed restoration may still refer to it.
     if !restored {
-        finality.step("negative-zero failed restoration retention", lctx_native::control::hold(
-            &admin, Some(store.attempt()),
-            lctx_native::surrealdb::types::RecordId::new("native_attempt", store.attempt().hex()),
-            vec![negative_node.clone()],
-        ).await);
+        finality.step(
+            "negative-zero failed restoration retention",
+            lctx_native::control::hold(
+                &admin,
+                Some(store.attempt()),
+                lctx_native::surrealdb::types::RecordId::new(
+                    "native_attempt",
+                    store.attempt().hex(),
+                ),
+                vec![negative_node.clone()],
+            )
+            .await,
+        );
     }
     finality.step("negative-zero temporary pin release", pin.release().await);
     if restored {
-        finality.step("negative-zero exact malformed payload retirement", async {
-            let progress = lctx_native::control::retire_reachable(&admin, vec![negative_node.clone()], 1).await?;
-            if !progress.remaining.is_empty() {
-                return Err(ModelError::Conflict("negative-zero malformed payload retained"));
+        finality.step(
+            "negative-zero exact malformed payload retirement",
+            async {
+                let progress =
+                    lctx_native::control::retire_reachable(&admin, vec![negative_node.clone()], 1)
+                        .await?;
+                if !progress.remaining.is_empty() {
+                    return Err(ModelError::Conflict(
+                        "negative-zero malformed payload retained",
+                    ));
+                }
+                Ok(())
             }
-            Ok(())
-        }.await);
+            .await,
+        );
     } else {
-        finality.storage.push(lctx_model::domain::completion::StorageState::Orphan(negative_node.to_sql()));
+        finality
+            .storage
+            .push(lctx_model::domain::completion::StorageState::Orphan(
+                negative_node.to_sql(),
+            ));
     }
-    let (changed, verification, completed) = lctx_model::domain::completion::complete(observations, finality).unwrap();
-    let mut readback = admin.query("SELECT * FROM $member; SELECT * FROM $original; SELECT * FROM $negative")
-        .bind(("member", membership_id)).bind(("original", saved.get("id").unwrap().clone()))
-        .bind(("negative", negative_node.clone())).await.unwrap().check().unwrap();
+    let (changed, verification, completed) =
+        lctx_model::domain::completion::complete(observations, finality).unwrap();
+    let mut readback = admin
+        .query("SELECT * FROM $member; SELECT * FROM $original; SELECT * FROM $negative")
+        .bind(("member", membership_id))
+        .bind(("original", saved.get("id").unwrap().clone()))
+        .bind(("negative", negative_node.clone()))
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
     let restored_memberships: Vec<Value> = readback.take(0).unwrap();
     let restored_backing: Vec<Value> = readback.take(1).unwrap();
     let retired_negative: Vec<Value> = readback.take(2).unwrap();
-    assert_eq!(restored_memberships, vec![Value::Object(saved_membership.clone())]);
+    assert_eq!(
+        restored_memberships,
+        vec![Value::Object(saved_membership.clone())]
+    );
     assert_eq!(restored_backing, vec![Value::Object(saved)]);
-    assert!(retired_negative.is_empty(), "temporary malformed payload retired before refusal assertions");
+    assert!(
+        retired_negative.is_empty(),
+        "temporary malformed payload retired before refusal assertions"
+    );
     let mut expected_membership = saved_membership;
     expected_membership.insert("node", negative_node);
     expected_membership.insert("content", content.hex());
-    assert_eq!(changed, vec![Value::Object(expected_membership)], "one exact membership changes only physical payload and content");
-    assert!(matches!(&verification, Err(ModelError::Conflict("compiler backing declared body"))),
-        "coherent negative-zero independent verification before membership checks: {verification:?}");
-    assert!(matches!(&completed, Err(ModelError::Conflict("compiler backing declared body"))),
-        "coherent negative-zero completed state before membership checks: {completed:?}");
+    assert_eq!(
+        changed,
+        vec![Value::Object(expected_membership)],
+        "one exact membership changes only physical payload and content"
+    );
+    assert!(
+        matches!(
+            &verification,
+            Err(ModelError::Conflict("compiler backing declared body"))
+        ),
+        "coherent negative-zero independent verification before membership checks: {verification:?}"
+    );
+    assert!(
+        matches!(
+            &completed,
+            Err(ModelError::Conflict("compiler backing declared body"))
+        ),
+        "coherent negative-zero completed state before membership checks: {completed:?}"
+    );
     store.verify_state(&native_operation_budget).await.unwrap();
     store.abandon().await.unwrap();
     admin.invalidate().await.unwrap();
@@ -597,8 +737,11 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
         outputs: BTreeSet::from([ArtifactChunk::NAME.into()]),
     };
     let contribution = store.begin_contribution(spec).await.unwrap();
-    let native_operation_budget=lctx_model::domain::resources::ResourceBudget::fixed(256<<20).unwrap();
-    let result = store.write_batch(&contribution, &relation, &batch, &native_operation_budget).await;
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let result = store
+        .write_batch(&contribution, &relation, &batch, &native_operation_budget)
+        .await;
     let failure =
         result.expect_err("later unrepresentable original range must refuse the complete window");
     assert!(
@@ -608,7 +751,8 @@ async fn invalid_later_artifact_range_has_no_auxiliary_window_effects() {
         ),
         "exact acknowledged range primary: {failure:?}"
     );
-    let backing_nodes = compiler_backing_nodes(&admin, contribution).await;
+    let backing_nodes =
+        compiler_backing_nodes(&admin, contribution, &native_operation_budget).await;
     for (table, predicate) in [
         ("original", "id=$source"),
         ("original_chunk", "blob=$source.blob"),

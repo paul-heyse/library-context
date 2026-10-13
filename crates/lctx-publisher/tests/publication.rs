@@ -137,13 +137,34 @@ async fn restored_derived_excess_is_refused(
             .collect(),
     )
     .with_budget(&native_read_budget);
-    let mut response=reader.client().query("SELECT node AS payload,node.anchor AS anchor FROM compiler_view_member WHERE view IN $lctx_views AND node.semantic_type='source_artifacts' LIMIT 1").bind(reader.view_bindings()).await.unwrap().check().unwrap();
-    let targets: Vec<Object> = response.take(0).unwrap();
-    let target = match targets[0].get("anchor").unwrap() {
+    let selected = reader
+        .prepare_selection()
+        .await
+        .unwrap()
+        .expect("exact publication selection");
+    let mut source_rows = selected
+        .rows_with_budget(
+            "entity",
+            "semantic_type='source_artifacts'",
+            Variables::new(),
+            vec![],
+            "id",
+            Some(1),
+            &native_read_budget,
+        )
+        .unwrap();
+    let source_row = source_rows
+        .next()
+        .await
+        .unwrap()
+        .expect("selected source artifact");
+    source_rows.drain_transport().await.unwrap();
+    let source_row = source_row.as_object().unwrap();
+    let target = match source_row.get("anchor").unwrap() {
         Value::RecordId(id) => id.clone(),
         _ => panic!("selected artifact anchor"),
     };
-    let target_payload = match targets[0].get("payload").unwrap() {
+    let target_payload = match source_row.get("id").unwrap() {
         Value::RecordId(id) => id.clone(),
         _ => panic!("selected artifact payload"),
     };
@@ -283,216 +304,240 @@ async fn publication_control() {
     let mut inspector_owner = None;
     let mut viewer_owner = None;
     let outcome = AssertUnwindSafe(async {
-    let scratch = tempfile::tempdir().unwrap();
-    let mut config = RuntimeConfig::read(std::path::Path::new(
-        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
-    ))
-    .unwrap();
-    config.selection = scratch.path().join("selected.json");
-    let native =
-        lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Normalized)
-            .await
-            .unwrap();
-    let workspace = Workspace::new(
-        Arc::new(model().unwrap()),
-        WorkspaceOptions::default(),
-        native.clone(),
-    )
-    .unwrap();
-    let captured = runtime::capture("catalog_core", Profile::Catalog, workspace.budget());
-    let settings = ContentHash::of(
-        format!(
-            "native-publication-control-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+        let scratch = tempfile::tempdir().unwrap();
+        let mut config = RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
+        ))
+        .unwrap();
+        config.selection = scratch.path().join("selected.json");
+        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+            &config,
+            Frontier::Normalized,
         )
-        .as_bytes(),
-    );
-    compilation::compile(
-        &workspace,
-        captured.clone(),
-        Profile::Catalog,
-        settings,
-        Frontier::Normalized,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
-    let admitted = artifact::admit(
-        &workspace,
-        &captured,
-        Frontier::Normalized,
-        Profile::Catalog,
-        settings,
-    )
-    .await
-    .unwrap();
-    let export = scratch.path().join("artifact");
-    admitted.export(&export).await.unwrap();
-    drop(admitted);
-    workspace.drain().await.unwrap();
-    native.abandon().await.unwrap();
-    let restored =
-        lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Normalized)
-            .await
-            .unwrap();
-    let workspace = Workspace::new(
-        Arc::new(model().unwrap()),
-        WorkspaceOptions::default(),
-        restored,
-    )
-    .unwrap();
-    let verified = artifact::verify_export(&export, &workspace).await.unwrap();
-
-    let definitions = lctx_native::materialization::native_definitions();
-    let handle = lctx_publisher::publish(&verified, &config, &definitions)
         .await
         .unwrap();
-    assert!(!config.selection.exists());
-    assert_eq!(handle.semantic, verified.manifest().content());
-    let listed = lctx_publisher::inspection::list(&config).await.unwrap();
-    assert!(listed.contains(&handle));
-    inspector_owner = Some(NativeReader::connect(
-        &config.endpoint,
-        &config.writer_credentials(),
-        handle.clone(),
-    )
-    .await
-    .unwrap());
-    let inspector = inspector_owner.as_ref().unwrap();
-    let details = lctx_publisher::inspection::show(&inspector).await.unwrap();
-    assert_eq!(
-        details.manifest.completed_state,
-        verified.manifest().completed_state
-    );
-    assert!(!details.contributions.is_empty());
-    assert!(!details.bindings.is_empty());
-    lctx_publisher::inspection::audit(&config, &handle, &definitions)
-        .await
+        let workspace = Workspace::new(
+            Arc::new(model().unwrap()),
+            WorkspaceOptions::default(),
+            native.clone(),
+        )
         .unwrap();
-    assert_reader_panic_cleanup(&mut inspector_owner, &config, &handle).await;
-    viewer_owner = Some(NativeReader::connect(
-        &config.endpoint,
-        &config.writer_credentials(),
-        handle.clone(),
-    )
-    .await
-    .unwrap().with_budget(workspace.budget()));
-    let viewer = viewer_owner.as_ref().unwrap();
-    let marker: Vec<String> = viewer
-        .query(
+        let captured = runtime::capture("catalog_core", Profile::Catalog, workspace.budget());
+        let settings = ContentHash::of(
             format!(
-                "SELECT VALUE handle FROM publication:`{}`",
-                handle.publication.hex()
-            ),
-            surrealdb_vars(),
+                "native-publication-control-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )
+            .as_bytes(),
+        );
+        compilation::compile(
+            &workspace,
+            captured.clone(),
+            Profile::Catalog,
+            settings,
+            Frontier::Normalized,
+            None,
+            None,
+            None,
         )
         .await
         .unwrap();
-    assert_eq!(
-        serde_json::from_slice::<SnapshotHandle>(&hex::decode(&marker[0]).unwrap()).unwrap(),
-        handle
-    );
-    // The private pin owner is not a serialized read-only ACL grant. Native immutable
-    // ingress refuses an existing payload address with different canonical bytes.
-    let selected_entity = lctx_native::prepared::PreparedQuery::new(
-        surrealdb_vars(),
-        vec!["LET $nodes=SELECT VALUE node FROM compiler_view_member WITH INDEX view_nodes WHERE view IN $lctx_views".into()],
-        vec!["SELECT * FROM $nodes WHERE record::table(id)='entity' LIMIT 1".into()],
-    ).unwrap();
-    let mut rows: Vec<lctx_native::surrealdb::types::Value> =
-        viewer.query_prepared_native(selected_entity).await.unwrap();
-    assert_eq!(
-        rows.len(),
-        1,
-        "immutable collision control requires one selected entity"
-    );
-    let selected_id = rows[0].as_object().unwrap().get("id").unwrap().clone();
-    let mut selected = surrealdb_vars();
-    selected.insert("node", selected_id);
-    let membership: Vec<lctx_native::surrealdb::types::RecordId> = viewer
-        .query_native("SELECT VALUE id FROM compiler_view_member WITH INDEX view_nodes WHERE view IN $lctx_views AND node=$node LIMIT 1", selected)
+        let admitted = artifact::admit(
+            &workspace,
+            &captured,
+            Frontier::Normalized,
+            Profile::Catalog,
+            settings,
+        )
         .await
         .unwrap();
-    assert_eq!(
-        membership.len(),
-        1,
-        "tampered payload belongs to this exact pinned view"
-    );
-    let lctx_native::surrealdb::types::Value::Object(ref mut row) = rows[0] else {
-        panic!("canonical payload")
-    };
-    row.insert(
-        "canonical",
-        lctx_native::surrealdb::types::Bytes::from(b"foreign canonical bytes".to_vec()),
-    );
-    assert!(
-        lctx_native::control::ensure_rows(viewer.client(), None, rows)
+        let export = scratch.path().join("artifact");
+        admitted.export(&export).await.unwrap();
+        drop(admitted);
+        workspace.drain().await.unwrap();
+        native.abandon().await.unwrap();
+        let restored = lctx_compiler_store::compiler::NativeCompilerStore::begin(
+            &config,
+            Frontier::Normalized,
+        )
+        .await
+        .unwrap();
+        let workspace = Workspace::new(
+            Arc::new(model().unwrap()),
+            WorkspaceOptions::default(),
+            restored,
+        )
+        .unwrap();
+        let verified = artifact::verify_export(&export, &workspace).await.unwrap();
+
+        let definitions = lctx_native::materialization::native_definitions();
+        let handle = lctx_publisher::publish(&verified, &config, &definitions)
             .await
-            .is_err()
-    );
-    for original in &verified.manifest().originals {
-        let bytes = viewer
-            .original_bytes(
-                original.source,
-                0,
-                usize::try_from(original.byte_len.min(256 << 10)).unwrap(),
+            .unwrap();
+        assert!(!config.selection.exists());
+        assert_eq!(handle.semantic, verified.manifest().content());
+        let listed = lctx_publisher::inspection::list(&config).await.unwrap();
+        assert!(listed.contains(&handle));
+        inspector_owner = Some(
+            NativeReader::connect(
+                &config.endpoint,
+                &config.writer_credentials(),
+                handle.clone(),
+            )
+            .await
+            .unwrap(),
+        );
+        let inspector = inspector_owner.as_ref().unwrap();
+        let details = lctx_publisher::inspection::show(&inspector).await.unwrap();
+        assert_eq!(
+            details.manifest.completed_state,
+            verified.manifest().completed_state
+        );
+        assert!(!details.contributions.is_empty());
+        assert!(!details.bindings.is_empty());
+        lctx_publisher::inspection::audit(&config, &handle, &definitions)
+            .await
+            .unwrap();
+        assert_reader_panic_cleanup(&mut inspector_owner, &config, &handle).await;
+        viewer_owner = Some(
+            NativeReader::connect(
+                &config.endpoint,
+                &config.writer_credentials(),
+                handle.clone(),
+            )
+            .await
+            .unwrap()
+            .with_budget(workspace.budget()),
+        );
+        let viewer = viewer_owner.as_ref().unwrap();
+        let marker: Vec<String> = viewer
+            .query(
+                format!(
+                    "SELECT VALUE handle FROM publication:`{}`",
+                    handle.publication.hex()
+                ),
+                surrealdb_vars(),
             )
             .await
             .unwrap();
-        let expected =
-            std::fs::read(export.join(format!("original-{}.bin", original.source.0.hex())))
-                .unwrap();
-        assert_eq!(bytes.as_ref(), &expected[..bytes.len()]);
-    }
-    let cli = std::env::var_os("LCTX_REMEDIATION_CLI_BIN").map(std::path::PathBuf::from);
-    if let Some(binary) = &cli {
-        select_and_show_cli(binary, &config, &handle, scratch.path());
-    } else {
-        config.select(&handle).unwrap();
-    }
-    assert_eq!(config.selected().unwrap(), handle);
-    let serving = lctx_native::config::ViewerConfig::read(
-        &config.selection.with_extension("serving.json"),
-    )
-    .unwrap();
-    assert_eq!(serving.selected().unwrap(), handle);
-    assert!(
-        lctx_publisher::backup::retire(&config, &handle, false)
+        assert_eq!(
+            serde_json::from_slice::<SnapshotHandle>(&hex::decode(&marker[0]).unwrap()).unwrap(),
+            handle
+        );
+        // The private pin owner is not a serialized read-only ACL grant. Native immutable
+        // ingress refuses an existing payload address with different canonical bytes.
+        let selected = viewer
+            .prepare_selection()
             .await
-            .is_err()
-    );
-    assert!(
+            .unwrap()
+            .expect("exact publication selection");
+        let mut selected_rows = selected
+            .rows_with_budget(
+                "entity",
+                "true",
+                surrealdb_vars(),
+                vec![],
+                "id",
+                Some(1),
+                workspace.budget(),
+            )
+            .unwrap();
+        let mut rows = vec![
+            selected_rows
+                .next()
+                .await
+                .unwrap()
+                .expect("selected entity"),
+        ];
+        selected_rows.drain_transport().await.unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "immutable collision control requires one selected entity"
+        );
+        let selected_id = rows[0].as_object().unwrap().get("id").unwrap().clone();
+        let lctx_native::surrealdb::types::Value::RecordId(selected_id) = selected_id else {
+            panic!("selected entity address")
+        };
+        assert!(
+            selected
+                .contains_all_with_budget(&[selected_id], workspace.budget())
+                .unwrap(),
+            "tampered payload belongs to this exact pinned view"
+        );
+        let lctx_native::surrealdb::types::Value::Object(ref mut row) = rows[0] else {
+            panic!("canonical payload")
+        };
+        row.insert(
+            "canonical",
+            lctx_native::surrealdb::types::Bytes::from(b"foreign canonical bytes".to_vec()),
+        );
+        assert!(
+            lctx_native::control::ensure_rows(viewer.client(), None, rows)
+                .await
+                .is_err()
+        );
+        for original in &verified.manifest().originals {
+            let bytes = viewer
+                .original_bytes(
+                    original.source,
+                    0,
+                    usize::try_from(original.byte_len.min(256 << 10)).unwrap(),
+                )
+                .await
+                .unwrap();
+            let expected =
+                std::fs::read(export.join(format!("original-{}.bin", original.source.0.hex())))
+                    .unwrap();
+            assert_eq!(bytes.as_ref(), &expected[..bytes.len()]);
+        }
+        let cli = std::env::var_os("LCTX_REMEDIATION_CLI_BIN").map(std::path::PathBuf::from);
+        if let Some(binary) = &cli {
+            select_and_show_cli(binary, &config, &handle, scratch.path());
+        } else {
+            config.select(&handle).unwrap();
+        }
+        assert_eq!(config.selected().unwrap(), handle);
+        let serving = lctx_native::config::ViewerConfig::read(
+            &config.selection.with_extension("serving.json"),
+        )
+        .unwrap();
+        assert_eq!(serving.selected().unwrap(), handle);
+        assert!(
+            lctx_publisher::backup::retire(&config, &handle, false)
+                .await
+                .is_err()
+        );
+        assert!(
+            lctx_publisher::backup::retire(&config, &handle, true)
+                .await
+                .is_err()
+        );
+        // Already pinned readers retain the original immutable realization after selection changes.
+        assert_eq!(viewer.handle(), &handle);
+        viewer
+            .records::<source::SourceArtifact>(lctx_native::RecordSelection::Scope {
+                field: "input".into(),
+                values: vec![
+                    serde_json::to_value(captured.inputs()[0].captured().revision().id()).unwrap(),
+                ],
+            })
+            .await
+            .unwrap();
+        close_reader_owner(&mut viewer_owner).await.unwrap();
+        std::fs::remove_file(&config.selection).unwrap();
+        std::fs::remove_file(config.selection.with_extension("serving.json")).unwrap();
         lctx_publisher::backup::retire(&config, &handle, true)
             .await
-            .is_err()
-    );
-    // Already pinned readers retain the original immutable realization after selection changes.
-    assert_eq!(viewer.handle(), &handle);
-    viewer
-        .records::<source::SourceArtifact>(lctx_native::RecordSelection::Scope {
-            field: "input".into(),
-            values: vec![
-                serde_json::to_value(captured.inputs()[0].captured().revision().id()).unwrap(),
-            ],
-        })
-        .await
-        .unwrap();
-    close_reader_owner(&mut viewer_owner).await.unwrap();
-    std::fs::remove_file(&config.selection).unwrap();
-    std::fs::remove_file(config.selection.with_extension("serving.json")).unwrap();
-    lctx_publisher::backup::retire(&config, &handle, true)
-        .await
-        .unwrap();
-    assert!(
-        NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle)
-            .await
-            .is_err()
-    );
+            .unwrap();
+        assert!(
+            NativeReader::connect(&config.endpoint, &config.writer_credentials(), handle)
+                .await
+                .is_err()
+        );
     })
     .catch_unwind()
     .await;
@@ -530,7 +575,8 @@ async fn small_publication_from_source(
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
     ))?;
     config.selection = scratch.path().join("selected.json");
-    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, frontier).await?;
+    let native =
+        lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, frontier).await?;
     let mut publication_owns_completion = false;
     let built = async {
         let workspace = Workspace::new(
@@ -716,8 +762,8 @@ async fn retire_publication_completely(
             if progress.remaining.is_empty() {
                 return Ok(());
             }
-            let next = lctx_native::control::resume_retirement(&client, progress.identity, 4096)
-                .await?;
+            let next =
+                lctx_native::control::resume_retirement(&client, progress.identity, 4096).await?;
             if next == progress {
                 return Err(ModelError::Conflict(
                     "composed backup retirement made no progress",
@@ -1202,7 +1248,9 @@ derived_excess_controls! {
 #[tokio::test]
 async fn retirement_matching_stale_generation_refuses_before_selection_clear_or_job_creation() {
     use lctx_native::surrealdb::types::{RecordId, Value};
-    let fixture = small_publication("retirement_stale_generation").await.unwrap();
+    let fixture = small_publication("retirement_stale_generation")
+        .await
+        .unwrap();
     let mut observer_owner = None;
     let outcome = AssertUnwindSafe(async {
         let budget = resources::ResourceBudget::fixed(resources::DEFAULT_MEMORY_BYTES).unwrap();

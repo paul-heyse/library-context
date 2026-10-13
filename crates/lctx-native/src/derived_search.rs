@@ -309,7 +309,7 @@ fn indexed_occurrence_rows<Context>(
         "eligible_input"
     };
     reader.derivation()?;
-    let predicate=format!("derivation=$lctx_derivation AND ({predicate})");
+    let predicate = format!("derivation=$lctx_derivation AND ({predicate})");
     let nominations = reader.stream_prepared(crate::prepared::PreparedQuery::new(bindings, vec![], vec![format!("SELECT id,derivation,unit_payload,dependencies FROM {table} WITH INDEX {index} WHERE ({predicate})")])?)?;
     hydrate_occurrence_nominations(reader, nominations, budget)
 }
@@ -435,7 +435,7 @@ fn hydrate_occurrence_nominations<Context>(
     mut rows: crate::reader::NativeRows,
     budget: &resources::ResourceBudget,
 ) -> Result<crate::reader::NativeRows, ModelError> {
-    let namespace=reader.derivation()?;
+    let namespace = reader.derivation()?;
     let retention = reader.transport_reader();
     let reader = reader.transport_reader().with_request_budget(budget);
     let budget = budget.clone();
@@ -458,7 +458,7 @@ fn hydrate_occurrence_nominations<Context>(
                     examined += 1;
                     scratch.grow(crate::loader::native_bytes(&row).saturating_mul(8))?;
                     let object = Object::from_value(row).map_err(ModelError::codec)?;
-                    crate::derivation::require_namespace(&object,namespace)?;
+                    crate::derivation::require_namespace(&object, namespace)?;
                     let dependencies = nomination_dependencies(&object)?;
                     if dependencies.is_empty() {
                         continue;
@@ -499,7 +499,7 @@ fn hydrate_occurrence_nominations<Context>(
                     let mut seen = BTreeSet::new();
                     while let Some(row) = payload.next().await? {
                         let object = Object::from_value(row.clone()).map_err(ModelError::codec)?;
-                        crate::derivation::require_namespace(&object,namespace)?;
+                        crate::derivation::require_namespace(&object, namespace)?;
                         let id = RecordId::from_value(
                             object
                                 .get("id")
@@ -577,8 +577,10 @@ fn occurrence_rows<Context>(
     let context_reader = reader.transport_reader().with_request_budget(budget);
     let selection = reader.selection_preparation();
     let table = table.to_owned();
-    let namespace=reader.derivation()?;
-    let mut exact_bindings=reader.view_bindings();exact_bindings.extend(bindings);let bindings=exact_bindings;
+    let namespace = reader.derivation()?;
+    let mut exact_bindings = reader.view_bindings();
+    exact_bindings.extend(bindings);
+    let bindings = exact_bindings;
     let predicate = format!("derivation=$lctx_derivation AND ({predicate})");
     let budget = budget.clone();
     crate::reader::NativeRows::owned(move |sender| async move {
@@ -646,8 +648,10 @@ fn occurrence_rows<Context>(
                         "selected occurrence decoded scratch",
                         crate::loader::native_bytes(&row).saturating_mul(8),
                     )?;
-                    let Value::Object(scoped)=&row else{return Err(ModelError::Schema("selected occurrence object"));};
-                    crate::derivation::require_namespace(scoped,namespace)?;
+                    let Value::Object(scoped) = &row else {
+                        return Err(ModelError::Schema("selected occurrence object"));
+                    };
+                    crate::derivation::require_namespace(scoped, namespace)?;
                     if eligible {
                         if let Some(selected) = &selected {
                             let Value::Object(object) = &row else {
@@ -880,9 +884,9 @@ mod occurrence_budget_tests {
     #[tokio::test]
     #[ignore = "requires the installed stable validation service through just fixture"]
     async fn occurrence_driver_refuses_changed_dependencies_unit_and_missing_payload() {
-        use lctx_compiler_store::compiler::NativeCompilerStore;
         use admission::Frontier;
         use completed::ContributionSpec;
+        use lctx_compiler_store::compiler::NativeCompilerStore;
         use stages::{Profile, ProviderOutcome};
         let config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
@@ -938,11 +942,24 @@ mod occurrence_budget_tests {
             )
             .await
             .unwrap();
-        let descriptors=views.values().cloned().collect::<Vec<_>>();
-        let views = descriptors.iter().map(|view| view.identity).collect::<Vec<_>>();
-        let client = lctx_compiler_store::reader::connect(&config.endpoint, &config.writer_credentials(), store.namespace().as_str(), store.database().as_str()).await.unwrap();
-        let derivation=ContentHash::of(format!("occurrence-driver-control/{}",store.attempt().hex()).as_bytes());
-        let loader = Loader::for_attempt_views(client.clone(), store.attempt(), views.clone()).with_derivation(derivation)
+        let descriptors = views.values().cloned().collect::<Vec<_>>();
+        let views = descriptors
+            .iter()
+            .map(|view| view.identity)
+            .collect::<Vec<_>>();
+        let client = lctx_compiler_store::reader::connect(
+            &config.endpoint,
+            &config.writer_credentials(),
+            store.namespace().as_str(),
+            store.database().as_str(),
+        )
+        .await
+        .unwrap();
+        let derivation = ContentHash::of(
+            format!("occurrence-driver-control/{}", store.attempt().hex()).as_bytes(),
+        );
+        let loader = Loader::for_attempt_views(client.clone(), store.attempt(), views.clone())
+            .with_derivation(derivation)
             .with_budget(&fixture_budget);
         loader
             .entity_references(&[graph::Entity::from(unit.clone())])
@@ -951,15 +968,45 @@ mod occurrence_budget_tests {
         // The dev dependency owns a separately compiled native crate. Its metadata
         // supplies only exact mappings; this crate independently earns its own
         // capability by auditing the actual persisted closure and memberships.
-        let mut installed=Vec::with_capacity(descriptors.len());
+        let mut installation_audit =
+            crate::installed_view::InstallationAudit::new(client.clone(), &fixture_budget)
+                .await
+                .unwrap();
+        let mut installed = Vec::with_capacity(descriptors.len());
         for descriptor in &descriptors {
-            let source=store.installed_view(descriptor,&fixture_budget).await.unwrap();
-            let mappings=source.completion().mappings.iter().map(|mapping|crate::installed_view::ContributorRealization{
-                view:mapping.view,logical:mapping.logical,physical:mapping.physical,incarnation:mapping.incarnation,
-            }).collect::<Vec<_>>();
-            installed.push(std::sync::Arc::new(crate::installed_view::install_live_view(client.clone(),store.attempt(),descriptor,&mappings,&fixture_budget).await.unwrap()));
+            let source = store
+                .installed_view(descriptor, &fixture_budget)
+                .await
+                .unwrap();
+            let mappings = source
+                .completion()
+                .mappings
+                .iter()
+                .map(|mapping| crate::installed_view::ContributorRealization {
+                    view: mapping.view,
+                    logical: mapping.logical,
+                    physical: mapping.physical,
+                    incarnation: mapping.incarnation,
+                })
+                .collect::<Vec<_>>();
+            installed.push(std::sync::Arc::new(
+                crate::installed_view::select_live_view_scoped(
+                    client.clone(),
+                    store.attempt(),
+                    descriptor,
+                    &mappings,
+                    &fixture_budget,
+                    &mut installation_audit,
+                )
+                .await
+                .unwrap(),
+            ));
         }
-        let reader=crate::NativeReader::for_installed_views(client.clone(),&installed,&fixture_budget).await.unwrap().with_derivation(derivation);
+        let reader =
+            crate::NativeReader::for_installed_views(client.clone(), &installed, &fixture_budget)
+                .await
+                .unwrap()
+                .with_derivation(derivation);
         let payload = typed_payload(&unit).unwrap();
         assert!(
             reader
@@ -1084,6 +1131,7 @@ mod occurrence_budget_tests {
         drop(loader);
         reader.close().await.unwrap();
         drop(reader);
+        installation_audit.close_drained().await.unwrap();
         client.invalidate().await.unwrap();
         store.abandon().await.unwrap();
     }
@@ -1191,7 +1239,7 @@ pub fn actual_search_rows<Context>(
     // Shared unit/window payloads can have companions from other exact views. Admit
     // only complete selected lineages; independent cold lowering still refuses missing
     // expected occurrences, changed payloads, and unexpected eligible occurrences.
-    let namespace=reader.derivation()?;
+    let namespace = reader.derivation()?;
     let budget = budget.clone();
     let mut lexical =
         selected_occurrences(reader, "lex_occurs", "true", Variables::new(), &budget)?;
@@ -1218,7 +1266,7 @@ pub fn actual_search_rows<Context>(
                     let mut pointer = Object::new();
                     pointer.insert("id", document);
                     documents.push(Value::Object(pointer))?;
-                    crate::derivation::require_namespace(object,namespace)?;
+                    crate::derivation::require_namespace(object, namespace)?;
                     actual.push(row)?;
                 }
                 Ok(())
@@ -1263,8 +1311,10 @@ pub fn actual_search_rows<Context>(
             .stream_cancellable(&client, cancellation.as_ref())?;
             let result = async {
                 while let Some(row) = rows.next().await? {
-                    let Value::Object(object)=&row else{return Err(ModelError::Schema("actual search companion object"));};
-                    crate::derivation::require_namespace(object,namespace)?;
+                    let Value::Object(object) = &row else {
+                        return Err(ModelError::Schema("actual search companion object"));
+                    };
+                    crate::derivation::require_namespace(object, namespace)?;
                     actual.push(row)?;
                 }
                 Ok(())
@@ -1458,13 +1508,26 @@ struct LoweredProjection {
     tokens: i64,
     embedding: Vec<f32>,
 }
-fn vector_id(projection: &LoweredProjection, unit: &Unit, namespace:ContentHash) -> Result<RecordId, ModelError> {
-    Ok(crate::derivation::address(namespace,"vector",&serde_json::to_vec(&("native-vector/v2",projection,unit.input,unit.family)).map_err(ModelError::codec)?))
+fn vector_id(
+    projection: &LoweredProjection,
+    unit: &Unit,
+    namespace: ContentHash,
+) -> Result<RecordId, ModelError> {
+    Ok(crate::derivation::address(
+        namespace,
+        "vector",
+        &serde_json::to_vec(&("native-vector/v2", projection, unit.input, unit.family))
+            .map_err(ModelError::codec)?,
+    ))
 }
-fn cohort_row(p: &LoweredProjection, unit: &Unit, namespace:ContentHash) -> Result<Value, ModelError> {
+fn cohort_row(
+    p: &LoweredProjection,
+    unit: &Unit,
+    namespace: ContentHash,
+) -> Result<Value, ModelError> {
     let mut row = Object::new();
-    row.insert("id", vector_id(p, unit,namespace)?);
-    row.insert("derivation",namespace.hex());
+    row.insert("id", vector_id(p, unit, namespace)?);
+    row.insert("derivation", namespace.hex());
     row.insert("dependencies", p.dependencies.clone());
     row.insert("encoder_hash", p.encoder_hash.hex());
     row.insert("policy_key", p.policy.hex());
@@ -1572,7 +1635,7 @@ async fn lower_vectors(
                 ));
             }
             if basic.primary(window.id()).next().is_some() {
-                expected.emit("vector", cohort_row(p, unit,reader.derivation()?)?)?;
+                expected.emit("vector", cohort_row(p, unit, reader.derivation()?)?)?;
             }
         }
     }
@@ -1968,8 +2031,15 @@ async fn lower(
             }
             let unit = need(&b.units, window.unit)?;
             let mut row = Object::new();
-            row.insert("id", crate::derivation::address(reader.derivation()?,table(unit.family),&window.digest.0));
-            row.insert("derivation",reader.derivation()?.hex());
+            row.insert(
+                "id",
+                crate::derivation::address(
+                    reader.derivation()?,
+                    table(unit.family),
+                    &window.digest.0,
+                ),
+            );
+            row.insert("derivation", reader.derivation()?.hex());
             row.insert("text", window.text.as_str().to_owned());
             row.insert("digest", crate_json(window.digest)?);
             row.insert(
@@ -2165,7 +2235,7 @@ fn witness_context<'a>(
     reason = "Canonical lineage and distinct physical writers remain explicit"
 )]
 async fn emit_witness(
-    namespace:ContentHash,
+    namespace: ContentHash,
     expected: &mut Expected,
     lexical: &mut Batch<'_>,
     vectors: &mut Batch<'_>,
@@ -2196,7 +2266,7 @@ async fn emit_witness(
         "lex_occurs",
         namespace,
         &key,
-        crate::derivation::address(namespace,table(unit.family),&window.digest.0),
+        crate::derivation::address(namespace, table(unit.family), &window.digest.0),
         &witness,
         &dependencies,
     )?;
@@ -2289,9 +2359,12 @@ pub async fn materialize_search(loader: &Loader) -> Result<(), ModelError> {
     )
 }
 pub async fn reconcile_search(loader: &Loader) -> Result<(), ModelError> {
-    reconcile_search_owned(loader,None).await
+    reconcile_search_owned(loader, None).await
 }
-pub(crate) async fn reconcile_search_owned(loader:&Loader,mut inventory:Option<&mut SortedRows>)->Result<(),ModelError>{
+pub(crate) async fn reconcile_search_owned(
+    loader: &Loader,
+    mut inventory: Option<&mut SortedRows>,
+) -> Result<(), ModelError> {
     let reader = reader(loader)?;
     let budget = loader.read_budget()?;
     let mut expected = Expected::new(&budget)?;
@@ -2303,15 +2376,18 @@ pub(crate) async fn reconcile_search_owned(loader:&Loader,mut inventory:Option<&
         "derived search cold actual-row reconciliation",
         expected.reconcile(&reader).await,
     )?;
-    if let Some(inventory)=inventory.as_deref_mut(){
-        for index in 0..TABLES.len(){
-            let rows=expected.finish(index)?;rows.rewind()?;
-            while let Some(row)=rows.next_row()?{crate::control::staging::remember_expected_child(inventory,&row)?;}
+    if let Some(inventory) = inventory.as_deref_mut() {
+        for index in 0..TABLES.len() {
+            let rows = expected.finish(index)?;
+            rows.rewind()?;
+            while let Some(row) = rows.next_row()? {
+                crate::control::staging::remember_expected_child(inventory, &row)?;
+            }
         }
     }
     phase(
         "frozen lexical statistics cold comparison",
-        crate::lexical_stats::reconcile_owned(loader,inventory).await,
+        crate::lexical_stats::reconcile_owned(loader, inventory).await,
     )
 }
 fn crate_json<T: serde::Serialize>(value: T) -> Result<Value, ModelError> {
@@ -2330,7 +2406,7 @@ struct Witness<'a> {
 }
 fn occurrence(
     table: &str,
-    namespace:ContentHash,
+    namespace: ContentHash,
     key: &str,
     input: RecordId,
     w: &Witness<'_>,
@@ -2341,8 +2417,11 @@ fn occurrence(
         .map(|m| target_id(Target::Entity(EntityId::of(m))))
         .unwrap_or_else(|| target_id(Target::Entity(EntityId::of(w.unit.id()))));
     let mut row = Object::new();
-    row.insert("id", crate::derivation::address(namespace,table,key.as_bytes()));
-    row.insert("derivation",namespace.hex());
+    row.insert(
+        "id",
+        crate::derivation::address(namespace, table, key.as_bytes()),
+    );
+    row.insert("derivation", namespace.hex());
     row.insert("dependencies", dependencies.to_vec());
     row.insert("unit_payload", typed_payload(w.unit)?);
     row.insert("in", input);

@@ -472,6 +472,84 @@ pub(super) async fn effect_for_owner(
     };
     execute_recorded(client, request, owner, payload, false).await
 }
+pub(super) struct PreparedOwnerEffect {
+    request: NativeRequest,
+    plan: OwnerEffectPlan,
+}
+impl PreparedOwnerEffect {
+    pub(super) fn bytes(&self) -> Result<usize, ModelError> {
+        Ok(
+            super::immutable_window::plan_bytes(&self.plan.query, &self.plan.bindings)?.max(
+                super::immutable_window::plan_bytes(&self.plan.intent, &self.plan.intent_bindings)?,
+            ),
+        )
+    }
+}
+pub(super) async fn owner_issuance(
+    client: &Surreal<Client>,
+    owner: &EffectOwner,
+) -> Result<IssuanceEra, ModelError> {
+    let id = owner.record().ok_or(ModelError::Conflict(
+        "prepared witness requires an exact owner",
+    ))?;
+    let mut response = client
+        .query("SELECT generation,era FROM $owner")
+        .bind(("owner", id))
+        .await
+        .map_err(ModelError::codec)?
+        .check()
+        .map_err(ModelError::codec)?;
+    let rows: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
+    let [row] = rows.as_slice() else {
+        return Err(ModelError::Conflict("native effect original owner missing"));
+    };
+    Ok(IssuanceEra {
+        generation: hash_field(row, "generation")?,
+        era: int_field(row, "era")?,
+    })
+}
+pub(super) async fn prepare_owner_effect(
+    client: &Surreal<Client>,
+    owner: &EffectOwner,
+    issuance: IssuanceEra,
+    sql: &str,
+    mut bindings: Variables,
+) -> Result<PreparedOwnerEffect, ModelError> {
+    coordination::prepare_expectations(client, &mut bindings).await?;
+    let payload = PreparedNativePayload::new(sql, bindings)?;
+    let request = NativeRequest {
+        issuance,
+        operation: fresh_identity("effect")?,
+        request: payload.digest,
+    };
+    request.validate()?;
+    let plan = owner_effect_plan(request, owner, payload.sql, payload.bindings, false)?;
+    Ok(PreparedOwnerEffect { request, plan })
+}
+pub(super) async fn execute_prepared_owner_effect(
+    client: &Surreal<Client>,
+    prepared: PreparedOwnerEffect,
+) -> Result<(), ModelError> {
+    let PreparedOwnerEffect { request, plan } = prepared;
+    // Sizing did not accept a receipt. Register only the exact already prepared request.
+    super::receipts::accepted(request).map_err(|error| request.error(error))?;
+    let result = execute_owner_plan(client, request, plan).await;
+    let disposition = if result.is_ok() {
+        Some(EffectDisposition::Committed)
+    } else if super::receipts::active() {
+        request_disposition(client, request).await.ok()
+    } else {
+        None
+    };
+    if let Some(disposition) = disposition {
+        if let Err(error) = super::receipts::observed(request, disposition) {
+            let mut terminal = lctx_model::domain::completion::Completion::default();
+            terminal.step("native original-request receipt", Err(error));
+            return lctx_model::domain::completion::complete(result, terminal);
+        }
+    }
+    result
+}
 /// Reissue only the original operation, bytes and authority. This cannot refresh a closed era.
 pub async fn execute_request(
     client: &Surreal<Client>,
@@ -552,16 +630,23 @@ async fn execute_recorded(
     }
     result
 }
-async fn execute_owner(
-    client: &Surreal<Client>,
-    request: NativeRequest,
-    owner: EffectOwner,
-    payload: PreparedNativePayload<'_>,
+struct OwnerEffectPlan {
+    query: String,
+    intent: String,
+    intent_bindings: Variables,
+    bindings: Variables,
+    reference: RecordId,
     retain: bool,
-) -> Result<(), ModelError> {
-    let PreparedNativePayload {
-        sql, mut bindings, ..
-    } = payload;
+}
+/// Pure shared protocol lowering: sizing and execution use precisely the same wrappers.
+fn owner_effect_plan(
+    request: NativeRequest,
+    owner: &EffectOwner,
+    sql: &str,
+    bindings: Variables,
+    retain: bool,
+) -> Result<OwnerEffectPlan, ModelError> {
+    let mut bindings = bindings;
     request.bind(&mut bindings);
     let reference_owner = request.operation.hex();
     let reference_kind = if retain { "caller" } else { "recovery" };
@@ -630,7 +715,41 @@ async fn execute_owner(
     );
     coordination::preflight(&query, &bindings)?;
     coordination::preflight(&intent, &intent_bindings)?;
-    if let Err(error) = super::retry::transaction_named(client, &intent, intent_bindings, false, "intent").await {
+    Ok(OwnerEffectPlan {
+        query,
+        intent,
+        intent_bindings,
+        bindings,
+        reference,
+        retain,
+    })
+}
+async fn execute_owner(
+    client: &Surreal<Client>,
+    request: NativeRequest,
+    owner: EffectOwner,
+    payload: PreparedNativePayload<'_>,
+    retain: bool,
+) -> Result<(), ModelError> {
+    let plan = owner_effect_plan(request, &owner, payload.sql, payload.bindings, retain)?;
+    execute_owner_plan(client, request, plan).await
+}
+async fn execute_owner_plan(
+    client: &Surreal<Client>,
+    request: NativeRequest,
+    plan: OwnerEffectPlan,
+) -> Result<(), ModelError> {
+    let OwnerEffectPlan {
+        query,
+        intent,
+        intent_bindings,
+        bindings,
+        reference,
+        retain,
+    } = plan;
+    if let Err(error) =
+        super::retry::transaction_named(client, &intent, intent_bindings, false, "intent").await
+    {
         let mut completion = lctx_model::domain::completion::Completion::default();
         completion.step(
             "native intent reconciliation",
@@ -638,18 +757,19 @@ async fn execute_owner(
         );
         return lctx_model::domain::completion::complete(Err(request.error(error)), completion);
     }
-    let result = match super::retry::transaction_named(client, &query, bindings, false, "payload").await {
-        Ok(()) => Ok(()),
-        Err(error) => match reconcile_request(client, request).await {
-            Ok(EffectDisposition::Committed) => Ok(()),
-            Ok(_) => Err(request.error(error)),
-            Err(reconciliation) => {
-                let mut completion = lctx_model::domain::completion::Completion::default();
-                completion.step("native effect reconciliation", Err(reconciliation));
-                lctx_model::domain::completion::complete(Err(request.error(error)), completion)
-            }
-        },
-    };
+    let result =
+        match super::retry::transaction_named(client, &query, bindings, false, "payload").await {
+            Ok(()) => Ok(()),
+            Err(error) => match reconcile_request(client, request).await {
+                Ok(EffectDisposition::Committed) => Ok(()),
+                Ok(_) => Err(request.error(error)),
+                Err(reconciliation) => {
+                    let mut completion = lctx_model::domain::completion::Completion::default();
+                    completion.step("native effect reconciliation", Err(reconciliation));
+                    lctx_model::domain::completion::complete(Err(request.error(error)), completion)
+                }
+            },
+        };
     result?;
     if !retain {
         let mut release = Variables::new();
@@ -665,7 +785,15 @@ async fn execute_owner(
         let release_sql = format!(
             "BEGIN; {ERA_GUARD} fn::native_touch($effect); fn::native_touch($reference); DELETE $reference RETURN NONE; COMMIT;"
         );
-        if let Err(error) = super::retry::transaction_named(client, &release_sql, release, true, "outcome_reference_release").await {
+        if let Err(error) = super::retry::transaction_named(
+            client,
+            &release_sql,
+            release,
+            true,
+            "outcome_reference_release",
+        )
+        .await
+        {
             let mut completion = lctx_model::domain::completion::Completion::default();
             completion.committed("native effect committed", request.operation.hex());
             return lctx_model::domain::completion::complete(Err(request.error(error)), completion);
@@ -1002,5 +1130,61 @@ mod payload_controls {
             payload.get("__expected_epoch")
         );
         assert!(serde_json::to_vec(&controls).unwrap().len() < 2048);
+    }
+}
+
+#[cfg(test)]
+mod owner_effect_packet_controls {
+    use super::*;
+    #[test]
+    fn complete_owner_plan_refuses_payload_that_fits_without_protocol_wrappers() {
+        let request = NativeRequest {
+            issuance: IssuanceEra {
+                generation: ContentHash([1; 32]),
+                era: 1,
+            },
+            operation: ContentHash([2; 32]),
+            request: ContentHash([3; 32]),
+        };
+        let owner = EffectOwner::OpenAttempt(ContentHash([4; 32]));
+        let bindings = |length: usize| {
+            let mut values = Variables::new();
+            values.insert("payload", "x".repeat(length));
+            values.insert("__object_expectations", Vec::<Value>::new());
+            values
+        };
+        let mut lower = 0;
+        let mut upper = lctx_model::domain::resources::TRANSFER_BYTES;
+        while lower + 1 < upper {
+            let middle = (lower + upper) / 2;
+            if coordination::preflight("RETURN $payload;", &bindings(middle)).is_ok() {
+                lower = middle;
+            } else {
+                upper = middle;
+            }
+        }
+        let values = bindings(lower);
+        coordination::preflight("RETURN $payload;", &values).unwrap();
+        assert!(matches!(
+            owner_effect_plan(request, &owner, "RETURN $payload;", values, false),
+            Err(ModelError::Limit {
+                owner: "native transaction",
+                limit: "complete control and payload bytes",
+                ..
+            })
+        ));
+        let plan =
+            owner_effect_plan(request, &owner, "RETURN $payload;", bindings(16), false).unwrap();
+        assert_eq!(
+            plan.bindings.get("__effect"),
+            Some(&Value::RecordId(RecordId::new(
+                "native_effect",
+                request.operation.hex()
+            )))
+        );
+        assert_eq!(
+            plan.bindings.get("__object_expectations"),
+            Some(&Value::Array(Vec::<Value>::new().into()))
+        );
     }
 }

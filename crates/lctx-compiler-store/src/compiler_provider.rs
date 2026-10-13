@@ -69,9 +69,16 @@ struct NativeTable {
 }
 /// Bind a producer's physical read owner before plans or delayed streams are created.
 /// Finite tables need no native read owner and retain their existing route.
-pub fn bind_producing(provider: &Arc<dyn TableProvider>, scope: &ProducingScope) -> Result<Arc<dyn TableProvider>, ModelError> {
-    let Some(source) = provider.downcast_ref::<NativeTable>() else { return Ok(provider.clone()); };
-    if !scope.belongs_to(&source.store) { return Err(ModelError::Conflict("foreign producing provider store")); }
+pub fn bind_producing(
+    provider: &Arc<dyn TableProvider>,
+    scope: &ProducingScope,
+) -> Result<Arc<dyn TableProvider>, ModelError> {
+    let Some(source) = provider.downcast_ref::<NativeTable>() else {
+        return Ok(provider.clone());
+    };
+    if !scope.belongs_to(&source.store) {
+        return Err(ModelError::Conflict("foreign producing provider store"));
+    }
     let mut selected = source.clone();
     selected.producing = Some(scope.clone());
     Ok(Arc::new(selected))
@@ -107,14 +114,25 @@ pub fn is_native_table(provider: &Arc<dyn TableProvider>) -> bool {
     provider.downcast_ref::<NativeTable>().is_some()
 }
 /// Compact current tokens for finer product domains; finite providers retain their own route.
-pub async fn content_tokens(provider:&Arc<dyn TableProvider>,keys:&[[u8;16]],budget:&ResourceBudget)->Result<Option<Vec<([u8;16],lctx_model::domain::ContentHash)>>,ModelError> {
-    let Some(source)=provider.downcast_ref::<NativeTable>() else{return Ok(None)};
-    if !source.keys.is_empty() {return Ok(None)} // A filtered provider requires its declared domain.
-    let read = source.store.row_tokens(&source.view,&source.relation,keys,budget);
+pub async fn content_tokens(
+    provider: &Arc<dyn TableProvider>,
+    keys: &[[u8; 16]],
+    budget: &ResourceBudget,
+) -> Result<Option<Vec<([u8; 16], lctx_model::domain::ContentHash)>>, ModelError> {
+    let Some(source) = provider.downcast_ref::<NativeTable>() else {
+        return Ok(None);
+    };
+    if !source.keys.is_empty() {
+        return Ok(None);
+    } // A filtered provider requires its declared domain.
+    let read = source
+        .store
+        .row_tokens(&source.view, &source.relation, keys, budget);
     match &source.producing {
         Some(scope) => scope.run(read).await,
         None => read.await,
-    }.map(Some)
+    }
+    .map(Some)
 }
 pub fn select_field_table(
     provider: &Arc<dyn TableProvider>,
@@ -158,7 +176,8 @@ fn row_statistics(
     // have a key-count upper bound; non-unique field selections do not. Keep estimates
     // inexact whenever selection/filter exists, even for zero. The table already
     // retains earned native authority before exposing these optimizer statistics.
-    let upper = keys.iter()
+    let upper = keys
+        .iter()
         .filter(|selection| selection.field.is_none())
         .map(|selection| selection.keys.len())
         .chain(usize::try_from(rows).ok())
@@ -238,7 +257,9 @@ impl TableProvider for NativeTable {
         let mut driver = None;
         for (index, filter) in filters.iter().enumerate() {
             if let Some(supported) = SupportedFilter::interpret(filter, &self.relation) {
-                if demand::only_nominal(filter) && demand::recognizes(filter, self.schema().as_ref()) {
+                if demand::only_nominal(filter)
+                    && demand::recognizes(filter, self.schema().as_ref())
+                {
                     // The charged nominal intersection already fully enforces this
                     // accepted exact id predicate; retain every other native/residual test.
                     continue;
@@ -347,10 +368,18 @@ impl PartitionStream for NativePartition {
         let budget = self.budget.clone();
         let batch_rows = self.batch_rows;
         let keys = self.keys.clone();
+        let source_installed = installed.clone();
         let stream = if keys.is_empty() {
             let stream = futures::stream::once(async move {
-                scan_batches(
-                    store, view, relation, projection, predicate, budget, batch_rows,
+                scan_batches_with_installed(
+                    store,
+                    view,
+                    relation,
+                    projection,
+                    predicate,
+                    budget,
+                    batch_rows,
+                    Some(source_installed.clone()),
                 )
                 .await
                 .map_err(df_error)
@@ -361,6 +390,7 @@ impl PartitionStream for NativePartition {
         } else {
             selected_batches(
                 store,
+                Some(source_installed),
                 view,
                 relation,
                 projection,
@@ -371,11 +401,19 @@ impl PartitionStream for NativePartition {
                 self.schema.clone(),
             )
         };
-        let stream = Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), stream.inspect_ok(move |_| { let _ = &installed; }))) as SendableRecordBatchStream;
+        let stream = Box::pin(RecordBatchStreamAdapter::new(
+            self.schema.clone(),
+            stream.inspect_ok(move |_| {
+                let _ = &installed;
+            }),
+        )) as SendableRecordBatchStream;
         match &self.producing {
             Some(scope) => match scope.bind_stream(stream) {
                 Ok(stream) => Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), stream)),
-                Err(error) => Box::pin(RecordBatchStreamAdapter::new(self.schema.clone(), futures::stream::once(async move { Err(df_error(error)) }))),
+                Err(error) => Box::pin(RecordBatchStreamAdapter::new(
+                    self.schema.clone(),
+                    futures::stream::once(async move { Err(df_error(error)) }),
+                )),
             },
             None => stream,
         }
@@ -582,6 +620,7 @@ impl PreparedSelection {
 )]
 fn selected_batches(
     store: Arc<NativeCompilerStore>,
+    installed: Option<Arc<lctx_native::installed_view::HeldInstalledView>>,
     view: CompletedView,
     relation: Relation,
     projection: Option<Vec<usize>>,
@@ -605,6 +644,7 @@ fn selected_batches(
         (0usize, false, None::<Arc<PreparedSelection>>, predicate),
         move |(offset, done, prepared, predicate)| {
             let store = store.clone();
+            let installed = installed.clone();
             let view = view.clone();
             let relation = relation.clone();
             let projection = projection.clone();
@@ -654,7 +694,7 @@ fn selected_batches(
                     None
                 };
                 let predicate = prepared.predicate(nominal).map_err(df_error)?;
-                let rows = scan_batches(
+                let rows = scan_batches_with_installed(
                     store,
                     view,
                     relation,
@@ -662,6 +702,7 @@ fn selected_batches(
                     Some(predicate),
                     budget,
                     batch_rows,
+                    installed,
                 )
                 .await
                 .map_err(df_error)?;
@@ -689,6 +730,21 @@ pub async fn scan_batches(
     budget: ResourceBudget,
     batch_rows: usize,
 ) -> Result<SendableRecordBatchStream, ModelError> {
+    scan_batches_with_installed(
+        store, view, relation, projection, predicate, budget, batch_rows, None,
+    )
+    .await
+}
+async fn scan_batches_with_installed(
+    store: Arc<NativeCompilerStore>,
+    view: CompletedView,
+    relation: Relation,
+    projection: Option<Vec<usize>>,
+    predicate: Option<NativePredicate>,
+    budget: ResourceBudget,
+    batch_rows: usize,
+    installed: Option<Arc<lctx_native::installed_view::HeldInstalledView>>,
+) -> Result<SendableRecordBatchStream, ModelError> {
     if batch_rows == 0 {
         return Err(ModelError::Schema("native Arrow batch rows"));
     }
@@ -706,9 +762,25 @@ pub async fn scan_batches(
         .iter()
         .map(|field| field.name().clone())
         .collect::<Vec<_>>();
-    let rows = store
-        .scan_rows(&view, &relation, Some(&columns), predicate, &budget)
-        .await?;
+    let rows = match installed {
+        Some(installed) => {
+            store
+                .scan_rows_with_installed(
+                    &view,
+                    &relation,
+                    Some(&columns),
+                    predicate,
+                    &budget,
+                    installed,
+                )
+                .await?
+        }
+        None => {
+            store
+                .scan_rows(&view, &relation, Some(&columns), predicate, &budget)
+                .await?
+        }
+    };
     batches_from_rows(rows, relation, schema, &budget, batch_rows)
 }
 /// Share bounded Arrow transfer after the native owner has admitted the exact row selection.
@@ -1003,76 +1075,309 @@ mod tests {
     use lctx_model::domain::{ContentHash, Record, input::Release, serving::Name};
     use std::collections::BTreeSet;
 
-    async fn installed_releases(rows: usize) -> (Arc<NativeCompilerStore>, CompletedView, ResourceBudget) {
-        use lctx_model::domain::{input::Package, completed::{ContributionSpec,OutputProfile}, stages::{Profile,ProviderOutcome}};
-        let store=crate::test_native::store();
-        let budget=ResourceBudget::fixed(8 << 20).unwrap();
-        let relation=Relation::of::<Release>();
-        let package=Package{name:format!("provider-{}",store.attempt().hex())}.id();
-        let mut releases=(0..rows).map(|i|Release{package,version:format!("version-{i}")}).collect::<Vec<_>>();
+    async fn installed_releases(
+        rows: usize,
+    ) -> (Arc<NativeCompilerStore>, CompletedView, ResourceBudget) {
+        use lctx_model::domain::{
+            completed::{ContributionSpec, OutputProfile},
+            input::Package,
+            stages::{Profile, ProviderOutcome},
+        };
+        let store = crate::test_native::store();
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let relation = Relation::of::<Release>();
+        let package = Package {
+            name: format!("provider-{}", store.attempt().hex()),
+        }
+        .id();
+        let mut releases = (0..rows)
+            .map(|i| Release {
+                package,
+                version: format!("version-{i}"),
+            })
+            .collect::<Vec<_>>();
         releases.sort_by_key(Record::id);
-        let id=store.begin_contribution(ContributionSpec{captured_binding:None,producer:"provider-planning".into(),profile:OutputProfile::Specific(Profile::Catalog),model:ContentHash::of(b"provider-model"),implementation:ContentHash::of(b"provider-implementation"),configuration:None,inputs:vec![],outputs:[Release::NAME.into()].into()}).await.unwrap();
-        store.write_batch(&id,&relation,&Release::encode(&releases).unwrap(),&budget).await.unwrap();
-        let views=store.complete_contribution(id,ProviderOutcome::Complete,std::slice::from_ref(&relation),&Default::default(),&budget).await.unwrap();
-        (store,views[Release::NAME].clone(),budget)
+        let id = store
+            .begin_contribution(ContributionSpec {
+                captured_binding: None,
+                producer: "provider-planning".into(),
+                profile: OutputProfile::Specific(Profile::Catalog),
+                model: ContentHash::of(b"provider-model"),
+                implementation: ContentHash::of(b"provider-implementation"),
+                configuration: None,
+                inputs: vec![],
+                outputs: [Release::NAME.into()].into(),
+            })
+            .await
+            .unwrap();
+        store
+            .write_batch(
+                &id,
+                &relation,
+                &Release::encode(&releases).unwrap(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        let views = store
+            .complete_contribution(
+                id,
+                ProviderOutcome::Complete,
+                std::slice::from_ref(&relation),
+                &Default::default(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        (store, views[Release::NAME].clone(), budget)
     }
     #[tokio::test]
-    async fn multi_view_reference_attachment_refuses_stale_sources_without_a_prefix_and_keeps_namespaces(){
-        use lctx_model::domain::{input::Package,completed::{ContributionSpec,OutputProfile},stages::{Profile,ProviderOutcome}};
-        use surrealdb::types::{RecordId,Value};
-        let (source,releases,budget)=installed_releases(2).await;
-        let receiver=crate::test_native::store();
-        let package=Package{name:format!("attached-{}",source.attempt().hex())};
-        let relation=Relation::of::<Package>();
-        let contribution=source.begin_contribution(ContributionSpec{captured_binding:None,producer:"attachment-planning".into(),profile:OutputProfile::Specific(Profile::Catalog),model:ContentHash::of(b"attachment-model"),implementation:ContentHash::of(b"attachment-code"),configuration:None,inputs:vec![],outputs:[Package::NAME.into()].into()}).await.unwrap();
-        source.write_batch(&contribution,&relation,&Package::encode(&[package]).unwrap(),&budget).await.unwrap();
-        let packages=source.complete_contribution(contribution,ProviderOutcome::Complete,&[relation],&Default::default(),&budget).await.unwrap();
-        let sources=vec![source.installed_view(&releases,&budget).await.unwrap(),source.installed_view(&packages[Package::NAME],&budget).await.unwrap()];
-        let completion_ids=sources.iter().map(|held|held.completion().record().unwrap()).collect::<Vec<_>>();
-        let candidate=RecordId::new("compiler_contribution",contribution.hex());
-        let expected=crate::control::inspect_expected(&source.client,candidate.clone(),&budget).await.unwrap().unwrap();
-        let outcome=expected.row().as_object().unwrap()["outcome"].clone();
-        let revisions=async {
-            let mut result=Vec::new();
-            for held in &sources {
-                let root=RecordId::new("compiler_view_realization",held.completion().realization.hex());
-                let mut response=source.client.query("RETURN (SELECT VALUE revision FROM ONLY type::record('native_predicate',[$root]))").bind(("root",root)).await.unwrap().check().unwrap();
-                result.push(response.take::<Option<i64>>(0).unwrap());
-            }result
-        }.await;
-        source.client.query("UPDATE $candidate SET outcome=999 RETURN NONE").bind(("candidate",candidate.clone())).await.unwrap().check().unwrap();
-        assert!(lctx_native::installed_view::attach_live_views(source.client.clone(),receiver.attempt(),&sources,vec![expected],&budget).await.is_err());
-        let mut response=source.client.query("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner AND object IN $objects").bind(("owner",RecordId::new("native_attempt",receiver.attempt().hex()))).bind(("objects",completion_ids)).await.unwrap().check().unwrap();
-        assert!(response.take::<Vec<Value>>(0).unwrap().is_empty(),"a stale later source leaves no committed completion prefix");
-        source.client.query("UPDATE $candidate SET outcome=$outcome RETURN NONE").bind(("candidate",candidate.clone())).bind(("outcome",outcome)).await.unwrap().check().unwrap();
-        let expected=crate::control::inspect_expected(&source.client,candidate,&budget).await.unwrap().unwrap();
-        let attached=lctx_native::installed_view::attach_live_views(source.client.clone(),receiver.attempt(),&sources,vec![expected],&budget).await.unwrap();
-        for ((attached,source_view),revision) in attached.iter().zip(&sources).zip(revisions) {
-            assert_eq!(attached.completion(),source_view.completion(),"attachment shares the exact completed member namespace");
-            let root=RecordId::new("compiler_view_realization",attached.completion().realization.hex());
-            let mut response=source.client.query("RETURN (SELECT VALUE revision FROM ONLY type::record('native_predicate',[$root]))").bind(("root",root)).await.unwrap().check().unwrap();
-            assert_eq!(response.take::<Option<i64>>(0).unwrap(),revision,"reference attachment does not rewrite member pointers");
-        }
-        for (view,relation,model) in [
-            (&releases,Relation::of::<Release>(),ContentHash::of(b"provider-model")),
-            (&packages[Package::NAME],Relation::of::<Package>(),ContentHash::of(b"attachment-model")),
+    async fn multi_view_reference_attachment_refuses_stale_sources_without_a_prefix_and_keeps_namespaces()
+     {
+        use lctx_model::domain::{
+            completed::{ContributionSpec, OutputProfile},
+            input::Package,
+            stages::{Profile, ProviderOutcome},
+        };
+        use surrealdb::types::{RecordId, Value};
+        let (source, releases, budget) = installed_releases(2).await;
+        let receiver = crate::test_native::store();
+        let package = Package {
+            name: format!("attached-{}", source.attempt().hex()),
+        };
+        let relation = Relation::of::<Package>();
+        let contribution = source
+            .begin_contribution(ContributionSpec {
+                captured_binding: None,
+                producer: "attachment-planning".into(),
+                profile: OutputProfile::Specific(Profile::Catalog),
+                model: ContentHash::of(b"attachment-model"),
+                implementation: ContentHash::of(b"attachment-code"),
+                configuration: None,
+                inputs: vec![],
+                outputs: [Package::NAME.into()].into(),
+            })
+            .await
+            .unwrap();
+        source
+            .write_batch(
+                &contribution,
+                &relation,
+                &Package::encode(&[package]).unwrap(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        let packages = source
+            .complete_contribution(
+                contribution,
+                ProviderOutcome::Complete,
+                &[relation],
+                &Default::default(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        for (view, relation, model) in [
+            (
+                &releases,
+                Relation::of::<Release>(),
+                ContentHash::of(b"provider-model"),
+            ),
+            (
+                &packages[Package::NAME],
+                Relation::of::<Package>(),
+                ContentHash::of(b"attachment-model"),
+            ),
         ] {
-            source.bind(lctx_model::domain::completed::CompletedBinding{boundary:None,source:lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(&relation,model,view).unwrap(),view:view.clone(),configuration:None}).await.unwrap();
+            source
+                .bind(lctx_model::domain::completed::CompletedBinding {
+                    boundary: None,
+                    source:
+                        lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+                            &relation, model, view,
+                        )
+                        .unwrap(),
+                    view: view.clone(),
+                    configuration: None,
+                })
+                .await
+                .unwrap();
         }
-        let physical=source.complete_physical_content(&budget).await.unwrap();
-        for held in &sources {
-            let installed=physical.inventory().installed(held.completion().view.identity).unwrap();
-            assert_eq!(installed,held.completion(),"aggregate freeze retains the original sealed witness and member revision");
+        let sources = vec![
+            source.installed_view(&releases, &budget).await.unwrap(),
+            source
+                .installed_view(&packages[Package::NAME], &budget)
+                .await
+                .unwrap(),
+        ];
+        let contributor_ids = sources
+            .iter()
+            .flat_map(|held| {
+                held.completion()
+                    .mappings
+                    .iter()
+                    .map(|mapping| RecordId::new("compiler_contribution", mapping.physical.hex()))
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let candidate = RecordId::new("compiler_contribution", contribution.hex());
+        let expected = crate::control::inspect_expected(&source.client, candidate.clone(), &budget)
+            .await
+            .unwrap()
+            .unwrap();
+        let outcome = expected.row().as_object().unwrap()["outcome"].clone();
+        let original_rows = sources
+            .iter()
+            .map(|held| held.completion().clone())
+            .collect::<Vec<_>>();
+        source
+            .client
+            .query("UPDATE $candidate SET outcome=999 RETURN NONE")
+            .bind(("candidate", candidate.clone()))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        assert!(
+            lctx_native::installed_view::attach_live_views(
+                source.client.clone(),
+                receiver.attempt(),
+                &sources,
+                vec![expected],
+                &budget
+            )
+            .await
+            .is_err()
+        );
+        let mut response=source.client.query("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner AND object IN $objects").bind(("owner",RecordId::new("native_attempt",receiver.attempt().hex()))).bind(("objects",contributor_ids.clone())).await.unwrap().check().unwrap();
+        assert!(
+            response.take::<Vec<Value>>(0).unwrap().is_empty(),
+            "stale later source refuses before any contributor prefix is retained"
+        );
+        source
+            .client
+            .query("UPDATE $candidate SET outcome=$outcome RETURN NONE")
+            .bind(("candidate", candidate.clone()))
+            .bind(("outcome", outcome))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let expected = crate::control::inspect_expected(&source.client, candidate.clone(), &budget)
+            .await
+            .unwrap()
+            .unwrap();
+        let extra_id = source
+            .begin_contribution(ContributionSpec {
+                captured_binding: None,
+                producer: "unselected-attachment-input".into(),
+                profile: OutputProfile::Specific(Profile::Catalog),
+                model: ContentHash::of(b"attachment-model"),
+                implementation: ContentHash::of(b"attachment-code"),
+                configuration: None,
+                inputs: vec![],
+                outputs: [Package::NAME.into()].into(),
+            })
+            .await
+            .unwrap();
+        source
+            .complete_contribution(
+                extra_id,
+                ProviderOutcome::Complete,
+                &[Relation::of::<Package>()],
+                &Default::default(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        let extra = crate::control::inspect_expected(
+            &source.client,
+            RecordId::new("compiler_contribution", extra_id.hex()),
+            &budget,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(
+            lctx_native::installed_view::attach_live_views(
+                source.client.clone(),
+                receiver.attempt(),
+                &sources,
+                vec![expected, extra],
+                &budget
+            )
+            .await
+            .is_err(),
+            "extra supplied contributor refuses the whole receiving effect"
+        );
+        let mut response=source.client.query("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner AND object IN $objects").bind(("owner",RecordId::new("native_attempt",receiver.attempt().hex()))).bind(("objects",contributor_ids)).await.unwrap().check().unwrap();
+        assert!(
+            response.take::<Vec<Value>>(0).unwrap().is_empty(),
+            "extra supplied contributor leaves no committed prefix"
+        );
+        let expected = crate::control::inspect_expected(&source.client, candidate, &budget)
+            .await
+            .unwrap()
+            .unwrap();
+        let attached = lctx_native::installed_view::attach_live_views(
+            source.client.clone(),
+            receiver.attempt(),
+            &sources,
+            vec![expected],
+            &budget,
+        )
+        .await
+        .unwrap();
+        for ((attached, source_view), original) in attached.iter().zip(&sources).zip(original_rows)
+        {
+            assert_eq!(
+                attached.completion(),
+                source_view.completion(),
+                "attachment preserves exact selector/copy meaning"
+            );
+            assert_eq!(
+                *source_view.completion(),
+                original,
+                "reference attachment does not rewrite selector content"
+            );
+            assert!(
+                source_view.is_internal(),
+                "live attachment needs no aggregate freeze or retained boundary"
+            );
         }
-        drop(physical);drop(attached);drop(sources);receiver.abandon().await.unwrap();source.abandon().await.unwrap();
+        drop(attached);
+        drop(sources);
+        receiver.abandon().await.unwrap();
+        source.abandon().await.unwrap();
     }
     #[tokio::test]
-    async fn unearned_view_is_refused_before_false_null_or_empty_plans_can_eliminate_scanning(){
-        for eliminated in ["false","NULL","empty IN","zero columns"] {
-            let store=NativeCompilerStore::from_existing(Arc::new(surrealdb::Surreal::init()),Name::new("unearned").unwrap(),Name::new("unearned").unwrap());
-            let view=CompletedView::new(Release::NAME.into(),[ContentHash::of(b"unearned empty view")].into(),0).unwrap();
-            assert!(table_provider(store,view,Relation::of::<Release>(),ResourceBudget::fixed(1<<20).unwrap(),7).await.is_err(),
-                "{eliminated} cannot carry an unearned view into an optimizer");
+    async fn unearned_view_is_refused_before_false_null_or_empty_plans_can_eliminate_scanning() {
+        for eliminated in ["false", "NULL", "empty IN", "zero columns"] {
+            let store = NativeCompilerStore::from_existing(
+                Arc::new(surrealdb::Surreal::init()),
+                Name::new("unearned").unwrap(),
+                Name::new("unearned").unwrap(),
+            );
+            let view = CompletedView::new(
+                Release::NAME.into(),
+                [ContentHash::of(b"unearned empty view")].into(),
+                0,
+            )
+            .unwrap();
+            assert!(
+                table_provider(
+                    store,
+                    view,
+                    Relation::of::<Release>(),
+                    ResourceBudget::fixed(1 << 20).unwrap(),
+                    7
+                )
+                .await
+                .is_err(),
+                "{eliminated} cannot carry an unearned view into an optimizer"
+            );
         }
     }
     #[test]
@@ -1210,6 +1515,7 @@ mod tests {
         .unwrap();
         let stream = selected_batches(
             store,
+            None,
             view,
             relation.clone(),
             None,
@@ -1273,14 +1579,9 @@ mod tests {
     async fn fetch_delegates_after_native_filtering_without_scan_limit() {
         let relation = Relation::of::<Release>();
         let (store, view, budget) = installed_releases(7).await;
-        let provider = table_provider(
-            store.clone(),
-            view,
-            relation,
-            budget.clone(),
-            128,
-        ).await
-        .unwrap();
+        let provider = table_provider(store.clone(), view, relation, budget.clone(), 128)
+            .await
+            .unwrap();
         let session = SessionContext::new();
         // The provider never applies the TableProvider's advisory limit before exact selected
         // membership/residuals. Physical fetch is delegated only when the optimizer requests it.
@@ -1325,24 +1626,53 @@ mod tests {
     fn selection_statistics_preserve_conservative_cardinality_and_transfer_rows() {
         let relation = Relation::of::<Release>();
         let budget = ResourceBudget::fixed(4 << 20).unwrap();
-        let selected = SelectedKeys { keys: Arc::new(vec![[1; 16], [2; 16]]), field: None,
-            _charge: Arc::new(StateCharge::new(&budget, "statistics-selected-keys")) };
-        let field = SelectedKeys { field: Some("package"), ..selected.clone() };
-        let empty = SelectedKeys { keys: Arc::new(vec![]), ..selected.clone() };
-        assert_eq!(row_statistics(relation.schema(), 64, &[], false).num_rows, Precision::Exact(64));
-        assert_eq!(row_statistics(relation.schema(), 64, &[], true).num_rows, Precision::Inexact(64));
-        assert_eq!(row_statistics(relation.schema(), 64, &[selected.clone()], false).num_rows, Precision::Inexact(2));
-        assert_eq!(row_statistics(relation.schema(), 64, &[field.clone()], false).num_rows, Precision::Inexact(64),
-            "non-unique field keys cannot certify a nominal row-count bound");
-        assert_eq!(row_statistics(relation.schema(), 64, &[selected, field], true).num_rows, Precision::Inexact(2));
-        assert_eq!(row_statistics(relation.schema(), 64, &[empty], true).num_rows, Precision::Inexact(0));
+        let selected = SelectedKeys {
+            keys: Arc::new(vec![[1; 16], [2; 16]]),
+            field: None,
+            _charge: Arc::new(StateCharge::new(&budget, "statistics-selected-keys")),
+        };
+        let field = SelectedKeys {
+            field: Some("package"),
+            ..selected.clone()
+        };
+        let empty = SelectedKeys {
+            keys: Arc::new(vec![]),
+            ..selected.clone()
+        };
+        assert_eq!(
+            row_statistics(relation.schema(), 64, &[], false).num_rows,
+            Precision::Exact(64)
+        );
+        assert_eq!(
+            row_statistics(relation.schema(), 64, &[], true).num_rows,
+            Precision::Inexact(64)
+        );
+        assert_eq!(
+            row_statistics(relation.schema(), 64, &[selected.clone()], false).num_rows,
+            Precision::Inexact(2)
+        );
+        assert_eq!(
+            row_statistics(relation.schema(), 64, &[field.clone()], false).num_rows,
+            Precision::Inexact(64),
+            "non-unique field keys cannot certify a nominal row-count bound"
+        );
+        assert_eq!(
+            row_statistics(relation.schema(), 64, &[selected, field], true).num_rows,
+            Precision::Inexact(2)
+        );
+        assert_eq!(
+            row_statistics(relation.schema(), 64, &[empty], true).num_rows,
+            Precision::Inexact(0)
+        );
     }
     #[tokio::test]
     async fn native_id_ordering_survives_selection_projection_and_fetch() {
         use datafusion::physical_plan::ExecutionPlanProperties;
         let relation = Relation::of::<Release>();
         let (store, view, budget) = installed_releases(7).await;
-        let provider = table_provider(store.clone(), view, relation, budget.clone(), 128).await.unwrap();
+        let provider = table_provider(store.clone(), view, relation, budget.clone(), 128)
+            .await
+            .unwrap();
         let mut charge = StateCharge::new(&budget, "ordering-key-control");
         charge.grow(16).unwrap();
         let charge = Arc::new(charge);
@@ -1415,14 +1745,12 @@ mod tests {
         // Planning retains authority earned from the actual native fixture.
         let relation = Relation::of::<Release>();
         let (store, view, budget) = installed_releases(7).await;
-        let provider = table_provider(
-            store.clone(),
-            view,
-            relation.clone(),
-            budget.clone(),
-            128,
-        ).await
-        .unwrap();
+        let _source = store.installed_view(&view, &budget).await.unwrap();
+        let consumer = ResourceBudget::fixed(8 << 20).unwrap();
+        assert!(!budget.shares_pool(&consumer));
+        let provider = table_provider(store.clone(), view, relation.clone(), consumer.clone(), 128)
+            .await
+            .unwrap();
         let session = SessionContext::new();
         session.register_table("releases", provider).unwrap();
         // This foundation supplies core's read-only restrictions directly.
@@ -1477,6 +1805,13 @@ mod tests {
         })
         .unwrap();
         assert_eq!(scans, 1);
+        let batches = datafusion::physical_plan::collect(physical, session.task_ctx())
+            .await
+            .unwrap();
+        assert_eq!(
+            batches.iter().map(|batch| batch.num_rows()).sum::<usize>(),
+            1
+        );
         store.abandon().await.unwrap();
     }
     #[tokio::test]
@@ -1484,48 +1819,92 @@ mod tests {
         use datafusion::prelude::{col, lit};
         let relation = Relation::of::<Release>();
         let (store, view, budget) = installed_releases(7).await;
-        let provider = table_provider(store.clone(), view, relation.clone(), budget.clone(), 128).await.unwrap();
-        let reversed = lit(ScalarValue::FixedSizeBinary(16,Some(vec![1;16]))).eq(col("id"));
+        let provider = table_provider(store.clone(), view, relation.clone(), budget.clone(), 128)
+            .await
+            .unwrap();
+        let reversed = lit(ScalarValue::FixedSizeBinary(16, Some(vec![1; 16]))).eq(col("id"));
         let residual = col("version").like(lit("%x%"));
         let combined = reversed.clone().and(residual.clone());
-        assert_eq!(provider.supports_filters_pushdown(&[&reversed,&combined,&residual]).unwrap(),
-            [TableProviderFilterPushDown::Inexact,TableProviderFilterPushDown::Inexact,
-                TableProviderFilterPushDown::Unsupported]);
+        assert_eq!(
+            provider
+                .supports_filters_pushdown(&[&reversed, &combined, &residual])
+                .unwrap(),
+            [
+                TableProviderFilterPushDown::Inexact,
+                TableProviderFilterPushDown::Inexact,
+                TableProviderFilterPushDown::Unsupported
+            ]
+        );
         let session = SessionContext::new();
         let retained_source = budget.reserved();
-        let plan = provider.scan(&session.state(),Some(&vec![0,2]),&[combined.clone()],Some(1))
-            .await.unwrap();
-        assert_eq!(plan.fetch(),None,"residual evaluation owns the limit");
-        assert_eq!(plan.schema(),Arc::new(relation.schema().project(&[0,2]).unwrap()));
+        let plan = provider
+            .scan(
+                &session.state(),
+                Some(&vec![0, 2]),
+                &[combined.clone()],
+                Some(1),
+            )
+            .await
+            .unwrap();
+        assert_eq!(plan.fetch(), None, "residual evaluation owns the limit");
+        assert_eq!(
+            plan.schema(),
+            Arc::new(relation.schema().project(&[0, 2]).unwrap())
+        );
         let statistics = datafusion::physical_plan::StatisticsContext::new()
-            .compute(plan.as_ref(),&datafusion::physical_plan::StatisticsArgs::new()).unwrap();
-        assert_eq!(statistics.num_rows,Precision::Inexact(1));
-        assert!(budget.reserved() >= 16,"plan retains the nominal request owner");
+            .compute(
+                plan.as_ref(),
+                &datafusion::physical_plan::StatisticsArgs::new(),
+            )
+            .unwrap();
+        assert_eq!(statistics.num_rows, Precision::Inexact(1));
+        assert!(
+            budget.reserved() >= 16,
+            "plan retains the nominal request owner"
+        );
         drop(plan);
-        assert_eq!(budget.reserved(),retained_source);
-        session.register_table("demand",provider).unwrap();
-        let frame = session.table("demand").await.unwrap().filter(combined).unwrap()
-            .select(vec![col("id").alias("source_id")]).unwrap().limit(0,Some(1)).unwrap();
+        assert_eq!(budget.reserved(), retained_source);
+        session.register_table("demand", provider).unwrap();
+        let frame = session
+            .table("demand")
+            .await
+            .unwrap()
+            .filter(combined)
+            .unwrap()
+            .select(vec![col("id").alias("source_id")])
+            .unwrap()
+            .limit(0, Some(1))
+            .unwrap();
         let optimized = frame.into_optimized_plan().unwrap();
         let mut saw_residual = false;
         let mut saw_demand = false;
-        optimized.apply(|plan| {
-            match plan {
-                LogicalPlan::Filter(filter) => {
-                    saw_residual = true;
-                    assert!(filter.predicate.to_string().contains("version"));
+        optimized
+            .apply(|plan| {
+                match plan {
+                    LogicalPlan::Filter(filter) => {
+                        saw_residual = true;
+                        assert!(filter.predicate.to_string().contains("version"));
+                    }
+                    LogicalPlan::TableScan(scan) => {
+                        assert_eq!(scan.fetch, None);
+                        assert!(
+                            scan.projected_schema
+                                .has_column_with_unqualified_name("version")
+                        );
+                        saw_demand |= scan
+                            .filters
+                            .iter()
+                            .any(|expr| demand::recognizes(expr, relation.schema().as_ref()));
+                    }
+                    _ => {}
                 }
-                LogicalPlan::TableScan(scan) => {
-                    assert_eq!(scan.fetch,None);
-                    assert!(scan.projected_schema.has_column_with_unqualified_name("version"));
-                    saw_demand |= scan.filters.iter().any(|expr|
-                        demand::recognizes(expr,relation.schema().as_ref()));
-                }
-                _ => {}
-            }
-            Ok(TreeNodeRecursion::Continue)
-        }).unwrap();
-        assert!(saw_residual && saw_demand,"real analyzer/optimizer retains demand and residual");
+                Ok(TreeNodeRecursion::Continue)
+            })
+            .unwrap();
+        assert!(
+            saw_residual && saw_demand,
+            "real analyzer/optimizer retains demand and residual"
+        );
         store.abandon().await.unwrap();
     }
     #[tokio::test]
@@ -1533,32 +1912,42 @@ mod tests {
         use datafusion::prelude::{col, lit};
         let relation = Relation::of::<Release>();
         let (store, view, budget) = installed_releases(7).await;
-        let provider = table_provider(store.clone(),view,relation.clone(),
-            budget.clone(),128).await.unwrap();
+        let provider = table_provider(store.clone(), view, relation.clone(), budget.clone(), 128)
+            .await
+            .unwrap();
         let session = SessionContext::new();
-        session.register_table("coercion",provider).unwrap();
+        session.register_table("coercion", provider).unwrap();
         // Locked 55.1 coerces FixedSizeBinary/Binary equality to Binary. This is
         // deliberately not native nominal demand, even though the bytes are length 16.
-        let frame = session.table("coercion").await.unwrap()
-            .filter(col("id").eq(lit(ScalarValue::Binary(Some(vec![1;16]))))).unwrap();
+        let frame = session
+            .table("coercion")
+            .await
+            .unwrap()
+            .filter(col("id").eq(lit(ScalarValue::Binary(Some(vec![1; 16])))))
+            .unwrap();
         let plan = frame.into_optimized_plan().unwrap();
         let mut residuals = 0;
         plan.apply(|plan| {
             if let LogicalPlan::Filter(filter) = plan {
                 residuals += 1;
-                assert!(!demand::recognizes(&filter.predicate,relation.schema().as_ref()));
-                assert!(SupportedFilter::interpret(&filter.predicate,&relation).is_none());
+                assert!(!demand::recognizes(
+                    &filter.predicate,
+                    relation.schema().as_ref()
+                ));
+                assert!(SupportedFilter::interpret(&filter.predicate, &relation).is_none());
                 let mut casts = 0;
                 filter.predicate.apply(|expr| {
-                    if matches!(expr,Expr::Cast(_)) { casts += 1; }
+                    if matches!(expr, Expr::Cast(_)) {
+                        casts += 1;
+                    }
                     Ok(TreeNodeRecursion::Continue)
                 })?;
                 assert!(casts > 0);
             }
             Ok(TreeNodeRecursion::Continue)
-        }).unwrap();
-        assert_eq!(residuals,1);
+        })
+        .unwrap();
+        assert_eq!(residuals, 1);
         store.abandon().await.unwrap();
     }
-
 }

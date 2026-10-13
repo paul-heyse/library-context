@@ -33,9 +33,13 @@ def worker_build_info(worker: Path) -> dict[str, Any]:
         value = json.loads(response.stdout) if response.returncode == 0 else None
         after = service.file_sha256(worker)
     except OSError, ValueError, subprocess.TimeoutExpired:
-        raise service.FixtureBlocked("worker", "worker build-info unavailable; rebuild lctx-surreal-dev") from None
+        raise service.FixtureBlocked(
+            "worker", "worker build-info unavailable; rebuild lctx-surreal-dev"
+        ) from None
     if after != before or service.development_build_info(value)["status"] != "recorded":
-        raise service.FixtureBlocked("worker", "worker build-info invalid or executable changed; rebuild lctx-surreal-dev")
+        raise service.FixtureBlocked(
+            "worker", "worker build-info invalid or executable changed; rebuild lctx-surreal-dev"
+        )
     return {"worker_sha256": before, "recorded_at": runs.now(), "build_info": value}
 
 
@@ -414,9 +418,15 @@ def inspect_campaign(
         "workers": service.development_workers(installation),
         "borrowers": service.borrowers(installation),
         "native": {"status": "not_inspected", "route": "docs/surrealdb.md#maintenance-diagnostics"},
-        "server": {key: installation.record.get("binary", {}).get(key) for key in ("version", "sha256", "generation")},
+        "server": {
+            key: installation.record.get("binary", {}).get(key)
+            for key in ("version", "sha256", "generation")
+        },
         "server_source": "installation-descriptor; use just service status for current host observation",
-        "capabilities": {"source": "installation-descriptor", "declared": installation.record.get("capabilities")},
+        "capabilities": {
+            "source": "installation-descriptor",
+            "declared": installation.record.get("capabilities"),
+        },
         "disposal": read_json(installation.directory / "disposal.json"),
     }
     if indexes:
@@ -429,12 +439,12 @@ def inspect_campaign(
                 "database": "validation",
                 "server": installation.record["binary"]["version"],
                 "membership_schema": service.sql(
-                    installation, "INFO FOR TABLE compiler_view_member", cfg=cfg
+                    installation, "INFO FOR TABLE compiler_membership", cfg=cfg
                 )[0]["result"],
                 "membership_plan": service.sql(
                     installation,
-                    "SELECT node FROM compiler_view_member "
-                    "WHERE realization=compiler_realization:diagnostic "
+                    "SELECT node FROM compiler_membership WITH INDEX contribution_rows "
+                    "WHERE contribution=compiler_contribution:diagnostic "
                     "AND relation='TypedModule' ORDER BY semantic_key LIMIT 4096 EXPLAIN",
                     cfg=cfg,
                 )[0]["result"],
@@ -443,9 +453,9 @@ def inspect_campaign(
                 )[0]["result"],
                 "audit_membership_plan": service.sql(
                     installation,
-                    "SELECT * FROM compiler_membership WITH INDEX contribution_rows "
+                    "SELECT * FROM compiler_membership WITH INDEX contribution_nodes "
                     "WHERE contribution=compiler_contribution:diagnostic "
-                    "ORDER BY relation,semantic_key EXPLAIN",
+                    "AND node=entity:diagnostic EXPLAIN",
                     cfg=cfg,
                 )[0]["result"],
             }

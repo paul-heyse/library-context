@@ -166,7 +166,7 @@ DEFINE FUNCTION fn::native_incidence($row: object) {
     IF record::table($row.id) IN ['native_hold','native_outcome_ref'] { fn::native_touch($row.object); };
     IF record::table($row.id)='native_outcome_ref' { fn::native_touch($row.effect); };
     IF record::table($row.id)='compiler_membership' { fn::native_touch($row.contribution); };
-    IF record::table($row.id)='compiler_view_member' { fn::native_touch($row.realization); };
+    IF record::table($row.id) IN ['native_completed_view','native_completed_contributor'] { fn::native_touch($row.completion); };
     IF record::table($row.id)='native_retirement_item' { fn::native_touch($row.job); };
     IF record::table($row.id)='native_product' { fn::native_touch($row.contribution); fn::native_touch($row.release_job); };
     IF record::table($row.id) IN ['native_retirement','native_cleanup'] { fn::native_touch($row.lineage); fn::native_touch($row.predecessor); fn::native_touch($row.successor); fn::native_touch($row.recovery_source); };
@@ -186,7 +186,8 @@ DEFINE FUNCTION fn::native_incidence_insert($row: object) {
     fn::native_incidence($row);
     IF record::table($row.id) IN ['compiler_contribution','compiler_binding','native_cleanup','native_pending_original','native_publication_staging'] { IF $row.attempt=NONE OR (SELECT VALUE id FROM ONLY $row.attempt)=NONE { THROW 'native incidence attempt missing'; }; };
     IF record::table($row.id)='compiler_membership' { fn::native_contribution_incidence($row.contribution,$row); };
-    IF record::table($row.id)='compiler_view_member' { fn::native_realization_incidence($row.realization,$row); };
+    IF record::table($row.id) IN ['native_completed_view','native_completed_contributor'] { fn::native_completed_incidence($row.completion,$row); };
+    IF record::table($row.id)='native_hold' AND record::table($row.owner)='native_completed_state' { fn::native_completed_incidence($row.owner,$row); };
     IF record::table($row.id)='native_retirement_item' { IF (SELECT VALUE id FROM ONLY $row.job)=NONE { THROW 'native incidence parent missing'; }; };
     RETURN NONE;
 };
@@ -199,12 +200,11 @@ DEFINE FUNCTION fn::native_contribution_incidence($contribution: record<compiler
     RETURN NONE;
 };
 
-// Stable member-v2 namespace. Every member/outgoing-hold writer touches the exact
-// realization predicate used by the EOF seal CAS. Completed namespace replay is exact.
-DEFINE FUNCTION fn::native_realization_incidence($realization: record<compiler_view_realization>, $row: object) {
-    fn::native_touch($realization);
-    LET $parent=SELECT * FROM ONLY $realization FOR UPDATE;
-    IF $parent=NONE OR type::is_bool($parent.sealed)=false { THROW 'native realization incidence parent missing'; };
-    IF $parent.sealed AND (SELECT * FROM ONLY $row.id)!=$row { THROW 'native sealed realization refuses missing or changed incidence'; };
+// Compound boundary child inventory cannot change after finality.
+DEFINE FUNCTION fn::native_completed_incidence($completion: record<native_completed_state>, $row: object) {
+    fn::native_touch($completion);
+    LET $parent=SELECT * FROM ONLY $completion FOR UPDATE;
+    IF $parent=NONE OR type::is_bool($parent.completed)=false { THROW 'native completed boundary parent missing'; };
+    IF $parent.completed AND (SELECT * FROM ONLY $row.id)!=$row { THROW 'native completed boundary refuses changed inventory'; };
     RETURN NONE;
 };

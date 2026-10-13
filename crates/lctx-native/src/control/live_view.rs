@@ -4,81 +4,333 @@ use super::*;
 use lctx_model::domain::resources::ResourceBudget;
 
 pub(crate) struct LiveViewOwner {
-    pub(super) attempt:ContentHash,
-    generation:ContentHash,
-    epoch:i64,
-    validity_epoch:i64,
+    pub(super) attempt: ContentHash,
+    generation: ContentHash,
+    epoch: i64,
+    validity_epoch: i64,
+    revision: i64,
 }
 impl LiveViewOwner {
-    pub(crate) fn epoch(&self)->i64{self.epoch}
-    pub(crate) fn attempt(&self)->ContentHash{self.attempt}
-    pub(crate) fn generation(&self)->ContentHash{self.generation}
-    pub(crate) fn validity_epoch(&self)->i64{self.validity_epoch}
-}
-pub(super) const GUARD:&str="IF $__owner.state!='open' OR $__owner.admitted OR $__owner.generation!=$live_generation OR $__owner.epoch!=$live_epoch OR $__installation.generation!=$live_generation OR $__installation.validity_epoch!=$live_validity_epoch { THROW 'live installed view owner changed'; };";
-pub(super) fn bind(owner:&LiveViewOwner,bindings:&mut Variables){
-    bindings.insert("live_generation",owner.generation.hex());bindings.insert("live_epoch",owner.epoch);bindings.insert("live_validity_epoch",owner.validity_epoch);
-}
-pub(crate) async fn capture(reader:&crate::NativeReader<()>,attempt:ContentHash,budget:&ResourceBudget)->Result<LiveViewOwner,ModelError>{
-    let _charge=budget.reserve("live installed view owner inspection",131072)?;
-    let mut bindings=Variables::new();bindings.insert("attempt",RecordId::new("native_attempt",attempt.hex()));
-    let owners:Vec<Object>=reader.query_native("SELECT * FROM $attempt",bindings).await?;
-    let installations:Vec<Object>=reader.query_native("SELECT generation,validity_epoch FROM native_installation:current",Variables::new()).await?;
-    let [owner]=owners.as_slice() else{return Err(ModelError::Conflict("live view attempt cardinality"));};
-    let [installation]=installations.as_slice() else{return Err(ModelError::Conflict("live view installation cardinality"));};
-    let result=LiveViewOwner{attempt,generation:authorization::hash_field(installation,"generation")?,epoch:authorization::int_field(owner,"epoch")?,validity_epoch:authorization::int_field(installation,"validity_epoch")?};
-    if owner.get("state")!=Some(&Value::String("open".into())) || owner.get("admitted")!=Some(&Value::Bool(false))
-        || result.epoch<=0 || result.validity_epoch<=0 || authorization::hash_field(owner,"generation")?!=result.generation {
-        return Err(ModelError::Conflict("live view requires actual open current attempt"));
-    }Ok(result)
-}
-pub(crate) async fn install(client:&Surreal<Client>,owner:&LiveViewOwner,row:Option<Value>,edges:Vec<(RecordId,RecordId)>,budget:&ResourceBudget)->Result<(),ModelError>{
-    if let Some(row)=&row {
-        let Some(Value::RecordId(id))=row.as_object().and_then(|row|row.get("id")) else{return Err(ModelError::Schema("live view witness id"));};
-        if !matches!(id.table.as_str(),"compiler_view_realization"|"compiler_view_member"|"compiler_view_completion") {return Err(ModelError::Conflict("live view witness family"));}
+    pub(crate) fn revision(&self) -> i64 {
+        self.revision
     }
-    let bytes=row.as_ref().map_or(0,crate::loader::native_bytes).saturating_add(edges.len().saturating_mul(1024));
-    let _charge=budget.reserve("live view witness construction",bytes.saturating_mul(32).saturating_add(131072))?;
-    let mut sql=String::from(GUARD);let mut variables=Variables::new();bind(owner,&mut variables);
-    if let Some(row)=row {let (plan,bindings)=immutable_row_plan(None,None,vec![row])?.ok_or(ModelError::Schema("live view witness plan"))?;sql.push_str(&plan);merge_plan_bindings(&mut variables,bindings)?;}
-    if let Some((_,plan,bindings))=hold_plan(Some(owner.attempt),edges)?{sql.push_str(&plan);merge_plan_bindings(&mut variables,bindings)?;}
-    effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt),&sql,variables).await
-}
-pub(crate) async fn install_members(client:&Surreal<Client>,owner:&LiveViewOwner,root:&RecordId,
-    members:&crate::ordered_rows::PreparedRows,budget:&ResourceBudget)->Result<usize,ModelError>{
-    let mut cursor=members.cursor_with_budget(budget)?;
-    let rows=std::iter::from_fn(move||cursor.next_row().transpose());
-    let mut variables=Variables::new();bind(owner,&mut variables);
-    let mut installed=0usize;
-    for window in ImmutableWindows::for_view_members(rows,root.clone(),GUARD,variables).with_budget(Some(budget)) {
-        immutable_window::install_member_window(client,EffectOwner::OpenAttempt(owner.attempt),window?,budget).await?;
-        installed=installed.checked_add(1).ok_or(ModelError::Schema("live member window count"))?;
-    }Ok(installed)
-}
-pub(crate) async fn hold_contributor(client:&Surreal<Client>,owner:&LiveViewOwner,root:&RecordId,expected:&ExpectedRecord,budget:&ResourceBudget)->Result<(),ModelError>{
-    let _charge=budget.reserve("live view exact contributor hold",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(131072))?;
-    let (_,holds,mut variables)=hold_plan(Some(owner.attempt),vec![(root.clone(),expected.record().clone())])?.ok_or(ModelError::Schema("live contributor hold plan"))?;
-    bind(owner,&mut variables);variables.insert("contributor",expected.record().clone());variables.insert("contributor_guard",guard_id(&Value::RecordId(expected.record().clone()))?);variables.insert("contributor_incarnation",expected.incarnation());variables.insert("contributor_bytes",expected.row().clone());
-    let sql=format!("{GUARD} fn::native_touch($contributor); LET $guard=SELECT * FROM ONLY $contributor_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $contributor FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$contributor_incarnation OR $actual!=$contributor_bytes OR !$actual.completed {{ THROW 'live selected contributor changed'; }}; {holds}");
-    effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt),&sql,variables).await
-}
-pub(crate) async fn seal(client:&Surreal<Client>,owner:&LiveViewOwner,expected:&ExpectedRecord,revision:i64,budget:&ResourceBudget)->Result<(),ModelError>{
-    let _charge=budget.reserve("live view exact member seal",crate::loader::native_bytes(expected.row()).saturating_mul(32).saturating_add(131072))?;
-    let mut variables=Variables::new();bind(owner,&mut variables);variables.insert("realization",expected.record().clone());variables.insert("realization_guard",guard_id(&Value::RecordId(expected.record().clone()))?);variables.insert("realization_incarnation",expected.incarnation());variables.insert("realization_bytes",expected.row().clone());variables.insert("realization_revision",revision);
-    let sql=format!("{GUARD} fn::native_touch($realization); LET $predicate=SELECT VALUE revision FROM ONLY type::record('native_predicate',[$realization]); LET $guard=SELECT * FROM ONLY $realization_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $realization FOR UPDATE; IF $predicate!=$realization_revision+1 OR $guard.phase!='active' OR $guard.incarnation!=$realization_incarnation OR $actual!=$realization_bytes {{ THROW 'live member EOF audit raced'; }}; IF type::is_bool($actual.sealed)=false {{ THROW 'live realization seal state'; }}; IF !$actual.sealed {{ UPDATE $realization SET sealed=true RETURN NONE; }}");
-    effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt),&sql,variables).await
-}
-/// Authenticate the original sealed witness after a fresh full membership EOF audit.
-/// Current incidence revision is a CAS premise, never replacement completion data.
-pub(crate) async fn retain_installed_view(client:&Surreal<Client>,owner:&LiveViewOwner,root:&ExpectedRecord,completion:&ExpectedRecord,revision:i64,budget:&ResourceBudget)->Result<(),ModelError>{
-    if root.record().table.as_str()!="compiler_view_realization" || completion.record().table.as_str()!="compiler_view_completion" {return Err(ModelError::Conflict("live retained installed witness families"));}
-    let _charge=budget.reserve("live retained installed fixed comparison",crate::loader::native_bytes(root.row()).saturating_add(crate::loader::native_bytes(completion.row())).saturating_mul(32).saturating_add(131072))?;
-    let mut variables=Variables::new();bind(owner,&mut variables);
-    for (prefix,expected) in [("root",root),("completion",completion)] {
-        variables.insert(format!("{prefix}_record"),expected.record().clone());variables.insert(format!("{prefix}_guard"),guard_id(&Value::RecordId(expected.record().clone()))?);
-        variables.insert(format!("{prefix}_incarnation"),expected.incarnation());variables.insert(format!("{prefix}_bytes"),expected.row().clone());
+    pub(crate) fn epoch(&self) -> i64 {
+        self.epoch
     }
-    variables.insert("root_revision",revision);
-    let sql=format!("{GUARD} LET $predicate=SELECT * FROM ONLY type::record('native_predicate',[$root_record]) FOR UPDATE; LET $rg=SELECT * FROM ONLY $root_guard FOR UPDATE; LET $root=SELECT * FROM ONLY $root_record FOR UPDATE; LET $cg=SELECT * FROM ONLY $completion_guard FOR UPDATE; LET $completion=SELECT * FROM ONLY $completion_record FOR UPDATE; IF $predicate.revision!=$root_revision OR $rg.phase!='active' OR $rg.incarnation!=$root_incarnation OR $root!=$root_bytes OR $root.sealed!=true OR $cg.phase!='active' OR $cg.incarnation!=$completion_incarnation OR $completion!=$completion_bytes OR $completion.completed!=true {{ THROW 'live retained installed witness changed after EOF audit'; }}");
-    effect_for_owner(client,EffectOwner::OpenAttempt(owner.attempt),&sql,variables).await
+    pub(crate) fn attempt(&self) -> ContentHash {
+        self.attempt
+    }
+    pub(crate) fn generation(&self) -> ContentHash {
+        self.generation
+    }
+    pub(crate) fn validity_epoch(&self) -> i64 {
+        self.validity_epoch
+    }
+}
+pub(super) const GUARD: &str = "IF $__owner.state!='open' OR $__owner.admitted OR $__owner.generation!=$live_generation OR $__owner.epoch!=$live_epoch OR $__installation.generation!=$live_generation OR $__installation.validity_epoch!=$live_validity_epoch { THROW 'live installed view owner changed'; };";
+pub(super) fn bind(owner: &LiveViewOwner, bindings: &mut Variables) {
+    bindings.insert("live_generation", owner.generation.hex());
+    bindings.insert("live_epoch", owner.epoch);
+    bindings.insert("live_validity_epoch", owner.validity_epoch);
+}
+pub(crate) async fn capture(
+    reader: &crate::NativeReader<()>,
+    attempt: ContentHash,
+    budget: &ResourceBudget,
+) -> Result<LiveViewOwner, ModelError> {
+    let _charge = budget.reserve("live installed view owner inspection", 131072)?;
+    let mut bindings = Variables::new();
+    bindings.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
+    let owners: Vec<Object> = reader
+        .query_native("SELECT * FROM $attempt", bindings)
+        .await?;
+    let installations: Vec<Object> = reader
+        .query_native(
+            "SELECT generation,validity_epoch FROM native_installation:current",
+            Variables::new(),
+        )
+        .await?;
+    let [owner] = owners.as_slice() else {
+        return Err(ModelError::Conflict("live view attempt cardinality"));
+    };
+    let [installation] = installations.as_slice() else {
+        return Err(ModelError::Conflict("live view installation cardinality"));
+    };
+    let result = LiveViewOwner {
+        attempt,
+        generation: authorization::hash_field(installation, "generation")?,
+        epoch: authorization::int_field(owner, "epoch")?,
+        validity_epoch: authorization::int_field(installation, "validity_epoch")?,
+        revision: authorization::int_field(owner, "revision")?,
+    };
+    if owner.get("state") != Some(&Value::String("open".into()))
+        || owner.get("admitted") != Some(&Value::Bool(false))
+        || result.epoch <= 0
+        || result.validity_epoch <= 0
+        || authorization::hash_field(owner, "generation")? != result.generation
+    {
+        return Err(ModelError::Conflict(
+            "live view requires actual open current attempt",
+        ));
+    }
+    Ok(result)
+}
+pub(crate) fn witness_writer<'a>(
+    client: &'a Surreal<Client>,
+    owner: &LiveViewOwner,
+    budget: &'a ResourceBudget,
+) -> Result<super::completed::WitnessWriter<'a>, ModelError> {
+    let mut scope = Variables::new();
+    bind(owner, &mut scope);
+    super::completed::WitnessWriter::new(
+        client,
+        budget,
+        EffectOwner::OpenAttempt(owner.attempt),
+        GUARD,
+        scope,
+    )
+}
+pub(crate) async fn hold_contributors(
+    client: &Surreal<Client>,
+    owner: &LiveViewOwner,
+    root: &RecordId,
+    expected: &[std::sync::Arc<ExpectedRecord>],
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let mut scope = Variables::new();
+    bind(owner, &mut scope);
+    super::completed::hold_boundary_contributors(
+        client,
+        EffectOwner::OpenAttempt(owner.attempt),
+        GUARD,
+        scope,
+        root,
+        expected,
+        budget,
+    )
+    .await
+}
+/// Transfer protected immutable contributor authority by an exact receiving CAS.
+/// A source pin precheck cannot substitute for the guard/bytes comparison here.
+pub(crate) async fn transfer_expected(
+    pin: &ReaderPin,
+    expected: &ExpectedRecord,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    pin.ensure_live()?;
+    let owner = RecordId::new("native_pin", pin.identity.hex());
+    let (_, holds, mut variables) =
+        hold_plan(None, vec![(owner.clone(), expected.record().clone())])?
+            .ok_or(ModelError::Schema("selected reader exact transfer plan"))?;
+    let _charge = budget.reserve(
+        "selected reader exact transfer",
+        crate::loader::native_bytes(expected.row())
+            .saturating_mul(32)
+            .saturating_add(131072),
+    )?;
+    variables.insert("selected_record", expected.record().clone());
+    variables.insert(
+        "selected_guard",
+        guard_id(&Value::RecordId(expected.record().clone()))?,
+    );
+    variables.insert("selected_incarnation", expected.incarnation());
+    variables.insert("selected_bytes", expected.row().clone());
+    let sql = format!(
+        "LET $guard=SELECT * FROM ONLY $selected_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $selected_record FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$selected_incarnation OR $actual!=$selected_bytes {{ THROW 'selected reader exact transfer changed'; }}; {holds}"
+    );
+    effect_for_owner(&pin.client, EffectOwner::Pin(owner), &sql, variables).await?;
+    pin.ensure_live()
+}
+
+/// Independent receiving CAS pages over an already deduplicated opaque inventory.
+/// Each page compares every exact source row before installing any of its holds.
+pub(crate) async fn transfer_expected_many(
+    pin: &ReaderPin,
+    records: &[std::sync::Arc<ExpectedRecord>],
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    pin.ensure_live()?;
+    if records
+        .windows(2)
+        .any(|pair| pair[0].record() >= pair[1].record())
+        || records.iter().any(|record| record.incarnation() <= 0)
+    {
+        return Err(ModelError::Conflict(
+            "receiving exact contributor order/incarnation",
+        ));
+    }
+    if records.is_empty() {
+        return Ok(());
+    }
+    let owner = RecordId::new("native_pin", pin.identity.hex());
+    let authority = EffectOwner::Pin(owner.clone());
+    let _scope = budget.reserve("receiving CAS fixed owner context", 8192)?;
+    let issuance = authorization::owner_issuance(&pin.client, &authority).await?;
+    let mut offset = 0;
+    while offset < records.len() {
+        let mut count = (records.len() - offset).min(crate::loader::NATIVE_WINDOW_ROWS);
+        loop {
+            let page = &records[offset..offset + count];
+            let bytes = page
+                .iter()
+                .map(|expected| crate::loader::native_bytes(expected.row()).saturating_add(2048))
+                .fold(0usize, usize::saturating_add)
+                .saturating_mul(32)
+                .saturating_add(131072);
+            let _workspace = match budget.reserve("receiving exact CAS construction", bytes) {
+                Ok(charge) => charge,
+                Err(ModelError::Resource { .. }) if count > 1 => {
+                    count = (count / 2).max(1);
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            pin.ensure_live()?;
+            let mut selected = Vec::with_capacity(count);
+            let mut edges = Vec::with_capacity(count);
+            for expected in page {
+                let mut row = Object::new();
+                row.insert("record", expected.record().clone());
+                row.insert(
+                    "guard",
+                    guard_id(&Value::RecordId(expected.record().clone()))?,
+                );
+                row.insert("incarnation", expected.incarnation());
+                row.insert("bytes", expected.row().clone());
+                selected.push(Value::Object(row));
+                edges.push((owner.clone(), expected.record().clone()));
+            }
+            let (_, holds, mut variables) =
+                hold_plan(None, edges)?.ok_or(ModelError::Schema("receiving checked hold page"))?;
+            variables.insert("selected", selected);
+            let sql = format!(
+                "FOR $expected IN $selected {{ LET $record=$expected.record; LET $guard_id=$expected.guard; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; LET $actual=SELECT * FROM ONLY $record FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$expected.incarnation OR $actual!=$expected.bytes {{ THROW 'selected reader exact transfer changed'; }}; }}; {holds}"
+            );
+            let prepared = match authorization::prepare_owner_effect(
+                &pin.client,
+                &authority,
+                issuance,
+                &sql,
+                variables,
+            )
+            .await
+            {
+                Ok(prepared) => prepared,
+                Err(ModelError::Limit {
+                    owner: "native transaction",
+                    limit: "complete control and payload bytes",
+                    ..
+                }) if count > 1 => {
+                    count = (count / 2).max(1);
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            if prepared.bytes()? > _workspace.size() {
+                return Err(ModelError::Schema("receiving exact CAS construction bound"));
+            }
+            authorization::execute_prepared_owner_effect(&pin.client, prepared).await?;
+            pin.ensure_live()?;
+            offset += count;
+            break;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn finish_boundary(
+    client: &Surreal<Client>,
+    owner: &LiveViewOwner,
+    data: &crate::completed_state::FrozenCompletion,
+    expected: &ExpectedRecord,
+    revision: i64,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    if expected.row() != &data.value(false)? {
+        return Err(ModelError::Conflict("live boundary initial envelope"));
+    }
+    let _charge = budget.reserve(
+        "live boundary checked finality",
+        crate::loader::native_bytes(expected.row())
+            .saturating_mul(32)
+            .saturating_add(131072),
+    )?;
+    let mut variables = Variables::new();
+    bind(owner, &mut variables);
+    variables.insert("boundary", expected.record().clone());
+    variables.insert(
+        "boundary_guard",
+        guard_id(&Value::RecordId(expected.record().clone()))?,
+    );
+    variables.insert("boundary_incarnation", expected.incarnation());
+    variables.insert("boundary_bytes", expected.row().clone());
+    variables.insert("boundary_revision", revision);
+    let sql = format!(
+        "{GUARD} fn::native_touch($boundary); LET $revision=SELECT VALUE revision FROM ONLY type::record('native_predicate',[$boundary]); LET $guard=SELECT * FROM ONLY $boundary_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $boundary FOR UPDATE; IF $revision!=$boundary_revision+1 OR $guard.phase!='active' OR $guard.incarnation!=$boundary_incarnation OR $actual!=$boundary_bytes {{ THROW 'live compound boundary EOF audit raced'; }}; UPDATE $boundary SET completed=true RETURN NONE;"
+    );
+    effect_for_owner(
+        client,
+        EffectOwner::OpenAttempt(owner.attempt),
+        &sql,
+        variables,
+    )
+    .await
+}
+
+/// One receiving effect compares the complete exact contributor inventory before
+/// adding any receiver edge. Prevalidation never commits a receiver prefix.
+pub(crate) async fn attach_contributors(
+    client: &Surreal<Client>,
+    owner: &LiveViewOwner,
+    expected: &[ExpectedRecord],
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let bytes = expected
+        .iter()
+        .map(|record| {
+            crate::loader::native_bytes(record.row())
+                .saturating_mul(32)
+                .saturating_add(8192)
+        })
+        .fold(131072usize, usize::saturating_add);
+    let _charge = budget.reserve("atomic receiving contributor inventory", bytes)?;
+    if expected.iter().any(|record| {
+        record.record().table.as_str() != "compiler_contribution" || record.incarnation() <= 0
+    }) {
+        return Err(ModelError::Conflict(
+            "atomic receiving contributor family/incarnation",
+        ));
+    }
+    let receiver = RecordId::new("native_attempt", owner.attempt().hex());
+    let edges = expected
+        .iter()
+        .map(|record| (receiver.clone(), record.record().clone()))
+        .collect();
+    let Some((_, holds, mut variables)) = hold_plan(Some(owner.attempt()), edges)? else {
+        return Ok(());
+    };
+    bind(owner, &mut variables);
+    let mut comparisons = Vec::with_capacity(expected.len());
+    for expected in expected {
+        let mut row = Object::new();
+        row.insert("record", expected.record().clone());
+        row.insert(
+            "guard",
+            guard_id(&Value::RecordId(expected.record().clone()))?,
+        );
+        row.insert("incarnation", expected.incarnation());
+        row.insert("bytes", expected.row().clone());
+        comparisons.push(Value::Object(row));
+    }
+    variables.insert("attached", comparisons);
+    let sql = format!(
+        "{GUARD} FOR $expected IN $attached {{ LET $attached_record=$expected.record; LET $attached_guard=$expected.guard; fn::native_touch($attached_record); LET $guard=SELECT * FROM ONLY $attached_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $attached_record FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$expected.incarnation OR $actual!=$expected.bytes OR $actual.completed!=true {{ THROW 'atomic receiving contributor changed'; }}; }}; {holds}"
+    );
+    effect_for_owner(
+        client,
+        EffectOwner::OpenAttempt(owner.attempt()),
+        &sql,
+        variables,
+    )
+    .await
 }

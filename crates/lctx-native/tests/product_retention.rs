@@ -1,79 +1,209 @@
-//! Actual format-6 product owners. These controls require the installed native fixture;
+//! Actual format-7 product owners. These controls require the installed native fixture;
 //! none manufactures semantic admission or substitutes a descriptor for a held owner.
 use futures::FutureExt;
 use lctx_compiler_store::compiler::NativeCompilerStore;
-use lctx_model::domain::{ContentHash, ModelError, Record, Relation, admission::Frontier,
-    completed::{CompletedBinding, CompletedView, ContributionSpec, OutputProfile, attempt_binding}, input::Package, resources::ResourceBudget,
-    stages::{Profile, ProviderOutcome}, completion::{Completion, complete}};
+use lctx_model::domain::{
+    ContentHash, ModelError, Record, Relation,
+    admission::Frontier,
+    completed::{
+        CompletedBinding, CompletedView, ContributionSpec, OutputProfile, attempt_binding,
+    },
+    completion::{Completion, complete},
+    input::Package,
+    resources::ResourceBudget,
+    stages::{Profile, ProviderOutcome},
+};
 use lctx_native::{RuntimeConfig, control};
 use std::{collections::BTreeMap, sync::Arc};
-use surrealdb::{Surreal, engine::remote::grpc::Client, types::{Object, RecordId, Value}};
+use surrealdb::{
+    Surreal,
+    engine::remote::grpc::Client,
+    types::{Object, RecordId, Value},
+};
 
 struct Product {
-    source: Arc<NativeCompilerStore>, client: Arc<Surreal<Client>>, budget: ResourceBudget,
-    request: ContentHash, contribution: RecordId, product: RecordId,
+    source: Arc<NativeCompilerStore>,
+    client: Arc<Surreal<Client>>,
+    budget: ResourceBudget,
+    request: ContentHash,
+    contribution: RecordId,
+    product: RecordId,
     view: CompletedView,
 }
 fn config() -> RuntimeConfig {
-    RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
-        .expect("installed format-6 validation fixture"))).unwrap()
+    RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+            .expect("installed format-7 validation fixture"),
+    ))
+    .unwrap()
 }
 impl Product {
     async fn new(cfg: &RuntimeConfig) -> Self {
-        let source=NativeCompilerStore::begin(cfg,Frontier::Facts).await.unwrap();
-        let client=lctx_compiler_store::compiler::check_installation(cfg).await.unwrap();
-        let budget=ResourceBudget::fixed(256<<20).unwrap();
-        let request=control::fresh_identity("product-retention-control").unwrap();
-        let relation=Relation::of::<Package>();
-        let spec=ContributionSpec{captured_binding:None,producer:format!("product-{}",request.hex()),
-            profile:OutputProfile::Specific(Profile::Catalog),model:lctx_model::domain::model().unwrap().digest(),
-            implementation:ContentHash::of(b"product-retention-control/v1"),configuration:None,
-            inputs:vec![],outputs:[Package::NAME.into()].into()};
-        let id=source.begin_contribution(spec).await.unwrap();
-        let row=Package{name:format!("retention-{}",request.hex())};
-        source.write_batch(&id,&relation,&Package::encode(&[row]).unwrap(),&budget).await.unwrap();
-        let mut views=source.complete_contribution(id,ProviderOutcome::Complete,&[relation],&BTreeMap::new(),&budget).await.unwrap();
-        let view=views.remove(Package::NAME).expect("completed Package singleton view");
-        source.retain_product_identity(request,id).await.unwrap();
-        Self{product:RecordId::new("native_product",format!("{}_{}",request.hex(),source.attempt().hex())),
-            contribution:RecordId::new("compiler_contribution",id.hex()),source,client,budget,request,view}
+        let source = NativeCompilerStore::begin(cfg, Frontier::Facts)
+            .await
+            .unwrap();
+        let client = lctx_compiler_store::compiler::check_installation(cfg)
+            .await
+            .unwrap();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let request = control::fresh_identity("product-retention-control").unwrap();
+        let relation = Relation::of::<Package>();
+        let spec = ContributionSpec {
+            captured_binding: None,
+            producer: format!("product-{}", request.hex()),
+            profile: OutputProfile::Specific(Profile::Catalog),
+            model: lctx_model::domain::model().unwrap().digest(),
+            implementation: ContentHash::of(b"product-retention-control/v1"),
+            configuration: None,
+            inputs: vec![],
+            outputs: [Package::NAME.into()].into(),
+        };
+        let id = source.begin_contribution(spec).await.unwrap();
+        let row = Package {
+            name: format!("retention-{}", request.hex()),
+        };
+        source
+            .write_batch(&id, &relation, &Package::encode(&[row]).unwrap(), &budget)
+            .await
+            .unwrap();
+        let mut views = source
+            .complete_contribution(
+                id,
+                ProviderOutcome::Complete,
+                &[relation],
+                &BTreeMap::new(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        let view = views
+            .remove(Package::NAME)
+            .expect("completed Package singleton view");
+        source
+            .retain_product_identity(request, id, &budget)
+            .await
+            .unwrap();
+        Self {
+            product: RecordId::new(
+                "native_product",
+                format!("{}_{}", request.hex(), source.attempt().hex()),
+            ),
+            contribution: RecordId::new("compiler_contribution", id.hex()),
+            source,
+            client,
+            budget,
+            request,
+            view,
+        }
     }
     async fn row(&self, id: &RecordId) -> Option<Object> {
-        let mut response=self.client.query("SELECT * FROM $record").bind(("record",id.clone())).await.unwrap().check().unwrap();
-        let rows:Vec<Object>=response.take(0).unwrap();assert!(rows.len()<=1);rows.into_iter().next()
+        let mut response = self
+            .client
+            .query("SELECT * FROM $record")
+            .bind(("record", id.clone()))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let rows: Vec<Object> = response.take(0).unwrap();
+        assert!(rows.len() <= 1);
+        rows.into_iter().next()
     }
     async fn holds(&self) -> Vec<Object> {
-        let mut response=self.client.query("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$product ORDER BY id")
-            .bind(("product",self.product.clone())).await.unwrap().check().unwrap();response.take(0).unwrap()
+        let mut response = self
+            .client
+            .query(
+                "SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$product ORDER BY id",
+            )
+            .bind(("product", self.product.clone()))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        response.take(0).unwrap()
     }
     async fn release(&self) -> ContentHash {
-        control::release_retained_product(self.client.clone(),self.request,self.source.attempt(),&self.budget).await.unwrap().unwrap()
+        control::release_retained_product(
+            self.client.clone(),
+            self.request,
+            self.source.attempt(),
+            &self.budget,
+        )
+        .await
+        .unwrap()
+        .unwrap()
     }
     async fn bind(&self) -> (CompletedBinding, RecordId) {
-        let view=self.view.clone();
-        let binding=CompletedBinding{boundary:None,configuration:None,
-            source:lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
-                &Relation::of::<Package>(),lctx_model::domain::model().unwrap().digest(),&view).unwrap(),view};
+        let view = self.view.clone();
+        let binding = CompletedBinding {
+            boundary: None,
+            configuration: None,
+            source: lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
+                &Relation::of::<Package>(),
+                lctx_model::domain::model().unwrap().digest(),
+                &view,
+            )
+            .unwrap(),
+            view,
+        };
         self.source.bind(binding.clone()).await.unwrap();
-        let slot=RecordId::new("compiler_binding",attempt_binding(self.source.attempt(),binding.key()).hex());
-        (binding,slot)
+        let slot = RecordId::new(
+            "compiler_binding",
+            attempt_binding(self.source.attempt(), binding.key()).hex(),
+        );
+        (binding, slot)
     }
-    async fn finish(self, result: Result<(),Box<dyn std::any::Any+Send>>) {
-        let mut terminal=Completion::default();
-        terminal.step("product control source close",self.source.abandon().await);
-        terminal.step("product control explicit warm release",control::release_retained_product(self.client.clone(),self.request,self.source.attempt(),&self.budget).await.map(|_|()));
-        terminal.step("product control observer close",self.client.invalidate().await.map_err(ModelError::codec));
-        let cleanup=complete(Ok(()),terminal);
-        if let Err(primary)=result {if let Err(error)=cleanup{eprintln!("product control cleanup: {error:#?}");}std::panic::resume_unwind(primary);}
+    async fn finish(self, result: Result<(), Box<dyn std::any::Any + Send>>) {
+        let mut terminal = Completion::default();
+        terminal.step("product control source close", self.source.abandon().await);
+        terminal.step(
+            "product control explicit warm release",
+            control::release_retained_product(
+                self.client.clone(),
+                self.request,
+                self.source.attempt(),
+                &self.budget,
+            )
+            .await
+            .map(|_| ()),
+        );
+        terminal.step(
+            "product control observer close",
+            self.client.invalidate().await.map_err(ModelError::codec),
+        );
+        let cleanup = complete(Ok(()), terminal);
+        if let Err(primary) = result {
+            if let Err(error) = cleanup {
+                eprintln!("product control cleanup: {error:#?}");
+            }
+            std::panic::resume_unwind(primary);
+        }
         cleanup.unwrap();
     }
 }
 
-#[tokio::test(flavor="multi_thread")]
+#[tokio::test(flavor = "multi_thread")]
+async fn repeated_retention_after_unrelated_incidence_reuses_exact_original_boundary() {
+    let product = Product::new(&config()).await;
+    let result=std::panic::AssertUnwindSafe(async {
+        let before=product.holds().await;
+        product.bind().await;
+        let surrealdb::types::RecordIdKey::String(key)=&product.contribution.key else {panic!("contribution key")};
+        let physical=ContentHash(hex::decode(key).unwrap().try_into().unwrap());
+        let (left,right)=tokio::join!(product.source.retain_product_identity(product.request,physical,&product.budget),product.source.retain_product_identity(product.request,physical,&product.budget));
+        left.unwrap();right.unwrap();
+        assert_eq!(product.holds().await,before,"same request preserves the exact single original boundary under unrelated incidence changes and equal concurrent callers");
+    }).catch_unwind().await;
+    product.finish(result).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn terminal_binding_slot_collection_preserves_canonical_completion_and_live_peer() {
-    let product=Product::new(&config()).await;
-    let peer=Product::new(&config()).await;
-    let pin=control::ReaderPin::acquire(product.client.clone(),&[]).await.unwrap();
+    let product = Product::new(&config()).await;
+    let peer = Product::new(&config()).await;
+    let pin = control::ReaderPin::acquire(product.client.clone(), &[])
+        .await
+        .unwrap();
     let result=std::panic::AssertUnwindSafe(async {
         let (binding,slot)=product.bind().await;
         let (_,peer_slot)=peer.bind().await;
@@ -109,13 +239,15 @@ async fn terminal_binding_slot_collection_preserves_canonical_completion_and_liv
         let portable=lctx_native::binding_descriptor::portable_row(&current).unwrap();
         lctx_native::completed_rows::validate_state_row("compiler_binding",&portable).unwrap();
     }).catch_unwind().await;
-    let released=pin.release().await;
-    peer.finish(Ok(())).await;product.finish(result).await;released.unwrap();
+    let released = pin.release().await;
+    peer.finish(Ok(())).await;
+    product.finish(result).await;
+    released.unwrap();
 }
 
-#[tokio::test(flavor="multi_thread")]
+#[tokio::test(flavor = "multi_thread")]
 async fn unadmitted_close_preserves_warm_roots_until_explicit_incarnation_nomination() {
-    let product=Product::new(&config()).await;
+    let product = Product::new(&config()).await;
     let result=std::panic::AssertUnwindSafe(async {
         let original=product.row(&product.product).await.unwrap();let holds=product.holds().await;
         assert!(!holds.is_empty());
@@ -136,41 +268,137 @@ async fn unadmitted_close_preserves_warm_roots_until_explicit_incarnation_nomina
             .bind(("job",job)).await.unwrap().check().unwrap();let items:Vec<Object>=response.take(0).unwrap();
         assert_eq!(items.len(),1);assert_eq!(items[0].get("object"),Some(&Value::RecordId(product.product.clone())));
         assert_eq!(items[0].get("incarnation"),guard.get("incarnation"));assert_eq!(items[0].get("state"),Some(&Value::String("pending".into())));
-    }).catch_unwind().await;product.finish(result).await;
+    }).catch_unwind().await;
+    product.finish(result).await;
 }
 
-#[tokio::test(flavor="multi_thread")]
+#[tokio::test(flavor = "multi_thread")]
 async fn release_refuses_active_or_inconsistent_source_without_changing_warm_ownership() {
-    let product=Product::new(&config()).await;
-    let other=Product::new(&config()).await;
-    let result=std::panic::AssertUnwindSafe(async {
-        let original=product.row(&product.product).await.unwrap();let holds=product.holds().await;
-        assert!(control::release_retained_product(product.client.clone(),product.request,product.source.attempt(),&product.budget).await.is_err());
-        assert_eq!(product.row(&product.product).await,Some(original.clone()));assert_eq!(product.holds().await,holds);
+    let product = Product::new(&config()).await;
+    let other = Product::new(&config()).await;
+    let result = std::panic::AssertUnwindSafe(async {
+        let original = product.row(&product.product).await.unwrap();
+        let holds = product.holds().await;
+        assert!(
+            control::release_retained_product(
+                product.client.clone(),
+                product.request,
+                product.source.attempt(),
+                &product.budget
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(product.row(&product.product).await, Some(original.clone()));
+        assert_eq!(product.holds().await, holds);
         product.source.abandon().await.unwrap();
         // An exact product address cannot nominate another producer's contribution.
-        product.client.query("UPDATE $product SET contribution=$other RETURN NONE").bind(("product",product.product.clone())).bind(("other",other.contribution.clone())).await.unwrap().check().unwrap();
-        let wrong=control::release_retained_product(product.client.clone(),product.request,product.source.attempt(),&product.budget).await;
-        product.client.query("UPDATE $product SET contribution=$original RETURN NONE").bind(("product",product.product.clone())).bind(("original",product.contribution.clone())).await.unwrap().check().unwrap();
-        assert!(wrong.is_err());assert_eq!(product.row(&product.product).await,Some(original.clone()));assert_eq!(product.holds().await,holds);
-        product.client.query("UPDATE $product SET request=$different RETURN NONE").bind(("product",product.product.clone())).bind(("different",other.request.hex())).await.unwrap().check().unwrap();
-        let stale=control::release_retained_product(product.client.clone(),product.request,product.source.attempt(),&product.budget).await;
-        product.client.query("UPDATE $product SET request=$original RETURN NONE").bind(("product",product.product.clone())).bind(("original",product.request.hex())).await.unwrap().check().unwrap();
-        assert!(stale.is_err());assert_eq!(product.row(&product.product).await,Some(original));assert_eq!(product.holds().await,holds);
-        let guard_id=RecordId::new("native_guard",ContentHash::of(&serde_json::to_vec(&Value::RecordId(product.product.clone())).unwrap()).hex());
-        let guard=product.row(&guard_id).await.unwrap();
-        product.client.query("UPDATE $guard SET phase='retiring' RETURN NONE").bind(("guard",guard_id.clone())).await.unwrap().check().unwrap();
-        let retiring=control::release_retained_product(product.client.clone(),product.request,product.source.attempt(),&product.budget).await;
-        product.client.query("UPDATE $guard CONTENT $original RETURN NONE").bind(("guard",guard_id)).bind(("original",guard)).await.unwrap().check().unwrap();
-        assert!(retiring.is_err(),"a nonactive exact product cannot earn a new release nomination");assert_eq!(product.holds().await,holds);
-    }).catch_unwind().await;
-    other.finish(Ok(())).await;product.finish(result).await;
+        product
+            .client
+            .query("UPDATE $product SET contribution=$other RETURN NONE")
+            .bind(("product", product.product.clone()))
+            .bind(("other", other.contribution.clone()))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let wrong = control::release_retained_product(
+            product.client.clone(),
+            product.request,
+            product.source.attempt(),
+            &product.budget,
+        )
+        .await;
+        product
+            .client
+            .query("UPDATE $product SET contribution=$original RETURN NONE")
+            .bind(("product", product.product.clone()))
+            .bind(("original", product.contribution.clone()))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        assert!(wrong.is_err());
+        assert_eq!(product.row(&product.product).await, Some(original.clone()));
+        assert_eq!(product.holds().await, holds);
+        product
+            .client
+            .query("UPDATE $product SET request=$different RETURN NONE")
+            .bind(("product", product.product.clone()))
+            .bind(("different", other.request.hex()))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let stale = control::release_retained_product(
+            product.client.clone(),
+            product.request,
+            product.source.attempt(),
+            &product.budget,
+        )
+        .await;
+        product
+            .client
+            .query("UPDATE $product SET request=$original RETURN NONE")
+            .bind(("product", product.product.clone()))
+            .bind(("original", product.request.hex()))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        assert!(stale.is_err());
+        assert_eq!(product.row(&product.product).await, Some(original));
+        assert_eq!(product.holds().await, holds);
+        let guard_id = RecordId::new(
+            "native_guard",
+            ContentHash::of(
+                &serde_json::to_vec(&Value::RecordId(product.product.clone())).unwrap(),
+            )
+            .hex(),
+        );
+        let guard = product.row(&guard_id).await.unwrap();
+        product
+            .client
+            .query("UPDATE $guard SET phase='retiring' RETURN NONE")
+            .bind(("guard", guard_id.clone()))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        let retiring = control::release_retained_product(
+            product.client.clone(),
+            product.request,
+            product.source.attempt(),
+            &product.budget,
+        )
+        .await;
+        product
+            .client
+            .query("UPDATE $guard CONTENT $original RETURN NONE")
+            .bind(("guard", guard_id))
+            .bind(("original", guard))
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
+        assert!(
+            retiring.is_err(),
+            "a nonactive exact product cannot earn a new release nomination"
+        );
+        assert_eq!(product.holds().await, holds);
+    })
+    .catch_unwind()
+    .await;
+    other.finish(Ok(())).await;
+    product.finish(result).await;
 }
 
-#[tokio::test(flavor="multi_thread")]
+#[tokio::test(flavor = "multi_thread")]
 async fn released_product_collection_preserves_an_independent_reader_and_shared_root() {
-    let product=Product::new(&config()).await;
-    let pin=control::ReaderPin::acquire(product.client.clone(),&[]).await.unwrap();
+    let product = Product::new(&config()).await;
+    let pin = control::ReaderPin::acquire(product.client.clone(), &[])
+        .await
+        .unwrap();
     let result=std::panic::AssertUnwindSafe(async {
         pin.protect(product.contribution.clone()).await.unwrap();
         let contributor=product.row(&product.contribution).await.unwrap();
@@ -189,13 +417,14 @@ async fn released_product_collection_preserves_an_independent_reader_and_shared_
             .bind(("contribution",product.contribution.clone())).await.unwrap().check().unwrap();let after:Vec<Object>=response.take(0).unwrap();assert_eq!(after,before);
         for row in &after {let Some(Value::RecordId(node))=row.get("node") else{panic!("native backing identity")};assert!(product.row(node).await.is_some(),"shared canonical backing remains readable");}
     }).catch_unwind().await;
-    pin.release().await.unwrap();product.finish(result).await;
+    pin.release().await.unwrap();
+    product.finish(result).await;
 }
 
-#[tokio::test(flavor="multi_thread")]
+#[tokio::test(flavor = "multi_thread")]
 async fn frozen_warm_only_release_requires_real_physical_completion_and_preserves_shared_owners() {
-    let product=Product::new(&config()).await;
-    let unearned=Product::new(&config()).await;
+    let product = Product::new(&config()).await;
+    let unearned = Product::new(&config()).await;
     let result=std::panic::AssertUnwindSafe(async {
         // A terminal spelling without earned completion cannot supply release authority.
         let source=RecordId::new("native_attempt",unearned.source.attempt().hex());
@@ -209,16 +438,16 @@ async fn frozen_warm_only_release_requires_real_physical_completion_and_preserve
         let product_holds=product.holds().await;let mut original_singletons=Vec::new();
         for edge in &product_holds {
             if let Some(Value::RecordId(record))=edge.get("object") {
-                if record.table.as_str()=="compiler_view_completion" {
+                if record.table.as_str()=="native_completed_state" {
                     original_singletons.push((record.clone(),product.row(record).await.unwrap()));
                 }
             }
         }
-        assert!(!original_singletons.is_empty(),"production retains its original sealed singleton witness");
+        assert_eq!(original_singletons.len(),1,"production retains one original compound boundary");
         product.source.freeze_content(&product.budget).await.unwrap();
         let physical=product.source.complete_physical_content(&product.budget).await.unwrap();
         for (record,original) in &original_singletons {
-            assert_eq!(product.row(record).await.as_ref(),Some(original),"freeze reuses the original immutable seal despite later retention incidence");
+            assert_eq!(product.row(record).await.as_ref(),Some(original),"freeze preserves the original retained boundary despite later retention incidence");
         }
         let completed=physical.completion().record().unwrap();
         let completion_before=product.row(&completed).await.unwrap();
@@ -241,23 +470,50 @@ async fn frozen_warm_only_release_requires_real_physical_completion_and_preserve
             .bind(("completed",completed)).await.unwrap().check().unwrap();let after:Vec<Object>=response.take(0).unwrap();
         assert_eq!(after,completed_holds,"independently held physical completion keeps every selected singleton and binding incidence");
     }).catch_unwind().await;
-    unearned.finish(Ok(())).await;product.finish(result).await;
+    unearned.finish(Ok(())).await;
+    product.finish(result).await;
 }
 
-#[tokio::test(flavor="multi_thread")]
-#[ignore="requires explicit drained validation maintenance and independently qualified history inventory"]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires explicit drained validation maintenance and independently qualified history inventory"]
 async fn history_preserves_a_released_products_durable_nomination() {
     assert!(std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some());
-    let cfg=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("maintenance installer"))).unwrap();
-    assert_eq!(cfg.authentication,lctx_native::AuthenticationScope::Root);assert_eq!(cfg.database.as_str(),"validation");
-    let client=lctx_compiler_store::compiler::check_installation(&cfg).await.unwrap();
-    let mut response=client.query("SELECT admission_open,history_inventory FROM native_installation:current").await.unwrap().check().unwrap();
-    let rows:Vec<Object>=response.take(0).unwrap();let [installation]=rows.as_slice() else{panic!("maintenance installation")};
-    let Some(Value::Bool(was_open))=installation.get("admission_open") else{panic!("maintenance admission")};let was_open=*was_open;
-    let evidence=std::env::var("LCTX_HISTORY_INVENTORY_EVIDENCE").expect("independently qualified consumer inventory");
-    assert_eq!(installation.get("history_inventory"),Some(&Value::String(evidence)),"this control never manufactures history deletion authority");
-    if !was_open {lctx_compiler_store::compiler::open_admission(&cfg).await.unwrap();}
-    let product=Product::new(&cfg).await;
+    let cfg = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("maintenance installer"),
+    ))
+    .unwrap();
+    assert_eq!(cfg.authentication, lctx_native::AuthenticationScope::Root);
+    assert_eq!(cfg.database.as_str(), "validation");
+    let client = lctx_compiler_store::compiler::check_installation(&cfg)
+        .await
+        .unwrap();
+    let mut response = client
+        .query("SELECT admission_open,history_inventory FROM native_installation:current")
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let rows: Vec<Object> = response.take(0).unwrap();
+    let [installation] = rows.as_slice() else {
+        panic!("maintenance installation")
+    };
+    let Some(Value::Bool(was_open)) = installation.get("admission_open") else {
+        panic!("maintenance admission")
+    };
+    let was_open = *was_open;
+    let evidence = std::env::var("LCTX_HISTORY_INVENTORY_EVIDENCE")
+        .expect("independently qualified consumer inventory");
+    assert_eq!(
+        installation.get("history_inventory"),
+        Some(&Value::String(evidence)),
+        "this control never manufactures history deletion authority"
+    );
+    if !was_open {
+        lctx_compiler_store::compiler::open_admission(&cfg)
+            .await
+            .unwrap();
+    }
+    let product = Product::new(&cfg).await;
     let result=std::panic::AssertUnwindSafe(async {
         product.source.abandon().await.unwrap();let release=product.release().await;
         let job=RecordId::new("native_retirement",release.hex());
@@ -278,42 +534,102 @@ async fn history_preserves_a_released_products_durable_nomination() {
         assert!(product.row(&job).await.is_some());assert!(product.row(&product.product).await.is_some());
         assert_eq!(product.release().await,release,"release remains discoverable after the history page");
     }).catch_unwind().await;
-    let restore=if was_open {lctx_compiler_store::compiler::open_admission(&cfg).await}else{lctx_compiler_store::compiler::close_admission(&cfg).await};
-    if let Err(error)=&restore{eprintln!("product history admission restoration: {error:#?}");}
-    client.invalidate().await.unwrap();product.finish(result).await;restore.unwrap();
+    let restore = if was_open {
+        lctx_compiler_store::compiler::open_admission(&cfg).await
+    } else {
+        lctx_compiler_store::compiler::close_admission(&cfg).await
+    };
+    if let Err(error) = &restore {
+        eprintln!("product history admission restoration: {error:#?}");
+    }
+    client.invalidate().await.unwrap();
+    product.finish(result).await;
+    restore.unwrap();
 }
 
 // A one-record production page keeps this maintenance control inside its exact
 // owned scope. The qualified inventory and drained horizon remain prerequisites.
-async fn exact_history_page(client:&Surreal<Client>,closed:i64,phase:&str,target:&RecordId)->control::HistoryCompaction {
-    let surrealdb::types::RecordIdKey::String(key)=&target.key else{panic!("history target key")};
-    let mut before: [u8;32]=hex::decode(key).unwrap().try_into().unwrap();
-    for byte in before.iter_mut().rev(){if *byte>0{*byte-=1;break;}*byte=255;}
-    let checkpoint=control::fresh_identity("binding-history-control").unwrap();
-    let mut bindings=surrealdb::types::Variables::new();
-    bindings.insert("checkpoint",RecordId::new("native_history_checkpoint",checkpoint.hex()));
-    bindings.insert("closed",closed);bindings.insert("phase",phase.to_owned());
-    bindings.insert("after",RecordId::new(target.table.as_str(),ContentHash(before).hex()));
+async fn exact_history_page(
+    client: &Surreal<Client>,
+    closed: i64,
+    phase: &str,
+    target: &RecordId,
+) -> control::HistoryCompaction {
+    let surrealdb::types::RecordIdKey::String(key) = &target.key else {
+        panic!("history target key")
+    };
+    let mut before: [u8; 32] = hex::decode(key).unwrap().try_into().unwrap();
+    for byte in before.iter_mut().rev() {
+        if *byte > 0 {
+            *byte -= 1;
+            break;
+        }
+        *byte = 255;
+    }
+    let checkpoint = control::fresh_identity("binding-history-control").unwrap();
+    let mut bindings = surrealdb::types::Variables::new();
+    bindings.insert(
+        "checkpoint",
+        RecordId::new("native_history_checkpoint", checkpoint.hex()),
+    );
+    bindings.insert("closed", closed);
+    bindings.insert("phase", phase.to_owned());
+    bindings.insert(
+        "after",
+        RecordId::new(target.table.as_str(), ContentHash(before).hex()),
+    );
     control::effect(client,None,"IF $__installation.admission_open OR $__installation.history_inventory=NONE OR $__installation.closed_through<$closed { THROW 'binding history requires qualified drained horizon'; }; CREATE $checkpoint SET generation=$__generation,era=$__era,epoch=$__epoch,closed_through=$closed,phase=$phase,after=$after,state='open',removed_effects=0,removed_records=0,revision=0 RETURN NONE",bindings).await.unwrap();
-    let receipt=control::resume_history_compaction(client,checkpoint,0,1).await.unwrap();
-    assert_eq!(receipt.examined,[target.clone()],"the page cannot consume another test's history");receipt
+    let receipt = control::resume_history_compaction(client, checkpoint, 0, 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        receipt.examined,
+        [target.clone()],
+        "the page cannot consume another test's history"
+    );
+    receipt
 }
 
-#[tokio::test(flavor="multi_thread")]
-#[ignore="requires explicit drained validation maintenance and independently qualified history inventory"]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires explicit drained validation maintenance and independently qualified history inventory"]
 async fn released_binding_slots_allow_exact_terminal_attempt_history_compaction() {
     assert!(std::env::var_os("LCTX_SURREAL_MAINTENANCE_TOKEN").is_some());
-    let cfg=RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("maintenance installer"))).unwrap();
-    assert_eq!(cfg.authentication,lctx_native::AuthenticationScope::Root);assert_eq!(cfg.database.as_str(),"validation");
-    let client=lctx_compiler_store::compiler::check_installation(&cfg).await.unwrap();
-    let mut response=client.query("SELECT admission_open,history_inventory FROM native_installation:current").await.unwrap().check().unwrap();
-    let rows:Vec<Object>=response.take(0).unwrap();let [installation]=rows.as_slice() else{panic!("maintenance installation")};
-    let Some(Value::Bool(was_open))=installation.get("admission_open") else{panic!("maintenance admission")};let was_open=*was_open;
-    let evidence=std::env::var("LCTX_HISTORY_INVENTORY_EVIDENCE").expect("independently qualified consumer inventory");
-    assert_eq!(installation.get("history_inventory"),Some(&Value::String(evidence)));
-    if !was_open {lctx_compiler_store::compiler::open_admission(&cfg).await.unwrap();}
-    let product=Product::new(&cfg).await;
-    let peer=Product::new(&cfg).await;
+    let cfg = RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("maintenance installer"),
+    ))
+    .unwrap();
+    assert_eq!(cfg.authentication, lctx_native::AuthenticationScope::Root);
+    assert_eq!(cfg.database.as_str(), "validation");
+    let client = lctx_compiler_store::compiler::check_installation(&cfg)
+        .await
+        .unwrap();
+    let mut response = client
+        .query("SELECT admission_open,history_inventory FROM native_installation:current")
+        .await
+        .unwrap()
+        .check()
+        .unwrap();
+    let rows: Vec<Object> = response.take(0).unwrap();
+    let [installation] = rows.as_slice() else {
+        panic!("maintenance installation")
+    };
+    let Some(Value::Bool(was_open)) = installation.get("admission_open") else {
+        panic!("maintenance admission")
+    };
+    let was_open = *was_open;
+    let evidence = std::env::var("LCTX_HISTORY_INVENTORY_EVIDENCE")
+        .expect("independently qualified consumer inventory");
+    assert_eq!(
+        installation.get("history_inventory"),
+        Some(&Value::String(evidence))
+    );
+    if !was_open {
+        lctx_compiler_store::compiler::open_admission(&cfg)
+            .await
+            .unwrap();
+    }
+    let product = Product::new(&cfg).await;
+    let peer = Product::new(&cfg).await;
     let result=std::panic::AssertUnwindSafe(async {
         let (_,slot)=product.bind().await;let (_,peer_slot)=peer.bind().await;
         let peer_before=peer.row(&peer_slot).await.unwrap();
@@ -349,22 +665,61 @@ async fn released_binding_slots_allow_exact_terminal_attempt_history_compaction(
         assert!(peer.row(&RecordId::new("native_attempt",peer.source.attempt().hex())).await.is_some());
         assert!(peer.row(&peer.product).await.is_some(),"the peer's warm product remains owned");
     }).catch_unwind().await;
-    let restore=if was_open {lctx_compiler_store::compiler::open_admission(&cfg).await}else{lctx_compiler_store::compiler::close_admission(&cfg).await};
-    let mut terminal=Completion::default();
-    for owner in [&product,&peer] {
-        if let Some(source)=owner.row(&RecordId::new("native_attempt",owner.source.attempt().hex())).await {
+    let restore = if was_open {
+        lctx_compiler_store::compiler::open_admission(&cfg).await
+    } else {
+        lctx_compiler_store::compiler::close_admission(&cfg).await
+    };
+    let mut terminal = Completion::default();
+    for owner in [&product, &peer] {
+        if let Some(source) = owner
+            .row(&RecordId::new(
+                "native_attempt",
+                owner.source.attempt().hex(),
+            ))
+            .await
+        {
             // Ended old-era producers must not issue a fresh terminal-attempt
             // operation after the cut. Their explicit warm release remains owned.
-            if !matches!(source.get("state"),Some(Value::String(state))if matches!(state.as_str(),"closed"|"abandoned"|"maintenance_fenced")) {
-                terminal.step("binding history active source close",owner.source.abandon().await);
+            if !matches!(source.get("state"),Some(Value::String(state))if matches!(state.as_str(),"closed"|"abandoned"|"maintenance_fenced"))
+            {
+                terminal.step(
+                    "binding history active source close",
+                    owner.source.abandon().await,
+                );
             }
-            terminal.step("binding history warm release",control::release_retained_product(owner.client.clone(),owner.request,owner.source.attempt(),&owner.budget).await.map(|_|()));
+            terminal.step(
+                "binding history warm release",
+                control::release_retained_product(
+                    owner.client.clone(),
+                    owner.request,
+                    owner.source.attempt(),
+                    &owner.budget,
+                )
+                .await
+                .map(|_| ()),
+            );
         }
     }
-    terminal.step("binding history source observer close",product.client.invalidate().await.map_err(ModelError::codec));
-    terminal.step("binding history peer observer close",peer.client.invalidate().await.map_err(ModelError::codec));
-    terminal.step("binding history maintenance observer close",client.invalidate().await.map_err(ModelError::codec));
-    terminal.step("binding history admission restoration",restore);
-    let cleanup=complete(Ok(()),terminal);
-    if let Err(primary)=result{if let Err(error)=cleanup{eprintln!("binding history cleanup: {error:#?}");}std::panic::resume_unwind(primary);}cleanup.unwrap();
+    terminal.step(
+        "binding history source observer close",
+        product.client.invalidate().await.map_err(ModelError::codec),
+    );
+    terminal.step(
+        "binding history peer observer close",
+        peer.client.invalidate().await.map_err(ModelError::codec),
+    );
+    terminal.step(
+        "binding history maintenance observer close",
+        client.invalidate().await.map_err(ModelError::codec),
+    );
+    terminal.step("binding history admission restoration", restore);
+    let cleanup = complete(Ok(()), terminal);
+    if let Err(primary) = result {
+        if let Err(error) = cleanup {
+            eprintln!("binding history cleanup: {error:#?}");
+        }
+        std::panic::resume_unwind(primary);
+    }
+    cleanup.unwrap();
 }

@@ -1061,7 +1061,9 @@ def development_build_info(value: Any) -> dict[str, Any]:
         for name in ("surrealkit", "surrealdb", "surrealdb-rpc"):
             dependency = value["dependencies"][name]
             version = dependency["version"]
-            if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.]+)?", version):
+            if not isinstance(version, str) or not re.fullmatch(
+                r"[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.]+)?", version
+            ):
                 raise ValueError
             profile = dependency["patch_profile"]
             expected_root = f"third_party/{name}"
@@ -1070,13 +1072,25 @@ def development_build_info(value: Any) -> dict[str, Any]:
                 or profile["status"] != "declared_build_input"
                 or profile["manifest"] != expected_root + "/Cargo.toml"
                 or profile["documentation"] != expected_root + "/README.lctx.md"
-                or any(not re.fullmatch(r"[0-9a-f]{64}", profile[key]) for key in ("manifest_blake3", "documentation_blake3"))
+                or any(
+                    not re.fullmatch(r"[0-9a-f]{64}", profile[key])
+                    for key in ("manifest_blake3", "documentation_blake3")
+                )
             ):
                 raise ValueError
             dependencies[name] = {
                 "version": version,
                 "source": dependency["source"],
-                "patch_profile": {key: profile[key] for key in ("status", "manifest", "manifest_blake3", "documentation", "documentation_blake3")},
+                "patch_profile": {
+                    key: profile[key]
+                    for key in (
+                        "status",
+                        "manifest",
+                        "manifest_blake3",
+                        "documentation",
+                        "documentation_blake3",
+                    )
+                },
             }
         schema = value["schema"]
         if (
@@ -1089,7 +1103,10 @@ def development_build_info(value: Any) -> dict[str, Any]:
         return {
             "status": "recorded",
             "dependencies": dependencies,
-            "schema": {key: schema[key] for key in ("source", "profile_identity", "authority_correspondence", "modules")},
+            "schema": {
+                key: schema[key]
+                for key in ("source", "profile_identity", "authority_correspondence", "modules")
+            },
             "server": {"status": "not_inspected"},
         }
     except KeyError, TypeError, ValueError:
@@ -1115,46 +1132,78 @@ def development_workers(installation: Installation) -> list[dict[str, Any]]:
         run = runs.load_record(run_path)
         cleanup = runs.cleanup_of(run)
         pending = run is None or runs.owner_alive(run_path, run) or runs.cleanup_protected(run)
+
         def axis(value: Any, statuses: set[str]) -> dict[str, str]:
             status = value.get("status") if isinstance(value, dict) else None
-            return {"status": status if isinstance(status, str) and status in statuses else "unknown"}
+            return {
+                "status": status if isinstance(status, str) and status in statuses else "unknown"
+            }
 
         provenance = row.get("worker_provenance")
         provenance = provenance if isinstance(provenance, dict) else {}
         worker_sha = row.get("worker_sha256")
-        worker_sha = worker_sha if isinstance(worker_sha, str) and re.fullmatch(r"[0-9a-f]{64}", worker_sha) else None
+        worker_sha = (
+            worker_sha
+            if isinstance(worker_sha, str) and re.fullmatch(r"[0-9a-f]{64}", worker_sha)
+            else None
+        )
         build_info = development_build_info(provenance.get("build_info"))
         if provenance.get("worker_sha256") != worker_sha or worker_sha is None:
             build_info = {"status": "unknown"} if provenance else {"status": "missing"}
         run_owner = (run or {}).get("owner")
         ledger_owner = row.get("owner")
-        owner_correspondence = "missing" if not isinstance(run_owner, dict) or not isinstance(ledger_owner, dict) else "matches" if run_owner == ledger_owner else "differs"
+        owner_correspondence = (
+            "missing"
+            if not isinstance(run_owner, dict) or not isinstance(ledger_owner, dict)
+            else "matches"
+            if run_owner == ledger_owner
+            else "differs"
+        )
         result.append(
             {
                 "id": path.parent.name,
                 "run": run_path.name,
                 "pending": pending,
                 "cleanup": axis(cleanup, {"confirmed", "failed", "unknown"}),
-                "report": axis(row.get("report"), {"passed", "failed", "not_created", "not_applicable"}),
-                "outcome": row.get("outcome") if row.get("outcome") in ("passed", "failed", "unknown") else "unknown",
-                "operation": row.get("operation") if row.get("operation") in ("sync", "test") else None,
-                "database": row.get("database") if isinstance(row.get("database"), str) and re.fullmatch(r"lifecycle_[0-9a-f]{32}", row["database"]) else None,
+                "report": axis(
+                    row.get("report"), {"passed", "failed", "not_created", "not_applicable"}
+                ),
+                "outcome": row.get("outcome")
+                if row.get("outcome") in ("passed", "failed", "unknown")
+                else "unknown",
+                "operation": row.get("operation")
+                if row.get("operation") in ("sync", "test")
+                else None,
+                "database": row.get("database")
+                if isinstance(row.get("database"), str)
+                and re.fullmatch(r"lifecycle_[0-9a-f]{32}", row["database"])
+                else None,
                 "worker_sha256": worker_sha,
                 "worker_provenance": {
                     "worker_sha256": worker_sha,
                     "recorded_at": provenance.get("recorded_at"),
                     "build_info": build_info,
                 },
-                "command_exit": row.get("command_exit") if type(row.get("command_exit")) is int else None,
+                "command_exit": row.get("command_exit")
+                if type(row.get("command_exit")) is int
+                else None,
                 "child_cleanup": axis(row.get("child_cleanup"), {"confirmed", "failed", "unknown"}),
-                "credential_cleanup": axis(row.get("credential_cleanup"), {"passed", "failed", "not_applicable", "unknown"}),
+                "credential_cleanup": axis(
+                    row.get("credential_cleanup"), {"passed", "failed", "not_applicable", "unknown"}
+                ),
                 "remote": axis(row.get("remote"), {"passed", "failed", "unknown"}),
                 "observation": {
                     "source": "development-ledger-and-managed-run",
                     "observed_at": time.time(),
                     "recorded_at": row.get("recorded_at"),
                     "owner": "surrealdb_development",
-                    "run_owner": {key: run_owner[key] for key in ("pid", "start_ticks", "boot_id", "pid_namespace") if key in run_owner} if isinstance(run_owner, dict) else None,
+                    "run_owner": {
+                        key: run_owner[key]
+                        for key in ("pid", "start_ticks", "boot_id", "pid_namespace")
+                        if key in run_owner
+                    }
+                    if isinstance(run_owner, dict)
+                    else None,
                     "owner_correspondence": owner_correspondence,
                     "run_record": "missing" if run is None else "observed",
                 },
@@ -2867,11 +2916,11 @@ def _installer_cli(
 
 def _current_schema(value: Mapping[str, Any]) -> None:
     if (
-        value.get("schema_version") != 6
+        value.get("schema_version") != 7
         or not isinstance(value.get("schema"), str)
         or not re.fullmatch(r"[0-9a-f]{64}", value["schema"])
     ):
-        raise FixtureBlocked("schema", "installer must declare the current native format6 schema")
+        raise FixtureBlocked("schema", "installer must declare the current native format7 schema")
 
 
 def _owned_daemon_start(installation: Installation) -> None:

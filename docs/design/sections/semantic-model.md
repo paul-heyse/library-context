@@ -98,7 +98,7 @@ Compiler orchestration stays in `cpg-core`; private validated admission and rest
 are owned below it by `lctx-compiler-store` (ADR-0151). The coordinator
 records targeted functional controls and the authorized final UP9 assembled qualification boundary.
 
-**Accepted target / Proposed implementation, 2026-10-12 (ADR-0165).** Semantic relation/dependency
+**Implemented source / focused acceptance in progress, 2026-10-13 (ADR-0165).** Semantic relation/dependency
 views compose earned immutable contributions through exact operation-owned selections. Logical
 relations, roles, empties, coverage and aliases remain model-owned; they do not automatically require
 another durable membership realization or full-state hash. A frozen admitted/published operation
@@ -106,9 +106,11 @@ owns a compound physical boundary with exact per-view selectors; independently r
 may earn their own boundary. Internal borrowers retain actual parent capability/pin/resource lifetime.
 Retained, sparse, backup and cold readers migrate with the physical selector codec, preserving
 selected-copy/incarnation, absence and independent incoming/installed admission. Canonical prepared
-runs bind complete dependencies and retain flat six-family v4 identity at actual boundaries. This is
-scheduled target work in the [Catalog execution plan](../../plans/catalog-execution-plan_2026-10-12.md),
-not an implemented change to the foundations below.
+runs bind complete dependencies and retain flat six-family v4 identity at actual boundaries.
+Installation schema7 and physical completion v2 replace universal per-view copies/seals; complete
+logical meaning and portable format4 remain unchanged. The
+[Catalog execution plan](../../plans/catalog-execution-plan_2026-10-12.md) owns scoped runtime
+acceptance and remaining consumer work; source integration is not whole-plan completion.
 
 **Implemented lifecycle foundations / scoped-Tested, 2026-10-12 (ADR-0165).** Selected access resolves
 physical members/aliases under held exact readers. Independent observation may be shared inside

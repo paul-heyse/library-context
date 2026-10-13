@@ -1,5 +1,6 @@
 //! Synthetic captured suppliers exercise cold semantic admission, not provider qualification.
 use cpg_core::workspace::{Workspace, WorkspaceOptions};
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{
     ContentHash, Record, Relation,
     admission::{Availability, Frontier},
@@ -14,7 +15,6 @@ use lctx_model::domain::{
     stages::{Profile, ProviderOutcome},
 };
 use lctx_native::RuntimeConfig;
-use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -73,9 +73,19 @@ fn suppliers() -> Vec<(&'static str, &'static str, Provider, Vec<FactFamily>)> {
     .collect()
 }
 
-async fn write<R: Record>(native: &Arc<NativeCompilerStore>, pending: &ContentHash, rows: &[R], budget:&lctx_model::domain::resources::ResourceBudget) {
+async fn write<R: Record>(
+    native: &Arc<NativeCompilerStore>,
+    pending: &ContentHash,
+    rows: &[R],
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) {
     native
-        .write_batch(pending, &Relation::of::<R>(), &R::encode(rows).unwrap(), budget)
+        .write_batch(
+            pending,
+            &Relation::of::<R>(),
+            &R::encode(rows).unwrap(),
+            budget,
+        )
         .await
         .unwrap();
 }
@@ -94,7 +104,8 @@ async fn workspace(config: &RuntimeConfig) -> Arc<Workspace> {
 
 #[tokio::test]
 async fn foreign_captured_bindings_admit_before_and_after_independent_native_transport() {
-        let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let config = RuntimeConfig::read(&std::path::PathBuf::from(
         std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
     ))
@@ -169,7 +180,8 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             ConfigurationBinding::ProducerSettings => {
                 ContentHash::of(b"foreign captured producer settings")
             }
-            ConfigurationBinding::CapturedAnalysisContext | ConfigurationBinding::CurrentAssemblyContext => panic!("producer settings contract"),
+            ConfigurationBinding::CapturedAnalysisContext
+            | ConfigurationBinding::CurrentAssemblyContext => panic!("producer settings contract"),
         };
         let stage = contract.bind(
             ContentHash::of(
@@ -186,7 +198,12 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             input: input.id(),
             context: Some(context.id()),
             configuration: Some(context.config_digest),
-            acquisition: lctx_model::domain::producer_contract::acquisition::CapturedAcquisition::tree(input.clone(), "captured fixture".into()).into(),
+            acquisition:
+                lctx_model::domain::producer_contract::acquisition::CapturedAcquisition::tree(
+                    input.clone(),
+                    "captured fixture".into(),
+                )
+                .into(),
         }];
         let outputs = contract
             .outputs
@@ -220,15 +237,51 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         };
         let pending = source.native().begin_contribution(spec).await.unwrap();
         if contract.name == "acquire" {
-            write(source.native(), &pending, std::slice::from_ref(&input), &native_operation_budget).await;
+            write(
+                source.native(),
+                &pending,
+                std::slice::from_ref(&input),
+                &native_operation_budget,
+            )
+            .await;
         }
         if contract.name == "assemble" {
-            write(source.native(), &pending, &providers, &native_operation_budget).await;
-            write(source.native(), &pending, std::slice::from_ref(&context), &native_operation_budget).await;
-            write(source.native(), &pending, std::slice::from_ref(&scope), &native_operation_budget).await;
+            write(
+                source.native(),
+                &pending,
+                &providers,
+                &native_operation_budget,
+            )
+            .await;
+            write(
+                source.native(),
+                &pending,
+                std::slice::from_ref(&context),
+                &native_operation_budget,
+            )
+            .await;
+            write(
+                source.native(),
+                &pending,
+                std::slice::from_ref(&scope),
+                &native_operation_budget,
+            )
+            .await;
             write(source.native(), &pending, &runs, &native_operation_budget).await;
-            write(source.native(), &pending, &families, &native_operation_budget).await;
-            write(source.native(), &pending, &coverage, &native_operation_budget).await;
+            write(
+                source.native(),
+                &pending,
+                &families,
+                &native_operation_budget,
+            )
+            .await;
+            write(
+                source.native(),
+                &pending,
+                &coverage,
+                &native_operation_budget,
+            )
+            .await;
         }
         // Declared contributions include attribution beside semantic vocabulary. Assembly
         // retains every supplier's contribution to those exact shared completed views.
@@ -242,7 +295,13 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
             .collect();
         let completed = source
             .native()
-            .complete_contribution(pending, ProviderOutcome::Complete, &outputs, &previous, &native_operation_budget)
+            .complete_contribution(
+                pending,
+                ProviderOutcome::Complete,
+                &outputs,
+                &previous,
+                &native_operation_budget,
+            )
             .await
             .unwrap();
         for relation in &outputs {
@@ -295,22 +354,38 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         admitted.empty_universe(FactFamily::Syntax),
         Some(Availability::NoScope)
     );
-    let mut expected_contributions = source.native().contributions(&native_operation_budget).await.unwrap();
+    let mut expected_contributions = source
+        .native()
+        .contributions(&native_operation_budget)
+        .await
+        .unwrap();
     expected_contributions.sort_by_key(|row| row.identity().unwrap());
     let mut expected_bindings = source.native().bindings().await.unwrap();
     expected_bindings.sort_by_key(CompletedBinding::key);
     let export = tempfile::NamedTempFile::new().unwrap();
-    let state = source.native().export_state(export.path(), &native_operation_budget).await.unwrap();
-    assert_eq!(state.format_version, 3);
+    source
+        .native()
+        .freeze_content(&native_operation_budget)
+        .await
+        .unwrap();
+    let state = source
+        .native()
+        .export_state(export.path(), &native_operation_budget)
+        .await
+        .unwrap();
+    assert_eq!(state.format_version, 4);
     let obsolete = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(
         obsolete.path(),
         b"{\"format_version\":1}\nnot a reconstructible descriptor\n",
     )
     .unwrap();
-    let refused = workspace(&config).await;
+    // Invalid transport is refused by native ingress before semantic restoration;
+    // own that actual component rather than creating an unused workspace owner.
+    let refused = NativeCompilerStore::begin(&config, Frontier::Catalog)
+        .await
+        .unwrap();
     let error = refused
-        .native()
         .import_state(obsolete.path(), &state, &native_operation_budget)
         .await
         .unwrap_err();
@@ -321,7 +396,7 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
         "old header must refuse before malformed descriptor decoding: {error}"
     );
     assert!(error.permits_storage_cleanup());
-    let cleanup = refused.native().abandon().await.unwrap_err();
+    let cleanup = refused.abandon().await.unwrap_err();
     let lctx_model::domain::ModelError::Completion(outcome) = cleanup else {
         panic!("refused import finalization")
     };
@@ -340,10 +415,8 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     let inspector = lctx_compiler_store::compiler::check_installation(&config)
         .await
         .unwrap();
-    let attempt = lctx_native::surrealdb::types::RecordId::new(
-        "native_attempt",
-        refused.native().attempt().hex(),
-    );
+    let attempt =
+        lctx_native::surrealdb::types::RecordId::new("native_attempt", refused.attempt().hex());
     let mut response=inspector.query("SELECT VALUE state FROM $attempt; SELECT VALUE id FROM native_hold WHERE owner=$attempt").bind(("attempt",attempt)).await.unwrap().check().unwrap();
     let states: Vec<String> = response.take(0).unwrap();
     assert_eq!(states, ["abandoned"]);
@@ -382,13 +455,31 @@ async fn foreign_captured_bindings_admit_before_and_after_independent_native_tra
     );
     // Attempt-specific physical record order is not portable authority. Compare every
     // descriptor byte in logical identity order without deduplicating repeated rows.
-    let mut actual_contributions = restored.native().contributions(&native_operation_budget).await.unwrap();
+    let mut actual_contributions = restored
+        .native()
+        .contributions(&native_operation_budget)
+        .await
+        .unwrap();
     actual_contributions.sort_by_key(|row| row.identity().unwrap());
     assert_eq!(actual_contributions, expected_contributions);
     let mut actual_bindings = restored.native().bindings().await.unwrap();
     actual_bindings.sort_by_key(CompletedBinding::key);
     assert_eq!(actual_bindings, expected_bindings);
-    assert_eq!(restored.native().completed_state(&native_operation_budget).await.unwrap(), state);
+    // Independent import admits into a mutable destination; explicit finalization
+    // earns its physical boundary before requesting the frozen-state identity.
+    restored
+        .native()
+        .freeze_content(&native_operation_budget)
+        .await
+        .unwrap();
+    assert_eq!(
+        restored
+            .native()
+            .completed_state(&native_operation_budget)
+            .await
+            .unwrap(),
+        state
+    );
     for name in [
         "input_revisions",
         "source_artifacts",

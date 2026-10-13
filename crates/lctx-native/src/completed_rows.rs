@@ -1,12 +1,100 @@
 //! Canonical completed-row codecs shared by native physical completion and compiler replay.
 //! These checks confer no completion, admission or held native authority.
-use lctx_model::domain::{self as d,completed::*,*};
+use crate::recovery::{RecoveryTableKind, classify_recovery_table};
+use arrow_array::{Array, FixedSizeBinaryArray};
 use lctx_model::domain::resources::ResourceBudget;
-use arrow_array::{Array,FixedSizeBinaryArray};
-use surrealdb::types::{Object,Value,RecordId,RecordIdKey,SerdeWrapper,SurrealValue};
+use lctx_model::domain::{self as d, completed::*, *};
 use std::collections::BTreeMap;
-use crate::recovery::{RecoveryTableKind,classify_recovery_table};
-fn value_object(value:&Value)->Option<&Object>{if let Value::Object(row)=value{Some(row)}else{None}}
+use surrealdb::types::{Object, RecordId, RecordIdKey, SerdeWrapper, SurrealValue, Value};
+fn value_object(value: &Value) -> Option<&Object> {
+    if let Value::Object(row) = value {
+        Some(row)
+    } else {
+        None
+    }
+}
+/// Validate complete canonical backing bytes and reconstruct their exact endpoint rows.
+/// Keep the returned reservation alive while consuming the decoded endpoints. This
+/// lowers content only; callers independently establish native ownership and guards.
+pub fn canonical_backing_endpoints(
+    row: &Value,
+    budget: &ResourceBudget,
+) -> Result<
+    (
+        Vec<Value>,
+        Option<OriginalBacking>,
+        Box<dyn d::resources::Reservation>,
+    ),
+    ModelError,
+> {
+    use d::graph::{Assertion, Entity};
+    let object = row
+        .as_object()
+        .ok_or(ModelError::Schema("installed backing object"))?;
+    let Some(Value::RecordId(node)) = object.get("id") else {
+        return Err(ModelError::Schema("installed backing id"));
+    };
+    let decode = budget.reserve(
+        "installed backing canonical decode",
+        crate::loader::native_bytes(row)
+            .saturating_mul(32)
+            .saturating_add(65536),
+    )?;
+    let canonical = match object.get("canonical") {
+        Some(Value::Bytes(bytes)) => bytes,
+        _ => return Err(ModelError::Schema("installed canonical backing")),
+    };
+    let (expected, endpoints) = match node.table.as_str() {
+        "compiler_record" => {
+            let original = validate_state_row("compiler_record", row)?;
+            validate_backing_batch(std::slice::from_ref(row), budget)?;
+            return Ok((vec![], original, decode));
+        }
+        "entity" => {
+            let entity: Entity = serde_json::from_slice(canonical).map_err(ModelError::codec)?;
+            entity.validate()?;
+            let view = crate::codec::entity_views(std::slice::from_ref(&entity))?
+                .pop()
+                .ok_or(ModelError::Schema("installed entity view"))?;
+            (
+                crate::adapter::physical_row(
+                    crate::loader::entity_payload_id(&entity)?,
+                    entity.content(),
+                    serde_json::to_vec(&entity).map_err(ModelError::codec)?,
+                    Some((entity.kind() as i64, entity.subtype())),
+                    view,
+                )?,
+                crate::loader::entity_endpoint_values(&entity)?,
+            )
+        }
+        "assertion" => {
+            let assertion: Assertion =
+                serde_json::from_slice(canonical).map_err(ModelError::codec)?;
+            assertion.validate()?;
+            let view = crate::codec::assertion_views(std::slice::from_ref(&assertion))?
+                .pop()
+                .ok_or(ModelError::Schema("installed assertion view"))?;
+            (
+                crate::adapter::physical_row(
+                    crate::loader::assertion_payload_id(&assertion)?,
+                    assertion.content(),
+                    serde_json::to_vec(&assertion).map_err(ModelError::codec)?,
+                    Some((assertion.kind as i64, None)),
+                    view,
+                )?,
+                crate::loader::assertion_endpoint_values(&assertion)?,
+            )
+        }
+        _ => return Err(ModelError::Conflict("installed undeclared backing family")),
+    };
+    if expected != *row {
+        return Err(ModelError::Conflict(
+            "installed canonical graph backing projection",
+        ));
+    }
+    Ok((endpoints, None, decode))
+}
+
 pub fn validate_state_row(table: &str, row: &Value) -> Result<Option<OriginalBacking>, ModelError> {
     let object = value_object(row).ok_or(ModelError::Schema("completed state object"))?;
     let Some(Value::RecordId(id)) = object.get("id") else {
@@ -56,8 +144,14 @@ pub fn validate_state_row(table: &str, row: &Value) -> Result<Option<OriginalBac
                         // Producing owners allocate before completion is known; detached
                         // imports already know the full descriptor and preserve distinct
                         // completions of an otherwise identical specification.
-                        let producing = attempt_contribution(attempt, descriptor.spec.identity().expect("validated specification"));
-                        let detached = attempt_contribution(attempt, descriptor.identity().expect("validated completion"));
+                        let producing = attempt_contribution(
+                            attempt,
+                            descriptor.spec.identity().expect("validated specification"),
+                        );
+                        let detached = attempt_contribution(
+                            attempt,
+                            descriptor.identity().expect("validated completion"),
+                        );
                         id.key != RecordIdKey::String(producing.hex())
                             && id.key != RecordIdKey::String(detached.hex())
                     })

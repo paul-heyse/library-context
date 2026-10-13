@@ -48,8 +48,8 @@ tags = ["lifecycle", "schema"]
 name = "required compiler physical fields"
 kind = "schema_metadata"
 actor = "root"
-table = "compiler_view_member"
-contains = ["realization", "semantic_key", "node", "content", "realization_key"]
+table = "compiler_membership"
+contains = ["contribution", "semantic_key", "node", "content", "contribution_rows", "contribution_nodes"]
 
 [[cases]]
 name = "nested native function body executes"
