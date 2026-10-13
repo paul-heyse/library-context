@@ -1565,6 +1565,15 @@ struct UnionContentTokens {
     _charge: charged::StateCharge,
 }
 impl PreparedRootBatch {
+    pub(crate) fn require_owner(&self, budget: &ResourceBudget) -> Result<(), ModelError> {
+        for charge in [&self._charge, self.union._charge.as_ref(),
+            &self.union.edges._provider_charge, &self.union.edges._index_charge] {
+            if charge.budget().is_none_or(|owner| !owner.shares_pool(budget)) {
+                return Err(ModelError::Conflict("selected root resource owner"));
+            }
+        }
+        Ok(())
+    }
     /// Derive a complete selected domain from freshly discovered membership and current
     /// native row content before rich hydration. Dangling members and absent roots are
     /// explicit; a later matching insertion changes discovery even if old rows are unchanged.
@@ -1602,7 +1611,9 @@ impl PreparedRootBatch {
                 let mut charge = charged::StateCharge::new(budget, "selected-union-content-tokens");
                 let mut tables = Vec::new();
                 for (table, keys) in self.union.native_keys.iter().take(inputs.len()).enumerate() {
-                    charge.grow(keys.len().saturating_mul(160).saturating_add(4096))?;
+                    if !optional_domain_retention(charge.grow(keys.len().saturating_mul(160).saturating_add(4096)))? {
+                        return Ok(None);
+                    }
                     let provider = self.union.edges.providers[table].clone();
                     let requested = keys.clone();
                     let read_budget = budget.clone();
@@ -1644,7 +1655,9 @@ impl PreparedRootBatch {
             }
             input.encode_contract(&mut context);
             let count = self.keys(partition, table)?.count();
-            charge.grow(count.saturating_mul(352).saturating_add(4096))?;
+            if !optional_domain_retention(charge.grow(count.saturating_mul(352).saturating_add(4096)))? {
+                return Ok(None);
+            }
             let keys = self.keys(partition, table)?.collect::<Vec<_>>();
             let table_tokens = &tokens.tables[table];
             let role = format!(
@@ -1955,12 +1968,46 @@ impl Drop for PreparedClosure {
     }
 }
 
+/// Called only on the two local StateCharge growths for optional domain preparation.
+/// Native calls are never passed here: even a bare native Resource may have already
+/// failed its producing owner, and completion wrappers must retain their full outcome.
+fn optional_domain_retention(result: Result<(), ModelError>) -> Result<bool, ModelError> {
+    match result {
+        Ok(()) => Ok(true),
+        Err(ModelError::Resource { .. }) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 #[cfg(test)]
 mod nominal_closure_controls {
     use super::*;
     use datafusion::datasource::MemTable;
     use input::{Package, Release};
     use std::sync::Arc;
+
+    #[test]
+    fn optional_domain_retention_only_refuses_local_reservation_without_erasing_finality() {
+        let budget = ResourceBudget::fixed(1).unwrap();
+        let mut charge = charged::StateCharge::new(&budget, "optional-domain-control");
+        assert!(!optional_domain_retention(charge.grow(2)).unwrap());
+        assert_eq!(budget.reserved(), 0);
+        assert!(optional_domain_retention(charge.grow(1)).unwrap());
+        assert_eq!(budget.reserved(), 1);
+        let native_resource = budget.reserve("submitted-native-refusal", 1).unwrap_err();
+        let mut finality = completion::Completion { remote: completion::RemoteState::Unknown,
+            ..Default::default() };
+        finality.step("native reader close", Err(ModelError::Conflict("close failed")));
+        let error = completion::complete::<()>(Err(native_resource), finality).unwrap_err();
+        let error = optional_domain_retention(Err(error)).unwrap_err();
+        let ModelError::Completion(outcome) = error else { panic!("full completion must survive"); };
+        assert!(matches!(outcome.primary.as_deref(), Some(ModelError::Resource { .. })));
+        assert_eq!(outcome.completion.remote, completion::RemoteState::Unknown);
+        assert_eq!(outcome.completion.failures.len(), 1);
+        assert!(optional_domain_retention(Err(ModelError::Conflict("native failure"))).is_err());
+        drop(charge);
+        assert_eq!(budget.reserved(), 0);
+    }
 
     fn register<R: Record>(session: &SessionContext, name: &str, rows: &[R]) {
         let batch = R::encode(rows).unwrap();

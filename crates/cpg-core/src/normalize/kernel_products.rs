@@ -123,21 +123,14 @@ pub(super) fn aspect_emission_bound(rows: &callable_aspects::AspectOutput) -> us
 }
 
 /// Optional acceleration may refuse retention without changing ordinary kernel feasibility.
-/// Query/ownership failures still propagate; only a resource-shaped token preparation refusal
-/// conservatively falls back to current fresh computation.
+/// Only local token retention may refuse optionally inside `content_domain`.
+/// Submitted native failures retain their full ownership/finality outcome.
 pub(super) async fn selected_domain(
     selected: &crate::consumed_rows::PreparedRootBatch, partition: usize,
     root: crate::consumed_rows::PreparedRoot, inputs: &[ValidationInput],
     program: ContentHash, runtime: &Workspace,
 ) -> Result<Option<ContentHash>, ModelError> {
-    match selected.content_domain(partition, root, inputs, program, runtime).await {
-        Ok(value) => Ok(value),
-        Err(error) if matches!(error.primary(), Some(ModelError::Resource { .. } | ModelError::Limit { .. })) => {
-            tracing::debug!(%error, "optional selected product preparation unavailable");
-            Ok(None)
-        }
-        Err(error) => Err(error),
-    }
+    selected.content_domain(partition, root, inputs, program, runtime).await
 }
 
 pub(super) fn entity_request(output: &ProducerOutput, domain: ContentHash,
