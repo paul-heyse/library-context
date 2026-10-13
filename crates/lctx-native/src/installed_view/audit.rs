@@ -37,6 +37,7 @@ type WorkFuture = futures::future::Shared<
 struct WorkFlight {
     token: u64,
     future: WorkFuture,
+    _charge: std::sync::Arc<Box<dyn d::resources::Reservation>>,
 }
 struct SharedMap<K, V>(std::sync::Arc<std::sync::Mutex<BTreeMap<K, std::sync::Arc<V>>>>);
 impl<K, V> Clone for SharedMap<K, V> {
@@ -77,11 +78,12 @@ impl SharedCharge {
 }
 struct WorkOwner {
     flights: std::sync::Mutex<BTreeMap<(u8, ContentHash), WorkFlight>>,
-    workers: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    workers: std::sync::Mutex<Vec<PreparationWorker>>,
     next: std::sync::atomic::AtomicU64,
     accepting: std::sync::atomic::AtomicBool,
     close_gate: tokio::sync::Mutex<()>,
 }
+type PreparationWorker = (u64, tokio::task::JoinHandle<()>, std::sync::Arc<Box<dyn d::resources::Reservation>>);
 #[derive(Clone)]
 pub struct InstallationAudit {
     client: std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
@@ -243,8 +245,23 @@ impl InstallationAudit {
         + Send
         + 'static,
     ) -> Result<(), ModelError> {
+        self.run_work_many(vec![key], move |owner, _| build(owner)).await
+    }
+    async fn run_work_many(
+        &self,
+        keys: Vec<(u8, ContentHash)>,
+        build: impl FnOnce(Self, Vec<(u8, ContentHash)>) -> futures::future::BoxFuture<'static, Result<(), ModelError>>
+        + Send + 'static,
+    ) -> Result<(), ModelError> {
         self.pin.ensure_live()?;
-        let future = {
+        // Cancelled waiters leave their independently owned workers behind. Reap only
+        // already terminal handles before admitting another bounded preparation.
+        self.reap_terminal_workers(Ok(()), &BTreeSet::new()).await?;
+        if keys.len() > crate::loader::NATIVE_WINDOW_ROWS {
+            return Err(ModelError::Limit { owner: "installation preparation", limit: "window keys",
+                observed: keys.len(), bound: crate::loader::NATIVE_WINDOW_ROWS });
+        }
+        let futures = {
             let mut registry = self.work.flights.lock().unwrap();
             if !self.worker
                 && !self
@@ -256,10 +273,28 @@ impl InstallationAudit {
                     "installation audit closed to new preparation",
                 ));
             }
-            if let Some(flight) = registry.get(&key) {
-                flight.future.clone()
-            } else {
-                self.charge.grow(4096)?;
+            let mut futures = BTreeMap::new();
+            let mut missing = BTreeSet::new();
+            for key in keys {
+                if let Some(flight) = registry.get(&key) {
+                    futures.insert(flight.token, flight.future.clone());
+                } else {
+                    missing.insert(key);
+                }
+            }
+            if !missing.is_empty() {
+                let charge = std::sync::Arc::new(self.budget.reserve(
+                    "installation preparation flight metadata", 4096usize.saturating_mul(missing.len()))?);
+                {
+                    let mut workers = self.work.workers.lock().unwrap();
+                    if workers.len() == workers.capacity() {
+                        let capacity = workers.capacity().saturating_mul(2).max(1);
+                        self.charge.grow(capacity.saturating_sub(workers.capacity())
+                            .saturating_mul(std::mem::size_of::<PreparationWorker>()))?;
+                        let additional = capacity - workers.len();
+                        workers.reserve_exact(additional);
+                    }
+                }
                 let token = self
                     .work
                     .next
@@ -267,7 +302,9 @@ impl InstallationAudit {
                 let (send, receive) =
                     tokio::sync::oneshot::channel::<Result<(), std::sync::Arc<ModelError>>>();
                 let pin = self.pin.clone();
+                let receiving_charge = charge.clone();
                 let future = async move {
+                    let _charge = receiving_charge;
                     receive.await.unwrap_or_else(|_| {
                         pin.retain_unknown();
                         Err(std::sync::Arc::new(ModelError::infrastructure(
@@ -278,13 +315,16 @@ impl InstallationAudit {
                 }
                 .boxed()
                 .shared();
-                registry.insert(
-                    key,
+                for key in &missing { registry.insert(
+                    *key,
                     WorkFlight {
                         token,
                         future: future.clone(),
+                        _charge: charge.clone(),
                     },
-                );
+                ); }
+                futures.insert(token, future.clone());
+                let keys = missing.into_iter().collect::<Vec<_>>();
                 #[cfg(test)]
                 let late = LATE_MEMBERSHIP_FAILURE
                     .try_with(|enabled| *enabled)
@@ -293,7 +333,9 @@ impl InstallationAudit {
                 let barrier = BLOB_OBSERVATION_BARRIER.try_with(Clone::clone).ok();
                 let mut owner = self.clone();
                 owner.worker = true;
+                let worker_charge = charge.clone();
                 let task = tokio::spawn(async move {
+                    let _charge = charge;
                     struct Terminal {
                         pin: std::sync::Arc<crate::control::ReaderPin>,
                         confirmed: bool,
@@ -310,16 +352,16 @@ impl InstallationAudit {
                         confirmed: false,
                     };
                     #[cfg(not(test))]
-                    let result = build(owner.clone()).await;
+                    let result = build(owner.clone(), keys.clone()).await;
                     #[cfg(test)]
                     let result = LATE_MEMBERSHIP_FAILURE
                         .scope(late, async {
                             if let Some(barrier) = barrier {
                                 BLOB_OBSERVATION_BARRIER
-                                    .scope(barrier, build(owner.clone()))
+                                    .scope(barrier, build(owner.clone(), keys.clone()))
                                     .await
                             } else {
-                                build(owner.clone()).await
+                                build(owner.clone(), keys.clone()).await
                             }
                         })
                         .await;
@@ -330,17 +372,61 @@ impl InstallationAudit {
                         .is_none_or(|error| error.permits_storage_cleanup());
                     if result.is_err() {
                         let mut registry = owner.work.flights.lock().unwrap();
-                        if registry.get(&key).is_some_and(|entry| entry.token == token) {
-                            registry.remove(&key);
+                        for key in &keys {
+                            if registry.get(key).is_some_and(|entry| entry.token == token) {
+                                registry.remove(key);
+                            }
                         }
                     }
                     let _ = send.send(result);
                 });
-                self.work.workers.lock().unwrap().push(task);
-                future
+                self.work.workers.lock().unwrap().push((token, task, worker_charge));
             }
+            futures
         };
-        future.await.map_err(ModelError::SharedCause)
+        if futures.len() == 1 {
+            let (token, future) = futures.into_iter().next().unwrap();
+            let result = future.await.map_err(ModelError::SharedCause);
+            let failed = if result.is_err() { BTreeSet::from([token]) } else { BTreeSet::new() };
+            return self.reap_terminal_workers(result, &failed).await;
+        }
+        let mut terminal = d::completion::Completion::default();
+        let mut failed = BTreeSet::new();
+        for (token, future) in futures {
+            let result = future.await.map_err(ModelError::SharedCause);
+            if result.is_err() { failed.insert(token); }
+            terminal.step("installation preparation set flight", result);
+        }
+        self.reap_terminal_workers(d::completion::complete(Ok(()), terminal), &failed).await
+    }
+    async fn reap_terminal_workers(
+        &self,
+        result: Result<(), ModelError>,
+        failed: &BTreeSet<u64>,
+    ) -> Result<(), ModelError> {
+        let current = tokio::task::try_id();
+        let completed = {
+            let mut workers = self.work.workers.lock().unwrap();
+            let mut completed = Vec::new();
+            let mut index = 0;
+            while index < workers.len() {
+                let (token, worker, _) = &workers[index];
+                if current != Some(worker.id()) && (worker.is_finished() || failed.contains(token)) {
+                    completed.push(workers.swap_remove(index));
+                } else { index += 1; }
+            }
+            completed
+        };
+        let mut terminal = d::completion::Completion::default();
+        for (_, worker, _charge) in completed {
+            if let Err(error) = worker.await {
+                self.retain_unknown();
+                terminal.remote = d::completion::RemoteState::Unknown;
+                terminal.step("installation terminal worker join", Err(ModelError::infrastructure(
+                    d::Infrastructure::Unconfirmed, format!("installation preparation worker did not reach terminal: {error}"))));
+            }
+        }
+        d::completion::complete(result, terminal)
     }
     pub fn shares_pool(&self, budget: &ResourceBudget) -> bool {
         self.budget.shares_pool(budget)
@@ -361,7 +447,7 @@ impl InstallationAudit {
             if workers.is_empty() {
                 break;
             }
-            for worker in workers {
+            for (_, worker, _charge) in workers {
                 if let Err(error) = worker.await {
                     self.retain_unknown();
                     terminal.remote = d::completion::RemoteState::Unknown;
@@ -541,9 +627,32 @@ struct ObservedView {
     data: CompletedView,
     _charge: Box<dyn d::resources::Reservation>,
 }
+#[derive(Clone)]
 enum FreshRequest {
     Contributor(ContributorRealization),
     View(ContentHash),
+}
+impl FreshRequest {
+    fn work_key(&self) -> (u8, ContentHash) {
+        match self {
+            Self::Contributor(mapping) => (6, inspected_contributor_key(mapping)),
+            Self::View(identity) => (7, *identity),
+        }
+    }
+}
+fn inspected_contributor_key(mapping: &ContributorRealization) -> ContentHash {
+    use d::Key;
+    let mut sink = d::KeySink::new("native-exact-inspected-contributor/v1");
+    mapping.physical.encode(&mut sink);
+    mapping.logical.encode(&mut sink);
+    sink.part(b"incarnation", &mapping.incarnation.to_le_bytes());
+    sink.finish()
+}
+fn inspected_hold_key(owner: &RecordId, object: &RecordId) -> Result<ContentHash, ModelError> {
+    let mut sink = d::KeySink::new("native-exact-inspected-incidence/v1");
+    sink.part(b"owner", &serde_json::to_vec(owner).map_err(ModelError::codec)?);
+    sink.part(b"object", &serde_json::to_vec(object).map_err(ModelError::codec)?);
+    Ok(sink.finish())
 }
 enum FreshObservation {
     Contributor(ContentHash, std::sync::Arc<ObservedContributor>),
@@ -675,9 +784,6 @@ impl ClosureInspectionScope {
         audit: &InstallationAudit,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
-        if self.operation {
-            return Ok(());
-        }
         self.check(reader, audit, budget).await?;
         if views.clone().any(|(_, mappings)| {
             mappings
@@ -791,7 +897,11 @@ impl ClosureInspectionScope {
                 .saturating_mul(std::mem::size_of::<(RecordId, RecordId)>()),
         )?;
         let pairs = pairs.into_iter().collect::<Vec<_>>();
-        for window in pairs.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
+        let mut offset = 0;
+        let mut width = crate::loader::NATIVE_WINDOW_ROWS;
+        while offset < pairs.len() {
+            let count = width.min(pairs.len() - offset);
+            let window = &pairs[offset..offset + count];
             self.check_local(reader, audit, budget)?;
             if window.iter().any(|(owner, object)| {
                 !self.protected.contains(owner) || !self.protected.contains(object)
@@ -800,12 +910,19 @@ impl ClosureInspectionScope {
                     "inspected incidence requires both exact pinned endpoints",
                 ));
             }
-            let mut actual =
-                crate::control::inspect_hold_window_read(reader, window, budget).await?;
-            for (owner, object) in window {
-                actual.take_required(owner, object)?;
+            let captured = async {
+                if self.operation {
+                    self.observe_operation_holds(reader, window, audit, budget).await
+                } else {
+                    let mut actual = crate::control::inspect_hold_window_read(reader, window, budget).await?;
+                    for (owner, object) in window { actual.take_required(owner, object)?; }
+                    actual.finish()
+                }
+            }.await;
+            match captured {
+                Err(error) if count > 1 && terminal_local_resource(&error) => { width = (count / 2).max(1); continue; }
+                other => other?,
             }
-            actual.finish()?;
             for pair in window {
                 self.charge.grow(
                     crate::selection::node_bytes(&pair.0)
@@ -814,6 +931,8 @@ impl ClosureInspectionScope {
                 )?;
                 self.holds.insert(pair.clone());
             }
+            offset += count;
+            width = crate::loader::NATIVE_WINDOW_ROWS;
         }
         self.check_local(reader, audit, budget)
     }
@@ -824,6 +943,9 @@ impl ClosureInspectionScope {
         audit: &InstallationAudit,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        if self.operation {
+            return self.observe_operation_requests(reader, requests, audit, budget).await;
+        }
         if requests.is_empty() {
             return Ok(());
         }
@@ -921,6 +1043,140 @@ impl ClosureInspectionScope {
         }
         Ok(())
     }
+    async fn observe_operation_requests(
+        &mut self,
+        reader: &NativeReader<()>,
+        requests: BTreeMap<RecordId, FreshRequest>,
+        audit: &InstallationAudit,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let _handles = budget.reserve("operation observation request handles",
+            requests.len().saturating_mul(std::mem::size_of::<(RecordId, FreshRequest)>()))?;
+        let requests = requests.into_iter().collect::<Vec<_>>();
+        let mut offset = 0;
+        let mut width = crate::loader::NATIVE_WINDOW_ROWS;
+        while offset < requests.len() {
+            let count = width.min(requests.len() - offset);
+            let page = &requests[offset..offset + count];
+            let prepared = async {
+                let input = budget.reserve("operation observation worker inputs", count.saturating_mul(4096).saturating_add(4096))?;
+                let requested = page.iter().map(|(id, request)| (request.work_key(), (id.clone(), request.clone()))).collect::<BTreeMap<_, _>>();
+                let keys = requested.keys().copied().collect::<Vec<_>>();
+                let worker_budget = budget.clone();
+                audit.run_work_many(keys, move |owner, claimed| async move {
+                    let _input = input;
+                    let reader = NativeReader::private(owner.client.clone()).with_budget(&worker_budget);
+                    let result = async {
+                        let mut missing = BTreeMap::new();
+                        for key in claimed {
+                            let (id, request) = &requested[&key];
+                            let known = match request {
+                                FreshRequest::Contributor(mapping) => {
+                                    if let Some(value) = owner.inspected_contributors.get(&mapping.physical) {
+                                        if value.logical != mapping.logical || value.expected.incarnation() != mapping.incarnation {
+                                            return Err(ModelError::Conflict("operation selected physical mapping contradiction"));
+                                        }
+                                        true
+                                    } else { false }
+                                }
+                                FreshRequest::View(identity) => owner.inspected_views.contains_key(identity),
+                            };
+                            if !known { missing.insert(id.clone(), request.clone()); }
+                        }
+                        let mut scope = ClosureInspectionScope::new(&owner, &worker_budget)?;
+                        scope.observe_fresh_requests(&reader, missing, &owner, &worker_budget).await?;
+                        owner.ensure_context(&reader, &worker_budget).await?;
+                        Ok(scope)
+                    }.await;
+                    let mut terminal = d::completion::Completion::default();
+                    terminal.step("operation observation window reader close", reader.close().await);
+                    let scope = d::completion::complete(result, terminal)?;
+                    owner.pin.ensure_live()?;
+                    for (physical, value) in scope.observations {
+                        owner.charge.grow(std::mem::size_of::<(ContentHash, std::sync::Arc<ObservedContributor>)>().saturating_add(128))?;
+                        owner.inspected_contributors.insert_arc(physical, value);
+                    }
+                    for (identity, value) in scope.views {
+                        owner.charge.grow(std::mem::size_of::<(ContentHash, std::sync::Arc<ObservedView>)>().saturating_add(128))?;
+                        owner.inspected_views.insert_arc(identity, value);
+                    }
+                    Ok(())
+                }.boxed()).await
+            }.await;
+            match prepared {
+                Err(error) if count > 1 && terminal_local_resource(&error) => {
+                    width = (count / 2).max(1); continue;
+                }
+                other => other?,
+            }
+            self.check_local(reader, audit, budget)?;
+            for (_, request) in page {
+                self.charge.grow(1024)?;
+                match request {
+                    FreshRequest::Contributor(mapping) => {
+                        let value = audit.inspected_contributors.get(&mapping.physical)
+                            .ok_or(ModelError::Conflict("operation inspected contributor absent"))?;
+                        if value.logical != mapping.logical || value.expected.incarnation() != mapping.incarnation {
+                            return Err(ModelError::Conflict("operation selected physical mapping contradiction"));
+                        }
+                        let value = if let Some(previous) = self.descriptors.get(&mapping.logical) {
+                            if previous.data != value.descriptor.data {
+                                return Err(ModelError::Conflict("installed equivalent copies differ in full descriptor"));
+                            }
+                            std::sync::Arc::new(ObservedContributor { expected: value.expected.clone(), descriptor: previous.clone(), logical: value.logical })
+                        } else { value };
+                        self.remember(value.expected.record())?;
+                        self.descriptors.insert(mapping.logical, value.descriptor.clone());
+                        self.observations.insert(mapping.physical, value);
+                    }
+                    FreshRequest::View(identity) => {
+                        let value = audit.inspected_views.get(identity)
+                            .ok_or(ModelError::Conflict("operation inspected view absent"))?;
+                        self.remember(value.expected.record())?;
+                        self.views.insert(*identity, value);
+                    }
+                }
+            }
+            offset += count;
+            width = crate::loader::NATIVE_WINDOW_ROWS;
+        }
+        Ok(())
+    }
+    async fn observe_operation_holds(
+        &self,
+        reader: &NativeReader<()>,
+        pairs: &[(RecordId, RecordId)],
+        audit: &InstallationAudit,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let input = budget.reserve("operation incidence worker inputs", pairs.len().saturating_mul(4096))?;
+        let requested = pairs.iter().map(|(owner, object)| Ok(((8, inspected_hold_key(owner, object)?), (owner.clone(), object.clone()))))
+            .collect::<Result<BTreeMap<_, _>, ModelError>>()?;
+        let keys = requested.keys().copied().collect::<Vec<_>>();
+        let worker_budget = budget.clone();
+        audit.run_work_many(keys, move |owner, claimed| async move {
+            let _input = input;
+            let pairs = claimed.into_iter().map(|key| requested[&key].clone())
+                .filter(|pair| !owner.inspected_holds.contains_key(pair)).collect::<Vec<_>>();
+            let reader = NativeReader::private(owner.client.clone()).with_budget(&worker_budget);
+            let result = async {
+                let mut actual = crate::control::inspect_hold_window_read(&reader, &pairs, &worker_budget).await?;
+                for (holder, object) in &pairs { actual.take_required(holder, object)?; }
+                actual.finish()?;
+                owner.ensure_context(&reader, &worker_budget).await
+            }.await;
+            let mut terminal = d::completion::Completion::default();
+            terminal.step("operation incidence window reader close", reader.close().await);
+            d::completion::complete(result, terminal)?;
+            owner.pin.ensure_live()?;
+            for pair in pairs {
+                owner.charge.grow(crate::selection::node_bytes(&pair.0).saturating_add(crate::selection::node_bytes(&pair.1)).saturating_add(128))?;
+                owner.inspected_holds.insert(pair, ());
+            }
+            Ok(())
+        }.boxed()).await?;
+        self.check_local(reader, audit, budget)
+    }
     async fn view(
         &mut self,
         reader: &NativeReader<()>,
@@ -1007,16 +1263,7 @@ impl ClosureInspectionScope {
         }
         if self.operation {
             let input = budget.reserve("exact inspected incidence worker inputs", 4096)?;
-            let mut sink = d::KeySink::new("native-exact-inspected-incidence/v1");
-            sink.part(
-                b"owner",
-                &serde_json::to_vec(owner).map_err(ModelError::codec)?,
-            );
-            sink.part(
-                b"object",
-                &serde_json::to_vec(object).map_err(ModelError::codec)?,
-            );
-            let key = sink.finish();
+            let key = inspected_hold_key(owner, object)?;
             let worker_pair = pair.clone();
             let worker_budget = budget.clone();
             audit
@@ -1273,12 +1520,7 @@ async fn operation_selected_contributor(
         return Ok(observed);
     }
     let input = budget.reserve("exact inspected contributor worker mapping", 4096)?;
-    let mut sink = d::KeySink::new("native-exact-inspected-contributor/v1");
-    use d::Key;
-    mapping.physical.encode(&mut sink);
-    mapping.logical.encode(&mut sink);
-    sink.part(b"incarnation", &mapping.incarnation.to_le_bytes());
-    let key = sink.finish();
+    let key = inspected_contributor_key(mapping);
     let mapping = mapping.clone();
     let physical = mapping.physical;
     let logical = mapping.logical;
@@ -3094,6 +3336,7 @@ async fn audit_aliases_inner(
                     let prepared = complete(result, terminal)?;
                     owner.pin.ensure_live()?;
                     if let Some(prepared) = prepared {
+                        owner.charge.grow(local_alias_cache_bytes())?;
                         owner.local_aliases.insert(input.record.clone(), prepared);
                     }
                     Ok(())
@@ -3243,8 +3486,10 @@ async fn prepare_local_aliases_window(
         ));
     }
     audit.ensure_context(reader, budget).await?;
-    audit.charge.grow(
-        std::mem::size_of::<(
+    Ok(Some((seeds, aliases)))
+}
+fn local_alias_cache_bytes() -> usize {
+    std::mem::size_of::<(
             RecordId,
             (
                 crate::ordered_rows::PreparedRows,
@@ -3252,9 +3497,7 @@ async fn prepare_local_aliases_window(
             ),
         )>()
         .saturating_mul(11)
-        .saturating_add(1024),
-    )?;
-    Ok(Some((seeds, aliases)))
+        .saturating_add(1024)
 }
 
 struct AliasWindowRequests {
@@ -4586,6 +4829,99 @@ mod shared_preparation_controls {
         assert!(insufficient.work.flights.lock().unwrap().is_empty());
         assert!(insufficient.work.workers.lock().unwrap().is_empty());
         join(&insufficient).await;
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn overlapping_windows_share_item_flights_and_deliver_late_failure_after_cancellation() {
+        let audit = test_audit(1 << 20);
+        let keys = [(6, ContentHash([10; 32])), (7, ContentHash([11; 32])), (8, ContentHash([12; 32]))];
+        let entered = Arc::new(tokio::sync::Barrier::new(2));
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let seen = Arc::new(std::sync::Mutex::new(BTreeSet::new()));
+        let first = {
+            let audit = audit.clone(); let entered = entered.clone(); let release = release.clone(); let seen = seen.clone();
+            tokio::spawn(async move { audit.run_work_many(keys[..2].to_vec(), move |_, claimed| async move {
+                assert_eq!(claimed, keys[..2]);
+                seen.lock().unwrap().extend(claimed);
+                entered.wait().await;
+                let _permit = release.acquire().await.unwrap();
+                Err(ModelError::Conflict("late window refusal"))
+            }.boxed()).await })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(30), entered.wait()).await.unwrap();
+        let peer_claimed = Arc::new(tokio::sync::Barrier::new(2));
+        let peer = {
+            let audit = audit.clone(); let seen = seen.clone(); let peer_claimed = peer_claimed.clone();
+            tokio::spawn(async move { audit.run_work_many(keys.to_vec(), move |_, claimed| async move {
+                assert_eq!(claimed, vec![keys[2]]);
+                seen.lock().unwrap().extend(claimed);
+                peer_claimed.wait().await;
+                Ok(())
+            }.boxed()).await })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(30), peer_claimed.wait()).await.unwrap();
+        first.abort(); let _ = first.await;
+        release.add_permits(1);
+        assert!(peer.await.unwrap().unwrap_err().permits_storage_cleanup());
+        join(&audit).await;
+        assert_eq!(*seen.lock().unwrap(), BTreeSet::from(keys));
+        let flights = audit.work.flights.lock().unwrap();
+        assert!(!flights.contains_key(&keys[0]) && !flights.contains_key(&keys[1]));
+        assert!(flights.contains_key(&keys[2]));
+        assert_eq!(audit.budget.reserved(), 4096 + audit.charge.0.lock().unwrap().reserved());
+        assert!(!audit.pin.test_uncertain());
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failed_window_flight_reservations_release_before_repeated_resource_retry() {
+        let audit = test_audit(16384);
+        let keys = vec![(6, ContentHash([20; 32])), (7, ContentHash([21; 32]))];
+        let entered = Arc::new(tokio::sync::Barrier::new(2));
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let live = {
+            let audit = audit.clone(); let entered = entered.clone(); let release = release.clone();
+            tokio::spawn(async move { audit.run_work((8, ContentHash([22; 32])), move |_| async move {
+                entered.wait().await;
+                let _permit = release.acquire().await.unwrap();
+                Ok(())
+            }.boxed()).await })
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(30), entered.wait()).await.unwrap();
+        let mut retained = None;
+        for _ in 0..4 {
+            let retry = audit.run_work_many(keys.clone(), move |_, _| async {
+                Err(ModelError::Resource { owner: "window control", requested: 1, used: 8192, limit: 8192 })
+            }.boxed());
+            let error = tokio::time::timeout(std::time::Duration::from_secs(30), retry).await.unwrap().unwrap_err();
+            assert!(terminal_local_resource(&error));
+            let flights = audit.work.flights.lock().unwrap();
+            assert_eq!(flights.len(), 1);
+            assert!(keys.iter().all(|key| !flights.contains_key(key)));
+            drop(flights);
+            assert!(!live.is_finished());
+            let bytes = audit.budget.reserved();
+            assert_eq!(bytes, 4096 + audit.charge.0.lock().unwrap().reserved());
+            assert_eq!(*retained.get_or_insert(bytes), bytes);
+        }
+        release.add_permits(1);
+        live.await.unwrap().unwrap();
+        audit.run_work_many(keys, move |_, _| async { Ok(()) }.boxed()).await.unwrap();
+        join(&audit).await;
+        assert_eq!(audit.budget.reserved(), 12288 + audit.charge.0.lock().unwrap().reserved());
+        assert!(!audit.pin.test_uncertain());
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn nested_preparation_reaps_terminal_child_without_joining_current_worker() {
+        let audit = test_audit(1 << 20);
+        let result = audit.run_work((6, ContentHash([30; 32])), move |owner| async move {
+            let error = owner.run_work((7, ContentHash([31; 32])), move |_| async {
+                Err(ModelError::Resource { owner: "nested control", requested: 2, used: 1, limit: 1 })
+            }.boxed()).await.unwrap_err();
+            assert!(terminal_local_resource(&error));
+            Ok(())
+        }.boxed());
+        tokio::time::timeout(std::time::Duration::from_secs(30), result).await.unwrap().unwrap();
+        join(&audit).await;
+        assert_eq!(audit.work.flights.lock().unwrap().len(), 1);
+        assert!(!audit.pin.test_uncertain());
     }
 }
 
