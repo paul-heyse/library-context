@@ -103,6 +103,120 @@ async fn cleanup_owner_expectations(client:&Surreal<Client>,owners:&[RecordId])-
 #[cfg(test)]
 mod cleanup_origin_controls {
     use super::*;
+    async fn fixture_client()->Arc<Surreal<Client>>{
+        let path=std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned persistent native fixture");
+        let config=crate::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+        crate::installation::check_installation(&config).await.unwrap()
+    }
+    fn active_record(id:RecordId)->Value{
+        let mut row=Object::new();row.insert("id",id);row.insert("revision",0i64);row.insert("phase","active");row.insert("incarnation",1i64);row.insert("retired",false);row.insert("tombstone_revision",0i64);Value::Object(row)
+    }
+    async fn cleanup_fixture(client:&Surreal<Client>)->(ContentHash,CleanupHolds,Vec<RecordId>){
+        let attempt=fresh_identity("cleanup-nomination-control").unwrap();
+        begin_attempt_in(client,attempt,IssuanceEra::capture(client).await.unwrap()).await.unwrap();
+        let owner=RecordId::new("native_attempt",attempt.hex());
+        let roots=(0..2).map(|index|RecordId::new("native_guard",format!("cleanup_root_{}_{index}",attempt.hex()))).collect::<Vec<_>>();
+        ensure_rows(client,None,roots.iter().cloned().map(active_record).collect()).await.unwrap();
+        super::super::hold(client,Some(attempt),owner.clone(),roots.clone()).await.unwrap();
+        let mut bindings=Variables::new();bindings.insert("attempt",owner.clone());
+        effect(client,Some(attempt),"fn::native_touch($attempt); UPDATE $attempt SET state='closing',revision+=1 RETURN NONE",bindings).await.unwrap();
+        let cleanup=CleanupHolds::begin(client,TerminalAttempt{identity:attempt,epoch:1},vec![owner],true).await.unwrap();
+        (attempt,cleanup,roots)
+    }
+    async fn prepared_cleanup_page(client:&Surreal<Client>,attempt:ContentHash,cleanup:&CleanupHolds)->(RecordId,Variables){
+        let id=RecordId::new("native_cleanup",cleanup.identity.hex());
+        let owner=RecordId::new("native_attempt",attempt.hex());
+        let mut response=client.query("SELECT * FROM $cleanup; SELECT * FROM $owner").bind(("cleanup",id.clone())).bind(("owner",owner.clone())).await.unwrap().check().unwrap();
+        let rows:Vec<Object>=response.take(0).unwrap();let origins:Vec<Object>=response.take(1).unwrap();
+        let [row]=rows.as_slice()else{panic!("exact cleanup")};let [origin]=origins.as_slice()else{panic!("exact original owner")};
+        validate_cleanup_origin(row,origin).unwrap();
+        let expected=cleanup_owner_expectations(client,std::slice::from_ref(&owner)).await.unwrap().pop().unwrap();
+        let mut bindings=retirement::prepare_cleanup_nomination(client,&owner).await.unwrap();
+        bindings.insert("cleanup",id.clone());bindings.insert("owner",owner);bindings.insert("expected_owner",expected);bindings.insert("cleanup_observed",row.clone());bindings.insert("cleanup_origin",origin.clone());
+        (id,bindings)
+    }
+    async fn page_snapshot(client:&Surreal<Client>,attempt:ContentHash,job:&RecordId)->Vec<Vec<Object>>{
+        let mut response=client.query("SELECT * FROM $job; SELECT * FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job ORDER BY id; SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$owner ORDER BY object")
+            .bind(("job",job.clone())).bind(("owner",RecordId::new("native_attempt",attempt.hex()))).await.unwrap().check().unwrap();
+        (0..3).map(|index|response.take(index).unwrap()).collect()
+    }
+    async fn retire_owned(client:&Surreal<Client>,roots:Vec<RecordId>){
+        let mut progress=retirement::retire_reachable(client,roots,16).await.unwrap();
+        while !progress.remaining.is_empty(){assert!(progress.retained.is_empty(),"owned control roots remain held");progress=retirement::resume_retirement(client,progress.identity,16).await.unwrap();}
+    }
+    #[tokio::test(flavor="multi_thread")]
+    async fn cleanup_nomination_accepts_same_incarnation_revision_churn_and_independent_holder(){
+        let client=fixture_client().await;
+        let (attempt,cleanup,roots)=cleanup_fixture(&client).await;
+        let (id,bindings)=prepared_cleanup_page(&client,attempt,&cleanup).await;
+        let Some(Value::RecordId(job))=bindings.get("n09_job")else{panic!("bounded nomination job")};let job=job.clone();
+        let guard=guard_id(&Value::RecordId(roots[0].clone())).unwrap();
+        let mut response=client.query("SELECT * FROM $guard").bind(("guard",guard.clone())).await.unwrap().check().unwrap();
+        let before:Vec<Object>=response.take(0).unwrap();
+        // Real guarded hold insertion advances the shared physical revision. It is
+        // legitimate reuse of the same active incarnation, not an injected mutation.
+        let peer=RecordId::new("native_guard",format!("cleanup_peer_{}",attempt.hex()));
+        ensure_rows(&client,None,vec![active_record(peer.clone())]).await.unwrap();
+        super::super::hold(&client,None,peer.clone(),roots.clone()).await.unwrap();
+        let mut response=client.query("SELECT * FROM $guard").bind(("guard",guard)).await.unwrap().check().unwrap();
+        let after:Vec<Object>=response.take(0).unwrap();
+        assert_eq!(before[0].get("incarnation"),after[0].get("incarnation"));
+        assert!(authorization::int_field(&after[0],"revision").unwrap()>authorization::int_field(&before[0],"revision").unwrap());
+        effect_for_owner(&client,EffectOwner::Cleanup(id),&cleanup_step_sql(),bindings).await.unwrap();
+        let snapshot=page_snapshot(&client,attempt,&job).await;
+        assert_eq!(snapshot[0].len(),1);assert_eq!(snapshot[1].len(),2);assert!(snapshot[2].is_empty());
+        for item in &snapshot[1]{assert_eq!(item.get("incarnation"),before[0].get("incarnation"));}
+        let mut response=client.query("SELECT * FROM native_hold WITH INDEX owner_holds WHERE owner=$peer ORDER BY object; SELECT VALUE id FROM $roots")
+            .bind(("peer",peer.clone())).bind(("roots",roots.clone())).await.unwrap().check().unwrap();
+        assert_eq!(response.take::<Vec<Object>>(0).unwrap().len(),2);assert_eq!(response.take::<Vec<RecordId>>(1).unwrap().len(),2);
+        resume_cleanup(&client,cleanup.identity).await.unwrap();
+        close_attempt(&client,attempt,"abandoned").await.unwrap();
+        retire_owned(&client,vec![peer]).await;
+        let surrealdb::types::RecordIdKey::String(job_key)=&job.key else{panic!("retirement identity")};
+        let job_identity=ContentHash(hex::decode(job_key).unwrap().try_into().unwrap());
+        let settled=retirement::resume_retirement(&client,job_identity,16).await.unwrap();assert!(settled.remaining.is_empty());
+        client.invalidate().await.unwrap();
+    }
+    #[tokio::test(flavor="multi_thread")]
+    async fn cleanup_nomination_refuses_changed_phase_incarnation_and_hold_page_atomically(){
+        let client=fixture_client().await;
+        for defect in ["incarnation","phase","retired","missing","hold_page"]{
+            let (attempt,cleanup,roots)=cleanup_fixture(&client).await;
+            let (id,bindings)=prepared_cleanup_page(&client,attempt,&cleanup).await;
+            let Some(Value::RecordId(job))=bindings.get("n09_job")else{panic!("bounded nomination job")};let job=job.clone();
+            let Some(Value::Array(holds))=bindings.get("n09_holds")else{panic!("exact held roots")};
+            let Value::Object(last)=holds.last().unwrap()else{panic!("last incoming hold")};
+            let Some(Value::RecordId(root))=last.get("object")else{panic!("last root")};
+            let root=root.clone();
+            let guard=guard_id(&Value::RecordId(root.clone())).unwrap();
+            let mut response=client.query("SELECT * FROM $guard").bind(("guard",guard.clone())).await.unwrap().check().unwrap();
+            let original:Vec<Object>=response.take(0).unwrap();let [original]=original.as_slice()else{panic!("actual guard")};
+            let mut vars=Variables::new();vars.insert("guard",guard.clone());vars.insert("hold",last.clone());
+            // Explicit qualification mutations are confined to these fresh owned
+            // records, after production preparation; they model forbidden stale premises.
+            let sql=match defect{
+                "incarnation"=>"UPDATE $guard SET incarnation+=1,revision+=1 RETURN NONE",
+                "phase"=>"UPDATE $guard SET phase='retiring',revision+=1 RETURN NONE",
+                "retired"=>"UPDATE $guard SET retired=true,revision+=1 RETURN NONE",
+                "missing"=>"DELETE $guard RETURN NONE",
+                _=>"fn::native_incidence($hold); DELETE $hold.id RETURN NONE",
+            };
+            effect(&client,None,sql,vars).await.unwrap();
+            let before=page_snapshot(&client,attempt,&job).await;
+            assert!(before[0].is_empty()&&before[1].is_empty());
+            let error=effect_for_owner(&client,EffectOwner::Cleanup(id),&cleanup_step_sql(),bindings).await.unwrap_err();
+            let expected=if defect=="hold_page"{"native cleanup prepared hold page changed"}else{"native cleanup nominated incarnation changed"};
+            assert!(error.to_string().contains(expected),"{defect}: {error}");
+            assert_eq!(page_snapshot(&client,attempt,&job).await,before,"{defect}: late refusal must roll back all nominations and hold deletions");
+            let mut vars=Variables::new();vars.insert("guard",guard);vars.insert("physical",original.clone());
+            client.query("UPSERT $guard CONTENT $physical RETURN NONE").bind(vars).await.unwrap().check().unwrap();
+            if defect=="hold_page"{super::super::hold(&client,None,RecordId::new("native_attempt",attempt.hex()),vec![root.clone()]).await.unwrap();}
+            resume_cleanup(&client,cleanup.identity).await.unwrap();
+            close_attempt(&client,attempt,"abandoned").await.unwrap();
+            retire_owned(&client,roots).await;
+        }
+        client.invalidate().await.unwrap();
+    }
     #[test]
     fn successor_cleanup_retains_original_terminal_owner_epoch_and_generation(){
         let id=RecordId::new("native_attempt","original");let generation=ContentHash::of(b"same installation").hex();let mut origin=Object::new();origin.insert("id",id.clone());origin.insert("generation",generation.clone());origin.insert("epoch",17i64);origin.insert("era",3i64);origin.insert("state","abandoned");origin.insert("admitted",false);
