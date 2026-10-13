@@ -235,21 +235,33 @@ bans. No required finding is closed by a conditional avenue's justified rejectio
 
 ## 6. Sole disposition and execution checkpoint
 
-**2026-10-12: consolidated plans authored; production remediation not started.** Next executable
-scope after execution authorization is CP00's consumer/physical contract and bounded IF04 assessment,
-then CP01/CP02 and CP03 primitives with CP04 integration. CU01/CU04 are independent ready branches.
-The foundations committed at `7d84ce14` remain the baseline; no new product check or campaign ran
-while authoring. Accepted target does not close any implementation finding.
+**2026-10-13: CP00–CP04 substantially source-integrated; runtime and cold-alias gaps remain open.** Work is
+on shared main over `f9828825`; no auxiliary worktree was created. The completion companion records
+schema7/physical v2, direct canonical membership, operation-owned contribution preparations and
+per-selector alias eligibility. Semantic format4/v4 identity stays unchanged. CU01/CU03 physical
+codec/export seams and affected OP01/OP02 diagnostics/generated assets migrate with this source.
+This does not close full CU01/CU02/CU04, CE02 selected-state regeneration, CE03 older-track
+reconciliation or whole-plan acceptance. Shared/operator and old paused targets remain untouched.
+
+Independent implementation review found selector-crossing alias witnesses, partially committed
+receiving attachment, and abandoned retained-boundary pin release. Corrections are source-reviewed:
+alias edges carry selector eligibility; full attachment prevalidation precedes one receiving CAS;
+retained construction/Drop/failed reader close preserve Unknown. Product replay rechecks and reuses
+its original exact compound boundary under a per-request gate instead of minting another parent
+after unrelated source incidence changes. Controls inspect actual contributor holds and concurrent
+replay. Runtime evidence remains separate. IF04 retains conservative typed recapture: no complete
+simpler specialization was established; sustained replay is the explicit revisit trigger, not an
+asserted timeout cause.
 
 | Source-qualified finding | Current disposition and responsible route | Closure/evidence boundary |
 |---|---|---|
-| catalog#F01 | Open; CP01/CP02/CP04 | Internal views stop full reconstruction; exact final union independently checked; actual CE01 journey |
-| catalog#F02 | Open; CP00/CP04 | Earned protected internal selection, complete retained/cold/physical-consumer migration and removed needless lifecycles |
-| catalog#F03 | Open; CP03/CP04 | Actual bounded set windows for remaining demand, exact correspondence and receiving CAS/finality |
-| catalog#F04 | Open; CP03 | Prepared directed frontier, composed exact aliases, unreachable-source refusal and spill |
+| catalog#F01 | Implemented/source-reviewed; focused acceptance pending; CP01/CP02/CP04 | Internal views stop full reconstruction; exact final union independently checked; actual CE01 journey |
+| catalog#F02 | Internal source route reviewed; native reuse/attachment equivalence, portable-alias incidence and acceptance open; CP00/CP04 | Earned protected internal selection, complete retained/cold/physical-consumer migration and removed needless lifecycles |
+| catalog#F03 | Implemented bounded windows; full inventory-demand source-reviewed/actual controls pending; CP03/CP04 | Actual bounded set windows for remaining demand, exact correspondence and receiving CAS/finality |
+| catalog#F04 | Directed selection implemented; 25 pure controls passed2026-10-13; cross-boundary equivalence and enclosing native acceptance open; CP03/CP04 | Prepared directed frontier, composed exact aliases, unreachable-source refusal, spill and safe reuse |
 | catalog#F05 | Open; CU01 | Former deferral trigger activated by combined planning; selected dump preparation and independent restoration |
 | catalog#F06 | Open; CU02 | Former deferral trigger activated; exact input-port partition positions and independent checker topology |
-| catalog#F07 | Open; CU03 | Former deferral trigger activated; direct logical fold, frozen export once, actual independent destination admission |
+| catalog#F07 | Direct identity/frozen export implemented in CP04; independent transport acceptance pending; CU03 | Former deferral trigger activated; direct logical fold, frozen export once, actual independent destination admission |
 | catalog#F08 | Open, low priority; CU04 | Former deferral trigger activated; immutable checked Spec, one Rust response, pure adapter parity; required before CE03 |
 | lifecycle#F01 | Open, implementation/source evidence available; CP04/CE01 | Populated generated-analysis/admitted-publication/native-query assertions remain not_run |
 | lifecycle#F02 | Closed at source/focused-Tested strength, inherited 2026-10-12; CP03 preserves it | Existing actual originals/audit, exact-view and late-terminal controls; not proof all catalog#F03 scalar sites migrated |
@@ -257,12 +269,12 @@ while authoring. Accepted target does not close any implementation finding.
 | lifecycle#F04 | Closed at source/focused-Tested strength, inherited 2026-10-12; OP01 preserves/adapts | Actual writer/host diagnostic round trips; failure/Unknown/disposal independent |
 | lifecycle#F05 | Closed for conservative recapture, inherited 2026-10-12; CP00 preserves | Equal-peer/replay/mutation/ABA/retirement/cancellation controls; continuous replay is separate IF04 |
 | foundations#IF01 / IF02 / IF03 | Closed at inherited source/focused-control strength; OP02 | Authenticated disposal receipt/executor, private installer/unit retirement, configured namespace inventory; actual checked disposal supports scope |
-| foundations-follow-up#IF04 | Bounded decision required in CP00; conservative safety retained | Transaction-local exact replay specialization only if all exclusion/incidence/new-hold premises survive. Otherwise supported keep-conservative result with continuous-replay revisit trigger; not asserted timeout cause |
-| foundations-follow-up#IF05 / IF07 | Implemented/source-accepted; runtime enclosing acceptance pending; CP02/CP04/CE01 | Corrected temporary/retained descriptor accounting; 64 MiB receiver body passed, original enclosing fixture failed/Unknown. Facts semantics still unreached |
+| foundations-follow-up#IF04 | CP00 source decision complete2026-10-13: retain conservative typed recapture | Transaction-local exact replay specialization only if all exclusion/incidence/new-hold premises survive. Otherwise supported keep-conservative result with continuous-replay revisit trigger; not asserted timeout cause |
+| foundations-follow-up#IF05 / IF07 | Implemented/source-accepted; runtime enclosing acceptance pending; CP02/CP04/CE01 | Corrected temporary/retained descriptor accounting; 64 MiB receiver body passed, original enclosing fixture failed/Unknown. Both profile-availability/memo and failed-replacement preservation assertions reached; full facts availability/refusal and enclosing cleanup passed in0e9394; populated Catalog composition remains open |
 | foundations-follow-up#IF06 | Closed at inherited source/focused-control strength; OP01 | Borrowed server observation authenticates original executable owner; no new release authority |
 | foundations-follow-up#IF08 | Closed at inherited source/focused-control strength; OP02 | Durable token journal, authenticated restoration and actual beta SIGTERM recovery; disposal separate |
 | foundations-follow-up#IF09 | Closed at inherited source/focused-control/checked-disposal strength; OP02 | Bounded journaled logical children and authenticated whole-executor discard; original failed outcomes preserved |
-| completion#IF10 | Partial bounded fragment correction; full target revised, open through catalog#F01/F02/F03 | Existing fragment and exact-set alias preparation accepted; fresh all-family sort/hash and per-view native demand still remain |
+| completion#IF10 | Native target source-integrated; cold-alias gap and focused acceptance open through catalog#F01/F02/F03 | Reusable canonical ordered runs, exact final logical union and independently necessary physical boundaries; actual current-source composition remains required |
 
 Follow-up evidence owners are the
 [foundation review](../design_review/reviews/design_review_surrealdb-lifecycle-foundations-integrated_2026-10-12.md)
@@ -271,6 +283,152 @@ The foundations review introduces IF04/IF05/IF08 and records the root/resume IF0
 IF07/IF09 follow-ups. The completion review refines IF05/IF07 and introduces IF10. Labels above
 preserve that provenance without inventing additional review findings. CP00's new decision does not
 erase the original limited acceptance.
+
+### Current CP00–CP04 receipts, 2026-10-13
+
+Managed run IDs retain the exact command, output and independent local cleanup outcome. Current
+checks use release, normal available parallelism and unchanged test bounds. Source review is not
+runtime qualification.
+
+- **Passed compile:** `20261013T040435.425Z-7ae3dd` checks compiler-store, cpg-core, publisher and
+  serving; `20261013T043006.925Z-1c07bb` checks cpg-core/publisher/serving test targets after affected
+  consumer migration. Current native test compile initially failed on an obsolete selector-record
+  test call (`20261013T042537.646Z-a3449b`); correction is being verified.
+- **Passed current CLI build:** `20261013T041034.593Z-7103d7`; subsequent schema index correction
+  replacement `20261013T042716.197Z-b92741` passed after the schema index correction.
+  **Passed owned installation:** `20261013T043952.231Z-e72383`, fresh target
+  `c7f9cd78-b6bf-4063-b2a1-53490eb52c36`, schema7; this target was subsequently checked-disposed.
+- **Passed host seams:** `20261013T043158.513Z-f0ecc0`, 33 selected service/development controls for
+  schema, installer handoff, independent inspection outcomes and worker provenance; local cleanup
+  confirmed. **Passed CP01 ordered/registered-worker:** `20261013T042638.616Z-2fc789`, 36 tests,
+  cleanup confirmed. **Passed generator:** `20261013T042716.377Z-b56804`; post-generation worker
+  rebuild/freshness and focused tool controls are in progress.
+- **Passed pure selector correction:** CP03's `cargo nextest run --release -p lctx-native --lib
+  -E 'test(alias_topology::tests) | test(selection::tests)'`, 25 passed, run
+  `8130f56e-f145-446a-8009-999bb8f9f562`. Both cross-selector witness/chain regressions were included;
+  this is not native persistence evidence.
+- **Passed current native pure foundations:** `cargo nextest run --release -p lctx-native --lib
+  -E 'test(compound_controls) | test(parent_hold_controls) | test(family_dependency_controls) |
+  test(shared_preparation_controls) | test(installed_view::earned::tests) | test(retained_pin_controls)'`,
+  9 passed, run `ff6d9108-b587-4310-aadd-7e7d69d8ff30`. Covers final inventory/factory source and
+  retained-pin construction/Drop; native persistence controls remain separate.
+- **Passed actual index inspection:** `20261013T044240.874Z-9dac0e`, installed contribution_rows
+  and contribution_nodes definitions and plain EXPLAIN IndexScan selection. No workload timing.
+  **Blocked sample setup:** `20261013T044240.388Z-e6dc84`, exit75, stale embedded worker assets
+  immediately after generation; repair is the queued worker rebuild before sample retry. No test
+  report or native body pass follows from setup refusal.
+- **Failed owned installation:** `20261013T042421.157Z-17673e`, new target
+  `dfea362f-f911-462b-835f-1b9be8bf579a`, schema7 index declaration refused implicit `id`. New
+  completion indexes now use declared compound fields; query EOF/id correspondence is retained.
+  **Passed checked disposal:** `20261013T042706.728Z-062dea` confirmed exact executor shutdown,
+  datastore/attachment/installer/unit/storage/credential disposal. Original init Unknown remains
+  unchanged. The shared target was not a fallback.
+- **Initial checkpoint not_run, superseded by integration receipts below:** native attachment/
+  retention/window/cold controls, generated-definition readback, Catalog generated analysis/
+  admission/unselected publication/linked query/evidence/original bytes and facts availability.
+  Broad quality, full qualification,
+  real-library, embedding and MCP runtime remain excluded from this authorized slice.
+
+### Current integration corrections and rerun boundary
+
+The first actual native contract run `20261013T044049.896Z-74e929` ran19 controls:15 passed and4
+failed; enclosing fixture failed/retained native Unknown. The six actual successes include bounded
+record/guard/hold windows, stale-CAS refusal, exact alias/sparse absence, dependency hold refusal and
+source-abandon-before-read lifetime. The failures exposed legitimate retained source revision zero,
+an unnecessary64MiB aggregate-freeze demand in the8MiB live-attachment control, and nested shared
+cause matching in acknowledged cleanup. These were corrected without increasing budgets. Retry
+`20261013T045416.286Z-49dd08` passed3/4 (both retention cases and empty refusal), then actual
+attachment exposed SurrealDB's FOR UPDATE target-expression restriction. Simple RecordId LET
+lowering now preserves the same single atomic receiving effect; final actual rerun is pending.
+
+The first composition runs did not pass: Catalog `20261013T044704.012Z-13b897` completed providers,
+entity and relation normalization, then timed out at callable normalization under its unchanged360s
+allowance. Analysis/publication/native-query assertions were not_run. Facts
+`20261013T044704.460Z-0cb928` reached initial Catalog availability/memo/profile-refusal assertions,
+then timed out during the second Behavioral availability audit; later mutation/corruption assertions
+remain unproven. Cold `20261013T044704.926Z-d096e1` reached source admission and freeze, then refused
+cross-pool audit reuse at export before independent destination assertions. Source-led corrections
+batch semantic declaration effects and share phase-local physical observations; separately budgeted
+explicit boundaries now earn fresh audits rather than consume foreign cached preparations. These
+changes are independently source-reviewed. No elapsed-time ratio or dominant-cost claim is made.
+
+Current affected test-target compilation `20261013T050649.323Z-adb07e` and final CLI build
+`20261013T050945.007Z-0fdcde` passed. The broad-target no-run build
+`20261013T050945.223Z-72eb87` was cancelled while queued, cleanup confirmed, replaced by explicitly
+selected integration targets `20261013T051017.945Z-3c625e`; this is not a test failure or pass.
+
+Fresh owned schema7 installation `20261013T051505.993Z-5562bb` passed for campaign
+`3966ee5b-70cc-4460-8039-04c6138ab26f`. Native correction run
+`20261013T052042.405Z-f7bf35` ran21 controls:20 passed, including actual atomic attachment,
+retained product replay and native windows;1 failed. The added maximum projection control
+`projection_backing_preserves_typed_keys_payloads_and_cold_state` failed before ingestion at
+`write_batch`: complete expanded request60,891,911 bytes exceeded the unchanged8,388,608-byte
+limit. The maximum chunk and request-limit mismatch also exists in the baseline; this is an open
+native transfer/CU03 investigation, not a successful cold transport. Its payload and assertion
+remain intact. A separate small binary-payload control tests the8MiB scan→256MiB independent
+finalization/export/import boundary; its result cannot qualify the maximum-size case. Local
+process cleanup was confirmed; fixture attachment `42400cbf-07ac-4443-88ef-4ecde395dd5d` retains
+native Unknown until checked owned-target disposal. No shared target is borrowed as fallback.
+
+Current touched native/compiler/CLI test-target compilation
+`20261013T052718.876Z-66296e` passed before the final packet-accounting refinements. Independent
+review accepted the semantic declaration writer's lazy charged inputs, byte/count windows and
+separate retained descriptor/raw-record reservations. Final compound-child writes now split against
+complete prepared requests, including native authorization and object expectations, with
+serialization admission preceding allocation. Independent review also exposed and accepted the
+correction for a large-child/tiny-tail refusal: the writer holds preparation workspace while accepting
+children and reuses it during flush, including across split siblings. Shared pure authorization lowering
+preserves the original request/intent/outcome route; preflighted requests execute unchanged. The
+complete-inventory final CAS and independently necessary contributor holds remain required.
+Selected test-target build `20261013T055548.743Z-d154d5` passed; it predates final headroom source.
+The next native run `20261013T055859.733Z-a2db5c` ran49 controls:48 passed, including final
+packet/headroom controls; the small projection case failed at destination `completed_state` because
+import does not freeze its receiving attempt. The control now explicitly freezes that destination;
+source export/finalization and byte round trip are not inferred from the earlier failure. Facts
+`20261013T055859.714Z-1abb91` passed both profile-availability and memo assertions, then its manually
+constructed invalid fixture stopped at a missing `uniform_not_requested` binding before the intended
+undeclared-producer refusal. The fixture now declares that required tenth input empty, retaining both
+original refusal assertions. This prerequisite already existed in the baseline.
+
+Cold `20261013T055859.718Z-40d526` failed at export under the unchanged256MiB budget: repeated
+per-view closure observations retained full native rows and typed descriptors. Catalog
+`20261013T055859.709Z-10575f` timed out during callable-aspect normalization after entity, relation,
+callable and receiver normalization completed. Analysis/admission/publication/query assertions were
+not_run. All four local workers drained; their native attachments retained Unknown. Source inspection
+found the same repeated metadata/dependency discovery preceding the already reusable contributor
+preparation; no elapsed-time attribution or ratio is claimed.
+
+Corrections are source-integrated and independently reviewed: exact charged physical observations
+and typed descriptors are shared within a fresh boundary phase; operation-owned internal selections
+reuse metadata only after actual exact receiving CAS under the operation's pin/context. Each selector
+still independently validates its traversal, mappings, membership and alias closure. Required-edge
+reuse relies on protected immutable endpoints and retirement's incoming-hold exclusion. Independent
+boundary phases start empty. Reader setup deduplicates opaque contributor capabilities before any
+effect, refuses conflicting bytes/incarnations, receives count/complete-byte bounded exact CAS pages,
+and checks the union's current context, rows and source holds. Retained classes preserve their own
+parent/selector/admission/publication checks. Providers use their already held exact capability,
+correlated with the store registry, and freshly check current authority before every delayed scan;
+consumer pool charges remain distinct from the source's original charges. Terminal recovery uses one
+fresh inspection phase and the same independently earned prepared membership recipe, with unique
+charged retained descriptors. The obsolete production membership-rescan helper is removed.
+
+Touched test-target compile `20261013T064546.960Z-0c618b` failed on one missed private import-scan
+argument; corrected compile `20261013T064832.970Z-65250f` passed. CLI build
+`20261013T065203.536Z-6d1386` passed. Checked disposal `20261013T065203.537Z-02cd5a` passed
+exact executor/datastore/attachment/installer/unit/storage/credential disposal for campaign
+`3966ee5b-70cc-4460-8039-04c6138ab26f`; logical drain remained failed. Original Unknown and failed
+outcomes are unchanged. Those original native outcomes are preserved; latest reruns use the separately owned r4 generation
+recorded below. Shared/operator and old paused targets remain untouched.
+
+Generated freshness `20261013T044054.292Z-56dda9` and six worker controls
+`20261013T044755.261Z-95b1f3` passed. Rebuilt sample retry `20261013T045024.659Z-2ca717`, nested
+worker `20261013T045025.642Z-bd80eb`, passed1 suite/6 cases with report capture, child cleanup and
+credential cleanup passed; remote certainty stayed unknown until checked target disposal.
+`20261013T050944.793Z-ebdb98` passed exact executor/datastore/attachment/installer/unit/storage/
+credential disposal of `c7f9cd78-b6bf-4063-b2a1-53490eb52c36`; failed logical native drain remains
+failed, and original native outcomes stay unchanged. Current reruns use a newly owned generation,
+not shared/operator state. New cited managed receipts/logs retain
+`citation:catalog-execution-patterns-target`; release only after the last current citation retires.
 
 ### Inherited receipts and their limits
 
@@ -328,3 +486,431 @@ implementation, generated-analysis acceptance or whole-product quality.
   repairs remain outside scope; no accepted predecessor body or checker was rewritten to pass.
 - **Not_run:** product/runtime checks and broad repository-quality validation, by the authoring scope
   and operator boundary above. End-of-turn housekeeping is scoped to this document slice.
+
+### Latest focused continuation, 2026-10-13
+
+Corrected CLI build `20261013T065203.536Z-6d1386` and selected test-target no-run build
+`20261013T065834.052Z-0d14c6` passed. Owned schema7 installation
+`20261013T065833.880Z-9404b9` passed for campaign `69560696-1e27-4474-82c3-10481831c3fa`
+(`catalog-cp00-04-20261013-r4`); exact disposal remains required after workers drain.
+
+Facts availability `20261013T070050.432Z-0e9394` **passed**, including both profiles, memo reuse,
+failed-replacement preservation, repeated undeclared-producer refusal and enclosing fixture cleanup;
+local cleanup confirmed07:07:42UTC/no survivors. Command: `just fixture -- cargo nextest run --release
+--locked -p cpg-core --test facts_admission -E
+'test(=availability_reuses_exact_admission_and_refuses_changed_invalid_membership)'` on that owned
+campaign. This does not close generated-analysis composition.
+
+Native run `20261013T070050.327Z-936df9` ran56 controls:52 body passed,4 failed; enclosing fixture
+failed/native Unknown attachment `3f40a574-6997-4865-8dca-08b088b0844a`. Corrections preserve the
+contracts: pure detached pin control now owns a Tokio runtime; corruption injected outside the native
+protocol is independently reselected under a fresh audit; guard-revision replay starts after required
+first metadata pins; diagnostic backing reads use their actual caller budget and close their reader.
+Independent review accepted the two fixture adaptations without weakening production checks.
+
+Cold `20261013T070050.374Z-316821` passed export under the unchanged256MiB budget and destination
+import, then failed restored facts acquisition at an omitted contributor→canonical-endpoint hold.
+Original restored equivalence assertions were not reached. Attachment
+`818f0e23-3af2-4205-a379-76b244dc96fb` retains native Unknown. Import now reconstructs exact endpoints
+through the same charged canonical payload validator as native assurance and installs fresh contributor
+ownership in bounded windows; current verification is pending.
+
+Catalog `20261013T070050.286Z-e9d612` timed out during projection normalization under unchanged360s;
+providers, entity/relation/callable/receiver/callable-aspect/event/binding normalization completed.
+Generated analysis/admission/publication/query assertions remain not_run. Local cleanup confirmed
+07:11:44UTC/no survivors; native Unknown attachment `def8e03f-9d65-4eb7-bf21-93685adde019` is protected.
+Independent source diagnosis found fresh metadata discovery repeated across every view in retained
+and final physical-boundary inventories. Both now share one phase-local reader/charged observation
+map, preserving each actual domain traversal, exact mappings and independent boundary assurance.
+Touched native/compiler/publisher test compile `20261013T072235.374Z-e979dd` passed after endpoint
+validator extraction and phase reuse; later native-window corrections need their own verification.
+
+**New open CP04/CU03 obligation:** portable aliases carry only union rows and lose contributor→alias
+incidence. Reconstructing ownership from a shared source, or unioning differing equivalent physical
+copies, can widen selector eligibility. Nonempty alias import now explicitly refuses instead of creating
+the wrong source→alias edge. Exact transport needs an independently bound owner-incidence carrier
+and an explicit physical-envelope format, or a revised semantic identity. A self-declared carrier digest
+cannot establish the independently expected v4 identity; identical logical contributors with differing
+physical alias incidence must not silently merge. Keep v4 semantic roots unchanged pending that
+bounded decision; no full cold-alias closure or full CP04 completion is claimed. Selected dump/backup
+must preserve the same incidence independently. Native selector/alias behavior is separate from this
+portable-state gap. Maximum opaque-chunk ingress remains its separately recorded open investigation.
+
+Final fresh-window source and parent→contributor exact hold pages received independent static review
+with no concrete blocker. Fresh phases now batch all selected physical/view observations across the
+complete inventory, including empty dependency views, and heterogeneous required holds. Parent-copy
+pages retain original frozen/live guards and full completed-row/incarnation checks before any page
+hold, split by actual prepared request bytes, and leave final child inventory EOF/parent CAS intact.
+Selected no-run build `20261013T072342.364Z-cfbd85` and touched test compile
+`20261013T072635.926Z-fd1e2c` passed; they predate the final parent-copy page edit.
+
+Current native `20261013T073145.486Z-a6f7fa` and Catalog `20261013T073145.809Z-eb4d45` are running
+against the final source. Cold `20261013T073145.648Z-d9fda3` reached restored facts equivalence,
+exact completed descriptors and exact binding inventory, then failed at frozen-state identity because
+the destination was still mutable. Its fixture now explicitly freezes the independently imported
+destination before that existing assertion; no equivalence assertion was removed. Retry
+`20261013T073749.661Z-6afac1` is running. Original failed body/fixture remains failed; native Unknown
+attachment `2e4be72b-6b53-42cd-8694-fd69b0ba2c07` is retained until checked whole-target disposal.
+The alias transport identity choice was presented to the operator; it does not block these independent
+functional checks. No completed CP04 or full-plan claim follows from the interim refusal.
+
+Native `20261013T073145.486Z-a6f7fa` ran56 controls:55 body passed,1 failed; final fresh observation,
+receiving and parent-copy page implementations compiled and exercised. Enclosing fixture remains
+failed/native Unknown attachment `b1201ba7-a7b1-4411-acbf-8b28f20b7a2f`. Remaining failure was the
+privileged corruption fixture's restoration comparing entire native guards after a fresh incoming pin
+legitimately changed revision. Restoration now checks the exact edge and endpoint active phase,
+incarnation and retirement fields; ordinary guard revision may change. The exact missing-hold refusal,
+restored reselection and both audit closures remain. Only that changed case is rerunning in
+`20261013T074327.059Z-0c6cc1`; earlier failed outcomes are unchanged.
+
+Focused corrected retry `20261013T074827.694Z-c6df84` **passed2/2 plus enclosing fixture cleanup**,
+nextest `7578ab7a-e550-4576-b930-61a730905222`, local cleanup confirmed07:49:17UTC/no survivors.
+The exact shared-dependency refusal/repair uses `ModelError::primary` to preserve the shared worker
+failure wrapper. Cold admission/transport/frozen identity and every original descriptor/binding/view
+comparison passed under unchanged256MiB. Its invalid-header subcase now owns only the actual native
+ingress component, not an unused semantic workspace whose started owner receipt was never drained.
+Previous cold retry `20261013T073749.661Z-6afac1` passed the full body but failed enclosing fixture
+cleanup; native Unknown `43b3aa3d-a063-465b-8b35-90ae72f16d63` remains original evidence. Previous
+single-case `20261013T074327.059Z-0c6cc1` restored the edge and rejected correctly but failed its
+unwrapped-error pattern; no production check changed for the successful retry.
+
+Catalog `20261013T073145.809Z-eb4d45` **timed out** under unchanged360s, nextest
+`e9cb5a60-f6d0-4ec3-a812-5028cc429d29`. All normalization and normalized admission completed;
+analysis configuration stages completed, then analysis native inventory ingress was cancelled.
+Admission/unselected publication/native queries/evidence/original-byte assertions remain not_run.
+Local cleanup confirmed07:50:42UTC/no survivors; native Unknown
+`27303c6d-0078-470e-9484-fb9fc45ea0fb` is protected. Current-phase source diagnosis precedes another
+retry; this is not a design-speed ratio or a reason to raise bounds. Owned r4 checked disposal is
+running in `20261013T075307.026Z-55f7a2` after all root functional workers drained. Exact native
+executor/target disposal, logical drainage and original failed outcomes remain separate.
+
+Checked r4 disposal `20261013T075307.026Z-55f7a2` **passed** exact whole-executor/target disposal;
+its logical native drain remained failed. Original Unknown receipts and failed runs are unchanged;
+confirmed executor discard settles only that owned target's remote obligations. Fresh r5 schema7
+installation `20261013T075951.598Z-fee2f7` passed; exact identity is in its managed installation receipt.
+No shared/operator/old paused state was used.
+
+Latest source diagnosis located repeated whole-closure record/guard/hold reads in same-store cached
+view acquisition, provider execution and sparse member access before normalized/analysis consumers.
+These now borrow actual immutable opaque premises beneath their real live pin and check current
+installation generation/validity; independent receiving/full assurance remains unchanged. Product
+absence discovery no longer allocates a receiving pin merely to return no reuse. Touched test compile
+`20261013T075753.758Z-4b9ed9` passed before final replay/budget edits. Focused combined functional run
+`20261013T080134.180Z-c2a406` is building/running on r5 with the same selected native controls plus
+exact empty/source-close, facts availability, cold and Catalog composition controls. This consolidates
+one dependency-feature build and keeps normal parallelism and unchanged budgets/deadlines; it does
+not broaden into unfiltered families. Previous independent static reviews support the earlier window/
+retention/import changes; independent review of the newest borrowing seam was unavailable because
+reviewer model capacity rejected the attempts. Root source reasoning and runtime outcomes remain
+explicitly distinct from independent acceptance.
+
+R5 is `aa85313a-5a40-4a51-a395-59b427eb2b68`, schema7, exclusively owned. Combined
+`20261013T080134.180Z-c2a406` compiled and ran64 selected controls: **63 body passed,1 Catalog timed
+out**, nextest `b0717956-66ae-46f6-96f7-2ed3c3768170`. Facts availability/refusal, cold identity/
+admission, provider/cache and exact empty/reader-source lifetime controls passed. The added actual
+borrow check passed while the source was live and refused after source close; separately receiving
+readers still returned exact bytes. No nonempty-alias transport claim follows. Local cleanup confirmed
+08:12:41UTC/no survivors; enclosing fixture failed/native Unknown
+`2d437603-6f2a-48ac-9c5a-47a271657508`. Catalog again completed normalization/normalized admission
+and reached analysis native inventory before cancellation; there is no performance-ratio attribution.
+
+Source-level reductions in repeated metadata work are supported by these controls, but do not establish
+the remaining timeout's dominant cause. Existing phase observations now additionally name actual
+retained-product finalization and semantic-reference validation; selected invariant names are diagnostics,
+not admission receipts. Compile `20261013T081755.940Z-f06916` passed. One Catalog-only diagnostic
+retry `20261013T081814.039Z-499814` is running with the same dependency feature selection and
+unchanged bounds; no other passed control is repeated without a code change. R5 disposal waits for
+that worker and native executor drainage. Independent source acceptance of newest borrowing remains
+not_run because reviewer model-capacity failures prevented that assignment; root reasoning plus
+focused controls do not claim an independent review occurred.
+
+Catalog attribution `20261013T081814.039Z-499814` **timed out** under the unchanged allowance;
+nextest `e10b3db5-44be-42d0-9737-49178fd7d679`, native Unknown
+`150003df-58bd-4fea-86f1-f93d806b5cc0`. Retained-product finalization occupied much of later
+normalization phases; semantic-reference validation was a smaller separate observed interval.
+Analysis native inventory reached its retention work before cancellation. These observations localize
+work; they do not measure a comparative design ratio. Mapping discovery, selection assurance,
+family union, child installation and inventory receiving now have coarse existing-owner phases to
+separate that remaining work. No diagnostic emits an admission capability or hides failed finality.
+
+Source inspection also found discarded already-validated selector member runs followed by native
+membership/guard rereads for each sparse demand. Earned selectors now retain that private exact run
+and a bounded point index beneath their actual source pin; typed results preserve selector, relation,
+key, content and envelope correspondence. The existing ordered-run point cursor exposes one borrowed
+decoded row, with original source ownership and independently charged consumer workspace. Retained/
+independent native paths keep their previous full reads. Compile
+`20261013T084442.421Z-9101a5` passed. Combined affected runtime/pure controls plus two revealing
+memory/spill/exact-member controls are running in `20261013T084546.000Z-865dc5` on the same owned
+r5 target; no budgets or deadlines changed. Independent fallback source review accepted these exact source seams on2026-10-13;
+configured reviewer capacity was unavailable, so the coordinator model was used in a fresh context.
+The reviewer ran no builds/services/tests and made no runtime or measured-performance claim. R5 remains owned and must be checked-disposed
+after this run and native executor drainage; no shared state or historical data is discarded.
+
+
+Prepared-member combined run `20261013T084546.000Z-865dc5` compiled and ran66 selected controls:
+**65 body passed,1 Catalog timed out**, nextest `1124ed60-8a72-4f12-8132-bb77ead34b8b`.
+The memory/spill point lookup, exact member envelope, source-close, cold admission and facts controls
+passed. Local cleanup confirmed08:57:34UTC/no survivors; enclosing fixture failed/native Unknown
+attachment `78dff7f6-cb88-40ea-8a31-36a82cb1d7b9` remains protected on owned r5.
+Fine phases localize later normalization retention's dominant observed interval to canonical family
+union (about21s within26–27s retention), rather than child installation or inventory receiving
+(each below1s there). This is a single-run diagnostic, not a comparative benchmark claim.
+
+Source inspection found the same protected contributor fragments entering the union once per
+cumulative selector, and the same dependency view normalized repeatedly. All exact descriptor,
+incarnation and view contradictions still reconcile first; family composition now adds each exact
+physical contributor once and lowers each reconciled view once. Per-selector independent assurance,
+complete family dependencies, canonical conflict/EOF checks and flatv4 hashing remain unchanged.
+Compile `20261013T085913.185Z-bd8847` passed. An overlapping17-selector control compares all six
+roots with independently reconstructed native cold roots. Catalog and family-dependency controls are running in `20261013T090002.628Z-055d40`, with unchanged
+allowances and normal parallelism. Its exact-name filter does not select the namespaced late-terminal
+control; that corrected uncached overlap test and literal identity controls still require their own
+focused invocation. Independent follow-up source review accepted the reduction and identified the
+previously warmed overlap assertion; the assertion now precedes the first successful scoped fold.
+The reviewer ran no tests/builds/services. Original failed receipts remain failed.
+
+
+Family-input reduction Catalog retry `20261013T090002.628Z-055d40` compiled and ran2 controls:
+family-dependency control passed; Catalog timed out, nextest `72eed9f1-e747-4136-b382-20618882e6b8`.
+Local cleanup confirmed09:09:52UTC/no survivors; native Unknown attachment
+`0e1c52df-348b-4696-ae8f-088671ad9642` remains protected on r5. Fine family-union intervals were
+small after input reduction; the journey progressed through further analysis and reached Catalog
+evidence generation. This supports the diagnosed removed work, not a whole-journey speed or
+comparative performance claim. Current normalized admission and later selection assurance remain
+material intervals; admission/publication/queries are still not_run.
+
+Corrected uncached overlap and literal v4 identity control `20261013T091030.105Z-f09622` **passed2/2
+plus enclosing fixture**, nextest `6df38616-6be2-4aaa-9990-3abdeee9b241`, local cleanup confirmed/no
+survivors. Build-only preparation `20261013T090530.065Z-bc8a8a` passed; the earlier retry's namespaced
+exact filter did not select this control and is not its evidence.
+
+The maximum projection ingress failure is a unit mismatch: `plan_bytes` estimates resident/native/
+JSON coexistence (about60.9MB for the1MiB opaque chunk), not gRPC message length. The same native
+protobuf encoder carries Bytes directly. Source now keeps that original workspace estimate for
+resource admission and uses a separate complete QueryRequest encoded-length bound for transfer
+preflight. The bound includes maximum-width native request context/batch fields and both final
+payload and final intent before any remote intent. Canonical bytes, nominal IDs, chunk size and8MiB
+transfer limit are unchanged. Protocol0.13.1 moves from dev-only to production; prost0.14.4 becomes
+a direct exact dependency already present in the lockfile; no dependency versions re-resolved.
+Compile `20261013T091821.094Z-84e90a` passed (before completed borrowed-reader integration); original maximum ingress and near-wire-bound /
+pre-intent-refusal controls require current-source acceptance. Context7 did not cover the exact SDK
+QueryRequest seam; pinned generated protocol and patched SDK source own that contract, with
+prost0.14.4 Message documentation checked separately. No new schema or semantic identity is implied.
+
+A separate private same-operation canonical-reader route is being implemented. Public independent
+receiving readers keep their own pins/session and source-abandon survival. Only exact same-store
+Earned source capabilities beneath admitted store setup/scan leases may borrow source pins/session;
+source closure refuses future work. The small guard must follow mechanical preparation and every
+raw stream, preserve Unknown, avoid reader/cache cycles and never release source pins/invalidate the
+shared store session when the borrowed reader closes. Current epoch advancement requires complete
+native-pin drainage, preserving observed context under live source pins. This is source work, not
+runtime acceptance; the current owner remains open until lifetime controls and Catalog composition.
+
+
+Borrowed canonical-reader source is integrated (2026-10-13). A private store helper requires its
+actual admitted parent and exact registry Arc correspondence, borrows only all-Earned selections,
+and falls back to independent receiving for retained/mixed sets. The small pin/context guard follows
+mechanical preparation and reader operations without a scope/cache cycle. Borrowed close drains its
+own operations and leaves source pins/session owned by the source. Public independent-reader behavior
+is unchanged. The lifetime control now exercises borrowed close, continued source scans, cached/new
+query refusal after source abandonment, and independent-reader exact-byte survival. Builds/runtime
+were not_run by the worker. Independent wire admission review accepted exact protobuf coverage,
+conservative context fields, pre-intent placement and separate memory reservations; independent
+borrowed-reader source review is in progress. Combined affected source/runtime checks are building in
+`20261013T120839.170Z-ef6831` on owned r5, including the original maximum projection payload,
+wire/refusal controls, uncached overlap, source lifetime, facts, cold admission and Catalog composition.
+No budgets/deadlines or normal available parallelism changed. Source/review acceptance alone does
+not close CP04; r5 remains exclusively owned and awaits checked disposal after actual workers drain.
+
+
+Independent borrowed-reader review accepted the ownership/context/cache separation and found one
+delivery race: `NativeRows::next` checked a source pin only before awaiting a row. Root now retains
+the small borrowed guard across the await and rechecks before exposing either row or EOF; failure
+uses the existing remembered-error/drain owner. Review accepted that correction. A pure pending-read
+control loses actual detached source-pin authority while awaiting and then supplies a row or terminal
+EOF; both must refuse without losing drainage or consumer reservations. Current `ef6831` predates
+this correction in at least some built targets and cannot establish the new control's result; its
+separate focused run remains required after the current worker drains. No full-receiving/publication
+check was weakened, and the ordinary private caller's admitted parent lease remains required.
+
+
+Combined `20261013T120839.170Z-ef6831` compiled and ran70 controls: **68 bodies passed,1 maximum
+projection failed,1 Catalog timed out**, nextest stored by that run. It exercises native source borrowing,
+wire and final-wrapper refusal, cold admission, facts, literal roots and unchanged narrow native controls.
+Local cleanup confirmed12:25:05UTC/no survivors; native Unknown attachment
+`0782ad39-d4db-47fc-9542-e3948aa42b72` remains protected on r5. Catalog normalized admission completed
+in its observed interval and progressed to Catalog evidence; required publication/query composition
+remains unproven. Maximum ingress now passed actual write admission but failed cold installed-view
+preparation: the8MiB scan pool cannot admit the167,930,976-byte conservative decode workspace.
+That is not an actual168MB allocation measurement. The prepared canonical JSON frame itself is
+about16MiB, so tightening the multiplier alone cannot establish cold8MiB capacity.
+
+The approved CP00/CP02 contract separates source preparation from its consumer. Independent review
+found no required cold8MiB maximum guarantee. Only the maximum fixture now explicitly earns its
+source capability under its existing256MiB producer pool before the unchanged8MiB scan. All payload,
+nominal-key, export/import and cold-state assertions remain. This establishes neither8MiB total
+memory nor cold acquisition; the original failed observation remains visible. The small binary fixture
+continues first acquisition under8MiB. This is owner/pool correspondence, not a new or raised budget.
+
+The initial pure pending-delivery control `20261013T122415.709Z-f03a01` failed its assertion and then
+aborted during unwinding; local cleanup was confirmed/no survivors and no native service was used.
+Its assertion conflated sticky logical Conflict with unconfirmed physical drainage. The corrected
+control checks the original pin Conflict, successful explicit physical drain, sticky subsequent refusal
+and separately preserved source uncertainty preventing pin release. Compile
+`20261013T122840.352Z-cf28b5` passed. No passing race result is inferred from the initial failure.
+
+Repeated retained-phase context observations now borrow the actual fresh `ClosureInspectionScope`
+after its current-context observation and exact receiving CAS. Private member/alias/preparation bodies
+retain real pin/client/pool and full exact predicates. Public wrappers still observe context; final
+live/frozen native completion fences current generation/validity. Independent source review accepted
+this reduction; no portable or metadata-only authority is added. Combined affected controls including
+the corrected race and maximum-source preparation are running in `20261013T123350.322Z-5fabe2`.
+Its maximum case reached a further legitimate row-width mismatch: a full expected backing observation
+used the1MiB ordinary stream default for a5,245,805-byte opaque/native row. Full record observation
+and repeated exact readback now use the existing declared64MiB physical-row bound; guards remain
+narrow and all resource/EOF/correspondence checks remain. That later correction is not exercised by
+`5fabe2`; a focused maximum/observation retry is required. Original failed outcomes remain failed.
+
+Combined `20261013T123350.322Z-5fabe2` finished with **69 bodies passed,1 maximum projection
+failed,1 Catalog timed out** (71 selected). The corrected pending-row/EOF authority-loss control
+passed. Local cleanup confirmed12:44:49UTC/no survivors; enclosing fixture failed with native Unknown
+attachment `e20ed8ec-0f15-4ea3-9493-597acc63217f`, protected on r5. Catalog reached evidence ingress;
+the cancellation includes a fenced-uncommitted transaction retry and does not establish publication
+or linked queries. Neither body counts nor local cleanup settle its native obligations.
+
+The full-row observation correction also exposed an adjacent unit mismatch in
+`retained_row_charge`: its32×+64KiB workspace reservation was compared with the64MiB physical row
+cap. Source now checks actual native row bytes against that cap and independently reserves the
+unchanged workspace through the actual pool. No budget or row/wire cap is raised.
+
+After all local alias/member/backing proofs, source now composes the complete alias run first and
+observes its actual empty EOF beneath the audit pin. An empty run returns before composing membership
+seeds or constructing reachability indexes; nonempty aliases retain the complete existing path and
+outer exact-owner/finality checks. Independent source advice accepted this narrow correction; no
+timing significance is claimed. The single-entry whole-set alias cache still recomposes alternating
+sets; an exact-key operation-local cache is a possible later correction, not yet implemented.
+
+Focused current-source maximum, observation, alias, lifetime-race and Catalog controls are building
+in `20261013T125026.117Z-816e09` with normal concurrency and unchanged allowances on owned r5.
+Its receipt/log are retained for `citation:catalog-execution-patterns-target` immediate use. Earlier
+failed runs remain failed; r5 requires checked disposal after workers and native executors drain.
+
+Focused `20261013T125026.117Z-816e09` compiled and selected5 controls: **3 bodies passed,1 maximum
+import failed,1 Catalog timed out**; nextest `c7a2c700-ef72-4fdb-9151-45c9339d2a8f`. Observation/
+stale-incarnation and borrowed-row/EOF controls passed. The filter's compiler-view/empty cases were
+not selected because their targets/packages were omitted. Local cleanup confirmed12:59:48UTC/no
+survivors; native Unknown attachment `82dadbe1-774a-4a13-9b8a-a3f8ed2bef8b` remains protected.
+Catalog completed evidence generation and timed out during execution enrichment. Admission,
+publication and linked queries remain unproven. The empty-alias correction is not a benchmark result.
+
+Maximum import failed the outer full-state stream's1MiB default after actual source preparation,
+scan and export succeeded. Full-state sources now preserve the declared64MiB physical-row bound
+through both inner native streams and outer owned delivery. Expected hold observations also separate
+their actual row cap from unchanged8×+4096 workspace reservation. Independent source review accepted
+the row/workspace distinction. `20261013T125630.696Z-822fa3` then **passed1/1 plus enclosing fixture**,
+nextest `39190872-d9e7-43a0-8881-35198436986a`; local cleanup confirmed12:58:26UTC/no survivors.
+This is the original maximum payload/key/scan/export/fresh-import/identity control with source256MiB
+and consumer8MiB as recorded above; its other filter terms were not selected. It closes this narrow
+maximum semantic/transport failure, not the original cold8MiB capacity claim or full CP04.
+
+Independent source inspection found a completed selected-member EOF/count/digest fold discarded
+inside the existing registered work item and immediately recomputed by boundary earning. The private
+prepared result now retains run/count/content together beneath the same actual pin and exact selector
+key. Earning consumes that checked result; subsequent boundaries need no repeat fold. Failure publishes
+no partial result, retained metadata is charged, and fresh receiving observations/CAS remain unchanged.
+Source integration2026-10-13 requires the next focused current-source controls; no timing claim follows.
+
+First-time logical backing preparation still used one record+guard observation per backing row.
+It now uses the existing exact-ID primitive in charged pages of at most128, retaining required-ID
+extraction, full row validation/normalization and complete record/guard EOF/drain. Independent review
+identified a processing-capacity trap in acquisition-only page halving: sibling reservations could
+poison the output sorter after successful acquisition. The integrated correction discards the entire
+effect-free provisional preparation on direct local Resource, retries a smaller page, and finally
+uses the original singleton path with unchanged capacity/refusal. Semantic/transport/combined-drain
+errors do not retry. Source/context/reader-close/pin checks and success-only work insertion remain.
+Independent source review accepted `4bcbad17` on2026-10-13; no runtime result is inferred.
+
+Current-source focused controls are building in `20261013T151417.297Z-79e30d`, including the129-row
+late-terminal/uncached overlap control, independent literal v4 identity, maximum import, exact native
+record/guard/hold refusals, empty/dependency and nonempty alias selection, source lifetime, failed-work
+eviction and Catalog composition. Budgets/deadlines/available concurrency are unchanged. Run receipt/
+log retain the same immediate-use citation consumer. R5 remains exclusively owned until checked
+worker/executor drainage and whole-target disposal; its prior native Unknown receipts stay unchanged.
+
+Independent static publication/receiver review found two additional CP04 equivalence defects:
+unchanged-publication discovery and both staging convergence paths validate only the winning
+boundary, without comparing incoming selector-local alias eligibility; retained attachment can keep
+an older same-logical-view mapping/capability after independently validating a different candidate.
+The consumer companion records exact seams and required collision/concurrency obligations. Original
+request replay and terminal recovery preserve their original exact boundaries. Catalog F02/F04 and
+CU03 therefore remain open beyond cold framing; a first-publication pass cannot close these defects.
+The operator identity question now explicitly includes these consumers, preserving the approved
+RC03 restriction on a separately approved identity-version/consumer change. No unsafe-equivalence
+correction or new identity direction is claimed implemented.
+
+`79e30d` exposed a wrapper issue in the new resource fallback: owned streams share terminal local
+errors through `SharedCause`, so a direct Resource match missed them. Source now unwraps only that
+transparent wrapper before recognizing Resource; Completion, Cause and all other variants remain
+terminal and opaque. A focused pure control rejects failed-drain/context/semantic wrappers, and
+`20261013T152450.918Z-337db8` is building the corrected maximum,129-row preparation, alias/empty,
+lifetime and exact-window controls. It excludes another unchanged Catalog retry. The original failed
+maximum body remains failed; its final result and Catalog/fixture outcome belong to the existing run.
+
+`20261013T151417.297Z-79e30d` finished12 selected controls: **10 bodies passed,1 maximum source
+preparation failed,1 Catalog timed out**. Local cleanup confirmed15:25:18UTC/no survivors; native
+Unknown attachment `fa2a7f40-c8e7-4cad-979b-337acac3f364` remains protected; nextest
+`880d45af-6c46-4e34-8212-76fa154b973b`. Catalog completed
+evidence and execution enrichment, then timed out at `apply_models`. No complete generated Catalog,
+independent admission/publication/query result is inferred. `20261013T152450.918Z-337db8` compiled
+and finished12 selected controls: **11 bodies passed,1 maximum source preparation failed**; local
+cleanup confirmed15:27:39UTC/no survivors; native Unknown attachment
+`cdb94d67-b771-4248-96cb-a1a5debba23a` remains protected, nextest
+`0fd40fb6-61af-4caf-8997-a1a41ac9e4d0`. The pure shared-error/finality retry control passed, as
+did129-row late-failure/overlap, literal identity, alias/empty/lifetime and exact-window cases.
+
+That second refusal disproved wrapper recognition as the complete capacity diagnosis. Source review
+localized a separate lifetime mismatch: a full ExpectedRecord decode/receiving arena could coexist
+with the sorter's spill/carry merge arena after its native row was no longer needed. After full
+canonical backing validation, the byte-preserving compiler_record normalization now moves that row
+and its existing reservation into a private sorter entry route. The original arena remains live
+through actual JSON encoding; once the native Value is consumed, it shrinks to the exact encoded
+Vec capacity/key/Entry footprint and remains charged while normal sorter/merge ownership is admitted.
+No guessed smaller native multiplier, budget increase or validation removal is involved. Failure
+poisons/drops the same provisional sorter and retains the whole-attempt fallback. Independent source
+review accepted this lifecycle transfer and its narrow same-pool call sites on2026-10-13.
+
+`20261013T153459.537Z-66fd07` is building the current maximum and affected controls plus a revealing
+8MiB forced-spill/merge control that transfers7MiB decode arenas, checks original rows/EOF and zero
+remaining reservation. Catalog is excluded from this focused retry; its broader timeout and the
+publication/receiver equivalence decision remain open. R5 and cited receipts remain owned/protected.
+
+Current owned-arena run `20261013T153459.537Z-66fd07` **passed13/13 plus enclosing fixture**,
+nextest `1696221d-ec06-40f9-9f27-86d6a5bac809`; compile passed3m21s, local cleanup confirmed
+15:38:26UTC/no survivors. This includes the original maximum payload/key/scan/export/fresh-import/
+identity control under the recorded256MiB source and8MiB consumer contract; the8MiB forced-spill
+arena transfer; shared-error/finality exclusion;129-row uncached overlap/late failure; literal v4;
+exact record/guard/hold refusal; empty/dependency and nonempty alias selection; and source lifetime.
+It resolves the latest maximum preparation regression. It does not validate cold8MiB acquisition,
+the Catalog composition or the newly exposed publication/attachment equivalence contracts.
+
+All actual test workers have drained. Root-owned r5 checked disposal is running in
+`20261013T153850.333Z-d9ea57` for exact installation
+`aa85313a-5a40-4a51-a395-59b427eb2b68`. A failed logical pin/hold drain is not reclassified as a
+pass; only authenticated executor/daemon shutdown and confirmed whole-target discard can settle
+that target's remaining logical cleanup. Shared/operator/old paused targets stay untouched.
+
+R5 checked disposal `20261013T153850.333Z-d9ea57` **passed**, local cleanup confirmed15:39:06UTC/
+no survivors. Exact disposal receipt reports executor shutdown, datastore disposal, attachment and
+storage release, unit/installer removal and credential removal all passed; logical drain failed on
+retained readers/backup holds. Confirmed whole-target discard settles only that target's remaining
+cleanup. Original failed/timeout/native Unknown outcomes remain unchanged, with retained receipts;
+no shared/operator/old paused target was inspected, reset or adopted. No owned native worker remains.
+
+Guard-free `just ready`, managed `20261013T153947.674Z-7f7a0e`, **passed** after current direct
+dependency-edge changes, with checkout environment/native sync, skill links and tool readiness.
+No dependency versions moved and no whole lock resolution occurred. This is readiness, not product
+qualification. Applicable focused source controls are the13/13 run above; broad repository quality,
+assembled qualification, embedding/MCP runtime and real-library/operator activation remain not_run
+by the approved scope. No worktree was created; main remains the integration owner. The open identity
+choice now has a concrete consumer map and two native correctness seams, and is required before
+that dependent CP04 work proceeds. No complete Catalog, CP04 or whole-plan claim is made.

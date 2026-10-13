@@ -105,6 +105,13 @@ installed-definition controls in the same package. No second semantic schema or 
 authority is introduced. A transformation gap must be explicit; a narrow native application of the
 same generated asset on the same owned target is preferable to silently dropping definitions.
 
+**CP04 source integration, 2026-10-13.** The native installer and host readiness now require
+schema7. Generated completion definitions target the v2 compound contributor/selector inventories;
+compiler definitions add `contribution_nodes` alongside `contribution_rows`. Fixed index inspection
+and the declarative sample query canonical contribution membership rather than removed per-view
+member tables. Exact generation and owned-target readback outcomes belong to coordinator §6; a
+successful generator alone is not installed-definition evidence. No product SDK or beta pin changed.
+
 The worker exposes Sync and declarative tests, with `fail_fast=false`, normal available suite
 parallelism, `keep_db=true` and JSON reports. Watch, seed, rollout, type generation, API requests,
 embedded-engine and selectable fail-fast are unexposed, not implied remaining adoption obligations.

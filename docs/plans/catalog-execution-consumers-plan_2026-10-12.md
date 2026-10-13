@@ -96,11 +96,39 @@ input and expected result. Compare borrowed and gathered routes only where both 
 actual consumers. Cancellation and last-borrower drop preserve ownership. The genuine generated
 analysis/native-query journey remains the enclosing functional evidence.
 
+**CP04 physical-codec seam integrated in source, 2026-10-13.** Cold completion descriptors and
+native recovery now use the compound v2 contributor/selector inventory, while independent portable
+state remains format4. Existing cold/export consumers explicitly freeze their source before export;
+no mutable export or old physical-format reader is retained. CU01's dump lookup preparation and
+CU02's partition-position implementation remain separate required work.
+
 ## 4. CU03 — logical identity without a transport detour (Catalog F07)
 
-[Compiler identity/export](../../crates/lctx-compiler-store/src/compiler.rs) currently constructs
-portable completed rows for checksum-only demand, then lowers/resorts them into logical form;
-export repeats portable preparation. Split useful demand while keeping one authoritative recipe.
+[Compiler identity/export](../../crates/lctx-compiler-store/src/compiler.rs) now separates checksum
+from portable preparation in source (2026-10-13). Direct canonical families feed logical identity;
+export prepares portable rows once, independently folds their actual normalized identity, compares
+it against the frozen boundary, then encodes preserved payload frames. Current focused receipts
+and remaining CU03 acceptance belong to coordinator §6. One authoritative v4 recipe remains.
+
+**Native transfer correction (Implemented source, acceptance pending, 2026-10-13).** The existing
+maximum projection chunk exposed a unit mismatch: the complete native/JSON coexistence estimate
+was compared with the8MiB wire cap. Resource reservation continues to use that original estimate.
+Transfer preflight instead uses the pinned protobuf codec's complete QueryRequest encoded length,
+including a conservative bound for native context/batch fields and all lowered SQL/controls/bindings.
+Both payload and intent are checked before any remote intent. Opaque canonical/body Bytes, nominal
+keys, chunk size and the transfer cap are unchanged; no legacy codec or schema migration follows.
+The original maximum payload/scan/export/import/cold control remains required, alongside genuine
+wire oversize and final-wrapper/pre-intent refusal. A small binary cross-pool pass alone does not
+qualify maximum ingress. Coordinator §6 owns the original failure and current acceptance receipts.
+
+The maximum case now explicitly prepares its source under its existing256MiB producer pool before
+the unchanged8MiB consumer scan. CP00/CP02 separate those owners: this cannot establish8MiB total
+memory or cold maximum acquisition. The original cold8MiB failure remains recorded; its prepared
+JSON frame alone is about16MiB, and the larger conservative reservation is not measured allocation.
+All maximum bytes/keys/export/import assertions remain. Small binary first acquisition still uses8MiB.
+Full expected-record observations use the declared64MiB physical-row bound; guards remain narrow.
+Actual row width and the unchanged32×+64KiB workspace charge are admitted separately. Current-source
+acceptance of these corrections belongs to coordinator §6.
 
 For checksum/final-state identity, lower validated descriptors and exact protected members directly
 to the six canonical logical families and use CP01's ordered fold. Preserve v4 JSON row payloads,
@@ -167,3 +195,74 @@ Source-established removed scans/copies are architectural evidence; speed/capaci
 unmeasured. These corrections introduce no new daemon, scheduler, evidence registry or mandatory
 profiler. CE01 reviews their composition, CE02 regenerates current state where needed, and CE03
 reconciles the older tracks only after required delivery and acceptance.
+
+**Open cold-alias incidence contract (2026-10-13).** The six-family v4 union hashes aliases but
+not their contributor ownership. Exact native selectors already preserve that distinction; portable
+import cannot infer it from a shared source. Nonempty alias ingress refuses explicitly until a bound
+carrier/identity decision is implemented across export, artifact and selected dump restoration.
+Bind a carrier independently of its own header; require exact logical owner IDs and refuse ambiguous
+physical copies with different alias incidence unless the envelope represents those copies/selectors.
+Do not silently widen eligibility or change the v4 recipe. Coordinator §6 owns disposition and evidence.
+
+The bounded independent design assessment proposes a separate model-owned transport envelope while
+preserving v4 semantic roots. It must bind exact view→portable-copy mappings, full descriptors and
+complete copy→alias inventories (explicit empties), ordered counts/EOF and codec identity. Equal
+logical descriptors with differing local alias sets require distinct portable copy labels and fresh
+destination owners; neither logical-owner union nor restore's first matching physical copy is safe.
+Aliases retain their canonical semantic-family binding. Labels confer correspondence, not authority.
+
+The expected envelope identity must come from a trusted export/backup result retained by its caller,
+not the incoming header or sidecar itself. Detached export and selected backup therefore need an
+explicit returned transport receipt and import/restore an independently supplied expectation, or a
+new externally expected artifact/publication handle. Source pins/backup snapshot and charged ordered
+runs survive through full EOF, file sync/staged commit and checked finalizers before receipt release.
+Destination creates fresh contributions, endpoint/alias holds and exact view mappings, then independently
+earns current physical and semantic admission; never import native holds, guards, attempts or pins.
+Partial/Unknown ingress retains existing obligations. This remains **Proposed** pending the operator's
+identity direction and concrete API migration; a self-consistent incoming digest is insufficient.
+
+Qualification must distinguish v4 content equality from selector-local alias eligibility. Deduplication,
+unchanged-publication reuse and caches claiming the latter need the combined identity or an actual
+independently validated physical boundary. If product semantic equality must imply that eligibility,
+a new semantic identity version is the coherent alternative. Required revealing cases are swapped owner
+incidence with equal v4 union, equal descriptors/different copies, shared/reconvergent sources and
+cross-contributor chains, explicit empty and missing/foreign copy inventories, fresh destination
+identity with exact selector absence, and both artifact/selected-backup admission plus failed EOF/drain.
+Coordinator §6 owns the decision; this advice does not authorize an old-format reader or close CU03.
+
+The read-only caller map establishes the bounded migration for that proposed option:
+
+| Owner | Required contract change |
+|---|---|
+| Model `domain/completed.rs` | Separate envelope/receipt types and codec, ordered copy/selector inventories, counts and EOF; preserve semantic v4 |
+| Compiler `compiler.rs` | Preserve portable copy labels and entire selector mappings instead of collapsing copies; export returns semantic/envelope receipt; import requires independent expectation and rebinds fresh destination owners |
+| Compiler `artifact.rs` | Carry returned receipt through export, verification, `VerifiedExport` and detached readmission; live verification may derive expectation from its protected source |
+| Publisher `selected_backup.rs` | Capture full selected-copy correspondence and alias inventories under the existing publication pin and single transaction snapshot |
+| Publisher `backup.rs` / `backup_import` | Return receipt only after EOF, checked snapshot/session/pin finalizers, staged sync/publication and parent sync; decode bounded data-only framing and require expectation on restore |
+| Publisher `restore.rs` | Replace first matching physical copy and global source expansion with verified envelope correspondence; pass it through lower completed-state import |
+| CLI compile / native artifact and backup routes | Expose returned export/backup receipt and accept explicitly retained expectations across later processes; incoming manifests/sidecars alone cannot supply trust |
+
+Direct transport, detached artifact and selected-backup tests all need the decisive equal-v4/
+different-incidence cases, including root-qualified dependency copy choices and explicit empties.
+No source attempts/pins/holds become destination authority. Snapshot/publication identity currently
+does not bind this incidence. This map specifies work; it does not establish approval or completion
+of the proposed external contract.
+
+**Additional current equivalence gaps (static review, 2026-10-13).** This obligation also affects
+native consumers, not just cold framing. `Publication::new` computes the semantic/binding/definition
+handle and discovers an unchanged publication before acquiring the incoming admitted physical
+completion. Native `find_existing_publication` and both staging convergence branches independently
+validate the winning boundary but never compare its selector-local alias eligibility with the incoming
+one. A protected winner is not evidence that it is equivalent to that incoming selection.
+
+`NativeCompilerStore::attach_held_product` separately skips incoming mappings for an already known
+logical view and retains the existing installed capability with `or_insert`. Independent candidate
+validation does not establish equivalence to that existing receiver selection. Original-request replay
+and terminal recovery keep their exact original boundary and do not have this substitution gap.
+
+The selected identity direction must cover publication handle/reuse/convergence and receiver collision
+handling in addition to the caller map above. Compare independently protected effective eligibility,
+bind the relevant envelope identity, or refuse unequal physical selections; semantic v4 equality alone
+is insufficient. Receiver compatibility checks must precede native effects and remain coherent under
+concurrent attachments, without partial metadata publication. Until delivered and functionally checked,
+these native equivalence obligations remain open CP04 work even when first-publication controls pass.

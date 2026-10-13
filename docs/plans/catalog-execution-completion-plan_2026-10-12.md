@@ -1,11 +1,11 @@
 # Catalog execution: protected completion and canonical preparation
 
-**Accepted target / Proposed implementation, 2026-10-12.** Companion to the
+**Implemented source / focused qualification in progress, 2026-10-13.** Companion to the
 [coordinator](catalog-execution-plan_2026-10-12.md), which alone owns dispositions and receipts.
 This document develops Catalog-review F01–F04 and the surviving native lifecycle obligations.
 [ADR-0165](../adr/0165-prepared-completion-and-owned-lifecycle.md) records approved RC01/RC02 and
-retains v4 identity. Existing fragment reuse remains a useful implemented foundation; it is not
-the completed target described here.
+retains v4 identity. The coordinator owns exact scoped receipts and outstanding runtime obligations; source integration
+does not establish completed CP00–CP04 acceptance.
 
 ## 1. Foundation assessment and actual consumer boundaries
 
@@ -15,17 +15,17 @@ checks without automatically creating a complete shared-state hash, member copy,
 lifecycle. Existing typed completed descriptors, exact physical mappings, native request ownership,
 canonical runs and independently earned admission provide the required foundations.
 
-Current internal uses are operation-local but physically demand InstalledView authority:
+Internal uses are operation-local and now obtain earned contribution selection authority:
 `CompletedInputs` chooses predecessor relations and freezes semantic bindings in
 [workspace](../../crates/cpg-core/src/workspace.rs); DataFusion provider registration uses
 [compiler_provider](../../crates/lctx-compiler-store/src/compiler_provider.rs), and
 `CompletedRelation::prepare_batches` routes through registered-view scans in
 [compiler](../../crates/lctx-compiler-store/src/compiler.rs). Their streams live under the compilation
-Workspace/session. These are the first consumers to migrate, including projected/native/model
-streams, not merely one normalization example.
+Workspace/session. These consumers use the same held internal/retained selector interface, including projected/native/model
+streams. Exact contribution preparation is shared only within the owning operation.
 
-Current `complete_contribution` marks its descriptor completed before constructing/installing all
-singleton and cumulative output views. Descriptor completion, structural validation, a digest,
+`complete_contribution` persists complete semantic singleton/cumulative declarations; native physical
+selection is earned only when an actual consumer requests it. Descriptor completion, structural validation, a digest,
 a shared future or a cache hit cannot grant the replacement authority. Exact actual member/backing/
 original/alias completeness must first be earned and protected through consumers' complete lifetimes.
 
@@ -68,9 +68,10 @@ bindings, but map them to independently necessary boundary realizations and exac
 than one full physical realization per semantic relation. A frozen admitted/published operation
 owns a compound physical completion over its exact contributor/dependency inventory. Multiple
 logical views select within it using their declared relation and contributor closure. A separately
-retained product may earn a separate boundary because its lifetime is independent. Materialize
-member/access indexes once per needed boundary where sparse readers require them; no automatic
-member copy/seal per internal output. Exact selected aliases remain scoped to each logical selector,
+retained product may earn a separate boundary because its lifetime is independent. Use existing
+contribution-owned `compiler_membership` rows directly, with contribution/relation/key lookup and
+an added contribution/node/relation/key index for sparse access. The boundary protects exact copies
+and validated selectors without another member namespace or per-output copy/seal. Exact selected aliases remain scoped to each logical selector,
 not every alias visible in the enclosing union.
 
 For an independently retained view, its validated exact selector together with the protected
@@ -86,12 +87,63 @@ retain semantic v4 identity and existing logical view meaning. Per-view legacy c
 cannot coexist as another runtime authority after migration. A shared compound root does not let
 one view see another view's members or interpret complete union absence as selected-view absence.
 
+**CP00 implemented interface, 2026-10-13 (source integration; runtime evidence in coordinator).** Installation schema advances
+6→7 and physical `FrozenCompletion` advances 1→2; logical descriptors, transport format4 and
+`native-completed-state/v4` stay unchanged. Indexed child inventories retain exact protected
+contribution references and per-selector mappings, including full descriptors and positive
+incarnations. Their canonical inventory digest excludes the parent completion address; persisted
+envelopes then bind those rows to the resulting parent identity. Internal and retained factories
+consume earned capabilities, never data-only descriptors. Streams retain actual operation/pin
+ownership through delivery and drain; closed scopes refuse new work. Inventory mutation is private
+until a checked freeze/seal effect. Source-backed consumer coverage is the table in §1 and the CP04
+producer/reader/cold inventory; implementation and functional evidence remain separate. Per-key
+registered preparation workers coalesce equal requests and allow independent keys to proceed.
+Receiving attachment prevalidates the entire exact contributor inventory and installs all holds in
+one CAS transaction. Alias edges carry selector eligibility through composed directed reachability;
+a member in one selector cannot borrow another selector’s alias witness. Retained-boundary
+construction and Drop preserve Unknown on cancellation or unconfirmed close. Same-request product
+replay checks its original actual boundary rather than minting a second parent under unrelated incidence changes.
+
 **Decision deliverable:** explicit producer/reader/freeze/retention contracts and source-backed consumer
 inventory, plus physical-format changes and independent refusal scenarios. The current source review
 supports this direction. A fresh bounded design/target assessment of consequential specified
 interfaces must precede CP04 integration; it need not repeat the full codebase review. CP00 is design,
 not evidence that any authority is implemented. A new cross-operation proof cache is not selected;
 reopen only for a concrete repeated fresh-owner consumer that existing retained boundaries cannot serve.
+
+**Boundary and declaration refinements, 2026-10-13 (Implemented source).** A retained open
+source may have captured revision zero; physical v2 preserves that exact metadata. Actual aggregate
+freeze and admission still require their separately earned positive persisted freeze/fence. Explicit
+finalization under a different resource pool earns a fresh owned audit; operation preparation never
+crosses pool equality, and a small scan budget is not enlarged to fund finalization. Semantic view
+rows and heterogeneous holds use bounded pages, with one phase-local contributor observation per
+selected physical copy across declarations. Metadata reuse grants no selector/admission authority;
+actual earned and frozen factories independently validate the selected closure. Partial declaration
+pages stay attempt-owned if a later page fails. Final compound-child installation uses a boundary-local
+writer with serialization admission and reserved preparation workspace. It splits by row/hold count
+and complete prepared intent/payload bytes before receipt acceptance or effects. Sizing and execution
+share the existing authorization lowering; the successful prepared request moves unchanged to
+execution. A trailing child cannot consume the headroom needed to flush its prefix. Partial child
+writes grant no completion; exact selected-copy CAS and the complete-inventory final parent CAS
+remain independent obligations. Source review accepted this route; coordinator §6 owns runtime evidence.
+
+**Protected discovery and receiving consumers, 2026-10-13 (Implemented source).** Exact physical
+rows and typed contribution descriptors are shared by charged handles instead of retained anew in
+every selector closure. A fresh physical-boundary inspection starts empty. Internal selections may
+reuse discovery only within their actual operation audit's pin, installation context and resource pool,
+after exact row/incarnation receiving CAS and terminal inspection. Reused required incidences have
+both immutable endpoints pinned; retirement's incoming-hold exclusion preserves their outgoing
+edges. Every selector still performs its own domain traversal, exact mapping correspondence,
+membership identity and alias reachability. No metadata registry entry grants semantic admission.
+
+Independent reader setup first deduplicates actual opaque source capabilities and refuses conflicting
+physical bytes/incarnations. Count- and complete-request-bounded CAS pages earn the receiving pin;
+union context, row and source-hold checks precede returned read authority. Retained capability classes
+keep their separate parent/selector/admission/publication checks and setup preserves Unknown on
+unconfirmed completion. Providers borrow their captured capability and consumer pool, with fresh
+current-authority checks before every delayed broad, field, key or empty scan. Terminal product
+recovery independently earns one fresh inspection phase and reuses its prepared canonical membership
+recipe; it does not inherit another operation's success. Coordinator §6 owns scoped verification.
 
 ### Preserved mutation premises and IF04 decision
 
@@ -113,6 +165,14 @@ obligation, while invalidating real piece creation. A client equality precheck o
 insufficient. If no complete simpler specialization is established, retain conservative typed
 recapture and the explicit continuous-replay refusal/trigger in coordinator §6; do not leave an
 unspecified narrower fence as an implementation prerequisite.
+
+**CP00 decision, 2026-10-13 (source assessment).** Retain conservative typed recapture. The generic
+expected-object guard revision and `native_touch` incidence predicate are separate; removing a
+touch neither removes all equal-replay revision changes nor preserves new-hold/incidence exclusion.
+No complete simpler replay specialization was established. Reduce unnecessary completion demand
+first. Sustained replay can still prevent progress; revisit only for an actual sustained-replay
+requirement or a revealing current failure, preserving the original typed effect outcome. This is
+not a measured timeout diagnosis or new runtime acceptance.
 
 ## 3. CP01 — immutable canonical runs and non-consuming ordered union
 
@@ -272,3 +332,90 @@ Then CE01 runs the actual generated Catalog/admission/publication/native-query j
 availability. This package cannot claim those unreached stages passed from earlier fragment counts
 or a compile-only check. CE02 owns actual regeneration under live-owner drainage, and CE03 owns
 older-plan reconciliation; neither is completed by this document.
+
+**Fresh boundary observation windows (source-integrated, 2026-10-13).** Retained and final physical
+inventories share one phase-local mapping reader and charged physical observation map across their
+exact per-view traversals, bypassing cached-capability discovery. Independent native earning still
+starts empty. It prewarms unique physical contributor/view rows in bounded record/guard windows,
+transfers exact incarnations/full bytes under receiving CAS, then reads required owner incidences in
+heterogeneous bounded hold windows. Empty dependency views are included from actual specifications.
+Each selector retains its domain traversal, exact mappings, membership and alias proof; final copy and
+parent completion checks remain independent. This changes repeated preparation, not authority.
+
+**Import endpoint ownership (source-integrated, 2026-10-13).** A fresh imported contributor owns
+canonical endpoints as well as selected backing nodes. Import uses the same charged full canonical
+backing reconstruction as native assurance, exact requested ID/EOF reconciliation and bounded
+immutable endpoint installation; its stream and private reader close explicitly. It cannot inherit
+source-installation edges. Nonempty portable aliases currently refuse because their independently
+expected union identity cannot bind contributor incidence; coordinator §6 owns that open design gap.
+
+**Same-operation source borrowing (Implemented, acceptance pending, 2026-10-13).** A registry-owned
+opaque internal selector retains a real source pin over its already audited immutable completed rows
+and required incidences. Internal cached acquisition, supplied provider execution and earned sparse
+membership access check that pin plus actual current installation generation/validity epoch; they do
+not recapture every full contributor row and hold for every local query. Compiler operation/reader
+leases and exact registry Arc correspondence still own delayed execution and drainage. Source close
+ends that borrow; independently received readers retain their own separately earned authority. Full
+`ensure_current`, exact receiving CAS and fresh/retained/frozen/cold boundary inspection remain.
+No serialized metadata, negative lookup or unrelated pin establishes this authority.
+
+Retained-product replay first performs a terminal optional point observation. Actual absence returns
+no reuse authority without allocating a pin. Positive observation acquires a real receiving pin and
+CASes the original full bytes/incarnation before original boundary/inventory/context checks. The
+per-request construction gate and exact installation collision remain; no negative result is cached.
+
+
+**Prepared sparse membership (Implemented, runtime acceptance pending, 2026-10-13).** Earned
+selectors retain the exact member run already validated through count, digest, conflict checks and
+EOF. A bounded point cursor borrows one decoded native row from that retained run and validates its
+exact selector/relation/key/content/envelope before admitting owned result fields. Memory lookup uses
+exact ordered search; spill lookup uses the existing binary index. Source reservations stay with the
+run and consumer workspace is charged independently. Actual source pin and current context bracket
+lookup; source closure refuses future borrowing. Retained and independently received readers retain
+their full assurance path. This removes discarded preparation followed by membership/guard rereads;
+it introduces no portable authority or negative cache. Coordinator §6 owns runtime receipts.
+
+
+Canonical family composition reconciles all exact physical descriptors/incarnations and all complete
+view descriptors before reducing duplicate inputs. Each exact physical contributor enters the family
+union once; distinct physical copies remain distinct inputs. Each reconciled logical view is lowered
+once. Every selector still earns its own dependency/member/alias assurance, and the union still checks
+all unique input EOFs and equal-key conflicts before completing the unchanged flatv4 roots. This
+prevents cumulative selectors multiplying immutable run cursors and repeated view serialization.
+
+
+**Borrowed canonical reader (Implemented source, runtime acceptance pending, 2026-10-13).** Internal
+canonical scans beneath admitted compiler setup/scan leases borrow exact registry-owned Earned
+source capabilities. Their separate guard owns actual source pin handles and observed installation
+context through mechanical selection, stream delivery and drainage. Native epoch advancement requires
+all unreleased pins to drain, so this is an actual protected premise. Source closure refuses future
+queries. Borrowed reader close owns only its operations/cache; it never releases source pins or
+invalidates the shared SDK session. Public independent receiving readers still earn their own
+pins/session and may survive source abandonment. Retained/mixed internal selections use that
+independent factory. No serialized descriptor chooses the borrowed route, and the cached mechanical
+selection retains a small guard rather than a scope cycle. Coordinator §6 owns review/runtime limits.
+
+**Terminal contributor preparation (Implemented source, 2026-10-13).** Logical backing preparation
+collects at most128 exact backing IDs and uses the existing complete record/guard window primitive.
+Each required ID is extracted and validated before normalization; missing/foreign/duplicate records,
+inactive guards, incomplete EOF and failed drainage remain terminal. A local resource refusal drops
+the entire provisional preparation, including poisoned sorters, before retrying with a smaller page.
+The final singleton path preserves the original allocation/refusal behavior. No partial fragment is
+cached, no native write is retried here, and the registered worker still checks exact source bytes/
+incarnation/context, closes its reader and checks its actual live pin before publishing success.
+
+The existing selected-member work result now retains its EOF-validated count and content digest
+beside the immutable run. Boundary earning consumes that result instead of discarding and immediately
+refolding it. Exact selector dependencies and charged lifetimes remain; this is operation-local
+preparation, not transported authority. Fresh receiving phases still begin empty and retain exact CAS.
+Coordinator §6 owns current functional acceptance and the original failed/interrupted receipts.
+
+Canonical backing validation keeps the full expected-record decode/receiving reservation until it
+has finished. Because compiler_record logical normalization preserves its complete Value, preparation
+then consumes the expected-record capability into data plus that existing reservation and moves both
+into the sorter. Encoding consumes the native Value under the original charge. The remaining charge
+is resized to actual encoded frame capacity/key/entry storage while the sorter admits its ordinary
+frame/spill/merge ownership. This removes dead workspace from the merge peak without guessing a
+smaller multiplier or raising a pool. No guard/incarnation capability survives the data transfer.
+The private transfer requires the same actual pool; current call sites obtain it from the same-window
+observation and sorter budget. Source authority/finality checks remain outside this mechanical step.
