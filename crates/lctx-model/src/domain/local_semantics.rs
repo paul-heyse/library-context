@@ -1638,41 +1638,71 @@ pub(crate) fn local_invariants_refs() -> Vec<&'static str> {
 impl LocalData {
     /// Current-source owned premises for the existing finite kernels after one union decode.
     /// Multiple declared prefixes retain their original merged Rows realization.
-    pub fn selected_copy(
+    pub fn selected_copy<I: Iterator<Item = [u8; 16]>>(
         &self,
         inputs: &[ValidationInput],
-        contains: &mut dyn FnMut(usize, [u8; 16]) -> Result<bool, ModelError>,
+        keys: &mut dyn FnMut(usize) -> Result<I, ModelError>,
         budget: &resources::ResourceBudget,
     ) -> Result<Self, ModelError> {
         let mut selected = Self::new(budget);
-        macro_rules! copy_entry{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.entry.$field,&mut selected.entry.$field,inputs,contains)?;)*};}
+        macro_rules! copy_entry{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.entry.$field,&mut selected.entry.$field,inputs,keys)?;)*};}
         crate::entry_value_inputs!(copy_entry);
-        macro_rules! copy_theory{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.theory.$field,&mut selected.theory.$field,inputs,contains)?;)*};}
+        macro_rules! copy_theory{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.theory.$field,&mut selected.theory.$field,inputs,keys)?;)*};}
         crate::local_theory_inputs!(copy_theory);
-        macro_rules! copy_fields{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.fields.$field,&mut selected.fields.$field,inputs,contains)?;)*};}
+        macro_rules! copy_fields{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.fields.$field,&mut selected.fields.$field,inputs,keys)?;)*};}
         crate::local_field_inputs!(copy_fields);
-        macro_rules! copy_local{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.$field,&mut selected.$field,inputs,contains)?;)*};}
+        macro_rules! copy_local{($($field:ident:$ty:ty,)*)=>{$(copy_local_rows(&self.$field,&mut selected.$field,inputs,keys)?;)*};}
         crate::local_semantic_inputs!(copy_local);
         Ok(selected)
     }
 }
-fn copy_local_rows<R: Record>(
+fn copy_local_rows<R: Record, I: Iterator<Item = [u8; 16]>>(
     source: &Rows<R>,
     target: &mut Rows<R>,
     inputs: &[ValidationInput],
-    contains: &mut dyn FnMut(usize, [u8; 16]) -> Result<bool, ModelError>,
+    keys: &mut dyn FnMut(usize) -> Result<I, ModelError>,
 ) -> Result<(), ModelError> {
-    for row in source.iter() {
-        for (table, _) in inputs
-            .iter()
-            .enumerate()
-            .filter(|(_, input)| input.type_id() == std::any::TypeId::of::<R>())
-        {
-            if contains(table, *row.id().bytes())? {
-                target.insert_borrowed(row)?;
-                break;
+    // Local finite kernels deliberately merge every declared epoch of this type.
+    // Their charged Rows already own the exact union; repeated port keys copy once.
+    for (table, _) in inputs.iter().enumerate().filter(|(_, input)| {
+        input.type_id() == std::any::TypeId::of::<R>() && input.name() == R::NAME
+    }) {
+        normalized::visit_ordered_port_ids::<R,I>(table, keys, &mut |id| {
+            if target.get(id).is_none() {
+                if let Some(row) = source.get(id) { target.insert_borrowed(row)?; }
             }
-        }
+            Ok(())
+        })?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod selected_copy_controls {
+    use super::*;
+    #[test]
+    fn selected_copy_merges_declared_ports_and_deduplicates_overlap_without_union_scan() {
+        use crate::domain::input::{Package,Release};
+        use crate::domain::stages::PublicationBoundary;
+        let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let records = ["facts","local","shared","excluded"].map(|name| Package { name: name.into() });
+        let mut union = Rows::new(&budget);
+        for row in records.iter().rev() { union.insert_borrowed(row).unwrap(); }
+        let inputs = [ValidationInput::of::<Release>(&["id"]),
+            ValidationInput::of::<Package>(&["id"]).at_epoch(PublicationBoundary::Facts),
+            ValidationInput::of::<Package>(&["id"]).at_epoch(PublicationBoundary::Local)];
+        let ports = [
+            [*records[3].id().bytes()].into_iter().collect::<std::collections::BTreeSet<_>>(),
+            [*records[0].id().bytes(),*records[2].id().bytes(),[255;16]].into_iter().collect(),
+            [*records[1].id().bytes(),*records[2].id().bytes(),[254;16]].into_iter().collect(),
+        ];
+        let mut selected = Rows::new(&budget);
+        copy_local_rows(&union,&mut selected,&inputs,&mut |table| { assert_ne!(table,0); Ok(ports[table].iter().copied()) }).unwrap();
+        assert_eq!(selected.len(),3);
+        for row in &records[..3] { assert_eq!(selected.get(row.id()),Some(row)); }
+        assert!(selected.get(records[3].id()).is_none());
+        assert!(selected.iter().map(Record::id).collect::<Vec<_>>().windows(2).all(|pair| pair[0] < pair[1]));
+        drop((union,selected));
+        assert_eq!(budget.reserved(),0);
+    }
 }

@@ -234,7 +234,7 @@ impl LocalScopes {
     ) -> Result<LocalData, ModelError> {
         union.selected_copy(
             &self.inputs,
-            &mut |table, key| selected.contains(partition, table, key),
+            &mut |table| selected.keys(partition, table),
             budget,
         )
     }

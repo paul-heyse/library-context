@@ -414,6 +414,15 @@ pub(crate) fn visit_selected_ids<R: Record, I: Iterator<Item = [u8; 16]>>(
             "selected copy immutable namespace ambiguity",
         ));
     }
+    visit_ordered_port_ids(table, keys, visit)
+}
+/// Decode one already selected physical input port's ordered nominal demand.
+/// The semantic adapter owns exact-port versus explicitly merged-port selection.
+pub(crate) fn visit_ordered_port_ids<R: Record, I: Iterator<Item = [u8; 16]>>(
+    table: usize,
+    keys: &mut dyn FnMut(usize) -> Result<I, ModelError>,
+    visit: &mut impl FnMut(Id<R>) -> Result<(), ModelError>,
+) -> Result<(), ModelError> {
     let mut previous = None;
     for key in keys(table)? {
         if previous.is_some_and(|prior| prior >= key) {
