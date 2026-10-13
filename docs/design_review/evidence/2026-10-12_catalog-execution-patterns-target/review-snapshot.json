@@ -1,0 +1,477 @@
+{
+  "review": "design_review_catalog-execution-patterns-target_2026-10-12.md",
+  "recorded_at_utc": "2026-10-13T01:17:12.050245+00:00",
+  "head": "5090aeec2ce60168a41559c6cd38badb6dde5d0f",
+  "source_sha256": {
+    "crates/cpg-core/tests/facts_admission.rs": "9e1047a5f619ca64d943daaf0e0691ee2544c8112856703ca2121dfe1c2d6105",
+    "crates/lctx-compiler-store/src/compiler.rs": "9db2591053fff2d77288e2d5c500bcec71de02a2f5f49e33508e31734dee3f67",
+    "crates/lctx-native/src/control/authorization.rs": "150860618242d45aaa759d38073e5fe65d8f6fe7a4d0a5b2034751728ff9b5cb",
+    "crates/lctx-native/src/control/retry.rs": "651c427de3c06a875a613a4494a0052ad7bddbb6341006fb8d3ef048f9cb6d57",
+    "crates/lctx-native/src/installed_view/audit.rs": "b1cc2cdb4bb9911bd8ab7cc89fc7a5241022877a94500150c85b5954cfa1e1ff",
+    "crates/lctx-native/src/installed_view/live.rs": "65f4140af5e2286fedaccde648532f1f86a70382f0d29e28cdf54259774b5d48",
+    "crates/lctx-native/src/ordered_rows.rs": "ce366e43756148ee273db688e0788091d34f1e65044bfdfaa83e7010c0dbc2b8",
+    "crates/lctx-native/src/completed_logical_rows.rs": "82718b5f92d59eddde43f1d0498f5d244d1d51a4021985091fa3028069fc62c2",
+    "crates/lctx-native/src/completed_state/earning.rs": "918d13eb32425b4b27b176a7d8952036d34fc32d34b5b150a6ba336c5624b98c",
+    "crates/lctx-model/src/domain/completed_identity.rs": "c14b07d364517072060b03e1882cae9465c78fd34fe5a14f4c2ec9942738ad1e"
+  },
+  "catalog_phase_summary": {
+    "native_setup": {
+      "passed": 1,
+      "failed": 0,
+      "last": {
+        "line": 588,
+        "outcome": "passed",
+        "elapsed_ms": 32.95075
+      }
+    },
+    "compiler_setup": {
+      "passed": 1,
+      "failed": 0,
+      "last": {
+        "line": 591,
+        "outcome": "passed",
+        "elapsed_ms": 42.639224000000006
+      }
+    },
+    "native_contribution_begin": {
+      "passed": 7,
+      "failed": 0,
+      "last": {
+        "line": 3928,
+        "outcome": "passed",
+        "elapsed_ms": 102.697845
+      }
+    },
+    "provider_execution": {
+      "passed": 5,
+      "failed": 0,
+      "last": {
+        "line": 3256,
+        "outcome": "passed",
+        "elapsed_ms": 436.828761
+      }
+    },
+    "live_view_inspect_closure": {
+      "passed": 403,
+      "failed": 0,
+      "last": {
+        "line": 3947,
+        "outcome": "passed",
+        "elapsed_ms": 542.432079
+      }
+    },
+    "live_view_audit_memberships": {
+      "passed": 403,
+      "failed": 0,
+      "last": {
+        "line": 3949,
+        "outcome": "passed",
+        "elapsed_ms": 58.260188
+      }
+    },
+    "live_view_audit_aliases": {
+      "passed": 403,
+      "failed": 0,
+      "last": {
+        "line": 3951,
+        "outcome": "passed",
+        "elapsed_ms": 0.031902
+      }
+    },
+    "live_view_logical_roots": {
+      "passed": 403,
+      "failed": 0,
+      "last": {
+        "line": 3953,
+        "outcome": "passed",
+        "elapsed_ms": 1780.184778
+      }
+    },
+    "native_contribution_complete_scoped": {
+      "passed": 6,
+      "failed": 1,
+      "last": {
+        "line": 3957,
+        "outcome": "failed",
+        "elapsed_ms": 18840.372084
+      }
+    },
+    "provider_completion": {
+      "passed": 5,
+      "failed": 0,
+      "last": {
+        "line": 3760,
+        "outcome": "passed",
+        "elapsed_ms": 42030.196451
+      }
+    },
+    "native_audit_logical_closure": {
+      "passed": 1,
+      "failed": 0,
+      "last": {
+        "line": 3762,
+        "outcome": "passed",
+        "elapsed_ms": 400.615343
+      }
+    },
+    "native_audit_payload_selection": {
+      "passed": 1,
+      "failed": 0,
+      "last": {
+        "line": 3764,
+        "outcome": "passed",
+        "elapsed_ms": 49.542127
+      }
+    },
+    "providers": {
+      "passed": 1,
+      "failed": 0,
+      "last": {
+        "line": 3765,
+        "outcome": "passed",
+        "elapsed_ms": 243828.43155399998
+      }
+    },
+    "normalize_entities": {
+      "passed": 1,
+      "failed": 0,
+      "last": {
+        "line": 3925,
+        "outcome": "passed",
+        "elapsed_ms": 73118.183168
+      }
+    },
+    "normalize_relations": {
+      "passed": 0,
+      "failed": 1,
+      "last": {
+        "line": 3958,
+        "outcome": "failed",
+        "elapsed_ms": 42501.308607
+      }
+    }
+  },
+  "catalog_batch_observations": [
+    {
+      "line": 719,
+      "contribution_observations": 1,
+      "blob_observations": 1,
+      "logical_contribution_observations": 1,
+      "alias_observations": 1,
+      "views": 30
+    },
+    {
+      "line": 1032,
+      "contribution_observations": 2,
+      "blob_observations": 1,
+      "logical_contribution_observations": 2,
+      "alias_observations": 1,
+      "views": 76
+    },
+    {
+      "line": 2633,
+      "contribution_observations": 3,
+      "blob_observations": 1,
+      "logical_contribution_observations": 3,
+      "alias_observations": 2,
+      "views": 340
+    },
+    {
+      "line": 3250,
+      "contribution_observations": 4,
+      "blob_observations": 1,
+      "logical_contribution_observations": 4,
+      "alias_observations": 2,
+      "views": 90
+    },
+    {
+      "line": 3758,
+      "contribution_observations": 5,
+      "blob_observations": 1,
+      "logical_contribution_observations": 5,
+      "alias_observations": 2,
+      "views": 58
+    },
+    {
+      "line": 3923,
+      "contribution_observations": 6,
+      "blob_observations": 1,
+      "logical_contribution_observations": 6,
+      "alias_observations": 1,
+      "views": 32
+    },
+    {
+      "line": 3955,
+      "contribution_observations": 7,
+      "blob_observations": 1,
+      "logical_contribution_observations": 7,
+      "alias_observations": 1,
+      "views": 40
+    }
+  ],
+  "logged_transaction_conflict_events": 48,
+  "limits": [
+    "Historical local operational observations; not an isolated benchmark or speed comparison.",
+    "Phase spans nest; counts are emitted events, not unique views, total native queries or retry counts.",
+    "Observation counters measure preparation misses, not later merge, sort, encode, hash or native installation work.",
+    "Cited log and receipt objects retained for citation:catalog-execution-patterns-target with cited-report capability."
+  ],
+  "receipts": {
+    "20261013T004735.484Z-76f1cf": {
+      "command": [
+        "env",
+        "LCTX_LOG=warn,lctx_phase=info",
+        "LCTX_SURREAL_SERVICE_CONFIG=/home/paul/.local/state/library-context/surrealdb-lifecycle-functional-2026-10-12/installation.json",
+        "just",
+        "fixture",
+        "--",
+        "cargo",
+        "nextest",
+        "run",
+        "--release",
+        "--locked",
+        "--success-output",
+        "immediate",
+        "--failure-output",
+        "immediate",
+        "-p",
+        "lctx-serving",
+        "--test",
+        "compact_analysis_native",
+        "-E",
+        "test(=current_catalog_analysis_links_public_native_operations_and_original_evidence)"
+      ],
+      "exit": {
+        "code": 100
+      },
+      "cleanup": {
+        "observed": "2026-10-13T00:53:45+00:00",
+        "status": "confirmed",
+        "survivors": []
+      },
+      "storage": {
+        "log": "82bcb599-4aa6-4491-934f-4923435afcbc",
+        "receipt": "ff5c53ca-578e-4b6d-b039-05de6a9be85d"
+      },
+      "record_sha256": "685057f6ee34e2ea2563a1317bd4e32b36bdd0e2a6a022f0da322e0fef6a314c",
+      "log_sha256": "9c02a6819e8a58afd14765142d361cf0a40dd0355058d5435aac10c5af745591"
+    },
+    "20261013T004857.554Z-e28d61": {
+      "command": [
+        "env",
+        "LCTX_LOG=warn,lctx_phase=info",
+        "LCTX_SURREAL_SERVICE_CONFIG=/home/paul/.local/state/library-context/surrealdb-lifecycle-functional-2026-10-12/installation.json",
+        "just",
+        "fixture",
+        "--",
+        "cargo",
+        "nextest",
+        "run",
+        "--release",
+        "--locked",
+        "--success-output",
+        "immediate",
+        "--failure-output",
+        "immediate",
+        "-p",
+        "cpg-core",
+        "--test",
+        "facts_admission",
+        "-E",
+        "test(=availability_reuses_exact_admission_and_refuses_changed_invalid_membership)"
+      ],
+      "exit": {
+        "code": 100
+      },
+      "cleanup": {
+        "observed": "2026-10-13T00:56:37+00:00",
+        "status": "confirmed",
+        "survivors": []
+      },
+      "storage": {
+        "log": "6d9dea43-d991-4d6f-ae77-e31e46a3f3ad",
+        "receipt": "227b3c1c-0dca-4f48-82ca-89731225edf9"
+      },
+      "record_sha256": "8a8d47217dd1da8fc7adec953a13065b5e402dd81ec231927a0c27f678255c10",
+      "log_sha256": "816e137a471808eaa89f6bf83052c9e95e5e7d8b3709688d11274c5e8751103b"
+    },
+    "20261013T004135.077Z-383cbb": {
+      "command": [
+        "env",
+        "LCTX_LOG=warn,lctx_phase=info",
+        "LCTX_SURREAL_SERVICE_CONFIG=/home/paul/.local/state/library-context/surrealdb-lifecycle-fragments-2026-10-12/installation.json",
+        "just",
+        "fixture",
+        "--",
+        "cargo",
+        "nextest",
+        "run",
+        "--release",
+        "--locked",
+        "--success-output",
+        "immediate",
+        "--failure-output",
+        "immediate",
+        "-p",
+        "lctx-native",
+        "-p",
+        "lctx-compiler-store",
+        "-p",
+        "cpg-core",
+        "--lib",
+        "--test",
+        "facts_admission",
+        "-E",
+        "test(batched_empty_views_verify_membership_and_retain_dependency_ownership) | test(late_membership_terminal_failure_cannot_publish_reusable_observation) | test(normalization_cached_receiver_predicate_rejection_precedes_ingress)"
+      ],
+      "exit": {
+        "code": 100
+      },
+      "cleanup": {
+        "observed": "2026-10-13T00:46:08+00:00",
+        "status": "confirmed",
+        "survivors": []
+      },
+      "storage": {
+        "log": "ea4ba087-a843-4547-9ebc-f70e0c1076de",
+        "receipt": "b6aef1e4-b937-45d9-a4f0-88b842ca6b00"
+      },
+      "record_sha256": "6096646258e21c0b65a7ff8fa7f98cea7bca318fc64f11ab5e7cf9bc03a0811d",
+      "log_sha256": "23a6c0a2e2407e4dd77c67a60ceaf65cdad881226a673d0ec0f103f35b5fd297"
+    },
+    "20261013T004845.788Z-a53c24": {
+      "command": [
+        "env",
+        "LCTX_LOG=warn,lctx_phase=info",
+        "LCTX_SURREAL_SERVICE_CONFIG=/home/paul/.local/state/library-context/surrealdb-lifecycle-functional-2026-10-12/installation.json",
+        "just",
+        "fixture",
+        "--",
+        "cargo",
+        "nextest",
+        "run",
+        "--release",
+        "--locked",
+        "--success-output",
+        "immediate",
+        "--failure-output",
+        "immediate",
+        "-p",
+        "lctx-compiler-store",
+        "--lib",
+        "-E",
+        "test(batched_empty_views_verify_membership_and_retain_dependency_ownership)"
+      ],
+      "exit": {
+        "code": 0
+      },
+      "cleanup": {
+        "observed": "2026-10-13T00:49:35+00:00",
+        "status": "confirmed",
+        "survivors": []
+      },
+      "storage": {
+        "log": "9ce87a90-a64f-4268-a632-146ae3f64a93",
+        "receipt": "13fa30e5-c61e-49ae-81d6-2809043de26b"
+      },
+      "record_sha256": "4e9d86a351dd730255fa9421f8ed55555bea6739edc4fdc9239babe2afc5a019",
+      "log_sha256": "fac96a072caf64b1d7d460443152a7f7c0823c15e195dda940d09681374beeaa"
+    },
+    "20261013T005654.382Z-0148c9": {
+      "command": [
+        "env",
+        "LCTX_SURREAL_SERVICE_CONFIG=/home/paul/.local/state/library-context/surrealdb-lifecycle-functional-2026-10-12/installation.json",
+        "just",
+        "service",
+        "dispose-campaign",
+        "4f555bbe-7c81-4167-8243-9610f4a10c2f"
+      ],
+      "exit": {
+        "code": 0
+      },
+      "cleanup": {
+        "observed": "2026-10-13T00:57:13+00:00",
+        "status": "confirmed",
+        "survivors": []
+      },
+      "storage": {
+        "log": "056caa0e-988c-4ce4-9b2e-f2d54ecf687a",
+        "receipt": "81719df8-8a3c-4dd8-b0c3-55afbb48fe4d"
+      },
+      "record_sha256": "f7921dd7f45c80cf6cee7e30efd3bca9407ace5664bf49478ef866694fe04252",
+      "log_sha256": "17d5810670156b8947b937a4fb148e80694d4d0ecccb8908cf11d5899333cc6e"
+    },
+    "20261013T005805.779Z-df05d6": {
+      "command": [
+        "uv",
+        "run",
+        "--no-sync",
+        "python",
+        "-c",
+        "import sys,json,pathlib,hashlib\nsys.path.insert(0,\"scripts\")\nimport surrealdb_fixture as f\nroot=pathlib.Path(\"/home/paul/.local/state/library-context/surrealdb-lifecycle-functional-2026-10-12\")\nr=json.loads((root/\"installation.json\").read_text()); d=json.loads((root/\"disposal.json\").read_text())\nassert r[\"phase\"]==\"disposed\" and d[\"outcome\"]==\"passed\"\nassert all(d[\"steps\"][k]==\"passed\" for k in (\"executor-shutdown\",\"datastore-disposal\",\"installer-removal\",\"unit-removal\",\"credential-removal\"))\nassert not pathlib.Path(r[\"installer\"]).exists()\nfor n in (\"data\",\"tmp\",\"server.env\",\"main-runtime.json\",\"main-installer.json\",\"validation-runtime.json\",\"validation-installer.json\"):\n assert not (root/n).exists()\nfor p in (root/\"attachments\").glob(\"*/record.json\"):\n original=json.loads(p.read_text())\n if (p.parent/\"campaign-disposition.json\").exists():\n  assert f.completed_campaign_disposition(p.parent,original)\n  assert json.loads((p.parent/\"campaign-disposition.json\").read_text())[\"original_attachment\"][\"native_drain\"]==original[\"native_drain\"]\n else:\n  assert original[\"released\"] is True\nbinary=pathlib.Path(\"/home/paul/.local/state/library-context/surrealdb.tools/surreal/405f6c02ddfe12c004b04deab6bd91fd1458ed1c3ba247c05baa4a5396d5e206/surreal\")\nassert hashlib.sha256(binary.read_bytes()).hexdigest()==\"710229df33346fdf9733ef86d46e31874f0cacc2691529327e19e6534477b8ed\"\nprint(json.dumps({\"outcome\":\"passed\",\"phase\":r[\"phase\"],\"steps\":d[\"steps\"],\"original_native_records\":\"preserved\",\"original_server\":\"unchanged\"}))\n"
+      ],
+      "exit": {
+        "code": 0
+      },
+      "cleanup": {
+        "observed": "2026-10-13T00:58:06+00:00",
+        "status": "confirmed",
+        "survivors": []
+      },
+      "storage": {
+        "log": "d28440df-da78-4ea9-8499-6f5345ed519a",
+        "receipt": "87038b4e-727f-4a9c-855e-99b519447f7f"
+      },
+      "record_sha256": "ba0410c85bf59e16ed13ab6d35a59f3b872fbfee7e2ce15bc821db2dca571f76",
+      "log_sha256": "ff7ead8c1e55a6e0dbfe69ecfab143fe79781988f6b3153a032bd644954f3db2"
+    },
+    "20261013T011359.080Z-c6fed4": {
+      "command": [
+        "env",
+        "LCTX_SURREAL_SERVICE_CONFIG=/home/paul/.local/state/library-context/surrealdb-lifecycle-libtest-2026-10-12/installation.json",
+        "just",
+        "service",
+        "dispose-campaign",
+        "84dc2704-be4e-457e-a9e2-4ecafedd7b16"
+      ],
+      "exit": {
+        "code": 0
+      },
+      "cleanup": {
+        "observed": "2026-10-13T01:14:03+00:00",
+        "status": "confirmed",
+        "survivors": []
+      },
+      "storage": {
+        "log": "6a12d8be-b679-436d-9c1d-852193fc8352",
+        "receipt": "0d2b2ba3-4c5c-4ba5-9962-af616470637d"
+      },
+      "record_sha256": "4abf88b2fb078523b894fb64dddb10a74b4137325c5c8a6370b13f7839b03e50",
+      "log_sha256": "e7199d3ca09dc1bbc375a1f5e8e2d4c9032d1ec719b70b01c27d260626362915"
+    },
+    "20261013T011453.931Z-d5e7e5": {
+      "command": [
+        "uv",
+        "run",
+        "--no-sync",
+        "python",
+        "-c",
+        "import sys,json,pathlib,hashlib\nsys.path.insert(0,\"scripts\")\nimport surrealdb_fixture as f\nroot=pathlib.Path(\"/home/paul/.local/state/library-context/surrealdb-lifecycle-libtest-2026-10-12\")\nr=json.loads((root/\"installation.json\").read_text()); d=json.loads((root/\"disposal.json\").read_text())\nassert r[\"phase\"]==\"disposed\" and d[\"outcome\"]==\"passed\"\nassert all(d[\"steps\"][k]==\"passed\" for k in (\"executor-shutdown\",\"datastore-disposal\",\"installer-removal\",\"unit-removal\",\"credential-removal\"))\nassert not pathlib.Path(r[\"installer\"]).exists()\nfor n in (\"data\",\"tmp\",\"server.env\",\"main-runtime.json\",\"main-installer.json\",\"validation-runtime.json\",\"validation-installer.json\"):\n assert not (root/n).exists()\nfor p in (root/\"attachments\").glob(\"*/record.json\"):\n original=json.loads(p.read_text())\n if (p.parent/\"campaign-disposition.json\").exists():\n  assert f.completed_campaign_disposition(p.parent,original)\n  assert json.loads((p.parent/\"campaign-disposition.json\").read_text())[\"original_attachment\"][\"native_drain\"]==original[\"native_drain\"]\n else:\n  assert original[\"released\"] is True\nbinary=pathlib.Path(\"/home/paul/.local/state/library-context/surrealdb.tools/surreal/405f6c02ddfe12c004b04deab6bd91fd1458ed1c3ba247c05baa4a5396d5e206/surreal\")\nassert hashlib.sha256(binary.read_bytes()).hexdigest()==\"710229df33346fdf9733ef86d46e31874f0cacc2691529327e19e6534477b8ed\"\nprint(json.dumps({\"outcome\":\"passed\",\"phase\":r[\"phase\"],\"steps\":d[\"steps\"],\"original_native_records\":\"preserved\",\"original_server\":\"unchanged\"}))\n"
+      ],
+      "exit": {
+        "code": 0
+      },
+      "cleanup": {
+        "observed": "2026-10-13T01:14:54+00:00",
+        "status": "confirmed",
+        "survivors": []
+      },
+      "storage": {
+        "log": "2360318a-0210-4fdb-91f4-2c18daaa8598",
+        "receipt": "0a3081fd-22f0-465d-89f8-d6c798ad02dd"
+      },
+      "record_sha256": "ac44f3376362eacce5bc5d1fc68c718a23b7bed9eb970d955c8bd749511e69db",
+      "log_sha256": "ba84747711003399521fdf8aab2ff4d84550835b0e4910f3bcc3a21797108e17"
+    }
+  }
+}
