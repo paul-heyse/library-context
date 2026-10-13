@@ -1,0 +1,7 @@
+name = "issued token input cancellation"
+
+[[cases]]
+name = "issued token starts an observable query"
+kind = "sql_expect"
+actor = "token"
+sql = "CREATE lifecycle_cancel_started:one SET started=true; SLEEP 15s; RETURN 1;"

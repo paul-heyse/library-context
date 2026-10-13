@@ -20,6 +20,37 @@ import surrealdb_development as development
 import surrealdb_service as service
 
 
+def compiled_info():
+    return {
+        "format": 1,
+        "kind": "lctx-surreal-dev-build-info",
+        "dependencies": {
+            name: {
+                "version": version,
+                "source": "compiled-resolved-lock-and-workspace-patch",
+                "patch_profile": {
+                    "status": "declared_build_input",
+                    "manifest": f"third_party/{name}/Cargo.toml",
+                    "manifest_blake3": "a" * 64,
+                    "documentation": f"third_party/{name}/README.lctx.md",
+                    "documentation_blake3": "b" * 64,
+                },
+            }
+            for name, version in (("surrealkit", "1.0.0-beta.1"), ("surrealdb", "3.3.0"), ("surrealdb-rpc", "3.3.0"))
+        },
+        "schema": {
+            "source": "compiled-embedded-native-schema",
+            "profile_identity": "c" * 64,
+            "authority_correspondence": "passed",
+            "modules": ["control", "canonical", "search", "compiler", "completion"],
+        },
+    }
+
+
+def finite_provenance(worker):
+    return {"worker_sha256": service.file_sha256(worker), "recorded_at": runs.now(), "build_info": compiled_info()}
+
+
 def test_copy_tests_preserves_nested_suite_toml_and_sql_only(tmp_path):
     source, destination = tmp_path / "source", tmp_path / "destination"
     (source / "tests/nested").mkdir(parents=True)
@@ -102,6 +133,7 @@ def test_development_setup_failure_retains_pre_effect_worker_owner_without_repor
     run_path.mkdir()
     monkeypatch.setattr(development.runs, "new_run_dir", lambda: run_path)
     monkeypatch.setattr(service, "borrow", lambda inst: contextlib.nullcontext())
+    monkeypatch.setattr(development, "worker_build_info", finite_provenance)
 
     def refuse_ddl(inst, sql, *, cfg):
         (ledger,) = (installation.directory / "development").glob("*/record.json")
@@ -331,6 +363,7 @@ config.write_text("partial-issued-credential"); config.chmod(0o600)
     run_path.mkdir(mode=0o700)
     monkeypatch.setattr(development.runs, "new_run_dir", lambda: run_path)
     monkeypatch.setattr(service, "borrow", lambda inst: contextlib.nullcontext())
+    monkeypatch.setattr(development, "worker_build_info", finite_provenance)
     monkeypatch.setattr(service, "sql", lambda *args, **kwargs: [{"result": None}])
     summary = development.run_worker(installation, installation.id, "test", worker)
     assert summary["outcome"] == "failed" and summary["child_cleanup"]["status"] == "confirmed"
@@ -339,3 +372,126 @@ config.write_text("partial-issued-credential"); config.chmod(0o600)
         run_path / "project/tests/config.toml"
     ).read_text() == 'token="LCTX_WORKER_ISSUED_TOKEN"\n'
     assert not (run_path / "project" / development.TOKEN_RESTORE_JOURNAL).exists()
+
+
+@pytest.mark.parametrize("cleanup,command_exit", [("confirmed", 0), ("failed", 1)])
+def test_inspection_preserves_independent_terminal_unknown_and_cleanup_axes(
+    lifecycle_campaign_ready, tmp_path, monkeypatch, cleanup, command_exit
+):
+    installation, _ = lifecycle_campaign_ready
+    run_path = tmp_path / "inspect-run"
+    run_path.mkdir()
+    owner = {**service.ProcessIdentity.of().to_json(), "pid": 99999999, "start_ticks": 1}
+    service.private_json(run_path / runs.RECORD, {
+        "owner": owner, "child": None, "termination": "completed",
+        "cleanup": {"status": cleanup, "reason": "secret-credential-path"},
+    })
+    ledger = installation.directory / "development" / run_path.name
+    ledger.mkdir(parents=True)
+    row = {
+        "installation_id": installation.id,
+        "server_generation": bytes(installation.record["service_generation"]).hex(),
+        "run_path": str(run_path), "owner": owner, "recorded_at": runs.now(),
+        "operation": "test", "database": "lifecycle_" + "a" * 32,
+        "worker_sha256": "d" * 64,
+        "worker_provenance": {"worker_sha256": "d" * 64, "recorded_at": runs.now(), "build_info": compiled_info()},
+        "command_exit": command_exit, "outcome": "passed" if command_exit == 0 else "failed",
+        "report": {"status": "passed", "path": "secret-credential-path"},
+        "child_cleanup": {"status": cleanup, "reason": "secret-credential-path"},
+        "credential_cleanup": {"status": "failed", "original": "secret-credential"},
+        "remote": {"status": "unknown", "reason": "secret-credential"},
+        "runtime_config": "secret-credential-path",
+    }
+    row["worker_provenance"]["build_info"]["credentials"] = "secret-credential"
+    service.private_json(ledger / "record.json", row)
+    service.private_json(installation.directory / "maintenance.json", {"operation": "closed"})
+    monkeypatch.setattr(service, "sql", lambda *args, **kwargs: pytest.fail("ordinary inspection must not connect"))
+    monkeypatch.setattr(service, "borrow", lambda *args: pytest.fail("ordinary inspection must not seek admission"))
+    before = (ledger / "record.json").read_bytes()
+    value = development.inspect_campaign(installation, installation.id, False)
+    (observed,) = value["workers"]
+    assert observed["operation"] == "test" and observed["database"] == row["database"]
+    assert observed["worker_sha256"] == row["worker_sha256"]
+    assert observed["command_exit"] == command_exit
+    assert observed["child_cleanup"] == {"status": cleanup}
+    assert observed["cleanup"] == {"status": cleanup}
+    assert observed["credential_cleanup"] == {"status": "failed"}
+    assert observed["report"] == {"status": "passed"}
+    assert observed["remote"] == {"status": "unknown"}
+    assert observed["pending"] == (cleanup != "confirmed")
+    assert observed["observation"]["source"] == "development-ledger-and-managed-run"
+    assert observed["observation"]["run_owner"] == owner
+    assert observed["observation"]["owner_correspondence"] == "matches"
+    assert observed["observation"]["observed_at"] > 0
+    assert observed["worker_provenance"]["build_info"]["schema"]["profile_identity"] == "c" * 64
+    assert observed["routes"]["disposal"][-1] == installation.id
+    assert value["native"]["status"] == "not_inspected"
+    assert "secret-credential" not in json.dumps(value)
+    assert (ledger / "record.json").read_bytes() == before
+    row["worker_provenance"]["worker_sha256"] = "e" * 64
+    service.private_json(ledger / "record.json", row)
+    assert service.development_workers(installation)[0]["worker_provenance"]["build_info"] == {"status": "unknown"}
+    record = runs.load_record(run_path)
+    record["owner"]["start_ticks"] += 1
+    service.private_json(run_path / runs.RECORD, record)
+    assert service.development_workers(installation)[0]["observation"]["owner_correspondence"] == "differs"
+
+
+def test_inspection_refuses_wrong_target_and_preserves_missing_evidence(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
+    installation, _ = lifecycle_campaign_ready
+    with pytest.raises(service.FixtureBlocked, match="exact owned"):
+        development.inspect_campaign(installation, "missing-target", False)
+    run_path = tmp_path / "missing-run"
+    ledger = installation.directory / "development" / run_path.name
+    ledger.mkdir(parents=True)
+    service.private_json(ledger / "record.json", {
+        "installation_id": installation.id,
+        "server_generation": bytes(installation.record["service_generation"]).hex(),
+        "run_path": str(run_path),
+    })
+    (observed,) = service.development_workers(installation)
+    assert observed["pending"]
+    assert observed["command_exit"] is None
+    assert observed["worker_sha256"] is None
+    assert observed["worker_provenance"]["build_info"] == {"status": "missing"}
+    assert observed["observation"]["run_record"] == "missing"
+    for field in ("child_cleanup", "credential_cleanup", "remote", "report"):
+        assert observed[field] == {"status": "unknown"}
+    @contextlib.contextmanager
+    def closed(inst):
+        raise service.FixtureBlocked("maintenance", "admission closed")
+        yield
+    monkeypatch.setattr(service, "borrow", closed)
+    monkeypatch.setattr(service, "sql", lambda *args, **kwargs: pytest.fail("closed admission cannot connect"))
+    with pytest.raises(service.FixtureBlocked, match="admission closed"):
+        development.inspect_campaign(installation, installation.id, True)
+
+
+@pytest.mark.parametrize("fault", [None, "missing", "invalid", "changed"])
+def test_build_info_handshake_is_bound_to_worker_bytes_and_safe_on_refusal(tmp_path, monkeypatch, fault):
+    worker = tmp_path / "worker"
+    value = compiled_info()
+    if fault == "invalid":
+        value["schema"]["profile_identity"] = "secret-credential"
+    worker.write_text("#!" + sys.executable + "\nprint(" + repr(json.dumps(value)) + ")\n")
+    worker.chmod(0o700)
+    if fault == "missing":
+        worker = tmp_path / "missing"
+    elif fault == "changed":
+        original_run = development.subprocess.run
+        def replace(*args, **kwargs):
+            result = original_run(*args, **kwargs)
+            worker.write_text("changed")
+            return result
+        monkeypatch.setattr(development.subprocess, "run", replace)
+    if fault:
+        with pytest.raises(service.FixtureBlocked) as error:
+            development.worker_build_info(worker)
+        assert "secret-credential" not in str(error.value)
+    else:
+        observed = development.worker_build_info(worker)
+        assert observed["worker_sha256"] == service.file_sha256(worker)
+        assert observed["build_info"] == value
+        assert observed["recorded_at"]

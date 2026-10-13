@@ -20,6 +20,23 @@ tracks that directory, so additions and removals rebuild macro embedding.
 Normal embedded Sync requires neither a writable checkout nor introspection to
 recover source authority.
 
+The internal `lctx-surreal-dev build-info` response needs no binding or service
+connection. It reports the resolved beta/SDK/RPC versions and the selected
+workspace patch declarations from the build's lockfile and manifests. Patch
+manifest/documentation digests identify declared build inputs; they do not
+qualify the patches or identify a running server. The compiled generated-schema
+profile identity uses the same ordered embedded inventory as test projections,
+and the response refuses if those bytes differ from compiled native authority.
+
+Before launching a worker, the host captures this response with that executable's
+SHA-256 and a timestamp in its existing development ledger. Passive inspection
+reads the ledger and current managed-run cleanup; it never executes a worker or
+connects to a database. Older ledgers show missing provenance, and a mismatched
+worker digest shows unknown provenance. Command exit, capture, child cleanup,
+credential restoration, remote uncertainty and whole-target disposal remain
+separate observations. Server generation/capabilities come from the existing
+installation descriptor; `just service status` supplies current host observation.
+
 ## Parent-owned operations
 
 The host service/run adapters authenticate the exact lifecycle campaign and own
@@ -36,6 +53,7 @@ file, use the existing host entrypoint:
 just surreal-dev sync --installation ID
 just surreal-dev test --installation ID
 just surreal-dev test --installation ID --project /absolute/test-input-project
+just surreal-dev inspect --installation ID
 just surreal-dev inspect --installation ID --indexes
 ```
 

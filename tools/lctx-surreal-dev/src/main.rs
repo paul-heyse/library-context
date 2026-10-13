@@ -10,6 +10,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Print internal compiled provenance without reading a binding or connecting.
+    BuildInfo,
     /// Regenerate derived assets, or check exact file/content correspondence.
     Generate {
         #[arg(long, default_value = env!("CARGO_MANIFEST_DIR"))]
@@ -49,6 +51,10 @@ enum Command {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
+        Command::BuildInfo => {
+            println!("{}", serde_json::to_string(&lctx_surreal_dev::build_info()?)?);
+            Ok(())
+        }
         Command::Generate { root, check } => lctx_surreal_dev::generate(&root, check),
         Command::Project {
             output,

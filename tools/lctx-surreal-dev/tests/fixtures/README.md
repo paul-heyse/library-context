@@ -11,6 +11,11 @@ come exclusively from the host-issued campaign binding.
 - `cancellation`: executes pinned SurrealQL `SLEEP 15s` for parent-owned cancellation.
   A live worker alone does not prove that SQL has begun; retain the actual phase
   observation and keep remote finality unknown until checked whole-target drainage.
+- `token-cancellation`: authenticates with the actual worker-issued token and commits
+  a marker before the same pending query. Observe the private restoration journal,
+  substituted input and committed marker before cancelling the exact managed worker.
+  Parent recovery must restore the original placeholder without printing the token;
+  remote finality remains unknown until checked whole-target disposal.
 
 Run through `just surreal-dev test --installation ID --project PATH` with the
 explicit lifecycle campaign configuration. Cancellation and disposal belong to

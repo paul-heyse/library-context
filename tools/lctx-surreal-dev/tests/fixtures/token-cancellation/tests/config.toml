@@ -1,0 +1,7 @@
+[actors.token]
+kind = "token"
+token = "LCTX_WORKER_ISSUED_TOKEN"
+
+[[fixtures]]
+actor = "root"
+sql = "DEFINE TABLE lifecycle_cancel_started SCHEMAFULL; DEFINE FIELD started ON lifecycle_cancel_started TYPE bool;"

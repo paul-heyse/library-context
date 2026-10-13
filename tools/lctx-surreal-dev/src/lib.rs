@@ -6,6 +6,24 @@ pub mod catalog;
 pub mod sample;
 pub mod worker;
 
+/// Internal provenance of this compiled worker; never connects to a service.
+pub fn build_info() -> Result<serde_json::Value> {
+    check_embedded_authority()?;
+    Ok(serde_json::json!({
+        "format": 1,
+        "kind": "lctx-surreal-dev-build-info",
+        "worker_version": env!("CARGO_PKG_VERSION"),
+        "dependencies": serde_json::from_str::<serde_json::Value>(include_str!(concat!(env!("OUT_DIR"), "/build-info.json")))?,
+        "schema": {
+            "source": "compiled-embedded-native-schema",
+            "profile_identity": source_identity(),
+            "authority_correspondence": "passed",
+            "modules": MODULE_ORDER,
+        },
+        "server": {"status": "not_inspected"},
+    }))
+}
+
 surrealkit::embed_schema!(
     control = "schema/control",
     canonical = "schema/canonical",
@@ -274,6 +292,28 @@ mod tests {
         Expr, TopLevelExpr,
         statements::{DefineStatement, define::DefineKind},
     };
+
+    #[test]
+    fn build_info_matches_resolved_versions_and_compiled_schema_without_connection() {
+        let info = build_info().unwrap();
+        let lock: toml::Value = toml::from_str(include_str!("../../../Cargo.lock")).unwrap();
+        for name in ["surrealkit", "surrealdb", "surrealdb-rpc"] {
+            let package = lock["package"].as_array().unwrap().iter()
+                .find(|package| package["name"].as_str() == Some(name)).unwrap();
+            assert_eq!(info["dependencies"][name]["version"].as_str(), package["version"].as_str());
+            let profile = &info["dependencies"][name]["patch_profile"];
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+            let manifest = std::fs::read(root.join(profile["manifest"].as_str().unwrap())).unwrap();
+            assert_eq!(profile["manifest_blake3"], blake3::hash(&manifest).to_hex().to_string());
+            let documentation = std::fs::read(root.join(profile["documentation"].as_str().unwrap())).unwrap();
+            assert_eq!(profile["documentation_blake3"], blake3::hash(&documentation).to_hex().to_string());
+            assert_eq!(profile["status"], "declared_build_input");
+        }
+        assert_eq!(info["schema"]["profile_identity"], source_identity());
+        assert_eq!(info["schema"]["modules"], serde_json::json!(MODULE_ORDER));
+        assert_eq!(info["schema"]["authority_correspondence"], "passed");
+        assert_eq!(info["server"]["status"], "not_inspected");
+    }
 
     #[test]
     fn generated_inventory_and_embedded_bytes_equal_native_authority() {

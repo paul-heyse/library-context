@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import stat
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -20,6 +21,22 @@ from storage_lifecycle import Storage, admission, fsync_directory, physical
 
 TOKEN_RESTORE_JOURNAL = "sample-token-restore.json"
 TOKEN_MARKER = "LCTX_WORKER_ISSUED_TOKEN"
+
+
+def worker_build_info(worker: Path) -> dict[str, Any]:
+    """Bind a read-only compiled response to this physical worker, without a service."""
+    try:
+        before = service.file_sha256(worker)
+        response = subprocess.run(
+            [str(worker), "build-info"], capture_output=True, timeout=40, check=False
+        )
+        value = json.loads(response.stdout) if response.returncode == 0 else None
+        after = service.file_sha256(worker)
+    except OSError, ValueError, subprocess.TimeoutExpired:
+        raise service.FixtureBlocked("worker", "worker build-info unavailable; rebuild lctx-surreal-dev") from None
+    if after != before or service.development_build_info(value)["status"] != "recorded":
+        raise service.FixtureBlocked("worker", "worker build-info invalid or executable changed; rebuild lctx-surreal-dev")
+    return {"worker_sha256": before, "recorded_at": runs.now(), "build_info": value}
 
 
 def protect_token_input(installation: service.Installation, run_path: Path) -> dict[str, str]:
@@ -246,6 +263,7 @@ def run_worker(
             raise service.FixtureBlocked("inputs", "test project must have a physical path")
         resources.append(source)
     with admission(resources), service.borrow(installation):
+        provenance = worker_build_info(worker)
         run_path = runs.new_run_dir()
         with admission([run_path]):
             project = run_path / "project"
@@ -282,7 +300,9 @@ def run_worker(
                 "operation": operation,
                 "run_path": str(run_path),
                 "owner": ProcessIdentity.of().to_json(),
-                "worker_sha256": service.file_sha256(worker),
+                "worker_sha256": provenance["worker_sha256"],
+                "worker_provenance": provenance,
+                "recorded_at": runs.now(),
                 "outcome": "unknown",
                 "report": {"status": "not_created"},
                 "credential_cleanup": {"status": "unknown"},
@@ -308,6 +328,8 @@ def run_worker(
             # A recoverable run record and target ledger precede the first DDL effect.
             owner.write()
             try:
+                if service.file_sha256(worker) != provenance["worker_sha256"]:
+                    raise service.FixtureBlocked("worker", "worker changed after build-info")
                 cfg = installation.runtime("validation", installer=True)
                 service.sql(installation, f"DEFINE DATABASE {database} STRICT", cfg=cfg)
                 code = owner.run()
@@ -325,6 +347,7 @@ def run_worker(
                     except OSError, ValueError:
                         pass
                 row.update(
+                    recorded_at=runs.now(),
                     outcome="passed"
                     if code == 0
                     and cleanup["status"] == "confirmed"
@@ -358,6 +381,7 @@ def run_worker(
                 return summary
             except BaseException:
                 row["outcome"] = "failed"
+                row["recorded_at"] = runs.now()
                 # A pre-spawn DDL failure has no worker descendants. Keep the actual
                 # native uncertainty on the target until checked whole-target disposal.
                 if owner.record["child"] is None:
@@ -384,10 +408,15 @@ def inspect_campaign(
         "installation_id": identity,
         "generation": bytes(installation.record["service_generation"]).hex(),
         "owner": "surrealdb_service",
+        "source": "installation-and-development-ledgers",
+        "observed_at": service.time.time(),
         "phase": installation.record["phase"],
         "workers": service.development_workers(installation),
         "borrowers": service.borrowers(installation),
         "native": {"status": "not_inspected", "route": "docs/surrealdb.md#maintenance-diagnostics"},
+        "server": {key: installation.record.get("binary", {}).get(key) for key in ("version", "sha256", "generation")},
+        "server_source": "installation-descriptor; use just service status for current host observation",
+        "capabilities": {"source": "installation-descriptor", "declared": installation.record.get("capabilities")},
         "disposal": read_json(installation.directory / "disposal.json"),
     }
     if indexes:

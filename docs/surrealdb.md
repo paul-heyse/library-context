@@ -337,6 +337,12 @@ Child exit, report capture, local cleanup and remote uncertainty are separate ou
 invalidation clears a session; it does not establish rollback or whole-service finality.
 
 `just surreal-dev inspect --installation UUID` observes owner/run/attachment/disposal state.
+Its passive projection includes the captured physical worker digest and compiled dependency/schema
+declarations, the actual managed-run owner and ledger correspondence, observation times, and
+separate command/report/child-cleanup/credential-cleanup/remote outcomes. It does not execute the
+worker or connect to the target. Missing provenance remains unknown. The internal worker
+`build-info` command reports compiled declarations without a binding or connection; this is
+declaration provenance, not source attestation or running-server qualification.
 Add `--indexes` for fixed validation membership-index and plain EXPLAIN reads, labeled with
 the current generation and server version. Plain EXPLAIN does not execute the workload;
 EXPLAIN ANALYZE is not part of this inspection preset. These diagnostics do not grant eligibility
