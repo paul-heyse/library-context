@@ -48,8 +48,7 @@ struct ModelColumns {
 }
 pub(super) struct ModelWindow<'a> {
     scopes: &'a ModelScopes,
-    batch: crate::consumed_rows::PreparedRootBatch,
-    columns: ModelColumns,
+    columns: lctx_compiler_store::scoped_positions::IndexedRootColumns,
 }
 impl ModelWindow<'_> {
     pub(super) fn data(
@@ -58,31 +57,16 @@ impl ModelWindow<'_> {
         budget: &resources::ResourceBudget,
         cancellation: &crate::workspace::Cancellation,
     ) -> Result<ModelData, ModelError> {
-        if partition >= self.batch.outcomes().len() {
+        if partition >= self.columns.roots().outcomes().len() {
             return Err(ModelError::Schema("Model window partition"));
         }
         let mut data = ModelData::new(budget);
         for (table, input) in self.scopes.calls.inputs().iter().enumerate() {
-            for rows in &self.columns.rows[table] {
-                cancellation.check()?;
-                let _filter = budget.reserve(
-                    "model-columnar-partition",
-                    rows.get_array_memory_size() + rows.num_rows() * 32 + 4096,
-                )?;
-                let mut mask = Vec::with_capacity(rows.num_rows());
-                for row in 0..rows.num_rows() {
-                    let key = crate::scoped_admission::column(rows, "id", row)?
-                        .ok_or(ModelError::Schema("Model union identity"))?;
-                    mask.push(self.batch.contains(partition, table, key)?);
-                }
-                let selected = datafusion::arrow::compute::filter_record_batch(
-                    rows,
-                    &arrow_array::BooleanArray::from(mask),
-                )
-                .map_err(ModelError::codec)?;
-                if selected.num_rows() != 0 {
-                    data.visit_input(input, &selected)?;
-                }
+            let gathered = self.columns.gather(
+                &[partition], table, table, budget, cancellation, &mut |_, _| true,
+            )?;
+            for selected in gathered.rows() {
+                data.visit_input(input, selected)?;
             }
         }
         Ok(data)
@@ -548,8 +532,9 @@ impl ModelScopes {
         terminal.finish("model-columnar-union")?;
         Ok(ModelWindow {
             scopes: self,
-            batch,
-            columns,
+            columns: lctx_compiler_store::scoped_positions::IndexedRootColumns::new(
+                batch, self.calls.inputs(), columns.rows, columns.charge, budget, cancellation,
+            )?,
         })
     }
     #[cfg(test)]
@@ -856,17 +841,23 @@ mod model_scope_controls {
                     .await
                     .unwrap();
                 while let Some(rows) = stream.try_next().await.unwrap() {
-                    columns
-                        .charge
-                        .grow(rows.get_array_memory_size() + size_of::<arrow_array::RecordBatch>())
-                        .unwrap();
-                    columns.rows[table].push(rows);
+                    let target = &mut columns.rows[table];
+                    let additional = if target.len() == target.capacity() {
+                        target.capacity().max(4)
+                    } else { 0 };
+                    columns.charge.grow(
+                        rows.get_array_memory_size() + additional * size_of::<arrow_array::RecordBatch>(),
+                    ).unwrap();
+                    target.reserve_exact(additional);
+                    target.push(rows);
                 }
             }
             let window = ModelWindow {
                 scopes: &scopes,
-                batch,
-                columns,
+                columns: lctx_compiler_store::scoped_positions::IndexedRootColumns::new(
+                    batch, scopes.calls.inputs(), columns.rows, columns.charge, &budget,
+                    &crate::workspace::Cancellation::default(),
+                ).unwrap(),
             };
             let invocation = analysis::model::AnalysisInvocation::new(
                 run.input,

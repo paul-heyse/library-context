@@ -254,10 +254,8 @@ pub(super) struct SourceCallScopes {
 /// exact partition. Opaque content identities are retained separately per logical grain.
 pub(super) struct SourceCallWindow<'a> {
     scopes: &'a SourceCallScopes,
-    batch: crate::consumed_rows::PreparedRootBatch,
-    rows: Vec<Vec<arrow_array::RecordBatch>>,
     opaque: charged::ChargedSet<(usize, [u8; 16])>,
-    _charge: charged::StateCharge,
+    columns: lctx_compiler_store::scoped_positions::IndexedRootColumns,
 }
 impl SourceCallWindow<'_> {
     fn visit_partition(
@@ -268,30 +266,15 @@ impl SourceCallWindow<'_> {
         mut visit: impl FnMut(&ValidationInput, &arrow_array::RecordBatch) -> Result<(), ModelError>,
     ) -> Result<(), ModelError> {
         for (table, input) in self.scopes.inputs.iter().enumerate() {
-            for rows in &self.rows[table] {
-                cancellation.check()?;
-                let _filter = budget.reserve(
-                    "source-columnar-partition",
-                    rows.get_array_memory_size() + rows.num_rows() * 32 + 4096,
-                )?;
-                let mut mask = Vec::with_capacity(rows.num_rows());
-                for row in 0..rows.num_rows() {
-                    let key = crate::scoped_admission::column(rows, "id", row)?
-                        .ok_or(ModelError::Schema("SourceCall union identity"))?;
-                    mask.push(
-                        self.batch.contains(partition, table, key)?
-                            && !(input.type_id() == TypeId::of::<value::Literal>()
-                                && self.opaque.contains(&(partition, key))),
-                    );
-                }
-                let selected = datafusion::arrow::compute::filter_record_batch(
-                    rows,
-                    &arrow_array::BooleanArray::from(mask),
-                )
-                .map_err(ModelError::codec)?;
-                if selected.num_rows() != 0 {
-                    visit(input, &selected)?;
-                }
+            let gathered = self.columns.gather(
+                &[partition], table, table, budget, cancellation,
+                &mut |selected_partition, key| {
+                    !(input.type_id() == TypeId::of::<value::Literal>()
+                        && self.opaque.contains(&(selected_partition, key)))
+                },
+            )?;
+            for selected in gathered.rows() {
+                visit(input, selected)?;
             }
         }
         Ok(())
@@ -301,7 +284,7 @@ impl SourceCallWindow<'_> {
         partition: usize,
         data: &mut execution::evaluation::EvaluationData,
     ) -> Result<(), ModelError> {
-        if partition >= self.batch.outcomes().len() {
+        if partition >= self.columns.roots().outcomes().len() {
             return Err(ModelError::Schema("SourceCall window partition"));
         }
         for (_, key) in self
@@ -686,10 +669,10 @@ impl SourceCallScopes {
         }
         Ok(SourceCallWindow {
             scopes: self,
-            batch,
-            rows,
+            columns: lctx_compiler_store::scoped_positions::IndexedRootColumns::new(
+                batch, &self.inputs, rows, charge, budget, cancellation,
+            )?,
             opaque,
-            _charge: charge,
         })
     }
     fn index(&self, kind: TypeId) -> Result<usize, ModelError> {

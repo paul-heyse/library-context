@@ -27,7 +27,7 @@ pub mod scoped_aspects;
 pub mod scoped_batch;
 pub mod scoped_execution;
 pub mod scoped_inventory;
-mod scoped_positions;
+pub mod scoped_positions;
 pub mod scoped_retrieval;
 pub mod sql;
 pub mod stage_runtime;
