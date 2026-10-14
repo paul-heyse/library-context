@@ -1,6 +1,6 @@
 //! Canonical conversions shared by producer and stored replay.
 // Increment for a meaning/rule change; implementation source bytes live in producer provenance.
-const SEMANTIC_RULE_REVISION: i64 = 1;
+const SEMANTIC_RULE_REVISION: i64 = 2;
 use super::*;
 use crate::domain::{
     analysis::{self, analytic as owner, settings::AnalyticsConfiguration},
@@ -50,24 +50,40 @@ pub fn not_requested(
     attributes: policy::AttributePolicy,
 ) -> Result<Output, ModelError> {
     let settings = d.configuration()?;
-    if requested(settings) { return Err(invalid("requested analytic needs selected inputs")); }
+    if requested(settings) {
+        return Err(invalid("requested analytic needs selected inputs"));
+    }
     let sf = need(&d.structural.frames, f.structural)?;
     let parent = need(&d.structural_invocations, sf.invocation)?;
     if sf.configuration != settings.id() || f.configuration != settings.id() {
-        return Err(invalid("analytic configuration is foreign to structural frame"));
+        return Err(invalid(
+            "analytic configuration is foreign to structural frame",
+        ));
     }
     let mut out = Output::new(b);
     out.frames.insert(f.clone())?;
     for method in METHODS {
-        let (parameters, definition) = definition_with_attribute_policy(settings, method, attributes)?;
+        let (parameters, definition) =
+            definition_with_attribute_policy(settings, method, attributes)?;
         if d.parameters.get(parameters.id()) != Some(&parameters)
             || d.definitions.get(definition.id()) != Some(&definition)
-        { return Err(invalid("analytic canonical authored definition absent")); }
-        let mut candidates = invocations.iter().filter(|row| row.definition == definition.id()
-            && row.input == parent.input && row.context == parent.context && row.subject.is_none());
-        let invocation = candidates.next().ok_or_else(|| invalid("analytic invocation missing"))?;
-        if candidates.next().is_some() { return Err(invalid("analytic invocation ambiguous")); }
-        out.results.insert(result(f, invocation, method, settings))?;
+        {
+            return Err(invalid("analytic canonical authored definition absent"));
+        }
+        let mut candidates = invocations.iter().filter(|row| {
+            row.definition == definition.id()
+                && row.input == parent.input
+                && row.context == parent.context
+                && row.subject.is_none()
+        });
+        let invocation = candidates
+            .next()
+            .ok_or_else(|| invalid("analytic invocation missing"))?;
+        if candidates.next().is_some() {
+            return Err(invalid("analytic invocation ambiguous"));
+        }
+        out.results
+            .insert(result(f, invocation, method, settings))?;
     }
     Ok(out)
 }
@@ -208,14 +224,28 @@ impl Data {
     /// Resolve the union of enabled method and community-layer demands before preparation.
     /// Field names below select the existing typed inventories, including the shared parameter,
     /// decorator and type correspondence dependencies used by attribute production.
-    pub fn demanded_inputs(profile: stages::Profile, settings: &AnalyticsConfiguration) -> Vec<ValidationInput> {
-        let mut names = BTreeSet::from([AnalyticsConfiguration::NAME, analysis::AnalysisDefinition::NAME,
-            analysis::MethodParameters::NAME, structural::StructuralFrame::NAME, analysis::structural::Invocation::NAME]);
+    pub fn demanded_inputs(
+        profile: stages::Profile,
+        settings: &AnalyticsConfiguration,
+    ) -> Vec<ValidationInput> {
+        let mut names = BTreeSet::from([
+            AnalyticsConfiguration::NAME,
+            analysis::AnalysisDefinition::NAME,
+            analysis::MethodParameters::NAME,
+            structural::StructuralFrame::NAME,
+            analysis::structural::Invocation::NAME,
+        ]);
         if !requested(settings) {
-            return Self::consumed_inputs(profile).into_iter().filter(|input| names.contains(input.name())).collect();
+            return Self::consumed_inputs(profile)
+                .into_iter()
+                .filter(|input| names.contains(input.name()))
+                .collect();
         }
-        names.extend([structural::ScopeMember::NAME, structural::PublicCandidate::NAME,
-            projection::ProjectionSourceAssessment::NAME]);
+        names.extend([
+            structural::ScopeMember::NAME,
+            structural::PublicCandidate::NAME,
+            projection::ProjectionSourceAssessment::NAME,
+        ]);
         let mut native = BTreeSet::new();
         let mut extra = BTreeSet::new();
         if settings.communities {
@@ -224,36 +254,101 @@ impl Data {
         }
         let concepts = settings.fca || settings.rca;
         if concepts || (settings.communities && settings.type_layer) {
-            native.extend(["refs", "callables", "entity_classes", "occurrences", "artifacts", "qualifications",
-                "terms", "type_observations", "symbol_resolutions", "symbols", "placements", "parameter_declarations",
-                "parameters", "signatures", "shapes", "entity_declarations", "callable_variants", "callable_slots"]);
-            extra.extend(["parameter_syntax", "type_sequences", "type_members", "callable_type_slots", "uses"]);
+            native.extend([
+                "refs",
+                "callables",
+                "entity_classes",
+                "occurrences",
+                "artifacts",
+                "qualifications",
+                "terms",
+                "type_observations",
+                "symbol_resolutions",
+                "symbols",
+                "placements",
+                "parameter_declarations",
+                "parameters",
+                "signatures",
+                "shapes",
+                "entity_declarations",
+                "callable_variants",
+                "callable_slots",
+            ]);
+            extra.extend([
+                "parameter_syntax",
+                "type_sequences",
+                "type_members",
+                "callable_type_slots",
+                "uses",
+            ]);
         }
         if concepts {
-            native.extend(["owners", "decorators", "references", "reference_assessments", "reference_candidates",
-                "reference_targets", "lexical_resolutions", "native_signatures", "signature_types", "signature_type_subjects"]);
-            extra.extend(["members", "class_metadata", "metadata_supports", "class_members", "member_supports", "record_options",
-                "native_signature_supports", "port_supports", "captures", "capture_supports", "exits", "exit_supports",
-                "terminals", "terminal_supports"]);
+            native.extend([
+                "owners",
+                "decorators",
+                "references",
+                "reference_assessments",
+                "reference_candidates",
+                "reference_targets",
+                "lexical_resolutions",
+                "native_signatures",
+                "signature_types",
+                "signature_type_subjects",
+            ]);
+            extra.extend([
+                "members",
+                "class_metadata",
+                "metadata_supports",
+                "class_members",
+                "member_supports",
+                "record_options",
+                "native_signature_supports",
+                "port_supports",
+                "captures",
+                "capture_supports",
+                "exits",
+                "exit_supports",
+                "terminals",
+                "terminal_supports",
+            ]);
         }
         if settings.rca {
             names.insert(structural::handoffs::Handoff::NAME);
             native.extend(["event_alternatives", "event_alternative_sources", "targets"]);
         }
         if settings.communities && settings.mention_layer {
-            native.extend(["relation_mention_entity_assessments", "relation_mention_entity_candidates", "entity_exposure_candidates",
-                "mentions", "qualifications", "scopes", "modules", "artifacts", "symbol_resolutions", "symbols"]);
+            native.extend([
+                "relation_mention_entity_assessments",
+                "relation_mention_entity_candidates",
+                "entity_exposure_candidates",
+                "mentions",
+                "qualifications",
+                "scopes",
+                "modules",
+                "artifacts",
+                "symbol_resolutions",
+                "symbols",
+            ]);
             extra.extend(["uses", "corpus_libraries"]);
         }
         if settings.knn || (settings.communities && settings.knn_layer) {
             names.extend(vector_inputs().into_iter().map(|input| input.name()));
-            extra.extend(["uses", "text_subjects", "embedding_invocations", "embedding_outcomes", "embedding_uses"]);
+            extra.extend([
+                "uses",
+                "text_subjects",
+                "embedding_invocations",
+                "embedding_outcomes",
+                "embedding_uses",
+            ]);
         }
         macro_rules! selected_native {($($field:ident:$ty:ty,)*)=>{$(if native.contains(stringify!($field)){names.insert(<$ty>::NAME);})*};}
         crate::normalized_binding_inputs!(selected_native);
         macro_rules! selected_extra {($($field:ident:$ty:ty,)*)=>{$(if extra.contains(stringify!($field)){names.insert(<$ty>::NAME);})*};}
         crate::analytic_extra_inputs!(selected_extra);
-        Self::consumed_inputs(profile).into_iter().filter(|input| names.contains(input.name())).collect()
+        Self::consumed_inputs(profile)
+            .into_iter()
+            .filter(|input| names.contains(input.name()))
+            .collect()
     }
     /// A named complete analytical frame uses its own E1 domain while native evidence keeps
     /// exact dependency runs. This does not infer or rewrite a consumer's frame from its rows.
@@ -381,6 +476,21 @@ pub fn produce_with_policy(
     b: &ResourceBudget,
     attributes: policy::AttributePolicy,
 ) -> Result<Output, ModelError> {
+    produce_with_layer_work(d, f, invocations, graph, b, attributes, MAX_WORK)
+}
+#[allow(
+    clippy::too_many_arguments,
+    reason = "internal policy seam retains immutable invocation inputs and independently bounded layer work"
+)]
+fn produce_with_layer_work(
+    d: &Data,
+    f: &AnalyticFrame,
+    invocations: &Rows<owner::Invocation>,
+    graph: &MaterializedGraph,
+    b: &ResourceBudget,
+    attributes: policy::AttributePolicy,
+    layer_work: u64,
+) -> Result<Output, ModelError> {
     let s = d.configuration()?;
     if !requested(s) {
         return not_requested(d, f, invocations, b, attributes);
@@ -405,6 +515,17 @@ pub fn produce_with_policy(
         .and_then(|n| n.checked_add(4096))
         .ok_or_else(|| invalid("analytic conversion allocation overflow"))?;
     let mut scratch = b.reserve("analytic-conversion", reserve)?;
+    let correspondence = (s.fca || s.rca || (s.communities && (s.type_layer || s.mention_layer)))
+        .then(|| {
+            super::attributes::Correspondence::new(
+                d,
+                b,
+                s.fca || s.rca || s.type_layer,
+                s.fca || s.rca,
+                s.mention_layer,
+            )
+        })
+        .transpose()?;
     let mut out = Output::new(b);
     out.frames.insert(f.clone())?;
     let mut scope = BTreeSet::new();
@@ -580,19 +701,36 @@ pub fn produce_with_policy(
                 .entry(e.target)
                 .or_insert(e.id());
         }
-        let required = scopes
-            .values()
-            .try_fold(0u64, |n, rows| {
-                n.checked_add((rows.len() as u64).checked_mul(rows.len() as u64)?)
-            })
-            .ok_or_else(|| invalid("co-use pair work overflow"))?;
-        if required > MAX_WORK {
-            communities.status = analysis::AnalysisStatus::Partial;
-            communities.stop = Stop::WorkLimit;
-        } else {
+        let co_use_work = clique_work(scopes.values().map(BTreeMap::len), layer_work);
+        out.layer_results.insert(LayerResult {
+            frame: f.id(),
+            layer: Layer::Invocation,
+            invocation: communities.invocation,
+            status: if graph_partial {
+                analysis::AnalysisStatus::Partial
+            } else {
+                analysis::AnalysisStatus::Completed
+            },
+            stop: if graph_partial {
+                Stop::InputPartial
+            } else {
+                Stop::Converged
+            },
+            examined: out.arcs.len() as i64,
+        })?;
+        publish_layer(
+            &mut out,
+            f.id(),
+            communities.invocation,
+            Layer::CoUse,
+            co_use_work,
+        )?;
+        if co_use_work.is_some() {
             for (owner, targets) in scopes {
                 for (left, le) in &targets {
-                    for (right, re) in targets.range((std::ops::Bound::Excluded(left), std::ops::Bound::Unbounded)) {
+                    for (right, re) in
+                        targets.range((std::ops::Bound::Excluded(left), std::ops::Bound::Unbounded))
+                    {
                         contribute(
                             &mut out,
                             f.id(),
@@ -611,23 +749,53 @@ pub fn produce_with_policy(
         }
 
         if s.type_layer {
-            super::attributes::type_layer(d, f, &scope, &mut out, b)?;
+            let work = super::attributes::type_layer(
+                d,
+                correspondence.as_ref().unwrap(),
+                f,
+                &scope,
+                &mut out,
+                b,
+                layer_work,
+            )?;
+            publish_layer(&mut out, f.id(), communities.invocation, Layer::Type, work)?;
         }
         if s.mention_layer {
-            super::attributes::mention_layer(d, f, &scope, &mut out, b)?;
+            let work = super::attributes::mention_layer_prepared(
+                d,
+                correspondence.as_ref().unwrap(),
+                f,
+                &scope,
+                &mut out,
+                b,
+                layer_work,
+            )?;
+            publish_layer(
+                &mut out,
+                f.id(),
+                communities.invocation,
+                Layer::Mention,
+                work,
+            )?;
         }
         if s.knn_layer {
-            for row in out.layer_neighbours.iter().cloned().collect::<Vec<_>>() {
-                contribute(
-                    &mut out,
-                    f.id(),
-                    Layer::Nearest,
-                    row.query,
-                    row.target,
-                    PairSource::NearestLayer {
-                        neighbour: row.id(),
-                    },
-                )?;
+            if out.layer_results.iter().any(|r| {
+                r.frame == f.id()
+                    && r.layer == Layer::Nearest
+                    && r.status == analysis::AnalysisStatus::Completed
+            }) {
+                for row in out.layer_neighbours.iter().cloned().collect::<Vec<_>>() {
+                    contribute(
+                        &mut out,
+                        f.id(),
+                        Layer::Nearest,
+                        row.query,
+                        row.target,
+                        PairSource::NearestLayer {
+                            neighbour: row.id(),
+                        },
+                    )?;
+                }
             }
             let r = out
                 .layer_results
@@ -636,6 +804,33 @@ pub fn produce_with_policy(
                 .unwrap();
             if r.status != analysis::AnalysisStatus::Completed {
                 communities.status = analysis::AnalysisStatus::Partial;
+                communities.stop = r.stop;
+            }
+        }
+        let layers_complete = [
+            (Layer::Invocation, true),
+            (Layer::CoUse, true),
+            (Layer::Type, s.type_layer),
+            (Layer::Mention, s.mention_layer),
+            (Layer::Nearest, s.knn_layer),
+        ]
+        .into_iter()
+        .filter(|(_, selected)| *selected)
+        .all(|(layer, _)| {
+            out.layer_results.iter().any(|r| {
+                r.frame == f.id()
+                    && r.layer == layer
+                    && r.status == analysis::AnalysisStatus::Completed
+            })
+        });
+        if !layers_complete {
+            communities.status = analysis::AnalysisStatus::Partial;
+            communities.stop = Stop::InputPartial;
+            if let Some(r) = out
+                .layer_results
+                .iter()
+                .find(|r| r.frame == f.id() && r.status != analysis::AnalysisStatus::Completed)
+            {
                 communities.stop = r.stop;
             }
         }
@@ -685,69 +880,73 @@ pub fn produce_with_policy(
                     count: count as i64,
                     normalized_weight: pair.weight,
                 })?;
-                *combined.entry((pair.left, pair.right)).or_default() +=
-                    pair.weight.get() / layer_count as f64;
-                touched.insert(pair.left);
-                touched.insert(pair.right);
+                if layers_complete {
+                    *combined.entry((pair.left, pair.right)).or_default() +=
+                        pair.weight.get() / layer_count as f64;
+                    touched.insert(pair.left);
+                    touched.insert(pair.right);
+                }
             }
         }
-        let pairs = combined
-            .into_iter()
-            .map(|((left, right), weight)| {
-                Ok(communities::Pair {
-                    left,
-                    right,
-                    weight: FiniteF64::new(weight)?,
+        if layers_complete {
+            let pairs = combined
+                .into_iter()
+                .map(|((left, right), weight)| {
+                    Ok(communities::Pair {
+                        left,
+                        right,
+                        weight: FiniteF64::new(weight)?,
+                    })
                 })
-            })
-            .collect::<Result<Vec<_>, ModelError>>()?;
-        for p in &pairs {
-            out.combined.insert(CombinedPair {
-                frame: f.id(),
-                left: p.left,
-                right: p.right,
-                weight: p.weight,
-            })?;
-        }
-        let vertices = touched.iter().copied().collect::<Vec<_>>();
-        let required = (vertices.len() as u64 + pairs.len() as u64)
-            .checked_mul(
-                policy::RETAINED
-                    .community_work_multiplier()
-                    .ok_or_else(|| invalid("Leiden policy work overflow"))?,
-            )
-            .and_then(|n| {
-                n.checked_add(
-                    (public.len() as u64)
-                        .checked_mul(public.len() as u64)?
-                        .checked_mul(9)?,
+                .collect::<Result<Vec<_>, ModelError>>()?;
+            for p in &pairs {
+                out.combined.insert(CombinedPair {
+                    frame: f.id(),
+                    left: p.left,
+                    right: p.right,
+                    weight: p.weight,
+                })?;
+            }
+            let vertices = touched.iter().copied().collect::<Vec<_>>();
+            let required = (vertices.len() as u64 + pairs.len() as u64)
+                .checked_mul(
+                    policy::RETAINED
+                        .community_work_multiplier()
+                        .ok_or_else(|| invalid("Leiden policy work overflow"))?,
                 )
-            })
-            .ok_or_else(|| invalid("Leiden work overflow"))?;
-        if required > MAX_WORK {
-            communities.status = analysis::AnalysisStatus::Partial;
-            communities.stop = Stop::WorkLimit;
-        } else {
-            let p = communities::partition(&vertices, &pairs, MAX_WORK, b)?;
-            communities.iterations = p.runs().iter().map(|r| r.iterations as i64).sum();
-            communities.examined = required as i64;
-            if communities.stop == Stop::Converged {
-                if vertices.is_empty() {
-                    communities.stop = Stop::EmptyDomain;
-                } else if !p.chosen() {
-                    communities.stop = Stop::DegeneratePartition;
-                }
-            }
-            if p.runs().iter().any(|r| !r.converged) {
+                .and_then(|n| {
+                    n.checked_add(
+                        (public.len() as u64)
+                            .checked_mul(public.len() as u64)?
+                            .checked_mul(9)?,
+                    )
+                })
+                .ok_or_else(|| invalid("Leiden work overflow"))?;
+            if required > MAX_WORK {
                 communities.status = analysis::AnalysisStatus::Partial;
-                if matches!(
-                    communities.stop,
-                    Stop::Converged | Stop::DegeneratePartition
-                ) {
-                    communities.stop = Stop::IterationLimit;
+                communities.stop = Stop::WorkLimit;
+            } else {
+                let p = communities::partition(&vertices, &pairs, MAX_WORK, b)?;
+                communities.iterations = p.runs().iter().map(|r| r.iterations as i64).sum();
+                communities.examined = required as i64;
+                if communities.stop == Stop::Converged {
+                    if vertices.is_empty() {
+                        communities.stop = Stop::EmptyDomain;
+                    } else if !p.chosen() {
+                        communities.stop = Stop::DegeneratePartition;
+                    }
                 }
+                if p.runs().iter().any(|r| !r.converged) {
+                    communities.status = analysis::AnalysisStatus::Partial;
+                    if matches!(
+                        communities.stop,
+                        Stop::Converged | Stop::DegeneratePartition
+                    ) {
+                        communities.stop = Stop::IterationLimit;
+                    }
+                }
+                super::partitions::publish(&p, &communities, &public, &mut out, b)?;
             }
-            super::partitions::publish(&p, &communities, &public, &mut out, b)?;
         }
     }
     out.results.insert(communities)?;
@@ -760,10 +959,20 @@ pub fn produce_with_policy(
     ] {
         let mut r = methods.remove(&(method as i16)).unwrap();
         if r.selected {
-            super::attributes::concepts(d, sf, &public, &mut r, &mut out, b, attributes)?;
+            super::attributes::concepts(
+                d,
+                correspondence.as_ref().unwrap(),
+                sf,
+                &public,
+                &mut r,
+                &mut out,
+                b,
+                attributes,
+            )?;
         }
         out.results.insert(r)?;
     }
+    drop(correspondence);
     let touched = out
         .contributions
         .iter()
@@ -791,6 +1000,42 @@ pub fn produce_with_policy(
     super::conclusions::produce(d, &mut out, b)?;
     scratch.try_resize(0)?;
     Ok(out)
+}
+/// Check the complete canonical grouped expansion before publishing any pair.
+/// Overflow is exhaustion of the finite policy, never malformed input.
+pub(super) fn clique_work(degrees: impl IntoIterator<Item = usize>, limit: u64) -> Option<u64> {
+    let work = degrees.into_iter().try_fold(0u64, |total, degree| {
+        let degree = u64::try_from(degree).ok()?;
+        total.checked_add(degree.checked_mul(degree)?)
+    })?;
+    (work <= limit).then_some(work)
+}
+fn publish_layer(
+    out: &mut Output,
+    frame: Id<AnalyticFrame>,
+    invocation: Id<owner::Invocation>,
+    layer: Layer,
+    work: Option<u64>,
+) -> Result<(), ModelError> {
+    out.layer_results.insert(LayerResult {
+        frame,
+        layer,
+        invocation,
+        status: if work.is_some() {
+            analysis::AnalysisStatus::Completed
+        } else {
+            analysis::AnalysisStatus::Partial
+        },
+        stop: if work == Some(0) {
+            Stop::EmptyDomain
+        } else if work.is_some() {
+            Stop::Converged
+        } else {
+            Stop::WorkLimit
+        },
+        examined: work.unwrap_or(0).min(i64::MAX as u64) as i64,
+    })?;
+    Ok(())
 }
 pub(super) fn add_pair(
     out: &mut Output,
@@ -896,7 +1141,7 @@ pub fn stage(
     }
     Ok(Stage {
         captured_binding: None,
-name: "analyze_analytic",
+        name: "analyze_analytic",
         inputs,
         outputs,
         contributes: vec![],
@@ -912,44 +1157,396 @@ name: "analyze_analytic",
 mod demand_tests {
     use super::*;
     fn configuration() -> AnalyticsConfiguration {
-        AnalyticsConfiguration {module_prefixes:vec![],public_roots:vec![],configured_seeds:vec![],depth:1,vertices:16,arcs:32,witnesses:1,brief_budget:1,
-            communities:false,pagerank:false,fca:false,rca:false,knn:false,type_layer:false,mention_layer:false,knn_layer:false}
+        AnalyticsConfiguration {
+            module_prefixes: vec![],
+            public_roots: vec![],
+            configured_seeds: vec![],
+            depth: 1,
+            vertices: 16,
+            arcs: 32,
+            witnesses: 1,
+            brief_budget: 1,
+            communities: false,
+            pagerank: false,
+            fca: false,
+            rca: false,
+            knn: false,
+            type_layer: false,
+            mention_layer: false,
+            knn_layer: false,
+        }
     }
     #[test]
     fn preparation_uses_resolved_technique_and_layer_demand() {
-        let mut settings=configuration();
+        let mut settings = configuration();
         for profile in stages::Profile::ALL {
             assert!(!requested(&settings));
-            let names=Data::demanded_inputs(profile,&settings).into_iter().map(|input|input.name()).collect::<BTreeSet<_>>();
+            let names = Data::demanded_inputs(profile, &settings)
+                .into_iter()
+                .map(|input| input.name())
+                .collect::<BTreeSet<_>>();
             assert!(!names.contains(embedding::value::FullValue::NAME));
             assert!(!names.contains(types::TypeTerm::NAME));
-            settings.pagerank=true;
-            let names=Data::demanded_inputs(profile,&settings).into_iter().map(|input|input.name()).collect::<BTreeSet<_>>();
+            settings.pagerank = true;
+            let names = Data::demanded_inputs(profile, &settings)
+                .into_iter()
+                .map(|input| input.name())
+                .collect::<BTreeSet<_>>();
             assert!(names.contains(structural::ScopeMember::NAME));
             assert!(!names.contains(embedding::value::FullValue::NAME));
             assert!(!names.contains(types::TypeTerm::NAME));
-            settings.communities=true;
-            let names=Data::demanded_inputs(profile,&settings).into_iter().map(|input|input.name()).collect::<BTreeSet<_>>();
+            settings.communities = true;
+            let names = Data::demanded_inputs(profile, &settings)
+                .into_iter()
+                .map(|input| input.name())
+                .collect::<BTreeSet<_>>();
             assert!(names.contains(structural::UsageEvidence::NAME));
             assert!(!names.contains(types::TypeTerm::NAME));
             assert!(!names.contains(documents::DocumentMentionObservation::NAME));
             assert!(!names.contains(embedding::value::FullValue::NAME));
-            settings.type_layer=true;
-            let names=Data::demanded_inputs(profile,&settings).into_iter().map(|input|input.name()).collect::<BTreeSet<_>>();
+            settings.type_layer = true;
+            let names = Data::demanded_inputs(profile, &settings)
+                .into_iter()
+                .map(|input| input.name())
+                .collect::<BTreeSet<_>>();
             assert!(names.contains(types::TypeTerm::NAME));
             assert!(!names.contains(documents::DocumentMentionObservation::NAME));
-            settings.mention_layer=true;
-            assert!(Data::demanded_inputs(profile,&settings).iter().any(|input|input.name()==documents::DocumentMentionObservation::NAME));
-            settings.knn_layer=true;
-            assert!(Data::demanded_inputs(profile,&settings).iter().any(|input|input.name()==embedding::value::FullValue::NAME));
-            settings=configuration();
-            settings.fca=true;
-            let names=Data::demanded_inputs(profile,&settings).into_iter().map(|input|input.name()).collect::<BTreeSet<_>>();
+            settings.mention_layer = true;
+            assert!(
+                Data::demanded_inputs(profile, &settings)
+                    .iter()
+                    .any(|input| input.name() == documents::DocumentMentionObservation::NAME)
+            );
+            settings.knn_layer = true;
+            assert!(
+                Data::demanded_inputs(profile, &settings)
+                    .iter()
+                    .any(|input| input.name() == embedding::value::FullValue::NAME)
+            );
+            settings = configuration();
+            settings.fca = true;
+            let names = Data::demanded_inputs(profile, &settings)
+                .into_iter()
+                .map(|input| input.name())
+                .collect::<BTreeSet<_>>();
             assert!(names.contains(types::TypeTerm::NAME));
             assert!(names.contains(captures::CaptureObservation::NAME));
             assert!(!names.contains(documents::DocumentMentionObservation::NAME));
             assert!(!names.contains(embedding::value::FullValue::NAME));
-            settings=configuration();
+            settings = configuration();
         }
+    }
+}
+
+#[cfg(test)]
+mod bounded_layer_tests {
+    use super::*;
+    fn id<T>(n: u8) -> Id<T> {
+        serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
+    }
+    fn fixture(
+        b: &ResourceBudget,
+        groups: &[&[u8]],
+        nearest: bool,
+    ) -> (
+        Data,
+        AnalyticFrame,
+        Rows<owner::Invocation>,
+        MaterializedGraph,
+    ) {
+        let mut d = Data::new(b);
+        let s = AnalyticsConfiguration {
+            module_prefixes: vec!["api".into()],
+            public_roots: vec!["api".into()],
+            configured_seeds: vec![],
+            depth: 2,
+            vertices: 64,
+            arcs: 128,
+            witnesses: 1,
+            brief_budget: 0,
+            communities: true,
+            pagerank: true,
+            fca: false,
+            rca: false,
+            knn: false,
+            type_layer: false,
+            mention_layer: false,
+            knn_layer: nearest,
+        };
+        let mut text = embedding::text::TextDefinition::builtin();
+        text.requested = false;
+        d.vectors.text_definitions.insert(text).unwrap();
+        d.settings.insert(s.clone()).unwrap();
+        let (parent, _) = analysis::structural::Invocation::new(id(1), id(2), id(3), None, []);
+        d.structural_invocations.insert(parent.clone()).unwrap();
+        let mut projection = projection::normalization::ProjectionData::new(b);
+        let run = projection
+            .runs
+            .insert(attribution::ProviderRun {
+                provider: id(4),
+                input: parent.input,
+                context: parent.context,
+                configuration: ContentHash::of(b"control"),
+                requested_families: ContentHash::of(b"empty"),
+            })
+            .unwrap();
+        let coverage_scope = source::CoverageScope::Input {
+            input: parent.input,
+        };
+        projection.scopes.insert(coverage_scope.clone()).unwrap();
+        for family in
+            projection::ProjectionSpec::builtin(projection::ProjectionName::CallableInvocation)
+                .families()
+        {
+            projection
+                .coverage
+                .insert(attribution::ProviderCoverage {
+                    scope: coverage_scope.id(),
+                    provider: Some(id(4)),
+                    context: parent.context,
+                    family: *family,
+                    run: Some(run),
+                    status: attribution::CoverageStatus::CompleteUnderStatedModel,
+                    reason: None,
+                    diagnostic: None,
+                })
+                .unwrap();
+        }
+        let input = projection::normalization::describe(
+            &projection,
+            projection::normalization::ProjectionKey {
+                input: parent.input,
+                context: parent.context,
+                name: projection::ProjectionName::CallableInvocation,
+            },
+            b,
+        )
+        .unwrap();
+        let assessment = input.assessment();
+        let graph = MaterializedGraph::build(&input, b).unwrap();
+        d.graphs.assessments.insert(assessment.clone()).unwrap();
+        let sf = structural::StructuralFrame {
+            invocation: parent.id(),
+            usage_invocation: parent.id(),
+            handoff_invocation: parent.id(),
+            control_invocation: parent.id(),
+            controls_requested: false,
+            configuration: s.id(),
+            invocation_graph: assessment.id(),
+            definition_graph: id(5),
+        };
+        d.structural.frames.insert(sf.clone()).unwrap();
+        let f = AnalyticFrame {
+            structural: sf.id(),
+            configuration: s.id(),
+        };
+        for n in 10..14 {
+            d.structural
+                .scope
+                .insert(structural::ScopeMember {
+                    frame: sf.id(),
+                    entity: id(n),
+                    module: id(6),
+                    declaration: id(n),
+                    role: id(7),
+                })
+                .unwrap();
+        }
+        for (ordinal, targets) in groups.iter().enumerate() {
+            let site = structural::UsageSite {
+                frame: sf.id(),
+                site: id(30 + ordinal as u8),
+                targets: targets.iter().collect::<BTreeSet<_>>().len() as i64,
+                complete: true,
+                uncertain: false,
+            };
+            d.structural.usage_sites.insert(site.clone()).unwrap();
+            let ownership = OccurrenceOwnership {
+                occurrence: site.site,
+                owner: id(50 + ordinal as u8),
+                entity: id(10),
+            };
+            d.native.owners.insert(ownership.clone()).unwrap();
+            let event = normalized::events::NormalizedCallEvent {
+                site: site.site,
+                origin: id(8),
+                context: parent.context,
+                owner: ownership.id(),
+            };
+            d.native.event_events.insert(event.clone()).unwrap();
+            for target in *targets {
+                d.structural
+                    .usage_evidence
+                    .insert(structural::UsageEvidence {
+                        site: site.id(),
+                        event: event.id(),
+                        policy: id(8),
+                        admission: id(8),
+                        alternative: id(*target),
+                        target: id(*target),
+                    })
+                    .unwrap();
+            }
+        }
+        let mut invocations = Rows::new(b);
+        for method in METHODS {
+            let (parameters, definition) = definition(&s, method).unwrap();
+            d.parameters.insert(parameters).unwrap();
+            d.definitions.insert(definition.clone()).unwrap();
+            invocations
+                .insert(
+                    owner::Invocation::new(parent.input, parent.context, definition.id(), None, [])
+                        .0,
+                )
+                .unwrap();
+        }
+        (d, f, invocations, graph)
+    }
+    #[test]
+    fn aggregate_clique_work_is_checked_complete_and_order_independent() {
+        assert_eq!(clique_work([2, 2], 7), None);
+        assert_eq!(clique_work([3], 8), None);
+        assert_eq!(clique_work([2, 2], 8), Some(8));
+        assert_eq!(clique_work([0, 0], 0), Some(0));
+        assert_eq!(clique_work([1, 2, 3], 14), clique_work([3, 1, 2], 14));
+        assert_eq!(clique_work([usize::MAX, usize::MAX], u64::MAX), None);
+    }
+    #[test]
+    fn exhausted_co_use_has_no_pair_prefix_or_partition_and_independent_rank_survives() {
+        let b = ResourceBudget::fixed(16 << 20).unwrap();
+        for groups in [vec![&[10, 11][..], &[12, 13][..]], vec![&[10, 11, 12][..]]] {
+            let (d, f, invocations, graph) = fixture(&b, &groups, false);
+            let out = produce_with_layer_work(
+                &d,
+                &f,
+                &invocations,
+                &graph,
+                &b,
+                policy::RETAINED.attributes,
+                7,
+            )
+            .unwrap();
+            let layer = out
+                .layer_results
+                .iter()
+                .find(|r| r.layer == Layer::CoUse)
+                .unwrap();
+            assert_eq!(layer.status, analysis::AnalysisStatus::Partial);
+            assert_eq!(layer.stop, Stop::WorkLimit);
+            assert!(out.contributions.is_empty());
+            assert!(out.layer_pairs.is_empty());
+            assert!(out.combined.is_empty());
+            assert!(out.runs.is_empty());
+            assert!(out.partitions.is_empty());
+            assert!(out.communities.is_empty());
+            assert!(
+                !out.conclusions
+                    .iter()
+                    .any(|r| r.kind == analysis::policy::FindingKind::Community)
+            );
+            assert_eq!(out.ranks.len(), 4);
+            let rank = out
+                .results
+                .iter()
+                .find(|r| r.method == analysis::AnalysisMethod::PageRank)
+                .unwrap();
+            assert_eq!(rank.status, analysis::AnalysisStatus::Completed);
+            let community = out
+                .results
+                .iter()
+                .find(|r| r.method == analysis::AnalysisMethod::Communities)
+                .unwrap();
+            assert_eq!(community.status, analysis::AnalysisStatus::Partial);
+            assert_eq!(community.stop, Stop::WorkLimit);
+            assert!(
+                out.layer_results
+                    .iter()
+                    .any(|r| r.layer == Layer::Invocation
+                        && r.status == analysis::AnalysisStatus::Completed)
+            );
+        }
+        assert_eq!(b.reserved(), 0);
+    }
+    #[test]
+    fn exact_layer_limit_preserves_canonical_pair_evidence_weights_and_empty_layer() {
+        let b = ResourceBudget::fixed(16 << 20).unwrap();
+        let (d, f, invocations, graph) = fixture(&b, &[&[10, 11, 10], &[12, 13]], false);
+        let out = produce_with_layer_work(
+            &d,
+            &f,
+            &invocations,
+            &graph,
+            &b,
+            policy::RETAINED.attributes,
+            8,
+        )
+        .unwrap();
+        let layer = out
+            .layer_results
+            .iter()
+            .find(|r| r.layer == Layer::CoUse)
+            .unwrap();
+        assert_eq!(layer.examined, 8);
+        assert_eq!(layer.status, analysis::AnalysisStatus::Completed);
+        assert_eq!(out.contributions.len(), 2);
+        assert_eq!(out.layer_pairs.len(), 2);
+        assert_eq!(out.combined.len(), 2);
+        for row in out.layer_pairs.iter() {
+            assert_eq!(row.count, 1);
+            assert_eq!(row.normalized_weight.get(), 0.5);
+        }
+        for row in out.combined.iter() {
+            assert_eq!(row.weight.get(), 0.25);
+        }
+        let (d2, f2, i2, g2) = fixture(&b, &[&[13, 12], &[11, 10]], false);
+        let reordered =
+            produce_with_layer_work(&d2, &f2, &i2, &g2, &b, policy::RETAINED.attributes, 8)
+                .unwrap();
+        assert!(out.layer_pairs.same(&reordered.layer_pairs));
+        let (empty, ef, ei, eg) = fixture(&b, &[], false);
+        let output =
+            produce_with_layer_work(&empty, &ef, &ei, &eg, &b, policy::RETAINED.attributes, 0)
+                .unwrap();
+        assert!(output.layer_results.iter().any(|r| r.layer == Layer::CoUse
+            && r.stop == Stop::EmptyDomain
+            && r.status == analysis::AnalysisStatus::Completed));
+        assert!(output.combined.is_empty());
+    }
+    #[test]
+    fn unavailable_nearest_layer_preserves_complete_other_pairs_without_combining_recipe() {
+        let b = ResourceBudget::fixed(16 << 20).unwrap();
+        let (d, f, invocations, graph) = fixture(&b, &[&[10, 11], &[12, 13]], true);
+        let out = produce_with_layer_work(
+            &d,
+            &f,
+            &invocations,
+            &graph,
+            &b,
+            policy::RETAINED.attributes,
+            8,
+        )
+        .unwrap();
+        assert!(out.layer_results.iter().any(|r| r.layer == Layer::Nearest
+            && r.status == analysis::AnalysisStatus::Unavailable
+            && r.stop == Stop::VectorsUnavailable));
+        assert_eq!(out.layer_pairs.len(), 2);
+        assert_eq!(out.contributions.len(), 2);
+        assert!(out.combined.is_empty());
+        assert!(out.runs.is_empty());
+        assert!(out.communities.is_empty());
+        assert_eq!(out.ranks.len(), 4);
+        assert!(
+            out.results
+                .iter()
+                .any(|r| r.method == analysis::AnalysisMethod::Neighbours
+                    && r.status == analysis::AnalysisStatus::NotRequested)
+        );
+        assert!(
+            out.results
+                .iter()
+                .any(|r| r.method == analysis::AnalysisMethod::Communities
+                    && r.status == analysis::AnalysisStatus::Partial
+                    && r.stop == Stop::VectorsUnavailable)
+        );
     }
 }

@@ -74,7 +74,7 @@ pub const RETAINED: RetainedPolicy = RetainedPolicy {
     concept_bound: 20_000,
     neighbour_floor: 0.5,
     neighbours: 3,
-    mechanics: "petgraph0.8.3/leiden0.8.1/fixedbitset0.5.7;directed-count-rank;RBER-quality-history;undirected-equal-retained-layers;canonical-accumulation;one-RCA-step;partition-largest-majority-or-less-than-three-degenerate",
+    mechanics: "petgraph0.8.3/leiden0.8.1/fixedbitset0.5.7;directed-count-rank;RBER-quality-history;undirected-equal-retained-layers;canonical-accumulation;one-RCA-step;partition-largest-majority-or-less-than-three-degenerate;aggregate-canonical-degree-squared-per-layer;no-combined-partition-unless-all-selected-layers-complete",
     attributes: AttributePolicy {
         signature_roles: SignatureRoles::SourceDeclared,
         receiver: ReceiverPolicy::ExcludeSourceBoundPreserveNative,

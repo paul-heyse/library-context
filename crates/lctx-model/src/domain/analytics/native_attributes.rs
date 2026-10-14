@@ -1,12 +1,12 @@
 //! Native metadata enriches declared type ports; no class fact closes runtime dispatch.
 use super::{
-    attributes::{Fact, classes},
+    attributes::{Correspondence, Fact, classes},
     build::{Data, need},
     *,
 };
 use crate::domain::{
     charged::{ChargedVec, StateCharge},
-    normalized::entities::{EntityRef, ResolutionStatus},
+    normalized::entities::EntityRef,
     resources::ResourceBudget,
 };
 
@@ -33,6 +33,11 @@ impl HeapSize for Selection {
     }
 }
 impl Selection {
+    pub(super) fn entity(&self) -> Id<EntityRef> {
+        match self {
+            Self::Metadata { entity, .. } | Self::Decorator { entity, .. } => *entity,
+        }
+    }
     pub fn emit(&self, scope: Id<ConceptScope>, out: &mut Output) -> Result<(), ModelError> {
         match self {
             Self::Metadata {
@@ -84,25 +89,13 @@ fn exact(
         && q.approximation == assertion::Approximation::Exact
         && q.condition == conditions::Diagram::always().id())
 }
-fn resolves(
-    d: &Data,
-    symbol: Id<calls::ProviderSymbol>,
-    entity: Id<EntityRef>,
-    ctx: Id<attribution::AnalysisContext>,
-) -> bool {
-    d.native.symbol_resolutions.iter().any(|r| {
-        r.symbol == symbol
-            && r.context == ctx
-            && r.status == ResolutionStatus::Resolved
-            && r.entity == Some(entity)
-    })
-}
 #[allow(
     clippy::too_many_arguments,
     reason = "entity, observation, role and context retain nominal identities; facts and selections retain independent provenance under one budget and charge"
 )]
 pub(super) fn metadata(
     d: &Data,
+    prep: &Correspondence<'_>,
     entity: Id<EntityRef>,
     observation: &types::TypeObservation,
     role: TypePortRole,
@@ -112,15 +105,15 @@ pub(super) fn metadata(
     selections: &mut ChargedVec<Selection>,
     charge: &mut StateCharge,
 ) -> Result<(), ModelError> {
-    let Some(type_classes) = classes(d, observation.term, ctx, budget)? else {
+    let Some(type_classes) = classes(d, prep, observation.term, ctx, budget)? else {
         return Ok(());
     };
-    for class in type_classes {
+    for class in type_classes.iter().copied() {
         let mut found = false;
         for m in d
             .class_metadata
             .iter()
-            .filter(|m| resolves(d, m.class, class, ctx))
+            .filter(|m| prep.resolves(m.class, class, ctx))
         {
             if need(&d.native.qualifications, m.qualification)?.context != ctx {
                 continue;
@@ -238,10 +231,10 @@ pub(super) fn metadata(
         for member in d
             .class_members
             .iter()
-            .filter(|m| resolves(d, m.class, class, ctx))
+            .filter(|m| prep.resolves(m.class, class, ctx))
         {
             if !exact(d, member.qualification, ctx)?
-                || classes(d, member.term, ctx, budget)?.is_none()
+                || classes(d, prep, member.term, ctx, budget)?.is_none()
             {
                 continue;
             }
@@ -328,8 +321,13 @@ pub(super) fn decorator(
 
 /// Native contracts are distinct kinds from declared source ports. Native receiver slots remain
 /// present and labelled, because bound native terms may have already transformed the receiver.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "native port projection retains selected context, policy and charged incidence owner"
+)]
 pub(super) fn variants(
     d: &Data,
+    prep: &Correspondence<'_>,
     entity: Id<EntityRef>,
     ctx: Id<attribution::AnalysisContext>,
     b: &ResourceBudget,
@@ -394,7 +392,8 @@ pub(super) fn variants(
             )?;
         }
         for port in d.native.signature_types.iter() {
-            if !exact(d, port.qualification, ctx)? || classes(d, port.term, ctx, b)?.is_none() {
+            if !exact(d, port.qualification, ctx)? || classes(d, prep, port.term, ctx, b)?.is_none()
+            {
                 continue;
             }
             let attribute = match need(&d.native.signature_type_subjects, port.subject)? {
@@ -451,6 +450,7 @@ pub(super) fn variants(
 /// unknown capture timing nor diagnostic-free exit typing implies a concrete runtime result.
 pub(super) fn dependence(
     d: &Data,
+    prep: &Correspondence<'_>,
     entity: Id<EntityRef>,
     ctx: Id<attribution::AnalysisContext>,
     facts: &mut ChargedVec<Fact>,
@@ -459,7 +459,7 @@ pub(super) fn dependence(
     for capture in d
         .captures
         .iter()
-        .filter(|c| resolves(d, c.function, entity, ctx))
+        .filter(|c| prep.resolves(c.function, entity, ctx))
     {
         if !exact(d, capture.qualification, ctx)? {
             continue;
@@ -661,6 +661,7 @@ mod tests {
         let mut charge = StateCharge::new(b, "test");
         metadata(
             d,
+            &Correspondence::new(d, b, true, true, false).unwrap(),
             entity,
             o,
             role,
@@ -974,7 +975,15 @@ mod tests {
         let collect = |d: &Data, ctx| {
             let mut facts = ChargedVec::default();
             let mut charge = StateCharge::new(&b, "dependence-test");
-            dependence(d, entity, ctx, &mut facts, &mut charge).unwrap();
+            dependence(
+                d,
+                &Correspondence::new(d, &b, true, true, false).unwrap(),
+                entity,
+                ctx,
+                &mut facts,
+                &mut charge,
+            )
+            .unwrap();
             facts
                 .iter()
                 .map(|f| f.attribute.id())

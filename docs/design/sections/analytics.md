@@ -78,6 +78,14 @@ frontier stops. A path's qualification is no stronger than its premises. Conserv
 can schedule/traverse a target without admitting it as a behavioral callee. Direct usage is a
 separate typed policy, not graph degree or delegation depth.
 
+**Implemented / source and pure-focused Tested, 2026-10-14; native composition remains open.** Rich scoped C0/C1/Structural
+kernels prepare charged keyed correspondence while preserving competing rows and context/ambiguity
+checks. Public-path expansion consumes deterministic pending keys with separately owned class scratch
+and live trails. Prepared delegation shares source-role lookup and lazy boundary classification in its
+exact immutable frame/subsystem, including errors only when visited. Distinct entities retain their
+own bounded BFS; aliases resolving to one entity already share it. No persisted index or traversal
+result cache is introduced. The Catalog coordinator owns current evidence and native limits.
+
 <a id="section-9-2"></a>
 
 ### §9.2 Controls and local restrictions
@@ -92,6 +100,13 @@ and receiver roles remain distinct. A conditional raise retains its exact guard 
 statement; it does not establish operation-wide rejection or escaping exceptions without the
 behavioral completion proof. A deeper call, unsupported construct or exceeded budget is an
 explicit unfollowed path/argument. Name proximity and signature resemblance establish nothing.
+
+**Implemented / source and pure-focused Tested, 2026-10-14; native composition remains open.** Control traversal consumes a FIFO
+of predecessor-arena handles over frame-owned outgoing/unfollowed indexes. Visited identity remains
+(target, formal, suppressed) at dequeue, with the existing canonical order and work/depth stops.
+Per-root scratch releases before the next root; retained queue/arena capacity remains charged through
+flat ControlPath/ControlStep materialization. Published witness identities and S0 consumers retain
+their existing contract; RC03 is unused.
 
 <a id="section-9-3"></a>
 
@@ -151,7 +166,17 @@ forged document-use refusals. The assurance coordinator owns that composite rece
 A community label is a deterministic description; membership remains heuristic and
 cannot assert behavior or capability identity.
 
-> Decision: ADR-0020, ADR-0106
+**Implemented / pure-focused Tested, 2026-10-14 (ADR-0169); native composition remains open.** Co-use, type and
+mention preflight aggregate degree-squared expansion work per complete selected layer. Exhaustion
+publishes an explicit Partial/WorkLimit layer result without a pair prefix. Independently complete
+layers and techniques remain available, but a missing/incomplete required layer prevents combined
+graph and partition publication; the remaining layers never silently replace the selected recipe.
+Empty complete layers are valid. This meaning revision is distinct from Leiden's separate run-work
+limit; current pair/concept evidence contracts, resolutions/seeds and graph universe remain.
+The [Catalog coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint)
+owns implementation and verification boundaries. No schema change or measured performance is implied.
+
+> Decision: ADR-0020, ADR-0106, ADR-0169
 
 <a id="section-9-5"></a>
 
@@ -265,4 +290,4 @@ Implementation and focused receipts do not establish measurement or differentiat
 graph-native coordinator owns current functional acceptance. [§14.12](api-and-evidence-product.md#section-14-12)
 owns the product acceptance protocol.
 
-> Decision: ADR-0020, ADR-0071, ADR-0106
+> Decision: ADR-0020, ADR-0071, ADR-0106, ADR-0169

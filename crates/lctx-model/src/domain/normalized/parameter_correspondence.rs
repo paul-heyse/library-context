@@ -27,6 +27,23 @@ pub fn source_parameter(
 ) -> Result<Option<SourceParameterCorrespondence>, ModelError> {
     source_parameter_view(&data.view(), parameter, context, budget)
 }
+/// The allocation-free no-consumer gates shared with invocation-local preparation.
+/// This does not resolve ambiguous formal children or grant native slot correspondence.
+pub(crate) fn source_parameter_container<'a>(
+    data: &BindingDataView<'a>,
+    parameter: &ParameterSyntaxObservation,
+    context: Id<AnalysisContext>,
+) -> Option<&'a Occurrence> {
+    if data.qualifications.get(parameter.qualification)?.context != context {
+        return None;
+    }
+    data.occurrences.get(parameter.parameter).filter(|row| {
+        matches!(
+            row.syntax_kind,
+            SyntaxKind::Parameter | SyntaxKind::ParameterWithDefault
+        )
+    })
+}
 pub fn source_parameter_view(
     data: &BindingDataView<'_>,
     parameter: &ParameterSyntaxObservation,
@@ -38,10 +55,7 @@ pub fn source_parameter_view(
             .get(qualification)
             .is_some_and(|q| q.context == context)
     };
-    if !in_context(parameter.qualification) {
-        return Ok(None);
-    }
-    let Some(container) = data.occurrences.get(parameter.parameter) else {
+    let Some(container) = source_parameter_container(data, parameter, context) else {
         return Ok(None);
     };
     let formal = match container.syntax_kind {

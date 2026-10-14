@@ -95,6 +95,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0166](0166-exact-completed-transport-and-selector-eligibility.md) | Bind portable copies and native substitution independently of semantic identity | 2026-10-13 | [§6.1](../design/sections/storage-and-publication.md#section-6-1), [§6.2](../design/sections/storage-and-publication.md#section-6-2), [§15.1](../design/sections/semantic-model.md#section-15-1) | Interface-checked |  |
 | [ADR-0167](0167-disposal-current-quiescence.md) | Transfer ordinary campaign maintenance only after fresh current quiescence | 2026-10-13 | [§6](../design/sections/storage-and-publication.md#section-6) | Tested |  |
 | [ADR-0168](0168-exact-ready-compiler-selections.md) | Execute against exact completed selections independently of publication prefixes | 2026-10-14 | [§15.1](../design/sections/semantic-model.md#section-15-1), [§15.11](../design/sections/semantic-model.md#section-15-11), [§3.5](../design/sections/facts-and-identity.md#section-3-5), [§6.1](../design/sections/storage-and-publication.md#section-6-1) | Proposed | ADR-0105 |
+| [ADR-0169](0169-bounded-analytic-layer-outcomes.md) | Publish partial analytic layers without incomplete combined partitions | 2026-10-14 | [§9.4](../design/sections/analytics.md#section-9-4), [§9.8](../design/sections/analytics.md#section-9-8) | Proposed |  |
 
 ## Proposed: open choices, not accepted decisions
 
