@@ -1026,6 +1026,45 @@ fn supplied_report_is_scoped_by_actual_target_context_and_acquired_environment()
             .iter()
             .all(|c| c.environment == CheckStatus::Blocked)
     );
+    // An explicit corpus/library link establishes provenance across distinct inputs.
+    d.facts
+        .corpus_libraries
+        .insert(CorpusLibrary {
+            corpus: source.input,
+            library: nominal(64),
+        })
+        .unwrap();
+    assert!(
+        build(&d, &b)
+            .unwrap()
+            .checks
+            .iter()
+            .all(|c| c.environment == CheckStatus::Passed)
+    );
+    // Two independently acquired matching environments remain ambiguous.
+    let another = d
+        .facts
+        .acquisitions
+        .insert(InputAcquisition {
+            input: nominal(64),
+            origin: nominal(66),
+        })
+        .unwrap();
+    let original = d.facts.fingerprints.iter().next().unwrap().clone();
+    d.facts
+        .fingerprints
+        .insert(EnvironmentFingerprint {
+            acquisition: another,
+            ..original
+        })
+        .unwrap();
+    assert!(
+        build(&d, &b)
+            .unwrap()
+            .checks
+            .iter()
+            .all(|c| c.environment == CheckStatus::Blocked && c.fingerprint.is_none())
+    );
     // Reported source path alone cannot establish a target or a context link.
     d.facts.report_observations = normalized::Rows::new(&b);
     let foreign_q = AssertionQualification {
@@ -1685,4 +1724,281 @@ fn alignment_publication_order() -> lctx_model::domain::stages::PublicationOrder
         PublicationGroup::new(PublicationBoundary::Synthesis, vec!["synthesis"]),
     ])
     .unwrap()
+}
+
+#[test]
+fn correspondence_retains_contexts_alternatives_authorities_and_every_matching_option() {
+    use normalized::bindings::{BindingOutcome, BindingReason, CallBinding, CallBindingAttempt};
+    use normalized::signature_applicability::{AuthorityReason, BindingAuthority};
+    let (b, mut d, source, first) = setup("example.py", b"api(x)\n", SourceRole::Example);
+    let second = AssertionQualification {
+        context: nominal(130),
+        ..first.clone()
+    };
+    d.core.qualifications.insert(second.clone()).unwrap();
+    let coverage = d.core.native_coverage.iter().next().unwrap().clone();
+    d.core
+        .native_coverage
+        .insert(ProviderCoverage {
+            context: second.context,
+            ..coverage
+        })
+        .unwrap();
+    d.facts
+        .uses
+        .insert(ArtifactUse {
+            artifact: source.id(),
+            input: source.input,
+            role: SourceRole::Test,
+        })
+        .unwrap();
+    let (member, callable) = public_callable(&mut d, &source, &first);
+    assert_eq!(
+        public_callable(&mut d, &source, &second),
+        (member, callable)
+    );
+    let site = occurrence(&mut d, &source, 0, 6, SyntaxKind::ExprCall);
+    let first_event = event(&mut d, &source, &first, site, callable, 131);
+    let second_event = event(&mut d, &source, &second, site, callable, 132);
+    let initial: Vec<_> = d.facts.alternatives.iter().cloned().collect();
+    for alternative in initial {
+        let target = d
+            .facts
+            .raw_targets
+            .get(
+                d.facts
+                    .alternative_sources
+                    .get(alternative.source)
+                    .unwrap()
+                    .target(),
+            )
+            .unwrap()
+            .clone();
+        let raw = d
+            .facts
+            .raw_targets
+            .insert(CallTarget {
+                phase: CallPhase::Init,
+                ..target
+            })
+            .unwrap();
+        let alternative_source = d
+            .facts
+            .alternative_sources
+            .insert(CallAlternativeSource::Native { target: raw })
+            .unwrap();
+        d.facts
+            .alternatives
+            .insert(NormalizedCallAlternative {
+                source: alternative_source,
+                status: ResolutionStatus::Ambiguous,
+                ..alternative
+            })
+            .unwrap();
+    }
+    let slot: Id<SignatureSlot> = nominal(133);
+    let parameter = d
+        .catalog
+        .subjects
+        .insert(CatalogOptionSubject::Parameter { slot })
+        .unwrap();
+    let source_parameter = d
+        .catalog
+        .subjects
+        .insert(CatalogOptionSubject::SourceParameter {
+            parameter: nominal(134),
+        })
+        .unwrap();
+    let absent = d
+        .catalog
+        .defaults
+        .insert(CatalogDefault::Absent {})
+        .unwrap();
+    let unknown = d
+        .catalog
+        .defaults
+        .insert(CatalogDefault::Unknown {})
+        .unwrap();
+    let option_a = d
+        .catalog
+        .options
+        .insert(CatalogOption {
+            member,
+            subject: parameter,
+            evidence: nominal(135),
+            default: absent,
+        })
+        .unwrap();
+    let option_b = d
+        .catalog
+        .options
+        .insert(CatalogOption {
+            member,
+            subject: parameter,
+            evidence: nominal(136),
+            default: unknown,
+        })
+        .unwrap();
+    let source_option = d
+        .catalog
+        .options
+        .insert(CatalogOption {
+            member,
+            subject: source_parameter,
+            evidence: nominal(137),
+            default: unknown,
+        })
+        .unwrap();
+    let alternatives: Vec<_> = d.facts.alternatives.iter().cloned().collect();
+    for alternative in &alternatives {
+        for authority in [
+            BindingAuthority::SourceInspection,
+            BindingAuthority::EffectiveInvocation,
+        ] {
+            let attempt = d
+                .facts
+                .attempts
+                .insert(CallBindingAttempt {
+                    alternative: alternative.id(),
+                    variant: None,
+                    syntax: None,
+                    policy: ContentHash::of(&[authority.code() as u8]),
+                    event: alternative.event,
+                    signature: None,
+                    arguments: None,
+                    receiver: Receiver::None {}.id(),
+                    receiver_assessment: None,
+                    dispatch_member: None,
+                    effective: None,
+                    adjustment: SignatureAdjustment::None,
+                    authority,
+                    authority_reason: AuthorityReason::Established,
+                    outcome: BindingOutcome::Bound,
+                    reason: BindingReason::Bound,
+                    refusal: None,
+                    bindings: ContentHash::of(b"binding"),
+                })
+                .unwrap();
+            for ordinal in 0..2 {
+                d.facts
+                    .bindings
+                    .insert(CallBinding {
+                        attempt,
+                        ordinal,
+                        slot,
+                        source: nominal(138 + ordinal as u8),
+                        kind: BindingKind::Keyword,
+                        projection: BindingProjection::Whole.id(),
+                    })
+                    .unwrap();
+            }
+        }
+    }
+    let out = build(&d, &b).unwrap();
+    // Two source roles per context, two alternatives per event, two attempts per
+    // alternative, two binding rows per attempt and two evidence options per slot.
+    assert_eq!(out.scenarios.len(), 4);
+    assert_eq!(out.associations.len(), 8);
+    assert_eq!(out.scenario_bindings.len(), 16);
+    assert_eq!(out.options.len(), 64);
+    for association in out.associations.iter() {
+        let alternative = d.facts.alternatives.get(association.alternative).unwrap();
+        assert!(matches!(alternative.event, id if id == first_event || id == second_event));
+        let expected_context = d.facts.events.get(alternative.event).unwrap().context;
+        assert_eq!(
+            d.core
+                .qualifications
+                .get(association.qualification)
+                .unwrap()
+                .context,
+            expected_context
+        );
+        match out
+            .scenario_sources
+            .get(out.scenarios.get(association.scenario).unwrap().source)
+            .unwrap()
+        {
+            ScenarioSource::Python { context, .. } => assert_eq!(*context, expected_context),
+            _ => panic!("only Python sources were authored"),
+        }
+        assert_eq!(association.basis, AssociationBasis::CandidateTarget);
+    }
+    for row in out.scenario_bindings.iter() {
+        let attempt = d.facts.attempts.get(row.attempt).unwrap();
+        assert_eq!(
+            row.status,
+            if attempt.authority == BindingAuthority::EffectiveInvocation {
+                CheckStatus::Passed
+            } else {
+                CheckStatus::Blocked
+            }
+        );
+    }
+    assert!(
+        out.options
+            .iter()
+            .all(|r| r.option == option_a || r.option == option_b)
+    );
+    assert!(!out.options.iter().any(|r| r.option == source_option));
+    assert_eq!(d.catalog.options.get(option_a).unwrap().default, absent);
+    assert_eq!(d.catalog.options.get(option_b).unwrap().default, unknown);
+}
+
+#[test]
+fn correspondence_stops_at_ambiguous_placements_without_erasing_scenario_evidence() {
+    let (b, mut d, source, q) = setup(
+        "example.py",
+        b"with cm():\n    api()\n",
+        SourceRole::Example,
+    );
+    let (_, callable) = public_callable(&mut d, &source, &q);
+    let parent = occurrence(&mut d, &source, 0, source.byte_len, SyntaxKind::StmtWith);
+    let call = occurrence(&mut d, &source, 15, 20, SyntaxKind::ExprCall);
+    placement(&mut d, &q, call, parent, SyntaxField::Body, 0);
+    event(&mut d, &source, &q, call, callable, 140);
+    let unique = build(&d, &b).unwrap();
+    assert_eq!(
+        unique
+            .setup
+            .iter()
+            .filter(|r| matches!(r, SetupDependency::WithContext { .. }))
+            .count(),
+        1
+    );
+    // A second equally qualified edge is uncertainty, not a winner chosen by key order.
+    placement(&mut d, &q, call, parent, SyntaxField::Body, 1);
+    let ambiguous = build(&d, &b).unwrap();
+    assert_eq!(ambiguous.associations.len(), 1);
+    assert_eq!(
+        ambiguous
+            .setup
+            .iter()
+            .filter(|r| matches!(r, SetupDependency::WithContext { .. }))
+            .count(),
+        0
+    );
+    assert_eq!(ambiguous.scenarios.len(), unique.scenarios.len());
+}
+
+#[test]
+fn correspondence_does_not_collapse_ambiguous_invocation_owners() {
+    let (b, d, source, q) = setup("example.py", b"api()", SourceRole::Example);
+    let out = build(&d, &b).unwrap();
+    let mut invocations = normalized::Rows::new(&b);
+    for definition in [nominal(145), nominal(146)] {
+        invocations
+            .insert(analysis::catalog_evidence::Invocation {
+                input: source.input,
+                context: q.context,
+                definition,
+                subject: None,
+                inputs: ContentHash::of(b"inputs"),
+                sources: ContentHash::of(b"sources"),
+                projections: ContentHash::of(b"projections"),
+            })
+            .unwrap();
+    }
+    assert!(
+        matches!(invocation_links(&out, &invocations, &b), Err(ModelError::Invalid(message)) if message.contains("exact input/context invocation"))
+    );
 }

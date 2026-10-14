@@ -16,6 +16,30 @@ pub(super) fn need<R: Record>(rows: &Rows<R>, id: Id<R>) -> Result<&R, ModelErro
     rows.get(id)
         .ok_or_else(|| invalid(format!("structural predecessor absent: {}", R::NAME)))
 }
+/// Local correspondence buckets borrow row identities, preserving every canonical match.
+/// Key/node and vector capacity are admitted before either allocation grows.
+pub(super) fn append_index<K: Ord + HeapSize, V: Copy>(
+    index: &mut std::collections::BTreeMap<K, Vec<V>>,
+    charge: &mut charged::StateCharge,
+    key: K,
+    value: V,
+) -> Result<(), ModelError> {
+    if !index.contains_key(&key) {
+        charge.grow(size_of::<K>() + size_of::<Vec<V>>() + 32 + key.heap_bytes())?;
+    }
+    let values = index.entry(key).or_default();
+    if values.len() == values.capacity() {
+        let additional = values.capacity().max(4);
+        charge.grow(
+            additional
+                .checked_mul(size_of::<V>())
+                .ok_or_else(|| invalid("structural correspondence allocation overflow"))?,
+        )?;
+        values.reserve_exact(additional);
+    }
+    values.push(value);
+    Ok(())
+}
 pub struct Data {
     pub projection: ProjectionData,
     pub assumptions: assumptions::AssumptionIndex,
@@ -158,6 +182,48 @@ pub fn produce(
     let mut output = Output::new(budget);
     output.frames.insert(frame.clone())?;
     let mut charge = charged::StateCharge::new(budget, "structural-selected-scope");
+    let mut correspondence_charge = charged::StateCharge::new(budget, "structural-correspondence");
+    let mut modules = std::collections::BTreeMap::new();
+    for module in data.projection.modules.iter() {
+        append_index(
+            &mut modules,
+            &mut correspondence_charge,
+            module.source,
+            module.id(),
+        )?;
+    }
+    let mut release_roles = std::collections::BTreeMap::new();
+    for role in data
+        .uses
+        .iter()
+        .filter(|r| r.input == invocation.input && r.role == input::SourceRole::Release)
+    {
+        append_index(
+            &mut release_roles,
+            &mut correspondence_charge,
+            role.artifact,
+            role.id(),
+        )?;
+    }
+    let mut applicable_members = charged::ChargedSet::default();
+    for link in data.core_links.iter() {
+        if data
+            .core_invocations
+            .get(link.invocation)
+            .is_some_and(|i| i.input == invocation.input && i.context == invocation.context)
+        {
+            applicable_members.insert(&mut correspondence_charge, link.member)?;
+        }
+    }
+    let mut configured_ordinals = charged::ChargedMap::default();
+    for (ordinal, path) in settings.configured_seeds.iter().enumerate() {
+        if !configured_ordinals.contains_key(path) {
+            // Reserve the owned key before cloning it into the retained map.
+            let _key = budget.reserve("structural-configured-key", path.heap_bytes())?;
+            configured_ordinals.insert(&mut correspondence_charge, path.clone(), ordinal)?;
+        }
+    }
+    let mut configured_counts = charged::ChargedMap::default();
     let mut subsystem = charged::ChargedSet::default();
     for entity in data.projection.refs.iter() {
         let normalized::entities::EntityRef::Callable { callable } = entity else {
@@ -173,33 +239,23 @@ pub fn produce(
         if artifact.input != invocation.input {
             continue;
         }
-        let mut modules = data
-            .projection
-            .modules
-            .iter()
-            .filter(|m| m.source == source);
-        let module = modules
-            .next()
-            .ok_or_else(|| invalid("source callable has no native module"))?;
-        if modules.next().is_some() {
-            return Err(invalid("source callable has ambiguous native modules"));
-        }
+        let candidates = modules.get(&source).map(Vec::as_slice).unwrap_or_default();
+        let module = match candidates {
+            [] => return Err(invalid("source callable has no native module")),
+            [module] => need(&data.projection.modules, *module)?,
+            _ => return Err(invalid("source callable has ambiguous native modules")),
+        };
         if !settings.in_subsystem(&module.qualified_name) {
             continue;
         }
-        let roles = data.uses.iter().filter(|u| {
-            u.input == invocation.input
-                && u.artifact == source
-                && u.role == input::SourceRole::Release
-        });
-        for role in roles {
+        for role in release_roles.get(&source).into_iter().flatten() {
             subsystem.insert(&mut charge, entity.id())?;
             output.scope.insert(ScopeMember {
                 frame: frame.id(),
                 entity: entity.id(),
                 module: module.id(),
                 declaration: *declaration,
-                role: role.id(),
+                role: *role,
             })?;
         }
     }
@@ -209,16 +265,7 @@ pub fn produce(
         if member.input != invocation.input {
             continue;
         }
-        let applicable = data
-            .core_links
-            .iter()
-            .filter(|link| link.member == member.id())
-            .any(|link| {
-                data.core_invocations
-                    .get(link.invocation)
-                    .is_some_and(|i| i.input == invocation.input && i.context == invocation.context)
-            });
-        if !applicable {
+        if !applicable_members.contains(&member.id()) {
             continue;
         }
         let assessment = need(&data.assessments, row.assessment)?;
@@ -262,31 +309,29 @@ pub fn produce(
         if inside {
             public.insert(&mut charge, entity)?;
         }
+        let configured_ordinal = configured_ordinals.get(&path).copied();
+        if let Some(ordinal) = configured_ordinal {
+            configured_counts.update(
+                &mut correspondence_charge,
+                ordinal,
+                |counts: &mut (usize, usize)| {
+                    counts.0 += 1;
+                    counts.1 += usize::from(inside);
+                },
+            )?;
+        }
         output.public.insert(PublicCandidate {
             frame: frame.id(),
             callable: row.id(),
             member: member.id(),
             entity,
             path: path.clone(),
-            configured_ordinal: settings
-                .configured_seeds
-                .iter()
-                .position(|p| p == &path)
-                .map(|n| n as i64),
+            configured_ordinal: configured_ordinal.map(|n| n as i64),
             in_subsystem: inside,
         })?;
     }
     for (ordinal, path) in settings.configured_seeds.iter().enumerate() {
-        let candidates = output
-            .public
-            .iter()
-            .filter(|r| r.configured_ordinal == Some(ordinal as i64))
-            .count();
-        let inside = output
-            .public
-            .iter()
-            .filter(|r| r.configured_ordinal == Some(ordinal as i64) && r.in_subsystem)
-            .count();
+        let (candidates, inside) = configured_counts.get(&ordinal).copied().unwrap_or_default();
         output.configured.insert(ConfiguredSeed {
             frame: frame.id(),
             ordinal: ordinal as i64,
@@ -313,22 +358,22 @@ pub fn produce(
         entities: &data.projection.refs,
     }
     .count(&selected, budget)?;
+    let mut usage_sites = charged::ChargedMap::default();
     for site in counts.sites() {
-        output.usage_sites.insert(UsageSite {
+        let row = UsageSite {
             frame: frame.id(),
             site: site.site,
             targets: site.targets.len() as i64,
             complete: site.complete,
             uncertain: site.uncertain,
-        })?;
+        };
+        usage_sites.insert(&mut correspondence_charge, site.site, row.id())?;
+        output.usage_sites.insert(row)?;
     }
     for evidence in counts.evidence() {
-        let site = output
-            .usage_sites
-            .iter()
-            .find(|s| s.site == evidence.site)
-            .ok_or_else(|| invalid("usage evidence site absent"))?
-            .id();
+        let site = *usage_sites
+            .get(&evidence.site)
+            .ok_or_else(|| invalid("usage evidence site absent"))?;
         output.usage_evidence.insert(UsageEvidence {
             site,
             event: evidence.event,
@@ -352,11 +397,19 @@ pub fn produce(
         data: &data.projection,
         uses: &data.uses,
     };
-    let prepared = if selected.is_empty() { None } else {
-        Some(delegation::PreparedDelegation::new(&inputs, &selected_scope, budget)?)
+    let prepared = if selected.is_empty() {
+        None
+    } else {
+        Some(delegation::PreparedDelegation::new(
+            &inputs,
+            &selected_scope,
+            budget,
+        )?)
     };
     for seed in &selected {
-        let result = prepared.as_ref().expect("selected traversal has prepared frame")
+        let result = prepared
+            .as_ref()
+            .expect("selected traversal has prepared frame")
             .traverse(*seed, settings.bounds()?, budget)?;
         let traversal = Traversal {
             frame: frame.id(),
@@ -657,7 +710,7 @@ pub fn stage(
     }
     Ok(Stage {
         captured_binding: None,
-name: "analyze_structural",
+        name: "analyze_structural",
         inputs,
         outputs,
         contributes: vec![],

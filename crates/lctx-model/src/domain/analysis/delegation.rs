@@ -12,6 +12,15 @@ use crate::domain::{
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+#[derive(Clone, Copy, Default)]
+struct SourceRoles {
+    release: bool,
+    dependency: bool,
+}
+
+type BoundaryResult = Result<Option<Boundary>, std::sync::Arc<ModelError>>;
+type BoundarySlot = std::sync::OnceLock<BoundaryResult>;
+
 fn invalid(s: &str) -> ModelError {
     ModelError::Invalid(s.into())
 }
@@ -218,6 +227,7 @@ impl Inputs<'_> {
         &self,
         entity: Id<EntityRef>,
         subsystem: &BTreeSet<Id<EntityRef>>,
+        roles: &BTreeMap<(Id<input::InputRevision>, Id<source::SourceArtifact>), SourceRoles>,
     ) -> Result<Option<Boundary>, ModelError> {
         let declaration = match need(&self.data.refs, entity)? {
             EntityRef::Callable { callable } => match need(&self.data.callables, *callable)? {
@@ -243,23 +253,19 @@ impl Inputs<'_> {
             }
         };
         let artifact_input = need(&self.data.artifacts, artifact)?.input;
-        let role = self.uses.iter().filter(|u| {
-            (u.input == self.invocation.key().input || u.input == artifact_input)
-                && u.artifact == artifact
-        });
-        let mut release = false;
-        let mut observed = false;
-        for usage in role {
-            observed = true;
-            if usage.role == SourceRole::Dependency {
-                return Ok(Some(Boundary::Dependency));
-            }
-            release |= usage.role == SourceRole::Release;
+        let current = roles.get(&(self.invocation.key().input, artifact));
+        let original = roles.get(&(artifact_input, artifact));
+        if current.is_some_and(|role| role.dependency)
+            || original.is_some_and(|role| role.dependency)
+        {
+            return Ok(Some(Boundary::Dependency));
         }
+        let release =
+            current.is_some_and(|role| role.release) || original.is_some_and(|role| role.release);
         if artifact_input != self.invocation.key().input {
             return Ok(Some(Boundary::External));
         }
-        if !observed {
+        if current.is_none() && original.is_none() {
             return Err(invalid("delegation source role is absent"));
         }
         Ok((!release || !subsystem.contains(&entity)).then_some(Boundary::Subsystem))
@@ -309,6 +315,8 @@ pub struct PreparedDelegation<'a> {
     selected: BTreeSet<Id<EntityRef>>,
     adjacency: BTreeMap<Id<EntityRef>, PreparedNode>,
     unresolved: BTreeMap<Id<EntityRef>, Vec<&'a EventAssessment>>,
+    roles: BTreeMap<(Id<input::InputRevision>, Id<source::SourceArtifact>), SourceRoles>,
+    boundaries: BTreeMap<Id<EntityRef>, BoundarySlot>,
     _reservation: Box<dyn Reservation>,
 }
 impl<'a> PreparedDelegation<'a> {
@@ -340,6 +348,27 @@ impl<'a> PreparedDelegation<'a> {
         let bytes = vertices
             .checked_mul(512)
             .and_then(|n| {
+                // Each lazy result owns its error, if any, as well as its B-tree slot.
+                vertices
+                    .checked_mul(
+                        size_of::<(Id<EntityRef>, BoundarySlot)>() + size_of::<ModelError>() + 160,
+                    )
+                    .and_then(|extra| n.checked_add(extra))
+            })
+            .and_then(|n| {
+                inputs
+                    .uses
+                    .len()
+                    .checked_mul(
+                        size_of::<(
+                            Id<input::InputRevision>,
+                            Id<source::SourceArtifact>,
+                            SourceRoles,
+                        )>() + 32,
+                    )
+                    .and_then(|extra| n.checked_add(extra))
+            })
+            .and_then(|n| {
                 arcs.checked_mul(4 * size_of::<Arc>() + 4 * size_of::<Step>())
                     .and_then(|a| n.checked_add(a))
             })
@@ -360,6 +389,18 @@ impl<'a> PreparedDelegation<'a> {
             .and_then(|n| n.checked_add(4096))
             .ok_or_else(|| invalid("delegation preparation overflow"))?;
         let reservation = budget.reserve("delegation-frame", bytes)?;
+        let mut roles = BTreeMap::<_, SourceRoles>::new();
+        for usage in inputs.uses.iter() {
+            let role = roles.entry((usage.input, usage.artifact)).or_default();
+            role.release |= usage.role == SourceRole::Release;
+            role.dependency |= usage.role == SourceRole::Dependency;
+        }
+        let boundaries = inputs
+            .invocation
+            .entities()
+            .chain(inputs.definition.entities())
+            .map(|entity| (entity.id(), BoundarySlot::new()))
+            .collect();
         let mut selected = BTreeSet::new();
         for id in subsystem {
             if !selected.insert(*id) || inputs.invocation.outgoing(*id).is_none() {
@@ -404,6 +445,8 @@ impl<'a> PreparedDelegation<'a> {
             selected,
             adjacency,
             unresolved,
+            roles,
+            boundaries,
             _reservation: reservation,
         })
     }
@@ -411,6 +454,21 @@ impl<'a> PreparedDelegation<'a> {
         match self.adjacency.get(&node) {
             Some(node) => node.steps(&self.inputs),
             None => Ok(&[]),
+        }
+    }
+
+    fn boundary(&self, entity: Id<EntityRef>) -> Result<Option<Boundary>, ModelError> {
+        let slot = self
+            .boundaries
+            .get(&entity)
+            .ok_or_else(|| invalid("delegation endpoint outside prepared universe"))?;
+        match slot.get_or_init(|| {
+            self.inputs
+                .boundary(entity, &self.selected, &self.roles)
+                .map_err(std::sync::Arc::new)
+        }) {
+            Ok(boundary) => Ok(*boundary),
+            Err(error) => Err(ModelError::SharedCause(std::sync::Arc::clone(error))),
         }
     }
 
@@ -425,9 +483,7 @@ impl<'a> PreparedDelegation<'a> {
                 "delegation depth, vertices and witnesses must be positive",
             ));
         }
-        if self.inputs.invocation.outgoing(seed).is_none()
-            || self.inputs.boundary(seed, &self.selected)?.is_some()
-        {
+        if self.inputs.invocation.outgoing(seed).is_none() || self.boundary(seed)?.is_some() {
             return Err(invalid("delegation seed is outside the release subsystem"));
         }
         // Only traversal state follows seed bounds. Full adjacency is charged once above.
@@ -478,7 +534,7 @@ impl<'a> PreparedDelegation<'a> {
                     break 'search;
                 }
                 arc_count += 1;
-                if let Some(boundary) = self.inputs.boundary(step.target, &self.selected)? {
+                if let Some(boundary) = self.boundary(step.target)? {
                     boundaries.insert(step.target, boundary);
                 } else if !depths.contains_key(&step.target) {
                     if depths.len() >= bounds.vertices as usize {

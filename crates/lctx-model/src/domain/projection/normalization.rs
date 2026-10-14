@@ -1178,7 +1178,7 @@ pub fn stage(profile: stages::Profile) -> stages::Stage {
     inputs.dedup_by_key(|r| r.name());
     stages::Stage {
         captured_binding: None,
-name: "normalize_projections",
+        name: "normalize_projections",
         inputs: crate::domain::normalized::facts_stage_inputs(inputs),
         outputs: super::relations()
             .iter()
@@ -1575,51 +1575,108 @@ mod canonical_admission_controls {
         let budget = ResourceBudget::fixed(32 << 20).unwrap();
         let mut data = ProjectionData::new(&budget);
         let input = InputRevision::from_entries(vec![]).unwrap();
-        let source = SourceArtifact::from_bytes(input.id(), "hub.py".into(), &[b' '; 1024]).unwrap();
+        let source =
+            SourceArtifact::from_bytes(input.id(), "hub.py".into(), &[b' '; 1024]).unwrap();
         data.artifacts.insert(source.clone()).unwrap();
-        let module = Module { source: source.id(), qualified_name: "hub".into() };
+        let module = Module {
+            source: source.id(),
+            qualified_name: "hub".into(),
+        };
         data.modules.insert(module.clone()).unwrap();
-        let seed = EntityRef::Module { module: module.id() };
+        let seed = EntityRef::Module {
+            module: module.id(),
+        };
         data.refs.insert(seed.clone()).unwrap();
         let mut isolated = None;
         let mut isolated_owner = None;
         let mut raw = ProjectionInput {
-            key: ProjectionKey { input: input.id(), context: nominal(1), name: ProjectionName::DefinitionContainment },
-            vertices: Rows::new(&budget), arcs: Default::default(), subjects: Rows::new(&budget),
-            gaps: Rows::new(&budget), coverage: Rows::new(&budget), charge: StateCharge::new(&budget, "delegation-fixture"),
+            key: ProjectionKey {
+                input: input.id(),
+                context: nominal(1),
+                name: ProjectionName::DefinitionContainment,
+            },
+            vertices: Rows::new(&budget),
+            arcs: Default::default(),
+            subjects: Rows::new(&budget),
+            gaps: Rows::new(&budget),
+            coverage: Rows::new(&budget),
+            charge: StateCharge::new(&budget, "delegation-fixture"),
         };
         raw.vertices.insert(seed.clone()).unwrap();
         let mut owners = Vec::new();
         for ordinal in 0..513 {
-            let occurrence = Occurrence { source: source.id(), start: ordinal, end: ordinal + 1,
-                syntax_kind: SyntaxKind::StmtFunctionDef, role: OccurrenceRole::Declaration,
-                structural_path: vec![ordinal as i32] };
+            let occurrence = Occurrence {
+                source: source.id(),
+                start: ordinal,
+                end: ordinal + 1,
+                syntax_kind: SyntaxKind::StmtFunctionDef,
+                role: OccurrenceRole::Declaration,
+                structural_path: vec![ordinal as i32],
+            };
             data.occurrences.insert(occurrence.clone()).unwrap();
-            let callable = CallableEntity::Source { declaration: occurrence.id(), kind: CallableKind::Function };
+            let callable = CallableEntity::Source {
+                declaration: occurrence.id(),
+                kind: CallableKind::Function,
+            };
             data.callables.insert(callable.clone()).unwrap();
-            let target = EntityRef::Callable { callable: callable.id() };
+            let target = EntityRef::Callable {
+                callable: callable.id(),
+            };
             data.refs.insert(target.clone()).unwrap();
             raw.vertices.insert(target.clone()).unwrap();
-            let owner = OccurrenceOwnership { occurrence: occurrence.id(), owner: occurrence.id(), entity: seed.id() };
+            let owner = OccurrenceOwnership {
+                occurrence: occurrence.id(),
+                owner: occurrence.id(),
+                entity: seed.id(),
+            };
             data.owners.insert(owner.clone()).unwrap();
-            if ordinal == 512 { isolated = Some(target.id()); isolated_owner = Some(owner.id()); }
-            else {
-                raw.arc(ArcId::SourceDefinition(owner.id()), seed.id(), target.id()).unwrap();
+            if ordinal == 512 {
+                isolated = Some(target.id());
+                isolated_owner = Some(owner.id());
+            } else {
+                raw.arc(ArcId::SourceDefinition(owner.id()), seed.id(), target.id())
+                    .unwrap();
                 owners.push((target.id(), owner.id()));
             }
         }
         let definition = MaterializedGraph::build(&raw, &budget).unwrap();
-        let mut calls = ProjectionInput { key: ProjectionKey { name: ProjectionName::CallableInvocation, ..raw.key },
-            vertices: Rows::new(&budget), arcs: Default::default(), subjects: Rows::new(&budget),
-            gaps: Rows::new(&budget), coverage: Rows::new(&budget), charge: StateCharge::new(&budget, "delegation-fixture") };
-        for row in raw.vertices.iter() { calls.vertices.insert(row.clone()).unwrap(); }
+        let mut calls = ProjectionInput {
+            key: ProjectionKey {
+                name: ProjectionName::CallableInvocation,
+                ..raw.key
+            },
+            vertices: Rows::new(&budget),
+            arcs: Default::default(),
+            subjects: Rows::new(&budget),
+            gaps: Rows::new(&budget),
+            coverage: Rows::new(&budget),
+            charge: StateCharge::new(&budget, "delegation-fixture"),
+        };
+        for row in raw.vertices.iter() {
+            calls.vertices.insert(row.clone()).unwrap();
+        }
         let invocation = MaterializedGraph::build(&calls, &budget).unwrap();
         let mut uses = Rows::new(&budget);
-        uses.insert(ArtifactUse { artifact: source.id(), input: input.id(), role: SourceRole::Release }).unwrap();
+        uses.insert(ArtifactUse {
+            artifact: source.id(),
+            input: input.id(),
+            role: SourceRole::Release,
+        })
+        .unwrap();
         let subsystem = raw.vertices.iter().map(Record::id).collect::<Vec<_>>();
-        let inputs = Inputs { invocation: &invocation, definition: &definition, data: &data, uses: &uses };
+        let inputs = Inputs {
+            invocation: &invocation,
+            definition: &definition,
+            data: &data,
+            uses: &uses,
+        };
         let prepared = PreparedDelegation::new(&inputs, &subsystem, &budget).unwrap();
-        let bounds = Bounds { depth: 2, vertices: 2, arcs: 1, witnesses: 1 };
+        let bounds = Bounds {
+            depth: 2,
+            vertices: 2,
+            arcs: 1,
+            witnesses: 1,
+        };
         let before = budget.reserved();
         owners.sort_unstable();
         for _ in 0..3 {
@@ -1627,17 +1684,285 @@ mod canonical_admission_controls {
             assert_eq!(result.stop(), Some(Stop::Arcs));
             assert_eq!(result.arcs_examined(), 1);
             assert_eq!(result.reached()[0].target, owners[0].0);
-            assert!(budget.reserved() - before < 20_000, "per-seed charge follows bounds rather than hub degree");
+            assert!(
+                budget.reserved() - before < 20_000,
+                "per-seed charge follows bounds rather than hub degree"
+            );
         }
         assert_eq!(budget.reserved(), before);
         // A separate raw corrupt edge sits on a callable that was previously isolated. Its
         // canonical declaration owner is the module, so exposing it from this source is invalid.
-        raw.arc(ArcId::SourceDefinition(isolated_owner.unwrap()), isolated.unwrap(), isolated.unwrap()).unwrap();
+        raw.arc(
+            ArcId::SourceDefinition(isolated_owner.unwrap()),
+            isolated.unwrap(),
+            isolated.unwrap(),
+        )
+        .unwrap();
         let corrupt = MaterializedGraph::build(&raw, &budget).unwrap();
-        let bad = PreparedDelegation::new(&Inputs { definition: &corrupt, ..inputs }, &subsystem, &budget).unwrap();
-        assert!(bad.traverse(seed.id(), bounds, &budget).is_ok(), "unreachable corruption stays unexposed");
-        assert!(bad.traverse(isolated.unwrap(), Bounds { arcs: 0, ..bounds }, &budget).is_err(),
-            "visited corruption refuses even when the entire adjacency is a budget suffix");
+        let bad = PreparedDelegation::new(
+            &Inputs {
+                definition: &corrupt,
+                ..inputs
+            },
+            &subsystem,
+            &budget,
+        )
+        .unwrap();
+        assert!(
+            bad.traverse(seed.id(), bounds, &budget).is_ok(),
+            "unreachable corruption stays unexposed"
+        );
+        assert!(
+            bad.traverse(isolated.unwrap(), Bounds { arcs: 0, ..bounds }, &budget)
+                .is_err(),
+            "visited corruption refuses even when the entire adjacency is a budget suffix"
+        );
     }
 
+    #[test]
+    fn delegation_shared_suffix_preserves_seed_witnesses_roles_and_lazy_failure() {
+        use crate::domain::analysis::delegation::{
+            Boundary, Bounds, Inputs, Kind, PreparedDelegation, Stop,
+        };
+        use crate::domain::assertion::Approximation;
+        use crate::domain::input::{ArtifactUse, SourceRole};
+        use crate::domain::projection::snapshot::MaterializedGraph;
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let input = InputRevision::from_entries(vec![]).unwrap().id();
+        let context = nominal(1);
+        let mut data = ProjectionData::new(&budget);
+        let mut uses = Rows::new(&budget);
+        let mut entities = Vec::new();
+        let mut artifacts = Vec::new();
+        for ordinal in 0..5 {
+            let artifact =
+                SourceArtifact::from_bytes(input, format!("node{ordinal}.py"), b"pass\n").unwrap();
+            let module = Module {
+                source: artifact.id(),
+                qualified_name: format!("node{ordinal}"),
+            };
+            let entity = EntityRef::Module {
+                module: module.id(),
+            };
+            artifacts.push(artifact.id());
+            data.artifacts.insert(artifact.clone()).unwrap();
+            data.modules.insert(module).unwrap();
+            data.refs.insert(entity.clone()).unwrap();
+            entities.push(entity);
+            if ordinal != 4 {
+                uses.insert(ArtifactUse {
+                    input,
+                    artifact: artifact.id(),
+                    role: SourceRole::Release,
+                })
+                .unwrap();
+            }
+        }
+        let mut invocation = ProjectionInput {
+            key: ProjectionKey {
+                input,
+                context,
+                name: ProjectionName::CallableInvocation,
+            },
+            vertices: Rows::new(&budget),
+            arcs: Default::default(),
+            subjects: Rows::new(&budget),
+            gaps: Rows::new(&budget),
+            coverage: Rows::new(&budget),
+            charge: StateCharge::new(&budget, "delegation-shared-suffix-fixture"),
+        };
+        for entity in &entities {
+            invocation.vertices.insert(entity.clone()).unwrap();
+        }
+        let q = AssertionQualification {
+            assumptions: assumptions::AssumptionSet::empty_id(),
+            context,
+            scope: CoverageScope::Input { input }.id(),
+            condition: conditions::Diagram::always().id(),
+            modality: Modality::Definite,
+            approximation: Approximation::Exact,
+        };
+        data.qualifications.insert(q.clone()).unwrap();
+        let mut alternatives = Vec::new();
+        // Distinct wrappers share a cyclic suffix; the first wrapper has parallel evidence.
+        for (ordinal, (a, b)) in [(0, 2), (1, 2), (2, 3), (3, 2), (0, 2)]
+            .into_iter()
+            .enumerate()
+        {
+            let site = Occurrence {
+                source: artifacts[a],
+                start: 0,
+                end: 1,
+                syntax_kind: SyntaxKind::ExprCall,
+                role: OccurrenceRole::Call,
+                structural_path: vec![ordinal as i32],
+            };
+            data.occurrences.insert(site.clone()).unwrap();
+            let owner = OccurrenceOwnership {
+                occurrence: site.id(),
+                owner: site.id(),
+                entity: entities[a].id(),
+            };
+            data.owners.insert(owner.clone()).unwrap();
+            let event = NormalizedCallEvent {
+                site: site.id(),
+                origin: nominal(10 + ordinal as u8),
+                context,
+                owner: owner.id(),
+            };
+            let target = CallTarget {
+                qualification: q.id(),
+                site: site.id(),
+                origin: event.origin,
+                destination: nominal(30 + ordinal as u8),
+                channel: nominal(40),
+                phase: CallPhase::Call,
+                receiver: nominal(41),
+                implicit: false,
+                receiver_class: None,
+                passing: None,
+                class_method: None,
+                static_method: None,
+            };
+            let source = CallAlternativeSource::Native {
+                target: target.id(),
+            };
+            let alternative = NormalizedCallAlternative {
+                event: event.id(),
+                source: source.id(),
+                resolution: None,
+                correspondence: None,
+                entity: Some(entities[b].id()),
+                status: ResolutionStatus::Resolved,
+                reason: LinkReason::ExplicitIdentity,
+            };
+            data.events.insert(event).unwrap();
+            data.targets.insert(target).unwrap();
+            data.alternative_sources.insert(source).unwrap();
+            data.alternatives.insert(alternative.clone()).unwrap();
+            invocation
+                .arc(
+                    ArcId::Invocation(alternative.id()),
+                    entities[a].id(),
+                    entities[b].id(),
+                )
+                .unwrap();
+            alternatives.push(alternative.id());
+        }
+        let calls = MaterializedGraph::build(&invocation, &budget).unwrap();
+        let mut definition = ProjectionInput {
+            key: ProjectionKey {
+                name: ProjectionName::DefinitionContainment,
+                ..invocation.key
+            },
+            vertices: Rows::new(&budget),
+            arcs: Default::default(),
+            subjects: Rows::new(&budget),
+            gaps: Rows::new(&budget),
+            coverage: Rows::new(&budget),
+            charge: StateCharge::new(&budget, "delegation-shared-suffix-fixture"),
+        };
+        for entity in &entities {
+            definition.vertices.insert(entity.clone()).unwrap();
+        }
+        let definitions = MaterializedGraph::build(&definition, &budget).unwrap();
+        let subsystem = entities.iter().map(Record::id).collect::<Vec<_>>();
+        let bounds = Bounds {
+            depth: 4,
+            vertices: 8,
+            arcs: 16,
+            witnesses: 2,
+        };
+        {
+            let inputs = Inputs {
+                invocation: &calls,
+                definition: &definitions,
+                data: &data,
+                uses: &uses,
+            };
+            let prepared = PreparedDelegation::new(&inputs, &subsystem, &budget).unwrap();
+            let before = budget.reserved();
+            for (seed, examined) in [(0, 4), (1, 3), (0, 4)] {
+                let result = prepared
+                    .traverse(entities[seed].id(), bounds, &budget)
+                    .unwrap();
+                assert_eq!(result.arcs_examined(), examined);
+                assert_eq!(result.vertices_examined(), 3);
+                assert_eq!(result.stop(), None);
+                assert!(!result.partial());
+                let suffix = result
+                    .reached()
+                    .iter()
+                    .find(|r| r.target == entities[2].id())
+                    .unwrap();
+                assert_eq!(suffix.depth, 1);
+                assert_eq!(suffix.paths.len(), if seed == 0 { 2 } else { 1 });
+                let mut first = suffix.paths.iter().map(|p| p[0].arc).collect::<Vec<_>>();
+                first.sort();
+                let mut expected = if seed == 0 {
+                    vec![
+                        ArcId::Invocation(alternatives[0]),
+                        ArcId::Invocation(alternatives[4]),
+                    ]
+                } else {
+                    vec![ArcId::Invocation(alternatives[1])]
+                };
+                expected.sort();
+                assert_eq!(first, expected);
+                let leaf = result
+                    .reached()
+                    .iter()
+                    .find(|r| r.target == entities[3].id())
+                    .unwrap();
+                assert_eq!(leaf.depth, 2);
+                assert_eq!(leaf.paths[0].len(), 2);
+                assert_eq!(leaf.paths[0][1].arc, ArcId::Invocation(alternatives[2]));
+                drop(result);
+                assert_eq!(budget.reserved(), before);
+            }
+            let stopped = prepared
+                .traverse(entities[0].id(), Bounds { arcs: 1, ..bounds }, &budget)
+                .unwrap();
+            assert_eq!(stopped.stop(), Some(Stop::Arcs));
+            assert_eq!(stopped.arcs_examined(), 1);
+            // An isolated missing source role is not rejected during preparation or other traversals.
+            for _ in 0..2 {
+                assert!(
+                    prepared
+                        .traverse(entities[4].id(), bounds, &budget)
+                        .err()
+                        .unwrap()
+                        .to_string()
+                        .contains("source role")
+                );
+            }
+        }
+        uses.insert(ArtifactUse {
+            input,
+            artifact: artifacts[3],
+            role: SourceRole::Dependency,
+        })
+        .unwrap();
+        let inputs = Inputs {
+            invocation: &calls,
+            definition: &definitions,
+            data: &data,
+            uses: &uses,
+        };
+        let prepared = PreparedDelegation::new(&inputs, &subsystem, &budget).unwrap();
+        let result = prepared
+            .traverse(entities[0].id(), bounds, &budget)
+            .unwrap();
+        let leaf = result
+            .reached()
+            .iter()
+            .find(|r| r.target == entities[3].id())
+            .unwrap();
+        assert_eq!(leaf.kind, Kind::Boundary(Boundary::Dependency));
+        assert_eq!(
+            result.arcs_examined(),
+            3,
+            "dependency wins over the simultaneous release role and stops expansion"
+        );
+    }
 }

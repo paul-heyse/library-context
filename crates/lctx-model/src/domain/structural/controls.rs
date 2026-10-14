@@ -557,16 +557,205 @@ pub(super) fn produce_prepared(
         budget,
     )
 }
+#[derive(Clone, Copy)]
 struct State {
     target: Id<EntityRef>,
     formal: Id<ParameterEntity>,
     suppressed: bool,
-    path: Vec<Id<ArgumentFlow>>,
+    path: Option<usize>,
 }
-impl HeapSize for State {
-    fn heap_bytes(&self) -> usize {
-        self.path.heap_bytes()
+#[derive(Clone, Copy)]
+struct PathNode {
+    parent: Option<usize>,
+    flow: Id<ArgumentFlow>,
+    length: usize,
+}
+impl HeapSize for PathNode {}
+type ControlPort = (Id<EntityRef>, Id<ParameterEntity>);
+struct ControlEdges {
+    outgoing: std::collections::BTreeMap<ControlPort, Vec<Id<ArgumentFlow>>>,
+    unfollowed: std::collections::BTreeMap<ControlPort, Vec<Id<UnfollowedArgument>>>,
+    _charge: charged::StateCharge,
+}
+impl ControlEdges {
+    fn new(out: &Output, budget: &resources::ResourceBudget) -> Result<Self, ModelError> {
+        let mut result = Self {
+            outgoing: Default::default(),
+            unfollowed: Default::default(),
+            _charge: charged::StateCharge::new(budget, "structural-control-correspondence"),
+        };
+        for edge in out.argument_flows.iter() {
+            build::append_index(
+                &mut result.outgoing,
+                &mut result._charge,
+                (edge.caller, edge.source),
+                edge.id(),
+            )?;
+        }
+        for row in out.unfollowed_arguments.iter() {
+            build::append_index(
+                &mut result.unfollowed,
+                &mut result._charge,
+                (row.caller, row.formal),
+                row.id(),
+            )?;
+        }
+        Ok(result)
     }
+}
+fn enqueue(
+    pending: &mut std::collections::VecDeque<State>,
+    charge: &mut charged::StateCharge,
+    state: State,
+) -> Result<(), ModelError> {
+    if pending.len() == pending.capacity() {
+        let additional = pending.capacity().max(4);
+        charge.grow(
+            additional
+                .checked_mul(size_of::<State>())
+                .ok_or_else(|| invalid("control queue allocation overflow"))?,
+        )?;
+        pending.reserve_exact(additional);
+    }
+    pending.push_back(state);
+    Ok(())
+}
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The pure per-root traversal borrows immutable frame correspondence and publishes existing rows"
+)]
+fn traverse_root(
+    frame: Id<StructuralFrame>,
+    seed: Id<EntityRef>,
+    formal: Id<ParameterEntity>,
+    settings: &AnalyticsConfiguration,
+    out: &mut Output,
+    edges: &ControlEdges,
+    budget: &resources::ResourceBudget,
+    mut on_path: impl FnMut(&ControlPath, &mut Output) -> Result<(), ModelError>,
+) -> Result<(), ModelError> {
+    let traversal_id = ControlTraversal {
+        frame,
+        seed,
+        formal,
+        stop: None,
+        vertices: 0,
+        arcs: 0,
+    }
+    .id();
+    // Root scratch is dropped before the next root. FIFO backing and arena nodes remain
+    // charged even after dequeue; published rows own independent reservations.
+    let mut scratch = charged::StateCharge::new(budget, "structural-control-root");
+    let mut visited = charged::ChargedSet::default();
+    let mut arena: charged::ChargedVec<PathNode> = Default::default();
+    let mut pending = std::collections::VecDeque::new();
+    enqueue(
+        &mut pending,
+        &mut scratch,
+        State {
+            target: seed,
+            formal,
+            suppressed: false,
+            path: None,
+        },
+    )?;
+    let mut arcs = 0;
+    let mut stop = None;
+    while let Some(state) = pending.pop_front() {
+        let key = (state.target, state.formal, state.suppressed);
+        if visited.contains(&key) {
+            continue;
+        }
+        if visited.len() >= settings.vertices as usize {
+            stop = Some(TraversalStop::Vertices);
+            break;
+        }
+        visited.insert(&mut scratch, key)?;
+        let length = state.path.map_or(0, |node| arena[node].length);
+        let path = ControlPath {
+            traversal: traversal_id,
+            target: state.target,
+            formal: state.formal,
+            may_suppress: state.suppressed,
+            length: length as i64,
+        };
+        out.control_paths.insert(path.clone())?;
+        {
+            let mut witness_charge =
+                charged::StateCharge::new(budget, "structural-control-witness");
+            let mut witness = charged::ChargedVec::default();
+            let mut cursor = state.path;
+            while let Some(node) = cursor {
+                witness.push(&mut witness_charge, arena[node].flow)?;
+                cursor = arena[node].parent;
+            }
+            for (ordinal, flow) in witness.iter().rev().enumerate() {
+                out.control_steps.insert(ControlStep {
+                    path: path.id(),
+                    ordinal: ordinal as i64,
+                    flow: *flow,
+                })?;
+            }
+        }
+        for argument in edges
+            .unfollowed
+            .get(&(state.target, state.formal))
+            .into_iter()
+            .flatten()
+        {
+            out.unfollowed_paths.insert(UnfollowedPath {
+                path: path.id(),
+                argument: *argument,
+            })?;
+        }
+        if !state.suppressed {
+            on_path(&path, out)?;
+        }
+        for edge in edges
+            .outgoing
+            .get(&(state.target, state.formal))
+            .into_iter()
+            .flatten()
+        {
+            if length >= settings.depth as usize {
+                stop = Some(TraversalStop::Depth);
+                continue;
+            }
+            if arcs >= settings.arcs {
+                stop = Some(TraversalStop::Arcs);
+                break;
+            }
+            arcs += 1;
+            let edge = need(&out.argument_flows, *edge)?;
+            let next = State {
+                target: edge.callee,
+                formal: edge.formal,
+                suppressed: state.suppressed || edge.may_catch || edge.value_tested,
+                path: Some(arena.len()),
+            };
+            arena.push(
+                &mut scratch,
+                PathNode {
+                    parent: state.path,
+                    flow: edge.id(),
+                    length: length + 1,
+                },
+            )?;
+            enqueue(&mut pending, &mut scratch, next)?;
+        }
+        if stop == Some(TraversalStop::Arcs) {
+            break;
+        }
+    }
+    out.control_traversals.insert(ControlTraversal {
+        frame,
+        seed,
+        formal,
+        stop,
+        vertices: visited.len() as i64,
+        arcs,
+    })?;
+    Ok(())
 }
 #[expect(
     clippy::too_many_arguments,
@@ -582,8 +771,12 @@ fn traverse(
     prepared: &handoffs::Conditions<'_>,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
+    let mut charge = charged::StateCharge::new(budget, "structural-control-roots");
     let mut roots = charged::ChargedSet::default();
-    let mut charge = charged::StateCharge::new(budget, "structural-control-worklist");
+    let edges = ControlEdges::new(out, budget)?;
+    let mut parameter_charge =
+        charged::StateCharge::new(budget, "structural-control-root-parameters");
+    let mut root_parameters = None;
     for candidate in out.public.iter().filter(|c| c.in_subsystem) {
         let EntityRef::Callable { callable } = need(&base.handoffs.entry.refs, candidate.entity)?
         else {
@@ -594,140 +787,58 @@ fn traverse(
         else {
             continue;
         };
-        for link in base.handoffs.entry.links.iter() {
-            let parameter = need(&base.handoffs.entry.parameters, link.parameter)?;
-            let signature = need(&base.handoffs.entry.signatures, parameter.signature)?;
-            if base
-                .handoffs
-                .entry
-                .symbol_declarations
-                .iter()
-                .any(|row| row.symbol == signature.symbol && row.declaration == *declaration)
-            {
-                roots.insert(&mut charge, (candidate.entity, link.entity))?;
-            }
-        }
-    }
-    for (seed, formal) in roots.iter() {
-        let traversal_id = ControlTraversal {
-            frame: frame.id(),
-            seed: *seed,
-            formal: *formal,
-            stop: None,
-            vertices: 0,
-            arcs: 0,
-        }
-        .id();
-        let mut visited = charged::ChargedSet::default();
-        let mut pending = charged::ChargedVec::default();
-        pending.push(
-            &mut charge,
-            State {
-                target: *seed,
-                formal: *formal,
-                suppressed: false,
-                path: vec![],
-            },
-        )?;
-        let mut cursor = 0;
-        let mut arcs = 0;
-        let mut stop = None;
-        while cursor < pending.len() {
-            let state = &pending[cursor];
-            let key = (state.target, state.formal, state.suppressed);
-            if visited.contains(&key) {
-                cursor += 1;
-                continue;
-            }
-            if visited.len() >= settings.vertices as usize {
-                stop = Some(TraversalStop::Vertices);
-                break;
-            }
-            visited.insert(&mut charge, key)?;
-            let _path = budget.reserve("control-path-copy", state.path.heap_bytes())?;
-            let path = ControlPath {
-                traversal: traversal_id,
-                target: state.target,
-                formal: state.formal,
-                may_suppress: state.suppressed,
-                length: state.path.len() as i64,
-            };
-            out.control_paths.insert(path.clone())?;
-            for (ordinal, flow) in state.path.iter().enumerate() {
-                out.control_steps.insert(ControlStep {
-                    path: path.id(),
-                    ordinal: ordinal as i64,
-                    flow: *flow,
-                })?;
-            }
-            for row in out
-                .unfollowed_arguments
-                .iter()
-                .filter(|r| r.caller == state.target && r.formal == state.formal)
-            {
-                out.unfollowed_paths.insert(UnfollowedPath {
-                    path: path.id(),
-                    argument: row.id(),
-                })?;
-            }
-            if !state.suppressed {
-                raises(d, &base.handoffs, &path, context, out, prepared, budget)?;
-            }
-            let current = (
-                state.target,
-                state.formal,
-                state.suppressed,
-                state.path.len(),
-            );
-            let _temporary = budget.reserve(
-                "control-pending-paths",
-                state
-                    .path
-                    .heap_bytes()
-                    .checked_mul(2)
-                    .and_then(|n| n.checked_add(size_of::<Id<ArgumentFlow>>()))
-                    .ok_or_else(|| invalid("control path allowance overflow"))?,
-            )?;
-            let path = state.path.clone();
-            for edge in out
-                .argument_flows
-                .iter()
-                .filter(|e| e.caller == current.0 && e.source == current.1)
-            {
-                if current.3 >= settings.depth as usize {
-                    stop = Some(TraversalStop::Depth);
-                    continue;
-                }
-                if arcs >= settings.arcs {
-                    stop = Some(TraversalStop::Arcs);
-                    break;
-                }
-                arcs += 1;
-                let mut steps = path.clone();
-                steps.push(edge.id());
-                pending.push(
-                    &mut charge,
-                    State {
-                        target: edge.callee,
-                        formal: edge.formal,
-                        suppressed: current.2 || edge.may_catch || edge.value_tested,
-                        path: steps,
-                    },
+        if root_parameters.is_none() {
+            // Preserve the original lazy premise validation: no source callable means no
+            // parameter walk. The complete walk is shared once there is a consumer.
+            let mut declaration_charge =
+                charged::StateCharge::new(budget, "structural-control-root-declarations");
+            let mut declarations = std::collections::BTreeMap::new();
+            for row in base.handoffs.entry.symbol_declarations.iter() {
+                build::append_index(
+                    &mut declarations,
+                    &mut declaration_charge,
+                    row.symbol,
+                    row.declaration,
                 )?;
             }
-            cursor += 1;
-            if stop == Some(TraversalStop::Arcs) {
-                break;
+            let mut parameters = std::collections::BTreeMap::new();
+            for link in base.handoffs.entry.links.iter() {
+                let parameter = need(&base.handoffs.entry.parameters, link.parameter)?;
+                let signature = need(&base.handoffs.entry.signatures, parameter.signature)?;
+                for declaration in declarations.get(&signature.symbol).into_iter().flatten() {
+                    build::append_index(
+                        &mut parameters,
+                        &mut parameter_charge,
+                        *declaration,
+                        link.entity,
+                    )?;
+                }
             }
+            root_parameters = Some(parameters);
         }
-        out.control_traversals.insert(ControlTraversal {
-            frame: frame.id(),
-            seed: *seed,
-            formal: *formal,
-            stop,
-            vertices: visited.len() as i64,
-            arcs,
-        })?;
+        for formal in root_parameters
+            .as_ref()
+            .expect("prepared for source callable")
+            .get(declaration)
+            .into_iter()
+            .flatten()
+        {
+            roots.insert(&mut charge, (candidate.entity, *formal))?;
+        }
+    }
+    drop(root_parameters);
+    drop(parameter_charge);
+    for (seed, formal) in roots.iter() {
+        traverse_root(
+            frame.id(),
+            *seed,
+            *formal,
+            settings,
+            out,
+            &edges,
+            budget,
+            |path, out| raises(d, &base.handoffs, path, context, out, prepared, budget),
+        )?;
     }
     Ok(())
 }
@@ -972,4 +1083,328 @@ fn unmapped(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod traversal_controls {
+    use super::*;
+    fn id<T>(n: u8) -> Id<T> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([n; 16].into_iter()))
+        .unwrap()
+    }
+    fn settings() -> AnalyticsConfiguration {
+        AnalyticsConfiguration {
+            module_prefixes: vec!["api".into()],
+            public_roots: vec!["api".into()],
+            configured_seeds: vec![],
+            depth: 20,
+            vertices: 100,
+            arcs: 100,
+            witnesses: 2,
+            brief_budget: 3,
+            communities: false,
+            pagerank: false,
+            fca: false,
+            rca: false,
+            knn: false,
+            type_layer: false,
+            mention_layer: false,
+            knn_layer: false,
+        }
+    }
+    fn edge(
+        out: &mut Output,
+        n: u8,
+        caller: u8,
+        source: u8,
+        callee: u8,
+        formal: u8,
+        suppressed: bool,
+    ) -> Id<ArgumentFlow> {
+        out.argument_flows
+            .insert(ArgumentFlow {
+                frame: id(40),
+                binding: id(n),
+                contribution: id(n),
+                alias: None,
+                caller: id(caller),
+                callee: id(callee),
+                source: id(source),
+                formal: id(formal),
+                phase: CallPhase::Call,
+                modality: Modality::Definite,
+                qualification: id(50),
+                conditional: false,
+                may_catch: suppressed,
+                value_tested: false,
+            })
+            .unwrap()
+    }
+    fn graph(
+        b: &resources::ResourceBudget,
+    ) -> (Output, [Id<ArgumentFlow>; 8], Id<UnfollowedArgument>) {
+        let mut out = Output::new(b);
+        let flows = [
+            edge(&mut out, 10, 0, 1, 1, 1, false),
+            edge(&mut out, 11, 0, 1, 1, 1, false),
+            edge(&mut out, 12, 0, 1, 2, 2, true),
+            edge(&mut out, 13, 1, 1, 3, 3, false),
+            edge(&mut out, 14, 2, 2, 3, 3, false),
+            edge(&mut out, 15, 3, 3, 0, 1, false),
+            edge(&mut out, 16, 1, 1, 3, 4, false),
+            edge(&mut out, 17, 3, 4, 3, 4, false),
+        ];
+        let unfollowed = out
+            .unfollowed_arguments
+            .insert(UnfollowedArgument {
+                frame: id(40),
+                attempt: id(30),
+                argument: id(31),
+                binding: None,
+                value: id(32),
+                caller: id(3),
+                formal: id(3),
+                assessment: None,
+                reason: obligation::ObligationKind::AmbiguousBinding,
+            })
+            .unwrap();
+        (out, flows, unfollowed)
+    }
+    fn steps(out: &Output, path: &ControlPath) -> Vec<Id<ArgumentFlow>> {
+        let mut steps = out
+            .control_steps
+            .iter()
+            .filter(|s| s.path == path.id())
+            .collect::<Vec<_>>();
+        steps.sort_by_key(|s| s.ordinal);
+        steps.into_iter().map(|s| s.flow).collect()
+    }
+    #[test]
+    fn fifo_arena_preserves_parallel_diamond_cycle_formals_and_suppression() {
+        let b = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let (mut out, flow, unfollowed) = graph(&b);
+        let edges = ControlEdges::new(&out, &b).unwrap();
+        let mut raise_paths = Vec::new();
+        traverse_root(
+            id(40),
+            id(0),
+            id(1),
+            &settings(),
+            &mut out,
+            &edges,
+            &b,
+            |path, _| {
+                raise_paths.push((path.target, path.formal));
+                Ok(())
+            },
+        )
+        .unwrap();
+        let traversal = out.control_traversals.iter().next().unwrap();
+        assert_eq!(
+            (traversal.stop, traversal.vertices, traversal.arcs),
+            (None, 9, 15)
+        );
+        let path = |target, formal, suppressed| {
+            out.control_paths
+                .iter()
+                .find(|p| {
+                    (p.target, p.formal, p.may_suppress) == (id(target), id(formal), suppressed)
+                })
+                .unwrap()
+        };
+        let first = flow[0].min(flow[1]);
+        assert_eq!(steps(&out, path(1, 1, false)), vec![first]);
+        assert_eq!(steps(&out, path(3, 3, false)), vec![first, flow[3]]);
+        assert_eq!(steps(&out, path(3, 3, true)), vec![flow[2], flow[4]]);
+        assert_eq!(steps(&out, path(3, 4, false)), vec![first, flow[6]]);
+        assert_eq!(steps(&out, path(0, 1, false)), vec![]);
+        assert!(path(0, 1, true).length > 0);
+        assert_eq!(raise_paths.len(), 4);
+        for suppressed in [false, true] {
+            assert!(
+                out.unfollowed_paths
+                    .iter()
+                    .any(|p| p.path == path(3, 3, suppressed).id() && p.argument == unfollowed)
+            );
+        }
+        drop(edges);
+        drop(out);
+        assert_eq!(b.reserved(), 0);
+    }
+    #[test]
+    fn fifo_arena_keeps_limit_stop_order_and_drops_failed_root_scratch() {
+        for (depth, vertices, arcs, expected, count) in [
+            (20, 100, 2, TraversalStop::Arcs, 1),
+            (1, 100, 100, TraversalStop::Depth, 3),
+            (20, 2, 100, TraversalStop::Vertices, 2),
+        ] {
+            let b = resources::ResourceBudget::fixed(1 << 20).unwrap();
+            let (mut out, _, _) = graph(&b);
+            let edges = ControlEdges::new(&out, &b).unwrap();
+            let mut settings = settings();
+            settings.depth = depth;
+            settings.vertices = vertices;
+            settings.arcs = arcs;
+            traverse_root(
+                id(40),
+                id(0),
+                id(1),
+                &settings,
+                &mut out,
+                &edges,
+                &b,
+                |_, _| Ok(()),
+            )
+            .unwrap();
+            let traversal = out.control_traversals.iter().next().unwrap();
+            assert_eq!(traversal.stop, Some(expected));
+            assert_eq!(traversal.vertices, count);
+            assert_eq!(out.control_paths.len() as i64, count);
+            if expected == TraversalStop::Arcs {
+                assert_eq!(traversal.arcs, 2);
+            }
+            drop(edges);
+            drop(out);
+            assert_eq!(b.reserved(), 0);
+        }
+        let b = resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let (mut out, _, _) = graph(&b);
+        let edges = ControlEdges::new(&out, &b).unwrap();
+        let before = b.reserved();
+        let result = traverse_root(
+            id(40),
+            id(0),
+            id(1),
+            &settings(),
+            &mut out,
+            &edges,
+            &b,
+            |_, _| Err(invalid("deliberate path-publication refusal")),
+        );
+        assert!(result.is_err());
+        assert!(out.control_traversals.is_empty());
+        assert_eq!(out.control_paths.len(), 1);
+        // Published path rows remain charged; dropping the actual output releases them.
+        assert!(b.reserved() > before);
+        drop(out);
+        drop(edges);
+        assert_eq!(b.reserved(), 0);
+    }
+    #[derive(Debug)]
+    struct RootPool {
+        all: resources::ResourceBudget,
+        scratch: resources::ResourceBudget,
+        witness: resources::ResourceBudget,
+    }
+    impl resources::ResourcePool for RootPool {
+        fn reserve(
+            &self,
+            owner: &'static str,
+            bytes: usize,
+        ) -> Result<Box<dyn resources::Reservation>, ModelError> {
+            if owner == "structural-control-root" {
+                self.scratch.reserve(owner, bytes)
+            } else if owner == "structural-control-witness" {
+                self.witness.reserve(owner, bytes)
+            } else {
+                self.all.reserve(owner, bytes)
+            }
+        }
+        fn reserved(&self) -> usize {
+            self.all.reserved() + self.scratch.reserved() + self.witness.reserved()
+        }
+        fn limit(&self) -> usize {
+            self.all.limit() + self.scratch.limit() + self.witness.limit()
+        }
+    }
+    #[test]
+    fn fifo_arena_releases_each_root_and_refused_allocation() {
+        let scratch = resources::ResourceBudget::fixed(16 << 10).unwrap();
+        let b = resources::ResourceBudget::from_pool(std::sync::Arc::new(RootPool {
+            all: resources::ResourceBudget::fixed(1 << 20).unwrap(),
+            scratch: scratch.clone(),
+            witness: resources::ResourceBudget::fixed(16 << 10).unwrap(),
+        }))
+        .unwrap();
+        let (mut out, _, _) = graph(&b);
+        let edges = ControlEdges::new(&out, &b).unwrap();
+        for seed in [0, 1] {
+            traverse_root(
+                id(40),
+                id(seed),
+                id(1),
+                &settings(),
+                &mut out,
+                &edges,
+                &b,
+                |_, _| Ok(()),
+            )
+            .unwrap();
+            assert_eq!(
+                scratch.reserved(),
+                0,
+                "root scratch must not accumulate across roots"
+            );
+        }
+        assert_eq!(out.control_traversals.len(), 2);
+        assert!(
+            b.reserved() > 0,
+            "frame correspondence and flat outputs remain live"
+        );
+        drop(out);
+        drop(edges);
+        assert_eq!(b.reserved(), 0);
+        let tiny = resources::ResourceBudget::fixed(1).unwrap();
+        let mut output = Output::new(&tiny);
+        let edges = ControlEdges::new(&output, &tiny).unwrap();
+        assert!(
+            traverse_root(
+                id(40),
+                id(0),
+                id(1),
+                &settings(),
+                &mut output,
+                &edges,
+                &tiny,
+                |_, _| Ok(())
+            )
+            .is_err()
+        );
+        assert_eq!(tiny.reserved(), 0);
+        let scratch = resources::ResourceBudget::fixed(16 << 10).unwrap();
+        let witness = resources::ResourceBudget::fixed(1).unwrap();
+        let b = resources::ResourceBudget::from_pool(std::sync::Arc::new(RootPool {
+            all: resources::ResourceBudget::fixed(1 << 20).unwrap(),
+            scratch: scratch.clone(),
+            witness: witness.clone(),
+        }))
+        .unwrap();
+        let (mut out, _, _) = graph(&b);
+        let edges = ControlEdges::new(&out, &b).unwrap();
+        assert!(
+            traverse_root(
+                id(40),
+                id(0),
+                id(1),
+                &settings(),
+                &mut out,
+                &edges,
+                &b,
+                |_, _| Ok(())
+            )
+            .is_err()
+        );
+        assert_eq!(scratch.reserved(), 0);
+        assert_eq!(witness.reserved(), 0);
+        assert!(
+            !out.control_paths.is_empty(),
+            "admitted flat output remains owned on later refusal"
+        );
+        drop(out);
+        drop(edges);
+        assert_eq!(b.reserved(), 0);
+    }
 }

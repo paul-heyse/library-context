@@ -9,7 +9,8 @@ use crate::domain::{
 };
 macro_rules! data {($($field:ident:$ty:ty,)*)=>{
     pub struct CatalogData {$(pub $field:Rows<$ty>,)*}
-    impl CatalogData {
+
+impl CatalogData {
         pub fn new(budget:&ResourceBudget)->Self {Self {$($field:Rows::new(budget),)*}}
         pub fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<bool,ModelError> {$(if relation==<$ty>::NAME {self.$field.decode(batch)?;return Ok(true);})*Ok(false)}
         pub fn validation_inputs()->Vec<ValidationInput> {crate::domain::normalized::facts_inputs(vec![$(ValidationInput::of::<$ty>(&["id"]),)*])}
@@ -17,6 +18,150 @@ macro_rules! data {($($field:ident:$ty:ty,)*)=>{
     }
 };}
 crate::catalog_inputs!(data);
+type ConstructorMatches = std::collections::BTreeMap<
+    Id<FunctionTraitObservation>,
+    Vec<(Option<Id<AncestryEntityMember>>, Knowledge)>,
+>;
+/// Fixed invocation-local correspondence: admit map nodes and vector capacity before
+/// allocation. Values are borrowed rows or inline identities, not separately owned backing.
+pub(super) fn append_index<K: Ord + HeapSize, V: Copy>(
+    index: &mut std::collections::BTreeMap<K, Vec<V>>,
+    charge: &mut StateCharge,
+    key: K,
+    value: V,
+) -> Result<(), ModelError> {
+    if !index.contains_key(&key) {
+        charge.grow(size_of::<K>() + size_of::<Vec<V>>() + 32 + key.heap_bytes())?;
+    }
+    let values = index.entry(key).or_default();
+    if values.len() == values.capacity() {
+        let additional = values.capacity().max(4);
+        charge.grow(
+            additional
+                .checked_mul(size_of::<V>())
+                .ok_or_else(|| invalid("catalog correspondence allocation overflow"))?,
+        )?;
+        values.reserve_exact(additional);
+    }
+    values.push(value);
+    Ok(())
+}
+// One immutable C0 invocation owns these borrowed correspondence buckets. Rows retain their
+// canonical ID order, including competing evidence; no index selects a winner.
+macro_rules! correspondence {
+    ($($name:ident: $key:ty => $row:ty, $source:ident, $key_of:expr;)*) => {
+        pub(super) struct CatalogPreparation<'a> {
+            data: &'a CatalogData,
+            $($name: std::collections::BTreeMap<$key, Vec<&'a $row>> ,)*
+            constructor_traits: std::collections::BTreeMap<Id<attribution::AnalysisContext>, Vec<&'a FunctionTraitObservation>>,
+            missing_trait_symbols: crate::domain::charged::ChargedSet<Id<attribution::AnalysisContext>>,
+            constructor_ancestry_validation: std::cell::OnceCell<Result<(), std::sync::Arc<ModelError>>>,
+            trait_validation: std::cell::OnceCell<Result<(), std::sync::Arc<ModelError>>>,
+            metadata_validation: std::cell::OnceCell<Result<(), std::sync::Arc<ModelError>>>,
+            _charge: StateCharge,
+        }
+        impl<'a> CatalogPreparation<'a> {
+            fn new(data: &'a CatalogData, budget: &ResourceBudget) -> Result<Self, ModelError> {
+                let mut charge = StateCharge::new(budget, "catalog-correspondence");
+                $(let mut $name = std::collections::BTreeMap::new();
+                  for row in data.$source.iter() {
+                      append_index(&mut $name,&mut charge,($key_of)(row),row)?;
+                  })*
+                let mut constructor_traits = std::collections::BTreeMap::new();
+                let mut missing_trait_symbols = crate::domain::charged::ChargedSet::default();
+                for row in data.traits.iter() {
+                    if let Some(q) = data.qualifications.get(row.qualification) {
+                        match data.symbols.get(row.symbol) {
+                            None => {missing_trait_symbols.insert(&mut charge,q.context)?;},
+                            Some(symbol) if row.defining_class.is_some() && matches!(symbol.name.as_str(),"__init__"|"__new__") => {
+                                append_index(&mut constructor_traits,&mut charge,q.context,row)?;
+                            },
+                            Some(_) => {},
+                        }
+                    }
+                }
+                Ok(Self {data, $($name,)* constructor_traits, missing_trait_symbols, constructor_ancestry_validation: Default::default(), trait_validation: Default::default(), metadata_validation: Default::default(), _charge: charge})
+            }
+            $(pub(super) fn $name(&self, key: $key) -> impl Iterator<Item=&'a $row> + '_ {
+                self.$name.get(&key).into_iter().flatten().copied()
+            })*
+        }
+        impl std::ops::Deref for CatalogPreparation<'_> {
+            type Target = CatalogData;
+            fn deref(&self) -> &Self::Target { self.data }
+        }
+    }
+}
+correspondence! {
+    entity_candidates_for: Id<SymbolEntityResolution> => SymbolEntityCandidate, entity_candidates, |r: &SymbolEntityCandidate| r.resolution;
+    exposure_candidates_for: Id<PublicExposure> => PublicExposureCandidate, exposure_candidates, |r: &PublicExposureCandidate| r.exposure;
+    parameters_for_function: Id<Occurrence> => ParameterSyntaxObservation, parameter_syntax, |r: &ParameterSyntaxObservation| r.function;
+    syntax_for_parameter: Id<Occurrence> => ParameterSyntaxObservation, parameter_syntax, |r: &ParameterSyntaxObservation| r.parameter;
+    placements_for_parent: Option<Id<Occurrence>> => syntax::SyntaxPlacement, placements, |r: &syntax::SyntaxPlacement| r.parent;
+    assessments_for: (Id<CallableEntity>, Id<attribution::AnalysisContext>) => EffectiveCallableAssessment, assessments, |r: &EffectiveCallableAssessment| (r.callable, r.context);
+    aspects_for: Id<EffectiveCallableAssessment> => normalized::callable_aspects::CallableAspect, aspects, |r: &normalized::callable_aspects::CallableAspect| r.assessment;
+    variants_for: (Option<Id<CallableEntity>>, Id<attribution::AnalysisContext>, Option<Id<EffectiveCallableAssessment>>) => SignatureVariant, variants, |r: &SignatureVariant| (r.callable, r.context, r.assessment);
+    slots_for: Id<SignatureVariant> => SignatureSlot, slots, |r: &SignatureSlot| r.variant;
+    entities_for_slot: Id<SignatureSlot> => SignatureSlotEntity, slot_entities, |r: &SignatureSlotEntity| r.slot;
+    fields_for: Id<ClassEntity> => FieldEntity, fields, |r: &FieldEntity| r.class;
+    declarations_for_field: Id<FieldEntity> => FieldDeclarationLink, field_declarations, |r: &FieldDeclarationLink| r.field;
+    defaults_for: Id<FieldDeclarationLink> => normalized::callable_aspects::FieldDefaultAssessment, field_default_assessments, |r: &normalized::callable_aspects::FieldDefaultAssessment| r.declaration;
+    links_for_field: Id<FieldEntity> => FieldEntityLink, field_links, |r: &FieldEntityLink| r.field;
+    resolutions_for_symbol: (Id<calls::ProviderSymbol>, Id<attribution::AnalysisContext>) => SymbolEntityResolution, resolutions, |r: &SymbolEntityResolution| (r.symbol, r.context);
+    resolutions_for_entity: (Id<attribution::AnalysisContext>, Option<Id<EntityRef>>) => SymbolEntityResolution, resolutions, |r: &SymbolEntityResolution| (r.context, r.entity);
+    class_traits_for: Id<calls::ProviderSymbol> => symbols::ClassTraitObservation, class_traits, |r: &symbols::ClassTraitObservation| r.symbol;
+    ancestry_for: Id<SymbolEntityResolution> => AncestryEntityAssessment, ancestry, |r: &AncestryEntityAssessment| r.class;
+    ancestors_for: Id<AncestryEntityAssessment> => AncestryEntityMember, ancestors, |r: &AncestryEntityMember| r.assessment;
+    children_for: Option<Id<Occurrence>> => syntax::DeclarationObservation, declarations, |r: &syntax::DeclarationObservation| r.parent;
+    traits_for_defining: Option<Id<calls::ProviderSymbol>> => FunctionTraitObservation, traits, |r: &FunctionTraitObservation| r.defining_class;
+    metadata_for: Id<calls::ProviderSymbol> => class_metadata::ClassMetadataObservation, class_metadata, |r: &class_metadata::ClassMetadataObservation| r.class;
+    members_for: Id<calls::ProviderSymbol> => class_metadata::ClassMemberObservation, class_members, |r: &class_metadata::ClassMemberObservation| r.class;
+    coverage_for: (Id<source::CoverageScope>, Id<attribution::AnalysisContext>) => attribution::ProviderCoverage, native_coverage, |r: &attribution::ProviderCoverage| (r.scope, r.context);
+
+}
+
+impl CatalogPreparation<'_> {
+    fn validate_constructor_ancestry(&self) -> Result<(), ModelError> {
+        self.constructor_ancestry_validation
+            .get_or_init(|| {
+                // The original inherited-constructor scan checked these references before its
+                // class predicate. Delay this validation until an inherited route is consumed.
+                for ancestor in self.ancestors.iter() {
+                    let parent =
+                        need(&self.ancestry, ancestor.assessment).map_err(std::sync::Arc::new)?;
+                    need(&self.resolutions, parent.class).map_err(std::sync::Arc::new)?;
+                }
+                Ok(())
+            })
+            .clone()
+            .map_err(ModelError::SharedCause)
+    }
+    fn validate_traits(&self) -> Result<(), ModelError> {
+        self.trait_validation
+            .get_or_init(|| {
+                for row in self.traits.iter() {
+                    need(&self.qualifications, row.qualification).map_err(std::sync::Arc::new)?;
+                }
+                Ok(())
+            })
+            .clone()
+            .map_err(ModelError::SharedCause)
+    }
+    fn validate_metadata(&self) -> Result<(), ModelError> {
+        self.metadata_validation
+            .get_or_init(|| {
+                for row in self.class_metadata.iter() {
+                    need(&self.qualifications, row.qualification).map_err(std::sync::Arc::new)?;
+                }
+                for row in self.class_members.iter() {
+                    need(&self.qualifications, row.qualification).map_err(std::sync::Arc::new)?;
+                }
+                Ok(())
+            })
+            .clone()
+            .map_err(ModelError::SharedCause)
+    }
+}
 
 impl CatalogData {
     /// Exact companions consumed by C0's scoped reader; later vocabulary cannot enlarge facts.
@@ -173,7 +318,7 @@ fn option(
     Ok(())
 }
 pub(super) fn callable(
-    data: &CatalogData,
+    data: &CatalogPreparation<'_>,
     out: &mut CatalogOutput,
     member: Id<CatalogMember>,
     candidate: Id<CatalogCandidate>,
@@ -181,11 +326,7 @@ pub(super) fn callable(
     context: Id<attribution::AnalysisContext>,
 ) -> Result<(), ModelError> {
     if let Some(CallableEntity::Source { declaration, .. }) = data.source_callables.get(id) {
-        for syntax in data
-            .parameter_syntax
-            .iter()
-            .filter(|r| r.function == *declaration)
-        {
+        for syntax in data.parameters_for_function(*declaration) {
             let q = need(&data.qualifications, syntax.qualification)?;
             if q.context != context
                 || q.approximation != assertion::Approximation::Exact
@@ -200,11 +341,7 @@ pub(super) fn callable(
             .id();
             let mut parameter = data.parameters.get(direct).map(|_| (direct, None));
             if parameter.is_none() {
-                for placement in data
-                    .placements
-                    .iter()
-                    .filter(|p| p.parent == Some(syntax.parameter))
-                {
+                for placement in data.placements_for_parent(Some(syntax.parameter)) {
                     let q = need(&data.qualifications, placement.qualification)?;
                     if q.context != context
                         || q.approximation != assertion::Approximation::Exact
@@ -253,11 +390,7 @@ pub(super) fn callable(
             )?;
         }
     }
-    for assessment in data
-        .assessments
-        .iter()
-        .filter(|r| r.callable == id && r.context == context)
-    {
+    for assessment in data.assessments_for((id, context)) {
         let owner = out.callables.insert(CatalogCallable {
             member,
             candidate,
@@ -268,37 +401,27 @@ pub(super) fn callable(
                 CatalogContractBasis::PublicCandidate
             },
         })?;
-        for aspect in data
-            .aspects
-            .iter()
-            .filter(|r| r.assessment == assessment.id())
-        {
+        for aspect in data.aspects_for(assessment.id()) {
             out.aspects.insert(CatalogCallableAspect {
                 callable: owner,
                 aspect: aspect.id(),
             })?;
         }
-        for variant in data.variants.iter().filter(|r| {
-            r.callable == Some(id) && r.context == context && r.assessment == Some(assessment.id())
-        }) {
+        for variant in data.variants_for((Some(id), context, Some(assessment.id()))) {
             out.invocations.insert(CatalogInvocation {
                 callable: owner,
                 variant: variant.id(),
             })?;
-            for slot in data.slots.iter().filter(|r| r.variant == variant.id()) {
+            for slot in data.slots_for(variant.id()) {
                 let mut found = false;
-                for entity in data.slot_entities.iter().filter(|r| r.slot == slot.id()) {
+                for entity in data.entities_for_slot(slot.id()) {
                     let link = need(&data.parameter_links, entity.link)?;
                     let ParameterEntity::Source { declaration } =
                         need(&data.parameters, link.entity)?
                     else {
                         continue;
                     };
-                    for syntax in data
-                        .parameter_syntax
-                        .iter()
-                        .filter(|r| r.parameter == *declaration)
-                    {
+                    for syntax in data.syntax_for_parameter(*declaration) {
                         if need(&data.qualifications, syntax.qualification)?.context != context {
                             continue;
                         }
@@ -342,13 +465,9 @@ pub(super) fn callable(
 }
 /// Public slot keys depend on access ownership only. Every exposure and candidate is retained.
 pub fn build(data: &CatalogData, budget: &ResourceBudget) -> Result<CatalogOutput, ModelError> {
+    let preparation = CatalogPreparation::new(data, budget)?;
+    let data = &preparation;
     let mut out = CatalogOutput::new(budget);
-    let mut charge = StateCharge::new(budget, "catalog-index");
-    let mut candidates: ChargedMap<Id<SymbolEntityResolution>, Vec<&SymbolEntityCandidate>> =
-        Default::default();
-    for candidate in data.entity_candidates.iter() {
-        candidates.update(&mut charge, candidate.resolution, |v| v.push(candidate))?;
-    }
     for exposure in data.exposures.iter() {
         let module = need(&data.modules, exposure.access)?;
         let artifact = need(&data.artifacts, module.source)?;
@@ -366,17 +485,13 @@ pub fn build(data: &CatalogData, budget: &ResourceBudget) -> Result<CatalogOutpu
             member,
             exposure: exposure.id(),
         })?;
-        for candidate in data
-            .exposure_candidates
-            .iter()
-            .filter(|r| r.exposure == exposure.id())
-        {
+        for candidate in data.exposure_candidates_for(exposure.id()) {
             let resolution = need(&data.resolutions, candidate.resolution)?;
             if resolution.context != exposure.context {
                 return Err(invalid("catalog candidate crosses context"));
             }
-            let known = candidates.get(&candidate.resolution);
-            if known.is_none_or(|r| r.is_empty()) {
+            let mut known = data.entity_candidates_for(candidate.resolution).peekable();
+            if known.peek().is_none() {
                 out.candidates.insert(CatalogCandidate {
                     exposure: link,
                     candidate: Some(candidate.id()),
@@ -385,7 +500,7 @@ pub fn build(data: &CatalogData, budget: &ResourceBudget) -> Result<CatalogOutpu
                     alias: None,
                 })?;
             }
-            for entity_candidate in known.into_iter().flatten() {
+            for entity_candidate in known {
                 let catalog_candidate = out.candidates.insert(CatalogCandidate {
                     exposure: link,
                     candidate: Some(candidate.id()),
@@ -408,40 +523,36 @@ pub fn build(data: &CatalogData, budget: &ResourceBudget) -> Result<CatalogOutpu
                             candidate: catalog_candidate,
                             class: *class,
                         })?;
-                        for metadata in data.class_metadata.iter() {
-                            let q = need(&data.qualifications, metadata.qualification)?;
-                            if q.context != exposure.context {
+                        data.validate_metadata()?;
+                        for resolution in data.resolutions_for_entity((
+                            exposure.context,
+                            Some(EntityRef::Class { class: *class }.id()),
+                        )) {
+                            if resolution.status != ResolutionStatus::Resolved
+                                || resolution.entity.and_then(|e| data.refs.get(e))
+                                    != Some(&EntityRef::Class { class: *class })
+                            {
                                 continue;
                             }
-                            if data.resolutions.iter().any(|r| {
-                                r.symbol == metadata.class
-                                    && r.context == exposure.context
-                                    && r.status == ResolutionStatus::Resolved
-                                    && r.entity.and_then(|e| data.refs.get(e))
-                                        == Some(&EntityRef::Class { class: *class })
-                            }) {
-                                out.class_metadata.insert(CatalogClassMetadata {
-                                    class: catalog_class,
-                                    observation: metadata.id(),
-                                })?;
+                            for metadata in data.metadata_for(resolution.symbol) {
+                                if need(&data.qualifications, metadata.qualification)?.context
+                                    == exposure.context
+                                {
+                                    out.class_metadata.insert(CatalogClassMetadata {
+                                        class: catalog_class,
+                                        observation: metadata.id(),
+                                    })?;
+                                }
                             }
-                        }
-                        for metadata in data.class_members.iter() {
-                            let q = need(&data.qualifications, metadata.qualification)?;
-                            if q.context != exposure.context {
-                                continue;
-                            }
-                            if data.resolutions.iter().any(|r| {
-                                r.symbol == metadata.class
-                                    && r.context == exposure.context
-                                    && r.status == ResolutionStatus::Resolved
-                                    && r.entity.and_then(|e| data.refs.get(e))
-                                        == Some(&EntityRef::Class { class: *class })
-                            }) {
-                                out.class_members.insert(CatalogClassMember {
-                                    class: catalog_class,
-                                    observation: metadata.id(),
-                                })?;
+                            for metadata in data.members_for(resolution.symbol) {
+                                if need(&data.qualifications, metadata.qualification)?.context
+                                    == exposure.context
+                                {
+                                    out.class_members.insert(CatalogClassMember {
+                                        class: catalog_class,
+                                        observation: metadata.id(),
+                                    })?;
+                                }
                             }
                         }
                         constructors(data, &mut out, catalog_class, exposure.context)?;
@@ -458,13 +569,128 @@ pub fn build(data: &CatalogData, budget: &ResourceBudget) -> Result<CatalogOutpu
     Ok(out)
 }
 pub(super) fn constructors(
-    data: &CatalogData,
+    data: &CatalogPreparation<'_>,
     out: &mut CatalogOutput,
     class: Id<CatalogClass>,
     context: Id<attribution::AnalysisContext>,
 ) -> Result<(), ModelError> {
     let row = need(&out.classes, class)?.clone();
-    for traits in data.traits.iter() {
+    data.validate_traits()?;
+    if data.missing_trait_symbols.contains(&context) {
+        return Err(invalid("catalog input absent: provider_symbols"));
+    }
+    if data
+        .constructor_traits
+        .get(&context)
+        .is_none_or(|v| v.is_empty())
+    {
+        return Ok(());
+    }
+    // A source constructor belongs to an own or admitted ancestral defining symbol. Retain
+    // every trait support and every ancestry edge; this is correspondence, not selection.
+    let mut charge = StateCharge::new(
+        data._charge.budget().expect("bound preparation"),
+        "catalog-constructor-correspondence",
+    );
+    let mut own_symbols = crate::domain::charged::ChargedSet::default();
+    let mut applicable: ConstructorMatches = Default::default();
+    for resolution in
+        data.resolutions_for_entity((context, Some(EntityRef::Class { class: row.class }.id())))
+    {
+        if resolution.status == ResolutionStatus::Resolved
+            && resolution.entity.and_then(|e| data.refs.get(e))
+                == Some(&EntityRef::Class { class: row.class })
+        {
+            own_symbols.insert(&mut charge, resolution.symbol)?;
+        }
+    }
+    for symbol in own_symbols.iter() {
+        for traits in data.traits_for_defining(Some(*symbol)) {
+            append_index(
+                &mut applicable,
+                &mut charge,
+                traits.id(),
+                (None, Knowledge::Known),
+            )?;
+        }
+    }
+    let inherited = data
+        .constructor_traits
+        .get(&context)
+        .into_iter()
+        .flatten()
+        .any(|traits| {
+            traits
+                .defining_class
+                .is_some_and(|symbol| !own_symbols.contains(&symbol))
+                && data
+                    .resolutions_for_symbol((traits.symbol, context))
+                    .any(|r| {
+                        r.status == ResolutionStatus::Resolved
+                            && matches!(
+                                r.entity.and_then(|id| data.refs.get(id)),
+                                Some(EntityRef::Callable { .. })
+                            )
+                    })
+        });
+    if inherited {
+        data.validate_constructor_ancestry()?;
+        for owner in
+            data.resolutions_for_entity((context, Some(EntityRef::Class { class: row.class }.id())))
+        {
+            if owner.entity.and_then(|e| data.refs.get(e))
+                != Some(&EntityRef::Class { class: row.class })
+            {
+                continue;
+            }
+            for parent in data.ancestry_for(owner.id()) {
+                for ancestor in data.ancestors_for(parent.id()) {
+                    let base = need(&data.resolutions, ancestor.resolution)?;
+                    if base.context != context || own_symbols.contains(&base.symbol) {
+                        continue;
+                    }
+                    for traits in data.traits_for_defining(Some(base.symbol)) {
+                        if need(&data.qualifications, traits.qualification)?.context != context
+                            || !matches!(
+                                need(&data.symbols, traits.symbol)?.name.as_str(),
+                                "__init__" | "__new__"
+                            )
+                            || !data
+                                .resolutions_for_symbol((traits.symbol, context))
+                                .any(|r| {
+                                    r.status == ResolutionStatus::Resolved
+                                        && matches!(
+                                            r.entity.and_then(|id| data.refs.get(id)),
+                                            Some(EntityRef::Callable { .. })
+                                        )
+                                })
+                        {
+                            continue;
+                        }
+                        let observation = need(&data.ancestry_observations, parent.observation)?;
+                        if observation.relation != symbols::AncestryRelation::Mro {
+                            continue;
+                        }
+                        let applicability = if parent.status == ResolutionStatus::Resolved
+                            && observation.linearization == Some(Linearization::Complete)
+                        {
+                            Knowledge::Known
+                        } else {
+                            Knowledge::Unknown
+                        };
+                        append_index(
+                            &mut applicable,
+                            &mut charge,
+                            traits.id(),
+                            (Some(ancestor.id()), applicability),
+                        )?;
+                    }
+                }
+            }
+        }
+    }
+    for (id, ancestry) in applicable.iter() {
+        let traits = need(&data.traits, *id)?;
         if need(&data.qualifications, traits.qualification)?.context != context {
             continue;
         }
@@ -474,27 +700,16 @@ pub(super) fn constructors(
             "__new__" => ConstructorKind::New,
             _ => continue,
         };
-        let Some(defining) = traits.defining_class else {
-            continue;
-        };
-        let own = data.resolutions.iter().any(|r| {
-            r.symbol == defining
-                && r.context == context
-                && r.status == ResolutionStatus::Resolved
-                && r.entity.and_then(|e| data.refs.get(e))
-                    == Some(&EntityRef::Class { class: row.class })
-        });
-        for resolution in data.resolutions.iter().filter(|r| {
-            r.symbol == traits.symbol
-                && r.context == context
-                && r.status == ResolutionStatus::Resolved
-        }) {
+        for resolution in data
+            .resolutions_for_symbol((traits.symbol, context))
+            .filter(|r| r.status == ResolutionStatus::Resolved)
+        {
             let Some(EntityRef::Callable { callable: id }) =
                 resolution.entity.and_then(|r| data.refs.get(r))
             else {
                 continue;
             };
-            if own {
+            for (ancestor, applicability) in ancestry {
                 constructor(
                     data,
                     out,
@@ -503,49 +718,10 @@ pub(super) fn constructors(
                     traits,
                     *id,
                     kind,
-                    None,
-                    Knowledge::Known,
+                    *ancestor,
+                    *applicability,
                     context,
                 )?;
-            } else {
-                for ancestor in data.ancestors.iter() {
-                    let parent = need(&data.ancestry, ancestor.assessment)?;
-                    let owner = need(&data.resolutions, parent.class)?;
-                    if owner.context != context
-                        || owner.entity.and_then(|e| data.refs.get(e))
-                            != Some(&EntityRef::Class { class: row.class })
-                    {
-                        continue;
-                    }
-                    let base = need(&data.resolutions, ancestor.resolution)?;
-                    if base.symbol != defining || base.context != context {
-                        continue;
-                    }
-                    let observation = need(&data.ancestry_observations, parent.observation)?;
-                    if observation.relation != symbols::AncestryRelation::Mro {
-                        continue;
-                    }
-                    // Even a complete MRO does not independently establish constructor selection.
-                    let applicability = if parent.status == ResolutionStatus::Resolved
-                        && observation.linearization == Some(Linearization::Complete)
-                    {
-                        Knowledge::Known
-                    } else {
-                        Knowledge::Unknown
-                    };
-                    constructor(
-                        data,
-                        out,
-                        &row,
-                        class,
-                        traits,
-                        *id,
-                        kind,
-                        Some(ancestor.id()),
-                        applicability,
-                        context,
-                    )?;
-                }
             }
         }
     }
@@ -556,7 +732,7 @@ pub(super) fn constructors(
     reason = "A constructor row binds the class, traits, callable, kind, ancestry, applicability and context"
 )]
 fn constructor(
-    data: &CatalogData,
+    data: &CatalogPreparation<'_>,
     out: &mut CatalogOutput,
     row: &CatalogClass,
     class: Id<CatalogClass>,
@@ -576,11 +752,7 @@ fn constructor(
     let public_known = candidate.alias.is_none()
         && exposure.status == ResolutionStatus::Resolved
         && exposure.publicity == crate::domain::normalized::entities::PublicPathKnowledge::Known;
-    for assessment in data
-        .assessments
-        .iter()
-        .filter(|r| r.callable == id && r.context == context)
-    {
+    for assessment in data.assessments_for((id, context)) {
         let callable = CatalogCallable {
             member: row.member,
             candidate: row.candidate,
@@ -619,27 +791,19 @@ fn constructor(
     Ok(())
 }
 pub(super) fn fields(
-    data: &CatalogData,
+    data: &CatalogPreparation<'_>,
     out: &mut CatalogOutput,
     member: Id<CatalogMember>,
     class: Id<ClassEntity>,
     context: Id<attribution::AnalysisContext>,
 ) -> Result<(), ModelError> {
-    for field in data.fields.iter().filter(|r| r.class == class) {
-        for link in data
-            .field_declarations
-            .iter()
-            .filter(|r| r.field == field.id())
-        {
+    for field in data.fields_for(class) {
+        for link in data.declarations_for_field(field.id()) {
             let syntax = need(&data.field_syntax, link.declaration)?;
             if need(&data.qualifications, syntax.qualification)?.context != context {
                 continue;
             }
-            for assessment in data
-                .field_default_assessments
-                .iter()
-                .filter(|r| r.declaration == link.id())
-            {
+            for assessment in data.defaults_for(link.id()) {
                 use normalized::callable_aspects::FieldDefault;
                 let default = match need(&data.field_defaults, assessment.default)? {
                     FieldDefault::Absent {} => CatalogDefault::Absent {},
@@ -666,17 +830,13 @@ pub(super) fn fields(
                     default,
                 )?;
             }
-            if !data
-                .field_default_assessments
-                .iter()
-                .any(|r| r.declaration == link.id())
-            {
+            if data.defaults_for(link.id()).next().is_none() {
                 return Err(invalid(
                     "catalog field requires completed normalized default assessment",
                 ));
             }
         }
-        for link in data.field_links.iter().filter(|r| r.field == field.id()) {
+        for link in data.links_for_field(field.id()) {
             let observation = need(&data.field_observations, link.observation)?;
             if need(&data.qualifications, observation.qualification)?.context != context {
                 continue;
@@ -707,26 +867,30 @@ fn constructor_rank(data: &CatalogData, row: &CatalogConstructor) -> Result<i64,
     }
 }
 fn complete_signature_scope(
-    data: &CatalogData,
+    data: &CatalogPreparation<'_>,
     qualification: Id<assertion::AssertionQualification>,
 ) -> Result<bool, ModelError> {
     let q = need(&data.qualifications, qualification)?;
     Ok(q.modality == attribution::Modality::Definite
         && q.approximation == assertion::Approximation::Exact
         && q.condition == conditions::Diagram::always().id()
-        && data.native_coverage.iter().any(|r| {
-            r.scope == q.scope
-                && r.context == q.context
-                && r.family == attribution::FactFamily::Signatures
+        && data.coverage_for((q.scope, q.context)).any(|r| {
+            r.family == attribution::FactFamily::Signatures
                 && r.status == attribution::CoverageStatus::CompleteUnderStatedModel
         }))
 }
 fn classify_constructors(
-    data: &CatalogData,
+    data: &CatalogPreparation<'_>,
     out: &mut CatalogOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut classified = Rows::new(budget);
+    let mut charge = StateCharge::new(budget, "catalog-constructor-classification");
+    let mut groups: std::collections::BTreeMap<(Id<CatalogClass>, i16), Vec<&CatalogConstructor>> =
+        Default::default();
+    for row in out.constructors.iter() {
+        append_index(&mut groups, &mut charge, (row.class, row.kind as i16), row)?;
+    }
     for row in out.constructors.iter() {
         let rank = constructor_rank(data, row)?;
         let class = need(&out.classes, row.class)?;
@@ -736,19 +900,15 @@ fn classify_constructors(
         )?
         .context;
         let own_complete = data
-            .resolutions
-            .iter()
+            .resolutions_for_entity((context, Some(EntityRef::Class { class: class.class }.id())))
             .filter(|r| {
-                r.context == context
-                    && r.status == ResolutionStatus::Resolved
+                r.status == ResolutionStatus::Resolved
                     && r.entity.and_then(|e| data.refs.get(e))
                         == Some(&EntityRef::Class { class: class.class })
             })
             .any(|r| {
-                data.class_traits.iter().any(|t| {
-                    t.symbol == r.symbol
-                        && complete_signature_scope(data, t.qualification).unwrap_or(false)
-                })
+                data.class_traits_for(r.symbol)
+                    .any(|t| complete_signature_scope(data, t.qualification).unwrap_or(false))
             });
         let mut closest = rank;
         let mut complete = own_complete;
@@ -760,27 +920,23 @@ fn classify_constructors(
             let observation = need(&data.ancestry_observations, ancestry.observation)?;
             complete &= ancestry.status == ResolutionStatus::Resolved
                 && observation.linearization == Some(Linearization::Complete);
-            for ancestor in data
-                .ancestors
-                .iter()
-                .filter(|a| a.assessment == ancestry.id())
-            {
+            for ancestor in data.ancestors_for(ancestry.id()) {
                 let ordinal = need(&data.sequence_members, ancestor.member)?.ordinal;
                 if ordinal >= rank {
                     continue;
                 }
                 let resolution = need(&data.resolutions, ancestor.resolution)?;
                 complete &= resolution.status == ResolutionStatus::Resolved
-                    && data.class_traits.iter().any(|t| {
-                        t.symbol == resolution.symbol
-                            && complete_signature_scope(data, t.qualification).unwrap_or(false)
-                    });
+                    && data
+                        .class_traits_for(resolution.symbol)
+                        .any(|t| complete_signature_scope(data, t.qualification).unwrap_or(false));
             }
         }
-        for candidate in out
-            .constructors
-            .iter()
-            .filter(|r| r.class == row.class && r.kind == row.kind)
+        for candidate in groups
+            .get(&(row.class, row.kind as i16))
+            .into_iter()
+            .flatten()
+            .copied()
         {
             closest = closest.min(constructor_rank(data, candidate)?);
             complete &= candidate.applicability == Knowledge::Known
@@ -792,10 +948,11 @@ fn classify_constructors(
         // A single known nearest callable is required; traits from one callable can have multiple supports.
         let mut winner = None;
         let mut unique = true;
-        for candidate in out
-            .constructors
-            .iter()
-            .filter(|r| r.class == row.class && r.kind == row.kind)
+        for candidate in groups
+            .get(&(row.class, row.kind as i16))
+            .into_iter()
+            .flatten()
+            .copied()
         {
             if constructor_rank(data, candidate)? == closest {
                 if winner.is_some_and(|id| id != candidate.callable) {
@@ -881,7 +1038,7 @@ pub fn stage(
     )?;
     Ok(stages::Stage {
         captured_binding: None,
-name: "catalog_core",
+        name: "catalog_core",
         inputs,
         outputs,
         contributes: vec![],
@@ -953,14 +1110,24 @@ pub fn invocation_links(
     budget: &ResourceBudget,
 ) -> Result<Rows<CatalogMemberInvocation>, ModelError> {
     let mut links = Rows::new(budget);
+    let mut charge = StateCharge::new(budget, "catalog-invocation-correspondence");
+    let mut frames: std::collections::BTreeMap<
+        CatalogInvocationFrame,
+        Vec<&analysis::catalog_core::Invocation>,
+    > = Default::default();
+    for invocation in invocations.iter() {
+        append_index(
+            &mut frames,
+            &mut charge,
+            (invocation.input, invocation.context),
+            invocation,
+        )?;
+    }
     for exposure in output.exposures.iter() {
         let context = need(&data.exposures, exposure.exposure)?.context;
         let member = need(&output.members, exposure.member)?;
         let mut count = 0;
-        for invocation in invocations
-            .iter()
-            .filter(|r| r.input == member.input && r.context == context)
-        {
+        for invocation in frames.get(&(member.input, context)).into_iter().flatten() {
             links.insert(CatalogMemberInvocation {
                 member: member.id(),
                 invocation: invocation.id(),
@@ -1249,10 +1416,13 @@ impl CatalogData {
     /// C0's value contract names every selected typed input, including explicit empty rows.
     /// Its sole attribution-only projection is native coverage: signature completeness reads
     /// scope/context/family/status, and never the reporting provider, run or diagnostics.
-    pub fn value_dependencies(&self,domain:ContentHash,budget:&ResourceBudget)
-        ->Result<Vec<crate::domain::compilation_product::DependencyToken>,ModelError>{
-        use crate::domain::compilation_product::{RelationValue,RelationValueOutcome};
-        let mut values=Vec::new();
+    pub fn value_dependencies(
+        &self,
+        domain: ContentHash,
+        budget: &ResourceBudget,
+    ) -> Result<Vec<crate::domain::compilation_product::DependencyToken>, ModelError> {
+        use crate::domain::compilation_product::{RelationValue, RelationValueOutcome};
+        let mut values = Vec::new();
         macro_rules! rows {($($field:ident:$ty:ty,)*)=>{$(
             if <$ty>::NAME!=attribution::ProviderCoverage::NAME {
                 values.push(RelationValue::of_rows::<$ty>(domain,RelationValueOutcome::Complete,self.$field.iter())?
@@ -1260,18 +1430,143 @@ impl CatalogData {
             }
         )*};}
         crate::catalog_inputs!(rows);
-        let _sort=budget.reserve("catalog-native-coverage-value",self.native_coverage.len().saturating_mul(128))?;
-        let mut coverage=self.native_coverage.iter().map(|row|(row.scope,row.context,row.family,row.status)).collect::<Vec<_>>();
-        coverage.sort_by_key(|(scope,context,family,status)|(*scope,*context,*family as i16,*status as i16));
-        let mut content=KeySink::new("catalog-signature-completeness-projection/v1");
-        for (scope,context,family,status) in &coverage {
-            scope.encode(&mut content);context.encode(&mut content);
-            content.part(b"family",&(*family as i16).to_le_bytes());content.part(b"status",&(*status as i16).to_le_bytes());
+        let _sort = budget.reserve(
+            "catalog-native-coverage-value",
+            self.native_coverage.len().saturating_mul(128),
+        )?;
+        let mut coverage = self
+            .native_coverage
+            .iter()
+            .map(|row| (row.scope, row.context, row.family, row.status))
+            .collect::<Vec<_>>();
+        coverage.sort_by_key(|(scope, context, family, status)| {
+            (*scope, *context, *family as i16, *status as i16)
+        });
+        let mut content = KeySink::new("catalog-signature-completeness-projection/v1");
+        for (scope, context, family, status) in &coverage {
+            scope.encode(&mut content);
+            context.encode(&mut content);
+            content.part(b"family", &(*family as i16).to_le_bytes());
+            content.part(b"status", &(*status as i16).to_le_bytes());
         }
-        values.push(RelationValue{relation:attribution::ProviderCoverage::NAME.into(),
-            contract:ContentHash::of(b"catalog-signature-completeness:scope/context/family/status/v1"),domain,
-            outcome:RelationValueOutcome::Complete,rows:coverage.len() as u64,content:content.finish()}
-            .dependency("native_coverage",None)?);
+        values.push(
+            RelationValue {
+                relation: attribution::ProviderCoverage::NAME.into(),
+                contract: ContentHash::of(
+                    b"catalog-signature-completeness:scope/context/family/status/v1",
+                ),
+                domain,
+                outcome: RelationValueOutcome::Complete,
+                rows: coverage.len() as u64,
+                content: content.finish(),
+            }
+            .dependency("native_coverage", None)?,
+        );
         Ok(values)
+    }
+}
+
+#[cfg(test)]
+mod correspondence_controls {
+    use super::*;
+    fn nominal<R>(byte: u8) -> Id<R> {
+        serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
+    }
+    #[test]
+    fn constructor_correspondence_does_not_read_an_unmatched_mro_observation() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let mut data = CatalogData::new(&budget);
+        let q = assertion::AssertionQualification {
+            context: nominal(1),
+            scope: nominal(2),
+            assumptions: assumptions::AssumptionSet::empty_id(),
+            condition: conditions::Diagram::always().id(),
+            modality: attribution::Modality::Definite,
+            approximation: assertion::Approximation::Exact,
+        };
+        data.qualifications.insert(q.clone()).unwrap();
+        let class = nominal(3);
+        let class_ref = data.refs.insert(EntityRef::Class { class }).unwrap();
+        let base_ref = data
+            .refs
+            .insert(EntityRef::Class { class: nominal(4) })
+            .unwrap();
+        let callable_ref = data
+            .refs
+            .insert(EntityRef::Callable {
+                callable: nominal(5),
+            })
+            .unwrap();
+        let method = calls::ProviderSymbol {
+            provider: nominal(6),
+            context: q.context,
+            module: nominal(7),
+            native_key: "Other.__init__".into(),
+            name: "__init__".into(),
+            kind: calls::SymbolKind::Method,
+        };
+        data.symbols.insert(method.clone()).unwrap();
+        let resolution = |symbol, entity| SymbolEntityResolution {
+            symbol,
+            entity: Some(entity),
+            context: q.context,
+            policy: ContentHash::of(b"test"),
+            status: ResolutionStatus::Resolved,
+            reason: EntityReason::DeclarationAgreement,
+        };
+        let owner = resolution(nominal(8), class_ref);
+        let base = resolution(nominal(9), base_ref);
+        data.resolutions.insert(owner.clone()).unwrap();
+        data.resolutions.insert(base.clone()).unwrap();
+        data.resolutions
+            .insert(resolution(method.id(), callable_ref))
+            .unwrap();
+        data.traits
+            .insert(FunctionTraitObservation {
+                qualification: q.id(),
+                symbol: method.id(),
+                overload: false,
+                staticmethod: false,
+                classmethod: false,
+                property_getter: false,
+                property_setter: false,
+                stub: false,
+                origin: FunctionOrigin::DefStatement,
+                defining_class: Some(nominal(10)),
+                overrides: None,
+            })
+            .unwrap();
+        let ancestry = AncestryEntityAssessment {
+            observation: nominal(11),
+            class: owner.id(),
+            status: ResolutionStatus::Ambiguous,
+            reason: normalized::links::LinkReason::IncompleteInput,
+        };
+        data.ancestry.insert(ancestry.clone()).unwrap();
+        data.ancestors
+            .insert(AncestryEntityMember {
+                assessment: ancestry.id(),
+                member: nominal(12),
+                resolution: base.id(),
+            })
+            .unwrap();
+        let prepared = CatalogPreparation::new(&data, &budget).unwrap();
+        let mut output = CatalogOutput::new(&budget);
+        let row = output
+            .classes
+            .insert(CatalogClass {
+                member: nominal(13),
+                candidate: nominal(14),
+                class,
+            })
+            .unwrap();
+        // The admitted base has no trait for the requested constructor's defining symbol.
+        // No matching route consumes either the absent observation or sequence member.
+        constructors(&prepared, &mut output, row, q.context).unwrap();
+        assert_eq!(output.constructors.len(), 0);
+        drop(output);
+        drop(prepared);
+        drop(data);
+        assert_eq!(budget.reserved(), 0);
     }
 }

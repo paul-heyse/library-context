@@ -1116,3 +1116,438 @@ fn source_parameter_wrapper_uses_exact_formal_placement_without_pairing_effectiv
             .all(|r| r.default == CatalogDefault::Unknown {}.id())
     );
 }
+
+fn path_method(
+    data: &mut CatalogData,
+    q: &AssertionQualification,
+    class: Id<Occurrence>,
+    declaration: u8,
+    name: &str,
+) -> Id<CallableEntity> {
+    let callable = CallableEntity::Source {
+        declaration: nominal(declaration),
+        kind: CallableKind::Function,
+    };
+    data.source_callables.insert(callable.clone()).unwrap();
+    data.refs
+        .insert(EntityRef::Callable {
+            callable: callable.id(),
+        })
+        .unwrap();
+    let scope = lexical::LexicalScope {
+        owner: class,
+        kind: lexical::LexicalScopeKind::Class,
+    };
+    data.lexical_scopes.insert(scope.clone()).unwrap();
+    let event = lexical::BindingEvent {
+        site: nominal(declaration),
+        name: name.into(),
+    };
+    data.binding_events.insert(event.clone()).unwrap();
+    data.bindings
+        .insert(lexical::BindingObservation {
+            qualification: q.id(),
+            event: event.id(),
+            scope: scope.id(),
+            kind: lexical::BindingEventKind::FunctionDef,
+            ordinal: 0,
+            value: None,
+            static_branch: None,
+            static_polarity: None,
+        })
+        .unwrap();
+    data.declarations
+        .insert(DeclarationObservation {
+            qualification: q.id(),
+            declaration: nominal(declaration),
+            name: nominal(declaration + 1),
+            kind: DeclarationKind::Function,
+            parent: Some(class),
+            overload: false,
+            docstring: None,
+        })
+        .unwrap();
+    callable.id()
+}
+
+#[test]
+fn shared_class_paths_retain_alias_answers_competing_candidates_and_exact_contexts() {
+    let b = budget();
+    let (mut data, q, module) = fixture(&b);
+    let class = ClassEntity::Source {
+        declaration: nominal(130),
+    };
+    data.source_classes.insert(class.clone()).unwrap();
+    let first = public(
+        &mut data,
+        &q,
+        &module,
+        "First",
+        Some(EntityRef::Class { class: class.id() }),
+        131,
+    );
+    public(
+        &mut data,
+        &q,
+        &module,
+        "Second",
+        Some(EntityRef::Class { class: class.id() }),
+        132,
+    );
+    let method = path_method(&mut data, &q, nominal(130), 133, "method");
+    variants(&mut data, &q, method);
+    let mut foreign = q.clone();
+    foreign.context = nominal(134);
+    data.qualifications.insert(foreign.clone()).unwrap();
+    path_method(&mut data, &foreign, nominal(130), 135, "foreign");
+    // A competing callable is evidence attached to the same exposure candidate. Neither
+    // that alternative nor the two separate access paths may be collapsed by class indexing.
+    let resolution = data
+        .exposure_candidates
+        .iter()
+        .find(|r| r.exposure == first)
+        .unwrap()
+        .resolution;
+    let competitor = data
+        .refs
+        .insert(EntityRef::Callable { callable: method })
+        .unwrap();
+    data.entity_candidates
+        .insert(SymbolEntityCandidate {
+            resolution,
+            entity: competitor,
+        })
+        .unwrap();
+    let output = build(&data, &b).unwrap();
+    let mut names = output
+        .members
+        .iter()
+        .map(|r| r.name.as_str())
+        .collect::<Vec<_>>();
+    names.sort();
+    assert_eq!(
+        names,
+        vec!["First", "First.method", "Second", "Second.method"]
+    );
+    assert_eq!(output.classes.len(), 2);
+    assert_eq!(output.paths.len(), 2);
+    assert_eq!(output.candidates.len(), 5);
+    assert_eq!(output.callables.len(), 3);
+    assert_eq!(output.invocations.len(), 6);
+    assert!(
+        output
+            .paths
+            .iter()
+            .all(|r| r.disposition == PublicPathDisposition::Effective)
+    );
+}
+
+#[test]
+fn incomplete_mro_keeps_inherited_paths_as_candidates_for_each_access() {
+    let b = budget();
+    let (mut data, q, module) = fixture(&b);
+    let child = ClassEntity::Source {
+        declaration: nominal(140),
+    };
+    let base = ClassEntity::Source {
+        declaration: nominal(141),
+    };
+    data.source_classes.insert(child.clone()).unwrap();
+    data.source_classes.insert(base.clone()).unwrap();
+    public(
+        &mut data,
+        &q,
+        &module,
+        "Child",
+        Some(EntityRef::Class { class: child.id() }),
+        142,
+    );
+    public(
+        &mut data,
+        &q,
+        &module,
+        "Alias",
+        Some(EntityRef::Class { class: child.id() }),
+        143,
+    );
+    path_method(&mut data, &q, nominal(141), 144, "inherited");
+    let base_ref = data
+        .refs
+        .insert(EntityRef::Class { class: base.id() })
+        .unwrap();
+    let base_resolution = SymbolEntityResolution {
+        symbol: nominal(145),
+        context: q.context,
+        policy: ContentHash::of(b"mro"),
+        status: ResolutionStatus::Resolved,
+        entity: Some(base_ref),
+        reason: EntityReason::DeclarationAgreement,
+    };
+    data.resolutions.insert(base_resolution.clone()).unwrap();
+    let owners = data
+        .resolutions
+        .iter()
+        .filter(|r| r.entity == Some(EntityRef::Class { class: child.id() }.id()))
+        .cloned()
+        .collect::<Vec<_>>();
+    for owner in owners {
+        let raw = ClassAncestryObservation {
+            qualification: q.id(),
+            class: owner.symbol,
+            relation: AncestryRelation::Mro,
+            ancestors: nominal(146),
+            linearization: Some(Linearization::Prefix),
+        };
+        data.ancestry_observations.insert(raw.clone()).unwrap();
+        let ancestry = normalized::links::AncestryEntityAssessment {
+            observation: raw.id(),
+            class: owner.id(),
+            status: ResolutionStatus::Ambiguous,
+            reason: normalized::links::LinkReason::IncompleteInput,
+        };
+        data.ancestry.insert(ancestry.clone()).unwrap();
+        let member = SymbolSequenceMember {
+            sequence: raw.ancestors,
+            ordinal: 0,
+            symbol: base_resolution.symbol,
+        };
+        data.sequence_members.insert(member.clone()).unwrap();
+        data.ancestors
+            .insert(normalized::links::AncestryEntityMember {
+                assessment: ancestry.id(),
+                member: member.id(),
+                resolution: base_resolution.id(),
+            })
+            .unwrap();
+    }
+    let output = build(&data, &b).unwrap();
+    assert_eq!(output.paths.len(), 4); // Both source MRO supports survive for both public paths.
+    assert!(
+        output
+            .paths
+            .iter()
+            .all(|r| r.disposition == PublicPathDisposition::Candidate)
+    );
+    assert_eq!(output.boundaries.len(), 2);
+    assert!(
+        output
+            .boundaries
+            .iter()
+            .all(|r| r.reason == PublicPathBoundaryReason::OpenAncestry)
+    );
+    let names = output
+        .members
+        .iter()
+        .map(|r| r.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"Child.inherited"));
+    assert!(names.contains(&"Alias.inherited"));
+}
+
+#[test]
+fn field_correspondence_preserves_all_six_default_states_and_each_evidence_support() {
+    use normalized::callable_aspects::{FieldDefault, FieldDefaultAssessment};
+    let b = budget();
+    let (mut data, q, module) = fixture(&b);
+    let class = nominal(150);
+    public(
+        &mut data,
+        &q,
+        &module,
+        "Options",
+        Some(EntityRef::Class { class }),
+        151,
+    );
+    let defaults = [
+        (FieldDefault::Absent {}, CatalogDefault::Absent {}),
+        (FieldDefault::Unknown {}, CatalogDefault::Unknown {}),
+        (FieldDefault::Unavailable {}, CatalogDefault::Unavailable {}),
+        (
+            FieldDefault::Literal {
+                observation: nominal(152),
+                literal: nominal(153),
+            },
+            CatalogDefault::Literal {
+                literal: nominal(153),
+            },
+        ),
+        (
+            FieldDefault::Expression {
+                expression: nominal(154),
+            },
+            CatalogDefault::Expression {
+                expression: nominal(154),
+            },
+        ),
+        (
+            FieldDefault::Factory {
+                expression: nominal(155),
+                target: nominal(156),
+                resolution: nominal(157),
+                argument: nominal(158),
+            },
+            CatalogDefault::Factory {
+                expression: nominal(155),
+            },
+        ),
+    ];
+    for (index, (raw, expected)) in defaults.into_iter().enumerate() {
+        let field = FieldEntity {
+            class,
+            name: format!("field{index}").into(),
+        };
+        data.fields.insert(field.clone()).unwrap();
+        for support in 0..2 {
+            let syntax = ClassFieldSyntaxObservation {
+                qualification: q.id(),
+                class: nominal(150),
+                target: nominal(160 + index as u8 * 2 + support),
+                annotation: Some(nominal(190)),
+                value: None,
+            };
+            data.field_syntax.insert(syntax.clone()).unwrap();
+            let declaration = data
+                .field_declarations
+                .insert(FieldDeclarationLink {
+                    field: field.id(),
+                    declaration: syntax.id(),
+                    binding: nominal(180 + support),
+                })
+                .unwrap();
+            let default = data.field_defaults.insert(raw.clone()).unwrap();
+            data.field_default_assessments
+                .insert(FieldDefaultAssessment {
+                    declaration,
+                    default,
+                })
+                .unwrap();
+        }
+        let output = build(&data, &b).unwrap();
+        let options = output
+            .options
+            .iter()
+            .filter(|r| r.subject == CatalogOptionSubject::Field { field: field.id() }.id())
+            .collect::<Vec<_>>();
+        assert_eq!(options.len(), 2);
+        assert!(options.iter().all(|r| r.default == expected.id()));
+    }
+    let output = build(&data, &b).unwrap();
+    assert_eq!(output.options.len(), 12);
+    assert_eq!(output.defaults.len(), 6);
+}
+
+#[test]
+fn many_class_paths_release_expansion_scratch_and_refusal_keeps_inputs() {
+    use lctx_model::domain::resources::{Reservation, ResourcePool};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    #[derive(Debug)]
+    struct ScratchPool {
+        inner: ResourceBudget,
+        current: Arc<AtomicUsize>,
+        peak: Arc<AtomicUsize>,
+        starts: Arc<AtomicUsize>,
+    }
+    #[derive(Debug)]
+    struct ScratchReservation {
+        inner: Box<dyn Reservation>,
+        current: Arc<AtomicUsize>,
+        peak: Arc<AtomicUsize>,
+    }
+    impl Reservation for ScratchReservation {
+        fn size(&self) -> usize {
+            self.inner.size()
+        }
+        fn try_resize(&mut self, size: usize) -> Result<(), ModelError> {
+            let before = self.inner.size();
+            self.inner.try_resize(size)?;
+            if size >= before {
+                let now = self.current.fetch_add(size - before, Ordering::Relaxed) + size - before;
+                self.peak.fetch_max(now, Ordering::Relaxed);
+            } else {
+                self.current.fetch_sub(before - size, Ordering::Relaxed);
+            }
+            Ok(())
+        }
+    }
+    impl Drop for ScratchReservation {
+        fn drop(&mut self) {
+            self.current.fetch_sub(self.inner.size(), Ordering::Relaxed);
+        }
+    }
+    impl ResourcePool for ScratchPool {
+        fn reserve(
+            &self,
+            owner: &'static str,
+            bytes: usize,
+        ) -> Result<Box<dyn Reservation>, ModelError> {
+            let inner = self.inner.reserve(owner, bytes)?;
+            if owner != "catalog-path-class-scratch" {
+                return Ok(inner);
+            }
+            self.starts.fetch_add(1, Ordering::Relaxed);
+            let now = self.current.fetch_add(bytes, Ordering::Relaxed) + bytes;
+            self.peak.fetch_max(now, Ordering::Relaxed);
+            Ok(Box::new(ScratchReservation {
+                inner,
+                current: self.current.clone(),
+                peak: self.peak.clone(),
+            }))
+        }
+        fn reserved(&self) -> usize {
+            self.inner.reserved()
+        }
+        fn limit(&self) -> usize {
+            self.inner.limit()
+        }
+    }
+    let inputs = budget();
+    let (mut data, q, module) = fixture(&inputs);
+    for index in 0..40u8 {
+        let class = ClassEntity::Source {
+            declaration: nominal(40 + index),
+        };
+        data.source_classes.insert(class.clone()).unwrap();
+        public(
+            &mut data,
+            &q,
+            &module,
+            &format!("Class{index:02}"),
+            Some(EntityRef::Class { class: class.id() }),
+            40 + index,
+        );
+        path_method(&mut data, &q, nominal(40 + index), 100 + index, "method");
+    }
+    let current = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let starts = Arc::new(AtomicUsize::new(0));
+    let output_budget = ResourceBudget::from_pool(Arc::new(ScratchPool {
+        inner: ResourceBudget::fixed(256 << 10).unwrap(),
+        current: current.clone(),
+        peak: peak.clone(),
+        starts: starts.clone(),
+    }))
+    .unwrap();
+    let output = build(&data, &output_budget).unwrap();
+    assert_eq!(output.members.len(), 80);
+    assert_eq!(output.paths.len(), 40);
+    assert_eq!(starts.load(Ordering::Relaxed), 40);
+    // Each independent class needs one chain/name entry and its current labels. Dead
+    // expansion state must not accumulate across the other 39 classes.
+    assert!(peak.load(Ordering::Relaxed) > 0);
+    assert!(peak.load(Ordering::Relaxed) < 2048);
+    assert_eq!(current.load(Ordering::Relaxed), 0);
+    assert!(output_budget.reserved() > 0); // Retained answers are still charged.
+    drop(output);
+    assert_eq!(output_budget.reserved(), 0);
+    let retained_inputs = inputs.reserved();
+    let tiny = ResourceBudget::fixed(512).unwrap();
+    assert!(matches!(
+        build(&data, &tiny),
+        Err(ModelError::Resource { .. })
+    ));
+    assert_eq!(tiny.reserved(), 0);
+    assert_eq!(inputs.reserved(), retained_inputs);
+}

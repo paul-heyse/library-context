@@ -5,7 +5,7 @@ use super::*;
 use crate::domain::{
     assertion::Evidence,
     attribution::*,
-    charged::{ChargedSet, StateCharge},
+    charged::{ChargedMap, ChargedSet, StateCharge},
     input::*,
     normalized::{Rows, copy_selected_rows},
     resources::ResourceBudget,
@@ -194,18 +194,88 @@ pub(super) fn span_artifact(
         _ => Err(invalid("original span has wrong canonical evidence kind")),
     }
 }
+/// Invocation-local ordered correspondence. It borrows the already charged premises and
+/// reserves its fixed backing before allocation. The identity tie-break retains canonical
+/// row order inside every plural bucket; no candidate is collapsed into a singleton.
+struct Correspondence<'a, K, R> {
+    entries: Vec<(K, &'a R)>,
+    _charge: StateCharge,
+}
+impl<'a, K: Ord + Copy, R: Record> Correspondence<'a, K, R> {
+    fn new(
+        rows: &'a Rows<R>,
+        key: impl Fn(&R) -> K,
+        charge: &mut StateCharge,
+    ) -> Result<Self, ModelError> {
+        Self::try_new(rows, |row| Ok(key(row)), charge)
+    }
+    fn try_new(
+        rows: &'a Rows<R>,
+        key: impl Fn(&R) -> Result<K, ModelError>,
+        charge: &mut StateCharge,
+    ) -> Result<Self, ModelError> {
+        let mut retained = StateCharge::new(
+            charge
+                .budget()
+                .ok_or_else(|| invalid("catalog evidence correspondence has no attempt budget"))?,
+            "catalog-evidence-correspondence",
+        );
+        let bytes = rows
+            .len()
+            .checked_mul(size_of::<(K, &R)>())
+            .ok_or_else(|| invalid("catalog evidence correspondence size overflow"))?;
+        retained.grow(bytes)?;
+        let mut entries = Vec::with_capacity(rows.len());
+        for row in rows.iter() {
+            entries.push((key(row)?, row));
+        }
+        entries.sort_unstable_by(|(a, ar), (b, br)| a.cmp(b).then_with(|| ar.id().cmp(&br.id())));
+        Ok(Self {
+            entries,
+            _charge: retained,
+        })
+    }
+    fn get(&self, key: K) -> impl Iterator<Item = &'a R> + '_ {
+        let start = self
+            .entries
+            .partition_point(|(candidate, _)| *candidate < key);
+        self.entries[start..]
+            .iter()
+            .take_while(move |(candidate, _)| *candidate == key)
+            .map(|(_, row)| *row)
+    }
+}
+struct SourceCorrespondence<'a> {
+    coverage: Correspondence<'a, (Id<CoverageScope>, Id<AnalysisContext>), ProviderCoverage>,
+    uses: Correspondence<'a, Id<SourceArtifact>, ArtifactUse>,
+    reports: Correspondence<'a, Id<SourceArtifact>, deployment::TaskReportObservation>,
+    parameters: Correspondence<'a, Id<Occurrence>, syntax::ParameterSyntaxObservation>,
+}
+impl<'a> SourceCorrespondence<'a> {
+    fn new(data: &'a EvidenceData, charge: &mut StateCharge) -> Result<Self, ModelError> {
+        Ok(Self {
+            coverage: Correspondence::new(
+                &data.core.native_coverage,
+                |r| (r.scope, r.context),
+                charge,
+            )?,
+            uses: Correspondence::new(&data.facts.uses, |r| r.artifact, charge)?,
+            reports: Correspondence::new(&data.facts.report_observations, |r| r.target, charge)?,
+            parameters: Correspondence::new(&data.core.parameter_syntax, |r| r.function, charge)?,
+        })
+    }
+}
 fn parse(
-    data: &EvidenceData,
+    prepared: &SourceCorrespondence<'_>,
     artifact: Id<SourceArtifact>,
     context: Id<AnalysisContext>,
 ) -> CheckStatus {
     let scope = CoverageScope::Artifact { artifact }.id();
     let mut status = None;
-    for row in data
-        .core
-        .native_coverage
-        .iter()
-        .filter(|r| r.scope == scope && r.context == context && r.family == FactFamily::Syntax)
+    for row in prepared
+        .coverage
+        .get((scope, context))
+        .filter(|r| r.family == FactFamily::Syntax)
     {
         let next = if row.reason == Some(obligation::ObligationKind::SyntaxError)
             || row.status == CoverageStatus::Failed
@@ -224,10 +294,14 @@ fn parse(
     }
     status.unwrap_or(CheckStatus::Blocked)
 }
-fn selected(data: &EvidenceData, artifact: Id<SourceArtifact>, role: SourceRole) -> bool {
-    data.facts.uses.iter().any(|r| {
-        r.artifact == artifact
-            && r.role == role
+fn selected(
+    data: &EvidenceData,
+    prepared: &SourceCorrespondence<'_>,
+    artifact: Id<SourceArtifact>,
+    role: SourceRole,
+) -> bool {
+    prepared.uses.get(artifact).any(|r| {
+        r.role == role
             && data
                 .core
                 .artifacts
@@ -256,16 +330,12 @@ fn source_artifact(
 }
 fn execution(
     data: &EvidenceData,
+    prepared: &SourceCorrespondence<'_>,
     artifact: Id<SourceArtifact>,
     context: Id<AnalysisContext>,
 ) -> Result<CheckStatus, ModelError> {
     let mut found = None;
-    for row in data
-        .facts
-        .report_observations
-        .iter()
-        .filter(|r| r.target == artifact)
-    {
+    for row in prepared.reports.get(artifact) {
         if !exact(qualification(data, row.qualification)?, context) {
             continue;
         }
@@ -280,6 +350,7 @@ fn execution(
 }
 fn scenario(
     data: &EvidenceData,
+    prepared: &SourceCorrespondence<'_>,
     out: &mut EvidenceOutput,
     source: ScenarioSource,
 ) -> Result<Id<CatalogScenario>, ModelError> {
@@ -293,11 +364,11 @@ fn scenario(
         _ => Intent::Demonstration,
     };
     let parse = match &source {
-        ScenarioSource::Python { .. } => parse(data, artifact, context),
+        ScenarioSource::Python { .. } => parse(prepared, artifact, context),
         ScenarioSource::Fence { observation } => {
             let block = need(&data.facts.blocks, *observation)?;
             if block.materialized.is_some() {
-                parse(data, artifact, context)
+                parse(prepared, artifact, context)
             } else {
                 CheckStatus::NotRun
             }
@@ -309,7 +380,7 @@ fn scenario(
         parse,
         binding: CheckStatus::NotRun,
         environment: CheckStatus::NotRun,
-        execution: execution(data, artifact, context)?,
+        execution: execution(data, prepared, artifact, context)?,
         intent,
     })?;
     match &source {
@@ -346,13 +417,11 @@ fn scenario(
                         artifact: *artifact,
                     },
                 )?;
-                for syntax in data.core.parameter_syntax.iter().filter(|r| {
-                    r.function == row.declaration
-                        && data
-                            .core
-                            .qualifications
-                            .get(r.qualification)
-                            .is_some_and(|q| q.context == context)
+                for syntax in prepared.parameters.get(row.declaration).filter(|r| {
+                    data.core
+                        .qualifications
+                        .get(r.qualification)
+                        .is_some_and(|q| q.context == context)
                 }) {
                     dependency(
                         out,
@@ -424,9 +493,15 @@ fn scenario(
     )?;
     Ok(id)
 }
+type ScenarioKey = (
+    Option<Id<SourceArtifact>>,
+    Id<AnalysisContext>,
+    Option<Id<Occurrence>>,
+    bool,
+);
 fn scenarios_for(
     data: &EvidenceData,
-    out: &EvidenceOutput,
+    scenarios: &Correspondence<'_, ScenarioKey, CatalogScenario>,
     event: &NormalizedCallEvent,
     b: &ResourceBudget,
 ) -> Result<Rows<CatalogScenario>, ModelError> {
@@ -440,33 +515,18 @@ fn scenarios_for(
         _ => None,
     };
     let mut rows = Rows::new(b);
-    for row in out.scenarios.iter() {
-        let matched = match need(&out.scenario_sources, row.source)? {
-            ScenarioSource::Python {
-                artifact,
-                context,
-                declaration: decl,
-                ..
-            } if *artifact == source && *context == event.context => {
-                decl.and_then(|id| data.core.declarations.get(id).map(|r| r.declaration))
-                    == declaration
-            }
-            ScenarioSource::Fence { observation } => {
-                let block = need(&data.facts.blocks, *observation)?;
-                block.materialized == Some(source)
-                    && qualification(data, block.qualification)?.context == event.context
-            }
-            _ => false,
-        };
-        if matched {
-            rows.insert(row.clone())?;
-        }
+    for row in scenarios
+        .get((Some(source), event.context, declaration, false))
+        .chain(scenarios.get((Some(source), event.context, None, true)))
+    {
+        rows.insert(row.clone())?;
     }
     Ok(rows)
 }
 pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, ModelError> {
     let mut out = EvidenceOutput::new(b);
     let mut charge = StateCharge::new(b, "catalog-evidence-frames");
+    let prepared = SourceCorrespondence::new(data, &mut charge)?;
     let mut frames = ChargedSet::default();
     for link in data.facts.core_links.iter() {
         let member = need(&data.catalog.members, link.member)?;
@@ -494,19 +554,27 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
             },
         )?;
     }
+    let frame_contexts =
+        Correspondence::try_new(&data.facts.core_links, |link| Ok(link.member), &mut charge)?;
     for option in data.catalog.options.iter() {
         let member = need(&data.catalog.members, option.member)?;
-        for (_, context) in frames.iter().filter(|(m, _)| *m == member.id()) {
+        for link in frame_contexts.get(member.id()) {
+            let context = need(&data.facts.core_invocations, link.invocation)?.context;
             root(
                 &mut out,
                 member.input,
-                *context,
+                context,
                 RootSubject::Option {
                     option: option.id(),
                 },
             )?;
         }
     }
+    let coverage_artifacts = Correspondence::new(
+        &data.core.artifacts,
+        |a| CoverageScope::Artifact { artifact: a.id() }.id(),
+        &mut charge,
+    )?;
     let mut scopes = ChargedSet::default();
     for coverage in data
         .core
@@ -514,15 +582,11 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
         .iter()
         .filter(|r| r.family == FactFamily::Syntax)
     {
-        for artifact in data
-            .core
-            .artifacts
-            .iter()
-            .filter(|a| CoverageScope::Artifact { artifact: a.id() }.id() == coverage.scope)
-        {
+        for artifact in coverage_artifacts.get(coverage.scope) {
             scopes.insert(&mut charge, (artifact.id(), coverage.context))?;
         }
     }
+    let mut declarations = None;
     for (artifact, context) in scopes.iter() {
         let source = need(&data.core.artifacts, *artifact)?;
         root(
@@ -533,13 +597,11 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
                 artifact: *artifact,
             },
         )?;
-        for usage in data.facts.uses.iter().filter(|r| {
-            r.artifact == *artifact
-                && data
-                    .core
-                    .artifacts
-                    .get(*artifact)
-                    .is_some_and(|a| a.input == r.input)
+        for usage in prepared.uses.get(*artifact).filter(|r| {
+            data.core
+                .artifacts
+                .get(*artifact)
+                .is_some_and(|a| a.input == r.input)
                 && matches!(
                     r.role,
                     SourceRole::Release | SourceRole::Example | SourceRole::Test
@@ -547,6 +609,7 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
         }) {
             scenario(
                 data,
+                &prepared,
                 &mut out,
                 ScenarioSource::Python {
                     artifact: *artifact,
@@ -555,34 +618,50 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
                     declaration: None,
                 },
             )?;
-            for declaration in data.core.declarations.iter().filter(|r| {
-                matches!(
-                    r.kind,
-                    DeclarationKind::Function | DeclarationKind::AsyncFunction
-                )
-            }) {
-                if need(&data.core.occurrences, declaration.declaration)?.source == *artifact
-                    && qualification(data, declaration.qualification)?.context == *context
-                {
-                    scenario(
-                        data,
-                        &mut out,
-                        ScenarioSource::Python {
-                            artifact: *artifact,
-                            role: usage.role,
-                            context: *context,
-                            declaration: Some(declaration.id()),
-                        },
-                    )?;
+            if declarations.is_none() {
+                declarations = Some(Correspondence::try_new(
+                    &data.core.declarations,
+                    |r| {
+                        if matches!(
+                            r.kind,
+                            DeclarationKind::Function | DeclarationKind::AsyncFunction
+                        ) {
+                            Ok(Some(need(&data.core.occurrences, r.declaration)?.source))
+                        } else {
+                            Ok(None)
+                        }
+                    },
+                    &mut charge,
+                )?);
+            }
+            for declaration in declarations
+                .as_ref()
+                .expect("prepared above")
+                .get(Some(*artifact))
+            {
+                if qualification(data, declaration.qualification)?.context != *context {
+                    continue;
                 }
+                scenario(
+                    data,
+                    &prepared,
+                    &mut out,
+                    ScenarioSource::Python {
+                        artifact: *artifact,
+                        role: usage.role,
+                        context: *context,
+                        declaration: Some(declaration.id()),
+                    },
+                )?;
             }
         }
     }
     for block in data.facts.blocks.iter() {
         let original = span_artifact(data, need(&data.facts.nodes, block.block.id())?.span())?;
-        if selected(data, original, SourceRole::Document) {
+        if selected(data, &prepared, original, SourceRole::Document) {
             scenario(
                 data,
+                &prepared,
                 &mut out,
                 ScenarioSource::Fence {
                     observation: block.id(),
@@ -591,7 +670,7 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
         }
     }
     for document in data.facts.documents.iter() {
-        if selected(data, document.source, SourceRole::Document) {
+        if selected(data, &prepared, document.source, SourceRole::Document) {
             root(
                 &mut out,
                 need(&data.core.artifacts, document.source)?.input,
@@ -602,22 +681,23 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
             )?;
         }
     }
+    let exposures = Correspondence::new(&data.catalog.exposures, |r| r.exposure, &mut charge)?;
     for candidate in data.facts.mention_candidates.iter() {
         let exposure = need(&data.core.exposures, candidate.exposure)?;
         let assessment = need(&data.facts.mention_assessments, candidate.assessment)?;
         let mention = need(&data.facts.mentions, assessment.observation)?;
         let q = qualification(data, mention.qualification)?;
         let artifact = span_artifact(data, need(&data.facts.nodes, mention.mention.id())?.span())?;
-        if q.context != exposure.context || !selected(data, artifact, SourceRole::Document) {
+        if q.context != exposure.context
+            || !selected(data, &prepared, artifact, SourceRole::Document)
+        {
             continue;
         }
-        for link in data.catalog.exposures.iter().filter(|r| {
-            r.exposure == exposure.id()
-                && data
-                    .catalog
-                    .members
-                    .get(r.member)
-                    .is_some_and(|m| m.path.len() == 1)
+        for link in exposures.get(exposure.id()).filter(|r| {
+            data.catalog
+                .members
+                .get(r.member)
+                .is_some_and(|m| m.path.len() == 1)
         }) {
             out.document_associations.insert(DocumentAssociation {
                 member: link.member,
@@ -626,17 +706,53 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
             })?;
         }
     }
+    let scenario_index = Correspondence::try_new(
+        &out.scenarios,
+        |row| match need(&out.scenario_sources, row.source)? {
+            ScenarioSource::Python {
+                artifact,
+                context,
+                declaration,
+                ..
+            } => Ok((
+                Some(*artifact),
+                *context,
+                declaration.and_then(|id| data.core.declarations.get(id).map(|r| r.declaration)),
+                false,
+            )),
+            ScenarioSource::Fence { observation } => {
+                let block = need(&data.facts.blocks, *observation)?;
+                Ok((
+                    block.materialized,
+                    qualification(data, block.qualification)?.context,
+                    None,
+                    true,
+                ))
+            }
+        },
+        &mut charge,
+    )?;
+    let alternatives = Correspondence::new(&data.facts.alternatives, |r| r.event, &mut charge)?;
+    let assessments = Correspondence::new(&data.facts.event_assessments, |r| r.event, &mut charge)?;
+    let callables = Correspondence::new(&data.catalog.callables, |r| r.assessment, &mut charge)?;
+    let callable_assessments = Correspondence::new(
+        &data.core.assessments,
+        |r| (r.callable, r.context),
+        &mut charge,
+    )?;
+    let attempts = Correspondence::new(&data.facts.attempts, |r| r.alternative, &mut charge)?;
+    let bindings = Correspondence::new(&data.facts.bindings, |r| r.attempt, &mut charge)?;
+    let options = Correspondence::new(
+        &data.catalog.options,
+        |r| (r.member, r.subject),
+        &mut charge,
+    )?;
     for event in data.facts.events.iter() {
-        let scenarios = scenarios_for(data, &out, event, b)?;
+        let scenarios = scenarios_for(data, &scenario_index, event, b)?;
         for scenario_row in scenarios.iter() {
             let scenario = scenario_row.id();
             let intent = super::intent::classify(data, event, scenario_row.intent)?;
-            for alternative in data
-                .facts
-                .alternatives
-                .iter()
-                .filter(|r| r.event == event.id())
-            {
+            for alternative in alternatives.get(event.id()) {
                 let raw = need(
                     &data.facts.raw_targets,
                     need(&data.facts.alternative_sources, alternative.source)?.target(),
@@ -651,12 +767,10 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
                 let EntityRef::Callable { callable } = need(&data.core.refs, entity)? else {
                     continue;
                 };
-                for catalog in data.catalog.callables.iter().filter(|r| {
-                    data.core
-                        .assessments
-                        .get(r.assessment)
-                        .is_some_and(|a| a.callable == *callable && a.context == event.context)
-                }) {
+                for catalog in callable_assessments
+                    .get((*callable, event.context))
+                    .flat_map(|a| callables.get(a.id()))
+                {
                     let member = need(&data.catalog.members, catalog.member)?;
                     if !frames.contains(&(member.id(), event.context)) {
                         continue;
@@ -664,13 +778,8 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
                     let exact = alternative.status == ResolutionStatus::Resolved
                         && exact(q, event.context)
                         && catalog.basis == CatalogContractBasis::PublicCandidate
-                        && data.facts.event_assessments.iter().any(|a| {
-                            a.event == event.id()
-                                && a.complete
-                                && a.unique
-                                && a.exact
-                                && !a.unresolved
-                                && !a.disagreement
+                        && assessments.get(event.id()).any(|a| {
+                            a.complete && a.unique && a.exact && !a.unresolved && !a.disagreement
                         });
                     let association = out.associations.insert(ScenarioAssociation {
                         scenario,
@@ -685,26 +794,21 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
                         },
                         intent,
                     })?;
-                    for attempt in data
-                        .facts
-                        .attempts
-                        .iter()
-                        .filter(|r| r.alternative == alternative.id())
-                    {
+                    for attempt in attempts.get(alternative.id()) {
                         out.scenario_bindings.insert(ScenarioBinding {association,attempt:attempt.id(),status:match attempt.outcome {BindingOutcome::Bound=>if attempt.authority==normalized::signature_applicability::BindingAuthority::EffectiveInvocation {CheckStatus::Passed}else {CheckStatus::Blocked},BindingOutcome::ProvenIncompatible=>CheckStatus::Failed,BindingOutcome::Undetermined=>CheckStatus::Blocked}})?;
-                        for binding in data
-                            .facts
-                            .bindings
-                            .iter()
-                            .filter(|r| r.attempt == attempt.id())
-                        {
-                            for option in data.catalog.options.iter().filter(|o| {
-                                o.member == member.id()
-                                    && data.catalog.subjects.get(o.subject)
+                        for binding in bindings.get(attempt.id()) {
+                            for option in options
+                                .get((
+                                    member.id(),
+                                    CatalogOptionSubject::Parameter { slot: binding.slot }.id(),
+                                ))
+                                .filter(|o| {
+                                    data.catalog.subjects.get(o.subject)
                                         == Some(&CatalogOptionSubject::Parameter {
                                             slot: binding.slot,
                                         })
-                            }) {
+                                })
+                            {
                                 out.options.insert(ScenarioOption {
                                     association,
                                     binding: binding.id(),
@@ -717,29 +821,35 @@ pub fn build(data: &EvidenceData, b: &ResourceBudget) -> Result<EvidenceOutput, 
             }
         }
     }
+    drop(scenario_index);
     super::fields::derive(data, &mut out)?;
     super::symbolic::derive(data, &mut out)?;
     super::runtime::derive(data, &mut out)?;
-    deployments(data, &mut out)?;
-    checks(data, &mut out)?;
+    deployments(data, &prepared, &mut out, &mut charge)?;
+    checks(data, &prepared, &mut out, &mut charge)?;
     dependencies(data, &mut out, b)?;
     finish_scenarios(data, &mut out, b)?;
     super::characterization::derive(data, &mut out)?;
     super::diagnostic_uses::derive(data, &mut out, b)?;
     Ok(out)
 }
-fn deployments(data: &EvidenceData, out: &mut EvidenceOutput) -> Result<(), ModelError> {
+fn deployments(
+    data: &EvidenceData,
+    prepared: &SourceCorrespondence<'_>,
+    out: &mut EvidenceOutput,
+    charge: &mut StateCharge,
+) -> Result<(), ModelError> {
+    let ownerships = Correspondence::new(&data.facts.artifact_ownership, |r| r.artifact, charge)?;
     for observation in data.facts.deployment.iter() {
         let artifact = span_artifact(data, observation.span)?;
-        if !data.facts.uses.iter().any(|r| {
-            r.artifact == artifact
-                && matches!(
-                    r.role,
-                    SourceRole::Configuration
-                        | SourceRole::DistributionMetadata
-                        | SourceRole::TaskReceipt
-                        | SourceRole::Document
-                )
+        if !prepared.uses.get(artifact).any(|r| {
+            matches!(
+                r.role,
+                SourceRole::Configuration
+                    | SourceRole::DistributionMetadata
+                    | SourceRole::TaskReceipt
+                    | SourceRole::Document
+            )
         }) {
             continue;
         }
@@ -749,12 +859,7 @@ fn deployments(data: &EvidenceData, out: &mut EvidenceOutput) -> Result<(), Mode
         let input = need(&data.core.artifacts, artifact)?.input;
         let context = qualification(data, observation.qualification)?.context;
         root(out, input, context, RootSubject::Deployment { deployment })?;
-        for ownership in data
-            .facts
-            .artifact_ownership
-            .iter()
-            .filter(|r| r.artifact == artifact)
-        {
+        for ownership in ownerships.get(artifact) {
             let release = need(&data.facts.verifications, ownership.distribution)?.release;
             out.release_deployments.insert(ReleaseDeployment {
                 deployment,
@@ -766,45 +871,60 @@ fn deployments(data: &EvidenceData, out: &mut EvidenceOutput) -> Result<(), Mode
     }
     Ok(())
 }
-fn checks(data: &EvidenceData, out: &mut EvidenceOutput) -> Result<(), ModelError> {
+fn checks(
+    data: &EvidenceData,
+    prepared: &SourceCorrespondence<'_>,
+    out: &mut EvidenceOutput,
+    charge: &mut StateCharge,
+) -> Result<(), ModelError> {
+    let corpus = Correspondence::new(&data.facts.corpus_libraries, |r| r.corpus, charge)?;
+    let mut environments = ChargedMap::default();
+    let mut environment_charge = StateCharge::new(
+        charge.budget().ok_or_else(|| {
+            invalid("catalog evidence environment correspondence has no attempt budget")
+        })?,
+        "catalog-evidence-environments",
+    );
     for scenario in out.scenarios.iter() {
         let (artifact, context) =
             source_artifact(data, need(&out.scenario_sources, scenario.source)?)?;
-        for observation in data
-            .facts
-            .report_observations
-            .iter()
-            .filter(|r| r.target == artifact)
-        {
+        for observation in prepared.reports.get(artifact) {
             if !exact(qualification(data, observation.qualification)?, context) {
                 continue;
             }
             let report = need(&data.facts.reports, observation.report)?;
             let environment = need(&data.facts.reported_environments, report.environment)?;
-            let mut fingerprint = None;
-            for candidate in data.facts.fingerprints.iter() {
-                let acquisition = need(&data.facts.acquisitions, candidate.acquisition)?;
-                let source_input = need(&data.core.artifacts, artifact)?.input;
-                let connected = acquisition.input == source_input
-                    || data
-                        .facts
-                        .corpus_libraries
-                        .iter()
-                        .any(|r| r.corpus == source_input && r.library == acquisition.input);
-                if connected
-                    && candidate.release == environment.release
-                    && candidate.lock_digest == environment.lock_digest
-                    && candidate.environment_digest == environment.environment_digest
-                    && candidate.python_version == environment.python_version
-                    && candidate.platform == environment.platform
-                {
-                    if fingerprint.is_some_and(|id| id != candidate.id()) {
-                        fingerprint = None;
-                        break;
+            let source_input = need(&data.core.artifacts, artifact)?.input;
+            let environment_key = (source_input, report.environment);
+            let fingerprint = if let Some(found) = environments.get(&environment_key) {
+                *found
+            } else {
+                let mut found = None;
+                // Prepare only consumed environment questions. Retain the original whole
+                // candidate order and ambiguity stop, including validation of acquisitions.
+                for candidate in data.facts.fingerprints.iter() {
+                    let acquisition = need(&data.facts.acquisitions, candidate.acquisition)?;
+                    let connected = acquisition.input == source_input
+                        || corpus
+                            .get(source_input)
+                            .any(|r| r.library == acquisition.input);
+                    if connected
+                        && candidate.release == environment.release
+                        && candidate.lock_digest == environment.lock_digest
+                        && candidate.environment_digest == environment.environment_digest
+                        && candidate.python_version == environment.python_version
+                        && candidate.platform == environment.platform
+                    {
+                        if found.is_some_and(|id| id != candidate.id()) {
+                            found = None;
+                            break;
+                        }
+                        found = Some(candidate.id());
                     }
-                    fingerprint = Some(candidate.id());
                 }
-            }
+                environments.insert(&mut environment_charge, environment_key, found)?;
+                found
+            };
             out.checks.insert(ScenarioCheck {
                 scenario: scenario.id(),
                 observation: observation.id(),
@@ -827,6 +947,30 @@ fn dependencies(
 ) -> Result<(), ModelError> {
     let mut pending = Rows::new(b);
     let mut subjects = Rows::new(b);
+    let mut charge = StateCharge::new(b, "catalog-evidence-dependency-correspondence");
+    let associations = Correspondence::new(&out.associations, |r| r.scenario, &mut charge)?;
+    let placements = Correspondence::new(&data.core.placements, |r| r.occurrence, &mut charge)?;
+    let ownerships = Correspondence::new(&data.core.ownership, |r| r.occurrence, &mut charge)?;
+    // Bindings remain qualified at consumption; grouping by lexical scope preserves the
+    // complete alternatives of each owner without manufacturing reaching definitions.
+    let bindings = Correspondence::new(&data.core.bindings, |r| r.scope, &mut charge)?;
+    let scopes = Correspondence::new(&data.core.lexical_scopes, |r| r.owner, &mut charge)?;
+    let mut checked_contexts = ChargedSet::default();
+    let unresolved = if out.scenarios.is_empty() {
+        None
+    } else {
+        Some(Correspondence::try_new(
+            &data.core.reference_assessments,
+            |r| {
+                if r.status == ResolutionStatus::Resolved {
+                    return Ok(None);
+                }
+                let reference = need(&data.core.references, r.reference)?;
+                Ok(Some(need(&data.core.occurrences, reference.read)?.source))
+            },
+            &mut charge,
+        )?)
+    };
     for scenario in out.scenarios.iter() {
         let source = need(&out.scenario_sources, scenario.source)?;
         let (artifact, context) = source_artifact(data, source)?;
@@ -837,11 +981,10 @@ fn dependencies(
             } => Some(need(&data.core.declarations, *id)?.declaration),
             _ => None,
         };
-        for assessment in data
-            .core
-            .reference_assessments
-            .iter()
-            .filter(|r| r.status != ResolutionStatus::Resolved)
+        for assessment in unresolved
+            .as_ref()
+            .expect("a scenario prepared correspondence")
+            .get(Some(artifact))
         {
             let reference = need(&data.core.references, assessment.reference)?;
             if need(&data.core.occurrences, reference.read)?.source != artifact
@@ -849,13 +992,9 @@ fn dependencies(
             {
                 continue;
             }
-            if declaration.is_some_and(|decl| {
-                !data
-                    .core
-                    .ownership
-                    .iter()
-                    .any(|r| r.occurrence == reference.read && r.owner == decl)
-            }) {
+            if declaration
+                .is_some_and(|decl| !ownerships.get(reference.read).any(|r| r.owner == decl))
+            {
                 continue;
             }
             let dependency = subjects.insert(SetupDependency::UnresolvedReference {
@@ -867,19 +1006,30 @@ fn dependencies(
                 status: CheckStatus::Blocked,
             })?;
         }
-        for association in out
-            .associations
-            .iter()
-            .filter(|r| r.scenario == scenario.id())
-        {
+        for association in associations.get(scenario.id()) {
             let event = need(
                 &data.facts.events,
                 need(&data.facts.alternatives, association.alternative)?.event,
             )?;
             let site = need(&data.core.occurrences, event.site)?;
             let owner = need(&data.core.ownership, event.owner)?;
+            // Preserve premise validation even for bindings outside this owner's scope.
+            // The old all-binding join performed it for every association; one pass per
+            // consumed context suffices before the indexed owner correspondence is used.
+            if checked_contexts.insert(&mut charge, context)? {
+                for binding in data.core.bindings.iter() {
+                    if exact(qualification(data, binding.qualification)?, context) {
+                        need(&data.core.lexical_scopes, binding.scope)?;
+                        let mutation = need(&data.core.binding_events, binding.event)?;
+                        need(&data.core.occurrences, mutation.site)?;
+                    }
+                }
+            }
             // Source order preserves setup evidence; it does not establish a runtime reaching definition.
-            for binding in data.core.bindings.iter() {
+            for binding in scopes
+                .get(owner.owner)
+                .flat_map(|scope| bindings.get(scope.id()))
+            {
                 if !exact(qualification(data, binding.qualification)?, context) {
                     continue;
                 }
@@ -904,13 +1054,11 @@ fn dependencies(
             }
             let mut current = event.site;
             for _ in 0..256 {
-                let mut placements = data.core.placements.iter().filter(|r| {
-                    r.occurrence == current
-                        && data
-                            .core
-                            .qualifications
-                            .get(r.qualification)
-                            .is_some_and(|q| exact(q, context))
+                let mut placements = placements.get(current).filter(|r| {
+                    data.core
+                        .qualifications
+                        .get(r.qualification)
+                        .is_some_and(|q| exact(q, context))
                 });
                 let Some(edge) = placements.next() else { break };
                 if placements.next().is_some() {
@@ -954,32 +1102,28 @@ fn finish_scenarios(
     b: &ResourceBudget,
 ) -> Result<(), ModelError> {
     let mut rows = Rows::new(b);
+    let mut charge = StateCharge::new(b, "catalog-evidence-scenario-correspondence");
+    let associations = Correspondence::new(&out.associations, |r| r.scenario, &mut charge)?;
+    let bindings = Correspondence::new(&out.scenario_bindings, |r| r.association, &mut charge)?;
+    let checks = Correspondence::new(&out.checks, |r| r.scenario, &mut charge)?;
     for scenario in out.scenarios.iter() {
         let mut row = scenario.clone();
         let mut intent = None;
         let mut binding = None;
         let mut environment = None;
-        for association in out
-            .associations
-            .iter()
-            .filter(|r| r.scenario == scenario.id())
-        {
+        for association in associations.get(scenario.id()) {
             intent = Some(match intent {
                 Some(old) if old != association.intent => Intent::Mixed,
                 _ => association.intent,
             });
-            for evidence in out
-                .scenario_bindings
-                .iter()
-                .filter(|r| r.association == association.id())
-            {
+            for evidence in bindings.get(association.id()) {
                 binding = Some(match binding {
                     Some(old) if old != evidence.status => CheckStatus::Blocked,
                     _ => evidence.status,
                 });
             }
         }
-        for check in out.checks.iter().filter(|r| r.scenario == scenario.id()) {
+        for check in checks.get(scenario.id()) {
             environment = Some(match environment {
                 Some(old) if old != check.environment => CheckStatus::Blocked,
                 _ => check.environment,
@@ -1046,12 +1190,11 @@ pub fn invocation_links(
     b: &ResourceBudget,
 ) -> Result<Rows<EvidenceInvocation>, ModelError> {
     let mut links = Rows::new(b);
+    let mut charge = StateCharge::new(b, "catalog-evidence-invocation-correspondence");
+    let selected = Correspondence::new(invocations, |r| (r.input, r.context), &mut charge)?;
     for root in out.roots.iter() {
         let mut found = 0;
-        for invocation in invocations
-            .iter()
-            .filter(|r| r.input == root.input && r.context == root.context)
-        {
+        for invocation in selected.get((root.input, root.context)) {
             links.insert(EvidenceInvocation {
                 root: root.id(),
                 invocation: invocation.id(),

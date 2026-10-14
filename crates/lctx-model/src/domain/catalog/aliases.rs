@@ -1,6 +1,6 @@
 //! Source aliases use an owned module binding and normalized value references, never symbol spelling identity.
 use super::{
-    build::{CatalogData, CatalogOutput},
+    build::{CatalogOutput, CatalogPreparation},
     *,
 };
 use crate::domain::{
@@ -21,7 +21,7 @@ fn exact(q: &AssertionQualification, context: Id<attribution::AnalysisContext>) 
         && q.condition == conditions::Diagram::always().id()
 }
 pub(super) fn expand(
-    data: &CatalogData,
+    data: &CatalogPreparation<'_>,
     out: &mut CatalogOutput,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {

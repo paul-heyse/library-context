@@ -203,8 +203,13 @@ fn fixture() -> (ResourceBudget, Data, Context) {
     c.outcomes = outcomes::derive(&c, &produce(&d, &c, &b), &b).unwrap();
     (b, d, c)
 }
-fn produce(d: &Data, c: &Context, b: &ResourceBudget) -> Output {
-    let core = d.core_invocations.iter().next().unwrap();
+fn try_produce(d: &Data, c: &Context, b: &ResourceBudget) -> Result<Output, ModelError> {
+    let invocation = c.invocations.iter().next().unwrap();
+    let core = d
+        .core_invocations
+        .iter()
+        .find(|row| row.input == invocation.input && row.context == invocation.context)
+        .unwrap();
     let f = frames::frame(c, core).unwrap();
     let graph = |assessment| {
         let a = c.graphs.assessments.get(assessment).unwrap();
@@ -225,7 +230,9 @@ fn produce(d: &Data, c: &Context, b: &ResourceBudget) -> Output {
         &graph(f.definition_graph),
         b,
     )
-    .unwrap()
+}
+fn produce(d: &Data, c: &Context, b: &ResourceBudget) -> Output {
+    try_produce(d, c, b).unwrap()
 }
 #[test]
 fn candidate_uncertainty_missing_authored_seed_and_exact_scope_survive_replay() {
@@ -851,4 +858,86 @@ fn structural_admission_dispatches_every_declared_semantic_input() {
                 .any(|input| input.name() == bridge)
         );
     }
+}
+
+#[test]
+fn structural_correspondence_keeps_missing_and_ambiguous_modules_as_errors() {
+    let (b, mut data, context) = fixture();
+    let module = data.projection.modules.iter().next().unwrap().clone();
+    data.projection.modules = Rows::new(&b);
+    assert!(
+        format!("{}", try_produce(&data, &context, &b).err().unwrap()).contains("no native module")
+    );
+    data.projection.modules.insert(module.clone()).unwrap();
+    data.projection
+        .modules
+        .insert(Module {
+            source: module.source,
+            qualified_name: "api.alias".into(),
+        })
+        .unwrap();
+    assert!(
+        format!("{}", try_produce(&data, &context, &b).err().unwrap())
+            .contains("ambiguous native modules")
+    );
+}
+#[test]
+fn structural_correspondence_counts_all_candidates_and_rejects_foreign_core_context() {
+    let (b, mut data, context) = fixture();
+    let original = data.callables.iter().next().unwrap().clone();
+    data.callables
+        .insert(CatalogCallable {
+            candidate: id(78),
+            ..original.clone()
+        })
+        .unwrap();
+    let original_member = data.members.get(original.member).unwrap().clone();
+    let foreign_member = data
+        .members
+        .insert(CatalogMember {
+            path: vec!["foreign".into()],
+            name: "foreign".into(),
+            ..original_member
+        })
+        .unwrap();
+    let core = data.core_invocations.iter().next().unwrap().clone();
+    let foreign_core =
+        analysis::catalog_core::Invocation::new(core.input, id(79), core.definition, None, []).0;
+    data.core_invocations.insert(foreign_core.clone()).unwrap();
+    data.core_links
+        .insert(CatalogMemberInvocation {
+            member: foreign_member,
+            invocation: foreign_core.id(),
+        })
+        .unwrap();
+    data.callables
+        .insert(CatalogCallable {
+            member: foreign_member,
+            candidate: id(80),
+            ..original
+        })
+        .unwrap();
+    let output = produce(&data, &context, &b);
+    assert_eq!(output.public.len(), 2);
+    assert!(
+        output
+            .public
+            .iter()
+            .all(|candidate| candidate.path == "api.run")
+    );
+    let configured = output
+        .configured
+        .iter()
+        .find(|row| row.path == "api.run")
+        .unwrap();
+    assert_eq!((configured.candidates, configured.in_subsystem), (2, 2));
+    assert_eq!(
+        output
+            .configured
+            .iter()
+            .find(|row| row.path == "api.missing")
+            .unwrap()
+            .candidates,
+        0
+    );
 }
