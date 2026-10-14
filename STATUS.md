@@ -1,33 +1,22 @@
 # Status
 _Updated 2026-10-14 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Implementation-friction review published,2026-10-14:** [principal review](docs/design_review/reviews/design_review_implementation-friction-target_2026-10-14.md)
-returns **Revise** for production outcome/admission/working-set composition and delegated host cleanup/discovery. It owns new F01–F10, O01–O05 and
-RC01–RC05 until scheduled; prior Catalog dispositions remain at their coordinator. Three independent reviewers and root inspected source/logs.
-No remediation, product builds/tests/probes or service operations ran. Focused47-link inspection passed; docs-check `8d8a71` failed on existing ADR
-reference/index defects. Next: plan the reviewed corrections with the remaining Catalog scope; Catalog implementation stays paused.
+**Priority: Catalog completion plan published, 2026-10-14.** The [new coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+alone owns reviewed production/development corrections, inherited Catalog dispositions, source-qualified receipts and next work. Its production,
+development and acceptance companions supersede all five Catalog-creation plans. The [friction review](docs/design_review/reviews/design_review_implementation-friction-target_2026-10-14.md)
+retains its Revise judgment; F01–F10/O01–O05 are scheduled. RC01/RC02/RC05 directions are approved; RC03/RC04 are conditional permissions, not selected
+representation/visibility changes. Existing integrated compiler/analysis/native foundations are preserved; no remediation or product campaign ran.
 
-**Priority: Catalog completion checkpointed at operator request,2026-10-14.** The [Catalog coordinator
-§6](docs/plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint) owns dispositions, revision bounds, receipts and
-resumption order. F01–F08 corrected source is [independently accepted within
-scope](docs/design_review/reviews/design_review_catalog-creation-completion-integrated_2026-10-14.md). The last fix separates temporary inventory
-decode/validation/parent-hold/sort scratch from retained typed state, keeps one selector representation, and preserves all native integrity checks.
-Async compact metadata reads now await batches. Actual Summary/Catalog/FastMCP acceptance remains open.
+**Current source/evidence boundary:** product source remains at `5ffdca70`; authoring started at clean `f330bf1d`. Final metadata/strict keep-going
+Clippy `a4a6ef`/`a09702` passed historically. Final runtime reruns were canceled before assertions; Summary/current cold/linked900s, exclusive
+mutations, pinned FastMCP3600s excluding builds, regeneration and substantive older-plan handback remain open. R1–R7 are disposed (`324b00` R7);
+original failed/Unknown outcomes and shared/operator targets stay protected. No auxiliary worktree remains. Disk recovery is no longer a blocker.
 
-**Verified2026-10-14:** final metadata `a4a6ef` and warnings-inclusive keep-going Clippy `a09702` passed. Earlier four selected pure/native controls
-`d58994` passed with enclosing cleanup; that binary predates final parent-hold/binding-sort refinement. F06 native2 `d7d2d2`, F04 actual/pure6
-`bab4b8` and full cold/original/cleanup `1069dd`, successor `dcb999`, indexed inspection `68e814`, native6/compiler7 `2675d5`/`19cbd7`, and
-ingress/inherited `198e69`/`295585` retain exact prior scope.
-
-**Stopped:** final controls/build/Summary/linked/cold reruns were cancelled during compilation before assertions, at the user's turn-end request.
-Managed cleanup confirmed; fixture ownership/recovery is recorded separately in coordinator §6. R7 authenticated disposal `324b00` passed, including
-native drain and executor shutdown; all owned campaigns are disposed. Original failed/interrupted outcomes remain intact. Docs check `30bb8e` failed
-on existing ADR-reference defects/stale index. All subagents are done; no worktrees existed. Shared/operator targets and protected old attachments
-are untouched. No full-plan closure, measured speed, embedding/MCP runtime or operator adoption claim.
-
-**Next on resumption:** rebuild final binaries, focused F07/current cold/Summary and linked900s controls; exclusive publication/analyzer mutation
-controls; pinned FastMCP3600s excluding builds; CX03 regeneration and CX04 precise older-plan handback. Older queues remain paused. Scope-end
-documentation/format outcomes live with the coordinator.
+**Next:** plan execution of ready shared outcome/admission/host-ownership packages and bounded aggregate/assurance/containment investigations.
+Actual contract slices precede affected acceptance; optional tooling conveniences do not block every production control. Older queues stay paused.
+Independent plan review accepted the Proposed contracts; focused1,171-link and36+15-obligation checks passed. Full docs/ADR checks retain existing
+reference/publication defects and pre-commit authorized navigation guards, detailed at coordinator §6. Product builds/tests/probes, service operations,
+embedding/MCP runtime, broad qualification and operator adoption are not_run for this documentation scope.
 
 **Prior SA0–SA9 implemented / focused-Tested; assurance remains paused by operator,2026-10-11.** The [architecture
 companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) owns scope; [coordinator

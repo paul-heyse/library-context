@@ -64,7 +64,7 @@ historical execution. A stale marker alone never authorizes effects. Supported o
 small journal extension carry the protection instead of new process infrastructure. Unknown current
 quiescence remains blocking; unrelated authorized work can proceed on another owned target.
 
-Implementation and focused acceptance belong to the [Catalog coordinator §6](../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint).
+Implementation and focused acceptance belong to the [Catalog coordinator §6](../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint).
 Focused host controls and actual campaign G checked disposal passed 2026-10-13 (`45058a`), including
 ordinary-marker transfer, supplementary-run quiescence and every terminal cleanup step. Original
 native Unknown remains unchanged. These controls do not establish unrelated recovery or product
@@ -74,3 +74,5 @@ be authenticated through existing enrollment/lease owners, or if shared-target t
 ## Amendments
 
 2026-10-14 — Explicit operator authorization permits this navigation-only correction: the plan link now names the replacement Catalog creation coordinator. Decisions and dated evidence are unchanged.
+
+2026-10-14 — Explicit operator authorization permits this navigation-only correction: Catalog-plan links now name the replacement Catalog completion coordinator. Decisions and dated evidence are unchanged.

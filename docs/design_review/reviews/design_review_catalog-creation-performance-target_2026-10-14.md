@@ -114,7 +114,7 @@ Catalog delegation is bounded breadth-first traversal with a canonical parent an
 
 ## 5. Findings
 
-The findings below are dated assessments. **Disposition transferred2026-10-14** to the [combined Catalog creation coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint), which also preserves the predecessor Catalog IDs and remaining acceptance. This navigation/disposition update changes neither the review judgment nor its evidence; CE01 is not closed here.
+The findings below are dated assessments. **Disposition transferred2026-10-14** to the [combined Catalog completion coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint), which also preserves the predecessor Catalog IDs and remaining acceptance. This navigation/disposition update changes neither the review judgment nor its evidence; CE01 is not closed here.
 
 <a id="F01"></a>
 
@@ -311,7 +311,7 @@ Static source reads and targeted searches **passed**. Early guessed navigation p
 
 No new probe was required to establish the repeated loops, ordering, vector barrier or charge-lifetime findings. The proposed remedies have consequential semantic questions—particularly cancellation-result handling, exact checked-evidence transport, lexer recovery and witness sharing—which need the revealing closure controls specified above when implemented.
 
-Current [STATUS](../../../STATUS.md) and [Catalog coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint) retain the historical journey boundary: run `343d1b` reached retrieval and timed out during independent admission inventory. That is an incomplete journey, not a measured diagnosis. Focused native/cold controls and source acceptance do not close CE01, real FastMCP creation, publication/query/original composition or enclosing qualification.
+Current [STATUS](../../../STATUS.md) and [Catalog coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint) retain the historical journey boundary: run `343d1b` reached retrieval and timed out during independent admission inventory. That is an incomplete journey, not a measured diagnosis. Focused native/cold controls and source acceptance do not close CE01, real FastMCP creation, publication/query/original composition or enclosing qualification.
 
 The review did not count or reacquire corpus files, establish whole-process memory ceilings, audit every expression/model arm, execute current native guards or demonstrate end-to-end product advantage. These are evidence limits, not invented defects.
 
@@ -329,7 +329,7 @@ F01, F04, F05 and the internal F06 corrections require no selected dependency ch
 
 `artifact_admission.rs:1–2` requires real execution of applicable production gates; it does not independently require repeating an already executed gate whenever admission is assembled. Its `validate_current` documentation at line48 explicitly recognizes protected provenance of original visits. RC02 targets the current conservative scope exclusions and fresh-earning implementation policy, while preserving executed-gate provenance, exact current premises and independent native verification. F03's diagnosis and proposed boundary remain unchanged.
 
-The [combined coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint) now owns scheduled disposition for these findings, retaining their source-review IDs. Existing Catalog findings retain their original IDs and evidence boundaries; this document does not rewrite their closure evidence or CE01.
+The [combined coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint) now owns scheduled disposition for these findings, retaining their source-review IDs. Existing Catalog findings retain their original IDs and evidence boundaries; this document does not rewrite their closure evidence or CE01.
 
 ## 11. Priority and relationships
 

@@ -159,7 +159,7 @@ owners. Parameters, links, arguments and bound ports remain charged through thei
 pair, then release before later closure publication. The public composer and private prepared path
 share one algorithm; checked-owner identity and original lazy error gates prevent cross-owner reuse.
 Candidate queues, published attempted-pair outcomes, proof alternatives, work/residual semantics and
-dynamic conditions/guards remain unchanged. The [Catalog coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint)
+dynamic conditions/guards remain unchanged. The [Catalog coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 owns focused evidence and the separate native composition prerequisite.
 
 **Implemented in the remediation source, 2026-10-06; focused acceptance pending.**

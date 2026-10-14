@@ -2,7 +2,7 @@
 
 **Decision: Accept scoped, Interface-checked, 2026-10-12.** Independent source assessment supports
 the implemented foundation architecture after disposal and inventory corrections. Runtime controls and
-assembled qualification have their own outcomes in the [coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint).
+assembled qualification have their own outcomes in the [coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint).
 This decision does not close final whole-track LC01–LC03 or certify operator adoption.
 
 ## 1. Contract and independence

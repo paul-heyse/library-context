@@ -20,7 +20,7 @@ groups and failed the producer. Co-use could also proceed to a partition after o
 layer. That partition represented a different graph from its authored selected recipe.
 
 The operator selected explicit partial results during execution planning on 2026-10-14 and
-approved their implementation. The [Catalog coordinator §6](../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint)
+approved their implementation. The [Catalog coordinator §6](../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 owns implementation, evidence and remaining scope. This decision supplements retained analytic
 contracts; it changes neither default technique selection nor published record schemas.
 
@@ -68,3 +68,7 @@ CA03 owns implementation and focused acceptance; the coordinator records their c
 Acceptance of this record alone closes no finding or enclosing Catalog journey. Revisit incidence/deferred evidence or direct
 concept-query products only when a named consumer accepts that changed output contract. Revisit a
 single cross-layer work allowance only with an explicit authored policy and its affected consumers.
+
+## Amendments
+
+2026-10-14 — Explicit operator authorization permits this navigation-only correction: Catalog-plan links now name the replacement Catalog completion coordinator. Decisions and dated evidence are unchanged.

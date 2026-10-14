@@ -15,7 +15,7 @@ The [Catalog review](../design_review/reviews/design_review_catalog-execution-pa
 establishes repeated full logical reconstruction and automatic durable per-view realization despite
 protected fragment reuse (F01/F02), plus related assurance and consumer amplification (F03–F08).
 The operator accepted RC01/RC02 and retained flat v4 under RC03 on 2026-10-12. The combined
-[plan](../plans/catalog-creation-plan_2026-10-14.md) preserves lifecycle F01–F05, their current
+[plan](../plans/catalog-completion-plan_2026-10-14.md) preserves lifecycle F01–F05, their current
 implementation/evidence limits and approved lifecycle RC01–RC06. This decision replaces ADR-0164
 self-containedly; its unaffected lifecycle/target ownership decisions remain below.
 
@@ -168,3 +168,5 @@ containment. Such evidence reopens the relevant bounded choice; it does not weak
 ## Amendments
 
 2026-10-14 — Explicit operator authorization permits this navigation-only correction: the plan link now names the replacement Catalog creation coordinator. Decisions and dated evidence are unchanged.
+
+2026-10-14 — Explicit operator authorization permits this navigation-only correction: Catalog-plan links now name the replacement Catalog completion coordinator. Decisions and dated evidence are unchanged.

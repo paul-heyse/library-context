@@ -93,7 +93,7 @@ only whole-target disposal retires these campaign databases. No shared service i
 
 These controls establish schema/tooling behavior. They do not establish product
 publication, arbitrary network-interruption finality, measured performance or
-operator adoption. The [Catalog execution coordinator](../../docs/plans/catalog-creation-plan_2026-10-14.md)
+operator adoption. The [Catalog completion coordinator](../../docs/plans/catalog-completion-plan_2026-10-14.md)
 owns current acceptance evidence. [Negative input projects](tests/fixtures/README.md)
 exercise malformed input, failed assertions, refused actor authentication and
 parent-owned cancellation without borrowing another target.

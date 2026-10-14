@@ -11,7 +11,7 @@ remains with the coordinator. This updates the interim Revise judgment without p
 
 This enables focused execution and composition checks. It establishes neither successful native
 execution, completion within the selected timeouts, pinned FastMCP acceptance, operator adoption
-nor whole-product qualification. The [Catalog coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint)
+nor whole-product qualification. The [Catalog coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 owns current dispositions and execution receipts.
 
 ## 1. Scope and evidence

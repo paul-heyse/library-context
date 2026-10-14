@@ -173,7 +173,7 @@ layers and techniques remain available, but a missing/incomplete required layer 
 graph and partition publication; the remaining layers never silently replace the selected recipe.
 Empty complete layers are valid. This meaning revision is distinct from Leiden's separate run-work
 limit; current pair/concept evidence contracts, resolutions/seeds and graph universe remain.
-The [Catalog coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint)
+The [Catalog coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 owns implementation and verification boundaries. No schema change or measured performance is implied.
 
 > Decision: ADR-0020, ADR-0106, ADR-0169

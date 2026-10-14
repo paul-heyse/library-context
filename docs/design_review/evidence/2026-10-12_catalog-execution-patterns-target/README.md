@@ -3,7 +3,7 @@
 **Recorded 2026-10-12 local / 2026-10-13 UTC.** This folder supports the
 [principal design/target review](../../reviews/design_review_catalog-execution-patterns-target_2026-10-12.md).
 It is evidence, not another disposition or progress register. The
-[Catalog execution coordinator §6](../../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint)
+[Catalog completion coordinator §6](../../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 owns scheduled findings.
 
 ## Baseline and method

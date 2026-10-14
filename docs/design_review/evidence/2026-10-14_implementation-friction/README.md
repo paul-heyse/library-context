@@ -2,6 +2,10 @@
 
 **Inspected2026-10-14.** Supporting evidence for the [principal review](../../reviews/design_review_implementation-friction-target_2026-10-14.md). This folder owns a compact incident/reference index, not a second verdict or execution ledger.
 
+**Current consumer, 2026-10-14:** the [Catalog completion coordinator §6](../../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+owns scheduled F01–F10/O01–O05 and their closure obligations together with surviving Catalog scope.
+Plan publication changes neither these historical observations nor the evidence owners/retention.
+
 ## Baseline and method
 
 Clean source baseline: 5ffdca70439ac7474f90ebc639453dfc55dd2536. Relevant earlier checkpoints are e54f03cd and426f3892. The examined implementation window is approximately17:00–20:14UTC on2026-10-14. Commit timestamps alone do not describe when source was edited or which binary a run executed.

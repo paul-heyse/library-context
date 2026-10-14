@@ -20,7 +20,7 @@ These are several structural causes, not one universal lifecycle defect. The rec
 | Product premise | A version-pinned API/evidence Catalog from library release/corpus/import inputs; exact attributed facts and linked original evidence; optional Behavioral/analytic products remain distinct |
 | Workload | One operator and Codex/model family, concurrent producer and agent work, overlapping dependency closures, shared relations, large selectors, skew and cancellation; development data can be regenerated |
 
-The [evidence index](../evidence/2026-10-14_implementation-friction/README.md) records run identities, source limits and actual observations. The [previous integrated review](design_review_catalog-creation-completion-integrated_2026-10-14.md) and [Catalog coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint) are leads and comparison material, not substitutes for source inspection.
+The [evidence index](../evidence/2026-10-14_implementation-friction/README.md) records run identities, source limits and actual observations. The [previous integrated review](design_review_catalog-creation-completion-integrated_2026-10-14.md) and [Catalog coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint) are leads and comparison material, not substitutes for source inspection.
 
 This review does not resume Catalog execution, change existing findings' dispositions, or certify whole-product acceptance. Embedding execution, MCP-submitted queries, operator adoption, protected evaluation and older paused campaigns remain outside the executed scope. Adjacent retained/cold consumers were inspected where they share the reviewed factories; the full serving/query architecture was not recertified.
 
@@ -325,6 +325,12 @@ The following questions remain genuinely open:
 - What functional evidence do final-source Summary/Catalog/cold and the pinned pilot establish after remediation? Their current incomplete state remains with the Catalog coordinator.
 
 Source inspection establishes the listed ordering/lifetime/reconstruction defects. Local probes were permitted but not needed to assert those diagnoses; the unresolved alternative mechanisms are explicitly not reported as executed. Remedy controls above are follow-up work, not checks performed by this review.
+
+**Disposition transferred 2026-10-14:** the [Catalog completion coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+now owns scheduled F01–F10/O01–O05 and their closure obligations alongside inherited Catalog scope.
+Its §3 records the operator-confirmed RC01/RC02/RC05 directions and conditional RC03/RC04 permissions.
+This navigation/disposition transfer changes no dated diagnosis, evidence or verdict and establishes
+no remediation or runtime closure.
 
 ## 8. Rule impacts
 

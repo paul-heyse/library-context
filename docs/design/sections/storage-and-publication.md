@@ -63,7 +63,7 @@ marker-child ancestry alone does not block independently established current qui
 foreign, malformed and specialized recovery markers remain blocking. Future maintenance commands
 enroll target-bound ownership before spawn. Original failed/Unknown outcomes and SOURCE_JOIN recovery
 rules remain unchanged; only disposal obligations settle after actual whole-target discard.
-The [Catalog execution coordinator](../../plans/catalog-creation-plan_2026-10-14.md) owns implementation
+The [Catalog completion coordinator](../../plans/catalog-completion-plan_2026-10-14.md) owns implementation
 and qualification; actual owned-target disposal passed while preserving failed logical drain and
 native Unknown records. Ordinary product attempts retain logical validation isolation.
 
@@ -110,7 +110,7 @@ cache, DAG identity, universal preparation object or global compile serializatio
 Native control admission separates resident construction/serialization workspace from protobuf
 message size. The pinned native encoder bounds the full lowered payload and intent before any
 remote intent; workspace reservations retain their separate lifetime and interpretation.
-The [Catalog execution coordinator](../../plans/catalog-creation-plan_2026-10-14.md) owns the full
+The [Catalog completion coordinator](../../plans/catalog-completion-plan_2026-10-14.md) owns the full
 consumer cutover and narrow functional acceptance. Internal capabilities now share operation-owned
 contributor preparation. Physical completion v2 replaces per-view member
 copies/seals with exact compound contributor/selector inventories; semantic transport format4 and
@@ -230,7 +230,7 @@ failed join or close. Native finality-only drain/abandon reports supply the encl
 artifact execution report. Aggregate diagnostic APIs append historical operation failures after
 actual finality signals settle. Genuine cleanup errors, storage orphans and Unknown remain strict;
 cleanup permission never substitutes for acknowledgement. No receipt-schema or fixture-policy change.
-The [Catalog coordinator F03](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint)
+The [Catalog coordinator F03](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 owns the thirteen pure controls and fresh six-native/seven-compiler enclosing fixture passes;
 broader interruption matrices and Catalog composition remain separate.
 
@@ -362,7 +362,7 @@ independent. Cache payloads and conservative sparse-tree metadata remain admitte
 Installed-view construction
 scratch is admitted before serialization and released after the checked final hold. Retained typed
 descriptor capacity and independently owned expected native rows remain charged through their
-actual lifetimes. The [Catalog execution coordinator](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint)
+actual lifetimes. The [Catalog completion coordinator](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 owns current focused runtime acceptance; these changes introduce no cross-operation witness.
 **Implemented, qualification pending2026-10-11:** full selected-membership preparation and
 completed-state metadata scans submit at most128 exact owner/view roots per indexed native

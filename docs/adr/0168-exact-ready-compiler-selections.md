@@ -71,7 +71,7 @@ The migration crosses model recipes, compiler dispatch, native composition and i
 these consumers must move together. Initial CC01 retains normalized admission and current root fencing.
 No timing gain or whole-Catalog qualification is claimed. ADR-0105 is retired to Git after
 current governing links transfer; dated reviews retain their original diagnoses. CN01/CN02 implementations remain scheduled
-in the [coordinator §6](../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint).
+in the [coordinator §6](../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint).
 
 D02 retains root fencing: delayed requests, accepted effects, global freeze, Unknown and retirement
 need the current complete protocol. Revisit only for material observed contention or a simpler complete
@@ -79,3 +79,7 @@ producer-owned replacement, with separate rule disposition and independent proto
 D04 retains flat published witnesses and permits internal predecessor arenas. Revisit if residual
 published prefix storage/reconstruction is material after CA02. RC03 remains unused; semantic v4 is
 unchanged. ADR-0108 and ADR-0145/0151/0165 remain in force.
+
+## Amendments
+
+2026-10-14 — Explicit operator authorization permits this navigation-only correction: Catalog-plan links now name the replacement Catalog completion coordinator. Decisions and dated evidence are unchanged.
