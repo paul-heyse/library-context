@@ -199,20 +199,67 @@ In particular S04/F01 overlaps N10/F05 without importing all of N10's migration 
 
 ## 6. Sole disposition and execution checkpoint
 
-**2026-10-14: CC00/compiler source delivery and focused closeout.** ADR-0168 accepts exact relation readiness
-independently of whole-prefix publication and complete private same-operation validity/expectation
-premises. CC00's D02 retains root fencing; D04 retains flat published witnesses with internal arenas
-left to CA02. RC03 is unused. CC01 exact selections/native composition, ready provider/normalization/
-upper dispatch and actual-borrower preparation are source-integrated; pure acceptance passed and native acceptance is blocked below.
-CC02 cancellable Pyrefly and compact inherited-field correspondence and CC03 module streaming are
-source-integrated. Focused cancellation/Flow/model/preparation controls and scoped compilation/Clippy
-support their stated boundaries; native selection/ingress and inherited-field acceptance remain blocked.
-No timing benefit, native validity/search implementation or enclosing Catalog
-acceptance follows. CN01–CN03, CA01–CA03, CO01 and CX01–CX04 remain scheduled; no full journey,
-regeneration, operator adoption or older-plan handback ran.
+**2026-10-14: CA01–CA03 source delivery and focused closeout.** Charged scoped correspondence now
+serves C0/public paths, C1, Structural and requested analytic attributes. Deterministic public-path
+consumption and FIFO/predecessor control arenas retain flat output while releasing class/root scratch
+at its actual lifetime. D03 shares frame-local role/boundary classification, retaining distinct-seed
+BFS. D05 retains current pair/concept products and implements ADR-0169's explicit layer exhaustion
+and complete-selected-recipe partition policy. D06 retains attempted-pair/queue meaning and prepares
+immutable admitted call/port correspondence lazily. Independent bounded source review accepted the
+final repairs; pure controls, affected/bridge typechecks and scoped strict Clippy passed below.
+Native cached composition and enclosing Catalog acceptance remain unverified; no speed claim follows.
+
+CC00/compiler delivery and its exact native blocks remain as recorded below. D01/D02/D04/D07/D08/D09/
+D13 stay settled; root fencing, separate contexts/capture checks and flat published witnesses remain.
+RC03 is unused. CN01/CN02 remain accepted interfaces pending implementation. CN01–CN03, CO01 and
+CX01–CX04 remain scheduled; no real-library journey, regeneration, adoption or older-plan handback ran.
 
 The publication-only baseline `c9b7cd31` retains its537-reference check and14 pre-existing ADR
 metadata failures. Earlier receipts below retain their dates/source limits. Execution receipts below record terminal outcome/cleanup separately from builds and source review.
+
+### Analysis delivery and focused receipts, 2026-10-14
+
+CA01/CA02 implementations and CA03's D03/D05/D06 selected corrections are source-integrated and
+bounded source/pure-focused accepted. Preparation borrows the actual selected row/frame owner; no
+persisted cache, generic index/resource framework, dependency move or published schema was introduced.
+Analytic semantic rule revision2 and the authored recipe deliberately change incomplete-layer meaning.
+Native publication/receiving/current-source cached composition remain later CN03/CX01 evidence.
+
+C0/C1 preserve plural matches, contexts, ambiguity, source/effective/default distinctions and invocation
+ownership. C0 uses one preparation, with live pending trails separated from class scratch. Structural
+module/role/member/site and parameter-root correspondence preserve missing/ambiguous refusal. Controls
+retain visited (target,formal,suppressed), canonical FIFO/stop behavior and flat witnesses. D03 retains
+parallel evidence, per-seed counters/bounds and unreachable-error laziness. Analytic preparation is
+demand-scoped and shares native correspondence across distinct namespace universes. Summary retains
+queue work, PairOutcomes, independent proofs and dynamic guards; actual native reuse is not proven by
+its pure port correspondence controls.
+
+Independent rereview corrected three issues before acceptance: RCA empty groups must not inspect
+unused handoffs; RCA membership scratch drops before concept conversion; parameter selection must
+preserve allocation-free foreign/missing/unsupported gates. The last gate is shared with the original
+parameter algorithm, avoiding copied semantics. Preparations release before later unrelated consumers.
+
+| Command / receipt | Outcome and limit |
+|---|---|
+| `just run --label catalog-analysis-final-check -- cargo check --release --locked -p lctx-model -p lctx-analytics -p cpg-core --tests` → `20261014T143613.895Z-343d93` | passed affected production/test checks; final parameter-gate change and all targets also typechecked by final Clippy |
+| `just run --label catalog-analysis-cli-bridge-check -- cargo check --release --locked -p lctx -p lctx-semantics` → `20261014T144347.246Z-7048e3` | passed CLI, serving/embedding and Python bridge compile only; no runtime inference/MCP/query evidence |
+| `just run --label catalog-analysis-pure -- cargo nextest run --release --no-fail-fast --no-tests=fail -p lctx-model --lib --test domain_catalog --test domain_catalog_evidence --test structural --test domain_analytics --test domain_selection_catalog --test summary_schedule -E 'binary(domain_catalog) \| binary(domain_catalog_evidence) \| binary(structural) \| binary(domain_analytics) \| binary(domain_selection_catalog) \| binary(summary_schedule) \| test(domain::structural::controls::) \| test(delegation_shared_suffix) \| test(prepared_delegation_reuses) \| test(compact_catalog) \| test(correspondence_controls) \| test(compact_invocation_controls) \| test(analytics::build::) \| test(analytics::attributes::) \| test(analytics::native_attributes::) \| test(prepared_port_controls) \| test(execution::summary_worklist::) \| test(execution::summary_production::)'` → `20261014T142813.062Z-393894` | failed original run:96 passed,8 failed/282 skipped. Failures were new fixture contracts (declaration/name, field syntax, projection coverage and member rendering), corrected without changing intended assertions. Passing first-wave C0/C1/Structural/D03/port/worklist controls retain their source window; not a retroactive whole-run pass |
+| `just run --label catalog-analysis-affected-repair -- cargo nextest run --release --no-fail-fast --no-tests=fail -p lctx-model --lib --test domain_catalog --test domain_analytics --test domain_selection_catalog -E 'binary(domain_catalog) \| binary(domain_analytics) \| binary(domain_selection_catalog) \| test(analytics::build::) \| test(analytics::attributes::) \| test(analytics::native_attributes::)'` → `20261014T143615.039Z-a9e76b` | passed55/303 skipped: repaired Catalog cases, actual finite analytic producer/exhaustion/weight controls, requested correspondence/type/mention/corpus/namespace and RCA scratch/laziness controls. Predates final allocation-free parameter gate |
+| `just run --label catalog-analysis-parameter-gates -- env INSTA_UPDATE=no cargo nextest run --release --no-fail-fast --no-tests=fail -p lctx-model --lib --test domain_catalog -E 'test(analytics::attributes::correspondence_tests) \| test(source_parameter_wrapper_uses_exact_formal_placement_without_pairing_effective_slots) \| test(source_parameter_container)'` → `20261014T144208.077Z-86b270` | passed8/326 skipped: final gate, all seven analytic correspondence controls and actual source-parameter wrapper contract |
+| `just verify --select analytics:rust --nextest-args '--test native_ranking --test native_concepts --test implication_oracle'` → `20261014T143616.289Z-ac1eee` | passed10 pure controls across3 binaries; independent finite ranking/concept/implication evidence, no database or full workload claim |
+| `just run --label catalog-analysis-scope-clippy -- cargo clippy --release --locked --all-targets --keep-going -p lctx-model -p lctx-analytics -p cpg-core -- -D warnings` → `20261014T144003.348Z-d972a0` | failed6 new diagnostics: constructor/control type complexity, redundant copied iteration, len-zero and map-values iteration. Repaired with local aliases/direct borrowed/value iteration |
+| Same strict scoped Clippy under label `catalog-analysis-clippy-repair` → `20261014T144206.918Z-acb5c5` | passed all affected targets without warnings; final production/test typechecking |
+
+Earlier source-edit compile failures and the pre-test in-progress Analytics build remain failures,
+not functional evidence. Original receipts/logs retain their outcomes. Cited managed run/evidence
+objects retain consumer `citation:catalog-creation-analysis`; no evidence release or native cleanup
+was attempted. Every new command used pure/compile boundaries without a fixture. Known stable-service
+prerequisites and protected native Unknowns below were neither re-probed nor settled by this work.
+No timing threshold, historical corpus, worker cap, broad qualification or real-library run was added.
+Scope-end `just turn-end --paths …` and `git diff --check` passed. Final `just adr-lint` and
+`just docs-check` failed on the same14 baseline metadata defects (13 unresolved owner-qualified
+references in ADR-0152/0155/0156/0157/0158/0160/0161, plus ADR-0151 missing from §15.1's Decision line);
+no new metadata defect or full publication pass is claimed. The ADR index includes ADR-0169.
 
 ### Compiler delivery and focused receipts,2026-10-14
 
@@ -273,13 +320,16 @@ repair this absent table. Unknown receipts remain protected independently of chi
 attachment deletion is authorized by these failures. New current-source native selection/ingress
 and inherited-field controls remain blocked; passing pure controls do not replace them.
 
-### Compiler decision dispositions,2026-10-14
+### Compiler and analysis decision dispositions,2026-10-14
 
 | Decision | Supported choice and preservation / revisit |
 |---|---|
 | D01 | Allow actual ready Deployment/Python and bounded work overlap. Keep each Pyrefly release/corpus session sequential within its existing input loop; the native State module/loader/stdlib heap is not bounded by adapter transfer charges. Required dependency imports and promotion remain. Revisit concrete larger workloads/capacity observations; no process ceiling or arbitrary worker cap |
 | D02 | Keep root fencing. Native intent/effect authorization, delayed issuance/epoch, producer/global freeze, immutable conflicts, idempotent outcomes, Unknown, retirement and ABA require a complete replacement protocol. Revisit in CN03 only for material observed contention or a simpler fully specified protocol, with separate rule disposition/review; contention unmeasured |
+| D03 | Frame-local role correspondence/lazy boundary reuse integrated; retain independent distinct-seed BFS. Same-entity aliases already share traversal. Reopen broader source-labelled/suffix reuse only for a concrete distinct-wrapper workload after this preparation; no shortest-witness substitute from SCC reachability |
 | D04 | Keep flat published Path/Step and ControlPath/ControlStep; internal predecessor arenas remain CA02. Admission, synthesis, graph/native hydration and original evidence require identities, ordered continuity and qualified alternatives. Revisit material residual published-prefix work after CA02; no witness migration or semantic-v4 change |
+| D05 | Retain pair/concept outputs for current provenance/synthesis consumers. ADR-0169 layer aggregate admission/partial outcomes and no incomplete combined partition integrated/pure-focused. Retain weighted PageRank, Leiden recipe and one-step RCA. Reopen incidence/deferred evidence or direct queries for a named consumer accepting changed output; per-layer and Leiden work remain separate |
+| D06 | Lazy exact call/signature/port preparation integrated/source-accepted; port/worklist controls passed. Keep candidate queue and PairOutcomes because attempted questions/work/residuals are published meaning. Actual cached native composition remains unverified. Reopen pair elision only with complete coverage/exhaustion preservation or an explicit consumer change |
 | D07 | Keep parser-mediated rewrite recovery. Exact lexer parity holds for valid examples but differs on malformed f/t-string interpolations. Revisit an equivalent recovering tokens-only API or a deliberate supported-input contract change; no dual runtime route |
 | D08 | Reuse current canonical Spans for the same source while already live. Foreign inherited sources use lazy name-only correspondence once/source under actual selected Ruff settings/limits, retaining refusal semantics. Avoid retaining every root/AST; revisit demonstrated useful cross-root overlap with complete source/parser/context identity |
 | D09 | Keep distinct States for release/corpus resolver contexts and the existing shared pool. ConfigFinder supports custom configuration, but Handle identity lacks input/config context and stdlib cache is per SysInfo. Revisit a safe context-keyed library preparation contract or demonstrated context-independent duplicate work |
@@ -291,12 +341,12 @@ without another mutable findings/receipt ledger.
 
 | Source finding | Current disposition / route | Closure boundary |
 |---|---|---|
-| creation#F01 | Proposed CA01 | One keyed preparation per actual grain; independent ambiguity/default/context/alias evidence |
+| creation#F01 | Closed source/pure-focused2026-10-14, CA01; preserve | One keyed preparation per actual grain; independent ambiguity/default/context/alias evidence |
 | creation#F02 | CC00 accepted; CC01 source-integrated/pure-focused2026-10-14, native blocked | Genuine ready overlap with exact inputs, complete assembly, deterministic results and failure drainage |
 | creation#F03 | CC00 interface accepted ADR-0168; CN01/CN02 implementation remains Proposed | Private terminal executed evidence, changed-premise refusal, fresh native/search comparison and cold independence |
 | creation#F04 | Closed source/focused cancellation2026-10-14 (`e44254`); no hard active-callback latency claim | Queued native cancellation, interrupted-run refusal, joined workers and settled ingress |
 | creation#F05 | Closed source/pure-focused2026-10-14 (`a4428f`); Behavioral only | Cross-module semantics, incremental emission and sink-refusal stop |
-| creation#F06 | Proposed CA02 | Scratch charge released with allocations; canonical bounded control witnesses and live output charging |
+| creation#F06 | Closed internal source/pure-focused2026-10-14, CA02; flat published witnesses preserved | Scratch charge released with allocations; canonical bounded control witnesses and live output charging |
 | catalog#F01 | Source-integrated/source-reviewed; native/composition acceptance open, CN03/CX01 | Fewer demanded independent boundaries, reusable exact union; actual current native/Catalog composition |
 | catalog-integrated#F01 | Closed source/pure-focused2026-10-14 (`33fafd`); preserve | Relation-selective canonical runs, unchanged v4 union, overlap/empty/spill/lifetime; enclosing acceptance separate |
 | catalog-integrated#F02 | Closed source/focused native/cold2026-10-14; preserve | Bounded receiving/post-ack incidence; `e511d5`, `1b83ef`, `1586b7`; earlier than final F03 |
@@ -391,6 +441,6 @@ qualification and operator activation remain not_run and are not silently added 
 
 **Next executable work:** resolve stable validation schema/native-owner prerequisites through the
 service/lifecycle owner, then rerun blocked exact-selection/ingress and inherited-field controls.
-Independent CA01/CA02 and CN01/CN02 remain ready against accepted CC00 contracts. CN03 preserves required
+CA01–CA03 source/pure scope is delivered; independent CN01/CN02 remain ready against accepted CC00 contracts. CN03 preserves required
 current-source receiving/cold/native acceptance. CX04's substantive older-plan reconciliation has
 not occurred; the900s fixture and pinned FastMCP exit remain later CX01/CX02 work.

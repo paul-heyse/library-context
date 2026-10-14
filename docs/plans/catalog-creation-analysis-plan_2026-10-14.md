@@ -84,9 +84,9 @@ states are not duplicates. Admit the canonical state/witness consistently with e
 depth/vertex/arc limits and partial reasons. Do not count released scratch as retained memory, or
 silently undercharge an arena that remains live for reconstruction.
 
-Internal arenas can materialize the current bounded Path/Step output at the real publication consumer.
-This does not require RC03. Published prefix duplication remains until D04 selects a different actual
-consumer contract. No universal resource framework or unbounded queue is selected.
+Internal arenas materialize the current bounded Path/Step output at the real publication consumer.
+This does not require RC03. D04 retains that published consumer contract; published prefix duplication
+is reconsidered only under its coordinator-owned revisit trigger. No universal resource framework or unbounded queue is selected.
 
 **Acceptance:** a small-budget many-class case fits current scratch plus retained output without
 cumulative dead charges; a two-root control releases first-root scratch before starting the second;
@@ -106,75 +106,80 @@ absence evidence. No dependency move is selected by these plans alone.
 
 ### D03 — repeated public seeds and shared suffixes
 
-Compare independent bounded BFS with frame-local boundary/role classification reuse first, then
-source-labelled frontier or shared suffix work if actual public seeds repeat useful work. Complete
-keys include exact materialization, frame/boundaries, direction/arc roles, bounds and selected source.
-Per-seed shortest witnesses, omitted flags, examined-work/partial reasons and unresolved events remain.
-SCC condensation can share Boolean reachability but is not itself shortest path, transfer or control
-evidence. All-pairs closure can create dense state never requested by this consumer.
+**Selected execution direction, 2026-10-14; implementation/acceptance owned by coordinator §6.**
+Prepare source-role correspondence once and cache boundary classification lazily in the exact
+immutable PreparedDelegation frame/subsystem. Preserve Dependency/External/Subsystem precedence and
+unreachable-error exposure. Distinct seed entities retain independent bounded BFS, canonical parents,
+shortest-final alternatives, omitted flags, counters, bounds and unresolved events. Public aliases to
+the same entity already share a traversal while retaining their distinct public answers.
 
-Settle with alias-chain/diamond/cycle shapes, parallel alternatives and external/subsystem boundaries.
-Retain independent BFS when sharing adds more state/semantic complexity than the repeated work it
-removes. Reopen for a concrete many-wrapper suffix workload, not graph cyclicity alone.
+This removes repeated role-relation searches without adding source-labelled frontier or suffix-result
+state. SCC reachability cannot replace per-seed witness and stopping meaning; all-pairs closure can
+create unrequested dense state. Reopen broader sharing for a concrete many-wrapper suffix workload
+after classification reuse is present. Functional controls use distinct wrappers, aliases, diamonds,
+cycles, parallel evidence, conflicting roles, boundaries and unreachable missing premises; no timing
+threshold is required.
 
 ### D04 — published witness representation
 
 CC00 selected flat published output with internal predecessor arenas; coordinator §6 owns this
 supported disposition and revisit trigger. CA02/CA03 preserve the choice rather than repeat it.
+Path/PathStep, ControlPath/ControlStep, synthesis, original evidence and native hydration/rendering
+retain exact path/ArcId/qualification identities and ordered bounded explanations. Internal control
+arenas materialize those same published records. RC03 remains unused and semantic v4 is unchanged.
 
-Inventory actual Path/PathStep, ControlPath/ControlStep, synthesis, original-evidence and native
-hydration/rendering consumers. Compare internal predecessor arenas with current output against a
-shared immutable witness DAG preserving every required path/ArcId/qualification identity and bounded
-explanation. State which consumers require flat enumeration, canonical path selection or independent
-alternatives; no arbitrary deduplication of proofs is permitted.
-
-RC03 conditionally permits choosing a changed published representation. If chosen, specify identity,
-codecs, complete consumers and source-independent known answers together; record the ADR/owner change,
-version deliberately and regenerate current data with no old-format reader or dual runtime path.
-Do not change semantic v4 into a canonical-state DAG under this permission. If flat output is the
-simpler adequate consumer contract, retain it and complete internal CA02 independently. Acceptance
-covers ambiguous/parallel/reconvergent witnesses, missing/corrupt nodes, deterministic ordering and
-end-to-end evidence rendering, not just graph compression.
+Reopen only if material residual published-prefix work remains after CA02, with an explicitly changed
+consumer contract, complete identity/codec/consumer migration and independent known answers. A shared
+witness DAG is not selected merely because traversal is cyclic or witnesses share prefixes. No old
+reader, dual runtime representation or historical-data requirement is introduced.
 
 ### D05 — optional analytic growth and demand
 
-Analytics are selected independently; unrequested results remain explicit without computation.
-Co-use/type/mention clique contribution can grow quadratically with owner degree; full required pair
-evidence cannot be removed by a hash map. Compare owner→targets incidence and on-demand weighted
-aggregation against pair materialization while preserving selected universe, exact weights and
-evidence lookup. Leiden's repeated resolutions/seeds serve stability diagnostics; reducing them
-changes its recipe and is not merely an execution refactor.
+**Selected execution direction, 2026-10-14 (ADR-0169); coordinator §6 owns acceptance.** Analytics
+remain independently selected. Retain source-specific pair contributions, weights/evidence, finite
+concept extents/intents/implications and one-step RCA because their current graph/synthesis consumers
+require those products. Incidence with deferred pair evidence and direct concept queries would change
+that consumer contract; reopen only for a named consumer accepting that narrower or deferred result.
+Full requested pair output has inherent quadratic growth. No map or safe refusal establishes ordinary
+workload capacity. Retain PageRank's sparse weighted/residual/work kernel and Leiden resolutions/seeds;
+communities never become correctness partitions. Keep exact bitset ordinals and universe lengths.
 
-FCA contexts retain exact ordinal row/column bitsets; many independent attributes can produce many
-concepts/pseudo-intents. Current RCA performs one direct relational attribute step, not an unbounded
-fixed point. Compare direct intent/extent/implication queries for actual consumers against complete
-frequent concept enumeration; specify any changed output contract explicitly. fcars is an existing
-independent concept-set oracle, not a drop-in bounded frequent-concept/implication implementation.
-Qualify support pruning, work/refusal, implication output and deterministic meaning before adoption.
+Prepare canonical owner/class/passage groups once and preflight checked aggregate sum(degree squared)
+per complete selected co-use/type/mention layer, retaining the existing limit/unit separately from
+Leiden run work. The operator selected explicit partial results: an exhausted layer emits no pair
+prefix and publishes Partial/WorkLimit in the existing LayerResult under Communities. Keep complete
+independent evidence and selected techniques. Missing/incomplete required layers prevent combined
+graph/partition/community publication; never renormalize the remaining layers as a replacement recipe.
+Empty complete layers are valid; malformed premises and allocation refusals retain their own semantics.
+Revise authored analytic rule identity and migrate production/replay/conclusion consumers together.
+Existing record schemas suffice; no old-format runtime route or historical evidence prerequisite.
 
-Keep the sparse custom weighted PageRank kernel: the inspected petgraph serial built-in does not
-meet its weighted/residual/work contract. Preserve full computation universe, dangling nodes and
-qualified heuristic output. Leiden communities never become correctness partitions for Summary or
-controls. Bitset ordinals and lengths bind one exact universe; equal-looking bits across frames do
-not establish equal sets.
-
-Settle selected changes with high-degree incidence/weighted pairs, isolates/parallel arcs, shuffled
-inputs and independent-attribute concept cases. Compare partitions by membership, numeric results
-under stated tolerances, and incomplete enumeration honestly. Keep current optional recipes with
-explicit growth/support triggers if no simpler equivalent or consumer-approved narrower result wins.
+Controls cover many individually-small groups exceeding aggregate work, a single oversized group,
+exact/empty boundaries, duplicate/shuffled input, pair provenance/counts/weights, isolates, suppressed
+partition output and independent technique completion. A small internal test policy reveals bounds
+without a large campaign. Preserve independent concept-set/implication and ranking controls.
 
 ### D06 — Summary compatibility candidates
 
-Preserve existing callee-first SCC and delta pair queues, support indexes, stale-representative
-rejection, Pareto incomparable costs, separate proof evidence and explicit work/depth/proof residuals.
-Assess whether descriptor/port compatibility indexes can reject impossible compositions before
-combining endpoint/support buckets. Do not drop genuinely qualifying independent proof combinations,
-deduplicate only by endpoints, or equate SCC order with semantic convergence.
+**Selected execution direction, 2026-10-14; coordinator §6 owns acceptance.** Preserve callee-first
+SCCs, delta pair queues, support indexes, stale representatives, Pareto incomparable costs, independent
+proof evidence and explicit work/depth/proof residuals. Processed call pairs publish Disjoint/Subsumed/
+Refused/Proven outcomes used by closure questions, so silently dropping impossible pairs would alter
+observable support and exhaustion. Retain candidate admission/processing order and complete qualifying
+support combinations; recursive topology alone does not justify Salsa/Datalog.
 
-Use a recursive SCC, two incomparable costs, equal-cost independent evidence and a late improved
-callee proof. The states, qualified proofs and residual outcomes must agree with independently
-specified expectations. Retain current indexed worklist if new machinery does not simplify the
-actual candidate route. Salsa/Datalog/another solver is not justified merely by recursive topology.
+Prepare immutable call-attempt/signature declaration, parameter/link/argument and bound-port
+correspondence lazily once inside its exact borrowed SummaryData/VerifiedBindings owner. Keep original
+error gates and dynamic branch conditions, qualifications, guards, paths and proof costs. The internal
+prepared composition entry uses the same implementation as the retained public operation, with no
+portable cache or digest-derived authority. Charge retained rows/slots and failures through actual use.
+Reopen pair filtering only with complete attempted-question coverage and exhaustion semantics or an
+explicit consumer-contract change.
+
+Use recursive SCCs, incomparable costs, equal-cost independent evidence, late improved callee proofs,
+Entry/Formal roots, incompatible contexts, missing/ambiguous links, guard refusal and tiny queue limits.
+Assert pair outcomes, closure verdicts, proof evidence, work and residuals independently, not merely
+matching final transfer states. No timing or enclosing native qualification follows.
 
 ## 5. Integration and completion
 
