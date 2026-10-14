@@ -213,6 +213,9 @@ local references across26 changed/new Markdown documents; no retired-coordinator
 errors and the existing missing ADR-0151 decision line; before commit its immutability guard also
 flags the three operator-authorized navigation-only ADR edits. That guard is unchanged. No full
 publication pass, separate formal plan acceptance, product check or runtime result is claimed.
+Post-commit `just docs-check` at `ae91b3c4` again failed on only the14 unchanged baseline metadata
+errors above; no authorized-navigation immutability diagnostic remained. Full publication was still
+not reached. This follow-up changes no architectural or execution disposition.
 
 Source prefixes below retain review-local IDs; `creation#F01` is not `catalog#F01`. Source reviews
 retain dated diagnoses; this section now owns scheduled disposition. Supporting plans explain work
