@@ -1,4 +1,6 @@
 //! Persisted semantic graph compilation and exact completed-view admission.
+// Immutable prepared owners compose checked native inputs through concurrent task borrows.
+#![recursion_limit = "256"]
 
 pub mod analysis_bindings;
 pub mod analysis_graphs;

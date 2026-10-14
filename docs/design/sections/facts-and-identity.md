@@ -96,14 +96,15 @@ exact original premises and invocation; rendering never supplies semantic identi
 
 **Implemented, 2026-09-30; Phase 4 epoch qualification in progress.** Shared vocabulary prefixes
 are immutable publication authorities. Facts closes the initial prefix. Later declared groups
-publish private contributions atomically with their dependent ordinary results; older receipts and
+publish complete declared immutable selections; private consumers can bind exact completed relation
+owner sets before unrelated group members finish. Older receipts and
 payload meanings remain unchanged. Normalized replay reads the Facts prefix even after analysis
 adds qualification/condition vocabulary. [§15.11](semantic-model.md#section-15-11) owns that protocol.
 
 Codes are append-only: retired allocations remain reserved. Producers and validators use the same
 model declarations, never test-only replicas. No legacy ID bridge or compatibility vocabulary exists.
 
-> Decision: ADR-0086, ADR-0105, ADR-0108, ADR-0015, ADR-0117
+> Decision: ADR-0086, ADR-0168, ADR-0108, ADR-0015, ADR-0117
 
 ### §3.5.1 Type observations and class order
 

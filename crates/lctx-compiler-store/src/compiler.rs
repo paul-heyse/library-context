@@ -5381,6 +5381,72 @@ impl NativeCompilerStore {
         self.ensure_physical_rows(rows, budget).await
     }
 
+    /// Compose only explicitly selected, already completed owners. This operation earns the
+    /// canonical count and conflict checks; a caller cannot manufacture them from metadata.
+    pub async fn compose_completed_views(
+        self: &Arc<Self>,
+        relation: &Relation,
+        views: &[CompletedView],
+        budget: &ResourceBudget,
+    ) -> Result<CompletedView, ModelError> {
+        let lease = self.admit_mutation("compose_completed_views", true)?;
+        let result = lease
+            .within(async {
+                let _charge = budget.reserve(
+                    "exact completed composition descriptors",
+                    views
+                        .iter()
+                        .map(|view| {
+                            view.contributions
+                                .len()
+                                .saturating_mul(96)
+                                .saturating_add(512)
+                        })
+                        .fold(0usize, usize::saturating_add),
+                )?;
+                let mut contributions = std::collections::BTreeSet::new();
+                for view in views {
+                    if view.relation != relation.name() {
+                        return Err(ModelError::Conflict("exact composition relation"));
+                    }
+                    self.registered_view(view).await?;
+                    contributions.extend(&view.contributions);
+                }
+                if let Some(view) = views
+                    .iter()
+                    .find(|view| view.contributions == contributions)
+                {
+                    return Ok(view.clone());
+                }
+                let candidate = CompletedView::new(relation.name().into(), contributions, 0)?;
+                let prepared = self.prepare_memberships(&candidate, budget).await?;
+                let mut ordered = AsyncOrderedCandidates::new_registered(
+                    prepared,
+                    budget,
+                    self.blocking_owner()?,
+                    self.blocking_observer()?,
+                )
+                .await?;
+                let mut count = 0u64;
+                loop {
+                    let rows = ordered
+                        .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
+                        .await?;
+                    if rows.is_empty() {
+                        break;
+                    }
+                    count = count
+                        .checked_add(rows.len() as u64)
+                        .ok_or(ModelError::Schema("exact composition count overflow"))?;
+                }
+                let view = CompletedView::new(candidate.relation, candidate.contributions, count)?;
+                self.declare_completed_views(&[&view], budget).await?;
+                Ok(view)
+            })
+            .await;
+        lease.finish_with(result)
+    }
+
     pub async fn complete_contribution(
         self: &Arc<Self>,
         id: ContentHash,
@@ -5533,8 +5599,10 @@ impl NativeCompilerStore {
                 return Err(ModelError::Conflict("retained contribution outcome"));
             }
             let mut views = BTreeMap::new();
+            let mut singletons = Vec::new();
             for relation in outputs {
                 let singleton = self.contribution_view_inner(id, relation).await?;
+                singletons.push(singleton.clone());
                 let mut contributions = previous
                     .get(relation.name())
                     .map(|view| view.contributions.clone())
@@ -5562,8 +5630,11 @@ impl NativeCompilerStore {
                 let view = CompletedView::new(candidate.relation, candidate.contributions, count)?;
                 views.insert(relation.name().to_string(), view);
             }
-            self.declare_completed_views(&views.values().collect::<Vec<_>>(), budget)
-                .await?;
+            self.declare_completed_views(
+                &singletons.iter().chain(views.values()).collect::<Vec<_>>(),
+                budget,
+            )
+            .await?;
             return Ok(views);
         }
         let prior_ids = outputs

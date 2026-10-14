@@ -182,6 +182,27 @@ impl AnalysisUniformInputs {
         inputs.dedup_by_key(|input| input.name());
         inputs
     }
+    /// Actual roots of a compact analysis domain. Invariant companions and foreign
+    /// key premises are added by DependencyClosure, not copied from kernel inputs.
+    pub(crate) fn domain_inputs(owner: AnalysisOwner) -> Vec<ValidationInput> {
+        let mut inputs = vec![
+            ValidationInput::of::<input::InputRevision>(&["id"]),
+            ValidationInput::of::<input::ArtifactUse>(&["id"]),
+            ValidationInput::of::<source::SourceArtifact>(&["id"]),
+            ValidationInput::of::<source::CoverageScope>(&["id"]),
+            ValidationInput::of::<attribution::ProviderRun>(&["id"]),
+            ValidationInput::of::<attribution::AnalysisContext>(&["id"]),
+            ValidationInput::of::<analysis::AnalysisDefinition>(&["id"]),
+            ValidationInput::of::<analysis::MethodParameters>(&["id"]),
+        ];
+        if matches!(
+            owner,
+            AnalysisOwner::Enriched | AnalysisOwner::Models | AnalysisOwner::Summary
+        ) {
+            inputs.push(ValidationInput::of::<models::ModelCatalog>(&["id"]));
+        }
+        inputs
+    }
     pub fn visit(
         &mut self,
         name: &str,
@@ -250,6 +271,13 @@ impl AnalysisUniformInputs {
         use analysis::AnalysisMethod as M;
         for &(method, _) in owner.methods() {
             let actual = selected.definition(method)?;
+            let parameters = self
+                .parameters
+                .get(actual.parameters)
+                .ok_or(ModelError::Conflict(
+                    "compact analysis actual method parameters absent",
+                ))?;
+            parameters.validate()?;
             let expected = match method {
                 M::LocalTransfers => local_semantics::definition().1,
                 M::Execution => execution::configuration::base_evaluation().1,
@@ -257,12 +285,6 @@ impl AnalysisUniformInputs {
                 M::SourceCalls => execution::configuration::source_calls().1,
                 M::AnalyticEmbedding => embedding::analytic::definition().1,
                 M::EnrichedExecution | M::Models | M::Summaries => {
-                    let parameters =
-                        self.parameters
-                            .get(actual.parameters)
-                            .ok_or(ModelError::Conflict(
-                                "compact analysis actual method parameters absent",
-                            ))?;
                     let catalog = parameters.model_catalog.ok_or(ModelError::Conflict(
                         "compact analysis authored model catalog absent",
                     ))?;
@@ -340,7 +362,7 @@ impl AnalysisUniformInputs {
         let (entries, _entries) =
             self.index
                 .unrequested_entries(owner, selected, input, &self.budget)?;
-        let mut declaration = KeySink::new("uniform-current-analysis-declaration/v1");
+        let mut declaration = KeySink::new("uniform-current-analysis-declaration/v2");
         stage.name.to_owned().encode(&mut declaration);
         stage.code.encode(&mut declaration);
         stage.configuration.encode(&mut declaration);
@@ -799,9 +821,31 @@ mod controls {
         _suppliers: Vec<CompletedContribution>,
     }
     fn fixture() -> Fixture {
+        fixture_with_artifacts(false)
+    }
+    fn fixture_with_artifacts(nonempty: bool) -> Fixture {
         let budget = ResourceBudget::fixed(64 << 20).unwrap();
         let model = crate::domain::model().unwrap();
-        let input = InputRevision::from_entries(vec![]).unwrap();
+        let captured = if nonempty {
+            vec![
+                ("api.py", input::SourceRole::Release),
+                ("dependency.py", input::SourceRole::Dependency),
+                ("README.md", input::SourceRole::Document),
+            ]
+        } else {
+            vec![]
+        };
+        let input = InputRevision::from_entries(
+            captured
+                .iter()
+                .map(|(path, _)| input::ManifestEntry {
+                    path: (*path).to_owned(),
+                    content: ContentHash::of(b""),
+                    byte_len: 0,
+                })
+                .collect(),
+        )
+        .unwrap();
         let context = AnalysisContext {
             python_version: "3.14.7".into(),
             python_platform: "linux".into(),
@@ -831,6 +875,25 @@ mod controls {
         visit(&mut inputs, std::slice::from_ref(&definition));
         visit(&mut inputs, std::slice::from_ref(&parameters));
         visit(&mut inputs, &[CoverageScope::Input { input: input.id() }]);
+        for (path, role) in &captured {
+            let source =
+                source::SourceArtifact::from_bytes(input.id(), (*path).to_owned(), b"").unwrap();
+            visit(&mut inputs, std::slice::from_ref(&source));
+            visit(
+                &mut inputs,
+                &[input::ArtifactUse {
+                    artifact: source.id(),
+                    input: input.id(),
+                    role: *role,
+                }],
+            );
+            visit(
+                &mut inputs,
+                &[CoverageScope::Artifact {
+                    artifact: source.id(),
+                }],
+            );
+        }
         let order =
             PublicationOrder::planning(&analysis::owner::publication_groups(Vec::new(), true))
                 .unwrap();
@@ -849,8 +912,9 @@ mod controls {
                 InputRevision::NAME
                 | attribution::ProviderRun::NAME
                 | analysis::AnalysisDefinition::NAME
-                | analysis::MethodParameters::NAME
-                | CoverageScope::NAME => 1,
+                | analysis::MethodParameters::NAME => 1,
+                CoverageScope::NAME => 1 + captured.len() as u64,
+                source::SourceArtifact::NAME | input::ArtifactUse::NAME => captured.len() as u64,
                 _ => 0,
             };
             let (view, supplier) = test_support::supplier_view(&model, role.name(), rows);
@@ -880,8 +944,9 @@ mod controls {
             .unwrap()
             .clone();
         assert_eq!(
-            descriptor.members, 0,
-            "an actual empty Python domain has no invented Input member"
+            descriptor.members,
+            i64::from(nonempty),
+            "the Python domain contains release source only, and empty remains explicit"
         );
         let outputs = stage
             .outputs
@@ -929,6 +994,44 @@ mod controls {
             context,
             _suppliers: suppliers,
         }
+    }
+    #[test]
+    fn compact_catalog_reconstructs_source_roles_without_flow_or_predecessor_results() {
+        let f = fixture_with_artifacts(true);
+        let proof = ValidatedUniformOwner::validate_analysis_binding(
+            &f.owner,
+            &f.descriptor,
+            Profile::Catalog,
+            &f.model,
+            &f.bindings,
+            &f.inputs,
+            &f.budget,
+        )
+        .unwrap();
+        let api = source::SourceArtifact::from_bytes(f.input.id(), "api.py".into(), b"").unwrap();
+        assert_eq!(proof.descriptor().members, 1);
+        assert!(
+            proof
+                .scoped_evidence(
+                    CoverageScope::Artifact { artifact: api.id() }.id(),
+                    local_semantics::definition().1.content_digest()
+                )
+                .is_some()
+        );
+        assert!(
+            !f.stage
+                .inputs
+                .iter()
+                .any(|role| role.name() == UniformNotRequested::NAME)
+        );
+        let mut missing_parameters = AnalysisUniformInputs::new(Profile::Catalog, &f.budget);
+        visit(&mut missing_parameters, std::slice::from_ref(&f.input));
+        visit(&mut missing_parameters, &[local_semantics::definition().1]);
+        assert!(
+            missing_parameters
+                .declarations(&f.stage, &f.owner.spec.inputs)
+                .is_err()
+        );
     }
     #[test]
     fn compact_analysis_binding_preserves_empty_domain_and_rejects_nonempty_outputs_or_changed_roles()
@@ -1017,20 +1120,19 @@ mod controls {
         );
     }
     #[test]
-    fn compact_analysis_invariant_inventory_keeps_producer_checkpoint_exact() {
+    fn compact_catalog_owner_has_no_predecessor_but_consumer_retains_compact_premises() {
         let f = fixture();
         let uniform = AnalysisUniformConsumer::inputs(AnalysisOwner::Local, vec![])
             .into_iter()
             .find(|input| input.name() == UniformNotRequested::NAME)
             .unwrap();
         assert_eq!(uniform.prefix(), None);
-        let checkpoint = f
-            .stage
-            .inputs
-            .iter()
-            .find(|input| input.name() == UniformNotRequested::NAME)
-            .unwrap();
-        assert_eq!(checkpoint.prefix(), Some(PublicationBoundary::Facts));
+        assert!(
+            !f.stage
+                .inputs
+                .iter()
+                .any(|input| input.name() == UniformNotRequested::NAME)
+        );
         let proof = ValidatedUniformOwner::validate_analysis_binding(
             &f.owner,
             &f.descriptor,
@@ -1068,13 +1170,13 @@ mod controls {
                 .unwrap()
                 .is_explicit_empty()
         );
-        for boundary in [None, Some(PublicationBoundary::Local.name().to_owned())] {
+        for boundary in [PublicationBoundary::Facts, PublicationBoundary::Local] {
             let mut bindings = f.bindings.clone();
             for binding in bindings
                 .iter_mut()
-                .filter(|binding| binding.source.relation() == UniformNotRequested::NAME)
+                .filter(|binding| binding.source.relation() == InputRevision::NAME)
             {
-                binding.boundary = boundary.clone();
+                binding.boundary = Some(boundary.name().to_owned());
             }
             assert!(
                 ValidatedUniformOwner::validate_analysis_binding(

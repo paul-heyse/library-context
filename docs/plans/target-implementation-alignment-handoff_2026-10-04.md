@@ -38,7 +38,7 @@ Architectural routes:
 Read each owner's Decision line for rationale and rejected alternatives. The most relevant accepted records are:
 
 - [ADR-0085 typed semantic domain](../adr/0085-typed-semantic-domain.md) and [ADR-0086 generations](../adr/0086-immutable-postgresql-generations.md): model/store authority and declaration-based lowering.
-- [ADR-0105 vocabulary epochs](../adr/0105-analysis-vocabulary-epochs.md) and [ADR-0108 analysis owners](../adr/0108-immutable-analysis-owners.md): exact immutable read/publication boundaries.
+- [ADR-0168 exact selections and vocabulary epochs](../adr/0168-exact-ready-compiler-selections.md) and [ADR-0108 analysis owners](../adr/0108-immutable-analysis-owners.md): exact immutable read/publication boundaries.
 - [ADR-0117 analyzer families](../adr/0117-independent-analyzer-families.md), [ADR-0118 pins](../adr/0118-pinned-compute-and-analyzer-families.md), [ADR-0121 evidence packets](../adr/0121-analytical-evidence-packets.md): independent parsing/provider roles and current enrichment seams.
 - [ADR-0073 wire contracts](../adr/0073-catalog-wire-contracts.md), [ADR-0114 serving](../adr/0114-generation-serving-contracts.md), [ADR-0116 preparation](../adr/0116-bounded-semantic-preparation-and-consumption.md): Rust wire authority, generation pinning and bounded actual-work lifetimes.
 - [ADR-0071 product](../adr/0071-api-evidence-product.md) and [ADR-0131 current-only cutover](../adr/0131-evidence-values-and-contextual-delivery.md): evidence discovery target, deliberate replacement and qualified current state.

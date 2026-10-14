@@ -14,7 +14,7 @@ use futures::{
     future::{BoxFuture, Shared},
 };
 use lctx_model::domain::{
-    Batch, ContentHash, ModelError, Record, Relation, ValidatedModel, analysis,
+    Batch, ContentHash, HeapSize, ModelError, Record, Relation, ValidatedModel, analysis,
     batching::TransferLimits,
     charged::StateCharge,
     resources::{Reservation, ResourceBudget, ResourcePool},
@@ -99,6 +99,7 @@ pub struct Workspace {
         StateCharge,
     )>,
     completed: Mutex<BTreeMap<&'static str, Arc<CompletedRelation>>>,
+    completed_by_producer: Mutex<BTreeMap<(&'static str, &'static str), Arc<CompletedRelation>>>,
     frozen_shared: Mutex<
         BTreeMap<
             (
@@ -259,6 +260,7 @@ impl Workspace {
             content_frozen: AtomicBool::new(false),
             completed_owners,
             completed: Mutex::default(),
+            completed_by_producer: Mutex::default(),
             frozen_shared: Mutex::default(),
             cancellation,
             completion_gate: tokio::sync::Mutex::new(()),
@@ -388,6 +390,7 @@ impl Workspace {
                 contribution: lctx_model::domain::stages::is_epoch_shared(name),
                 snapshot: binding.source,
                 _files: self.files.clone(),
+                _selection_charge: None,
             });
             if let Some(boundary) = binding.boundary {
                 let boundary = lctx_model::domain::stages::PublicationBoundary::ALL
@@ -954,6 +957,43 @@ impl Workspace {
         }
         self.relation(input.name())
     }
+    pub(crate) fn completed_owner(
+        &self,
+        producer: &str,
+    ) -> Result<
+        (
+            lctx_model::domain::completed::CompletedContribution,
+            Box<dyn Reservation>,
+        ),
+        ModelError,
+    > {
+        let owners = self.completed_owners.lock().map_err(|_| poisoned())?;
+        let mut matches = owners
+            .0
+            .values()
+            .filter(|owner| owner.spec.producer == producer);
+        let owner = matches
+            .next()
+            .ok_or(ModelError::Conflict("stage has no completed owner"))?;
+        if matches.next().is_some() {
+            return Err(ModelError::Conflict("stage has multiple completed owners"));
+        }
+        let charge = self.budget.reserve(
+            "terminal stage owner descriptor",
+            std::mem::size_of_val(owner)
+                .saturating_add(1024)
+                .saturating_add(
+                    owner
+                        .spec
+                        .inputs
+                        .iter()
+                        .map(|source| std::mem::size_of_val(source) + source.heap_bytes())
+                        .sum::<usize>(),
+                )
+                .saturating_add(owner.outputs.len().saturating_mul(256)),
+        )?;
+        Ok((owner.clone(), charge))
+    }
     pub fn completed_relations(&self) -> Result<Vec<Arc<CompletedRelation>>, ModelError> {
         Ok(self
             .completed
@@ -994,6 +1034,134 @@ impl Workspace {
             profile,
             relations,
         })
+    }
+    /// Earn and bind an exact relation selection without closing unrelated prefix members.
+    async fn bind_exact_selection(
+        &self,
+        selection: &lctx_model::domain::stages::InputSelection,
+    ) -> Result<(), ModelError> {
+        let Some(boundary) = selection.resolved else {
+            return Ok(());
+        };
+        let _scratch = self.budget.reserve(
+            "exact input composition scratch",
+            selection
+                .producers
+                .len()
+                .saturating_mul(1024)
+                .saturating_add(1024),
+        )?;
+        let sources = {
+            let owners = self.completed_by_producer.lock().map_err(|_| poisoned())?;
+            selection
+                .producers
+                .iter()
+                .map(|producer| {
+                    owners
+                        .get(&(*producer, selection.relation))
+                        .cloned()
+                        .ok_or(ModelError::Conflict("exact input owner is not completed"))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let template = sources
+            .first()
+            .ok_or(ModelError::Conflict("empty exact contributor selection"))?;
+        let views = sources
+            .iter()
+            .map(|source| source.view.clone())
+            .collect::<Vec<_>>();
+        let expected = views
+            .iter()
+            .flat_map(|view| view.contributions.iter().copied())
+            .collect();
+        if let Some(existing) = self
+            .frozen_shared
+            .lock()
+            .map_err(|_| poisoned())?
+            .get(&(boundary, selection.relation))
+        {
+            return if existing.view.contributions == expected {
+                Ok(())
+            } else {
+                Err(ModelError::Conflict(
+                    "exact input boundary changed contributors",
+                ))
+            };
+        }
+        let native = self.native.clone();
+        let relation = template.relation.clone();
+        let budget = self.budget.clone();
+        let view = self
+            .native_calls
+            .call(async move {
+                native
+                    .compose_completed_views(&relation, &views, &budget)
+                    .await
+            })
+            .await?;
+        let retained: Arc<dyn Reservation> = Arc::from(
+            self.budget.reserve(
+                "exact input descriptor",
+                std::mem::size_of::<CompletedRelation>()
+                    .saturating_add(1024)
+                    .saturating_add(view.contributions.len().saturating_mul(96)),
+            )?,
+        );
+        let mut source = (**template).clone();
+        source._selection_charge = Some(retained);
+        source.rows = view.rows;
+        source.snapshot = analysis::sources::SourceSnapshot::of_completed_view(
+            &source.relation,
+            self.model.digest(),
+            &view,
+        )?;
+        source.view = view;
+        let source = Arc::new(source);
+        let binding = lctx_model::domain::completed::CompletedBinding {
+            boundary: Some(boundary.name().into()),
+            source: source.snapshot(),
+            view: source.view.clone(),
+            configuration: None,
+        };
+        let native = self.native.clone();
+        self.native_calls
+            .call(async move { native.bind(binding).await })
+            .await?;
+        self.frozen_shared
+            .lock()
+            .map_err(|_| poisoned())?
+            .insert((boundary, selection.relation), source);
+        Ok(())
+    }
+    pub(crate) async fn bind_scheduled_inputs(
+        &self,
+        schedule: &lctx_model::domain::stages::Schedule,
+        declaration: &lctx_model::domain::stages::Stage,
+    ) -> Result<lctx_model::domain::stages::Stage, ModelError> {
+        let _completion = self.completion_gate.lock().await;
+        self.writable()?;
+        let mut selected = declaration.clone();
+        for selection in schedule.selections(declaration.name)? {
+            self.bind_exact_selection(selection).await?;
+            if let Some(boundary) = selection.resolved {
+                selected.inputs[selection.role] =
+                    selected.inputs[selection.role].at_epoch(boundary);
+            }
+        }
+        Ok(selected)
+    }
+    pub(crate) async fn freeze_scheduled_prefix(
+        &self,
+        schedule: &lctx_model::domain::stages::Schedule,
+        boundary: lctx_model::domain::stages::PublicationBoundary,
+    ) -> Result<(), ModelError> {
+        let _completion = self.completion_gate.lock().await;
+        self.writable()?;
+        for selection in schedule.prefix_selections(boundary)? {
+            self.bind_exact_selection(selection).await?;
+        }
+        Ok(())
     }
     /// Bind each declared semantic boundary to immutable shared streams. Only small
     /// descriptors are retained; later contributions cannot widen an earlier producer's inputs.
@@ -1213,6 +1381,7 @@ fn poisoned() -> ModelError {
 }
 
 /// A stream descriptor, not a resident collection or a database read capability.
+#[derive(Clone)]
 pub struct CompletedRelation {
     relation: Relation,
     producer: String,
@@ -1231,6 +1400,7 @@ pub struct CompletedRelation {
     contribution: bool,
     snapshot: lctx_model::domain::analysis::sources::SourceSnapshot,
     _files: Arc<WorkspaceFiles>,
+    _selection_charge: Option<Arc<dyn Reservation>>,
 }
 impl CompletedRelation {
     pub fn schema(&self) -> &Arc<arrow_schema::Schema> {
@@ -2904,6 +3074,7 @@ impl ProducerOutput {
                     profile: self.profile,
                     contribution: pending.contribution,
                     _files: self.workspace.files.clone(),
+                    _selection_charge: None,
                 }));
             }
             for source in &completed {
@@ -2925,10 +3096,16 @@ impl ProducerOutput {
                 .completed_owners
                 .lock()
                 .map_err(|_| poisoned())?;
-            owners.1.grow(descriptor_bytes)?;
+            owners.1.grow(
+                descriptor_bytes.saturating_add(
+                    completed
+                        .len()
+                        .saturating_mul(std::mem::size_of::<CompletedRelation>() + 512),
+                ),
+            )?;
             if owners
                 .0
-                .insert(descriptor.spec.identity()?, descriptor)
+                .insert(descriptor.spec.identity()?, descriptor.clone())
                 .is_some()
             {
                 return Err(ModelError::Conflict(
@@ -2936,6 +3113,37 @@ impl ProducerOutput {
                 ));
             }
             drop(owners);
+            let mut by_producer = self
+                .workspace
+                .completed_by_producer
+                .lock()
+                .map_err(|_| poisoned())?;
+            for source in &completed {
+                let output = descriptor
+                    .outputs
+                    .get(source.name())
+                    .ok_or(ModelError::Conflict("exact producer output absent"))?;
+                let view = lctx_model::domain::completed::CompletedView::new(
+                    source.name().into(),
+                    [descriptor.identity()?].into(),
+                    output.rows,
+                )?;
+                let mut singleton = (**source).clone();
+                singleton.rows = view.rows;
+                singleton.snapshot = analysis::sources::SourceSnapshot::of_completed_view(
+                    &singleton.relation,
+                    self.workspace.model.digest(),
+                    &view,
+                )?;
+                singleton.view = view;
+                if by_producer
+                    .insert((self.name, source.name()), Arc::new(singleton))
+                    .is_some()
+                {
+                    return Err(ModelError::Conflict("duplicate exact producer output"));
+                }
+            }
+            drop(by_producer);
             let mut visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
             for source in completed {
                 visible.insert(source.name(), source);
@@ -3002,6 +3210,9 @@ impl Reservation for WorkspaceReservation {
 }
 
 impl cpg_extract::bundle::ProviderSink for ProducerOutput {
+    fn cancelled(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(self.workspace.cancellation.cancelled())
+    }
     fn cancel(&self) {
         self.workspace.cancellation.cancel();
     }
@@ -3168,6 +3379,139 @@ mod tests {
             "even an empty optimizer input needs earned native authority before construction"
         );
     }
+    #[tokio::test]
+    async fn exact_scheduled_relation_selection_excludes_later_arrival_and_unfinished_peers() {
+        use lctx_model::domain::{
+            ValidationInput,
+            input::InputRevision,
+            source::{Module, SourceArtifact},
+            stages::*,
+            value::{AccessPath, Literal, Place, PlaceRoot},
+        };
+        let declared = Arc::new(lctx_model::domain::model().unwrap());
+        let make = |name, inputs, outputs| Stage {
+            name,
+            inputs,
+            outputs,
+            contributes: vec![],
+            coverage: vec![],
+            profiles: Profile::ALL.to_vec(),
+            effect: Effect::Pure,
+            code: ContentHash::of(b"exact-source-control"),
+            configuration: ContentHash::of(b"exact-source-control"),
+            captured_binding: None,
+        };
+        let first = make("first_places", vec![], vec![RelationUse::of::<Place>()]);
+        let later = make("later_places", vec![], vec![RelationUse::of::<Place>()]);
+        let peer = make(
+            "unfinished_literals",
+            vec![],
+            vec![RelationUse::of::<Literal>()],
+        );
+        let reader = make(
+            "exact_reader",
+            vec![RelationUse::completed::<Place>().at_epoch(PublicationBoundary::Facts)],
+            vec![RelationUse::of::<Package>()],
+        );
+        let schedule = Schedule::build_with_publications(
+            &declared,
+            vec![first.clone(), later.clone(), peer, reader.clone()],
+            &[],
+            Profile::Catalog,
+            vec![
+                PublicationGroup::new(
+                    PublicationBoundary::Facts,
+                    vec!["first_places", "unfinished_literals"],
+                ),
+                PublicationGroup::new(PublicationBoundary::Local, vec!["later_places"]),
+            ],
+        )
+        .unwrap();
+        let input = InputRevision {
+            manifest: ContentHash::of(b"exact-source-control"),
+        };
+        let source =
+            SourceArtifact::from_bytes(input.id(), "fixture.py".into(), b"value = 1\n").unwrap();
+        let module = Module {
+            source: source.id(),
+            qualified_name: "fixture".into(),
+        };
+        let place = |name: &str| Place {
+            root: PlaceRoot::Global {
+                module: module.id(),
+                name: name.into(),
+            }
+            .id(),
+            path: AccessPath::empty().id(),
+        };
+        let earlier = place("earlier");
+        let late = place("later");
+        let mut identities = Vec::new();
+        for reversed in [false, true] {
+            let workspace = Workspace::new(
+                declared.clone(),
+                Default::default(),
+                crate::test_native::store(),
+            )
+            .unwrap();
+            assert!(
+                workspace
+                    .bind_scheduled_inputs(&schedule, &reader)
+                    .await
+                    .is_err()
+            );
+            let order = if reversed {
+                [(&later, &late), (&first, &earlier)]
+            } else {
+                [(&first, &earlier), (&later, &late)]
+            };
+            for (stage, row) in order {
+                let access = workspace.stage_inputs(stage, Profile::Catalog).unwrap();
+                let output = workspace.producer(stage, Profile::Catalog, access);
+                output.declare_async::<Place>().await.unwrap();
+                output.push(row.clone()).await.unwrap();
+                output.finish(ProviderOutcome::Complete).await.unwrap();
+            }
+            let selected = workspace
+                .bind_scheduled_inputs(&schedule, &reader)
+                .await
+                .unwrap();
+            let access = workspace
+                .stage_inputs_selected(&reader, &selected, Profile::Catalog)
+                .unwrap();
+            let exact = access.relation::<Place>().unwrap();
+            assert_eq!(exact.rows(), 1);
+            let mut actual = Vec::new();
+            for batch in exact.batches_async().await.unwrap() {
+                actual.extend(Place::decode(&batch.unwrap()).unwrap());
+            }
+            assert_eq!(actual, vec![earlier.clone()]);
+            identities.push(exact.view_identity());
+            workspace
+                .freeze_scheduled_prefix(&schedule, PublicationBoundary::Local)
+                .await
+                .unwrap_err();
+            // Whole-prefix completion still requires the unfinished literal owner.
+            let local_places = schedule
+                .prefix_selections(PublicationBoundary::Local)
+                .unwrap()
+                .iter()
+                .find(|selection| selection.relation == Place::NAME)
+                .unwrap();
+            workspace.bind_exact_selection(local_places).await.unwrap();
+            assert_eq!(
+                workspace
+                    .input_relation(
+                        &ValidationInput::of::<Place>(&[]).at_epoch(PublicationBoundary::Local)
+                    )
+                    .unwrap()
+                    .rows(),
+                2
+            );
+        }
+        assert_eq!(identities[0], identities[1]);
+    }
+
     #[tokio::test]
     async fn logical_templates_share_only_fixed_ports_program_and_input_order() {
         use datafusion::datasource::MemTable;

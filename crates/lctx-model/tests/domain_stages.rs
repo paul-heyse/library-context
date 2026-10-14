@@ -6,7 +6,7 @@ fn stages() -> Vec<Stage> {
     vec![
         Stage {
             captured_binding: None,
-name: "packages",
+            name: "packages",
             inputs: vec![],
             outputs: vec![RelationUse::of::<Package>()],
             contributes: vec![],
@@ -18,7 +18,7 @@ name: "packages",
         },
         Stage {
             captured_binding: None,
-name: "releases",
+            name: "releases",
             inputs: vec![RelationUse::of::<Package>()],
             outputs: vec![RelationUse::of::<Release>()],
             contributes: vec![],
@@ -70,7 +70,7 @@ fn the_schedule_refuses_double_or_missing_writers_foreign_relations_and_cycles()
               outputs: Vec<RelationUse>,
               profiles: Vec<Profile>| Stage {
         captured_binding: None,
-name,
+        name,
         inputs,
         outputs,
         contributes: vec![],
@@ -201,4 +201,78 @@ name,
 struct Outside {
     #[model(key)]
     name: String,
+}
+
+#[test]
+fn exact_relation_readiness_does_not_wait_for_unrelated_prefix_members() {
+    use lctx_model::domain::{value::Literal, value::Place};
+    use std::collections::BTreeSet;
+    let model = lctx_model::domain::model().unwrap();
+    let make = |name, inputs, outputs| Stage {
+        name,
+        inputs,
+        outputs,
+        contributes: vec![],
+        coverage: vec![],
+        profiles: Profile::ALL.to_vec(),
+        effect: Effect::Pure,
+        code: ContentHash::of(b"exact-readiness"),
+        configuration: ContentHash::of(b"exact-readiness"),
+        captured_binding: None,
+    };
+    let offered = vec![
+        make("facts_places", vec![], vec![RelationUse::of::<Place>()]),
+        make(
+            "unrelated_literals",
+            vec![],
+            vec![RelationUse::of::<Literal>()],
+        ),
+        make("later_places", vec![], vec![RelationUse::of::<Place>()]),
+        make(
+            "facts_reader",
+            vec![RelationUse::completed::<Place>().at_epoch(PublicationBoundary::Facts)],
+            vec![RelationUse::of::<Package>()],
+        ),
+        make(
+            "later_reader",
+            vec![RelationUse::completed::<Place>().at_epoch(PublicationBoundary::Local)],
+            vec![RelationUse::of::<Release>()],
+        ),
+    ];
+    let schedule = Schedule::build_with_publications(
+        &model,
+        offered,
+        &[],
+        Profile::Catalog,
+        vec![
+            PublicationGroup::new(
+                PublicationBoundary::Facts,
+                vec!["facts_places", "unrelated_literals"],
+            ),
+            PublicationGroup::new(PublicationBoundary::Local, vec!["later_places"]),
+        ],
+    )
+    .unwrap();
+    assert!(schedule.ready("later_places", &BTreeSet::new()).unwrap());
+    let earlier = BTreeSet::from(["facts_places"]);
+    assert!(schedule.ready("facts_reader", &earlier).unwrap());
+    assert!(!schedule.ready("later_reader", &earlier).unwrap());
+    assert_eq!(
+        schedule.selections("facts_reader").unwrap()[0].producers,
+        earlier
+    );
+    assert_eq!(
+        schedule.selections("later_reader").unwrap()[0].producers,
+        BTreeSet::from(["facts_places", "later_places"])
+    );
+    assert_eq!(
+        schedule
+            .prefix_selections(PublicationBoundary::Facts)
+            .unwrap()
+            .iter()
+            .find(|role| role.relation == Place::NAME)
+            .unwrap()
+            .producers,
+        BTreeSet::from(["facts_places"])
+    );
 }

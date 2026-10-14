@@ -10,7 +10,7 @@ store transitions, live embedding behavior, performance or serving quality.
 
 | Field | Scope |
 |---|---|
-| Subject | [Phase 4 detailed plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md), proposed [ADR-0105](../../adr/0105-analysis-vocabulary-epochs.md), [ADR-0106](../../adr/0106-typed-analysis-and-catalog.md), and affected architectural owners |
+| Subject | [Phase 4 detailed plan](../../plans/semantic-model-phase4-detailed-plan_2026-09-30.md), proposed [ADR-0105](../../README.md#historical-recovery), [ADR-0106](../../adr/0106-typed-analysis-and-catalog.md), and affected architectural owners |
 | Baseline | main 73187700fff553a0ca74abecdcfb7e8429c06617 plus the proposed documents inspected on 2026-09-30; concurrent hook/tooling changes excluded |
 | Standard | Core/template 3.2, code-intelligence profile 1.3, repository binding declared by [standard.toml](../design_principles/standard.toml); design-review and design-review-code-intelligence skills |
 | Reviewer | Independent assembled-plan reviewer; separate from document author |

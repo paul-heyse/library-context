@@ -94,6 +94,15 @@ Behavioral Local/Base/Body/SourceCall remain fresh where full semantic validatio
 the production kernels and add cache overhead. The graph/reuse
 companions own qualification; no general incremental query engine or measured benefit is claimed.
 
+**Accepted target,2026-10-14 (ADR-0168); implementation/focused acceptance in progress.**
+Execution readiness follows model-owned direct, invariant and assembly prerequisites. Ordered role
+recipes select exact completed contributor sets independently of arrival. A native-earned immutable
+relation binding may be consumed before unrelated publication members finish; whole publication
+prefixes still close in ordinal order over their complete declared membership. Catalog compact
+owners retain actual captured frame/source/definition/configuration premises and total NotRequested
+domains, rather than requested Behavioral computation dependencies. Private stage results and shared
+preparation remain bound to exact consumer authority and the last running/remaining borrower.
+
 Facts, Normalized, Analysis and Catalog are cumulative requested frontiers. Both catalog and
 behavioral profiles preserve native coverage and uncertainty. Selected upper operations require
 their actual Local, execution, Model, source-call or vector predecessors. Projection preparation
@@ -137,7 +146,7 @@ serialization is implied. Source acceptance and focused native/diagnostic contro
 foundations; generated-analysis/native-query and enclosing acceptance retain their exact boundaries
 in the [Catalog execution coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint).
 
-> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108, ADR-0165, ADR-0166
+> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0168, ADR-0108, ADR-0165, ADR-0166
 
 <a id="section-15-2"></a>
 
@@ -902,7 +911,7 @@ attributed outcomes. The execution plan owns current focused evidence for this c
 
 The [persisted execution plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current implementation and acceptance. Earlier compiler controls remain dated receipts for their original stage; they do not qualify this changed persistence boundary. Native credentials remain at the runtime owner and are never emitted as reader capability metadata.
 
-> Decision: ADR-0141, ADR-0145, ADR-0089, ADR-0105, ADR-0108, ADR-0116, ADR-0119
+> Decision: ADR-0141, ADR-0145, ADR-0089, ADR-0168, ADR-0108, ADR-0116, ADR-0119
 
 <a id="section-15-12"></a>
 

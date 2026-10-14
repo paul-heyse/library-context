@@ -12,7 +12,7 @@ prerequisites its consumers expose. Package receipts below distinguish implement
 The [parent cutover plan](semantic-model-cutover-plan_2026-09-29.md) owns cross-phase sequence and
 finding disposition; this document owns Phase 4 contracts, packages and acceptance controls.
 [DESIGN §15](../design/sections/semantic-model.md) remains the accepted semantic authority.
-[ADR-0105](../adr/0105-analysis-vocabulary-epochs.md) and
+[ADR-0168](../adr/0168-exact-ready-compiler-selections.md) and
 [ADR-0106](../adr/0106-typed-analysis-and-catalog.md) record the accepted decisions and alternatives.
 [ADR-0108](../adr/0108-immutable-analysis-owners.md) refines their ordinary result ownership at
 actual publication boundaries; implementation remains subject to the foundation review.

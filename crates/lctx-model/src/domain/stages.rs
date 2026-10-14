@@ -226,7 +226,10 @@ impl Stage {
         digest.finish()
     }
     fn encode(&self, digest: &mut KeySink) {
-        self.captured_binding.as_ref().map(|binding|binding.contract).encode(digest);
+        self.captured_binding
+            .as_ref()
+            .map(|binding| binding.contract)
+            .encode(digest);
         digest.part(b"stage", self.name.as_bytes());
         digest.part(b"effect", self.effect.name().as_bytes());
         digest.part(b"code", &self.code.0);
@@ -279,7 +282,9 @@ impl Stage {
     }
 }
 /// Finite named publication identity. Codes are append-only, never execution order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 #[repr(u8)]
 pub enum PublicationBoundary {
     Facts = 0,
@@ -520,7 +525,11 @@ pub fn is_vocabulary(name: &str) -> bool {
 /// Relations whose immutable streams may grow across named publication epochs.
 /// Canonical embedding winners share transport, never semantic vocabulary ownership.
 pub fn is_epoch_shared(name: &str) -> bool {
-    is_vocabulary(name) || matches!(name, "embedding_full_values" | "embedding_projected_values" | "uniform_not_requested")
+    is_vocabulary(name)
+        || matches!(
+            name,
+            "embedding_full_values" | "embedding_projected_values" | "uniform_not_requested"
+        )
 }
 #[derive(Debug, Clone)]
 pub struct PublicationGroup {
@@ -544,10 +553,23 @@ impl ScheduledPublication {
         self.prefix
     }
 }
+/// One ordered role resolved to a finite immutable contributor selection. This recipe
+/// grants no read authority until the runtime has completed and bound every owner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputSelection {
+    pub role: usize,
+    pub relation: &'static str,
+    pub requested: Option<PublicationBoundary>,
+    pub resolved: Option<PublicationBoundary>,
+    pub producers: BTreeSet<&'static str>,
+}
 #[derive(Debug)]
 pub struct Schedule {
     groups: Vec<ScheduledPublication>,
     publication_order: PublicationOrder,
+    prerequisites: BTreeMap<&'static str, BTreeSet<&'static str>>,
+    selections: BTreeMap<&'static str, Vec<InputSelection>>,
+    prefixes: BTreeMap<PublicationBoundary, Vec<InputSelection>>,
     stages: Vec<Stage>,
     model: ContentHash,
     digest: ContentHash,
@@ -764,27 +786,78 @@ impl Schedule {
                 )));
             }
         }
+        // Execution depends on exact relation owners, not on unrelated publication members.
+        // Shared relations include every contributor through the selected semantic boundary.
+        let owners_for =
+            |kind: TypeId, prefix: Option<PublicationBoundary>| -> Result<_, ModelError> {
+                let writer = *writers.get(&kind).ok_or_else(|| {
+                    ModelError::Invalid("missing writer for input relation".into())
+                })?;
+                let shared = stages[writer]
+                    .outputs
+                    .iter()
+                    .find(|r| r.type_id == kind)
+                    .expect("writer output");
+                let resolved = if is_epoch_shared(shared.name) {
+                    prefix.or_else(|| {
+                        grouped
+                            .get(stages[writer].name)
+                            .map(|index| groups[*index as usize].epoch)
+                    })
+                } else {
+                    None
+                };
+                let limit = resolved
+                    .map(|epoch| raw_order.resolve(epoch).map(|p| p.ordinal()))
+                    .transpose()?;
+                let first = grouped.get(stages[writer].name).copied();
+                let owners = stages
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, stage)| {
+                        let produces = stage
+                            .outputs
+                            .iter()
+                            .chain(&stage.contributes)
+                            .any(|r| r.type_id == kind);
+                        produces
+                            && match limit {
+                                Some(limit) => grouped
+                                    .get(stage.name)
+                                    .copied()
+                                    .or(first)
+                                    .is_some_and(|epoch| epoch <= limit),
+                                None => stage.name == stages[writer].name,
+                            }
+                    })
+                    .map(|(i, _)| i)
+                    .collect::<BTreeSet<_>>();
+                if owners.is_empty() {
+                    return Err(ModelError::Invalid(
+                        "input has no owner at its requested boundary".into(),
+                    ));
+                }
+                Ok((resolved, owners))
+            };
         let mut dependencies: BTreeMap<usize, BTreeSet<usize>> =
             (0..stages.len()).map(|i| (i, BTreeSet::new())).collect();
+        let mut selections = BTreeMap::new();
         for (i, stage) in stages.iter().enumerate() {
-            // Invariant inputs are part of the declaration's input closure. Native handoffs
-            // keep their existing boundary; completed-input consumers declare every premise.
-            for invariant in stage.read_invariants(model)? {
-                for input in &invariant.inputs {
-                    if let Some(writer) = writers.get(&input.type_id()) {
-                        dependencies
-                            .get_mut(&i)
-                            .expect("stage index")
-                            .insert(*writer);
-                    }
+            let mut roles = Vec::new();
+            for (role, input) in stage.inputs.iter().enumerate() {
+                if input.prefix.is_some()
+                    && (input.transport != InputTransport::CompletedInput
+                        || !is_epoch_shared(input.name))
+                {
+                    return Err(ModelError::Invalid(
+                        "epoch reads require a shared completed input".into(),
+                    ));
                 }
-            }
-            for r in &stage.inputs {
-                if r.prefix.is_none()
-                    && is_epoch_shared(r.name)
+                if input.prefix.is_none()
+                    && is_epoch_shared(input.name)
                     && stages
                         .iter()
-                        .filter(|s| s.outputs.iter().any(|o| o.type_id == r.type_id))
+                        .filter(|s| s.outputs.iter().any(|o| o.type_id == input.type_id))
                         .count()
                         > 1
                 {
@@ -792,85 +865,88 @@ impl Schedule {
                         "a growing shared input needs an explicit closed epoch".into(),
                     ));
                 }
-                let writer = if let Some(epoch) = r.prefix {
-                    raw_order.resolve(epoch)?;
-                    if r.transport != InputTransport::CompletedInput {
-                        return Err(ModelError::Invalid(
-                            "epoch reads require completed-input transport".into(),
-                        ));
-                    }
-                    if !is_epoch_shared(r.name) {
-                        return Err(ModelError::Invalid(
-                            "epoch bound applies only to shared relations".into(),
-                        ));
-                    }
-                    stages
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, s)| {
-                            grouped.get(s.name).is_some_and(|e| {
-                                *e <= raw_order
-                                    .resolve(epoch)
-                                    .expect("resolved input boundary")
-                                    .ordinal()
-                            }) && s.outputs.iter().any(|o| o.type_id == r.type_id)
-                        })
-                        .max_by_key(|(_, s)| grouped[s.name])
-                        .map(|(i, _)| i)
-                } else {
-                    writers.get(&r.type_id).copied()
-                }
-                .ok_or_else(|| ModelError::Invalid(format!("missing writer for {}", r.name)))?;
+                let (resolved, owners) = owners_for(input.type_id, input.prefix)?;
                 dependencies
                     .get_mut(&i)
                     .expect("stage index")
-                    .insert(writer);
-                if let Some(epoch) = r.prefix {
-                    let group = groups.iter().find(|g| g.epoch == epoch).ok_or_else(|| {
-                        ModelError::Invalid("input reads undeclared epoch".into())
-                    })?;
-                    dependencies.get_mut(&i).expect("stage index").extend(
-                        stages
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, s)| group.stages.contains(&s.name))
-                            .map(|(i, _)| i),
-                    );
+                    .extend(&owners);
+                roles.push(InputSelection {
+                    role,
+                    relation: input.name,
+                    requested: input.prefix,
+                    resolved,
+                    producers: owners.into_iter().map(|owner| stages[owner].name).collect(),
+                });
+            }
+            for invariant in stage.read_invariants(model)? {
+                for input in &invariant.inputs {
+                    // Inferred ordinary Facts may be omitted by the selected profile.
+                    // Their semantic coverage remains checked by admission; explicit ports
+                    // above always require a real writer. Preserve this existing distinction.
+                    if !writers.contains_key(&input.type_id()) {
+                        continue;
+                    }
+                    let prefix = stage
+                        .inputs
+                        .iter()
+                        .find(|r| r.type_id == input.type_id() && r.prefix == input.prefix())
+                        .and_then(|r| r.prefix)
+                        .or(input.prefix());
+                    let (_, owners) = owners_for(input.type_id(), prefix)?;
+                    dependencies
+                        .get_mut(&i)
+                        .expect("stage index")
+                        .extend(owners);
                 }
             }
-            for r in &stage.contributes {
-                let writer = writers.get(&r.type_id).ok_or_else(|| {
-                    ModelError::Invalid(format!("contribution to {} has no writer", r.name))
+            for relation in &stage.contributes {
+                let writer = writers.get(&relation.type_id).ok_or_else(|| {
+                    ModelError::Invalid(format!("contribution to {} has no writer", relation.name))
                 })?;
                 dependencies.get_mut(writer).expect("stage index").insert(i);
             }
+            selections.insert(stage.name, roles);
         }
-        for (index, group) in groups.iter().enumerate() {
-            let member_ids: BTreeSet<_> = stages
-                .iter()
-                .enumerate()
-                .filter(|(_, s)| group.stages.contains(&s.name))
-                .map(|(i, _)| i)
-                .collect();
-            for (i, deps) in &mut dependencies {
-                if !member_ids.contains(i) && deps.iter().any(|d| member_ids.contains(d)) {
-                    deps.extend(&member_ids);
-                }
-                if member_ids.contains(i) && index > 0 {
-                    deps.extend(
-                        stages
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, s)| groups[index - 1].stages.contains(&s.name))
-                            .map(|(i, _)| i),
-                    );
-                }
-                if member_ids.contains(i) && deps.iter().any(|d| member_ids.contains(d)) {
-                    return Err(ModelError::Invalid(
-                        "a publication member cannot read its unfinished group".into(),
-                    ));
+        if dependencies
+            .iter()
+            .any(|(stage, deps)| deps.contains(stage))
+        {
+            return Err(ModelError::Invalid(
+                "stage cycle: a stage cannot read its unfinished output or assembly".into(),
+            ));
+        }
+        let prerequisites = dependencies
+            .iter()
+            .map(|(stage, deps)| {
+                (
+                    stages[*stage].name,
+                    deps.iter().map(|dep| stages[*dep].name).collect(),
+                )
+            })
+            .collect();
+        let mut prefixes = BTreeMap::new();
+        for group in &groups {
+            let mut roles = Vec::new();
+            let mut relations = BTreeMap::new();
+            for stage in &stages {
+                for output in &stage.outputs {
+                    if is_epoch_shared(output.name) {
+                        relations.insert(output.name, output);
+                    }
                 }
             }
+            for input in relations.into_values() {
+                if let Ok((resolved, owners)) = owners_for(input.type_id, Some(group.epoch)) {
+                    roles.push(InputSelection {
+                        role: roles.len(),
+                        relation: input.name,
+                        requested: Some(group.epoch),
+                        resolved,
+                        producers: owners.into_iter().map(|owner| stages[owner].name).collect(),
+                    });
+                }
+            }
+            prefixes.insert(group.epoch, roles);
         }
         let mut ordered = Vec::new();
         while !dependencies.is_empty() {
@@ -886,7 +962,7 @@ impl Schedule {
             }
             ordered.push(stages[next].clone());
         }
-        let mut digest = KeySink::new("stage-schedule");
+        let mut digest = KeySink::new("stage-schedule/exact-owner-readiness-v2");
         digest.part(b"model", &model.digest().0);
         digest.part(b"profile", profile.name().as_bytes());
         for stage in &ordered {
@@ -914,6 +990,9 @@ impl Schedule {
         Ok(Self {
             groups,
             publication_order,
+            prerequisites,
+            selections,
+            prefixes,
             stages: ordered,
             model: model.digest(),
             digest,
@@ -934,6 +1013,33 @@ impl Schedule {
     }
     pub fn prefix_for(&self, boundary: PublicationBoundary) -> Result<PrefixOrdinal, ModelError> {
         self.publication_order.resolve(boundary)
+    }
+    pub fn prefix_selections(
+        &self,
+        boundary: PublicationBoundary,
+    ) -> Result<&[InputSelection], ModelError> {
+        self.prefixes
+            .get(&boundary)
+            .map(Vec::as_slice)
+            .ok_or(ModelError::Invalid("unknown publication boundary".into()))
+    }
+    pub fn prerequisites(&self, stage: &str) -> Result<&BTreeSet<&'static str>, ModelError> {
+        self.prerequisites
+            .get(stage)
+            .ok_or(ModelError::Invalid("unknown scheduled stage".into()))
+    }
+    pub fn selections(&self, stage: &str) -> Result<&[InputSelection], ModelError> {
+        self.selections
+            .get(stage)
+            .map(Vec::as_slice)
+            .ok_or(ModelError::Invalid("unknown scheduled stage".into()))
+    }
+    pub fn ready(
+        &self,
+        stage: &str,
+        completed: &BTreeSet<&'static str>,
+    ) -> Result<bool, ModelError> {
+        Ok(self.prerequisites(stage)?.is_subset(completed))
     }
     pub fn stages(&self) -> &[Stage] {
         &self.stages

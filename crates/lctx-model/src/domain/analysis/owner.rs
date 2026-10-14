@@ -157,6 +157,21 @@ impl AnalysisOwner {
                 | Self::Analytic
         )
     }
+    /// These owners author total NotRequested domains in Catalog, independently of
+    /// Behavioral result rows. Optional owners retain their own selection contracts.
+    pub fn compact_catalog(self, profile: Profile) -> bool {
+        profile == Profile::Catalog
+            && matches!(
+                self,
+                Self::Local
+                    | Self::Base
+                    | Self::Completion
+                    | Self::SourceCalls
+                    | Self::Enriched
+                    | Self::Models
+                    | Self::Summary
+            )
+    }
     fn uniform_checkpoint(self) -> PublicationBoundary {
         match self {
             Self::Local | Self::CatalogCore => PublicationBoundary::Facts,
@@ -248,16 +263,30 @@ impl AnalysisOwner {
                     .push(RelationUse::completed::<models::ModelCatalog>());
             }
         }
-        // Uniform is an epoch-shared predecessor inventory, independently of the
-        // factory's vocabulary checkpoint. Select its actual cumulative boundary.
-        stage
-            .inputs
-            .retain(|input| input.name() != uniform_outcome::UniformNotRequested::NAME);
-        stage.inputs.push(
-            RelationUse::completed::<uniform_outcome::UniformNotRequested>()
-                .at_epoch(self.uniform_checkpoint()),
-        );
-        let mut code = KeySink::new("current analysis owner production/v1");
+        if self.compact_catalog(profile) {
+            // Keep the complete ordinary output inventory, authored definition and
+            // producer implementation, but derive inputs from the actual compact
+            // domain rather than the Behavioral kernel or preceding result owner.
+            stage.inputs = dependency_closure::DependencyClosure::stage_grants(
+                model,
+                uniform_outcome::AnalysisUniformInputs::domain_inputs(self),
+                &stage.outputs,
+                PublicationBoundary::Facts,
+                dependency_closure::LowerLayerPolicy::OmitInferredOrdinaryFacts,
+                order,
+            )?;
+        } else {
+            // Ordinary kernels still consume the genuine cumulative compact outcomes
+            // selected at their semantic checkpoint.
+            stage
+                .inputs
+                .retain(|input| input.name() != uniform_outcome::UniformNotRequested::NAME);
+            stage.inputs.push(
+                RelationUse::completed::<uniform_outcome::UniformNotRequested>()
+                    .at_epoch(self.uniform_checkpoint()),
+            );
+        }
+        let mut code = KeySink::new("current analysis owner production/v2");
         stage.code.encode(&mut code);
         ContentHash::of(include_bytes!("owner.rs")).encode(&mut code);
         stage.code = code.finish();
@@ -356,7 +385,7 @@ pub fn validate_selected_roles(
     }
     let order = PublicationOrder::planning(&publication_groups(Vec::new(), true))?;
     for (role, snapshot) in stage.inputs.iter().zip(&owner.spec.inputs) {
-        if role.name() != snapshot.relation() {
+        if role.name() != snapshot.relation() || snapshot.model() != model.digest() {
             return Err(ModelError::Conflict(
                 "analysis owner ordered input role differs",
             ));
@@ -390,7 +419,10 @@ pub fn validate_selected_roles(
         };
         let mut matching = bindings.iter().filter(|binding| {
             binding.source == *snapshot
-                && prefix.is_none_or(|prefix| binding.boundary.as_deref() == Some(prefix.name()))
+                && match prefix {
+                    Some(prefix) => binding.boundary.as_deref() == Some(prefix.name()),
+                    None => binding.boundary.is_none(),
+                }
         });
         let binding = matching.next().ok_or(ModelError::Conflict(
             "analysis owner selected input role absent",
@@ -412,6 +444,115 @@ pub fn validate_selected_roles(
 #[cfg(test)]
 mod controls {
     use super::*;
+    #[test]
+    fn compact_catalog_inputs_retain_domain_and_config_without_execution_predecessors() {
+        let budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
+        let model = crate::domain::model().unwrap();
+        let catalog = models::Catalog::committed().unwrap();
+        let mut definitions = normalized::Rows::new(&budget);
+        for (_, definition) in [
+            local_semantics::definition(),
+            execution::configuration::base_evaluation(),
+            execution::configuration::base_completion(),
+            execution::configuration::source_calls(),
+            execution::configuration::enriched_execution(catalog.declaration().id()),
+            execution::configuration::models(catalog.declaration().id()),
+            execution::configuration::summaries(catalog.declaration().id(), Default::default())
+                .unwrap(),
+        ] {
+            definitions.insert(definition).unwrap();
+        }
+        let selected = SelectedDefinitions {
+            definitions: &definitions,
+            analytics: None,
+            text: None,
+            retrieval: None,
+        };
+        let order = PublicationOrder::planning(&publication_groups(Vec::new(), true)).unwrap();
+        let owners = [
+            AnalysisOwner::Local,
+            AnalysisOwner::Base,
+            AnalysisOwner::Completion,
+            AnalysisOwner::SourceCalls,
+            AnalysisOwner::Enriched,
+            AnalysisOwner::Models,
+            AnalysisOwner::Summary,
+        ];
+        let catalog_stages = owners.map(|owner| {
+            owner
+                .declaration(Profile::Catalog, &selected, &model, &order)
+                .unwrap()
+        });
+        let ordinary_outputs = catalog_stages
+            .iter()
+            .flat_map(|stage| &stage.outputs)
+            .filter(|role| role.name() != uniform_outcome::UniformNotRequested::NAME)
+            .map(|role| role.name())
+            .collect::<std::collections::BTreeSet<_>>();
+        for (owner, stage) in owners.into_iter().zip(catalog_stages.iter()) {
+            for role in &stage.inputs {
+                assert!(
+                    !ordinary_outputs.contains(role.name()),
+                    "{} depends on Behavioral output {}",
+                    stage.name,
+                    role.name()
+                );
+                assert_ne!(role.name(), uniform_outcome::UniformNotRequested::NAME);
+                assert!(
+                    role.prefix()
+                        .is_none_or(|prefix| prefix == PublicationBoundary::Facts)
+                );
+            }
+            // Domain membership needs admitted captured metadata, not original byte chunks.
+            // Original completeness stays with the retained normalization/final admission gates.
+            for expected in [
+                input::InputRevision::NAME,
+                input::ArtifactUse::NAME,
+                source::SourceArtifact::NAME,
+                source::CoverageScope::NAME,
+                attribution::ProviderRun::NAME,
+                attribution::AnalysisContext::NAME,
+                AnalysisDefinition::NAME,
+                super::super::MethodParameters::NAME,
+            ] {
+                assert!(
+                    stage.inputs.iter().any(|role| role.name() == expected),
+                    "{} omitted {expected}",
+                    stage.name
+                );
+            }
+            let behavioral = owner
+                .declaration(Profile::Behavioral, &selected, &model, &order)
+                .unwrap();
+            assert_eq!(stage.configuration, behavioral.configuration);
+            assert_eq!(
+                stage
+                    .outputs
+                    .iter()
+                    .map(|role| role.name())
+                    .collect::<Vec<_>>(),
+                behavioral
+                    .outputs
+                    .iter()
+                    .map(|role| role.name())
+                    .collect::<Vec<_>>()
+            );
+            assert!(behavioral.inputs.iter().any(|role| role.name()
+                == uniform_outcome::UniformNotRequested::NAME
+                && role.prefix() == Some(owner.uniform_checkpoint())));
+            if matches!(
+                owner,
+                AnalysisOwner::Enriched | AnalysisOwner::Models | AnalysisOwner::Summary
+            ) {
+                assert!(
+                    stage
+                        .inputs
+                        .iter()
+                        .any(|role| role.name() == models::ModelCatalog::NAME)
+                );
+            }
+        }
+    }
     #[test]
     fn compact_owner_boundaries_follow_real_dependencies_and_keep_stable_codes() {
         let groups = publication_groups(vec![producer_contract::facts::ASSEMBLE], true);

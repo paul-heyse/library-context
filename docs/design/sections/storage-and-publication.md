@@ -342,6 +342,17 @@ assets; recovery metadata is not authority to restore live clients or execute im
 
 > Decision: ADR-0145, ADR-0088, ADR-0126, ADR-0165, ADR-0166
 
+**Accepted target,2026-10-14 (ADR-0168); CN01/CN02 implementation pending.** Same-operation
+reuse retains successful terminal individual checks under complete ordered roles, exact views,
+requested/resolved epochs, model/profile/definition/factory/NotRequested/companion premises and
+actual protected operation/resource ownership. Memo digests are not executed evidence. New or changed
+applicability is freshly checked; physical freeze, graph/frontier/original inventories and native
+finality remain independently established. Search and lexical expected runs can remain privately
+charged and rewindable through finalization, which still compares fresh actual rows to complete EOF.
+Cold/import/foreign operations derive their necessary validity and expectations independently.
+
+> Decision: ADR-0168
+
 ### §6.2 Readers
 
 **Implemented source / focused acceptance in progress, 2026-10-13.** Retained native attachment holds expected

@@ -1,12 +1,13 @@
 //! Independent facts producers into exact persisted completed contribution views.
 use crate::workspace::{ProducerOutput, Workspace, WorkspaceOptions};
 use cpg_extract::bundle::{self, CapturedInputs, ProviderStage};
+use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
 use lctx_model::domain::{
     ContentHash, ModelError, ValidatedModel,
     batching::TransferLimits,
     stages::{Profile, Schedule},
 };
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 use tracing::Instrument;
 
 /// Run the production facts providers, accepting their enumeration in any order. Dependency
@@ -38,61 +39,122 @@ pub async fn compile_facts(
         })
         .collect::<Result<Vec<_>, ModelError>>()?;
     let schedule = Schedule::build(workspace.model(), declarations, &[], profile)?;
-    for declaration in schedule.stages() {
-        let position = offered
-            .iter()
-            .position(|p| p.declaration(profile).name == declaration.name)
-            .ok_or_else(|| {
-                ModelError::Invalid(format!("missing facts provider {}", declaration.name))
-            })?;
-        let provider = offered.swap_remove(position);
-        let inputs = workspace.inputs(
-            declaration.name,
-            profile,
-            declaration.inputs.iter().map(|r| r.name()),
-        )?;
-        let output = Arc::new(workspace.producer(declaration, profile, inputs));
-        output.captured_request()?;
-        let span = tracing::info_span!(target: "lctx_phase", "facts_provider", producer = declaration.name);
-        async {
-            let execution = lctx_native::phase::Phase::begin("provider_execution");
-            let result = bundle::run_provider_bound_guarded(
-                provider,
-                declaration.clone(),
-                profile,
-                output.clone(),
-                workspace.model().clone(),
-                captured_run.clone(),
-                workspace.budget().clone(),
-                limits,
-            )
-            .await;
-            execution.finish_result(&result);
-            if let Err(error) = result {
-                let mut completion = lctx_model::domain::completion::Completion::default();
-                completion.step(
-                    "failed provider accepted ingress drain",
-                    output.finish_ingress().await,
+    let mut completed = BTreeSet::new();
+    let mut started = BTreeSet::new();
+    let mut pending = FuturesUnordered::new();
+    let mut failure = None;
+    let mut terminal = lctx_model::domain::completion::Completion::default();
+    loop {
+        if failure.is_none() {
+            for declaration in schedule.stages() {
+                if started.contains(declaration.name)
+                    || !schedule.ready(declaration.name, &completed)?
+                {
+                    continue;
+                }
+                let position = offered
+                    .iter()
+                    .position(|p| p.declaration(profile).name == declaration.name)
+                    .ok_or_else(|| {
+                        ModelError::Invalid(format!("missing facts provider {}", declaration.name))
+                    })?;
+                let provider = offered.swap_remove(position);
+                started.insert(declaration.name);
+                let declaration = declaration.clone();
+                let workspace = workspace.clone();
+                let captured_run = captured_run.clone();
+                pending.push(
+                    async move {
+                        let name = declaration.name;
+                        let result = run_provider(
+                            &workspace,
+                            provider,
+                            declaration,
+                            profile,
+                            captured_run,
+                            limits,
+                        )
+                        .await;
+                        (name, result)
+                    }
+                    .boxed(),
                 );
-                return lctx_model::domain::completion::complete(Err(error), completion);
             }
-            let completion = lctx_native::phase::Phase::begin("provider_completion");
-            let result = async {
-                Arc::try_unwrap(output)
-                    .map_err(|_| {
-                        ModelError::Invalid("native provider retained output ownership".into())
-                    })?
-                    .complete()
-                    .await
-            }
-            .await;
-            completion.finish_result(&result);
-            result
         }
-        .instrument(span)
-        .await?;
+        let Some((name, result)) = pending.next().await else {
+            break;
+        };
+        match result {
+            Ok(()) => {
+                completed.insert(name);
+            }
+            Err(error) if failure.is_none() => {
+                workspace.cancellation().cancel();
+                failure = Some(error);
+            }
+            Err(error) => terminal.step("sibling facts producer completion", Err(error)),
+        }
     }
+    if let Some(error) = failure {
+        return lctx_model::domain::completion::complete(Err(error), terminal);
+    }
+    if completed.len() != schedule.stages().len() {
+        return Err(ModelError::Conflict("facts readiness made no progress"));
+    }
+
     Ok(())
+}
+
+async fn run_provider(
+    workspace: &Arc<Workspace>,
+    provider: Box<dyn ProviderStage<ProducerOutput>>,
+    declaration: lctx_model::domain::stages::Stage,
+    profile: Profile,
+    captured_run: bundle::CapturedTreeRunGuard,
+    limits: TransferLimits,
+) -> Result<(), ModelError> {
+    let inputs = workspace.stage_inputs(&declaration, profile)?;
+    let output = Arc::new(workspace.producer(&declaration, profile, inputs));
+    output.captured_request()?;
+    let span =
+        tracing::info_span!(target: "lctx_phase", "facts_provider", producer = declaration.name);
+    async move {
+        let execution = lctx_native::phase::Phase::begin("provider_execution");
+        let result = bundle::run_provider_bound_guarded(
+            provider,
+            declaration.clone(),
+            profile,
+            output.clone(),
+            workspace.model().clone(),
+            captured_run.clone(),
+            workspace.budget().clone(),
+            limits,
+        )
+        .await;
+        execution.finish_result(&result);
+        if let Err(error) = result {
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step(
+                "failed provider accepted ingress drain",
+                output.finish_ingress().await,
+            );
+            return lctx_model::domain::completion::complete(Err(error), completion);
+        }
+        let completion = lctx_native::phase::Phase::begin("provider_completion");
+        let result = async {
+            Arc::try_unwrap(output)
+                .map_err(|_| {
+                    ModelError::Invalid("native provider retained output ownership".into())
+                })?
+                .complete()
+                .await
+        }
+        .await;
+        completion.finish_result(&result);
+        result
+    }
+    .instrument(span)
+    .await
 }
 
 pub fn providers(configuration: ContentHash) -> Vec<Box<dyn ProviderStage<ProducerOutput>>> {
@@ -618,6 +680,182 @@ mod recorded_coverage_controls {
                 &observed
             )
             .is_err()
+        );
+    }
+}
+
+#[cfg(test)]
+mod ready_controls {
+    use super::*;
+    use cpg_extract::bundle::{Declared, StageContext};
+    use lctx_model::domain::{
+        input::{Package, Release},
+        stages::*,
+        *,
+    };
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    };
+    use std::time::Duration;
+
+    enum Work {
+        Wait(mpsc::Receiver<()>),
+        Signal(mpsc::Sender<()>),
+        FailAfterIngress(mpsc::Receiver<()>),
+        IngressUntilCancelled(mpsc::Sender<()>, Arc<AtomicBool>),
+    }
+    struct Provider {
+        name: &'static str,
+        package: bool,
+        work: Work,
+    }
+    impl Declared for Provider {
+        fn declaration(&self, _: Profile) -> Stage {
+            Stage {
+                name: self.name,
+                inputs: vec![],
+                outputs: if self.package {
+                    vec![RelationUse::of::<Package>()]
+                } else {
+                    vec![RelationUse::of::<Release>()]
+                },
+                contributes: vec![],
+                coverage: vec![],
+                profiles: Profile::ALL.to_vec(),
+                effect: Effect::Extraction,
+                code: ContentHash::of(b"controlled-native-producer"),
+                configuration: ContentHash::of(b"controlled-native-producer"),
+                captured_binding: None,
+            }
+        }
+    }
+    impl ProviderStage<ProducerOutput> for Provider {
+        fn run(
+            &mut self,
+            context: &mut StageContext<ProducerOutput>,
+        ) -> Result<ProviderOutcome, ModelError> {
+            if self.package {
+                context.declare::<Package>()?;
+            } else {
+                context.declare::<Release>()?;
+            }
+            let wait = |rx: &mpsc::Receiver<()>| {
+                rx.recv_timeout(Duration::from_secs(10))
+                    .map_err(|error| ModelError::Cause(Box::new(error)))
+            };
+            match &self.work {
+                Work::Wait(rx) => wait(rx)?,
+                Work::Signal(tx) => tx.send(()).map_err(ModelError::codec)?,
+                Work::FailAfterIngress(rx) => {
+                    wait(rx)?;
+                    return Err(ModelError::Invalid(
+                        "deliberate failure after accepted ingress".into(),
+                    ));
+                }
+                Work::IngressUntilCancelled(tx, joined) => {
+                    let (cancel, cancelled) = mpsc::channel();
+                    let _registration = context.register_cancellation(move || {
+                        let _ = cancel.send(());
+                    });
+                    let batch = Batch::new(
+                        context.model(),
+                        vec![Package {
+                            name: "accepted".into(),
+                        }],
+                        context.budget(),
+                    )?;
+                    context.emit_batch(batch)?;
+                    tx.send(()).map_err(ModelError::codec)?;
+                    wait(&cancelled)?;
+                    joined.store(true, Ordering::Release);
+                    context.check_cancelled()?;
+                }
+            }
+            Ok(ProviderOutcome::Complete)
+        }
+    }
+    fn setup() -> (Arc<Workspace>, Arc<CapturedInputs>) {
+        let model = Arc::new(
+            ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()])
+                .unwrap(),
+        );
+        let workspace =
+            Workspace::new(model, Default::default(), crate::test_native::store()).unwrap();
+        let config = cpg_extract::native_context::NativeContextConfig::committed(
+            Profile::Catalog,
+            workspace.budget(),
+        )
+        .unwrap();
+        (workspace, Arc::new(CapturedInputs::new(vec![], config)))
+    }
+    #[tokio::test]
+    async fn ready_providers_enter_while_an_independent_peer_is_blocked() {
+        let (workspace, captured) = setup();
+        let (tx, rx) = mpsc::channel();
+        compile_facts(
+            &workspace,
+            &captured,
+            Profile::Catalog,
+            vec![
+                Box::new(Provider {
+                    name: "a_waiting",
+                    package: true,
+                    work: Work::Wait(rx),
+                }),
+                Box::new(Provider {
+                    name: "b_ready",
+                    package: false,
+                    work: Work::Signal(tx),
+                }),
+            ],
+            Default::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(workspace.completed::<Package>().unwrap().rows(), 0);
+        assert_eq!(workspace.completed::<Release>().unwrap().rows(), 0);
+    }
+    #[tokio::test]
+    async fn sibling_failure_cancels_and_joins_after_native_ingress_was_accepted() {
+        let (workspace, captured) = setup();
+        let (tx, rx) = mpsc::channel();
+        let joined = Arc::new(AtomicBool::new(false));
+        let error = compile_facts(
+            &workspace,
+            &captured,
+            Profile::Catalog,
+            vec![
+                Box::new(Provider {
+                    name: "a_ingress",
+                    package: true,
+                    work: Work::IngressUntilCancelled(tx, joined.clone()),
+                }),
+                Box::new(Provider {
+                    name: "b_failure",
+                    package: false,
+                    work: Work::FailAfterIngress(rx),
+                }),
+            ],
+            Default::default(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("deliberate failure after accepted ingress"),
+            "{error}"
+        );
+        assert!(
+            joined.load(Ordering::Acquire),
+            "coordinator must join the cancelled sibling before returning"
+        );
+        assert!(workspace.completed::<Package>().is_err());
+        assert!(workspace.completed::<Release>().is_err());
+        assert_eq!(
+            workspace.drain_report().await.local,
+            completion::LocalState::Terminal
         );
     }
 }
