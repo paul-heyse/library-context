@@ -1,6 +1,12 @@
 # Status
 _Updated 2026-10-14 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
+**Implementation-friction review published,2026-10-14:** [principal review](docs/design_review/reviews/design_review_implementation-friction-target_2026-10-14.md)
+returns **Revise** for production outcome/admission/working-set composition and delegated host cleanup/discovery. It owns new F01–F10, O01–O05 and
+RC01–RC05 until scheduled; prior Catalog dispositions remain at their coordinator. Three independent reviewers and root inspected source/logs.
+No remediation, product builds/tests/probes or service operations ran. Focused47-link inspection passed; docs-check `8d8a71` failed on existing ADR
+reference/index defects. Next: plan the reviewed corrections with the remaining Catalog scope; Catalog implementation stays paused.
+
 **Priority: Catalog completion checkpointed at operator request,2026-10-14.** The [Catalog coordinator
 §6](docs/plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint) owns dispositions, revision bounds, receipts and
 resumption order. F01–F08 corrected source is [independently accepted within
