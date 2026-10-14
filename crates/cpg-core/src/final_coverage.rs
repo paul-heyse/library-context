@@ -31,8 +31,11 @@ pub async fn produce(
     )?;
     let inputs = FrontierData::inputs(target);
     let mut data = FrontierData::new(access.profile(), budget);
-    let availability=runtime.facts_availability_async(access.profile()).await?;
-    for owner in availability.uniform_owners(){data.admit_uniform_owner(owner)?;}
+    // Frontier inputs include both native-family and analysis-owner declarations.
+    // Facts availability deliberately admits only the native-family subset.
+    let owners=runtime.admission_runtime(access.profile())?
+        .uniform_owners_async(access.profile()).await?;
+    for owner in owners.owners(){data.admit_uniform_owner(owner)?;}
     let session = access.session(runtime).await?;
     macro_rules! read{($($ty:ty),* $(,)?)=>{$(if let Some(input)=inputs.iter().find(|i|i.type_id()==std::any::TypeId::of::<$ty>()){load::<$ty>(&access,&session,input,&mut data).await?;})*};}
     lctx_model::final_frontier_inputs!(read);
