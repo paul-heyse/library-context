@@ -121,7 +121,7 @@ selected-copy/incarnation, absence and independent incoming/installed admission.
 runs bind complete dependencies and retain flat six-family v4 identity at actual boundaries.
 Installation schema8 and physical completion v2 replace universal per-view copies/seals; complete
 logical meaning and portable format4 remain unchanged. The
-[Catalog execution plan](../../plans/catalog-execution-plan_2026-10-12.md) owns scoped runtime
+[Catalog execution plan](../../plans/catalog-creation-plan_2026-10-14.md) owns scoped runtime
 acceptance and remaining consumer work; source integration is not whole-plan completion.
 
 **Implemented lifecycle foundations / scoped-Tested, 2026-10-12 (ADR-0165).** Selected access resolves
@@ -135,7 +135,7 @@ bounded diagnostics preserve optional known native identities and independent co
 through the actual durable writer/host consumers. No retained proof cache or global compile
 serialization is implied. Source acceptance and focused native/diagnostic controls support these
 foundations; generated-analysis/native-query and enclosing acceptance retain their exact boundaries
-in the [Catalog execution coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint).
+in the [Catalog execution coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint).
 
 > Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0105, ADR-0108, ADR-0165, ADR-0166
 

@@ -172,7 +172,7 @@ All pass judgments below are **Interface-checked/source judgments dated 2026-10-
 
 **Initial frozen-source assessment identified no new material finding; amended by §13 for IF10.** Current disposition remains in coordinator §6; this review is not a second disposition ledger.
 
-The frozen candidate addresses the shared audit-lifetime portion of original [F03](design_review_surrealdb-lifecycle-target_2026-10-12.md#F03) at source strength. It does not settle full overlapping-output reconstruction or close required runtime evidence. F03/IF10, original [F01](design_review_surrealdb-lifecycle-target_2026-10-12.md#F01), IF05/IF07 enclosing outcomes and current acceptance obligations retain their disposition solely in [coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint).
+The frozen candidate addresses the shared audit-lifetime portion of original [F03](design_review_surrealdb-lifecycle-target_2026-10-12.md#F03) at source strength. It does not settle full overlapping-output reconstruction or close required runtime evidence. F03/IF10, original [F01](design_review_surrealdb-lifecycle-target_2026-10-12.md#F01), IF05/IF07 enclosing outcomes and current acceptance obligations retain their disposition solely in [coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint).
 
 | Principles | Verdict and reason |
 |---|---|
@@ -233,7 +233,7 @@ No additional probe is needed to settle the architectural direction. Existing fo
 
 **Rule impacts: none.** No `RCnn` item is introduced. This recommendation requires no change to a dependency policy, operator boundary, accepted ADR or other repository rule.
 
-Current dispositions remain exclusively in [Catalog execution coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint). This review does not reconcile older paused plans or declare LC02/LC03 complete.
+Current dispositions remain exclusively in [Catalog execution coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint). This review does not reconcile older paused plans or declare LC02/LC03 complete.
 
 ## 11. Architectural judgments and bounded decision
 
@@ -288,7 +288,7 @@ Source reads, diffs, `git hash-object` and a read-only count of the declared rel
 
 ## 13. Review correction: overlapping-output reconstruction and IF10 target
 
-**Independent amendment · 2026-10-12 local date / 2026-10-13 UTC · Revise scoped for IF10.** The initial review and accounting follow-up missed a material execution-fit seam. `logical_roots_many` independently rescans complete contributor memberships and backing records and rereads declared dependency views for each root, despite unchanged protected inputs. `audit_aliases` also reconstructs the same complete contributor-set aliases and reachability across overlapping outputs. The accepted audit-batch lifetime did not by itself remove this amplification. A4 and the affected FP-07/DP-09/DP-10/DP-20 judgments require correction; no new fidelity failure or architectural rule change is established. [Coordinator §6, IF10](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint) owns required implementation and current disposition, without a second finding ledger here.
+**Independent amendment · 2026-10-12 local date / 2026-10-13 UTC · Revise scoped for IF10.** The initial review and accounting follow-up missed a material execution-fit seam. `logical_roots_many` independently rescans complete contributor memberships and backing records and rereads declared dependency views for each root, despite unchanged protected inputs. `audit_aliases` also reconstructs the same complete contributor-set aliases and reachability across overlapping outputs. The accepted audit-batch lifetime did not by itself remove this amplification. A4 and the affected FP-07/DP-09/DP-10/DP-20 judgments require correction; no new fidelity failure or architectural rule change is established. [Coordinator §6, IF10](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint) owns required implementation and current disposition, without a second finding ledger here.
 
 The coordinator reports actual Catalog control `20261013T001826.068Z-60ae0b` timed out at its existing 360-second allowance after forward progress: Pyrefly completed, while documents completion repeatedly reconstructed logical roots and aliases across overlapping views. Its local trace records roughly 2.4–3.5 seconds for logical-root reconstruction and 0.4–0.5 seconds for alias auditing per observed view; reused membership checks and closure inspection continued. These observations expose repeated work, not a comparative speed claim or proof of the entire timeout's cause. The decisive final operations report `cancelled_before_issue`, retries zero, following harness cancellation. Pin-release failure is a separate finalization consequence; these records do not demonstrate deadlock or sustained transaction conflict. This reviewer inspected the source seam and the coordinator's attribution, but did not run or independently authenticate the campaign.
 
@@ -306,7 +306,7 @@ This amendment accepts those bounded targets, not a replacement implementation. 
 
 ## 14. Independent IF10 replacement-source reinspection
 
-**2026-10-12 local date / 2026-10-13 UTC · Accept scoped, Implemented / Interface-checked.** Independent source reinspection accepts the implemented operation-local contributor fragments, typed declared-view lowering and last-exact-contributor-set alias preparation for the overlapping-output scenario. No new material source finding or rule impact was identified in this bounded replacement. This supersedes §13's source-level Revise requirement for the identified seam; it does not close IF10/F03, F01 or LC01 runtime acceptance. Current dispositions remain exclusively in [coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint).
+**2026-10-12 local date / 2026-10-13 UTC · Accept scoped, Implemented / Interface-checked.** Independent source reinspection accepts the implemented operation-local contributor fragments, typed declared-view lowering and last-exact-contributor-set alias preparation for the overlapping-output scenario. No new material source finding or rule impact was identified in this bounded replacement. This supersedes §13's source-level Revise requirement for the identified seam; it does not close IF10/F03, F01 or LC01 runtime acceptance. Current dispositions remain exclusively in [coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint).
 
 The coordinator's supplied SHA256 values were checked before inspection and again before publication; they match these examined Git blobs:
 

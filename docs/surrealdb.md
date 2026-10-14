@@ -390,6 +390,6 @@ after success, together with the campaign's exact private installer copy and uni
 Installation/disposal identities remain as minimal current ownership evidence. The separately
 retained server generation is released, never deleted as part of datastore disposal.
 
-The [Catalog execution coordinator](plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint)
+The [Catalog execution coordinator](plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint)
 owns current verification and remaining scope. These tooling boundaries do not establish product
 qualification or a measured efficiency claim.

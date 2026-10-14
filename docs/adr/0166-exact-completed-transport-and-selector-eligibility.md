@@ -81,7 +81,11 @@ inputs. Changed codecs cut over completely, without historical readers or dual r
 current content may be regenerated from pinned inputs; unrelated operator/shared state is untouched.
 
 Acceptance of this decision is not implementation or runtime qualification. The [Catalog coordinator
-§6](../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint) owns exact
+§6](../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint) owns exact
 CU01–CU04, overlapping CP04 and CE01 dispositions. Revisit eligibility only for a concrete consumer
 requiring semantic equality to imply substitution or a supported equivalence rejected by this
 conservative projection; do not infer such a requirement from transport deduplication alone.
+
+## Amendments
+
+2026-10-14 — Explicit operator authorization permits this navigation-only correction: the plan link now names the replacement Catalog creation coordinator. Decisions and dated evidence are unchanged.

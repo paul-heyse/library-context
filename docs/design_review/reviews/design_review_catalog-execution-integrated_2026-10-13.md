@@ -4,7 +4,7 @@
 
 **Subsequent source correction, 2026-10-14:** [§9](#F02) records `catalog-integrated#F02`, scalar detached-import effects missed at the initial CU03/A4 assessment, and independently accepts their bounded replacement at source strength. The original cutoff and its runtime limits remain dated; the follow-up does not establish functional acceptance.
 
-This decision does **not** establish CE01 functional acceptance. Actual generated Catalog analysis, admission, publication and linked native queries remain unproven at this review’s cutoff. Focused controls, earlier cold restoration and source review retain separate scopes. The [Catalog coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint) alone owns current dispositions, execution receipts and CE01–CE03 completion.
+This decision does **not** establish CE01 functional acceptance. Actual generated Catalog analysis, admission, publication and linked native queries remain unproven at this review’s cutoff. Focused controls, earlier cold restoration and source review retain separate scopes. The [Catalog coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint) alone owns current dispositions, execution receipts and CE01–CE03 completion.
 
 ## 1. Review contract and evidence boundary
 
@@ -17,7 +17,7 @@ This decision does **not** establish CE01 functional acceptance. Actual generate
 | Date | 2026-10-13 local; investigation continued into 2026-10-14 UTC |
 | Baseline | Main `35053d52c99f622a09bfc66b7a5aa76311cad5ab`, plus the specifically inspected concurrent changes listed below |
 | Evidence strength | Implemented and Interface-checked source assessment. Reviewer builds, tests, probes, service operations and runtime qualification: **not_run** |
-| Disposition owner | [Catalog coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint) |
+| Disposition owner | [Catalog coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint) |
 
 The functional target is a version-pinned API/evidence catalog that supports capability discovery, exact public API/configuration selection, and traceable invocation/deployment evidence with explicit limitations. The [product target](../../design/sections/api-and-evidence-product.md#section-14) and code-intelligence profile govern this assessment. Accepted ADRs, current plans and operational rules explain the subject; agreement with them is not itself the acceptance criterion.
 
@@ -184,7 +184,7 @@ Three pure controls were inspected:
 
 They exercise selective access, full-run equivalence, empties, last-borrower ownership, overlap/conflict and late refusal. Reviewer execution: **not_run**. The coordinator owns their results and the enclosing native/Catalog acceptance.
 
-**Current disposition:** source correction accepted by this review; execution disposition and runtime closure belong solely in [coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint). This residual manifestation relates to original `catalog#F01/F02`; it does not replace their stable IDs or close their distinct acceptance obligations by association.
+**Current disposition:** source correction accepted by this review; execution disposition and runtime closure belong solely in [coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint). This residual manifestation relates to original `catalog#F01/F02`; it does not replace their stable IDs or close their distinct acceptance obligations by association.
 
 ### Original finding coverage
 
@@ -290,7 +290,7 @@ The original detached-import implementation is preserved in main `35053d52c99f62
 
 Those effects carry real creation, incarnation, incidence and uncertainty protections. The defect was per-item physical execution despite existing set-capable `ensure_rows` and `hold_many` owners. Increasing copy or alias count multiplied native effect coordination and crossings even though the import’s usable result still depended on final independent whole-state checks. A bounded window preserves those protections with fewer separately issued effect lifecycles.
 
-The coordinator-reported cold `f8f754` timeout prompted this inspection. It is not evidence that these crossings caused the timeout, dominated its duration or explain a performance ratio. Source retirement/absence, receiving progress, local cleanup and native uncertainty retain their distinct recorded outcomes in [coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint). No production retirement correction was examined or authorized through this finding.
+The coordinator-reported cold `f8f754` timeout prompted this inspection. It is not evidence that these crossings caused the timeout, dominated its duration or explain a performance ratio. Source retirement/absence, receiving progress, local cleanup and native uncertainty retain their distinct recorded outcomes in [coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint). No production retirement correction was examined or authorized through this finding.
 
 ### Independently accepted replacement
 
@@ -314,7 +314,7 @@ The retained work has a concrete purpose: copy and alias rows still acquire thei
 
 Reviewer builds, tests, probes and service operations: **not_run**. Focused native controls and the fresh cold/import composition remain the coordinator’s execution evidence, with their actual outcomes and enclosing cleanup assessed separately. Source acceptance does not close CE01 or reinterpret an earlier timeout/Unknown as success.
 
-**Current disposition:** F02’s source correction is accepted here; current execution disposition, required runtime closure and any subsequent failure investigation belong solely to [coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint). A later material change to these seams requires assessment of the affected evidence.
+**Current disposition:** F02’s source correction is accepted here; current execution disposition, required runtime closure and any subsequent failure investigation belong solely to [coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint). A later material change to these seams requires assessment of the affected evidence.
 
 ## 10. C1 compact predecessor composition — local integration correction
 
@@ -330,7 +330,7 @@ The inspected candidate comprises:
 
 Retrieval had passed an empty compact predecessor map into strict C1 verification even though admitted Local/SourceCalls compact owners were available. Catalog and synthesis already composed these admitted domains. The new model-owned `Data::verify_evidence_frames` reconstructs a fresh charged map through `CoverageAdmission::uniform_analysis`, using each actual provider run’s exact input/context, selected definitions and protected owner. It invokes unchanged strict C1 invocation/source/input equality and compact/ordinary overlap checks, then installs the map only after successful verification. Ordinary requested frames retain their existing route. No physical invocation rows are fabricated and no guard is relaxed.
 
-This is a local integration omission corrected through an existing adequate semantic owner and validation contract; it does not warrant `F03`. The inspected pure control reproduces the old missing-frame refusal, accepts exact protected domains, preserves missing-proof/wrong-context refusal and checks unchanged evidence payloads. Reviewer execution: **not_run**. Fresh control results and actual current Catalog acceptance remain pending with [coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint); this source assessment does not reclassify `39eae3` or establish CE01 completion.
+This is a local integration omission corrected through an existing adequate semantic owner and validation contract; it does not warrant `F03`. The inspected pure control reproduces the old missing-frame refusal, accepts exact protected domains, preserves missing-proof/wrong-context refusal and checks unchanged evidence payloads. Reviewer execution: **not_run**. Fresh control results and actual current Catalog acceptance remain pending with [coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint); this source assessment does not reclassify `39eae3` or establish CE01 completion.
 
 ## 11. Protected source preparation during boundary construction — design amendment
 
@@ -374,7 +374,7 @@ Data-only, unscoped, foreign-owner/resource and independent cold/import acquisit
 
 Closure requires independent inspection of the concrete replacement, including repeated overlapping boundaries reusing exact source observations, first-miss earning, source closure/uncertainty and foreign pin/context/pool refusal, plus unchanged receiving corruption, missing/extra incidence, partial-installation, cancellation/drainage and finality refusal. Independent cold acquisition must retain its separate route and controls. Structural evidence can establish removal of the demonstrated repetition without a numerical benchmark; focused runtime results and actual generated Catalog acceptance remain separate coordinator obligations.
 
-**Bounded decision: revise the affected current source route; accept the explicit protected-source construction recommendation.** No implementation correction is accepted in advance. Reviewer edits are limited to this amendment; builds, tests, probes, formatting and service operations are **not_run**. [Coordinator §6](../../plans/catalog-execution-plan_2026-10-12.md#6-sole-disposition-and-execution-checkpoint) alone owns current F03 disposition, implementation evidence and enclosing CE01 acceptance.
+**Bounded decision: revise the affected current source route; accept the explicit protected-source construction recommendation.** No implementation correction is accepted in advance. Reviewer edits are limited to this amendment; builds, tests, probes, formatting and service operations are **not_run**. [Coordinator §6](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint) alone owns current F03 disposition, implementation evidence and enclosing CE01 acceptance.
 
 ### Partial implementation assessment — source-backed admitted hold
 
