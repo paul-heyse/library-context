@@ -126,6 +126,7 @@ def runtime(owner, root, *, fixture=lambda options: contextlib.nullcontext()):
             request.live,
             stdout=request.stdout,
             observer=request.observer,
+            cwd=request.cwd,
         )
 
     return verify.Runtime(
@@ -227,7 +228,8 @@ with optional_owner(directory, root) as owner:
         base_env=dict(os.environ), target_dir=root/"target", evidence=owner,
         launch_request=lambda request:verify.launch(
             request.argv,request.env,request.log,request.live,
-            stdout=request.stdout,observer=request.observer), report=lambda message:None)
+            stdout=request.stdout,observer=request.observer,cwd=request.cwd),
+        report=lambda message:None)
     result=verify.run_boundary(planned,runtime,verify.Options(),directory/"python.log",False)
     row=owner.invocations[0].row
     print(json.dumps({"outcome":result["outcome"],"capture":row["capture"],
@@ -424,7 +426,8 @@ with optional_owner(directory,root) as owner:
         base_env=dict(os.environ),target_dir=root/"target",evidence=owner,
         launch_request=lambda request:verify.launch(
             request.argv,request.env,request.log,request.live,
-            stdout=request.stdout,observer=request.observer),report=lambda message:None)
+            stdout=request.stdout,observer=request.observer,cwd=request.cwd),
+        report=lambda message:None)
     result=verify.run_boundary(planned,runtime,verify.Options(),directory/"python.log",False)
     raise SystemExit(0 if result["outcome"]=="passed" else 1)
 """

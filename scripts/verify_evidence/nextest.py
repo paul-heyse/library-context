@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import workspace_env
+from build_environment import ROOT as TOOLS_ROOT
 
 from . import cargo_adapter
 from .contracts import CaptureUnsupported
@@ -116,7 +117,14 @@ def prepare(argv: list[str], env: dict[str, str], directory: Path, root: Path) -
         users = _options(argv, ("--user-config-file",))
         profiles = _options(argv, ("--profile", "-P"))
         profile = profiles[-1] if profiles else env.get("NEXTEST_PROFILE", "default")
-        repo_path = (root / repos[-1]).resolve() if repos else root / ".config/nextest.toml"
+        # Cargo owns workspace discovery, including explicit manifest selection and
+        # launches from member/subdirectories. Git root is unrelated to this policy.
+        locate = [argv[0], "locate-project", "--workspace", "--message-format=plain"]
+        manifests = _options(argv, ("--manifest-path",))
+        if manifests:
+            locate.extend(["--manifest-path", manifests[-1]])
+        workspace = Path(_native(locate, resolved_env, root).strip()).resolve().parent
+        repo_path = (root / repos[-1]).resolve() if repos else workspace / ".config/nextest.toml"
         user_name = users[-1] if users else env.get("NEXTEST_USER_CONFIG_FILE")
         home = Path(env.get("HOME", str(Path.home())))
         config_home = Path(env.get("XDG_CONFIG_HOME", str(home / ".config")))
@@ -148,9 +156,9 @@ def prepare(argv: list[str], env: dict[str, str], directory: Path, root: Path) -
             "directory": str(directory),
         }
         # Rust-only execution releases tools ownership immediately after composition.
-        with workspace_env.ownership("shared", "tools", root=root, env=resolved_env) as owned:
+        with workspace_env.ownership("shared", "tools", root=TOOLS_ROOT, env=resolved_env) as owned:
             helper_env = owned.environment(resolved_env)
-            interpreter = workspace_env.environment_path(root, helper_env) / "bin/python"
+            interpreter = workspace_env.environment_path(TOOLS_ROOT, helper_env) / "bin/python"
             helper = Path(__file__).with_name("config_helper.py")
             result = subprocess.run(
                 [str(interpreter), str(helper)],

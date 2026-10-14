@@ -20,7 +20,7 @@ are separate observations.
 The [production companion](catalog-completion-production-plan_2026-10-14.md) supplies P01–P06's
 corrected outcome/admission, resource, preparation and handoff contracts. The
 [development companion](catalog-completion-development-plan_2026-10-14.md) supplies T01–T04's host
-ownership, inspection and agent/evidence contracts. These packages are Proposed. Acceptance consumes
+ownership, inspection and agent/evidence contracts. Coordinator §6 owns their current state. Acceptance consumes
 working migrated slices, not their interface descriptions. Focused checks can proceed as their actual
 prerequisites become available; optional inspection or agent conveniences do not block every product
 test. A claim about composed host cleanup does require the corresponding delegated-owner contract.

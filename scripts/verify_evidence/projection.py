@@ -88,7 +88,13 @@ def _relative(directory: Path, source: str | Path) -> str:
 
 
 def _paths(directory: Path, invocation: dict[str, Any]) -> list[str]:
-    names = {"junit.xml", "nextest-events.jsonl", "pytest-reportlog.jsonl", "pytest-hooks.jsonl"}
+    names = {
+        "junit.xml",
+        "nextest-events.jsonl",
+        "pytest-reportlog.jsonl",
+        "pytest-hooks.jsonl",
+        "native.log",
+    }
     artifacts = invocation.get("artifacts", {})
     values = artifacts.values() if isinstance(artifacts, dict) else artifacts
     for value in values:
@@ -119,7 +125,7 @@ def _complete_end(path: Path, start: int, size: int) -> int:
 def _source_state(directory: Path, name: str, previous: dict[str, Any] | None) -> dict[str, Any]:
     path = directory / name
     observed = _stat(path)
-    live = path.suffix == ".jsonl"
+    live = path.suffix in {".jsonl", ".log"}
     end = (
         _complete_end(path, previous["end"] if previous else 0, observed["size"])
         if live
@@ -172,10 +178,15 @@ def _records(
     directory: Path, tool: str, watermarks: dict[str, int], ends: dict[str, int]
 ) -> Iterator[dict[str, Any]]:
     module = {"pytest": "pytest_adapter", "nextest": "nextest", "cargo": "cargo_adapter"}.get(tool)
-    if module is None:
-        return iter(())
-    adapter = importlib.import_module(f"{__package__}.{module}")
-    return iter(adapter.records(directory, watermarks=watermarks, ends=ends))
+    from . import runtime_adapter
+
+    invocation = json.loads((directory / "invocation.json").read_bytes())["id"]
+    if module is not None:
+        adapter = importlib.import_module(f"{__package__}.{module}")
+        for record in adapter.records(directory, watermarks=watermarks, ends=ends):
+            yield record
+            yield from runtime_adapter.from_record(record, invocation)
+    yield from runtime_adapter.records(directory, watermarks=watermarks, ends=ends)
 
 
 def _coverage(invocation: dict[str, Any], sources: dict[str, Any]) -> dict[str, Any]:

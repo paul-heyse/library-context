@@ -212,8 +212,17 @@ def recorded(boundary, step, tool, argv, **fields):
 def test_cli_producer_dependency_is_conditional_and_unfiltered(no_execution):
     build = recorded("store:rust", "build-cli", "cargo", ["cargo", "build", "-p", "lctx"])
     target = recorded(
-        "store:rust", "nextest", "nextest", ["cargo", "nextest", "run", "-p", "lctx-publisher"],
-        binaries=[{"package_id": "path+file:///publisher#lctx-publisher@0.1.0", "package_name": "lctx-publisher", "target": {"kind": ["test"], "name": "publication"}}],
+        "store:rust",
+        "nextest",
+        "nextest",
+        ["cargo", "nextest", "run", "-p", "lctx-publisher"],
+        binaries=[
+            {
+                "package_id": "path+file:///publisher#lctx-publisher@0.1.0",
+                "package_name": "lctx-publisher",
+                "target": {"kind": ["test"], "name": "publication"},
+            }
+        ],
     )
     case = {"case_key": "case", "binary_id": "lctx-publisher::publication", "test": "one"}
     selected = rerun.plan(target, case, {"options": {"cli": True}}, [build, target])
@@ -227,20 +236,44 @@ def test_cli_producer_dependency_is_conditional_and_unfiltered(no_execution):
     assert [row["step"] for row in without["operations"]] == ["nextest"]
 
 
-@pytest.mark.parametrize("kind,binary,selector", [
-    ("lib", "pkg", ["--lib"]),
-    ("proc-macro", "pkg", ["--lib"]),
-    ("test", "pkg::chosen", ["--test", "chosen"]),
-    ("bin", "pkg::bin/chosen", ["--bin", "chosen"]),
-    ("example", "pkg::example/chosen", ["--example", "chosen"]),
-    ("bench", "pkg::bench/chosen", ["--bench", "chosen"]),
-])
+@pytest.mark.parametrize(
+    "kind,binary,selector",
+    [
+        ("lib", "pkg", ["--lib"]),
+        ("proc-macro", "pkg", ["--lib"]),
+        ("test", "pkg::chosen", ["--test", "chosen"]),
+        ("bin", "pkg::bin/chosen", ["--bin", "chosen"]),
+        ("example", "pkg::example/chosen", ["--example", "chosen"]),
+        ("bench", "pkg::bench/chosen", ["--bench", "chosen"]),
+    ],
+)
 def test_recorded_target_narrows_build_scope_preserves_policy(kind, binary, selector, no_execution):
-    artifact = {"package_id": "path+file:///work/pkg#0.1.0", "package_name": "pkg",
-        "target": {"kind": [kind], "name": "chosen"}, "features": ["default", "extra"]}
-    argv = ["cargo", "nextest", "run", "--workspace", "--exclude", "other", "-pother",
-        "--all-targets", "--tests", "--test=wide", "--cargo-profile", "release", "--profile", "ci",
-        "--features", "extra", "--no-default-features", "--ignore-default-filter"]
+    artifact = {
+        "package_id": "path+file:///work/pkg#0.1.0",
+        "package_name": "pkg",
+        "target": {"kind": [kind], "name": "chosen"},
+        "features": ["default", "extra"],
+    }
+    argv = [
+        "cargo",
+        "nextest",
+        "run",
+        "--workspace",
+        "--exclude",
+        "other",
+        "-pother",
+        "--all-targets",
+        "--tests",
+        "--test=wide",
+        "--cargo-profile",
+        "release",
+        "--profile",
+        "ci",
+        "--features",
+        "extra",
+        "--no-default-features",
+        "--ignore-default-filter",
+    ]
     invocation = recorded("model:rust", "nextest", "nextest", argv, binaries=[artifact])
     case = {"binary_id": binary, "test": "nested::chosen"}
     exact = rerun.cargo_target(invocation, case)
@@ -249,8 +282,12 @@ def test_recorded_target_narrows_build_scope_preserves_policy(kind, binary, sele
     assert "--tests" not in narrowed and "--test=wide" not in narrowed
     assert narrowed[narrowed.index("--package") + 1] == artifact["package_id"]
     at = narrowed.index(selector[0])
-    assert narrowed[at:at + len(selector)] == selector
-    for flag, value in (("--cargo-profile", "release"), ("--profile", "ci"), ("--features", "extra")):
+    assert narrowed[at : at + len(selector)] == selector
+    for flag, value in (
+        ("--cargo-profile", "release"),
+        ("--profile", "ci"),
+        ("--features", "extra"),
+    ):
         assert narrowed[narrowed.index(flag) + 1] == value
     assert "--no-default-features" in narrowed and "--ignore-default-filter" in narrowed
     assert f"binary_id(={binary}) & test(=nested::chosen)" in narrowed
@@ -260,27 +297,36 @@ def test_missing_or_ambiguous_recorded_target_refuses_without_discovery(no_execu
     case = {"binary_id": "pkg::one", "test": "chosen"}
     with pytest.raises(CaptureUnsupported, match="missing or ambiguous"):
         rerun.cargo_target({}, case)
-    rows = [{"package_name": "pkg", "package_id": identity, "target": {"kind": ["test"], "name": "one"}}
-        for identity in ("path+file:///a#pkg@0.1", "path+file:///b#pkg@0.2")]
+    rows = [
+        {"package_name": "pkg", "package_id": identity, "target": {"kind": ["test"], "name": "one"}}
+        for identity in ("path+file:///a#pkg@0.1", "path+file:///b#pkg@0.2")
+    ]
     with pytest.raises(CaptureUnsupported, match="2 matches"):
         rerun.cargo_target({"binaries": rows}, case)
 
 
 def test_completion_retains_cargo_target_and_feature_identity(tmp_path):
     from types import SimpleNamespace
-    from verify_evidence.capture import Invocation
+    from typing import cast
+
+    from verify_evidence.capture import CaptureOwner, Invocation
 
     manifest = tmp_path / "Cargo.toml"
     manifest.write_text('[package]\nname="recorded-package"\nversion="0.1.0"\n')
     executable = tmp_path / "unit-test"
     executable.write_bytes(b"observed executable")
-    event = {"reason": "compiler-artifact", "executable": str(executable),
-        "manifest_path": str(manifest), "package_id": "path+file:///recorded#0.1.0",
+    event = {
+        "reason": "compiler-artifact",
+        "executable": str(executable),
+        "manifest_path": str(manifest),
+        "package_id": "path+file:///recorded#0.1.0",
         "target": {"kind": ["proc-macro"], "name": "recorded", "src_path": "source.rs"},
-        "features": ["feature-one"], "profile": {"test": True, "opt_level": "2"}}
+        "features": ["feature-one"],
+        "profile": {"test": True, "opt_level": "2"},
+    }
     (tmp_path / "nextest-events.jsonl").write_text(json.dumps(event) + "\n")
     owner = SimpleNamespace(context=lambda: "context", binary_cache={})
-    invocation = Invocation(owner, tmp_path, {"tool": "nextest"})
+    invocation = Invocation(cast(CaptureOwner, owner), tmp_path, {"tool": "nextest"})
     invocation.command_finished(SimpleNamespace(exit=0, launch_error=None))
     row = invocation.row["binaries"][0]
     assert row["package_name"] == "recorded-package"
@@ -300,35 +346,99 @@ def test_narrowed_recorded_target_executes_exact_native_case(tmp_path, native_fi
     elif kind != "lib":
         with (project / "Cargo.toml").open("a") as stream:
             stream.write(f'\n[[{kind}]]\nname="{name}"\npath="chosen.rs"\n')
-        (project / "chosen.rs").write_text('#[test] fn passes() {}\nfn main() {}\n')
+        (project / "chosen.rs").write_text("#[test] fn passes() {}\nfn main() {}\n")
     (project / "tests").mkdir()
     (project / "tests/unselected.rs").write_text("this sibling must never compile")
-    metadata = subprocess.run(["cargo", "metadata", "--offline", "--no-deps", "--format-version", "1", "--manifest-path", str(project / "Cargo.toml")], cwd=ROOT, capture_output=True, text=True)
+    metadata = subprocess.run(
+        [
+            "cargo",
+            "metadata",
+            "--offline",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+            str(project / "Cargo.toml"),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
     assert metadata.returncode == 0, metadata.stderr
     package = json.loads(metadata.stdout)["packages"][0]
     cargo_target = next(target for target in package["targets"] if kind in target["kind"])
-    artifact = {"package_id": package["id"], "package_name": package["name"], "target": cargo_target}
-    binary = package["name"] if kind in {"lib", "proc-macro"} else f'{package["name"]}::{name}' if kind == "test" else f'{package["name"]}::{kind}/{name}'
-    original = ["cargo", "nextest", "run", "--manifest-path", str(project / "Cargo.toml"), "--config-file", str(repo), "--user-config-file", "none", "--all-targets", "--message-format", "libtest-json-plus"]
-    command = rerun.nextest_case(rerun.narrow_cargo(original, artifact), {"binary_id": binary, "test": "passes"})
-    done = subprocess.run(command, cwd=ROOT, env=dict(os.environ) | {"NEXTEST_EXPERIMENTAL_LIBTEST_JSON": "1", "CARGO_TERM_COLOR": "never"}, capture_output=True, text=True)
+    artifact = {
+        "package_id": package["id"],
+        "package_name": package["name"],
+        "target": cargo_target,
+    }
+    binary = (
+        package["name"]
+        if kind in {"lib", "proc-macro"}
+        else f"{package['name']}::{name}"
+        if kind == "test"
+        else f"{package['name']}::{kind}/{name}"
+    )
+    original = [
+        "cargo",
+        "nextest",
+        "run",
+        "--manifest-path",
+        str(project / "Cargo.toml"),
+        "--config-file",
+        str(repo),
+        "--user-config-file",
+        "none",
+        "--all-targets",
+        "--message-format",
+        "libtest-json-plus",
+    ]
+    command = rerun.nextest_case(
+        rerun.narrow_cargo(original, artifact), {"binary_id": binary, "test": "passes"}
+    )
+    done = subprocess.run(
+        command,
+        cwd=ROOT,
+        env=dict(os.environ)
+        | {"NEXTEST_EXPERIMENTAL_LIBTEST_JSON": "1", "CARGO_TERM_COLOR": "never"},
+        capture_output=True,
+        text=True,
+    )
     assert done.returncode == 0, done.stderr
     events = [json.loads(line) for line in done.stdout.splitlines()]
-    finished = [event for event in events if event.get("type") == "test" and event.get("event") == "ok"]
+    finished = [
+        event for event in events if event.get("type") == "test" and event.get("event") == "ok"
+    ]
     assert len(finished) == 1 and finished[0]["name"].endswith("$passes")
     assert "unselected.rs" not in done.stderr
 
 
 def test_tooling_python_exact_case_keeps_recorded_evaluator_profile_and_dependency(no_execution):
-    build = recorded("tooling:python", "build-evaluator", "cargo",
-                     ["cargo", "build", "--profile", "test", "--locked", "-p", "lctx-eval"])
-    target = recorded("tooling:python", "pytest", "pytest",
-                      ["uv", "run", "--no-sync", "pytest", "tests/scripts"])
-    case = {"case_key": "node", "nodeid": "tests/scripts/test_programmatic_eval.py::test_worker_generated_schema_and_private_projection_boundary"}
+    build = recorded(
+        "tooling:python",
+        "build-evaluator",
+        "cargo",
+        ["cargo", "build", "--profile", "test", "--locked", "-p", "lctx-eval"],
+    )
+    target = recorded(
+        "tooling:python", "pytest", "pytest", ["uv", "run", "--no-sync", "pytest", "tests/scripts"]
+    )
+    case = {
+        "case_key": "node",
+        "nodeid": (
+            "tests/scripts/test_programmatic_eval.py::"
+            "test_worker_generated_schema_and_private_projection_boundary"
+        ),
+    }
     result = rerun.plan(target, case, {"options": {}}, [build, target])
-    assert [operation["step"] for operation in result["operations"]] == ["build-evaluator", "pytest"]
+    assert [operation["step"] for operation in result["operations"]] == [
+        "build-evaluator",
+        "pytest",
+    ]
     assert result["operations"][0]["argv"] == build["argv"]
-    assert result["operations"][1]["environment_templates"] == {"LCTX_EVAL_WORKER": "{artifacts}/lctx-eval"}
+    assert result["operations"][1]["environment_templates"] == {
+        "LCTX_EVAL_WORKER": "{artifacts}/lctx-eval"
+    }
     assert result["fixture"] is False
     with pytest.raises(CaptureUnsupported, match="recorded command"):
         rerun.plan(target, case, {"options": {}}, [target])
@@ -423,6 +533,23 @@ def test_cli_report_case_and_evidence_pages_events_and_printed_plan(tmp_path, ca
         "finalization",
     ]
     assert [row["event"] for row in event_rows[5:]] == ["TestReport"] * 3
+    # The real tooling boundary now declares the evaluator producer. Exact plans
+    # require its actual recorded command rather than inventing that prerequisite.
+    build = recorded(
+        "tooling:python",
+        "build-evaluator",
+        "cargo",
+        ["cargo", "build", "--release", "--locked", "-p", "lctx-eval"],
+    )
+    build["id"] = "b" * 32
+    write_json_atomic(
+        root / "verify-evidence" / build["id"] / "invocation.json", {"schema": 1, **build}
+    )
+    manifest = json.loads((root / "verify-evidence.json").read_text())
+    manifest["invocations"].append(
+        {"id": build["id"], "boundary": build["boundary"], "step": build["step"]}
+    )
+    write_json_atomic(root / "verify-evidence.json", manifest)
     plan = invoke(capsys, "rerun-plan", root, "--case", selected, "--print")
     assert plan["executes"] is False
     assert plan["operations"][-1]["argv"][-1] == "tests/test_a.py::case[0]"
@@ -608,7 +735,13 @@ def test_rerun_refuses_hidden_addopts_targets_and_preserves_flags_only(no_execut
             "environment_addopts": ["--show-capture", "all"],
         },
     }
-    result = rerun.plan(invocation, case, {"options": {}}, [invocation])
+    build = recorded(
+        "tooling:python",
+        "build-evaluator",
+        "cargo",
+        ["cargo", "build", "--release", "--locked", "-p", "lctx-eval"],
+    )
+    result = rerun.plan(invocation, case, {"options": {}}, [build, invocation])
     assert result["executes"] is False
     assert result["operations"][-1]["argv"] == [
         "pytest",
@@ -678,8 +811,11 @@ def export_owner(tmp_path, monkeypatch):
         os.close(lock)
 
 
-def test_reports_and_exports_retain_original_completion_observation(export_owner, monkeypatch, capsys):
+def test_reports_and_exports_retain_original_completion_observation(
+    export_owner, monkeypatch, capsys
+):
     from executable_observation import observe
+
     repository, _ = export_owner
     source = repository / "source-run"
     directory, invocation = write_run(source)
@@ -691,9 +827,11 @@ def test_reports_and_exports_retain_original_completion_observation(export_owner
     write_json_atomic(directory / "invocation.json", invocation)
     executable.write_bytes(b"later bytes")
     actual_open = Path.open
+
     def guarded(path, *args, **kwargs):
         assert path != executable, "a report must not reopen the later executable path"
         return actual_open(path, *args, **kwargs)
+
     monkeypatch.setattr(Path, "open", guarded)
     assert invoke(capsys, "report", source)["invocations"][0]["binaries"] == [original]
     bundle = repository / "bundle"

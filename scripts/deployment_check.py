@@ -7,17 +7,16 @@ example under the two named policies, with real stdio MCP list/call operations.
 from __future__ import annotations
 
 import argparse
-import contextlib
 import hashlib
 import json
 import os
 import shutil
-import signal
-import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
+
+from harness import SpawnGuard, observe_exit, spawn_group
 
 SOURCE = "examples/fastmcp_config/server.py"
 POLICY = "fastmcp-stdio-v1"
@@ -34,13 +33,12 @@ def bounded(
 ) -> tuple[int, str, str]:
     """Own the entire subprocess group, bounded output and wall time on all exits."""
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
-        process = subprocess.Popen(
-            command, cwd=cwd, env=env, stdout=out, stderr=err, start_new_session=True
-        )
+        process = spawn_group(command, cwd=cwd, env=env, stdout=out, stderr=err)
         started = time.monotonic()
         failure = None
-        try:
-            while process.poll() is None:
+        guard = SpawnGuard(process, grace=0.0)
+        with guard:
+            while observe_exit(process) is None:
                 if time.monotonic() - started > timeout:
                     failure = "task timeout"
                     break
@@ -48,11 +46,6 @@ def bounded(
                     failure = "task output limit"
                     break
                 time.sleep(0.05)
-        finally:
-            # Also terminate any orphaned children after a successful worker exit.
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
         out.seek(0)
         err.seek(0)
         stdout = out.read(OUTPUT_LIMIT).decode("utf-8", errors="replace")

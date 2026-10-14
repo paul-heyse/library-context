@@ -148,15 +148,31 @@ def start_sampler(
         json.dumps(dict(identity)),
         *arguments,
     ]
-    with (unit_dir / "collector.log").open("ab") as log:
-        collector = Sampler(
-            supervisor_arguments,
-            stdin=subprocess.DEVNULL,
-            stdout=log,
-            stderr=log,
-            start_new_session=True,
-            close_fds=True,
-        )
+    from run_delegation import register
+
+    delegation = register("profile-observer", context={"component": "sampler"}, spawning=True)
+    try:
+        with (unit_dir / "collector.log").open("ab") as log:
+            collector = Sampler(
+                supervisor_arguments,
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=log,
+                start_new_session=True,
+                close_fds=True,
+            )
+    except BaseException:
+        if delegation is not None:
+            delegation.finish({"status": "confirmed", "reason": "observer not launched"})
+        raise
+    vars(collector)["_lctx_delegation"] = delegation
+    if delegation is not None:
+        try:
+            delegation.started(collector)
+        except BaseException:
+            collector.unit_dir = unit_dir
+            stop_sampler(collector)
+            raise
     collector.unit_dir = unit_dir
     try:
         write_json(
@@ -248,7 +264,7 @@ def stop_sampler(collector: subprocess.Popen[bytes]) -> int:
     """Finalize only this collector's independent process group, never its target."""
     if collector.poll() is None:
         with suppress(ProcessLookupError):
-            os.killpg(collector.pid, signal.SIGINT)
+            os.kill(collector.pid, signal.SIGINT)
         try:
             collector.wait(timeout=10)
         except subprocess.TimeoutExpired:
@@ -258,6 +274,16 @@ def stop_sampler(collector: subprocess.Popen[bytes]) -> int:
             except subprocess.TimeoutExpired:
                 os.killpg(collector.pid, signal.SIGKILL)
     code = collector.wait()
+    delegation = getattr(collector, "_lctx_delegation", None)
+    if delegation is not None:
+        from harness import recorded_group
+
+        observed = recorded_group(delegation.row["child"])
+        delegation.finish(
+            {"status": "confirmed", "survivors": []}
+            if observed["status"] == "gone"
+            else {"status": "unknown", "reason": "observer group cleanup unobserved"}
+        )
     unit_dir = collector.unit_dir if isinstance(collector, Sampler) else None
     if unit_dir is not None:
         with suppress(OSError, ValueError):

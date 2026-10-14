@@ -8,27 +8,30 @@ responsible for design, integration and acceptance. No role sequence or minimum 
 ## Roles and runtime routing
 
 Read the relevant shared contract when assigning work. Workers load [the common contract](worker.md)
-and their role; native definitions carry model and effort settings only.
+and their role; Codex definitions carry role instructions and supported effort settings while
+inheriting the operator-selected model.
 
 | Responsibility | Shared contract | Codex model / effort | Claude agent / model / effort |
 |---|---|---|---|
-| Repository evidence and dependency mapping | [code-mapper](code-mapper.md) | `gpt-6-luna` / high | `code-mapper` / sonnet / medium |
-| Library capabilities, contracts and alternatives | [library-research](library-research.md) | `gpt-6.1-sol` / medium | `library-research` / opus / medium |
-| Independent architecture and domain assessment | [design-reviewer](design-reviewer.md) | `gpt-6.1-sol` / high | `design-reviewer` / opus / high |
-| Bounded implementation with local discretion | [executor](executor.md) | `gpt-6.1-sol` / high | `implementer` / opus / medium |
-| Correctness and regression review | [implementation-reviewer](implementation-reviewer.md) | `gpt-6.1-sol` / high | `implementation-reviewer` / opus / medium |
-| Functional verification and failure diagnosis | [test-agent](test-agent.md) | `gpt-6.1-sol` / medium | `test-agent` / opus / medium |
+| Repository evidence and dependency mapping | [code-mapper](code-mapper.md) | inherited / high | `code-mapper` / sonnet / medium |
+| Library capabilities, contracts and alternatives | [library-research](library-research.md) | inherited / medium | `library-research` / opus / medium |
+| Independent architecture and domain assessment | [design-reviewer](design-reviewer.md) | inherited / high | `design-reviewer` / opus / high |
+| Bounded implementation with local discretion | [executor](executor.md) | inherited / high | `implementer` / opus / medium |
+| Correctness and regression review | [implementation-reviewer](implementation-reviewer.md) | inherited / high | `implementation-reviewer` / opus / medium |
+| Functional verification and failure diagnosis | [test-agent](test-agent.md) | inherited / medium | `test-agent` / opus / medium |
 
 Codex definitions live in [`.codex/agents/`](../../.codex/agents/); Claude definitions live in
 [`.claude/agents/`](../../.claude/agents/). Claude's `implementer` is the executor adapter, not an
-additional role. The Codex coordinator defaults to Astra/high; use greater effort when the actual
-reasoning warrants it. These are policy defaults, not measured cost or quality claims. Revisit them for concrete
-failures or model/runtime availability changes; no calibration exercise is required. Preserve a user's explicit runtime choice.
+additional role. Codex uses the operator's user/session model for the coordinator and all roles.
+Project and role model pins must not compete with that selection. Role effort remains deliberate
+where supported; these settings establish no measured quality or cost claim. Verify effective
+inheritance in a fresh session after configuration changes. No calibration exercise is required.
 
 Prefer the named native role. If the available delegation tool has no role selector, supply the
-shared contract paths and choose the table's model and effort explicitly. With Codex's collaboration
-tool, use a focused brief with `fork_turns="none"` when selecting a different model; a full-history
-fork inherits the parent. If the runtime cannot select a model, disclose the fallback. Do not assume
+shared contract paths and inherit the selected model; choose supported effort according to the role.
+With Codex's collaboration tool, use fresh context when independence warrants it and a full-history
+fork when that context is useful. If the runtime cannot honor inheritance, disclose the discrepancy
+and use its supported explicit selected-model override. Do not assume
 editing configuration changes agents already running. Native role files carry no permission
 restrictions: Codex roles inherit the session's sandbox and approval settings (Codex ignores
 sandbox keys in role files), and Claude roles inherit the session's tools (no `tools` lists). The
@@ -59,14 +62,17 @@ unresolved ownership or contract decisions, and a second failed attempt at the s
 coordinator chooses whether to narrow the question, inspect sources, run a focused functional check,
 handle it directly or route stronger work. These are reassessment triggers, not automatic reruns.
 
-### Stronger-worker routing
+### Follow-up and runtime observations
 
-Codex custom roles pin their model and effort, overriding spawn-time choices. For stronger evidence
-work, use the built-in `default` role with `gpt-6.1-sol` / `high`, `fork_turns="none"`, and a focused
-brief supplying the common and relevant evidence-role contracts, sources and the evidence role's
-permitted effects.
-Use the built-in `worker` only for authorized edits with explicit ownership. Do not create duplicate
-higher-tier roles or assume an override changes a named custom role.
+For deeper evidence work, retain the operator-selected model and supply a focused brief, appropriate
+effort, sources and the role's permitted effects. Use the built-in `default` role when the live
+runtime's named roles still carry stale model overrides; configuration edits do not change existing
+threads. Do not create duplicate model tiers. Use the built-in `worker` only for authorized edits
+with explicit ownership.
+
+Use the runtime's task-activation operation (`followup_task` where supplied) to start an idle
+worker on new work. A message operation alone does not activate it. Inspect returned status;
+messages to an active worker steer its existing task. No repository scheduler is needed.
 
 Claude permits a per-invocation model override: selecting Opus for `code-mapper`, the one Sonnet
 role, retains its configured medium effort. There is no per-invocation effort override; use the existing
@@ -86,6 +92,6 @@ The [process skills](../../.claude/skills/README.md) own each workflow. Planning
 an adaptable conversational approach and can use the available planning interface. Skills do not
 switch the runtime into Plan mode. No extra planning artifact or hook is required.
 
-Configuration references, consulted 2026-09-30:
+Configuration references, consulted 2026-10-14:
 [Codex custom agents](https://learn.chatgpt.com/docs/agent-configuration/subagents) and
 [Claude custom subagents](https://code.claude.com/docs/en/sub-agents).

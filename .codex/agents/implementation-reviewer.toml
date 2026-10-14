@@ -1,6 +1,5 @@
 name = "implementation-reviewer"
 description = "Independently review a stable implementation for correctness, regressions and contract violations."
-model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
 developer_instructions = """
 Use AGENTS.md already in context, or load it if absent. Read .agents/roles/worker.md and .agents/roles/implementation-reviewer.md from the repository root.

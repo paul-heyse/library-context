@@ -1615,7 +1615,12 @@ def _campaign_run_quiescence(run_path: Path, record: dict[str, Any]) -> dict[str
             raise ValueError
         owner = ProcessIdentity.from_json(record["owner"])
         group = runs.group_of(record)
-        if owner.foreign() or runs.owner_alive(run_path, record) or group["status"] != "gone":
+        if (
+            owner.foreign()
+            or runs.owner_alive(run_path, record)
+            or group["status"] != "gone"
+            or runs.delegated_cleanup(run_path, record)["status"] != "confirmed"
+        ):
             raise ValueError
     except KeyError, TypeError, ValueError:
         raise FixtureBlocked(
@@ -4287,6 +4292,13 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="just service", description=__doc__)
+    selected = list(sys.argv[1:] if argv is None else argv)
+    if selected and selected[0] == "dev":
+        parser.error(
+            "development commands use just surreal-dev <command>; see just surreal-dev --help"
+        )
+    if selected == ["status", "--json"]:
+        parser.error("just service status already emits JSON; omit --json")
     commands = parser.add_subparsers(dest="action", required=True)
     install_parser = commands.add_parser(
         "install", help="explicitly install stable service and native schemas"
@@ -4408,7 +4420,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "under exclusive host maintenance",
     )
     maintenance_parser.add_argument("command", nargs=argparse.REMAINDER)
-    args = parser.parse_args(argv)
+    args = parser.parse_args(selected)
     reconcile = args.action == "maintenance" and bool(
         args.reconcile_pin or args.reconcile_backup_hold
     )

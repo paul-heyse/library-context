@@ -28,6 +28,7 @@ from typing import Any
 import runs
 from build_environment import explain, normalized_env
 from harness import ProcessIdentity, read_json, write_json_atomic
+from run_delegation import delegated_writer
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = Path(__file__).resolve()
@@ -824,6 +825,7 @@ def cmd_internal(args: argparse.Namespace) -> int:
         return _record_owned(args)
 
 
+@delegated_writer("compile-profile")
 def _record_owned(args: argparse.Namespace) -> int:
     run_dir = runs.current_run()
     if run_dir is None:
@@ -1181,8 +1183,10 @@ def sampled_report(chunk: Path, *, force: bool = False, readonly: bool = False) 
         }
     except (OSError, ValueError) as error:
         data = {
-            "outcome": "blocked", "reason": f"sample analysis unavailable: {error}",
-            "capture": str(chunk), "capture_preserved": chunk.is_file(),
+            "outcome": "blocked",
+            "reason": f"sample analysis unavailable: {error}",
+            "capture": str(chunk),
+            "capture_preserved": chunk.is_file(),
         }
         if not readonly:
             output.parent.mkdir(parents=True, exist_ok=True)
@@ -1239,7 +1243,9 @@ def sampled_analysis_status(recent: Path | None) -> dict[str, Any]:
         try:
             previous = read_json(receipt)
             if previous:
-                recorded = {key: previous.get(key) for key in ("outcome", "reason", "path", "input")}
+                recorded = {
+                    key: previous.get(key) for key in ("outcome", "reason", "path", "input")
+                }
             elif receipt.exists():
                 recorded = {"outcome": "failed", "reason": "analysis metadata unreadable"}
         except (OSError, ValueError, AttributeError) as error:
@@ -1297,7 +1303,7 @@ def capture_completeness(run: dict[str, Any], meta: dict[str, Any]) -> dict[str,
     reasons = []
     if run.get("state") != "completed":
         reasons.append("run not completed")
-    if runs.cleanup_of(run)["status"] != "confirmed":
+    if run.get("host_cleanup", runs.cleanup_of(run))["status"] != "confirmed":
         reasons.append("run cleanup unresolved")
     if run.get("supervisor_error") or run.get("launch_error"):
         reasons.append("run supervisor or launch failed")
@@ -1452,7 +1458,7 @@ def report_data(ref: str, *, force: bool = False) -> dict[str, Any]:
                 temporary_days=storage.policy["categories"]["profile-report"].get("temporary_days"),
                 managed=True,
             )
-            if runs.view(run_dir).get("cleanup", {}).get("status") == "confirmed":
+            if runs.host_cleanup(run_dir).get("status") == "confirmed":
                 storage.complete(
                     identity, consumer, reason="profile report owner cleanup confirmed"
                 )
@@ -2263,6 +2269,7 @@ def archive_profile(
     return result
 
 
+@delegated_writer("profile-restore")
 def restore_profile(archive: Path, destination: Path) -> dict[str, Any]:
     """Restore immutable raw under a fresh run owner and a 14-day raw obligation."""
     import storage_archive
@@ -2287,6 +2294,9 @@ def restore_profile(archive: Path, destination: Path) -> dict[str, Any]:
     with admission([run_dir, destination, reports_root(destination), archive]):
         lock = hold_lock(run_dir / runs.OWNER_LOCK)
         try:
+            import run_delegation
+
+            owner.record["delegation"] = run_delegation.initialize(run_dir, owner.record["owner"])
             owner.record.update(phase="restoring", current_command="verified profile restore")
             owner.write()
             result = storage_archive.restore_archive(archive, destination)
@@ -2338,6 +2348,8 @@ def restore_profile(archive: Path, destination: Path) -> dict[str, Any]:
             owner.write()
             raise
         finally:
+            if owner.record.get("delegation"):
+                run_delegation.close_admission(run_dir, owner.record)
             os.close(lock)
         storage.complete(raw_id, raw_consumer, reason="verified restore completed")
         run_id = storage.publish(

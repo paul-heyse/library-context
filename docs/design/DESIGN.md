@@ -123,7 +123,19 @@ MCP output limited to non-sensitive validation contexts under explicit maintenan
 [agent-effectiveness plan](../plans/agent-effectiveness-followup-plan_2026-10-09.md) owns the dated
 controls and operator-scoped acceptance. Product qualification and measured effectiveness are separate.
 
-> Decision: ADR-0142
+**Implemented / focused-Tested extension, 2026-10-14:** managed runs prospectively
+register delegated command owners before launch. Direct cleanup, composed host cleanup, capture
+health and native finality remain distinct; unresolved writers protect storage and worktree release.
+The selected mechanism composes existing authenticated owners. The inert systemd255 comparison
+found that a single disposable cgroup also kills a newly started reusable daemon and truncates a
+separately finalizing observer; it does not reject all possible cgroup designs. Default discovery
+selects bounded compact pages with explicit continuation and coverage. Safety consumers request
+complete inventory and fail closed. Optional exact-command capture attaches UUID-owned writers to
+existing manifests, retains actual cwd/argv and leaves unsupported commands executable. Current
+implementation, controls and limits belong to the
+[Catalog coordinator §6](../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint).
+
+> Decision: ADR-0172
 
 **Implemented / focused-Tested, 2026-10-11:** verification-owned native test evidence
 adds invocation/capture sidecars without replacing run supervision or boundary summaries.
@@ -154,21 +166,24 @@ executables outlive checkouts. Scheduling requires matching-source assembled acc
 
 > Decision: ADR-0144
 
-**Implemented workflow, 2026-09-30 (ADR-0109):** a coordinator owns design, integration and
+**Implemented workflow; selected-model inheritance focused-Tested, 2026-10-14 (ADR-0171):** a coordinator owns design, integration and
 acceptance, using reusable evidence, design-review, execution, implementation-review and functional
 testing roles. Shared responsibilities and permitted effects live in [agent role contracts](../../.agents/roles/README.md);
-native Codex and Claude definitions select models only: no role file restricts tools or sandbox, so the
-contracts alone bound each role's effects.
+native definitions supply role instructions and effort. Codex roles inherit the operator-selected
+model without project/default/role model pins; Claude allocations remain unchanged. Parent
+permissions and the shared contracts bound effects; role definitions cannot override them.
 `library-research` may write the evidence locations AGENTS.md names and an assigned shared library
 skill; the other evidence roles are read-only (ADR-0113). Paired process skills prepare and carry
 out reviews, plan creation and execution. Plan creation includes focused assessment of the existing
 foundations it will use. Delegation is selective: independent coverage, context isolation, capability or judgment must
 justify coordination cost. Worker startup follows the brief and relevant authorities; concrete
 evidence conflicts and repeated repair failures trigger coordinator reassessment. Review cadence, decision authority and
-single-owner finding disposition remain with their existing owners. Runtime settings are policy defaults, with explicit stronger-worker
-routes; resource savings and broader workflow effectiveness remain **Proposed**.
+single-owner finding disposition remain with their existing owners. Explicit operator model
+overrides remain available. Fresh parent and delegated-role metadata confirmed inherited
+`gpt-6.1-sol`; existing threads are not configuration evidence. Task activation starts idle workers;
+messages convey context. Resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0145, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0162, ADR-0040, ADR-0126, ADR-0109, ADR-0113, ADR-0134
+> Decision: ADR-0145, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0162, ADR-0040, ADR-0126, ADR-0171, ADR-0113, ADR-0134
 
 <a id="section-1-3"></a>
 

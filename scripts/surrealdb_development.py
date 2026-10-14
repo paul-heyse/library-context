@@ -339,6 +339,7 @@ def run_worker(
                 code = owner.run()
                 record = runs.load_record(run_path)
                 cleanup = runs.cleanup_of(record)
+                host = runs.host_cleanup(run_path, record)
                 row["credential_cleanup"] = restore_token_input(
                     installation, ledger, parent_owned=True
                 )
@@ -354,11 +355,12 @@ def run_worker(
                     recorded_at=runs.now(),
                     outcome="passed"
                     if code == 0
-                    and cleanup["status"] == "confirmed"
+                    and host["status"] == "confirmed"
                     and capture in {"passed", "not_applicable"}
                     else "failed",
                     command_exit=code,
                     child_cleanup=cleanup,
+                    host_cleanup=host,
                     report={
                         "status": capture,
                         "path": str(report) if operation == "test" else None,
@@ -375,6 +377,7 @@ def run_worker(
                     "run": run_path.name,
                     "command_exit": code,
                     "child_cleanup": cleanup,
+                    "host_cleanup": host,
                     "credential_cleanup": row["credential_cleanup"],
                     "report": row["report"],
                     "remote": row["remote"],

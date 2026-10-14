@@ -12,6 +12,21 @@ EXCLUDED = {"fixtures", "gold", "heldout", ".venv", "target", "build", ".git"}
 SENSITIVE = {"credentials", "secrets", "private", "id_rsa", "id_ed25519", ".env"}
 
 
+def project_root(cwd: Path) -> Path:
+    """Select the checkout containing the actual launch cwd, never the agent cwd."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return Path(result.stdout.strip()).resolve()
+    except OSError, subprocess.CalledProcessError:
+        return cwd.resolve()
+
+
 def allowed(name: str) -> bool:
     parts = Path(name).parts
     return not EXCLUDED.intersection(parts) and not any(

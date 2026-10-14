@@ -234,6 +234,14 @@ def report(root: Path) -> dict[str, Any]:
                 "context_before",
                 "context_after",
                 "binaries",
+                "argv",
+                "effective_argv",
+                "cwd",
+                "fixture",
+                "session",
+                "prerequisites",
+                "host_cleanup",
+                "host_cleanup_scope",
             )
         }
         entry["coverage"] = (
@@ -258,6 +266,14 @@ def report(root: Path) -> dict[str, Any]:
         "run": root.name,
         "summary": read_json(root / runs.SUMMARY),
         "run_record": read_json(root / runs.RECORD),
+        "host_cleanup": (
+            (read_json(root / "bundle.json") or {}).get(
+                "source_host_cleanup",
+                {"status": "unknown", "reason": "bundle has no enclosing host observation"},
+            )
+            if (root / "bundle.json").exists()
+            else runs.host_cleanup(root)
+        ),
         "invocations": observations,
         "observation_counts": dict(Counter(row.get("outcome", "unknown") for row in rows)),
         "failure_groups": [
@@ -379,7 +395,14 @@ def events(root: Path, step: str | None, limit: int, cursor: str | None) -> dict
     for _, invocation in invocations(root):
         if step and step not in (invocation.get("step"), invocation.get("id")):
             continue
-        for kind in ("spawn", "command", "postprocessing", "boundary_final", "finalization"):
+        for kind in (
+            "spawn",
+            "command",
+            "postprocessing",
+            "boundary_final",
+            "finalization",
+            "host_cleanup",
+        ):
             if kind in invocation:
                 milestones.append(
                     {
@@ -440,6 +463,9 @@ def events(root: Path, step: str | None, limit: int, cursor: str | None) -> dict
                 "duration": row.get("duration"),
                 "reference": row["reference"],
                 "source": row["source"],
+                "observation": row.get("observation"),
+                "phase_identity": row.get("phase_identity"),
+                "status": row.get("status"),
             }
         )
     start = page["position"]
@@ -467,6 +493,7 @@ def events(root: Path, step: str | None, limit: int, cursor: str | None) -> dict
 def compare(first: Path, second: Path) -> dict[str, Any]:
     def contexts(root):
         result = {}
+        occurrences = Counter()
         for _, row in invocations(root):
             ident = row.get("context_before")
             context = (
@@ -474,12 +501,15 @@ def compare(first: Path, second: Path) -> dict[str, Any]:
                 if ident
                 else None
             )
-            result[(row["boundary"], row["step"])] = (row, context)
+            key = (row["boundary"], row["step"])
+            occurrence = occurrences[key]
+            occurrences[key] += 1
+            result[(*key, occurrence)] = (row, context)
         return result
 
     left, right = contexts(first), contexts(second)
     differences = []
-    for key in sorted(left.keys() | right.keys()):
+    for key in sorted(left.keys() | right.keys(), key=repr):
         a, ca = left.get(key, ({}, None))
         b, cb = right.get(key, ({}, None))
         names = set((ca or {}).get("files", {})) | set((cb or {}).get("files", {}))
@@ -492,6 +522,7 @@ def compare(first: Path, second: Path) -> dict[str, Any]:
             {
                 "boundary": key[0],
                 "step": key[1],
+                "occurrence": key[2],
                 "source_changed": changed[:50],
                 "source_changed_count": len(changed),
                 "source_omitted": max(0, len(changed) - 50),
@@ -595,6 +626,7 @@ def export(root: Path, output: Path) -> dict[str, Any]:
             {
                 "schema": 1,
                 "source_run": root.name,
+                "source_host_cleanup": runs.host_cleanup(root),
                 "members": members,
                 "storage_id": ident,
                 "native_replay": "nextest-recording.zip where available",

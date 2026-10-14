@@ -24,7 +24,7 @@ implementation and real consumers, rather than its prior verdict, supply this re
 The applied [standard](../design_principles/standard.toml) is core/template 3.3,
 heuristics 1.0, code-intelligence profile 1.5 and the library-context binding, through the
 `design-review` and `design-review-code-intelligence` skills. The workflow owner is
-[DESIGN §1.2](../../design/DESIGN.md), with [ADR-0142](../../adr/0142-agent-execution-ownership-and-observation.md)'s lifecycle and readiness decision. The target
+[DESIGN §1.2](../../design/DESIGN.md), with [current successor ADR-0172](../../adr/0172-composed-delegated-command-ownership.md)'s lifecycle and readiness decision. The target
 is the plan's functional outcome, rather than agreement with those chosen mechanisms.
 
 The workload is one operator with several concurrent tasks: short queries, long native builds

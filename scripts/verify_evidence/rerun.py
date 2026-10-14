@@ -31,15 +31,26 @@ def cargo_target(invocation: dict[str, Any], case: dict[str, Any]) -> dict[str, 
             continue  # Cargo also emits ordinary companion executables for integration tests.
         target = row.get("target") or {}
         kinds = target.get("kind", [])
-        actual_kind = "lib" if set(kinds) & {"lib", "proc-macro", "rlib", "dylib", "staticlib", "cdylib"} else kinds[0] if len(kinds) == 1 else None
+        actual_kind = (
+            "lib"
+            if set(kinds) & {"lib", "proc-macro", "rlib", "dylib", "staticlib", "cdylib"}
+            else kinds[0]
+            if len(kinds) == 1
+            else None
+        )
         if (
             row.get("package_name") == package
             and actual_kind == kind
             and (name is None or target.get("name") == name)
             and row.get("package_id")
         ):
-            identity = (row["package_id"], tuple(kinds), target.get("name"),
-                json.dumps(row.get("profile"), sort_keys=True), json.dumps(row.get("features"), sort_keys=True))
+            identity = (
+                row["package_id"],
+                tuple(kinds),
+                target.get("name"),
+                json.dumps(row.get("profile"), sort_keys=True),
+                json.dumps(row.get("features"), sort_keys=True),
+            )
             matches[identity] = row
     if len(matches) != 1:
         raise CaptureUnsupported(
@@ -54,10 +65,23 @@ def cargo_target(invocation: dict[str, Any], case: dict[str, Any]) -> dict[str, 
 def narrow_cargo(argv: list[str], artifact: dict[str, Any]) -> list[str]:
     target = artifact["target"]
     kinds = set(target["kind"])
-    kind = "lib" if kinds & {"lib", "proc-macro", "rlib", "dylib", "staticlib", "cdylib"} else next(iter(kinds))
+    kind = (
+        "lib"
+        if kinds & {"lib", "proc-macro", "rlib", "dylib", "staticlib", "cdylib"}
+        else next(iter(kinds))
+    )
     if kind not in {"lib", "test", "bin", "example", "bench"} or not target.get("name"):
         raise CaptureUnsupported("unsupported or incomplete Cargo target declaration")
-    flags = {"--workspace", "--all", "--all-targets", "--lib", "--bins", "--tests", "--examples", "--benches"}
+    flags = {
+        "--workspace",
+        "--all",
+        "--all-targets",
+        "--lib",
+        "--bins",
+        "--tests",
+        "--examples",
+        "--benches",
+    }
     values = {"-p", "--package", "--exclude", "--bin", "--test", "--example", "--bench"}
     result = []
     index = 0
@@ -253,6 +277,10 @@ def plan(
 ) -> dict[str, Any]:
     import verify
 
+    if invocation.get("boundary") is None:
+        raise CaptureUnsupported(
+            "ad hoc capture has no declared prerequisites; exact-case rerun plan is unsupported"
+        )
     boundary = next((b for b in verify.BOUNDARIES if b.id == invocation["boundary"]), None)
     if boundary is None:
         raise CaptureUnsupported("recorded boundary no longer exists in current catalog")
@@ -260,6 +288,7 @@ def plan(
     target = next((s for s in boundary.steps if s.name == invocation["step"]), None)
     if target is None:
         raise CaptureUnsupported("recorded step no longer exists in current catalog")
+    artifact: dict[str, Any] | None = None
     if invocation.get("tool") == "nextest":
         artifact = cargo_target(invocation, case)
         argv = nextest_case(narrow_cargo(invocation["argv"], artifact), case)
@@ -329,11 +358,17 @@ def plan(
                     operations.append({"operation": "fixture-restart", "after": provider.name})
 
     require(target)
-    selected = {"step": target.name, "argv": argv, "command": shlex.join(argv), "case_filter": True}
-    if invocation.get("tool") == "nextest":
-        selected["cargo_target"] = {key: artifact.get(key) for key in (
-            "package_id", "package_name", "target", "features", "profile"
-        )}
+    selected: dict[str, Any] = {
+        "step": target.name,
+        "argv": argv,
+        "command": shlex.join(argv),
+        "case_filter": True,
+    }
+    if artifact is not None:
+        selected["cargo_target"] = {
+            key: artifact.get(key)
+            for key in ("package_id", "package_name", "target", "features", "profile")
+        }
     operations.append(selected)
     by_name = {step.name: step for step in boundary.steps}
     for operation in operations:

@@ -289,6 +289,8 @@ def test_restore_has_fresh_owner_and_temporary_raw_lifetime(tmp_path, monkeypatc
     assert (restored / "raw").read_bytes() == b"exact original bytes"
     assert profile.profile_dir(result["run"]) == restored
     assert runs.view(Path(result["run_dir"]))["cleanup"]["status"] == "confirmed"
+    assert runs.view(Path(result["run_dir"]))["host_cleanup"]["status"] == "confirmed"
+    assert not json.loads((Path(result["run_dir"]) / "delegation.json").read_text())["accepting"]
 
 
 def test_external_capture_completes_after_run_cleanup(tmp_path, monkeypatch):

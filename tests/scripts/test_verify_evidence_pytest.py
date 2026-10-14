@@ -308,7 +308,7 @@ def test_effective_configuration_identity_and_hidden_selection_options(
     monkeypatch.setattr(
         adapter,
         "_tool_versions",
-        lambda root, env: {"pytest": "9.1.1", "pytest-reportlog": "1.0.0"},
+        lambda root, env, argv: {"pytest": "9.1.1", "pytest-reportlog": "1.0.0"},
     )
     option = ["-c", str(config)] if config_option == "split" else ["-c" + str(config)]
     argv = ["pytest", *option] if config_option != "environment" else ["pytest"]
@@ -379,7 +379,7 @@ print(json.dumps(result["tool_version"]))
 
 
 def test_preparation_missing_dependency_and_availability_are_separate(tmp_path, monkeypatch):
-    def missing(root, env):
+    def missing(root, env, argv):
         raise CaptureUnsupported("pytest evidence metadata unavailable; repair: just sync tools")
 
     monkeypatch.setattr(adapter, "_tool_versions", missing)

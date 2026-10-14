@@ -79,7 +79,7 @@ def test_foreground_preserves_failure_streams_output_and_records(root: Path) -> 
     assert set(record) == {
         "schema", "id", "argv", "cwd", "label", "mode", "owner", "child", "phase",
         "current_command", "waiting_reason", "started", "ended", "exit", "termination", "logs",
-        "launch_error", "supervisor_error", "cleanup", "storage",
+        "launch_error", "supervisor_error", "cleanup", "storage", "delegation",
     }  # fmt: skip
     assert record["id"] == run_dir.name and record["label"] == "fails"
     assert record["argv"] == ["bash", "-c", "echo out; echo err >&2; exit 7"]
@@ -669,9 +669,11 @@ def test_run_owner_keeps_leader_unreaped_until_cleanup(root, monkeypatch):
     assert group_members(pins[0]) == []
 
 
-def test_exact_run_recovery_ignores_foreign_corruption_but_global_inventory_refuses(root, monkeypatch):
+def test_exact_run_recovery_ignores_foreign_corruption_but_global_inventory_refuses(
+    root, monkeypatch
+):
     import storage_owners
-    from storage_lifecycle import Storage, Invalid
+    from storage_lifecycle import Invalid, Storage
 
     run_dir = runs.new_run_dir()
     owner = {"kind": "run", "path": str(run_dir.resolve())}
@@ -680,9 +682,12 @@ def test_exact_run_recovery_ignores_foreign_corruption_but_global_inventory_refu
     raw.mkdir()
     ident = storage_owners.enroll(raw, "run-log", owner, consumer, temporary_days=30)
     record = {
-        "schema": runs.SCHEMA, "id": run_dir.name,
-        "termination": "completed", "exit": {"code": 0},
-        "cleanup": {"status": "confirmed"}, "ended": runs.now(),
+        "schema": runs.SCHEMA,
+        "id": run_dir.name,
+        "termination": "completed",
+        "exit": {"code": 0},
+        "cleanup": {"status": "confirmed"},
+        "ended": runs.now(),
     }
     write = __import__("harness").write_json_atomic
     write(run_dir / runs.RECORD, record)
@@ -707,10 +712,17 @@ def test_exact_recovery_preserves_citation_obligations_and_retries_local_release
     storage = Storage()
     ident = storage.enrolled(run_dir)["id"]
     storage.retain(ident, "citation:current", "cited-report")
-    __import__("harness").write_json_atomic(run_dir / runs.RECORD, {
-        "schema": runs.SCHEMA, "id": run_dir.name, "ended": runs.now(),
-        "termination": "completed", "exit": {"code": 0}, "cleanup": {"status": "confirmed"},
-    })
+    __import__("harness").write_json_atomic(
+        run_dir / runs.RECORD,
+        {
+            "schema": runs.SCHEMA,
+            "id": run_dir.name,
+            "ended": runs.now(),
+            "termination": "completed",
+            "exit": {"code": 0},
+            "cleanup": {"status": "confirmed"},
+        },
+    )
     monkeypatch.setattr(runs, "_cancel", lambda *_a, **_k: {"cleanup": {"status": "confirmed"}})
     complete = storage_owners.complete
     monkeypatch.setattr(storage_owners, "complete", lambda *_a, **_k: False)

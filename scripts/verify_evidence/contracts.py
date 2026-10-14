@@ -32,6 +32,7 @@ class LaunchRequest:
     env: Mapping[str, str]
     log: Path
     live: bool
+    cwd: Path
     stdout: Path | None = None
     observer: Callable[[dict[str, Any]], None] | None = None
 

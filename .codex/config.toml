@@ -1,5 +1,4 @@
-# Project-scoped coordinator and worker defaults; explicit user/runtime choices take precedence.
-model = "gpt-6-astra"
+# The operator selects the model in user/session configuration; project roles inherit it.
 model_reasoning_effort = "high"
 plan_mode_reasoning_effort = "high"
 # AGENTS.md is ~29 KB; the 32 KiB default leaves little headroom (Codex counts project docs only).
@@ -7,10 +6,9 @@ project_doc_max_bytes = 65536
 
 [agents]
 enabled = true
-default_subagent_model = "gpt-6.1-sol"
 default_subagent_reasoning_effort = "high"
 
-# Role-specific models and contracts are in .codex/agents; shared routing is .agents/roles/README.md.
+# Role effort and contracts are in .codex/agents; coordination is .agents/roles/README.md.
 
 # Ad hoc `uv run` never synchronizes; preparation is `just sync tools|native|vllm` (ADR-0134).
 [shell_environment_policy.set]

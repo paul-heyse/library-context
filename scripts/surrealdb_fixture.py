@@ -1897,18 +1897,66 @@ def run_attached(
             env = owned.environment(env)
         if child_env:
             env.update(child_env)
+        from verify_evidence.capture import capture_launch
+
+        enclosing_log = (
+            Path(env["LCTX_RUN_DIR"]) / "output.log"
+            if env.get("LCTX_RUN_DIR")
+            else Path("/dev/stderr")
+        )
+        captured = stack.enter_context(
+            capture_launch(
+                command,
+                env,
+                cwd or Path.cwd(),
+                enclosing_log,
+                fixture={
+                    "id": attachment.server.id,
+                    "attachment": attachment.id,
+                    "kind": getattr(attachment.server, "kind", None),
+                    "service_generation": getattr(attachment.server, "record", {}).get(
+                        "service_generation"
+                    ),
+                },
+            )
+        )
+
+        @contextlib.contextmanager
+        def capture_stream(path: Path):
+            with path.open("ab") as stream:
+                yield stream
+
+        human = None
+        command_stdout = stdout
+        if captured.log != enclosing_log:
+            report(f"fixture: native log {captured.log}")
+            human = stack.enter_context(capture_stream(captured.log))
+            if command_stdout is None:
+                command_stdout = human
+        if captured.stdout is not None:
+            command_stdout = stack.enter_context(capture_stream(captured.stdout))
         intent = {"argv": list(command), "leader": None, "started": now()}
         attachment._write_record(
             intent, command_cleanup={"status": "unknown", "reason": "launch pending"}
         )
         try:
             child = spawn_group(
-                command, death_signal=signal.SIGTERM, env=env, cwd=cwd, stdout=stdout
+                captured.argv,
+                death_signal=signal.SIGTERM,
+                env=captured.env,
+                cwd=captured.cwd,
+                stdout=command_stdout,
+                stderr=human,
             )
         except OSError as error:
             attachment._command_cleanup = {"status": "confirmed", "survivors": []}
             attachment._write_record(
                 None, command_cleanup=attachment._command_cleanup, child_exit_code=None
+            )
+            captured.finish(
+                None,
+                {"kind": type(error).__name__, "errno": error.errno},
+                attachment._command_cleanup,
             )
             raise FixtureBlocked("launch", f"cannot start {command[0]!r}: {error}") from error
         guard = SpawnGuard(child, grace=STOP_GRACE / 2)
@@ -1918,7 +1966,7 @@ def run_attached(
         if server is not None:
             server._cleanup_protected = True
         command_record = {
-            "argv": list(command),
+            "argv": list(captured.argv),
             "leader": {"pid": child.pid, "pgid": child.pid},
             "started": now(),
         }
@@ -1932,6 +1980,7 @@ def run_attached(
                 attachment._write_record(
                     command_record, command_cleanup=attachment._command_cleanup
                 )
+                captured.observe({"spawn": command_record["leader"]})
                 try:
                     while True:
                         code = observe_exit(child)
@@ -1978,6 +2027,7 @@ def run_attached(
                             path, {**(read_json(path) or {}), "command": command_record, **updates}
                         )
                 report(f"fixture: command cleanup receipt not written: {type(error).__name__}")
+            captured.finish(code if code is not None else guard.returncode, cleanup=guard.cleanup)
         if guard.cleanup["status"] != "confirmed":
             report(f"fixture: command cleanup {guard.cleanup['status']}")
             return code or 1

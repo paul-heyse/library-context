@@ -115,21 +115,59 @@ def spawn_group(
 ) -> subprocess.Popen:
     """Start argv as the leader of a new session, so its process group id is its pid. With
     `death_signal`, the leader also receives that signal when its owner dies."""
-    return subprocess.Popen(
-        list(argv),
-        env=None if env is None else dict(env),
-        cwd=cwd,
-        stdin=stdin,
-        stdout=stdout,
-        stderr=stderr,
-        start_new_session=True,
-        preexec_fn=None if death_signal is None else _death_signal(death_signal, os.getpid()),
-    )
+    from run_delegation import register
+
+    delegation = register("process-group", context={"command": Path(argv[0]).name}, spawning=True)
+    try:
+        child = subprocess.Popen(
+            list(argv),
+            env=None if env is None else dict(env),
+            cwd=cwd,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            start_new_session=True,
+            preexec_fn=None if death_signal is None else _death_signal(death_signal, os.getpid()),
+        )
+    except BaseException:
+        if delegation is not None:
+            delegation.finish({"status": "confirmed", "reason": "child not launched"})
+        raise
+    vars(child)["_lctx_delegation"] = delegation
+    if delegation is not None:
+        try:
+            delegation.started(child)
+        except BaseException:
+            with SpawnGuard(child):
+                pass
+            raise
+    return child
 
 
-def group_members(pgid: int) -> list[int]:
+@dataclass(frozen=True)
+class ProcessSnapshot:
+    """One read-only process-table observation shared by an inspection request."""
+
+    fields: Mapping[int, list[str]]
+
+    @classmethod
+    def capture(cls) -> ProcessSnapshot:
+        fields = {}
+        for entry in Path("/proc").iterdir():
+            if entry.name.isdigit() and (value := _stat_fields(int(entry.name))) is not None:
+                fields[int(entry.name)] = value
+        return cls(fields)
+
+
+def group_members(pgid: int, *, snapshot: ProcessSnapshot | None = None) -> list[int]:
     """Live (non-zombie) processes in the group: the survivors of an owned command tree."""
     members = []
+    if snapshot is not None:
+        return sorted(
+            pid
+            for pid, fields in snapshot.fields.items()
+            if fields[0] != "Z" and int(fields[2]) == pgid
+        )
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -213,6 +251,21 @@ class SpawnGuard:
         return self
 
     def __exit__(self, *_exc: Any) -> None:
+        # A repeated termination signal must not interrupt the sole reaper while
+        # its authenticated leader pin and cleanup receipt are being settled.
+        blocked = {signal.SIGTERM, signal.SIGINT, signal.SIGHUP}
+        previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
+        try:
+            self._finish()
+        finally:
+            registration = getattr(self.child, "_lctx_delegation", None)
+            try:
+                if registration is not None:
+                    registration.finish(self.cleanup)
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+    def _finish(self) -> None:
         if self.child.returncode is not None:
             self.returncode = self.child.returncode
             self.cleanup = {"status": "unknown", "reason": "leader reaped before cleanup"}
@@ -233,7 +286,10 @@ class SpawnGuard:
 
 
 def recorded_group(
-    child: Mapping[str, Any] | None, *, members: Sequence[Mapping[str, Any]] = ()
+    child: Mapping[str, Any] | None,
+    *,
+    members: Sequence[Mapping[str, Any]] = (),
+    snapshot: ProcessSnapshot | None = None,
 ) -> dict[str, Any]:
     """Observe an old group's identity without treating an unknowable group as absent.
 
@@ -252,10 +308,14 @@ def recorded_group(
         pgid = int(child["pgid"])
         if pgid != identity.pid:
             return {"status": "unknown", "reason": "group identity mismatch"}
-        fields = _stat_fields(identity.pid)
+        fields = (
+            snapshot.fields.get(identity.pid)
+            if snapshot is not None
+            else _stat_fields(identity.pid)
+        )
         if fields is not None and int(fields[19]) != identity.start_ticks:
             return {"status": "unknown", "reason": "reused pid"}
-        current_members = group_members(pgid)
+        current_members = group_members(pgid, snapshot=snapshot)
         if not current_members:
             return {"status": "gone", "members": []}
         if fields is None or int(fields[2]) != pgid:

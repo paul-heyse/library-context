@@ -77,6 +77,13 @@ lifecycle obligations authorize effects. A retained terminal run, profile eviden
 cleanup also protects its containing worktree. `just worktree-remove --force` cannot override
 live environment/build admissions, service dependencies or evidence holds.
 
+Managed run completion composes prospectively registered delegated command and capture-writer
+owners, retaining their independent receipts. Direct-group exit alone cannot release a log while a
+delegated writer remains active or unresolved. Complete safety inventories explicitly request
+`just runs list --all --json`, require complete coverage and fail closed on damaged/unknown records;
+the ordinary recent page is for discovery. Historical direct-only records gain no invented
+delegations. Host confirmation never establishes native request finality (ADR-0172).
+
 There are no new CPU/thread/worker limits, healthy-command timeouts, cache-size eviction limits,
 or routine clean commands. The diagnostic 64/100 GiB policy values are advisory observations.
 Do not use `cargo clean`, broad `rm`, mtime-based deletion or native cache purges as a substitute

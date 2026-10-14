@@ -1,23 +1,28 @@
 # Status
 _Updated 2026-10-14 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Priority: Catalog completion plan published, 2026-10-14.** The [new coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
-alone owns reviewed production/development corrections, inherited Catalog dispositions, source-qualified receipts and next work. Its production,
-development and acceptance companions supersede all five Catalog-creation plans. The [friction review](docs/design_review/reviews/design_review_implementation-friction-target_2026-10-14.md)
-retains its Revise judgment; F01–F10/O01–O05 are scheduled. RC01/RC02/RC05 directions are approved; RC03/RC04 are conditional permissions, not selected
-representation/visibility changes. Existing integrated compiler/analysis/native foundations are preserved; no remediation or product campaign ran.
+**Priority: agent-effectiveness slice implemented / focused-Tested, 2026-10-14.** The
+[Catalog completion coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+alone owns finding dispositions, exact receipts and remaining scope. C00's approved routes, T01–T04,
+I03, P01 and narrow O02 diagnostics are delivered on shared main over `2fc7f7d5` (Rust `04cab60a`). ADR-0171/0172 replace
+model routing and host ownership. RC03/RC04 remain conditional and unselected. The independent source
+assessment accepts this bounded slice; no measured effectiveness or whole-Catalog claim follows.
 
-**Current source/evidence boundary:** product source remains at `5ffdca70`; authoring started at clean `f330bf1d`. Final metadata/strict keep-going
-Clippy `a4a6ef`/`a09702` passed historically. Final runtime reruns were canceled before assertions; Summary/current cold/linked900s, exclusive
-mutations, pinned FastMCP3600s excluding builds, regeneration and substantive older-plan handback remain open. R1–R7 are disposed (`324b00` R7);
-original failed/Unknown outcomes and shared/operator targets stay protected. No auxiliary worktree remains. Disk recovery is no longer a blocker.
+**Last verified, 2026-10-14:** native18 (`e251bf`) and Workspace3 (`5e4931`) passed bodies and enclosing
+fixtures; diagnostic-writer/host (`b01192`), final385 host/capture controls (`5db38f`), fresh parent/role model
+inheritance and explicit override passed. Touched-crate keep-going strict Clippy passed `dddb33`.
+Scoped host/capture Pyrefly passed; original broader typing and documentation failures remain at §6.
+Scoped turn-end/diff checks passed; unchanged Ruff/type diagnostics are retained separately.
+`just adr-lint`/`docs-check` still fail on14 pre-existing refs; direct publication has22 stale links.
+Earlier body-only/Unknown native receipts remain unchanged. The new isolated campaign was drained
+and disposed (`626a46`); no shared/operator target was inspected or repaired. No auxiliary worktree
+or product worker remains. The supported capture seams and conservative observer/PID guarantees
+are explicit at §6; unknown native finality never becomes host confirmation.
 
-**Next:** plan execution of ready shared outcome/admission/host-ownership packages and bounded aggregate/assurance/containment investigations.
-Actual contract slices precede affected acceptance; optional tooling conveniences do not block every production control. Older queues stay paused.
-Independent plan review accepted the Proposed contracts; focused1,171-link and36+15-obligation checks passed. Integrated at `73a0cdd8`; post-integration
-docs-check/ADR lint fail on14 existing architectural-reference defects; direct publication has22 other stale links, detailed at coordinator §6.
-All subagents are done; scoped turn-end passed. Product builds/tests/probes, service operations,
-embedding/MCP runtime, broad qualification and operator adoption are not_run for this documentation scope.
+**Next:** P02/P03 and bounded I01/I02, then P04–P06 and actual V01–V05 prerequisites. Summary/current
+cold/availability/linked900s/exclusive mutations/FastMCP3600s/regeneration and substantive older-plan
+handback remain open. Older queues stay paused. Broad qualification, embedding/MCP runtime and
+operator adoption were not_run for this agent-effectiveness scope. Disk recovery is not a blocker.
 
 **Prior SA0–SA9 implemented / focused-Tested; assurance remains paused by operator,2026-10-11.** The [architecture
 companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) owns scope; [coordinator
@@ -69,7 +74,7 @@ maintenance was released. SM8 actual disposable-checkout service-survival remain
 ordinary qualification does not substitute for SM8 or BC3 candidate-profile adoption.
 
 **Agent effectiveness AF0–AF9 implemented / focused-Tested,2026-10-09.** [Follow-up plan
-§8/§9](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner) owns receipts; ADR-0142 owns
+§8/§9](docs/plans/agent-effectiveness-followup-plan_2026-10-09.md#8-finding-and-recommendation-disposition-owner) owns receipts; successor ADR-0172 owns
 readiness, cleanup and display. Scoped acceptance is not comprehensive product acceptance.
 
 **Complete ordinary test entrypoint implemented,2026-10-11.** `just test-all` uses existing verification/fixture owners; `just qualify` adds

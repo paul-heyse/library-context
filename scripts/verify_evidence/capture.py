@@ -7,6 +7,7 @@ import copy
 import hashlib
 import importlib
 import json
+import os
 import shlex
 import sys
 import tomllib
@@ -16,10 +17,10 @@ from typing import Any
 
 import storage_owners
 from executable_observation import observe as observe_executable
-from harness import write_json_atomic
+from harness import hold_lock, read_json, write_json_atomic
 from storage_lifecycle import admission
 
-from .context import SourceObserver, digest_file
+from .context import SourceObserver, digest_file, project_root
 from .contracts import SCHEMA, LaunchRequest
 
 SAFE_ENV = (
@@ -32,6 +33,43 @@ SAFE_ENV = (
     "NEXTEST_PROFILE",
     "PYTEST_ADDOPTS",
 )
+
+REQUEST = "LCTX_CAPTURE_NATIVE"
+PREPARED = "LCTX_EVIDENCE_PREPARED"
+INVOCATION = "LCTX_EVIDENCE_INVOCATION"
+
+
+def _marker(argv: Any, cwd: Path) -> str:
+    # A marker is consumed only by hooks in the preparing process. An inherited
+    # marker cannot suppress a nested launch by a child, even with identical argv.
+    return hashlib.sha256(
+        json.dumps([os.getpid(), list(argv), str(cwd.resolve())]).encode()
+    ).hexdigest()
+
+
+def native_tool(argv: Any) -> str:
+    """Recognize actual argv only; opaque wrappers are never shell-parsed."""
+    if not argv:
+        return "other"
+    name = Path(argv[0]).name
+    if name == "cargo":
+        return "nextest" if list(argv[1:3]) == ["nextest", "run"] else "cargo"
+    if name == "pytest" or (name.startswith("python") and list(argv[1:3]) == ["-m", "pytest"]):
+        return "pytest"
+    if name == "uv" and len(argv) > 2 and argv[1] == "run":
+        # Only the qualified transparent launcher prefix, not arbitrary uv
+        # option/value grammar or a script containing a command.
+        position = 2
+        while position < len(argv) and argv[position] in {
+            "--no-sync",
+            "--locked",
+            "--frozen",
+            "--offline",
+        }:
+            position += 1
+        if position < len(argv):
+            return native_tool(argv[position:])
+    return "other"
 
 
 def configuration(directory: Path, root: Path, argv: Any, tool: str, env: Any) -> dict[str, Any]:
@@ -110,12 +148,13 @@ class Invocation:
 
     def request(self, log: Path, live: bool) -> LaunchRequest:
         return LaunchRequest(
-            self.row["effective_argv"],
-            self.prepared["env"],
-            log,
-            live,
-            Path(self.prepared["stdout"]) if self.prepared.get("stdout") else None,
-            self.observe,
+            argv=self.row["effective_argv"],
+            env=self.prepared["env"],
+            log=Path(self.row["log"]),
+            live=live,
+            cwd=Path(self.row["cwd"]),
+            stdout=Path(self.prepared["stdout"]) if self.prepared.get("stdout") else None,
+            observer=self.observe,
         )
 
     def command_finished(self, result: Any, *, duration: float | None = None) -> None:
@@ -133,7 +172,7 @@ class Invocation:
         if self.adapter and hasattr(self.adapter, "finalize"):
             try:
                 capture = self.adapter.finalize(
-                    self.directory, self.prepared["env"], self.owner.root
+                    self.directory, self.prepared["env"], Path(self.row["cwd"])
                 )
                 self.save(finalization=capture)
             except Exception as error:
@@ -163,16 +202,18 @@ class Invocation:
                     try:
                         manifest = Path(event["manifest_path"]).read_bytes()
                         package_name = tomllib.loads(manifest.decode())["package"]["name"]
-                    except (OSError, ValueError, KeyError, TypeError):
+                    except OSError, ValueError, KeyError, TypeError:
                         pass
-                    binaries.append({
-                        **observe_executable(path),
-                        "package_id": event.get("package_id"),
-                        "package_name": package_name,
-                        "target": event.get("target"),
-                        "features": event.get("features"),
-                        "profile": event.get("profile"),
-                    })
+                    binaries.append(
+                        {
+                            **observe_executable(path),
+                            "package_id": event.get("package_id"),
+                            "package_name": package_name,
+                            "target": event.get("target"),
+                            "features": event.get("features"),
+                            "profile": event.get("profile"),
+                        }
+                    )
             self.save(binaries=binaries)
 
 
@@ -184,28 +225,73 @@ class CaptureOwner:
         self.manifest_path = self.receipt / "manifest.json"
         self.source = SourceObserver(root)
         self.invocations: list[Invocation] = []
+        self.session_id: str | None = None
         self.warned = False
-        self.manifest: dict[str, Any] = {"schema": SCHEMA, "run": run_dir.name, "invocations": []}
-        if self.manifest_path.exists() or (self.run_dir / "verify-evidence.json").exists():
-            raise ValueError("this run already owns verification evidence; start a separate run")
         owner = {"kind": "run", "path": str(self.run_dir)}
         consumer = f"run:{run_dir.name}"
         with admission([self.raw, self.receipt, self.run_dir / "verify-evidence.json"]):
             self.raw.mkdir(parents=True, exist_ok=True)
             self.receipt.mkdir(parents=True, exist_ok=True)
-            self.manifest["storage"] = {
-                "raw": storage_owners.enroll(
-                    self.raw, "run-log", owner, consumer, temporary_days=30
-                ),
-            }
-            write_json_atomic(self.manifest_path, self.manifest)
-            self.manifest["storage"]["receipt"] = storage_owners.enroll(
-                self.receipt, "run-receipt", owner, consumer, temporary_days=90
+            descriptor = hold_lock(self.receipt / "registration.lock")
+            try:
+                if self.manifest_path.exists():
+                    self._manifest()
+                else:
+                    link = self.run_dir / "verify-evidence.json"
+                    if link.exists() or link.is_symlink():
+                        raise ValueError("unrecognized existing evidence manifest; preserved")
+                    manifest = {
+                        "schema": SCHEMA,
+                        "run": run_dir.name,
+                        "invocations": [],
+                        "storage": {
+                            "raw": storage_owners.enroll(
+                                self.raw, "run-log", owner, consumer, temporary_days=30
+                            ),
+                            "receipt": storage_owners.enroll(
+                                self.receipt, "run-receipt", owner, consumer, temporary_days=90
+                            ),
+                        },
+                    }
+                    write_json_atomic(self.manifest_path, manifest)
+                link = self.run_dir / "verify-evidence.json"
+                if not link.exists() and not link.is_symlink():
+                    link.symlink_to("verify-evidence-receipt/manifest.json")
+                if link.resolve() != self.manifest_path:
+                    raise ValueError("evidence manifest binding changed; preserved")
+            finally:
+                os.close(descriptor)
+
+    def _manifest(self) -> dict[str, Any]:
+        manifest = read_json(self.manifest_path)
+        if (
+            not manifest
+            or manifest.get("schema") != SCHEMA
+            or manifest.get("run") != self.run_dir.name
+        ):
+            raise ValueError("existing evidence manifest identity/schema mismatch")
+        return manifest
+
+    @property
+    def manifest(self) -> dict[str, Any]:
+        return self._manifest()
+
+    def register(self, entry: dict[str, Any]) -> None:
+        """Append one immutable UUID registration under a short lock, never a cached manifest."""
+        descriptor = hold_lock(self.receipt / "registration.lock")
+        try:
+            manifest = self._manifest()
+            existing = next(
+                (row for row in manifest["invocations"] if row["id"] == entry["id"]), None
             )
-            write_json_atomic(self.manifest_path, self.manifest)
-            (self.run_dir / "verify-evidence.json").symlink_to(
-                "verify-evidence-receipt/manifest.json"
-            )
+            if existing is not None:
+                if existing != entry:
+                    raise ValueError("invocation registration changed")
+                return
+            manifest["invocations"].append(entry)
+            write_json_atomic(self.manifest_path, manifest)
+        finally:
+            os.close(descriptor)
 
     def warn(self, error: Exception) -> None:
         if not self.warned:
@@ -226,11 +312,23 @@ class CaptureOwner:
         return ident
 
     def start(
-        self, boundary: str, step: Any, argv: Any, env: Any, fixture: Any, selection: Any, log: Path
+        self,
+        boundary: str | None,
+        step: Any,
+        argv: Any,
+        env: Any,
+        fixture: Any,
+        selection: Any,
+        log: Path,
+        *,
+        cwd: Path | None = None,
+        session: str | None = None,
+        ident: str | None = None,
     ) -> Invocation:
         import runs
 
-        ident = uuid.uuid4().hex
+        ident = ident or uuid.uuid4().hex
+        cwd = (cwd or self.root).resolve()
         directory = self.raw / ident
         directory.mkdir()
         row: dict[str, Any] = {
@@ -241,7 +339,11 @@ class CaptureOwner:
             "tool": step.tool,
             "argv": list(argv),
             "effective_argv": list(argv),
-            "cwd": str(self.root),
+            "cwd": str(cwd),
+            "session": session,
+            "prerequisites": "declared-boundary"
+            if boundary is not None
+            else "unsupported: ad hoc command has no declared prerequisites",
             "started": runs.now(),
             "selection": selection,
             "fixture": copy.deepcopy(fixture),
@@ -257,13 +359,17 @@ class CaptureOwner:
         invocation = Invocation(self, directory, row)
         invocation.save()
         self.invocations.append(invocation)
-        self.manifest["invocations"].append({"id": ident, "boundary": boundary, "step": step.name})
-        write_json_atomic(self.manifest_path, self.manifest)
+        self.register({"id": ident, "boundary": boundary, "step": step.name, "session": session})
+        env = dict(env)
+        env[INVOCATION] = ident
+        if env.get(REQUEST):
+            env[REQUEST] = "1"
+        prepared: dict[str, Any]
         try:
             if step.tool in ("nextest", "pytest"):
                 module = "pytest_adapter" if step.tool == "pytest" else "nextest"
                 invocation.adapter = importlib.import_module(f"verify_evidence.{module}")
-                prepared = invocation.adapter.prepare(list(argv), dict(env), directory, self.root)
+                prepared = invocation.adapter.prepare(list(argv), dict(env), directory, cwd)
             elif (
                 step.tool == "cargo"
                 and len(argv) > 1
@@ -282,28 +388,29 @@ class CaptureOwner:
                     "channels": {"cargo": "requested", "human": "boundary log"},
                 }
             else:
-                prepared = {
-                    "argv": list(argv),
-                    "env": dict(env),
-                    "artifacts": {},
-                    "channels": {"human": "boundary log"},
-                }
+                raise ValueError(
+                    "no qualified native capture adapter for this argv; "
+                    "request remains available to nested launch owners"
+                )
+            prepared["env"][PREPARED] = _marker(prepared["argv"], cwd)
             invocation.prepared = prepared
             invocation.save(
                 effective_argv=list(prepared["argv"]),
                 artifacts=prepared.get("artifacts", {}),
                 capture={"status": "effective", "channels": prepared.get("channels")},
                 tool_version=prepared.get("tool_version"),
+                parent_log=str(log),
+                log=str(directory / "native.log"),
                 effective_config=(
                     {"selected": prepared["configuration"]}
                     if prepared.get("configuration")
-                    else configuration(directory, self.root, argv, step.tool, env)
+                    else configuration(directory, cwd, argv, step.tool, env)
                 ),
                 selection_options=prepared.get("selection_options"),
             )
         except Exception as error:
             invocation.adapter = None
-            invocation.prepared = {"env": dict(env)}
+            invocation.prepared = {"env": {**env, PREPARED: _marker(argv, cwd)}}
             invocation.save(
                 capture={
                     "status": "unsupported",
@@ -330,6 +437,83 @@ class CaptureOwner:
                 )
 
 
+class CapturedLaunch:
+    """One actual launch writer; an inherited request is not an invocation owner."""
+
+    def __init__(
+        self, argv: Any, env: Any, cwd: Path, log: Path, invocation: Invocation | None = None
+    ) -> None:
+        self.invocation = invocation
+        self.argv = list(argv) if invocation is None else invocation.row["effective_argv"]
+        self.env = dict(env) if invocation is None else invocation.prepared["env"]
+        self.cwd = cwd
+        self.log = Path(invocation.row["log"]) if invocation else log
+        self.stdout = (
+            Path(invocation.prepared["stdout"])
+            if invocation and invocation.prepared.get("stdout")
+            else None
+        )
+
+    def observe(self, event: dict[str, Any]) -> None:
+        if self.invocation:
+            self.invocation.observe(event)
+
+    def finish(self, exit_code: int | None, launch_error: Any = None, cleanup: Any = None) -> None:
+        if self.invocation:
+            from types import SimpleNamespace
+
+            try:
+                self.invocation.command_finished(
+                    SimpleNamespace(exit=exit_code, launch_error=launch_error)
+                )
+                if cleanup is not None:
+                    self.invocation.save(
+                        host_cleanup=cleanup,
+                        host_cleanup_scope=(
+                            "direct launched command group; enclosing registered host cleanup "
+                            "is reported by the run owner"
+                        ),
+                    )
+            except Exception as error:
+                self.invocation.owner.warn(error)
+
+
+@contextlib.contextmanager
+def capture_launch(argv: Any, env: Any, cwd: Path, log: Path, fixture: Any = None):
+    """Claim a root capture request at an actual owner launch, preserving unsupported argv."""
+    cwd, log = Path(cwd).resolve(), Path(log)
+    if (
+        not env.get(REQUEST)
+        or env.get(PREPARED) == _marker(argv, cwd)
+        or not env.get("LCTX_RUN_DIR")
+    ):
+        yield CapturedLaunch(argv, env, cwd, log)
+        return
+    from types import SimpleNamespace
+
+    with optional_owner(Path(env["LCTX_RUN_DIR"]), project_root(cwd)) as owner:
+        if owner is None:
+            yield CapturedLaunch(argv, env, cwd, log)
+            return
+        step = SimpleNamespace(
+            name="native", tool=native_tool(argv), consumes=(), produces=(), restart_after=False
+        )
+        # Host writer registration precedes preparation exposure/launch and shares
+        # T01 admission through final delegated host cleanup, independent of native finality.
+        import run_delegation
+
+        ident = uuid.uuid4().hex
+        with run_delegation.writer_owner("native-capture", context={"invocation": ident}, env=env):
+            try:
+                invocation = owner.start(
+                    None, step, argv, env, fixture, None, log, cwd=cwd, ident=ident
+                )
+            except Exception as error:
+                owner.warn(error)
+                invocation = None
+            yield CapturedLaunch(argv, env, cwd, log, invocation)
+
+
 @contextlib.contextmanager
 def optional_owner(run_dir: Path | None, root: Path):
     """Hold admission through all command and fixture finalization effects."""
@@ -343,12 +527,17 @@ def optional_owner(run_dir: Path | None, root: Path):
             run_dir / "verify-evidence.json",
         ]
     ):
-        try:
-            owner = CaptureOwner(run_dir, root)
-        except Exception as error:
-            print(
-                f"verify: evidence unavailable ({type(error).__name__}); command unchanged",
-                file=sys.stderr,
-            )
-            owner = None
-        yield owner
+        import run_delegation
+
+        with run_delegation.writer_owner(
+            "verification-evidence", context={"component": "verify-evidence"}
+        ):
+            try:
+                owner = CaptureOwner(run_dir, root)
+            except Exception as error:
+                print(
+                    f"verify: evidence unavailable ({type(error).__name__}); command unchanged",
+                    file=sys.stderr,
+                )
+                owner = None
+            yield owner

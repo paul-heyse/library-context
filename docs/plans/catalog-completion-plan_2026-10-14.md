@@ -1,11 +1,11 @@
 # Catalog completion and implementation-friction plan
 
-**Proposed combined implementation / published 2026-10-14.** This plan supersedes the five
+**Combined implementation plan / partial implementation, 2026-10-14.** This plan supersedes the five
 Catalog-creation plans dated 2026-10-14. It combines every remaining obligation from that track
 with the production and Codex-development findings in the
 [implementation-friction review](../design_review/reviews/design_review_implementation-friction-target_2026-10-14.md).
 Section 6 is the sole current disposition, package-state and execution-checkpoint owner. Plan
-publication establishes no remediation, new product test result, service operation or activation.
+publication alone establishes no implementation; section 6 records the delivered slice and its limits.
 
 ## 1. Outcome, baseline and reading route
 
@@ -110,11 +110,11 @@ route before the production change that depends on it; retain unrelated clauses 
 
 | Source impact | Disposition | Route and preservation |
 |---|---|---|
-| [friction#RC01](../design_review/reviews/design_review_implementation-friction-target_2026-10-14.md#RC01) | Accept delegated host-command composition | T01: supersede the affected ADR-0142/DE-SIGN §1.2 clause with an enclosing ownership/capture-release contract. Direct exit, delegated cleanup, native finality and storage outcome stay distinct; no service becomes a disposable child |
+| [friction#RC01](../design_review/reviews/design_review_implementation-friction-target_2026-10-14.md#RC01) | Accept delegated host-command composition | T01: ADR-0172 supersedes the affected ADR-0142/DESIGN §1.2 clause with an enclosing ownership/capture-release contract. Direct exit, delegated cleanup, native finality and storage outcome stay distinct; no service becomes a disposable child |
 | [friction#RC02](../design_review/reviews/design_review_implementation-friction-target_2026-10-14.md#RC02) | Accept compact bounded default discovery | T02: update managed-run CLI/help/README with explicit complete-history and selective routes; expose completeness/continuation, malformed and unresolved records |
 | [friction#RC03](../design_review/reviews/design_review_implementation-friction-target_2026-10-14.md#RC03) | Conditional permission, not selected migration | P05/I02 may select persisted factorization only after complete comparison. Then supersede the affected ADR-0166 physical-codec clause, version schema/codec and migrate every retained/receiving/cold consumer. Flat semantic v4 and independent admission remain |
 | [friction#RC04](../design_review/reviews/design_review_implementation-friction-target_2026-10-14.md#RC04) | Conditional permission, not selected visibility change | P05/I01 may select demand-only assembly only with explicit model-owned selection/demand/visibility meaning and consumer migration; revise semantic §15.1 and the actual governing decision. Otherwise preserve eager current views with factored preparation and narrow private exclusion |
-| [friction#RC05](../design_review/reviews/design_review_implementation-friction-target_2026-10-14.md#RC05) | Accept single operator-selected model inheritance | T04: supersede the model-routing part of ADR-0109, update shared roles and Codex config/role defaults while preserving responsibilities and independent judgment; qualify effective fresh-session behavior |
+| [friction#RC05](../design_review/reviews/design_review_implementation-friction-target_2026-10-14.md#RC05) | Accept single operator-selected model inheritance | T04: ADR-0171 supersedes ADR-0109 model routing; update shared roles and Codex config/role defaults while preserving responsibilities and independent judgment; qualify effective fresh-session behavior |
 | Accepted-ADR navigation exception | Accept links-only correction in ADR-0165–0169 | This authoring transfers Catalog-plan navigation links and adds dated amendments; decisions and evidence remain unchanged. No general accepted-ADR editing permission is inferred |
 
 F01–F05 corrections and in-memory selector sharing implement existing contracts; they do not require
@@ -195,21 +195,76 @@ remain distinct claims.
 
 ## 6. Sole disposition and current checkpoint
 
-**Current checkpoint, 2026-10-14:** replacement-plan authoring only. Production source remains at
-the baseline above. New P01–P06/T01–T04 implementation and I01–I03 decisions are open; inherited
-source/focused work retains the scoped evidence below. V01–V05 remain open. No current owned
-product campaign or auxiliary worktree is available; all previously owned campaigns are disposed.
-Disk recovery is no longer a prerequisite. Next is execution planning for ready foundation packages
-and bounded investigations, not automatic restart of the former long journey or older queues.
+**Current checkpoint, 2026-10-14:** C00's RC01/RC02/RC05 routes, T01–T04, I03, P01 and narrow
+O02 diagnostics are Implemented / focused-Tested on shared main over `2fc7f7d5`; Rust changes
+landed at `04cab60a`. The
+[independent implementation assessment](../design_review/evidence/2026-10-14_agent-execution/independent-review.md)
+accepts this bounded source slice, including the final pidfd and fixture-cleanup changes. ADR-0171/0172
+replace model routing and host ownership; RC03/RC04 stay conditional and unselected. I03 selected
+explicit owner composition: probe `08c676` contained nested sessions but the disposable systemd255
+group also killed its reusable-daemon witness and truncated observer finalization. This rejects that
+candidate, not all cgroup designs or native containment. No measured performance claim follows.
+
+Native18 (`e251bf`) and ordinary Workspace3 (`5e4931`) passed bodies **and enclosing fixtures**;
+actual Rust diagnostic-writer/host `b01192` passed. Earlier `c25e08`/`bef344` retain their original
+body-only/Unknown outcomes. The test stores now explicitly finalize; the deliberate provider panic
+still records actual failed finality. Campaign `f67fa05d-ba02-4aca-a8a1-f22b4d29949f` installed through
+`6c8f4a` with retained patched server `405f6c02…` and schema-compatible pre-slice installer; it was
+authenticated/drained/disposed through `626a46`. The installer is not evidence for changed CLI behavior.
+No shared/operator target was inspected or repaired. No auxiliary worktree or active product worker remains.
+
+**Next:** P02/P03 and bounded I01/I02, then P04–P06 and their actual V01–V05 prerequisites. Full
+Summary/current cold/availability/linked900s/mutations/FastMCP3600s/regeneration/older-plan handback
+remain open. Do not restart those journeys merely to requalify this tooling slice. Existing stable
+stripe-table repair, protected Unknown attachments and older paused queues retain their owners.
+
+### Agent-effectiveness acceptance receipts
+
+All receipts below are dated 2026-10-14. Run suffixes resolve with `just runs status ID`; their
+`record.json` owns exact argv/cwd/source bounds and `output.log` owns full output. Counts are scoped
+controls, never whole-product qualification. Read selected capture evidence with `just verify report ID`.
+
+| Outcome | Command / boundary | Receipt and established scope |
+|---|---|---|
+| passed | `cargo check --release --locked --tests` on compiler-store/native/cpg-core/publisher/serving/CLI | `f4cc67`; affected metadata, preceding equivalent join-expression lint correction and test cleanup |
+| passed | `cargo nextest run --release --locked --no-fail-fast --no-tests=fail -p lctx-compiler-store -p lctx-native --lib -E 'test(dispatcher_completion::tests::) \| test(native_bridge::tests::) \| test(sql::completion_controls::) \| test(phase::tests::)'` | `86f77d`;17 pure dispatcher, SQL and phase controls |
+| passed | Campaign-selected `just fixture -- cargo nextest … -p lctx-compiler-store --lib -E 'test(native_calls::tests::) \| test(dispatcher_completion::tests::) \| test(native_bridge::tests::)'` | `e251bf`;18 controls, complete fixture/native/host cleanup, capture inspection retained under `citation:catalog-completion-agent-effectiveness` |
+| passed | Same campaign, `just fixture -- cargo nextest … -p cpg-core --lib -E 'test(cancelled_final_close_) \| test(interrupted_workspace_drain_retains_provider_join_for_retry)'` | `5e4931`;3 actual Workspace controls and enclosing cleanup; capture retained under the same citation consumer |
+| passed | `LCTX_NATIVE_SIGNAL_TEST_BINARY=… uv run --no-sync pytest …::test_actual_native_diagnostic_receipt_through_host` | `b01192`;actual current Rust writer, no database-execution claim |
+| passed | Focused `uv run --no-sync pytest` host/fixture/profiler/discovery selections, normal parallelism | `f90633`93;`ec0846`26;`c73863`65;`e33b6f`80;`4d2bfd`11;`00b9ff`12;`fea8a4`2. Includes actual delegated cancellation, stubborn-owner escalation, pidfd refusal, observer finalization, synthetic restore and complete worktree inventory |
+| passed | Focused native-capture/verification Python controls | `879df5`202;`da8fa9`31;`e78b9b`2;final affected rerun `b9ed06`160. Actual tiny Nextest/pytest, concurrent/nested UUID capture, verifier sessions, cwd/config discovery, unsupported original outcomes, interruption, export and JSON span context |
+| passed | Final combined affected `uv run --no-sync pytest` host/delegation/profiler/capture/verification files | `5db38f`;385 controls, exit0/direct and composed host cleanup confirmed after final introduced lint/type repairs |
+| passed | Fresh `codex exec --strict-config --json` parent plus code-mapper, and `--model gpt-6.1-sol` override | `e39f75`/`50ca09` actual parent+child metadata and `7addb4` override. Parent/child IDs below; no model-quality comparison |
+| passed | `just lint-agents` and no-effect parser hint controls | `2c4ee9`;role routing, activation guidance, `service dev`/`status --json` refusals |
+| passed | Touched-crate `cargo clippy --release --locked … --all-targets --keep-going -- -D warnings` | `dddb33`;all six owners, zero warnings after correcting new needless-question-mark (`0ecc74` remains failed) |
+| passed | Scoped `uv run --no-sync pyrefly check --summary=none …` | host `6a68df`, capture `9278a8`;new type errors from `b770b5` repaired, unrelated existing fixture/service/test-runs diagnostics remain separately scoped |
+| failed, unchanged diagnostics | Final affected-file `uv run --no-sync ruff check …` and `pyrefly check --summary=none …` | `f49397`;17 Ruff findings exactly match baseline code lines;29 typing diagnostics remain at unchanged fixture/service/test-runs code. New ownership/capture owners pass their scoped checks. These wider owner-quality items are outside this slice, not silently passed |
+| failed, pre-existing | `just adr-lint`, `just docs-check`; direct `just docs` fallback | Same14 architectural-reference defects and22 retired-source/publication targets as authoring baseline, plus existing `<f64>` warning. No introduced publication defect observed; no unrelated repairs |
+| passed, scoped | `just turn-end --staged` and `git diff --check` | ADR index and affected formatting ran; build-features skipped because no Cargo manifest changed. Ruff's exit-zero formatting step is not a lint pass; independent residual findings remain above |
+
+Fresh metadata pairs are parent `01a13c80-7997-7691-bb3a-35c9f54b3c62` / child
+`01a13c80-d650-7421-9933-237cb279c71d`, and parent `01a13c83-05eb-7251-b483-e2cb7b7d1851` /
+child `01a13c83-21f0-7ab2-a19d-3b8675333d22`; both roles used actual `gpt-6.1-sol` with high effort.
+Explicit override thread `01a13c86-9028-7991-9df1-5b2421eb802e` did likewise. Codex0.162.1 also
+reported its existing skills traversal-limit warning; required inheritance controls still passed.
+Skill-discovery repair is separately triggered by demonstrably missing required discovery, not by
+rewriting shared skills or imposing traversal/resource caps here.
+
+Capture support is run/fixture/verification launch seams. An opaque wrapper such as compile-profile's
+private Popen keeps ordinary logs and an explicit gap; request propagation alone is not native capture.
+Independent observers conservatively postpone delegated-owner escalation while their authenticated
+groups finalize. Unsupported pidfd signalling retains Unknown. These are disclosed support boundaries,
+not claims of universal process containment. Whole-product/broad `qualify`/`test-all`, embedding and MCP
+runtime are not_run for this scope.
 
 ### New review obligations
 
-All rows are open and Proposed unless explicitly noted. Related rows share packages without
+Rows remain open and Proposed unless explicitly noted. Related rows share packages without
 merging source IDs or distinct acceptance requirements.
 
 | Source | Responsible package / required closure |
 |---|---|
-| friction#F01 | P01: both dispatcher consumers distinguish acknowledged refusal from task/thread finality; canceled receiver, actual panic/join and nested Outstanding/Unknown metadata controls |
+| friction#F01 | Closed bounded P01 source/focused-Tested2026-10-14: both dispatcher consumers and Workspace/independent/borrowed admission/artifact/CLI/restore retain operation diagnostics after actual finality; canceled receiver, panic/join, retry and nested Outstanding/Unknown/storage/committed controls above. Wider V01 acceptance remains |
 | friction#F02 | P02/P06: required completed views survive genuine pre-effect optional decline; accepted post-effect/Unknown failures still fail and retain obligations |
 | friction#F03 | P03: all actual charged nested growth reserves before mutation; failed growth leaves prior state/charge coherent, with duplicate/no-growth/shrink behavior retained |
 | friction#F04 | P04/V01: decode/validation/parent/sort scratch releases at allocation lifetime; retained/borrowed backing and independent final receiving/CAS checks remain |
@@ -217,13 +272,13 @@ merging source IDs or distinct acceptance requirements.
 | friction#F06 | P05/I01/P06: demanded contributor preparation avoids prefix reconstruction; useful old frozen borrowers survive and undemanded runs release. Retention-only eviction is insufficient |
 | friction#F07 | P05/I02/V01: shared compatible direct assurance preserves model-owned identity/relation/cardinality and exact physical context; flat emission is distinguished from repeated work, cold admission stays independent |
 | friction#F08 | P02/P06: disjoint completion progresses while optional preparation waits; overlapping current-set handoff remains atomic and cancellation/failure drainage truthful |
-| friction#F09 | T01/I03/T03: prospective delegated-owner composition protects cleanup/log writers, repeated cancellation and recovery. Exact historical signal trigger is unresolved, not a required explanation of the established gap |
-| friction#F10 | T02: compact bounded recent/default selection, active/unresolved/label and full-history/detail routes; counts/continuation/corrupt-record controls, honest examined-work scope |
-| friction#O01 | T03: implement optional exact-command capture over existing adapters; exact arguments, fixture/native outcomes, case/phase access and interrupted capture |
-| friction#O02 | T03/P01–P06: invocation/owner-correlated coarse waits and typed resource context at existing boundaries; no invented terminal on Drop, report_top remains text, reservations are not RSS |
-| friction#O03 | T04/current coordinator: concise current checkpoint and truthful build/executable observations. Superseded chronology survives only at a current evidence consumer or Git |
-| friction#O04 | T04: inherited operator-selected model, preserved functional roles and fresh-session effective qualification; activation/message workflow route remains concise |
-| friction#O05 | T04: existing discovery/preview and narrow parser hints. Existing unrelated ADR defects stay explicit at the documentation owner; no alias forest or automatic unrelated repair |
+| friction#F09 | Closed supported T01/T03 source/focused-Tested2026-10-14; I03 complete. Prospective composed owners protect writers through cancellation/recovery and preserve independent observer/native lifetimes. Exact historical signal trigger stays unresolved; no retrospective registrations |
+| friction#F10 | Closed T02 source/focused-Tested2026-10-14: bounded recent/default, active/unresolved/label, full-history/detail, cursor/corrupt controls and complete safety-consumer migration |
+| friction#O01 | Delivered T03 focused-Tested2026-10-14 at disclosed launch seams: exact argv/cwd/fixture, native case/phase access, concurrent/nested capture, interruption, export and unsupported-command preservation; no invented ad hoc rerun prerequisites |
+| friction#O02 | Delivered narrow T03/P01 observation capability, focused-Tested2026-10-14: invocation/process/owner spans, pending waits and typed reservation context; no Drop terminal, formatted report_top remains text, not RSS/dominant-cause attribution. Future P02–P06 changes preserve these contracts |
+| friction#O03 | Delivered T04: current sole checkpoint/receipt ownership and truthful source/build/executable boundaries; wider product builds remain with V01–V03 |
+| friction#O04 | Closed T04 configuration/fresh-session-focused2026-10-14: inherited operator model and explicit override; functional roles, effort, independent judgment and activation/message distinction preserved |
+| friction#O05 | Delivered T04 no-effect parser hints/discovery guidance; unrelated14 ADR/22 publication defects retained above with affected-publication/separately authorized repair trigger |
 
 ### Inherited scoped dispositions
 
@@ -292,7 +347,7 @@ may add/rename affected controls while retaining every contract and the exact hi
 
 | Historical receipt / date | Preserved result and current limit |
 |---|---|
-| `a4a6ef` / `a09702`, 2026-10-14 | Final metadata and warnings-inclusive all-target keep-going strict Clippy passed; no new product source since. New relevant edits require affected checks |
+| `a4a6ef` / `a09702`, 2026-10-14 | Metadata and warnings-inclusive all-target keep-going strict Clippy passed at that revision. Current P01 changes have their affected receipts above; wider inherited runtime obligations remain |
 | `d58994`, 2026-10-14 | Four selected pure/native controls and enclosing cleanup passed before the final parent-hold/binding-sort refinement; final-source rerun remains |
 | `d7d2d2`, 2026-10-14 | Two actual overlap/selector controls and enclosing fixture passed; no actual Summary/Catalog closure |
 | `bab4b8` / `1069dd`, 2026-10-14 | F04 six actual/pure and full cold restore/original/cleanup passed at earlier source; final F07/friction changes require affected current cold evidence |

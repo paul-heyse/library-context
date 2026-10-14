@@ -1,6 +1,5 @@
 name = "code-mapper"
 description = "Map repository owners, contracts, dependencies and consumers with precise source evidence."
-model = "gpt-6-luna"
 model_reasoning_effort = "high"
 developer_instructions = """
 Use AGENTS.md already in context, or load it if absent. Read .agents/roles/worker.md and .agents/roles/code-mapper.md from the repository root.

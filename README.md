@@ -85,6 +85,25 @@ inspection/export resolves it. Source and binary digests describe observations, 
 closure. Bare tools retain their native output behavior. The [standalone plan](docs/plans/agent-test-evidence-and-causal-analysis-plan_2026-10-11.md)
 owns scoped acceptance and remaining investigation limits.
 
+For an exact ad hoc command, `just run --capture-native -- <command>` opts into the same evidence
+adapters. It preserves the original command and actual working directory, including through supported
+fixture/verification launch seams. Repeated or concurrent invocations attach their own UUID records
+to one run manifest. Unsupported capture still runs the command and reports the gap. Inspection and
+portable export use the commands above; ad hoc exact-case rerun planning is unsupported without
+declared prerequisites. Invocation-correlated phase/wait observations leave unmatched starts
+incomplete; resource fields describe admitted reservations, not RSS or a dominant cause.
+Supported capture launch owners are run, fixture and verification. An opaque wrapper without a
+supported inner launch owner, including compile-profile's private command launch, preserves its
+ordinary logs and capture gap; propagating a request alone does not establish native capture.
+
+`just runs list` shows a compact recent page (20 runs). Use `--label LABEL`, `--state active|unresolved`,
+`--limit N` and the returned `--cursor TOKEN` for discovery; `--all --json` explicitly requests complete
+history. JSON includes `runs`, `next_cursor` and coverage. Membership changes invalidate continuation;
+live filters are observations over each page. `just runs status ID` retains detailed selected access.
+Direct process cleanup and composed host cleanup remain separate. Registered delegated commands
+and capture writers must settle before enclosing output can expire. Native uncertainty remains
+protected even when every host process is gone.
+
 ## Documentation locally
 
 Run `just bootstrap-docs` once to install the declared documentation tools and cache isolated test

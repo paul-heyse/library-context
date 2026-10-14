@@ -1,11 +1,11 @@
 # Catalog completion: production contracts and preparation
 
-**Proposed remedies, 2026-10-14.** This production companion implements the outcome, admission,
+**Production target contracts, 2026-10-14.** This production companion specifies the outcome, admission,
 backing and preparation corrections needed for a credible pinned API/evidence Catalog. It develops
 [implementation-friction F01–F08](../design_review/reviews/design_review_implementation-friction-target_2026-10-14.md#F01)
 and preserves the delivered compiler, analysis and native foundations. Inspected authoring baseline:
-`f330bf1d972ddab4962ffd7d9b1d4bd92b9d71b2`. No production correction or new functional evidence is
-claimed by this document.
+`f330bf1d972ddab4962ffd7d9b1d4bd92b9d71b2`. The coordinator owns current implementation and evidence;
+P01's delivered finality contract does not establish P02–P06 or assembled Catalog acceptance.
 
 The [coordinator §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 alone owns finding dispositions, decisions, execution state and receipts. Its decision table owns

@@ -15,8 +15,6 @@ import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 
-import workspace_env
-
 from .contracts import CaptureUnsupported
 
 REPORT = "pytest-reportlog.jsonl"
@@ -26,7 +24,11 @@ REPORT_PLUGINS = {"pytest_reportlog", "pytest_reportlog.plugin"}
 
 
 def _configured_addopts(
-    args: list[str], root: Path, *, configuration: dict | None = None
+    args: list[str],
+    root: Path,
+    *,
+    configuration: dict | None = None,
+    selected: Path | bool | None = False,
 ) -> list[str]:
     """Observe the selected project config without importing/initializing pytest.
 
@@ -53,20 +55,25 @@ def _configured_addopts(
         if value.startswith("addopts="):
             override = value.partition("=")[2]
     candidates = (
-        [root / explicit]
-        if explicit
-        else [
-            root / name
-            for name in (
-                "pytest.toml",
-                ".pytest.toml",
-                "pytest.ini",
-                ".pytest.ini",
-                "pyproject.toml",
-                "tox.ini",
-                "setup.cfg",
-            )
-        ]
+        ([selected] if isinstance(selected, Path) else [])
+        if selected is not False
+        else (
+            [root / explicit]
+            if explicit
+            else [
+                parent / name
+                for parent in (root, *root.parents)
+                for name in (
+                    "pytest.toml",
+                    ".pytest.toml",
+                    "pytest.ini",
+                    ".pytest.ini",
+                    "pyproject.toml",
+                    "tox.ini",
+                    "setup.cfg",
+                )
+            ]
+        )
     )
     for path in candidates:
         if not path.is_file():
@@ -107,36 +114,76 @@ def _configured_addopts(
     return shlex.split(override) if override is not None else []
 
 
-def _tool_versions(root: Path, env: dict) -> dict:
-    # The coordinator is intentionally stdlib-only and may run outside .venv.
-    # Read exact producer metadata in the selected tools environment, retaining
-    # shared ownership only for this bounded helper. Never synchronize here.
+def _tool_versions(root: Path, env: dict, argv: list[str]) -> dict:
+    """Observe the actual selected producer interpreter, without synchronization."""
+    import shutil
+
+    native = list(argv)
+    launcher = []
+    if Path(native[0]).name == "uv" and native[1:2] == ["run"]:
+        position = 2
+        while position < len(native) and native[position] in {
+            "--no-sync",
+            "--locked",
+            "--frozen",
+            "--offline",
+        }:
+            position += 1
+        launcher, native = native[:position], native[position:]
+        if "--no-sync" not in launcher:
+            launcher.append("--no-sync")
+    name = Path(native[0]).name
+    if name.startswith("python") and native[1:3] == ["-m", "pytest"]:
+        prefix, arguments = [*launcher, native[0]], native[3:]
+    elif name == "pytest" and launcher:
+        prefix, arguments = [*launcher, "python"], native[1:]
+    elif name == "pytest":
+        path = shutil.which(native[0], path=env.get("PATH"))
+        if path is None:
+            raise CaptureUnsupported("pytest executable unavailable")
+        with Path(path).open("rb") as source:
+            shebang = source.readline().decode().strip()
+        if not shebang.startswith("#!"):
+            raise CaptureUnsupported("pytest interpreter cannot be observed")
+        prefix, arguments = shlex.split(shebang[2:]), native[1:]
+    else:
+        raise CaptureUnsupported("pytest launcher interpreter cannot be observed")
     try:
-        with workspace_env.ownership("shared", "tools", root=root, env=env) as owner:
-            child_env = owner.environment(env)
-            readiness = workspace_env.observe("tools", root=root, env=child_env)
-            if not readiness.ready:
-                raise CaptureUnsupported(readiness.message())
-            python = workspace_env.environment_path(root, child_env) / "bin" / "python"
-            result = subprocess.run(
-                [
-                    str(python),
-                    "-c",
-                    "import importlib.metadata as m,json; "
-                    "print(json.dumps({n:m.version(n) for n in ('pytest','pytest-reportlog')}))",
-                ],
-                cwd=root,
-                env=child_env,
-                capture_output=True,
-                text=True,
-                timeout=15,
-                check=False,
+        result = subprocess.run(
+            [
+                *prefix,
+                "-c",
+                """
+import copy, importlib.metadata as m, json, os, shlex, sys
+result = {n: m.version(n) for n in ('pytest', 'pytest-reportlog')}
+if result['pytest'] == '9.1.1':
+    # Match pytest's initial config discovery at this exact pin. This loads only
+    # pytest's built-in option declarations: no conftest, entry points or tests.
+    from _pytest.config import get_config
+    from _pytest.config.findpaths import determine_setup
+    args = shlex.split(os.environ.get('PYTEST_ADDOPTS', '')) + json.loads(sys.argv[1])
+    config = get_config(args)
+    ns = config._parser.parse_known_args(args, namespace=copy.copy(config.option))
+    root, path, _, _ = determine_setup(inifile=ns.inifilename, override_ini=ns.override_ini,
+        args=ns.file_or_dir, rootdir_cmd_arg=ns.rootdir or None,
+        invocation_dir=config.invocation_params.dir)
+    result['configuration'] = {'path': str(path) if path else None, 'rootpath': str(root)}
+print(json.dumps(result))
+""",
+                json.dumps(arguments),
+            ],
+            cwd=root,
+            env={**env, "UV_NO_SYNC": "1"},
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        if result.returncode:
+            raise CaptureUnsupported(
+                "pytest evidence metadata unavailable; repair: just sync tools"
             )
-            if result.returncode:
-                raise CaptureUnsupported(
-                    "pytest evidence metadata unavailable; repair: just sync tools"
-                )
-            return json.loads(result.stdout)
+        return json.loads(result.stdout)
     except (OSError, subprocess.TimeoutExpired, ValueError) as error:
         if isinstance(error, CaptureUnsupported):
             raise
@@ -163,29 +210,7 @@ def _canonical_plugins(args: list[str]) -> list[str]:
     return result
 
 
-def prepare(argv: list[str], env: dict, directory: Path, root: Path) -> dict:
-    """Return a capture command without modifying inputs or creating artifacts.
-
-    Reportlog is requested by its *entry point name*: requesting its module name
-    while ordinary entry-point discovery is enabled registers the same plugin
-    twice. Normalize explicit requests for this one producer, leaving discovery
-    and every unrelated plugin intact.
-    """
-    args = list(argv)
-    environment = dict(env)
-    if any(
-        (directory / name).exists() or (directory / name).is_symlink() for name in (REPORT, HOOKS)
-    ):
-        raise CaptureUnsupported("pytest capture directory has already been used")
-    addopts = shlex.split(str(environment.get("PYTEST_ADDOPTS", "")))
-    configuration = {}
-    try:
-        configured = _configured_addopts(addopts + args, root, configuration=configuration)
-    except (OSError, ValueError, configparser.Error) as error:
-        raise CaptureUnsupported(
-            "pytest evidence could not safely inspect selected config"
-        ) from error
-    options = configured + addopts + args
+def _validate_capture_options(options: list[str]) -> None:
     plugins = _plugins(options)
     if any(
         p.removeprefix("no:") in REPORT_PLUGINS | {HOOK_PLUGIN} and p.startswith("no:")
@@ -205,13 +230,58 @@ def prepare(argv: list[str], env: dict, directory: Path, root: Path) -> dict:
         raise CaptureUnsupported(
             "pytest evidence currently qualifies serial pytest without retry plugins"
         )
-    versions = _tool_versions(root, environment)
+
+
+def prepare(argv: list[str], env: dict, directory: Path, root: Path) -> dict:
+    """Return a capture command without modifying inputs or creating artifacts.
+
+    Reportlog is requested by its *entry point name*: requesting its module name
+    while ordinary entry-point discovery is enabled registers the same plugin
+    twice. Normalize explicit requests for this one producer, leaving discovery
+    and every unrelated plugin intact.
+    """
+    args = list(argv)
+    environment = dict(env)
+    if any(
+        (directory / name).exists() or (directory / name).is_symlink() for name in (REPORT, HOOKS)
+    ):
+        raise CaptureUnsupported("pytest capture directory has already been used")
+    addopts = shlex.split(str(environment.get("PYTEST_ADDOPTS", "")))
+    configuration = {}
+    explicit_config = any(
+        a == "-c" or a.startswith(("-c", "--config-file")) for a in addopts + args
+    )
+    try:
+        configured = _configured_addopts(
+            addopts + args,
+            root,
+            configuration=configuration,
+            selected=False if explicit_config else None,
+        )
+    except (OSError, ValueError, configparser.Error) as error:
+        raise CaptureUnsupported(
+            "pytest evidence could not safely inspect selected config"
+        ) from error
+    # Direct conflicts can be refused without probing a producer. Implicit
+    # configuration must follow native discovery from actual target paths.
+    _validate_capture_options((configured if explicit_config else []) + addopts + args)
+    versions = _tool_versions(root, environment, args)
     pytest_version = versions["pytest"]
     reportlog_version = versions["pytest-reportlog"]
     if (pytest_version, reportlog_version) != ("9.1.1", "1.0.0"):
         raise CaptureUnsupported(
             f"unqualified pytest/reportlog versions: {pytest_version}/{reportlog_version}"
         )
+    if "configuration" in versions:
+        observed = versions["configuration"]
+        configuration = {}
+        configured = _configured_addopts(
+            addopts + args,
+            root,
+            configuration=configuration,
+            selected=Path(observed["path"]) if observed["path"] else None,
+        )
+    _validate_capture_options(configured + addopts + args)
     args = _canonical_plugins(args)
     normalized_addopts = _canonical_plugins(addopts)
     if normalized_addopts != addopts:
@@ -236,7 +306,7 @@ def prepare(argv: list[str], env: dict, directory: Path, root: Path) -> dict:
         flags.extend(["-o", "addopts=" + shlex.join(normalized_configured)])
     separator = args.index("--") if "--" in args else len(args)
     args[separator:separator] = flags
-    path = str(root.absolute() / "scripts")
+    path = str(Path(__file__).resolve().parents[1])
     environment["PYTHONPATH"] = path + (
         ":" + str(environment["PYTHONPATH"]) if environment.get("PYTHONPATH") else ""
     )

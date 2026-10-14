@@ -1,6 +1,5 @@
 name = "design-reviewer"
 description = "Independently assess architecture and domain models, as focused advice or a formal design review."
-model = "gpt-6.1-sol"
 model_reasoning_effort = "high"
 developer_instructions = """
 Use AGENTS.md already in context, or load it if absent. Read .agents/roles/worker.md and .agents/roles/design-reviewer.md from the repository root.

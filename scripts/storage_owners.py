@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
-import stat
 import os
+import stat
 import tomllib
 from collections.abc import Iterator
 from contextvars import ContextVar
@@ -65,7 +65,7 @@ def observe(record: dict[str, Any]) -> dict[str, Any]:
             return _result(
                 "released",
                 "run owner confirmed cleanup",
-                released_at=runs.cleanup_of(row).get("observed") or row.get("ended"),
+                released_at=runs.host_cleanup(path, row).get("observed") or row.get("ended"),
             )
         if kind == "task":
             # Worktree source is never a generic disposable object. The explicit worktree owner
@@ -98,7 +98,10 @@ def observe(record: dict[str, Any]) -> dict[str, Any]:
             if fixture._command_observation(row)["status"] != "gone":
                 return _result("unresolved", "logical attachment command identity unresolved")
             if fixture.native_protected(path, row, fixture.native_completion(path, row)):
-                return _result("unresolved", "native attachment completion or authenticated host recovery unresolved")
+                return _result(
+                    "unresolved",
+                    "native attachment completion or authenticated host recovery unresolved",
+                )
             return _result(
                 "released",
                 "local attachment released; native content unaffected",
@@ -187,8 +190,11 @@ def owner_guard(record: dict[str, Any], *, attachment_lease: int | None = None) 
                 if kind != "attachment":
                     raise OwnerBusy("held attachment lease cannot guard another owner")
                 actual, expected = os.fstat(attachment_lease), (path / "owner.lock").lstat()
-                if (not stat.S_ISREG(expected.st_mode) or expected.st_uid != os.getuid()
-                        or (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino)):
+                if (
+                    not stat.S_ISREG(expected.st_mode)
+                    or expected.st_uid != os.getuid()
+                    or (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino)
+                ):
                     raise OwnerBusy("held attachment lease names another owner")
                 # Reuse the live open file description; JSON or a copied inode
                 # fact cannot grant this in-process lifetime protection.

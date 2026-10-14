@@ -394,6 +394,16 @@ def _listing(script: str, args: Sequence[str], key: str, directory: Path) -> lis
         rows = json.loads(result.stdout) if result.returncode == 0 else None
     except ValueError:
         rows = None
+    if script == "runs.py":
+        if (
+            not isinstance(rows, dict)
+            or rows.get("schema") != 1
+            or rows.get("next_cursor") is not None
+            or rows.get("coverage", {}).get("complete") is not True
+            or rows.get("coverage", {}).get("directory_membership_stable") is not True
+        ):
+            raise RuntimeError(f"cannot inspect {directory}: run coverage is incomplete")
+        rows = rows.get("runs")
     if not isinstance(rows, list):
         detail = (result.stderr.strip().splitlines() or ["no output"])[-1]
         raise RuntimeError(f"cannot inspect {directory} with {script}: {detail}")
@@ -462,14 +472,14 @@ def live_state(target: Path) -> list[Live]:
                 )
             )
     runs = target / "build" / "runs"
-    for row in _listing("runs.py", ("list", "--json"), "LCTX_RUNS_ROOT", runs):
+    for row in _listing("runs.py", ("list", "--all", "--json"), "LCTX_RUNS_ROOT", runs):
         if (
             row.get("retained")
             or row.get("protected", True)
             or row.get("owner_live")
             or row.get("survivors")
         ):
-            text = row.get("label") or " ".join(row.get("argv") or [])
+            text = row.get("label") or row.get("command") or " ".join(row.get("argv") or [])
             kind = (
                 "retained run"
                 if row.get("retained")

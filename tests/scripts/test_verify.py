@@ -596,6 +596,7 @@ def test_full_modes_broaden_provider_scope_and_enable_actual_cli(mode):
     for step in store.steps[-2:]:
         assert "--no-tests=fail" in step.argv
         assert step.argv[step.argv.index("--run-ignored") + 1] == "only"
+        assert step.step.required_filter is not None
         assert step.step.required_filter.startswith("test(=")
         assert step.step.required_filter in step.argv[step.argv.index("-E") + 1]
     # The focused provider contract stays narrow after resolving either full mode.
@@ -727,7 +728,11 @@ def test_full_mode_reruns_keep_broad_provider_commands_profiles_and_coverage_con
     run = tmp_path / "full-run"
     run.mkdir()
     monkeypatch.setattr(verify.runs, "resolve", lambda _: run)
-    options = Options(**{mode: True}, cargo_config=("build.incremental=true",))
+    options = Options(
+        test_all=mode == "test_all",
+        qualify=mode == "qualify",
+        cargo_config=("build.incremental=true",),
+    )
     shared = [Selection(None, cargo_profile="dev")] if mode == "test_all" else []
     plan = verify.resolve(shared, options)
     coverage = {
@@ -841,6 +846,7 @@ def test_full_scope_store_rerun_requires_both_exact_ignored_controls(tmp_path, m
         assert "--no-tests=fail" in step.argv
         assert "--ignore-default-filter" in step.argv
         assert step.argv[step.argv.index("--run-ignored") + 1] == "only"
+        assert step.step.required_filter is not None
         assert step.step.required_filter.startswith("test(=")
         assert step.step.required_filter in step.argv[step.argv.index("-E") + 1]
 
@@ -995,7 +1001,7 @@ def test_execution_reobserves_each_boundary_under_real_ownership(tmp_path, monke
         fake.logs,
     )
     assert [r["outcome"] for r in results] == ["passed", "blocked"]
-    assert len(fake.commands) == 1
+    assert len(fake.commands) == 2  # declared evaluator build, then pytest
     assert observed == [{"tools"}, {"tools"}, {"native-store"}]
     assert not workspace_env.holders(resource)
 
@@ -1402,6 +1408,7 @@ def test_rerun_forwards_recorded_profile_unchanged_for_cargo_to_resolve(tmp_path
     plan = plan_of("--select", "model", "--cargo-profile", "recorded-profile")
     summary = verify.Summary(run / "summary.json", plan, Options())
     summary.finish([{"selection": plan[0].selection, "outcome": "failed"}], "completed")
+    assert summary.path is not None
     original = summary.path.read_bytes()
     monkeypatch.setattr(verify, "DEFAULT_CARGO_PROFILE", "test")
     selections, options = verify.rerun_selection("prior")

@@ -81,6 +81,9 @@ def pytest_configure(config):
     config.pluginmanager.register(observer, "lctx-evidence-observations")
     observer.emit(
         "CaptureConfiguration",
+        cwd=str(config.invocation_params.dir),
+        rootpath=str(config.rootpath),
+        configfile=str(config.inipath) if config.inipath else None,
         capture=config.option.capture,
         traceback=config.option.tbstyle,
         log_level=config.option.log_level or config.getini("log_level"),

@@ -1,6 +1,6 @@
 # Catalog completion: development execution and operations
 
-**Proposed implementation, 2026-10-14; authoring baseline `f330bf1d972ddab4962ffd7d9b1d4bd92b9d71b2`.**
+**Development target contracts, 2026-10-14; authoring baseline `f330bf1d972ddab4962ffd7d9b1d4bd92b9d71b2`.**
 This companion develops T01–T04 for the [Catalog completion coordinator](catalog-completion-plan_2026-10-14.md).
 Its [§6 checkpoint](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 alone owns current disposition, execution state and receipts. This document specifies the target,
@@ -12,7 +12,7 @@ Core/template3.3, the efficiency heuristics1.0 and applicable code-intelligence1
 the design. [DESIGN §1.2](../design/DESIGN.md), [workspace storage](../workspace-storage.md),
 [storage/publication](../design/sections/storage-and-publication.md) and their decisions remain
 architectural owners. The predecessor operations companion's OP/LO/LD obligations and C01–C11
-decisions are carried below. Plan publication implements no host, configuration, schema or service change.
+decisions are carried below. Coordinator §6 records the delivered scope and current support limits.
 
 ## 1. Purpose, baseline and preserved boundaries
 
@@ -41,21 +41,21 @@ are correct. Whole-target disposal settles only its authenticated target, preser
 
 Source observations, post-command executable hashes and configured models are similarly scoped
 observations. They do not prove executed-source closure or an existing thread's model. No stronger
-provenance or effectiveness claim follows from this plan. Improvements remain Proposed until the
-controls below pass; installed systemd255 containment is Interface-checked only.
+provenance or effectiveness claim follows from these descriptions. Coordinator §6 owns qualified
+improvements and I03's implemented mechanism selection; the controls below remain their contracts.
 
 ## 2. Approved rule changes and execution route
 
 The operator explicitly approved these changes on **2026-10-14**. Record their enduring decisions
 and update their actual consumers before dependent implementation relies on the new rule. This
-authoring turn changes no ADR decision or actual configuration; the coordinator records the
+document does not itself establish configuration behavior; the coordinator records the
 operator-authorized navigation-only exception for accepted ADR-0165–0169.
 
 | Source item | Approved target | Route before dependent execution |
 |---|---|---|
-| friction#RC01 | Compose delegated host cleanup with run/capture ownership; retain direct-group, delegated-host and native-completion axes | T01 records a successor/complementary ADR to ADR-0142 and updates DESIGN §1.2 plus storage/run/fixture guidance. Accepted ADR text is immutable; explicitly supersede a changed decision rather than silently amend it |
+| friction#RC01 | Compose delegated host cleanup with run/capture ownership; retain direct-group, delegated-host and native-completion axes | ADR-0172 replaces ADR-0142; T01 updates DESIGN §1.2 plus storage/run/fixture guidance. Accepted ADR text is immutable; explicitly supersede a changed decision rather than silently amend it |
 | friction#RC02 | Compact bounded default run discovery, explicit full history and selective access | T02 migrates parser/help, README and agent command guidance alongside implementation. Preserve detailed selected status and make changed list completeness explicit |
-| friction#RC05 | One operator-selected Codex model inherited by roles; retain functional responsibilities and independent judgment | T04 records the scoped change to ADR-0109 routing and DESIGN/role guidance, then removes competing project/default/role model pins from their actual owners. Qualify a fresh session before claiming effective inheritance |
+| friction#RC05 | One operator-selected Codex model inherited by roles; retain functional responsibilities and independent judgment | ADR-0171 replaces ADR-0109; T04 updates DESIGN/role guidance and removes competing project/default/role model pins from their actual owners. Qualify a fresh session before claiming effective inheritance |
 
 Existing native finality, authenticated recovery, exact publication pins and storage retention are
 preservation constraints. No rule change is needed to retain those safeguards or to expose an

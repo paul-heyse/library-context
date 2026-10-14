@@ -55,7 +55,7 @@ def config(root: Path) -> dict:
 
 def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
     """Keep the leader waitable through descendant cleanup, including renderer failures."""
-    from harness import SpawnGuard, observe_exit
+    from harness import SpawnGuard, observe_exit, spawn_group
 
     capture = kwargs.pop("capture_output", False)
     timeout = kwargs.pop("timeout", None)
@@ -64,7 +64,8 @@ def run(argv: list[str], **kwargs) -> subprocess.CompletedProcess:
         errors = resources.enter_context(tempfile.TemporaryFile()) if capture else None
         if capture:
             kwargs.update(stdout=output, stderr=errors)
-        child = subprocess.Popen(argv, start_new_session=True, text=True, **kwargs)
+        kwargs.pop("text", None)
+        child = spawn_group(argv, **kwargs)
         guard = SpawnGuard(child)
         try:
             with guard:

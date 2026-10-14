@@ -147,7 +147,8 @@ def test_record_reuses_run_launcher_and_keeps_original_command(root, monkeypatch
 def test_profiling_environment_and_product_exit_are_independent(root, monkeypatch):
     run_dir = runs.new_run_dir()
     write_json_atomic(
-        run_dir / "record.json", {"owner": ProcessIdentity.of().to_json(), "termination": None}
+        run_dir / "record.json",
+        {"id": run_dir.name, "owner": ProcessIdentity.of().to_json(), "termination": None},
     )
     monkeypatch.setenv("LCTX_RUN_DIR", str(run_dir))
     monkeypatch.setenv("RUSTC_WRAPPER", "existing-wrapper")
@@ -176,7 +177,8 @@ def test_repeated_cancellation_during_finalization_keeps_product_exit_and_receip
 ):
     run_dir = runs.new_run_dir()
     write_json_atomic(
-        run_dir / "record.json", {"owner": ProcessIdentity.of().to_json(), "termination": None}
+        run_dir / "record.json",
+        {"id": run_dir.name, "owner": ProcessIdentity.of().to_json(), "termination": None},
     )
     monkeypatch.setenv("LCTX_RUN_DIR", str(run_dir))
     monkeypatch.setattr(profile, "focus_manifests", lambda *_: ["/workspace/core"])
@@ -676,13 +678,19 @@ def test_repeated_status_never_decodes_closed_samples(root, monkeypatch):
         assert data["units"][0]["analysis"]["currency"] == "not_checked"
 
 
-def test_sampled_reader_changes_invalidate_and_missing_reader_is_analysis_blocked(tmp_path, monkeypatch):
+def test_sampled_reader_changes_invalidate_and_missing_reader_is_analysis_blocked(
+    tmp_path, monkeypatch
+):
     chunk, reader = tmp_path / "perf.data", tmp_path / "perf"
     chunk.write_bytes(b"capture")
     reader.write_bytes(b"reader-one")
     monkeypatch.setattr(capture, "resolve_perf", lambda: str(reader))
     calls = []
-    monkeypatch.setattr(profile, "execute", lambda argv: calls.append(argv) or {"outcome": "passed", "stdout": "decoded"})
+    monkeypatch.setattr(
+        profile,
+        "execute",
+        lambda argv: calls.append(argv) or {"outcome": "passed", "stdout": "decoded"},
+    )
     assert profile.sampled_report(chunk)["outcome"] == "passed"
     assert profile.sampled_report(chunk)["outcome"] == "passed"
     assert len(calls) == 1
@@ -854,7 +862,8 @@ def test_observer_storage_failure_keeps_draining_and_preserves_product_exit(
 ):
     run_dir = runs.new_run_dir()
     write_json_atomic(
-        run_dir / "record.json", {"owner": ProcessIdentity.of().to_json(), "termination": None}
+        run_dir / "record.json",
+        {"id": run_dir.name, "owner": ProcessIdentity.of().to_json(), "termination": None},
     )
     monkeypatch.setenv("LCTX_RUN_DIR", str(run_dir))
     monkeypatch.setattr(profile, "focus_manifests", lambda *_: ["/workspace/core"])

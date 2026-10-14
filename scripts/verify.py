@@ -41,6 +41,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import uuid
 from collections.abc import Callable, Generator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -49,7 +50,7 @@ from typing import Any
 import runs
 import workspace_env
 from build_environment import ROOT, normalized_env
-from harness import OUTCOMES, FileDisplay, tail_bytes, write_json_atomic
+from harness import OUTCOMES, FileDisplay, hold_lock, read_json, tail_bytes, write_json_atomic
 from verify_evidence.contracts import LaunchRequest
 
 SCHEMA = 1
@@ -1280,11 +1281,16 @@ def _run_steps(
                     result["fixture"],
                     planned.selection,
                     log,
+                    cwd=ROOT,
+                    session=getattr(runtime.evidence, "session_id", None),
                 )
                 record["invocation"] = invocation.row["id"]
             except Exception as capture_error:
                 runtime.evidence.warn(capture_error)
         if invocation is not None and runtime.launch_request is not None:
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with log.open("ab") as boundary_log:
+                boundary_log.write(f"native capture: {invocation.row['log']}\n".encode())
             launched = runtime.launch_request(invocation.request(log, live))
         else:
             launched = runtime.run(planned_step.argv, step_env, log, live)
@@ -1403,6 +1409,7 @@ def launch(
     *,
     stdout: Path | None = None,
     observer: Callable[[dict[str, Any]], None] | None = None,
+    cwd: Path | None = None,
 ) -> LaunchResult:
     """Run one step in this process group; its output goes to the boundary log (and stdout with
     --live). Actual launch errors are separate from a launched child's exit."""
@@ -1415,6 +1422,7 @@ def launch(
                 print(f"verify: capture observer failed ({type(error).__name__})", file=sys.stderr)
 
     with contextlib.ExitStack() as stack:
+        log.parent.mkdir(parents=True, exist_ok=True)
         handle = stack.enter_context(open(log, "ab"))
         machine = handle
         if stdout is not None:
@@ -1428,7 +1436,7 @@ def launch(
         try:
             child = subprocess.Popen(
                 list(argv),
-                cwd=ROOT,
+                cwd=cwd or ROOT,
                 env=dict(env),
                 stdin=subprocess.DEVNULL,
                 stdout=machine,
@@ -1838,6 +1846,11 @@ def legacy(argv: Sequence[str]) -> list[str]:
 def rerun_selection(reference: str) -> tuple[list[Selection], Options]:
     summary_file = runs.resolve(reference) / runs.SUMMARY
     data = json.loads(summary_file.read_text())
+    if len(data.get("sessions", [])) > 1:
+        raise PlanError(
+            "run contains multiple verification sessions; "
+            "select their recorded boundaries explicitly"
+        )
     selections = [
         Selection(
             item["selection"]["select"],
@@ -1917,6 +1930,34 @@ class Summary:
     def write(self) -> None:
         if self.path is not None:
             write_json_atomic(self.path, self.data)
+            if self.path.parent.parent.name == "sessions":
+                # Each verifier is the sole writer of its summary. The parent is
+                # a fresh aggregate, never another verifier's mutable checkpoint.
+                receipt = self.path.parent.parent.parent
+                descriptor = hold_lock(receipt / "registration.lock")
+                try:
+                    sessions = [
+                        read_json(path)
+                        for path in sorted((receipt / "sessions").glob("*/summary.json"))
+                    ]
+                    sessions = [row for row in sessions if row is not None]
+                    parent = (
+                        dict(sessions[0])
+                        if len(sessions) == 1
+                        else {
+                            "schema": SCHEMA,
+                            "run_id": os.environ.get("LCTX_RUN_ID"),
+                            "boundaries": [b for s in sessions for b in s.get("boundaries", [])],
+                        }
+                    )
+                    parent["sessions"] = sessions
+                    parent["scope"] = (
+                        "verification sessions; native command/capture/host cleanup "
+                        "remain independent"
+                    )
+                    write_json_atomic(receipt.parent / runs.SUMMARY, parent)
+                finally:
+                    os.close(descriptor)
 
     def update(self, results: list[dict[str, Any]]) -> None:
         self.data["boundaries"] = results
@@ -2008,7 +2049,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_dir = runs.current_run()
     if run_dir is None and not os.environ.get("LCTX_VERIFY_UNWRAPPED"):
         return wrap_in_run(raw)
-    log_dir = (run_dir or Path(os.environ.get("TMPDIR", "/tmp"))) / "verify"
+    session_id = uuid.uuid4().hex
+    log_dir = (run_dir or Path(os.environ.get("TMPDIR", "/tmp"))) / "verify" / session_id
+    session_dir = run_dir / "verify-evidence-receipt" / "sessions" / session_id if run_dir else None
 
     stopping: list[int] = []
 
@@ -2025,14 +2068,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, on_signal)
     summary = Summary(
-        runs.summary_path(), plan, options, coverage=coverage, coverage_context=coverage_context
+        session_dir / "summary.json" if session_dir else None,
+        plan,
+        options,
+        coverage=coverage,
+        coverage_context=coverage_context,
     )
+    summary.data["session_id"] = session_id
+    summary.write()
+
+    def session_progress(**fields: Any) -> None:
+        if session_dir:
+            path = session_dir / "progress.json"
+            progress = read_json(path) or {}
+            progress.update(fields, updated=runs.now(), session_id=session_id)
+            write_json_atomic(path, progress)
+
     runtime = Runtime(
         observe=lambda required: observe_requirements(required),
         run=launch,
         fixture=real_fixture,
         owner=lambda required, report: environment_owner(required, report),
-        progress=publish_progress,
+        progress=session_progress,
         base_env=env,
         target_dir=target,
         stop=lambda: bool(stopping),
@@ -2041,6 +2098,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     with optional_owner(run_dir, ROOT) as evidence:
         runtime.evidence = evidence
+        if evidence is not None:
+            evidence.session_id = session_id
         runtime.launch_request = lambda request: launch(
             request.argv,
             request.env,
@@ -2048,6 +2107,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             request.live,
             stdout=request.stdout,
             observer=request.observer,
+            cwd=request.cwd,
         )
         results = execute(plan, runtime, options, log_dir, live=args.live, on_result=summary.update)
     # Boundaries the interruption kept from starting are recorded, not dropped.
