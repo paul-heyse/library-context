@@ -24,6 +24,12 @@ slow-timeout = { period = "60s", terminate-after = 15 }
 filter = 'test(=selected_backup_restores_fresh_ownership_while_foreign_window_binding_coexists)'
 slow-timeout = { period = "60s", terminate-after = 15 }
 
+# Operator-approved orchestration allowance for generated analysis, independent
+# admission, publication, native queries and cleanup. Not a performance acceptance limit.
+[[profile.default.overrides]]
+filter = 'test(=current_catalog_analysis_links_public_native_operations_and_original_evidence)'
+slow-timeout = { period = "60s", terminate-after = 15 }
+
 # Independently selectable frontier/profile admission and export controls retain their
 # original orchestration allowance.
 [[profile.default.overrides]]

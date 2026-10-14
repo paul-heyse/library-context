@@ -155,7 +155,11 @@ normal available concurrency. Use explicit `just verify --select FAMILY[:BOUNDAR
 controls under `just fixture --`; verification observes prerequisites and does not implicitly sync,
 install or restart services. An environment-shaped failure has its existing guard-free repair route.
 Actual privileged schema tests use OP02's wholly owned target; ordinary product attempts use installed
-logical validation. No scratch fallback, job cap or raised budget/deadline makes acceptance pass.
+logical validation. No scratch fallback, job cap or raised native budget/deadline makes acceptance pass.
+The operator approved a900-second outer orchestration allowance solely for
+`current_catalog_analysis_links_public_native_operations_and_original_evidence` on2026-10-13;
+all assertions, memory reservations and native-operation limits remain unchanged. This collects the
+complete functional result, not a performance acceptance claim or reinterpretation of prior failures.
 
 Required composition evidence is actual Catalog generation of code-intelligence analysis, independent
 admission, unselected publication, native get/search/compare, attributed evidence and exact original
@@ -448,9 +452,9 @@ There is no evidence optional retention supplied a required witness or physical 
 `final_coverage` now uses the existing exact mixed `uniform_owners_async` admission route, already
 used by Workspace coverage admission, retaining metadata/EOF/selected-descriptor validation and
 missing-owner refusal. Cpg release library/test compile passed2.11s; actual frontier acceptance
-remains required. A documented900-second orchestration exception for the full generated-analysis/
-admission/publication/query control has been requested from the operator; no deadline change or
-dependent longer run occurs without that answer. Other bounds/assertions and original failures stay
+remains required. The operator approved the900-second outer orchestration exception for the full generated-analysis/
+admission/publication/query control on2026-10-13. The exact Nextest override applies only to that
+control; every assertion, reservation and native-operation limit remains unchanged. Other bounds/assertions and original failures stay
 unchanged. Cold and focused controls are not substituted for that remaining composition.
 `31ce1158` is the compiled frontier handoff correction. Current native composition binary build
 `20261014T000541.649Z-ea17a1` passed with confirmed local cleanup. Adjacent current-source audit
