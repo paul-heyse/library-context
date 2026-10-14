@@ -819,7 +819,7 @@ mod controls {
         }
         // Also cover setup failure before the first runtime was constructed.
         if runtimes.is_empty() {
-            terminal.step("scoped control native calls drainage", calls.drain().await);
+            terminal.merge(calls.drain_finality_report().await);
         }
         // Execution drainage alone does not finish the original native signal.
         // Its real owner acknowledges attempt close and session invalidation here.
@@ -1044,6 +1044,7 @@ mod controls {
         .await;
         let mut terminal = drain_controls(&native, &calls, &runtimes).await;
         finish_control_signals(&runtimes, &mut terminal).await;
+        calls.append_operation_failures(&mut terminal);
         native.append_operation_failures(&mut terminal);
         let cleanup = d::completion::complete(Ok(()), terminal);
         if let Err(panic) = result {
@@ -1156,6 +1157,7 @@ mod controls {
         .catch_unwind()
         .await;
         finish_control_signals(&runtimes, &mut terminal).await;
+        calls.append_operation_failures(&mut terminal);
         native.append_operation_failures(&mut terminal);
         let cleanup = d::completion::complete(Ok(()), terminal);
         if let Err(panic) = result {

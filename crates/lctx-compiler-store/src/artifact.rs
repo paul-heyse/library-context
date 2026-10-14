@@ -248,6 +248,12 @@ impl AdmittedArtifact {
     pub async fn drain_report(&self) -> lctx_model::domain::completion::Completion {
         self.workspace.drain_report().await
     }
+    pub fn append_operation_failures(
+        &self,
+        completion: &mut lctx_model::domain::completion::Completion,
+    ) {
+        self.workspace.append_operation_failures(completion);
+    }
     pub fn native(&self) -> &Arc<crate::compiler::NativeCompilerStore> {
         self.workspace.native()
     }

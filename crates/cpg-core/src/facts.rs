@@ -116,8 +116,7 @@ async fn run_provider(
     let inputs = workspace.stage_inputs(&declaration, profile)?;
     let output = Arc::new(workspace.producer(&declaration, profile, inputs));
     output.captured_request()?;
-    let span =
-        tracing::info_span!(target: "lctx_phase", "facts_provider", producer = declaration.name);
+    let span = tracing::info_span!(target: "lctx_phase", "facts_provider", producer = declaration.name, attempt=%workspace.native().attempt().hex());
     async move {
         let execution = lctx_native::phase::Phase::begin("provider_execution");
         let result = bundle::run_provider_bound_guarded(

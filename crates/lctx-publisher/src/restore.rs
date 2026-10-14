@@ -1345,11 +1345,15 @@ pub(crate) async fn restore(
                     completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
                 }
             }
-            if let Some(runtime) = runtime {
+            if let Some(runtime) = &runtime {
                 let settled = runtime.complete_signal(&completion).await;
                 completion.step("restored admission signal finality", settled);
             }
-            native.append_operation_failures(&mut completion);
+            if let Some(runtime) = &runtime {
+                runtime.append_operation_failures(&mut completion);
+            } else {
+                native.append_operation_failures(&mut completion);
+            }
             lctx_model::domain::completion::complete(result, completion)
         }
         .await;

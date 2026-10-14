@@ -144,7 +144,7 @@ pub(crate) async fn finalize_compilation<T>(
     completion.step("CLI compiler workspace signal finality", settled);
     // Sticky acknowledged operation failures remain part of the caller outcome;
     // they are not failed joins or failed native source/session finalization.
-    native.append_operation_failures(&mut completion);
+    workspace.append_operation_failures(&mut completion);
     completion
 }
 

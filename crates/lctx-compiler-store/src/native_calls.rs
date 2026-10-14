@@ -1,11 +1,12 @@
 //! Submitted asynchronous native calls retain task ownership through caller cancellation.
 use crate::admission::Cancellation;
+use crate::compiler::NativeCompilerStore;
+use crate::dispatcher_completion::OperationResult;
 use futures::{
     FutureExt,
     future::{BoxFuture, Shared},
 };
 use lctx_model::domain::{ModelError, charged::StateCharge, resources::ResourceBudget};
-use crate::compiler::NativeCompilerStore;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -19,9 +20,9 @@ pub struct NativeCalls {
     limit: Arc<Semaphore>,
     tasks: Mutex<(Vec<NativeCallTask>, StateCharge)>,
 }
-type Request = BoxFuture<'static, Result<(), Arc<ModelError>>>;
+type Request = BoxFuture<'static, OperationResult>;
 struct NativeCallTask {
-    joined: Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>,
+    joined: Shared<BoxFuture<'static, Result<OperationResult, Arc<ModelError>>>>,
     finished: Arc<AtomicBool>,
 }
 struct CallGuard {
@@ -72,28 +73,31 @@ impl NativeCalls {
         let (answer, acknowledgement) = oneshot::channel();
         let native = self.native.clone();
         let cancellation = self.cancellation.clone();
+        let owner = tracing::info_span!(target: "lctx_phase", "native_call", attempt=%native.attempt().hex());
         // Only the result channel is typed; submitted ownership and scheduler work are shared.
         let request: Request = async move {
-            let result = lctx_native::control::with_retry_cancellation(cancellation.native_retry(), future).await;
+            let result =
+                lctx_native::control::with_retry_cancellation(cancellation.native_retry(), future)
+                    .await;
             if result.is_err() {
                 fail(&native, &cancellation);
             }
-            match answer.send(result) {
-                Err(Err(error)) => Err(Arc::new(error)),
-                _ => Ok(()),
-            }
+            OperationResult::deliver(answer, result)
         }
-        .in_current_span()
+        .instrument(owner.clone())
         .with_current_subscriber()
         .boxed();
         async move {
             let mut waiting = self.submit_guarded(request).await?;
-            let result = acknowledgement.await.map_err(|_| {
-                ModelError::Invalid("native call ended without acknowledgement".into())
-            })?;
+            let result = lctx_native::phase::wait("native_call_acknowledgement", acknowledgement)
+                .await
+                .map_err(|_| {
+                    ModelError::Invalid("native call ended without acknowledgement".into())
+                })?;
             waiting.finished = true;
             result
         }
+        .instrument(owner)
         .boxed()
     }
     // Return the guard to the acknowledgement adapter: dropping the caller after submission
@@ -112,7 +116,7 @@ impl NativeCalls {
     async fn submit(&self, request: Request) -> Result<(), ModelError> {
         let permit = tokio::select! {
             ()=self.cancellation.cancelled()=>return Err(ModelError::Invalid("compilation cancelled".into())),
-            permit=self.limit.clone().acquire_owned()=>permit.map_err(ModelError::codec)?,
+            permit=lctx_native::phase::wait("native_call_admission", self.limit.clone().acquire_owned())=>permit.map_err(ModelError::codec)?,
         };
         // Serialize registration with drainage. No call is submitted after cancellation.
         let mut tasks = self
@@ -122,11 +126,9 @@ impl NativeCalls {
         self.cancellation.check()?;
         tasks.0.retain(|task| {
             !task.finished.load(Ordering::Acquire)
-                || task
-                    .joined
-                    .clone()
-                    .now_or_never()
-                    .is_none_or(|result| result.is_err())
+                || task.joined.clone().now_or_never().is_none_or(|result| {
+                    result.is_err() || result.is_ok_and(|operation| operation.retained())
+                })
         });
         if tasks.0.len() == tasks.0.capacity() {
             tasks.1.grow(256)?;
@@ -154,7 +156,7 @@ impl NativeCalls {
         );
         let joined = async move {
             task.await
-                .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))?
+                .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))
         }
         .boxed()
         .shared();
@@ -162,36 +164,62 @@ impl NativeCalls {
         Ok(())
     }
     pub async fn drain(&self) -> Result<(), ModelError> {
+        let mut completion = self.drain_finality_report().await;
+        self.append_operation_failures(&mut completion);
+        lctx_model::domain::completion::complete(Ok(()), completion)
+    }
+    /// Actual joins and nested owner outcomes; acknowledged refusals are diagnostics.
+    pub async fn drain_finality_report(&self) -> lctx_model::domain::completion::Completion {
         self.cancellation.cancel();
         // Shared join ownership stays registered if drainage itself is cancelled and retried.
-        let tasks = self
-            .tasks
-            .lock()
-            .map_err(|_| unfinished(ModelError::Conflict("native call ownership")))?
-            .0
-            .iter()
-            .map(|task| task.joined.clone())
-            .collect::<Vec<_>>();
         let mut completion = lctx_model::domain::completion::Completion::default();
+        let tasks = match self.tasks.lock() {
+            Ok(tasks) => tasks
+                .0
+                .iter()
+                .map(|task| task.joined.clone())
+                .collect::<Vec<_>>(),
+            Err(_) => {
+                completion.step(
+                    "native call ownership",
+                    Err(unfinished(ModelError::Conflict("native call ownership"))),
+                );
+                return completion;
+            }
+        };
         for task in tasks {
-            completion.step(
-                "native call join",
-                task.await.map_err(ModelError::SharedCause),
-            );
+            match lctx_native::phase::wait("native_call_join", task).await {
+                Ok(operation) => operation.finality(&mut completion),
+                Err(error) => {
+                    completion.step("native call join", Err(ModelError::SharedCause(error)))
+                }
+            }
         }
-        self.tasks
-            .lock()
-            .map_err(|_| unfinished(ModelError::Conflict("native call ownership")))?
-            .0
-            .retain(|task| {
+        match self.tasks.lock() {
+            Ok(mut tasks) => tasks.0.retain(|task| {
                 !task.finished.load(Ordering::Acquire)
-                    || task
-                        .joined
-                        .clone()
-                        .now_or_never()
-                        .is_none_or(|result| result.is_err())
-            });
-        lctx_model::domain::completion::complete(Ok(()), completion)
+                    || task.joined.clone().now_or_never().is_none_or(|result| {
+                        result.is_err() || result.is_ok_and(|operation| operation.retained())
+                    })
+            }),
+            Err(_) => completion.step(
+                "native call ownership",
+                Err(unfinished(ModelError::Conflict("native call ownership"))),
+            ),
+        }
+        completion
+    }
+    pub fn append_operation_failures(
+        &self,
+        completion: &mut lctx_model::domain::completion::Completion,
+    ) {
+        if let Ok(tasks) = self.tasks.lock() {
+            for task in &tasks.0 {
+                if let Some(Ok(operation)) = task.joined.clone().now_or_never() {
+                    operation.append_diagnostics("native call operation", completion);
+                }
+            }
+        }
     }
 }
 
@@ -209,6 +237,21 @@ fn unfinished(error: ModelError) -> ModelError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    async fn close_fixture(calls: &NativeCalls) {
+        let finality = calls.native.abandon_finality_report().await;
+        assert_eq!(
+            finality.local,
+            lctx_model::domain::completion::LocalState::Terminal
+        );
+        assert_eq!(
+            finality.remote,
+            lctx_model::domain::completion::RemoteState::Confirmed
+        );
+        assert!(
+            finality.failures.is_empty(),
+            "actual native fixture must close independently of the injected dispatcher result"
+        );
+    }
     #[tokio::test]
     async fn typed_acknowledgement_follows_failure_and_success_can_retire() {
         let native = crate::test_native::store();
@@ -231,6 +274,7 @@ mod tests {
         assert!(native.check().is_err());
         assert!(cancellation.check().is_err());
         calls.drain().await.unwrap();
+        close_fixture(&calls).await;
     }
     #[tokio::test]
     async fn failed_native_join_is_retained_for_repeated_drain() {
@@ -264,6 +308,7 @@ mod tests {
                 matches!(&outcome.completion.failures[0].error,ModelError::SharedCause(error) if matches!(error.as_ref(),ModelError::Cause(error) if error.downcast_ref::<tokio::task::JoinError>().is_some_and(tokio::task::JoinError::is_panic)))
             );
         }
+        close_fixture(&calls).await;
     }
     #[tokio::test]
     async fn interrupted_native_drain_keeps_submitted_join() {
@@ -296,6 +341,7 @@ mod tests {
         release.notify_one();
         calls.drain().await.unwrap();
         assert!(calls.tasks.lock().unwrap().0.is_empty());
+        close_fixture(&calls).await;
     }
     #[tokio::test]
     async fn cancelled_async_request_keeps_complete_batch_charged_until_terminality() {
@@ -340,6 +386,7 @@ mod tests {
         release.notify_one();
         calls.drain().await.unwrap();
         assert_eq!(batch_budget.reserved(), 0);
+        close_fixture(&calls).await;
     }
     #[tokio::test(flavor = "current_thread")]
     async fn cancelled_sync_request_keeps_complete_batch_charged_until_terminality() {
@@ -391,6 +438,7 @@ mod tests {
         bridge.drain().await.unwrap();
         calls.drain().await.unwrap();
         assert_eq!(batch_budget.reserved(), 0);
+        close_fixture(&calls).await;
     }
     #[tokio::test]
     async fn cancelled_caller_retains_late_native_failure_in_completion() {
@@ -415,6 +463,15 @@ mod tests {
         caller.abort();
         assert!(caller.await.is_err());
         release.notify_one();
+        let finality = calls.drain_finality_report().await;
+        assert!(
+            finality.failures.is_empty(),
+            "late acknowledged refusal is not failed ownership"
+        );
+        assert_eq!(
+            finality.remote,
+            lctx_model::domain::completion::RemoteState::Confirmed
+        );
         let error = calls.drain().await.unwrap_err();
         let ModelError::Completion(outcome) = error else {
             panic!()
@@ -426,6 +483,7 @@ mod tests {
         assert!(
             matches!(&outcome.completion.failures[0].error,ModelError::SharedCause(error) if matches!(error.as_ref(),ModelError::Schema("late native failure")))
         );
+        close_fixture(&calls).await;
     }
     #[tokio::test]
     async fn cancelled_caller_stops_submissions_but_submitted_native_call_finishes() {
@@ -460,5 +518,6 @@ mod tests {
         assert!(cancellation.check().is_err());
         assert!(native.check().is_err());
         assert!(calls.call(async { Ok(18) }).await.is_err());
+        close_fixture(&calls).await;
     }
 }

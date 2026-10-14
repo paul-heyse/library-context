@@ -258,6 +258,11 @@ impl AdmissionMemo {
 pub trait ExecutionOwner: Send + Sync {
     /// Actual joins and cleanup only; acknowledged operation outcomes remain separate.
     fn drain_owned_report(&self) -> BoxFuture<'_, lctx_model::domain::completion::Completion>;
+    /// Append retained operation diagnostics only after the finality signal is settled.
+    fn append_operation_failures(
+        &self,
+        completion: &mut lctx_model::domain::completion::Completion,
+    );
     fn complete_signal<'a>(
         &'a self,
         completion: &'a lctx_model::domain::completion::Completion,
@@ -685,7 +690,7 @@ impl AdmissionRuntime {
             return execution.drain_owned_report().await;
         }
         let mut completion = lctx_model::domain::completion::Completion::default();
-        completion.step("native calls drain", self.native_calls.drain().await);
+        completion.merge(self.native_calls.drain_finality_report().await);
         completion.step("private scoped check release", self.memo.close_scoped());
         let native = self.native.drain_finality_report().await;
         completion.merge(native);
@@ -708,8 +713,19 @@ impl AdmissionRuntime {
         let mut completion = self.drain_owned_report().await;
         let settled = self.complete_signal(&completion).await;
         completion.step("independent artifact admission signal finality", settled);
-        self.native.append_operation_failures(&mut completion);
+        self.append_operation_failures(&mut completion);
         completion
+    }
+    pub fn append_operation_failures(
+        &self,
+        completion: &mut lctx_model::domain::completion::Completion,
+    ) {
+        if let Some(execution) = &self.borrowed_execution {
+            execution.append_operation_failures(completion);
+        } else {
+            self.native_calls.append_operation_failures(completion);
+            self.native.append_operation_failures(completion);
+        }
     }
     pub fn completed<R: Record>(&self) -> Result<Arc<ExactRelation>, ModelError> {
         self.relation(R::NAME)
@@ -3682,7 +3698,7 @@ mod reference_empty_controls {
         terminal.merge(native.abandon_finality_report().await);
         let settled = runtime.complete_signal(&terminal).await;
         terminal.step("empty reference runtime signal finality", settled);
-        native.append_operation_failures(&mut terminal);
+        runtime.append_operation_failures(&mut terminal);
         let cleanup = lctx_model::domain::completion::complete(Ok(()), terminal);
         if let Err(panic) = outcome {
             if let Err(error) = cleanup {

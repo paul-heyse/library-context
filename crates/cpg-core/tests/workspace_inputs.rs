@@ -70,7 +70,12 @@ where
         let signal = workspace.complete_signal(&completion).await;
         completion.step("workspace-input control workspace signal", signal);
     }
-    let diagnostics = native.drain_report().await;
+    let mut diagnostics = completion::Completion::default();
+    if let Some(workspace) = &workspace {
+        workspace.append_operation_failures(&mut diagnostics);
+    } else {
+        native.append_operation_failures(&mut diagnostics);
+    }
     if let Err(panic) = result {
         if let Err(error) = completion::complete(Ok(()), completion) {
             eprintln!("workspace-input control finalization after assertion panic: {error:#?}");

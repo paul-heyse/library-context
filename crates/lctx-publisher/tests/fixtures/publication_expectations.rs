@@ -270,7 +270,7 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
     .await;
     terminal.step("CN02 workspace signal finality", signalled);
     let mut diagnostics = Completion::default();
-    native.append_operation_failures(&mut diagnostics);
+    workspace.append_operation_failures(&mut diagnostics);
     match result {
         Ok(Ok(())) => {
             complete(Ok(()), terminal)?;

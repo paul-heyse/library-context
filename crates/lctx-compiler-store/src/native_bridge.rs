@@ -4,6 +4,7 @@
 //! while that stream remains open; each request is an owned task rather than a serial actor
 //! operation. Shutdown wakes callers and drains submitted operations before releasing the runtime.
 use crate::admission::Cancellation;
+use crate::dispatcher_completion::{DispatcherReport, OperationResult};
 use futures::{
     FutureExt,
     future::{BoxFuture, Shared},
@@ -13,16 +14,16 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{Instrument, instrument::WithSubscriber};
 
-type Request = BoxFuture<'static, Result<(), ModelError>>;
-type BridgeDrain = Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
+type Request = BoxFuture<'static, OperationResult>;
+type BridgeDrain = Shared<BoxFuture<'static, Result<DispatcherReport, Arc<ModelError>>>>;
 enum BridgeEvent {
     Cancelled,
     Request(Option<Request>),
-    Completed(Option<Result<Result<(), ModelError>, tokio::task::JoinError>>),
+    Completed(Option<Result<OperationResult, tokio::task::JoinError>>),
 }
 async fn next_event(
     receiver: &mut mpsc::Receiver<Request>,
-    tasks: &mut tokio::task::JoinSet<Result<(), ModelError>>,
+    tasks: &mut tokio::task::JoinSet<OperationResult>,
     cancellation: &Cancellation,
 ) -> BridgeEvent {
     tokio::select! {
@@ -40,7 +41,7 @@ pub struct NativeBridge {
     thread: Mutex<BridgeThread>,
 }
 struct BridgeThread {
-    thread: Option<std::thread::JoinHandle<Result<(), ModelError>>>,
+    thread: Option<std::thread::JoinHandle<DispatcherReport>>,
     joined: Option<BridgeDrain>,
 }
 impl NativeBridge {
@@ -56,7 +57,7 @@ impl NativeBridge {
                     .expect("native bridge runtime");
                 runtime.block_on(async move {
                     let mut tasks = tokio::task::JoinSet::new();
-                    let mut completion=lctx_model::domain::completion::Completion::default();
+                    let mut completion = DispatcherReport::default();
                     loop {
                         match next_event(&mut receiver, &mut tasks, &actor_cancel).await {
                             BridgeEvent::Cancelled => break,
@@ -64,20 +65,26 @@ impl NativeBridge {
                             // writes. Its lifetime cannot occupy a dispatcher admission slot.
                             // Submitted arguments/streams retain their existing byte charges.
                             BridgeEvent::Request(request) => match request {
-                                Some(request) => { tasks.spawn(request); }
+                                Some(request) => {
+                                    tasks.spawn(request);
+                                }
                                 None => break,
                             },
                             BridgeEvent::Completed(result) => {
-                                if let Some(result)=result {completion.step("native bridge task join",result.map_err(|error|ModelError::Cause(Box::new(error))).and_then(|result|result));}
-                            },
+                                if let Some(result) = result {
+                                    completion.joined(result);
+                                }
+                            }
                         }
                     }
                     receiver.close();
                     // Queued work has not reached native ownership. Already submitted tasks
                     // retain their acknowledgements even when the synchronous caller cancelled.
                     while receiver.try_recv().is_ok() {}
-                    while let Some(result)=tasks.join_next().await {completion.step("native bridge task join",result.map_err(|error|ModelError::Cause(Box::new(error))).and_then(|result|result));}
-                    lctx_model::domain::completion::complete(Ok(()),completion)
+                    while let Some(result) = tasks.join_next().await {
+                        completion.joined(result);
+                    }
+                    completion
                 })
             })
             .map_err(ModelError::codec)?;
@@ -123,10 +130,7 @@ impl NativeBridge {
         // polls each request under its own dispatcher, independently of the actor thread.
         let request: Request = async move {
             let value = future.await;
-            match answer.send(value) {
-                Err(Err(error)) => Err(error),
-                _ => Ok(()),
-            }
+            OperationResult::deliver(answer, value)
         }
         .in_current_span()
         .with_current_subscriber()
@@ -138,7 +142,7 @@ impl NativeBridge {
                 self.cancellation.check()?;
                 Err(closed())
             },
-            value = result => value.map_err(|_| closed())?,
+            value = lctx_native::phase::wait("provider_bridge_acknowledgement", result) => value.map_err(|_| closed())?,
         }
         }.boxed()
     }
@@ -146,7 +150,7 @@ impl NativeBridge {
         self.submit(
             async move {
                 request.await;
-                Ok(())
+                OperationResult::default()
             }
             .in_current_span()
             .with_current_subscriber()
@@ -155,9 +159,15 @@ impl NativeBridge {
     }
     pub async fn launch_async(&self, request: BoxFuture<'static, ()>) -> Result<(), ModelError> {
         self.submit_async(
-            async move { request.await; Ok(()) }
-                .in_current_span().with_current_subscriber().boxed(),
-        ).await
+            async move {
+                request.await;
+                OperationResult::default()
+            }
+            .in_current_span()
+            .with_current_subscriber()
+            .boxed(),
+        )
+        .await
     }
     fn submit(&self, request: Request) -> Result<(), ModelError> {
         futures::executor::block_on(self.submit_async(request))
@@ -170,19 +180,28 @@ impl NativeBridge {
                 self.cancellation.check()?;
                 Err(closed())
             },
-            result = self.requests.send(request) => result.map_err(|_| closed()),
+            result = lctx_native::phase::wait("provider_bridge_admission", self.requests.send(request)) => result.map_err(|_| closed()),
         }
     }
     /// No runtime worker waits inline for an actor thread. Caller invokes this before cleanup.
     pub async fn drain(&self) -> Result<(), ModelError> {
+        let mut completion = self.drain_finality_report().await;
+        self.append_operation_failures(&mut completion);
+        lctx_model::domain::completion::complete(Ok(()), completion)
+    }
+    pub async fn drain_finality_report(&self) -> lctx_model::domain::completion::Completion {
+        use lctx_model::domain::completion::{Completion, LocalState};
         self.cancellation.cancel();
+        let mut completion = Completion::default();
         let joined = {
-            let mut owned = self.thread.lock().map_err(|_| {
-                let mut completion = lctx_model::domain::completion::Completion::default();
-                completion.local = lctx_model::domain::completion::LocalState::Outstanding;
-                lctx_model::domain::completion::complete::<()>(Err(closed()), completion)
-                    .unwrap_err()
-            })?;
+            let mut owned = match self.thread.lock() {
+                Ok(owned) => owned,
+                Err(_) => {
+                    completion.local = LocalState::Outstanding;
+                    completion.step("native bridge ownership", Err(closed()));
+                    return completion;
+                }
+            };
             if let Some(thread) = owned.thread.take() {
                 let dispatch = tracing::dispatcher::get_default(Clone::clone);
                 let span = tracing::Span::current();
@@ -200,8 +219,7 @@ impl NativeBridge {
                                         payload,
                                     ),
                                 )))
-                            })?
-                            .map_err(Arc::new)
+                            })
                     }
                     .boxed()
                     .shared(),
@@ -210,9 +228,26 @@ impl NativeBridge {
             owned.joined.clone()
         };
         if let Some(joined) = joined {
-            joined.await.map_err(ModelError::SharedCause)?;
+            match lctx_native::phase::wait("provider_bridge_join", joined).await {
+                Ok(report) => completion.merge(report.finality()),
+                Err(error) => completion.step(
+                    "native bridge thread join",
+                    Err(ModelError::SharedCause(error)),
+                ),
+            }
         }
-        Ok(())
+        completion
+    }
+    pub fn append_operation_failures(
+        &self,
+        completion: &mut lctx_model::domain::completion::Completion,
+    ) {
+        if let Ok(owned) = self.thread.lock()
+            && let Some(joined) = &owned.joined
+            && let Some(Ok(report)) = joined.clone().now_or_never()
+        {
+            report.append_diagnostics(completion);
+        }
     }
 }
 impl Drop for NativeBridge {
@@ -256,11 +291,19 @@ mod tests {
         let cancellation = Cancellation::default();
         let mut tasks = tokio::task::JoinSet::new();
         for _ in 0..32 {
-            let task = tasks.spawn(async { Err(ModelError::Schema("late bridge failure")) });
-            while !task.is_finished() { tokio::task::yield_now().await; }
-            assert!(matches!(next_event(&mut receiver, &mut tasks, &cancellation).await,
-                BridgeEvent::Completed(Some(Ok(Err(ModelError::Schema("late bridge failure")))))));
-            assert_eq!(receiver.len(), 1, "ready input cannot starve terminal ownership");
+            let task = tasks.spawn(async { OperationResult::default() });
+            while !task.is_finished() {
+                tokio::task::yield_now().await;
+            }
+            assert!(matches!(
+                next_event(&mut receiver, &mut tasks, &cancellation).await,
+                BridgeEvent::Completed(Some(Ok(_)))
+            ));
+            assert_eq!(
+                receiver.len(),
+                1,
+                "ready input cannot starve terminal ownership"
+            );
             assert!(tasks.is_empty());
         }
     }
@@ -273,16 +316,24 @@ mod tests {
         for _ in 0..9 {
             let (ready, receiver) = oneshot::channel();
             let release = finish.clone();
-            bridge.launch_async(async move {
-                let waiting = release.notified();
-                tokio::pin!(waiting);
-                waiting.as_mut().enable();
-                ready.send(()).unwrap();
-                waiting.await;
-            }.boxed()).await.unwrap();
+            bridge
+                .launch_async(
+                    async move {
+                        let waiting = release.notified();
+                        tokio::pin!(waiting);
+                        waiting.as_mut().enable();
+                        ready.send(()).unwrap();
+                        waiting.await;
+                    }
+                    .boxed(),
+                )
+                .await
+                .unwrap();
             entered.push(receiver);
         }
-        for ready in entered { ready.await.unwrap(); }
+        for ready in entered {
+            ready.await.unwrap();
+        }
         assert_eq!(bridge.call_async(async { Ok(17) }).await.unwrap(), 17);
         finish.notify_waiters();
         bridge.drain().await.unwrap();
@@ -291,11 +342,18 @@ mod tests {
     async fn cancellation_wakes_full_queue_admission_without_polling_or_submission() {
         let cancellation = Cancellation::default();
         let (requests, mut receiver) = mpsc::channel::<Request>(1);
-        assert!(requests.try_send(futures::future::pending().boxed()).is_ok());
+        assert!(
+            requests
+                .try_send(futures::future::pending().boxed())
+                .is_ok()
+        );
         let bridge = NativeBridge {
             requests,
             cancellation: cancellation.clone(),
-            thread: Mutex::new(BridgeThread { thread: None, joined: None }),
+            thread: Mutex::new(BridgeThread {
+                thread: None,
+                joined: None,
+            }),
         };
         let observed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let executed = observed.clone();
@@ -307,7 +365,11 @@ mod tests {
         cancellation.cancel();
         assert!(waiting.await.is_err());
         assert!(!observed.load(std::sync::atomic::Ordering::Acquire));
-        assert_eq!(receiver.len(), 1, "unsubmitted work never entered the queue");
+        assert_eq!(
+            receiver.len(),
+            1,
+            "unsubmitted work never entered the queue"
+        );
         receiver.close();
     }
     #[tokio::test(flavor = "current_thread")]
@@ -330,11 +392,17 @@ mod tests {
         cancellation.cancel();
         assert!(caller.join().unwrap().is_err());
         release.notify_one();
+        let finality = bridge.drain_finality_report().await;
+        assert!(
+            finality.failures.is_empty(),
+            "acknowledged refusal is not failed ownership"
+        );
+        assert_eq!(
+            finality.remote,
+            lctx_model::domain::completion::RemoteState::Confirmed
+        );
         let error = bridge.drain().await.unwrap_err();
-        let ModelError::SharedCause(cause) = error else {
-            panic!()
-        };
-        let ModelError::Completion(outcome) = cause.as_ref() else {
+        let ModelError::Completion(outcome) = error else {
             panic!()
         };
         assert_eq!(
@@ -342,9 +410,76 @@ mod tests {
             lctx_model::domain::completion::LocalState::Terminal
         );
         assert!(matches!(
-            &outcome.completion.failures[0].error,
-            ModelError::Schema("late bridge failure")
+            outcome.completion.failures[0].error.primary(),
+            Some(ModelError::Schema("late bridge failure"))
         ));
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn bridge_preserves_nested_owner_finality_with_live_or_dropped_receiver() {
+        use lctx_model::domain::completion::{
+            self, Completion, LocalState, RemoteState, StorageState,
+        };
+        for dropped in [false, true] {
+            let bridge = Arc::new(NativeBridge::new(Cancellation::default()).unwrap());
+            let entered = Arc::new(tokio::sync::Notify::new());
+            let release = Arc::new(tokio::sync::Notify::new());
+            let owner = bridge.clone();
+            let running = entered.clone();
+            let finish = release.clone();
+            let caller = tokio::spawn(async move {
+                owner
+                    .call_async(async move {
+                        running.notify_one();
+                        finish.notified().await;
+                        let mut actual = Completion {
+                            local: LocalState::Outstanding,
+                            remote: RemoteState::Unknown,
+                            ..Default::default()
+                        };
+                        actual
+                            .storage
+                            .push(StorageState::Orphan("protected".into()));
+                        actual.committed("publication", "exact");
+                        actual.step("nested cleanup", Err(ModelError::Schema("cleanup failed")));
+                        completion::complete::<()>(Err(ModelError::Schema("refused")), actual)
+                    })
+                    .await
+            });
+            entered.notified().await;
+            let returned = if dropped {
+                caller.abort();
+                let returned = caller.await;
+                release.notify_one();
+                returned
+            } else {
+                release.notify_one();
+                caller.await
+            };
+            if dropped {
+                assert!(returned.is_err());
+            } else {
+                assert!(!returned.unwrap().unwrap_err().permits_storage_cleanup());
+            }
+            for _ in 0..2 {
+                let actual = bridge.drain_finality_report().await;
+                assert_eq!(actual.local, LocalState::Outstanding);
+                assert_eq!(actual.remote, RemoteState::Unknown);
+                assert_eq!(
+                    actual.storage,
+                    vec![StorageState::Orphan("protected".into())]
+                );
+                assert_eq!(actual.committed[0].identity, "exact");
+                assert_eq!(actual.failures.len(), 1);
+                assert_eq!(actual.failures[0].step, "nested cleanup");
+                assert!(matches!(
+                    actual.failures[0].error.primary(),
+                    Some(ModelError::Schema("cleanup failed"))
+                ));
+                let mut diagnostics = Completion::default();
+                bridge.append_operation_failures(&mut diagnostics);
+                assert_eq!(diagnostics.failures.len(), usize::from(dropped));
+            }
+        }
     }
     #[tokio::test(flavor = "current_thread")]
     async fn completed_failed_bridge_join_is_terminal_and_retained_for_retry() {
@@ -361,10 +496,7 @@ mod tests {
         for _ in 0..2 {
             let error = bridge.drain().await.unwrap_err();
             assert!(error.permits_storage_cleanup());
-            let ModelError::SharedCause(cause) = error else {
-                panic!()
-            };
-            let ModelError::Completion(outcome) = cause.as_ref() else {
+            let ModelError::Completion(outcome) = error else {
                 panic!()
             };
             assert_eq!(
@@ -373,7 +505,7 @@ mod tests {
             );
             assert_eq!(outcome.completion.failures.len(), 1);
             assert!(
-                matches!(&outcome.completion.failures[0].error,ModelError::Cause(error) if error.downcast_ref::<tokio::task::JoinError>().is_some_and(tokio::task::JoinError::is_panic))
+                matches!(&outcome.completion.failures[0].error,ModelError::SharedCause(error) if matches!(error.as_ref(),ModelError::Cause(error) if error.downcast_ref::<tokio::task::JoinError>().is_some_and(tokio::task::JoinError::is_panic)))
             );
         }
     }

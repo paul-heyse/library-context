@@ -396,11 +396,15 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
             terminal.remote = completion::RemoteState::Unknown;
         }
     }
-    if let Some(workspace) = workspace_owner {
+    if let Some(workspace) = &workspace_owner {
         let settled = workspace.complete_signal(&terminal).await;
         terminal.step("compact workspace signal finality", settled);
     }
-    native.append_operation_failures(&mut terminal);
+    if let Some(workspace) = &workspace_owner {
+        workspace.append_operation_failures(&mut terminal);
+    } else {
+        native.append_operation_failures(&mut terminal);
+    }
     if confirmed
         && terminal.local == completion::LocalState::Terminal
         && terminal.remote == completion::RemoteState::Confirmed

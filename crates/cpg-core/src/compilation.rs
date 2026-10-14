@@ -18,6 +18,7 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+use tracing::Instrument;
 #[cfg(test)]
 mod cache_controls;
 mod preparation;
@@ -1051,8 +1052,7 @@ pub async fn compile(
     embedder: Option<&dyn Embedder>,
     cache: Option<Arc<dyn lctx_model::domain::embedding::cache::EmbeddingCache>>,
 ) -> Result<(), ModelError> {
-    use tracing::Instrument;
-    let span = tracing::info_span!(target: "lctx_phase", "compilation", profile = profile.name(), frontier = frontier.name());
+    let span = tracing::info_span!(target: "lctx_phase", "compilation", attempt=%workspace.native().attempt().hex(), profile = profile.name(), frontier = frontier.name());
     boxed_driver(
         workspace,
         captured,
@@ -1249,6 +1249,7 @@ async fn compile_driver(
                 let workspace = workspace.clone();
                 let model = model.clone();
                 let declaration = declaration.clone();
+                let producer_span = tracing::info_span!(target: "lctx_phase", "compiler_producer", producer=declaration.name, attempt=%workspace.native().attempt().hex());
                 pending.push(
                     async move {
                         let phase = Phase::begin(declaration.name);
@@ -1302,6 +1303,7 @@ async fn compile_driver(
                         phase.finish_result(&result);
                         result
                     }
+                    .instrument(producer_span)
                     .boxed(),
                 );
             }
@@ -1477,7 +1479,8 @@ async fn compile_driver(
                 match launch {
                     Ok(Some(task)) => {
                         started.insert(declaration.name);
-                        pending.push(task.run().boxed());
+                        let producer_span = tracing::info_span!(target: "lctx_phase", "compiler_producer", producer=declaration.name, attempt=%workspace.native().attempt().hex());
+                        pending.push(task.run().instrument(producer_span).boxed());
                     }
                     Ok(None) => {}
                     Err(error) => {

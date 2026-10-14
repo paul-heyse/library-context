@@ -898,7 +898,7 @@ async fn small_publication_from_source(
     }
     let signal = workspace.complete_signal(&completion).await;
     completion.step("small publication workspace finality", signal);
-    native.append_operation_failures(&mut completion);
+    workspace.append_operation_failures(&mut completion);
     let (handle, manifest, source, source_cleanup) = completion::complete(built, completion)?;
     Ok(SmallPublication {
         scratch,
@@ -2269,7 +2269,7 @@ async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelE
     }
     let settled = workspace.complete_signal(&terminal).await;
     terminal.step("publication control workspace signal finality", settled);
-    workspace.native().append_operation_failures(&mut terminal);
+    workspace.append_operation_failures(&mut terminal);
     completion::complete(Ok(()), terminal)
 }
 

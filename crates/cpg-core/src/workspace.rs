@@ -28,6 +28,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
+use tracing::{Instrument, instrument::WithSubscriber};
 
 type ProviderDrain = Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
 type ChargedBatch = Result<(RecordBatch, Box<dyn Reservation>), ModelError>;
@@ -133,8 +134,8 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
             for task in drains {
                 completion.step("provider join", task.await.map_err(ModelError::SharedCause));
             }
-            completion.step("provider bridge drain", self.bridge.drain().await);
-            completion.step("native calls drain", self.native_calls.drain().await);
+            completion.merge(self.bridge.drain_finality_report().await);
+            completion.merge(self.native_calls.drain_finality_report().await);
             completion.step(
                 "private scoped check release",
                 self.admission_memo.close_scoped(),
@@ -165,6 +166,7 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
             }
             completion
         }
+        .instrument(tracing::info_span!(target: "lctx_phase", "compiler_drain", attempt=%self.native.attempt().hex()))
         .boxed()
     }
     fn complete_signal<'a>(
@@ -172,6 +174,14 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
         completion: &'a lctx_model::domain::completion::Completion,
     ) -> BoxFuture<'a, Result<(), ModelError>> {
         self.signal.complete(completion).boxed()
+    }
+    fn append_operation_failures(
+        &self,
+        completion: &mut lctx_model::domain::completion::Completion,
+    ) {
+        self.bridge.append_operation_failures(completion);
+        self.native_calls.append_operation_failures(completion);
+        self.native.append_operation_failures(completion);
     }
 }
 impl Workspace {
@@ -434,7 +444,8 @@ impl Workspace {
         profile: Profile,
         configuration: ContentHash,
     ) -> Result<(), ModelError> {
-        let _gate = self.completion_gate.lock().await;
+        let _gate =
+            lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock()).await;
         self.cancellation.check()?;
         self.writable()?;
         let content = self.identity()?;
@@ -459,7 +470,8 @@ impl Workspace {
             ContentHash,
         )>,
     ) -> Result<(), ModelError> {
-        let _gate = self.completion_gate.lock().await;
+        let _gate =
+            lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock()).await;
         self.cancellation.check()?;
         if let Some((captures, frontier, profile, settings)) = request {
             self.require_compilation(captures, frontier, profile, settings)?;
@@ -926,8 +938,15 @@ impl Workspace {
         completion.step("compiler workspace signal finality", signal);
         // Acknowledged operation refusals still fail the caller, after actual
         // execution finality has been recorded independently.
-        self.native.append_operation_failures(&mut completion);
+        self.append_operation_failures(&mut completion);
         completion
+    }
+    pub fn append_operation_failures(
+        &self,
+        completion: &mut lctx_model::domain::completion::Completion,
+    ) {
+        use lctx_compiler_store::admission::ExecutionOwner;
+        self.execution.append_operation_failures(completion);
     }
     pub async fn drain(&self) -> Result<(), ModelError> {
         lctx_model::domain::completion::complete(Ok(()), self.drain_report().await)
@@ -1147,7 +1166,8 @@ impl Workspace {
         schedule: &lctx_model::domain::stages::Schedule,
         declaration: &lctx_model::domain::stages::Stage,
     ) -> Result<lctx_model::domain::stages::Stage, ModelError> {
-        let _completion = self.completion_gate.lock().await;
+        let _completion =
+            lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock()).await;
         self.writable()?;
         let mut selected = declaration.clone();
         for selection in schedule.selections(declaration.name)? {
@@ -1164,7 +1184,8 @@ impl Workspace {
         schedule: &lctx_model::domain::stages::Schedule,
         boundary: lctx_model::domain::stages::PublicationBoundary,
     ) -> Result<(), ModelError> {
-        let _completion = self.completion_gate.lock().await;
+        let _completion =
+            lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock()).await;
         self.writable()?;
         for selection in schedule.prefix_selections(boundary)? {
             self.bind_exact_selection(selection).await?;
@@ -1177,7 +1198,8 @@ impl Workspace {
         &self,
         boundary: lctx_model::domain::stages::PublicationBoundary,
     ) -> Result<(), ModelError> {
-        let _completion = self.completion_gate.lock().await;
+        let _completion =
+            lctx_native::phase::wait("compiler_completion_gate", self.completion_gate.lock()).await;
         self.writable()?;
         if self
             .frozen_shared
@@ -1569,7 +1591,7 @@ impl NativeBatches {
         let item = tokio::select! {
             biased;
             () = self.cancellation.cancelled() => Some(Err(ModelError::Invalid("compilation cancelled".into()))),
-            item = self.receiver.recv() => item,
+            item = lctx_native::phase::wait("native_batch_read", self.receiver.recv()) => item,
         };
         match item {
             Some(Ok((batch, charge))) => {
@@ -2986,7 +3008,11 @@ impl ProducerOutput {
             let id = registration.await?;
             self.ingress.finish().await?;
             producing_scope.close_and_wait().await?;
-            let _completion = self.workspace.completion_gate.lock().await;
+            let _completion = lctx_native::phase::wait(
+                "compiler_completion_gate",
+                self.workspace.completion_gate.lock(),
+            )
+            .await;
             self.workspace.writable()?;
             let previous = self
                 .workspace
@@ -3206,20 +3232,19 @@ impl Reservation for WorkspaceReservation {
         self.reservation.size()
     }
     fn try_resize(&mut self, bytes: usize) -> Result<(), ModelError> {
-        self.reservation
-            .try_resize(bytes)
-            .map_err(|error| {
-                // The runtime's existing TrackConsumersPool reports its largest
-                // live consumers. Keep that diagnostic when translating the
-                // refusal into our stable typed resource error.
-                tracing::warn!(owner = self.owner, cause = %error, "workspace memory reservation refused");
-                ModelError::Resource {
-                    owner: self.owner,
-                    requested: bytes.saturating_sub(self.reservation.size()),
-                    used: self.pool.reserved(),
-                    limit: self.limit,
-                }
-            })
+        self.reservation.try_resize(bytes).map_err(|error| {
+            // The runtime's existing TrackConsumersPool reports its largest
+            // live consumers. Keep that diagnostic when translating the
+            // refusal into our stable typed resource error.
+            let refusal = ModelError::Resource {
+                owner: self.owner,
+                requested: bytes.saturating_sub(self.reservation.size()),
+                used: self.pool.reserved(),
+                limit: self.limit,
+            };
+            lctx_native::phase::resource_refusal(&refusal, &error);
+            refusal
+        })
     }
 }
 
@@ -3249,10 +3274,14 @@ impl cpg_extract::bundle::ProviderSink for ProducerOutput {
             );
             result
         });
+        let owner = tracing::info_span!(target: "lctx_phase", "provider_join_owner", producer=self.name, attempt=%self.workspace.native.attempt().hex());
         let joined = async move {
-            task.await
+            lctx_native::phase::wait("provider_join", task)
+                .await
                 .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))?
         }
+        .instrument(owner)
+        .with_current_subscriber()
         .boxed()
         .shared();
         self.workspace
@@ -3559,7 +3588,12 @@ mod tests {
                 let signal = workspace.complete_signal(&finality).await;
                 finality.step("exact selection workspace signal", signal);
             }
-            let diagnostics = native.drain_report().await;
+            let mut diagnostics = completion::Completion::default();
+            if let Some(workspace) = &workspace_owner {
+                workspace.append_operation_failures(&mut diagnostics);
+            } else {
+                native.append_operation_failures(&mut diagnostics);
+            }
             if let Err(panic) = result {
                 if let Err(error) = completion::complete(Ok(()), finality) {
                     eprintln!("exact selection finalization after assertion panic: {error:#?}");
@@ -4124,8 +4158,9 @@ mod tests {
         .unwrap();
         let charged = batch_budget.reserved();
         assert!(charged > 0);
+        let native = crate::test_native::store();
         let calls = Arc::new(crate::native_calls::NativeCalls::new(
-            crate::test_native::store(),
+            native.clone(),
             Cancellation::default(),
             &task_budget,
         ));
@@ -4183,6 +4218,11 @@ mod tests {
         }
         assert_eq!(batch_budget.reserved(), 0);
         assert!(dropped.load(Ordering::Acquire));
+        lctx_model::domain::completion::complete::<()>(
+            Ok(()),
+            native.abandon_finality_report().await,
+        )
+        .unwrap();
     }
     #[tokio::test]
     async fn cancelled_final_close_keeps_batch_and_writer_until_native_terminality() {
@@ -4480,6 +4520,11 @@ mod tests {
             &completion.failures[0].error,
             ModelError::SharedCause(_)
         ));
+        lctx_model::domain::completion::complete::<()>(
+            Ok(()),
+            workspace.native().abandon_finality_report().await,
+        )
+        .unwrap();
     }
     #[tokio::test]
     async fn interrupted_workspace_drain_retains_provider_join_for_retry() {
@@ -4518,6 +4563,11 @@ mod tests {
         workspace.drain().await.unwrap();
         assert!(completed.load(Ordering::Acquire));
         acknowledgement.await.unwrap().unwrap();
+        lctx_model::domain::completion::complete::<()>(
+            Ok(()),
+            workspace.native().abandon_finality_report().await,
+        )
+        .unwrap();
     }
     #[tokio::test]
     async fn manual_output_inventory_is_closed_and_empty_inventory_is_metadata_only() {

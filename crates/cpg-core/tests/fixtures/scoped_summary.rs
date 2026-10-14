@@ -267,7 +267,12 @@ async fn actual_summary_control() {
         let signal = workspace.complete_signal(&finality).await;
         finality.step("scoped Summary workspace signal", signal);
     }
-    let diagnostics = native.drain_report().await;
+    let mut diagnostics = completion::Completion::default();
+    if let Some(workspace) = &workspace_owner {
+        workspace.append_operation_failures(&mut diagnostics);
+    } else {
+        native.append_operation_failures(&mut diagnostics);
+    }
     if let Err(panic) = result {
         if let Err(error) = completion::complete(Ok(()), finality) {
             eprintln!("scoped Summary finalization after assertion panic: {error:#?}");
