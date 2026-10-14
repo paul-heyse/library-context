@@ -114,6 +114,19 @@ On first failure signal siblings, retain and join provider/native workers, settl
 ingress and preserve original outcome/finality. No failed composition exposes aggregate completion
 or publication. Completion bookkeeping has one coordinator even when pure work runs concurrently.
 
+Coordinator awaits must keep polling owned unspawned producers that can hold or queue ahead for
+completion serialization. Binding/launch and prefix freezing use the same owned polling route.
+A finite charged queue retains terminal-but-unaccepted results; only ordinary acceptance advances
+readiness or releases preparation. On failure, finish the already-started coordinator action and
+drain queued/pending ownership without accepting later successes. This preserves borrowed
+configuration/embedder lifetimes without a new task runtime or concurrency cap. Coordinator F05
+owns current-source liveness and integrated acceptance.
+
+Async compact metadata production awaits native batches directly. Its synchronous iterator is only
+for synchronous provider callbacks and must not block an unspawned coordinator poll. Preserve batch
+errors, cancellation, visitors, exact EOF/count and source/output ownership. Coordinator F08 records
+the source-accepted correction and still-open genuine linked Catalog acceptance.
+
 **Revealing acceptance:** later owner completes first but is excluded from an earlier prefix;
 shuffled arrival produces identical selected/publication identities; blocked independent work does
 not block ready peers; genuine dependencies and unfinished assembly remain blocked. Exercise

@@ -116,6 +116,16 @@ contributor preparation. Physical completion v2 replaces per-view member
 copies/seals with exact compound contributor/selector inventories; semantic transport format4 and
 flat v4 identity remain unchanged. No old-format reader is retained. Export independently checks
 prepared actual family identity against the frozen boundary before encoding portable output.
+
+**Implemented / scoped source accepted,2026-10-14.** Independent boundary preparation inspects
+and assures every selected closure, transferring unique physical contributors, logical views and
+semantic family inputs before dropping that closure. Different physical realizations beneath one
+logical view remain selector-local; all-view/copy inventories and binding-selected semantics are
+preserved. Completed inventory retains one ordered typed selector representation. Actual retained
+heaps/capacities/nodes remain charged through the last borrower; native decode, validation, addressing,
+parent-hold projection and identity-sort scratch are separately admitted for their actual temporary
+lifetime. Full child/context/incarnation, EOF, correspondence, incidence/hold and final guarded
+visibility checks remain independent. The Catalog coordinator owns focused and enclosing acceptance.
 **Accepted target / implementation in progress, 2026-10-13 (ADR-0166).** Semantic v4 stays unchanged.
 Portable transport binds complete root-qualified selector/copy correspondence and explicit local
 membership/alias inventories in a separate capture envelope. Independently supplied export/backup
@@ -213,6 +223,17 @@ Definitions are installed under immutable epoch names. Ordinary publication
 cannot install DDL, mutate unrelated content or replace another publication's functions. Selection
 remains explicit. Later cleanup failure preserves an acknowledged committed publication.
 
+**Implemented / focused-Tested finality composition,2026-10-14.** Workflow signal receipts describe actual
+joined work, remote acknowledgement and resource/session finalization. A sticky acknowledged native
+operation refusal remains the caller's operation failure and poisons admission; it is not itself a
+failed join or close. Native finality-only drain/abandon reports supply the enclosing Workspace and
+artifact execution report. Aggregate diagnostic APIs append historical operation failures after
+actual finality signals settle. Genuine cleanup errors, storage orphans and Unknown remain strict;
+cleanup permission never substitutes for acknowledgement. No receipt-schema or fixture-policy change.
+The [Catalog coordinator F03](../../plans/catalog-creation-plan_2026-10-14.md#6-sole-disposition-and-execution-checkpoint)
+owns the thirteen pure controls and fresh six-native/seven-compiler enclosing fixture passes;
+broader interruption matrices and Catalog composition remain separate.
+
 **Accepted target / implementation in progress, 2026-10-11.** Publication preparation owns one
 discoverable attempt-held staging root over independently completed content before child effects.
 Only derived physical families remain writable through that narrow capability after canonical
@@ -286,6 +307,16 @@ Exact invocation lineage is prepared from the validated current job and compared
 nomination effect; maintenance successors retain that lineage. No missing-lineage compatibility
 fallback or cached effect authority is introduced. Root fencing and all incarnation/hold checks remain.
 
+**Implemented atomic page batching / native acceptance pending,2026-10-14.** A hold page carries one
+canonical bounded row payload. Required current hold, child-guard, existing-item/job and predicate
+observations use scalar record-ID locked reads: pinned3.3 does not accept array-valued FOR UPDATE
+targets. Complete page validation precedes mutations; missing guards permit only incarnation1,
+existing items preserve object/incarnation/lineage and their current job/state/successor. Distinct
+predicate writes are changed tokens per transaction, never effect counts; final-CAS own+1 sites and
+all wrapper touches remain. Batch only necessary inserts and exact hold deletion under the existing
+backup, owner, lineage and incarnation fences. Row/byte progress, effect accounting, entire-page
+rollback and10s are unchanged. The Catalog coordinator owns actual full-page and cold acceptance.
+
 > Decision: ADR-0155, ADR-0170
 
 **Accepted target / source integration in progress, 2026-10-11.** Mutable relation/boundary
@@ -358,6 +389,13 @@ applicability is freshly checked; physical freeze, graph/frontier/original inven
 finality remain independently established. Search and lexical expected runs can remain privately
 charged and rewindable through finalization, which still compares fresh actual rows to complete EOF.
 Cold/import/foreign operations derive their necessary validity and expectations independently.
+Selected cumulative compiler views earn actual nominal union conflict/count validity before current
+bindings, retained aggregate products or Workspace-visible replacement. Equal key/content coalesces;
+unequal content refuses while prior checked current/frozen selections remain. A fresh singleton may
+use this invocation's completed membership EOF/count with enforced contribution-qualified uniqueness;
+registered descriptors alone never supply it to retained/composition consumers. Changed contributor
+sets use the existing bounded canonical candidate fold; this is selected assembly, not whole-prefix
+or model replay. Failed assembly poisons admission and drains its submitted work.
 Scoped reuse defaults to refusing compact-owner dependencies unless the model explicitly declares
 independence. Successful final artifacts retain charged proof borrowers; operation drainage closes
 the memo without forming a strong execution-owner cycle. Retained search belongs to the actual Loader,

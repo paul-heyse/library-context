@@ -103,6 +103,14 @@ owners retain actual captured frame/source/definition/configuration premises and
 domains, rather than requested Behavioral computation dependencies. Private stage results and shared
 preparation remain bound to exact consumer authority and the last running/remaining borrower.
 
+**Implemented / focused-Tested2026-10-14; composition acceptance open.** Coordinator binding and
+prefix-freeze waits continue polling their owned unspawned producer futures. A finite charged queue
+retains terminal results privately until ordinary acceptance; buffering alone cannot satisfy readiness
+or retire shared preparation. First observed failure cancels work, drives the already-started
+coordinator operation to terminal, discards buffered private results and drains remaining siblings.
+The completion gate still serializes actual contributor/view handoff; no new task runtime, barrier or
+concurrency cap is introduced. The Catalog coordinator F05 owns current-source composition receipts.
+
 Facts, Normalized, Analysis and Catalog are cumulative requested frontiers. Both catalog and
 behavioral profiles preserve native coverage and uncertainty. Selected upper operations require
 their actual Local, execution, Model, source-call or vector predecessors. Projection preparation

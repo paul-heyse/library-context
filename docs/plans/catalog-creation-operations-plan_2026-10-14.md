@@ -1,10 +1,12 @@
 # Catalog creation: lifecycle and development operations
 
-**Changed diagnostic seam source-integrated / native inspection pending, 2026-10-14.** Companion to the
+**Changed diagnostic seam source-integrated / focused native inspection passed, 2026-10-14.** Companion to the
 [coordinator](catalog-creation-plan_2026-10-14.md), whose §6 alone owns dispositions and receipts.
 Preserves prior OP01–OP03/LO/LD obligations and C01–C11 decisions. Existing diagnostics, schema8,
 beta integration and checked disposal are foundations, not projects to restart. Adapt only the seams
 changed by the new compiler/analysis/native contracts and verify their affected behavior.
+Current indexed retirement inspection and repaired successor control passed within their exact
+scope; coordinator §6 owns receipts, cancelled participants and confirmed R7 campaign disposal.
 
 ## 1. Lifecycle meaning and actual owners
 

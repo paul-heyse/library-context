@@ -243,9 +243,34 @@ required lineage once after current-job validation/recovery, bind it into the pa
 against the current transactional owner in every page effect. Preserve all child/hold/incarnation,
 root fencing, effect accounting and guarded final-empty proof. No schema or legacy-reader change.
 
+Atomic hold-page mutation prepares exact current hold, child-guard and existing-item/job observations.
+Pinned3.3 locked reads require scalar record-ID targets, so bounded maps retain every point lock;
+ordinary SELECT over an array does not establish FOR UPDATE support. Mutations remain batched.
+Preserve complete prechecks, predecessor-lineage item identity/state, plain inserts of missing rows,
+complete predicate exclusion/exhaustion and exact hold deletion in one recorded transaction. Distinct
+predicate revisions are change tokens within that transaction; preserve final-CAS own+1 sites and
+all owner-wrapper/backup fences. Carry one canonical row payload and derive supplemental arrays
+locally so complete guarded query/intent admission retains the existing row/byte progress contract.
+F04 owns current-source mixed/malformed/exhausted/full-window rollback and cold acceptance. No page
+split, raised10s timeout, new schema or generic batch framework is selected.
+
+Independent boundary family preparation transfers unique contributors/views and semantic inputs
+from each fully inspected closure before dropping it. Preserve selector-local physical mappings,
+all physical inventory coverage, exact binding-selected semantics and unchanged flat v4 identities.
+Completed inventory keeps one sorted typed selector representation; retained typed heaps/capacities/
+map nodes are distinct from temporary native decode, validation/addressing, parent-hold projection
+and binding-identity sort workspace. Admit each before use and release only at its actual lifetime.
+F06 is source/focused-Tested; F07 is final-source accepted with final runtime rerun interrupted at
+the operator's turn-end request. Coordinator §6 owns exact revision bounds and remaining acceptance.
+
 Selected D02 changes need their own confirmed concrete rule impacts and independent protocol
 assessment before implementation; RC01/RC02 do not authorize arbitrary fence narrowing. D10–D12 can
 deliver smaller independent improvements without replacing ordinary payload ownership.
+
+Actual ownership finality is distinct from acknowledged operation refusal. Workflow signal reports
+merge real drainage/attempt/session/storage outcomes before appending sticky operation diagnostics
+to the caller. Negative controls retain the exact expected refusal separately and still require
+clean actual finality. F03's disposition and fresh enclosing receipts stay solely with coordinator §6.
 
 ## 6. Focused acceptance and completion
 
