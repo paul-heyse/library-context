@@ -475,10 +475,80 @@ during subsequent `native_compound_selection_assurance` retention. The full gene
 independent admission, publication and linked-query acceptance remains unproven. Native completion
 is not established by local cleanup; attachment `b60cf585-fb41-4acd-85cb-a6b008e53578` and owned
 target i remain protected. No restart, native recovery, disposal or CE03 reconciliation follows the
-stop. Await the operator's requested check. CE01/CE02/CE03 remain open; original failures/Unknown
+stop. The requested Clippy check/remediation is recorded below; continuation remains paused. CE01/CE02/CE03 remain open; original failures/Unknown
 remain unchanged. The previously interrupted diagnostic attachment's authenticated local recovery
 `20261014T010109.133Z-7210d5` confirmed local cleanup but exited1 refusing native release because
 completion was not observed; it does not establish native cleanup or whole-run success.
+
+**Clippy remediation — Implemented / focused-Tested,2026-10-13 local /2026-10-14 UTC.**
+The operator separately authorized complete keep-going Clippy assessment and repair, including all
+warnings. Baseline `afbfb0` (`just clippy`) failed; diagnostic `06de5c` completed with938 warning
+emissions/544 distinct lint-message-primary-location entries across38 kinds. Repeated targets and
+source inclusions are not independent defects. The full strict release/workspace/all-targets
+`just clippy` then **passed**, exit0, no diagnostics or current upstream future-compatibility notice,
+in `20261014T021045.376Z-a20d45`, after scoped formatting in
+`20261014T021329.379Z-e00141`, and in `20261014T022243.552Z-ff3b5f`; local cleanup
+confirmed/no survivors. The final integrated source is `e5cb2b8e`, with the same-pin manyhow
+patch in `2645e8cb`. Post-housekeeping full strict `just clippy`
+(`20261014T025123.560Z-b1d1b7`) **passed**, exit0, no diagnostics, local cleanup confirmed/no
+survivors. The final ordinary Rust code-generation/control run
+(`20261014T025154.290Z-ac7bd3`) **passed13/13**, also without warnings. Guard-free final
+`just ready` (`20261014T025123.563Z-c69193`) **passed**, local cleanup confirmed/no survivors.
+All remediation receipts/logs retain `citation:catalog-execution-patterns-target` through the
+existing storage owner; earlier failures and rejected intermediate warning-bearing builds retain
+their actual outcomes.
+
+All captured categories received corrections: obsolete validation/control/forwarding paths were
+removed; shared fixture owners and actual test-only helpers remain explicit; interface records keep
+charged preparation, transfer and physical-selection ownership together. Exact view/pool checks,
+canonical identity/order, independent admission and terminal drainage remain. Replacement reference
+target controls exercise the actual production preparation rather than an orphan duplicate helper.
+Fresh selection allocation is reserved before boxing; transport header boxing preserves the wire
+codec and decoded reservation. No schema, semantic v4, codec1 or pin-family version changed.
+
+The216 mutable-key entries all traverse SDK3.3.0's Regex execution cache. Its Eq/Ord/Hash project
+only immutable pattern text; `clippy.toml` ignores that exact interior-mutability type while retaining
+the existing Bytes default and checking other mutable keys. Revisit on SDK/regex upgrades. Specific
+argument-count and test-only variant expectations document intentional distinct owners. Deep async
+Send inference is bounded at shared operation, setup, phase and bounded Arrow/window interfaces.
+Ordinary code generation exposed additional future-compatibility warnings beyond Clippy's metadata
+checks. Native-only child cursors now exclude impossible recursive selection/graph states, sharing
+one native read/drain implementation. An in-place pinned future guard retains both exact task-local
+contexts during polling and completion/cancellation destruction. No per-row allocation, unsafe Send
+implementation, recursion-limit increase or dropped drainage requirement is introduced. The public
+producing scope continues to support non-Send caller futures. Independent implementation review
+accepted these ownership and cancellation contracts. This is a structural correction, not a measured
+speed claim.
+
+The pinned manyhow0.11.4 source patch makes all three bail expansions block expressions, retaining
+error conversion and early return; only that package's source changes in the lockfile. A narrow
+upstream test expectation documents the deliberately unreachable infallible-handler error arm.
+
+Focused **passed** controls:14 model (`8115d3`),44 native (`5aac51`),8 extraction/publisher/serving
+consumer (`f66793`),13 compiler ownership/reference/partition/support/cancellation controls
+(`20261014T024828.463Z-97cc2f`) and2 macro-expression controls (`d61120`):81 distinct
+controls, all enclosing exit0/local cleanup confirmed. The final13-control ordinary Rust build
+emitted no warnings. It adds exact scoped destruction/non-Send support and converted-cursor
+lease/reservation retention controls; repeated selections do not count as additional coverage. Strict model
+Clippy `a7cd47` also passed. Earlier compile/type/migration failures and recorded warning emissions
+remain original failed/partial evidence; current integrated Clippy closes lint scope, not those
+historical runs. Independent root/implementation source review found no material regression in the
+charged-owner, exact-copy, borrowed-lifetime or cancellation contracts. `just ready` (`b61f48`)
+passed, refreshing the checkout's native extension without service changes; `e60434` also passed
+before the final cursor correction; the final `c69193` receipt above establishes current readiness.
+The cancelled Catalog composition remains unproven; CE01/CE02/CE03, older paused plans, native Unknown and target i's disposal obligation remain unchanged. No Catalog
+rerun, native recovery/disposal, embedding/MCP runtime or broad qualification accompanies this work.
+
+The separately run dependency leaf `just deps` (`20261014T021329.379Z-582738`) **failed**
+at cargo-shear with8 errors/1 warning; this is outside the approved Clippy remediation and predates
+it. Family pins, cargo-deny bans/sources and both analyzer-fork checks passed. Four actual unused
+entries are cpg-core/petgraph, compiler-store/insta and native/arrow-row/async-trait; four findings
+are native/publisher build-dependencies blake3/toml used by the shared producer-fingerprint source;
+publisher's tracing ignore is redundant. A separately scoped repair should verify/remove unused
+entries, document exact shared-source exceptions or improve the existing discovery route, remove
+the redundant ignore, then rerun `just deps`. Its trailing Hakari checks were not_run because the
+recipe stopped; scoped turn-end independently regenerated Hakari without a change. These dependency
+findings do not become Clippy failures, and no dependency removal is claimed here.
 
 Independent implementation review found selector-crossing alias witnesses, partially committed
 receiving attachment, and abandoned retained-boundary pin release. Corrections are source-reviewed:
