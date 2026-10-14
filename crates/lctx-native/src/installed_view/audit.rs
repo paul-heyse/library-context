@@ -84,7 +84,11 @@ struct WorkOwner {
     accepting: std::sync::atomic::AtomicBool,
     close_gate: tokio::sync::Mutex<()>,
 }
-type PreparationWorker = (u64, tokio::task::JoinHandle<()>, std::sync::Arc<Box<dyn d::resources::Reservation>>);
+type PreparationWorker = (
+    u64,
+    tokio::task::JoinHandle<()>,
+    std::sync::Arc<Box<dyn d::resources::Reservation>>,
+);
 #[derive(Default)]
 struct WorkerDrain {
     workers: Vec<PreparationWorker>,
@@ -252,21 +256,30 @@ impl InstallationAudit {
         + Send
         + 'static,
     ) -> Result<(), ModelError> {
-        self.run_work_many(vec![key], move |owner, _| build(owner)).await
+        self.run_work_many(vec![key], move |owner, _| build(owner))
+            .await
     }
     async fn run_work_many(
         &self,
         keys: Vec<(u8, ContentHash)>,
-        build: impl FnOnce(Self, Vec<(u8, ContentHash)>) -> futures::future::BoxFuture<'static, Result<(), ModelError>>
-        + Send + 'static,
+        build: impl FnOnce(
+            Self,
+            Vec<(u8, ContentHash)>,
+        ) -> futures::future::BoxFuture<'static, Result<(), ModelError>>
+        + Send
+        + 'static,
     ) -> Result<(), ModelError> {
         self.pin.ensure_live()?;
         // Cancelled waiters leave their independently owned workers behind. Reap only
         // already terminal handles before admitting another bounded preparation.
         self.reap_terminal_workers(Ok(()), &BTreeSet::new()).await?;
         if keys.len() > crate::loader::NATIVE_WINDOW_ROWS {
-            return Err(ModelError::Limit { owner: "installation preparation", limit: "window keys",
-                observed: keys.len(), bound: crate::loader::NATIVE_WINDOW_ROWS });
+            return Err(ModelError::Limit {
+                owner: "installation preparation",
+                limit: "window keys",
+                observed: keys.len(),
+                bound: crate::loader::NATIVE_WINDOW_ROWS,
+            });
         }
         let futures = {
             let mut registry = self.work.flights.lock().unwrap();
@@ -291,13 +304,18 @@ impl InstallationAudit {
             }
             if !missing.is_empty() {
                 let charge = std::sync::Arc::new(self.budget.reserve(
-                    "installation preparation flight metadata", 4096usize.saturating_mul(missing.len()))?);
+                    "installation preparation flight metadata",
+                    4096usize.saturating_mul(missing.len()),
+                )?);
                 {
                     let mut workers = self.work.workers.lock().unwrap();
                     if workers.len() == workers.capacity() {
                         let capacity = workers.capacity().saturating_mul(2).max(1);
-                        self.charge.grow(capacity.saturating_sub(workers.capacity())
-                            .saturating_mul(std::mem::size_of::<PreparationWorker>()))?;
+                        self.charge.grow(
+                            capacity
+                                .saturating_sub(workers.capacity())
+                                .saturating_mul(std::mem::size_of::<PreparationWorker>()),
+                        )?;
                         let additional = capacity - workers.len();
                         workers.reserve_exact(additional);
                     }
@@ -322,14 +340,16 @@ impl InstallationAudit {
                 }
                 .boxed()
                 .shared();
-                for key in &missing { registry.insert(
-                    *key,
-                    WorkFlight {
-                        token,
-                        future: future.clone(),
-                        _charge: charge.clone(),
-                    },
-                ); }
+                for key in &missing {
+                    registry.insert(
+                        *key,
+                        WorkFlight {
+                            token,
+                            future: future.clone(),
+                            _charge: charge.clone(),
+                        },
+                    );
+                }
                 futures.insert(token, future.clone());
                 let keys = missing.into_iter().collect::<Vec<_>>();
                 #[cfg(test)]
@@ -387,24 +407,35 @@ impl InstallationAudit {
                     }
                     let _ = send.send(result);
                 });
-                self.work.workers.lock().unwrap().push((token, task, worker_charge));
+                self.work
+                    .workers
+                    .lock()
+                    .unwrap()
+                    .push((token, task, worker_charge));
             }
             futures
         };
         if futures.len() == 1 {
             let (token, future) = futures.into_iter().next().unwrap();
             let result = future.await.map_err(ModelError::SharedCause);
-            let failed = if result.is_err() { BTreeSet::from([token]) } else { BTreeSet::new() };
+            let failed = if result.is_err() {
+                BTreeSet::from([token])
+            } else {
+                BTreeSet::new()
+            };
             return self.reap_terminal_workers(result, &failed).await;
         }
         let mut terminal = d::completion::Completion::default();
         let mut failed = BTreeSet::new();
         for (token, future) in futures {
             let result = future.await.map_err(ModelError::SharedCause);
-            if result.is_err() { failed.insert(token); }
+            if result.is_err() {
+                failed.insert(token);
+            }
             terminal.step("installation preparation set flight", result);
         }
-        self.reap_terminal_workers(d::completion::complete(Ok(()), terminal), &failed).await
+        self.reap_terminal_workers(d::completion::complete(Ok(()), terminal), &failed)
+            .await
     }
     async fn reap_terminal_workers(
         &self,
@@ -418,9 +449,12 @@ impl InstallationAudit {
             let mut index = 0;
             while index < workers.len() {
                 let (token, worker, _) = &workers[index];
-                if current != Some(worker.id()) && (worker.is_finished() || failed.contains(token)) {
+                if current != Some(worker.id()) && (worker.is_finished() || failed.contains(token))
+                {
                     completed.push(workers.swap_remove(index));
-                } else { index += 1; }
+                } else {
+                    index += 1;
+                }
             }
             completed
         };
@@ -429,8 +463,13 @@ impl InstallationAudit {
             if let Err(error) = worker.await {
                 self.retain_unknown();
                 terminal.remote = d::completion::RemoteState::Unknown;
-                terminal.step("installation terminal worker join", Err(ModelError::infrastructure(
-                    d::Infrastructure::Unconfirmed, format!("installation preparation worker did not reach terminal: {error}"))));
+                terminal.step(
+                    "installation terminal worker join",
+                    Err(ModelError::infrastructure(
+                        d::Infrastructure::Unconfirmed,
+                        format!("installation preparation worker did not reach terminal: {error}"),
+                    )),
+                );
             }
         }
         d::completion::complete(result, terminal)
@@ -454,7 +493,10 @@ impl InstallationAudit {
         let mut pending = self.work.draining.lock().await;
         loop {
             if pending.workers.is_empty() {
-                std::mem::swap(&mut pending.workers, &mut *self.work.workers.lock().unwrap());
+                std::mem::swap(
+                    &mut pending.workers,
+                    &mut *self.work.workers.lock().unwrap(),
+                );
             }
             if pending.workers.is_empty() {
                 break;
@@ -664,8 +706,14 @@ fn inspected_contributor_key(mapping: &ContributorRealization) -> ContentHash {
 }
 fn inspected_hold_key(owner: &RecordId, object: &RecordId) -> Result<ContentHash, ModelError> {
     let mut sink = d::KeySink::new("native-exact-inspected-incidence/v1");
-    sink.part(b"owner", &serde_json::to_vec(owner).map_err(ModelError::codec)?);
-    sink.part(b"object", &serde_json::to_vec(object).map_err(ModelError::codec)?);
+    sink.part(
+        b"owner",
+        &serde_json::to_vec(owner).map_err(ModelError::codec)?,
+    );
+    sink.part(
+        b"object",
+        &serde_json::to_vec(object).map_err(ModelError::codec)?,
+    );
     Ok(sink.finish())
 }
 enum FreshObservation {
@@ -926,15 +974,23 @@ impl ClosureInspectionScope {
             }
             let captured = async {
                 if self.operation {
-                    self.observe_operation_holds(reader, window, audit, budget).await
+                    self.observe_operation_holds(reader, window, audit, budget)
+                        .await
                 } else {
-                    let mut actual = crate::control::inspect_hold_window_read(reader, window, budget).await?;
-                    for (owner, object) in window { actual.take_required(owner, object)?; }
+                    let mut actual =
+                        crate::control::inspect_hold_window_read(reader, window, budget).await?;
+                    for (owner, object) in window {
+                        actual.take_required(owner, object)?;
+                    }
                     actual.finish()
                 }
-            }.await;
+            }
+            .await;
             match captured {
-                Err(error) if count > 1 && terminal_local_resource(&error) => { width = (count / 2).max(1); continue; }
+                Err(error) if count > 1 && terminal_local_resource(&error) => {
+                    width = (count / 2).max(1);
+                    continue;
+                }
                 other => other?,
             }
             for pair in window {
@@ -958,7 +1014,9 @@ impl ClosureInspectionScope {
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         if self.operation {
-            return self.observe_operation_requests(reader, requests, audit, budget).await;
+            return self
+                .observe_operation_requests(reader, requests, audit, budget)
+                .await;
         }
         if requests.is_empty() {
             return Ok(());
@@ -1064,8 +1122,12 @@ impl ClosureInspectionScope {
         audit: &InstallationAudit,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
-        let _handles = budget.reserve("operation observation request handles",
-            requests.len().saturating_mul(std::mem::size_of::<(RecordId, FreshRequest)>()))?;
+        let _handles = budget.reserve(
+            "operation observation request handles",
+            requests
+                .len()
+                .saturating_mul(std::mem::size_of::<(RecordId, FreshRequest)>()),
+        )?;
         let requests = requests.into_iter().collect::<Vec<_>>();
         let mut offset = 0;
         let mut width = crate::loader::NATIVE_WINDOW_ROWS;
@@ -1119,7 +1181,8 @@ impl ClosureInspectionScope {
             }.await;
             match prepared {
                 Err(error) if count > 1 && terminal_local_resource(&error) => {
-                    width = (count / 2).max(1); continue;
+                    width = (count / 2).max(1);
+                    continue;
                 }
                 other => other?,
             }
@@ -1128,23 +1191,39 @@ impl ClosureInspectionScope {
                 self.charge.grow(1024)?;
                 match request {
                     FreshRequest::Contributor(mapping) => {
-                        let value = audit.inspected_contributors.get(&mapping.physical)
-                            .ok_or(ModelError::Conflict("operation inspected contributor absent"))?;
-                        if value.logical != mapping.logical || value.expected.incarnation() != mapping.incarnation {
-                            return Err(ModelError::Conflict("operation selected physical mapping contradiction"));
+                        let value = audit.inspected_contributors.get(&mapping.physical).ok_or(
+                            ModelError::Conflict("operation inspected contributor absent"),
+                        )?;
+                        if value.logical != mapping.logical
+                            || value.expected.incarnation() != mapping.incarnation
+                        {
+                            return Err(ModelError::Conflict(
+                                "operation selected physical mapping contradiction",
+                            ));
                         }
                         let value = if let Some(previous) = self.descriptors.get(&mapping.logical) {
                             if previous.data != value.descriptor.data {
-                                return Err(ModelError::Conflict("installed equivalent copies differ in full descriptor"));
+                                return Err(ModelError::Conflict(
+                                    "installed equivalent copies differ in full descriptor",
+                                ));
                             }
-                            std::sync::Arc::new(ObservedContributor { expected: value.expected.clone(), descriptor: previous.clone(), logical: value.logical })
-                        } else { value };
+                            std::sync::Arc::new(ObservedContributor {
+                                expected: value.expected.clone(),
+                                descriptor: previous.clone(),
+                                logical: value.logical,
+                            })
+                        } else {
+                            value
+                        };
                         self.remember(value.expected.record())?;
-                        self.descriptors.insert(mapping.logical, value.descriptor.clone());
+                        self.descriptors
+                            .insert(mapping.logical, value.descriptor.clone());
                         self.observations.insert(mapping.physical, value);
                     }
                     FreshRequest::View(identity) => {
-                        let value = audit.inspected_views.get(identity)
+                        let value = audit
+                            .inspected_views
+                            .get(identity)
                             .ok_or(ModelError::Conflict("operation inspected view absent"))?;
                         self.remember(value.expected.record())?;
                         self.views.insert(*identity, value);
@@ -1163,32 +1242,66 @@ impl ClosureInspectionScope {
         audit: &InstallationAudit,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
-        let input = budget.reserve("operation incidence worker inputs", pairs.len().saturating_mul(4096))?;
-        let requested = pairs.iter().map(|(owner, object)| Ok(((8, inspected_hold_key(owner, object)?), (owner.clone(), object.clone()))))
+        let input = budget.reserve(
+            "operation incidence worker inputs",
+            pairs.len().saturating_mul(4096),
+        )?;
+        let requested = pairs
+            .iter()
+            .map(|(owner, object)| {
+                Ok((
+                    (8, inspected_hold_key(owner, object)?),
+                    (owner.clone(), object.clone()),
+                ))
+            })
             .collect::<Result<BTreeMap<_, _>, ModelError>>()?;
         let keys = requested.keys().copied().collect::<Vec<_>>();
         let worker_budget = budget.clone();
-        audit.run_work_many(keys, move |owner, claimed| async move {
-            let _input = input;
-            let pairs = claimed.into_iter().map(|key| requested[&key].clone())
-                .filter(|pair| !owner.inspected_holds.contains_key(pair)).collect::<Vec<_>>();
-            let reader = NativeReader::private(owner.client.clone()).with_budget(&worker_budget);
-            let result = async {
-                let mut actual = crate::control::inspect_hold_window_read(&reader, &pairs, &worker_budget).await?;
-                for (holder, object) in &pairs { actual.take_required(holder, object)?; }
-                actual.finish()?;
-                owner.ensure_context(&reader, &worker_budget).await
-            }.await;
-            let mut terminal = d::completion::Completion::default();
-            terminal.step("operation incidence window reader close", reader.close().await);
-            d::completion::complete(result, terminal)?;
-            owner.pin.ensure_live()?;
-            for pair in pairs {
-                owner.charge.grow(crate::selection::node_bytes(&pair.0).saturating_add(crate::selection::node_bytes(&pair.1)).saturating_add(128))?;
-                owner.inspected_holds.insert(pair, ());
-            }
-            Ok(())
-        }.boxed()).await?;
+        audit
+            .run_work_many(keys, move |owner, claimed| {
+                async move {
+                    let _input = input;
+                    let pairs = claimed
+                        .into_iter()
+                        .map(|key| requested[&key].clone())
+                        .filter(|pair| !owner.inspected_holds.contains_key(pair))
+                        .collect::<Vec<_>>();
+                    let reader =
+                        NativeReader::private(owner.client.clone()).with_budget(&worker_budget);
+                    let result = async {
+                        let mut actual = crate::control::inspect_hold_window_read(
+                            &reader,
+                            &pairs,
+                            &worker_budget,
+                        )
+                        .await?;
+                        for (holder, object) in &pairs {
+                            actual.take_required(holder, object)?;
+                        }
+                        actual.finish()?;
+                        owner.ensure_context(&reader, &worker_budget).await
+                    }
+                    .await;
+                    let mut terminal = d::completion::Completion::default();
+                    terminal.step(
+                        "operation incidence window reader close",
+                        reader.close().await,
+                    );
+                    d::completion::complete(result, terminal)?;
+                    owner.pin.ensure_live()?;
+                    for pair in pairs {
+                        owner.charge.grow(
+                            crate::selection::node_bytes(&pair.0)
+                                .saturating_add(crate::selection::node_bytes(&pair.1))
+                                .saturating_add(128),
+                        )?;
+                        owner.inspected_holds.insert(pair, ());
+                    }
+                    Ok(())
+                }
+                .boxed()
+            })
+            .await?;
         self.check_local(reader, audit, budget)
     }
     async fn view(
@@ -3464,7 +3577,9 @@ async fn prepare_local_aliases_window(
             charge.grow(window.saturating_mul(std::mem::size_of::<RecordId>()))?;
             let mut ids = BTreeSet::new();
             while ids.len() < window {
-                let Some(pointer) = holds.next().await? else { break };
+                let Some(pointer) = holds.next().await? else {
+                    break;
+                };
                 let Some(Value::RecordId(id)) = pointer.as_object().and_then(|row| row.get("id"))
                 else {
                     return Err(ModelError::Schema("installed held alias pointer"));
@@ -3474,7 +3589,9 @@ async fn prepare_local_aliases_window(
                     ids.insert(id.clone());
                 }
             }
-            if ids.is_empty() { break }
+            if ids.is_empty() {
+                break;
+            }
             let ids = ids.into_iter().collect::<Vec<_>>();
             audit_local_alias_window(reader, &owner, &ids, budget, &mut aliases).await?;
         }
@@ -3504,14 +3621,14 @@ async fn prepare_local_aliases_window(
 }
 fn local_alias_cache_bytes() -> usize {
     std::mem::size_of::<(
-            RecordId,
-            (
-                crate::ordered_rows::PreparedRows,
-                crate::ordered_rows::PreparedRows,
-            ),
-        )>()
-        .saturating_mul(11)
-        .saturating_add(1024)
+        RecordId,
+        (
+            crate::ordered_rows::PreparedRows,
+            crate::ordered_rows::PreparedRows,
+        ),
+    )>()
+    .saturating_mul(11)
+    .saturating_add(1024)
 }
 
 struct AliasWindowRequests {
@@ -3529,16 +3646,20 @@ impl AliasWindowRequests {
     }
     fn hold(&mut self, owner: &RecordId, object: &RecordId) -> Result<(), ModelError> {
         if !self.holds.contains(&(owner.clone(), object.clone())) {
-            self.charge.grow(crate::selection::node_bytes(owner)
-                .saturating_add(crate::selection::node_bytes(object))
-                .saturating_add(512))?;
+            self.charge.grow(
+                crate::selection::node_bytes(owner)
+                    .saturating_add(crate::selection::node_bytes(object))
+                    .saturating_add(512),
+            )?;
             self.holds.insert((owner.clone(), object.clone()));
         }
         Ok(())
     }
     fn observe(&mut self, row: &Value, owner: &RecordId) -> Result<(), ModelError> {
         use d::KeySink;
-        let object = row.as_object().ok_or(ModelError::Schema("installed alias object"))?;
+        let object = row
+            .as_object()
+            .ok_or(ModelError::Schema("installed alias object"))?;
         let Some(Value::RecordId(id)) = object.get("id") else {
             return Err(ModelError::Schema("installed alias identity"));
         };
@@ -3552,8 +3673,14 @@ impl AliasWindowRequests {
             return Err(ModelError::Conflict("installed alias entity family"));
         }
         let mut sink = KeySink::new("native-place-alias/v1");
-        sink.part(b"source", &serde_json::to_vec(source).map_err(ModelError::codec)?);
-        sink.part(b"target", &serde_json::to_vec(target).map_err(ModelError::codec)?);
+        sink.part(
+            b"source",
+            &serde_json::to_vec(source).map_err(ModelError::codec)?,
+        );
+        sink.part(
+            b"target",
+            &serde_json::to_vec(target).map_err(ModelError::codec)?,
+        );
         let mut canonical = surrealdb::types::Object::new();
         canonical.insert("id", RecordId::new("compiler_alias", sink.finish().hex()));
         canonical.insert("source", source.clone());
@@ -3562,7 +3689,8 @@ impl AliasWindowRequests {
             return Err(ModelError::Conflict("installed exact alias envelope"));
         }
         if !self.targets.contains(target) {
-            self.charge.grow(crate::selection::node_bytes(target).saturating_add(256))?;
+            self.charge
+                .grow(crate::selection::node_bytes(target).saturating_add(256))?;
             self.targets.insert(target.clone());
         }
         self.hold(id, source)?;
@@ -3588,11 +3716,22 @@ async fn audit_local_alias_window(
     actual.finish()?;
     // Each target and heterogeneous incidence is observed once per bounded alias page.
     // Keep the request charge through both point sets and endpoint validation.
-    requests.charge.grow(requests.targets.len().saturating_mul(std::mem::size_of::<RecordId>())
-        .saturating_add(requests.holds.len().saturating_mul(std::mem::size_of::<(RecordId, RecordId)>())) )?;
+    requests.charge.grow(
+        requests
+            .targets
+            .len()
+            .saturating_mul(std::mem::size_of::<RecordId>())
+            .saturating_add(
+                requests
+                    .holds
+                    .len()
+                    .saturating_mul(std::mem::size_of::<(RecordId, RecordId)>()),
+            ),
+    )?;
     let targets = requests.targets.into_iter().collect::<Vec<_>>();
     let holds = requests.holds.into_iter().collect::<Vec<_>>();
-    let mut backing = crate::control::inspect_expected_window_read(reader, &targets, budget).await?;
+    let mut backing =
+        crate::control::inspect_expected_window_read(reader, &targets, budget).await?;
     for window in holds.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
         let mut actual = crate::control::inspect_hold_window_read(reader, window, budget).await?;
         for (owner, object) in window {
@@ -3604,15 +3743,21 @@ async fn audit_local_alias_window(
         let expected = backing.take_required(target)?;
         let (endpoints, original, _decode) = canonical_backing_endpoints(expected.row(), budget)?;
         if original.is_some() {
-            return Err(ModelError::Conflict("installed entity alias has original metadata"));
+            return Err(ModelError::Conflict(
+                "installed entity alias has original metadata",
+            ));
         }
         for window in endpoints.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
-            let expected = window.iter().map(|row| {
-                let Some(Value::RecordId(id)) = row.as_object().and_then(|row| row.get("id")) else {
-                    return Err(ModelError::Schema("installed alias endpoint identity"));
-                };
-                Ok((id.clone(), row.clone()))
-            }).collect::<Result<BTreeMap<_, _>, ModelError>>()?;
+            let expected = window
+                .iter()
+                .map(|row| {
+                    let Some(Value::RecordId(id)) = row.as_object().and_then(|row| row.get("id"))
+                    else {
+                        return Err(ModelError::Schema("installed alias endpoint identity"));
+                    };
+                    Ok((id.clone(), row.clone()))
+                })
+                .collect::<Result<BTreeMap<_, _>, ModelError>>()?;
             audit_endpoint_window(reader, owner, &expected, budget).await?;
         }
     }
@@ -4655,9 +4800,10 @@ mod shared_preparation_controls {
             Value::RecordId(id) => id.clone(),
             _ => panic!("alias ID"),
         };
-        assert_eq!(requests.holds, BTreeSet::from([
-            (id(&alias), source), (id(&second), other), (owner, target),
-        ]));
+        assert_eq!(
+            requests.holds,
+            BTreeSet::from([(id(&alias), source), (id(&second), other), (owner, target),])
+        );
         drop(requests);
         assert_eq!(budget.reserved(), 0);
     }
@@ -4668,15 +4814,21 @@ mod shared_preparation_controls {
         let source = RecordId::new("entity", "source");
         let target = RecordId::new("entity", "target");
         let mut requests = AliasWindowRequests::new(&budget);
-        assert!(matches!(requests.observe(
-            &exact_alias(&RecordId::new("compiler_record", "foreign"), &target), &owner),
-            Err(ModelError::Conflict("installed alias entity family"))));
+        assert!(matches!(
+            requests.observe(
+                &exact_alias(&RecordId::new("compiler_record", "foreign"), &target),
+                &owner
+            ),
+            Err(ModelError::Conflict("installed alias entity family"))
+        ));
         let mut forged = exact_alias(&source, &target);
         if let Value::Object(object) = &mut forged {
             object.insert("id", RecordId::new("compiler_alias", "wrong"));
         }
-        assert!(matches!(requests.observe(&forged, &owner),
-            Err(ModelError::Conflict("installed exact alias envelope"))));
+        assert!(matches!(
+            requests.observe(&forged, &owner),
+            Err(ModelError::Conflict("installed exact alias envelope"))
+        ));
         assert!(requests.targets.is_empty());
         assert!(requests.holds.is_empty());
         assert_eq!(budget.reserved(), 0);
@@ -4848,33 +5000,61 @@ mod shared_preparation_controls {
     #[tokio::test(flavor = "multi_thread")]
     async fn overlapping_windows_share_item_flights_and_deliver_late_failure_after_cancellation() {
         let audit = test_audit(1 << 20);
-        let keys = [(6, ContentHash([10; 32])), (7, ContentHash([11; 32])), (8, ContentHash([12; 32]))];
+        let keys = [
+            (6, ContentHash([10; 32])),
+            (7, ContentHash([11; 32])),
+            (8, ContentHash([12; 32])),
+        ];
         let entered = Arc::new(tokio::sync::Barrier::new(2));
         let release = Arc::new(tokio::sync::Semaphore::new(0));
         let seen = Arc::new(std::sync::Mutex::new(BTreeSet::new()));
         let first = {
-            let audit = audit.clone(); let entered = entered.clone(); let release = release.clone(); let seen = seen.clone();
-            tokio::spawn(async move { audit.run_work_many(keys[..2].to_vec(), move |_, claimed| async move {
-                assert_eq!(claimed, keys[..2]);
-                seen.lock().unwrap().extend(claimed);
-                entered.wait().await;
-                let _permit = release.acquire().await.unwrap();
-                Err(ModelError::Conflict("late window refusal"))
-            }.boxed()).await })
+            let audit = audit.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            let seen = seen.clone();
+            tokio::spawn(async move {
+                audit
+                    .run_work_many(keys[..2].to_vec(), move |_, claimed| {
+                        async move {
+                            assert_eq!(claimed, keys[..2]);
+                            seen.lock().unwrap().extend(claimed);
+                            entered.wait().await;
+                            let _permit = release.acquire().await.unwrap();
+                            Err(ModelError::Conflict("late window refusal"))
+                        }
+                        .boxed()
+                    })
+                    .await
+            })
         };
-        tokio::time::timeout(std::time::Duration::from_secs(30), entered.wait()).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(30), entered.wait())
+            .await
+            .unwrap();
         let peer_claimed = Arc::new(tokio::sync::Barrier::new(2));
         let peer = {
-            let audit = audit.clone(); let seen = seen.clone(); let peer_claimed = peer_claimed.clone();
-            tokio::spawn(async move { audit.run_work_many(keys.to_vec(), move |_, claimed| async move {
-                assert_eq!(claimed, vec![keys[2]]);
-                seen.lock().unwrap().extend(claimed);
-                peer_claimed.wait().await;
-                Ok(())
-            }.boxed()).await })
+            let audit = audit.clone();
+            let seen = seen.clone();
+            let peer_claimed = peer_claimed.clone();
+            tokio::spawn(async move {
+                audit
+                    .run_work_many(keys.to_vec(), move |_, claimed| {
+                        async move {
+                            assert_eq!(claimed, vec![keys[2]]);
+                            seen.lock().unwrap().extend(claimed);
+                            peer_claimed.wait().await;
+                            Ok(())
+                        }
+                        .boxed()
+                    })
+                    .await
+            })
         };
-        tokio::time::timeout(std::time::Duration::from_secs(30), peer_claimed.wait()).await.unwrap();
-        first.abort(); let _ = first.await;
+        tokio::time::timeout(std::time::Duration::from_secs(30), peer_claimed.wait())
+            .await
+            .unwrap();
+        first.abort();
+        let _ = first.await;
         release.add_permits(1);
         assert!(peer.await.unwrap().unwrap_err().permits_storage_cleanup());
         join(&audit).await;
@@ -4882,7 +5062,10 @@ mod shared_preparation_controls {
         let flights = audit.work.flights.lock().unwrap();
         assert!(!flights.contains_key(&keys[0]) && !flights.contains_key(&keys[1]));
         assert!(flights.contains_key(&keys[2]));
-        assert_eq!(audit.budget.reserved(), 4096 + audit.charge.0.lock().unwrap().reserved());
+        assert_eq!(
+            audit.budget.reserved(),
+            4096 + audit.charge.0.lock().unwrap().reserved()
+        );
         assert!(!audit.pin.test_uncertain());
     }
     #[tokio::test(flavor = "multi_thread")]
@@ -4892,20 +5075,42 @@ mod shared_preparation_controls {
         let entered = Arc::new(tokio::sync::Barrier::new(2));
         let release = Arc::new(tokio::sync::Semaphore::new(0));
         let live = {
-            let audit = audit.clone(); let entered = entered.clone(); let release = release.clone();
-            tokio::spawn(async move { audit.run_work((8, ContentHash([22; 32])), move |_| async move {
-                entered.wait().await;
-                let _permit = release.acquire().await.unwrap();
-                Ok(())
-            }.boxed()).await })
+            let audit = audit.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            tokio::spawn(async move {
+                audit
+                    .run_work((8, ContentHash([22; 32])), move |_| {
+                        async move {
+                            entered.wait().await;
+                            let _permit = release.acquire().await.unwrap();
+                            Ok(())
+                        }
+                        .boxed()
+                    })
+                    .await
+            })
         };
-        tokio::time::timeout(std::time::Duration::from_secs(30), entered.wait()).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(30), entered.wait())
+            .await
+            .unwrap();
         let mut retained = None;
         for _ in 0..4 {
-            let retry = audit.run_work_many(keys.clone(), move |_, _| async {
-                Err(ModelError::Resource { owner: "window control", requested: 1, used: 8192, limit: 8192 })
-            }.boxed());
-            let error = tokio::time::timeout(std::time::Duration::from_secs(30), retry).await.unwrap().unwrap_err();
+            let retry = audit.run_work_many(keys.clone(), move |_, _| {
+                async {
+                    Err(ModelError::Resource {
+                        owner: "window control",
+                        requested: 1,
+                        used: 8192,
+                        limit: 8192,
+                    })
+                }
+                .boxed()
+            });
+            let error = tokio::time::timeout(std::time::Duration::from_secs(30), retry)
+                .await
+                .unwrap()
+                .unwrap_err();
             assert!(terminal_local_resource(&error));
             let flights = audit.work.flights.lock().unwrap();
             assert_eq!(flights.len(), 1);
@@ -4918,22 +5123,45 @@ mod shared_preparation_controls {
         }
         release.add_permits(1);
         live.await.unwrap().unwrap();
-        audit.run_work_many(keys, move |_, _| async { Ok(()) }.boxed()).await.unwrap();
+        audit
+            .run_work_many(keys, move |_, _| async { Ok(()) }.boxed())
+            .await
+            .unwrap();
         join(&audit).await;
-        assert_eq!(audit.budget.reserved(), 12288 + audit.charge.0.lock().unwrap().reserved());
+        assert_eq!(
+            audit.budget.reserved(),
+            12288 + audit.charge.0.lock().unwrap().reserved()
+        );
         assert!(!audit.pin.test_uncertain());
     }
     #[tokio::test(flavor = "multi_thread")]
     async fn nested_preparation_reaps_terminal_child_without_joining_current_worker() {
         let audit = test_audit(1 << 20);
-        let result = audit.run_work((6, ContentHash([30; 32])), move |owner| async move {
-            let error = owner.run_work((7, ContentHash([31; 32])), move |_| async {
-                Err(ModelError::Resource { owner: "nested control", requested: 2, used: 1, limit: 1 })
-            }.boxed()).await.unwrap_err();
-            assert!(terminal_local_resource(&error));
-            Ok(())
-        }.boxed());
-        tokio::time::timeout(std::time::Duration::from_secs(30), result).await.unwrap().unwrap();
+        let result = audit.run_work((6, ContentHash([30; 32])), move |owner| {
+            async move {
+                let error = owner
+                    .run_work((7, ContentHash([31; 32])), move |_| {
+                        async {
+                            Err(ModelError::Resource {
+                                owner: "nested control",
+                                requested: 2,
+                                used: 1,
+                                limit: 1,
+                            })
+                        }
+                        .boxed()
+                    })
+                    .await
+                    .unwrap_err();
+                assert!(terminal_local_resource(&error));
+                Ok(())
+            }
+            .boxed()
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(30), result)
+            .await
+            .unwrap()
+            .unwrap();
         join(&audit).await;
         assert_eq!(audit.work.flights.lock().unwrap().len(), 1);
         assert!(!audit.pin.test_uncertain());
@@ -4944,34 +5172,70 @@ mod shared_preparation_controls {
         let entered = Arc::new(tokio::sync::Barrier::new(2));
         let release = Arc::new(tokio::sync::Semaphore::new(0));
         let worker = {
-            let audit = audit.clone(); let entered = entered.clone(); let release = release.clone();
-            tokio::spawn(async move { audit.run_work((6, ContentHash([40; 32])), move |_| async move {
-                entered.wait().await;
-                let _permit = release.acquire().await.unwrap();
-                Ok(())
-            }.boxed()).await })
+            let audit = audit.clone();
+            let entered = entered.clone();
+            let release = release.clone();
+            tokio::spawn(async move {
+                audit
+                    .run_work((6, ContentHash([40; 32])), move |_| {
+                        async move {
+                            entered.wait().await;
+                            let _permit = release.acquire().await.unwrap();
+                            Ok(())
+                        }
+                        .boxed()
+                    })
+                    .await
+            })
         };
-        tokio::time::timeout(std::time::Duration::from_secs(30), entered.wait()).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(30), entered.wait())
+            .await
+            .unwrap();
         let failed_entered = Arc::new(tokio::sync::Barrier::new(2));
         let fail = Arc::new(tokio::sync::Semaphore::new(0));
         let failed = {
-            let audit = audit.clone(); let entered = failed_entered.clone(); let fail = fail.clone();
-            tokio::spawn(async move { audit.run_work((7, ContentHash([41; 32])), move |_| async move {
-                entered.wait().await;
-                let _permit = fail.acquire().await.unwrap();
-                panic!("deterministic drain join failure")
-            }.boxed()).await })
+            let audit = audit.clone();
+            let entered = failed_entered.clone();
+            let fail = fail.clone();
+            tokio::spawn(async move {
+                audit
+                    .run_work((7, ContentHash([41; 32])), move |_| {
+                        async move {
+                            entered.wait().await;
+                            let _permit = fail.acquire().await.unwrap();
+                            panic!("deterministic drain join failure")
+                        }
+                        .boxed()
+                    })
+                    .await
+            })
         };
-        tokio::time::timeout(std::time::Duration::from_secs(30), failed_entered.wait()).await.unwrap();
-        failed.abort(); let _ = failed.await;
+        tokio::time::timeout(std::time::Duration::from_secs(30), failed_entered.wait())
+            .await
+            .unwrap();
+        failed.abort();
+        let _ = failed.await;
         fail.add_permits(1);
         // Observe terminality without joining/removing the production owner's handle.
         tokio::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
-                if audit.work.workers.lock().unwrap().last().unwrap().1.is_finished() { break; }
+                if audit
+                    .work
+                    .workers
+                    .lock()
+                    .unwrap()
+                    .last()
+                    .unwrap()
+                    .1
+                    .is_finished()
+                {
+                    break;
+                }
                 tokio::task::yield_now().await;
             }
-        }).await.unwrap();
+        })
+        .await
+        .unwrap();
         let mut first = Box::pin(audit.close_drained());
         assert!(futures::poll!(first.as_mut()).is_pending());
         drop(first);
@@ -4986,7 +5250,10 @@ mod shared_preparation_controls {
         assert!(!worker.is_finished());
         release.add_permits(1);
         worker.await.unwrap().unwrap();
-        let error = tokio::time::timeout(std::time::Duration::from_secs(30), retry).await.unwrap().unwrap_err();
+        let error = tokio::time::timeout(std::time::Duration::from_secs(30), retry)
+            .await
+            .unwrap()
+            .unwrap_err();
         assert!(!error.permits_storage_cleanup());
         assert!(format!("{error:?}").contains("installation audit worker join"));
         assert!(audit.work.draining.lock().await.workers.is_empty());

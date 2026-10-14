@@ -220,9 +220,25 @@ fn publish_frames<'a, 'sources>(
             budget,
         )?;
         for parent in expected_parents.iter() {
-            let mut compact=uniform_outcome::AnalysisPredecessors::new(budget);
-            for kind in [analysis::owner::AnalysisOwner::Local,analysis::owner::AnalysisOwner::SourceCalls]{if let Some(domain)=admission.uniform_analysis(kind,parent.input,parent.context,&inventory.definitions,budget)?{compact.include(domain)?;}}
-            let lower=evidence::frames::LowerFrames{compact:&compact,..inventory.frames.runtime.lower()};
+            let mut compact = uniform_outcome::AnalysisPredecessors::new(budget);
+            for kind in [
+                analysis::owner::AnalysisOwner::Local,
+                analysis::owner::AnalysisOwner::SourceCalls,
+            ] {
+                if let Some(domain) = admission.uniform_analysis(
+                    kind,
+                    parent.input,
+                    parent.context,
+                    &inventory.definitions,
+                    budget,
+                )? {
+                    compact.include(domain)?;
+                }
+            }
+            let lower = evidence::frames::LowerFrames {
+                compact: &compact,
+                ..inventory.frames.runtime.lower()
+            };
             let parent_sources = evidence::frames::sources(parent, &lower)?;
             let (invocation, parents, receipts, projections) = Invocation::admitted(
                 parent.input,

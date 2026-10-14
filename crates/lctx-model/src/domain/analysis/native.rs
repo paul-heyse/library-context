@@ -228,7 +228,8 @@ impl NativeInventory {
     /// establish complete validity before effects can first call `for_each` with a no-op.
     pub fn pairs(
         &self,
-    ) -> impl Iterator<Item = Result<(&NativeAssertionPremise, NativeQualification), ModelError>> + '_ {
+    ) -> impl Iterator<Item = Result<(&NativeAssertionPremise, NativeQualification), ModelError>> + '_
+    {
         self.supports.iter().map(|(id, (premise, fidelity))| {
             let (assertion, _) = premise.assertion_and_support();
             let qualification = *self

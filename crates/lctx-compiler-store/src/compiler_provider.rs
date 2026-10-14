@@ -135,26 +135,50 @@ pub(crate) fn reference_source(
         || provider.schema() != *relation.schema()
         || !source.keys.is_empty()
         || !source.budget.shares_pool(budget)
-        || source.producing.as_ref().is_some_and(|scope| !scope.belongs_to(store))
+        || source
+            .producing
+            .as_ref()
+            .is_some_and(|scope| !scope.belongs_to(store))
     {
         return None;
     }
-    Some(ReferenceSource { provider: provider.clone() })
+    Some(ReferenceSource {
+        provider: provider.clone(),
+    })
 }
 impl ReferenceSource {
-    pub(crate) fn provider(&self) -> Arc<dyn TableProvider> { self.provider.clone() }
+    pub(crate) fn provider(&self) -> Arc<dyn TableProvider> {
+        self.provider.clone()
+    }
     pub(crate) fn is_empty(&self) -> bool {
-        self.provider.downcast_ref::<NativeTable>().expect("captured native reference source").view.rows == 0
+        self.provider
+            .downcast_ref::<NativeTable>()
+            .expect("captured native reference source")
+            .view
+            .rows
+            == 0
     }
     pub(crate) fn check(&self) -> Result<(), ModelError> {
-        self.provider.downcast_ref::<NativeTable>().expect("captured native reference source").store.check()
+        self.provider
+            .downcast_ref::<NativeTable>()
+            .expect("captured native reference source")
+            .store
+            .check()
     }
     pub(crate) async fn current(&self) -> Result<(), ModelError> {
-        let source = self.provider.downcast_ref::<NativeTable>().expect("captured native reference source");
+        let source = self
+            .provider
+            .downcast_ref::<NativeTable>()
+            .expect("captured native reference source");
         let current = async {
-            let actual = source.store.installed_view(&source.view, &source.budget).await?;
+            let actual = source
+                .store
+                .installed_view(&source.view, &source.budget)
+                .await?;
             if !Arc::ptr_eq(&actual, &source.installed) {
-                return Err(ModelError::Conflict("reference installed native owner changed"));
+                return Err(ModelError::Conflict(
+                    "reference installed native owner changed",
+                ));
             }
             Ok(())
         };

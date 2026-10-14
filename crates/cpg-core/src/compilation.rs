@@ -1,5 +1,4 @@
 //! One cumulative attempt through analysis/catalog. Semantic owners supply declarations and proofs.
-use lctx_model::domain::embedding::Embedder;
 use crate::{
     analysis_graphs::PreparedGraphs,
     facts,
@@ -8,21 +7,23 @@ use crate::{
 };
 use cpg_extract::bundle::{CapturedInputs, ProviderStage};
 use futures::{FutureExt, future::BoxFuture};
+use lctx_model::domain::embedding::Embedder;
 use lctx_model::domain::{
     admission::Frontier,
     analysis::{
-        AnalysisDefinition, AnalysisMethod, preparation::{Configuration, ConfigurationGroup},
+        AnalysisDefinition, AnalysisMethod,
+        preparation::{Configuration, ConfigurationGroup},
         settings::AnalyticsConfiguration,
     },
     stages::*,
     *,
 };
 use std::sync::Arc;
-mod reuse;
-mod preparation;
-mod uniform;
 #[cfg(test)]
 mod cache_controls;
+mod preparation;
+mod reuse;
+mod uniform;
 /// Closed executable upper routes. Metadata and runner dispatch use the same finite type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UpperStage {
@@ -49,7 +50,12 @@ pub(crate) enum UpperStage {
     CatalogFrontier,
 }
 impl UpperStage {
-    fn reuse(self, effect: Effect, profile: Profile, prepared: &PreparedCompilation) -> reuse::Eligibility {
+    fn reuse(
+        self,
+        effect: Effect,
+        profile: Profile,
+        prepared: &PreparedCompilation,
+    ) -> reuse::Eligibility {
         use reuse::Eligibility::*;
         if effect != Effect::Pure {
             return Fresh("external effects retain their existing owner");
@@ -60,17 +66,34 @@ impl UpperStage {
             return Fresh("unrequested uniform metadata is produced from current inputs");
         }
         match self {
-            Self::Text | Self::CatalogCore | Self::CatalogEvidence | Self::Selection
-            | Self::Enriched | Self::Models | Self::Summary | Self::Structural
-            | Self::Analytic | Self::Synthesis | Self::Retrieval => Rows,
-            Self::Local | Self::Base | Self::Completion | Self::SourceCalls if profile == Profile::Catalog => Rows,
-            Self::Local => Fresh("Local semantic equivalence requires its complete current transfer/theory/field kernels; replay would add work"),
-            Self::Base | Self::Completion | Self::SourceCalls =>
-                Fresh("complete current private-owner validation repeats the production kernel; replay would add work"),
-            Self::Configuration(_) | Self::Native | Self::EmbeddingConfiguration =>
-                Fresh("current configuration and admission metadata must refresh"),
-            Self::AnalysisFrontier | Self::CatalogFrontier =>
-                Fresh("frontier admission observes current completed ownership"),
+            Self::Text
+            | Self::CatalogCore
+            | Self::CatalogEvidence
+            | Self::Selection
+            | Self::Enriched
+            | Self::Models
+            | Self::Summary
+            | Self::Structural
+            | Self::Analytic
+            | Self::Synthesis
+            | Self::Retrieval => Rows,
+            Self::Local | Self::Base | Self::Completion | Self::SourceCalls
+                if profile == Profile::Catalog =>
+            {
+                Rows
+            }
+            Self::Local => Fresh(
+                "Local semantic equivalence requires its complete current transfer/theory/field kernels; replay would add work",
+            ),
+            Self::Base | Self::Completion | Self::SourceCalls => Fresh(
+                "complete current private-owner validation repeats the production kernel; replay would add work",
+            ),
+            Self::Configuration(_) | Self::Native | Self::EmbeddingConfiguration => {
+                Fresh("current configuration and admission metadata must refresh")
+            }
+            Self::AnalysisFrontier | Self::CatalogFrontier => {
+                Fresh("frontier admission observes current completed ownership")
+            }
             Self::Embedding => Fresh("embedding value reuse has its own inference cache"),
         }
     }
@@ -162,7 +185,9 @@ impl UpperStage {
         }
     }
     fn boundary(self) -> Option<PublicationBoundary> {
-        analysis::owner::AnalysisOwner::resolve(self.name()).ok().and_then(|owner|owner.boundary())
+        analysis::owner::AnalysisOwner::resolve(self.name())
+            .ok()
+            .and_then(|owner| owner.boundary())
     }
     fn graphs(self, profile: Profile) -> &'static [projection::ProjectionName] {
         match self {
@@ -197,7 +222,10 @@ impl UpperStage {
     }
     fn bindings(self, profile: Profile) -> bool {
         profile == Profile::Behavioral
-            && matches!(self, Self::SourceCalls | Self::Enriched | Self::Models | Self::Summary)
+            && matches!(
+                self,
+                Self::SourceCalls | Self::Enriched | Self::Models | Self::Summary
+            )
     }
     fn resolve(name: &str) -> Result<Self, ModelError> {
         let mut found = Self::ALL.into_iter().filter(|s| s.name() == name);
@@ -304,11 +332,14 @@ impl PreparedCompilation {
         model: &ValidatedModel,
         order: &PublicationOrder,
     ) -> Result<Stage, ModelError> {
-        if let Ok(owner)=analysis::owner::AnalysisOwner::resolve(binding.name()) {
-            let selected=analysis::owner::SelectedDefinitions{definitions:self.configuration.definitions(),
-                analytics:self.configuration.analytics().iter().next(),text:Some(&self.text),
-                retrieval:self.configuration.retrieval().iter().next()};
-            return owner.declaration(profile,&selected,model,order);
+        if let Ok(owner) = analysis::owner::AnalysisOwner::resolve(binding.name()) {
+            let selected = analysis::owner::SelectedDefinitions {
+                definitions: self.configuration.definitions(),
+                analytics: self.configuration.analytics().iter().next(),
+                text: Some(&self.text),
+                retrieval: self.configuration.retrieval().iter().next(),
+            };
+            return owner.declaration(profile, &selected, model, order);
         }
         Ok(match binding {
             UpperStage::Configuration(group) => self.configuration.declaration(group),
@@ -505,34 +536,56 @@ fn selected_product_dependencies(
     if declaration.inputs.len() != selected.inputs.len()
         || request.dependencies.len() != declaration.inputs.len()
     {
-        return Err(ModelError::Conflict("compiler product selected input inventory"));
+        return Err(ModelError::Conflict(
+            "compiler product selected input inventory",
+        ));
     }
-    request.dependencies.iter().map(|token| {
-        if token.kind != compilation_product::DependencyKind::ExactView {
-            return Err(ModelError::Conflict("compiler product selected input kind"));
-        }
-        let role=token.role.strip_prefix("input/").and_then(|role|role.parse::<usize>().ok())
-            .filter(|role|token.role==format!("input/{role}"))
-            .ok_or(ModelError::Conflict("compiler product selected input role"))?;
-        let declared=declaration.inputs.get(role).ok_or(ModelError::Conflict("compiler product selected input role range"))?;
-        let input=&selected.inputs[role];
-        if declared.name() != input.name() || token.relation!=input.name()
-            || token.prefix.as_deref()!=input.prefix().map(|prefix|prefix.name())
-            || declared.prefix().is_some_and(|prefix| Some(prefix) != input.prefix())
-        {
-            return Err(ModelError::Conflict("compiler product selected input epoch"));
-        }
-        let relation = workspace.model().relation(input.name())
-            .ok_or(ModelError::Schema("product input relation"))?;
-        let mut validation = ValidationInput::of_relation(relation, &[]);
-        if let Some(prefix) = input.prefix() { validation = validation.at_epoch(prefix); }
-        if workspace.input_relation(&validation)?.snapshot().identity() != token.identity {
-            return Err(ModelError::Conflict("compiler product selected input identity"));
-        }
-        let mut resolved = token.clone();
-        resolved.prefix = input.prefix().map(|prefix| prefix.name().to_owned());
-        Ok(resolved)
-    }).collect()
+    request
+        .dependencies
+        .iter()
+        .map(|token| {
+            if token.kind != compilation_product::DependencyKind::ExactView {
+                return Err(ModelError::Conflict("compiler product selected input kind"));
+            }
+            let role = token
+                .role
+                .strip_prefix("input/")
+                .and_then(|role| role.parse::<usize>().ok())
+                .filter(|role| token.role == format!("input/{role}"))
+                .ok_or(ModelError::Conflict("compiler product selected input role"))?;
+            let declared = declaration.inputs.get(role).ok_or(ModelError::Conflict(
+                "compiler product selected input role range",
+            ))?;
+            let input = &selected.inputs[role];
+            if declared.name() != input.name()
+                || token.relation != input.name()
+                || token.prefix.as_deref() != input.prefix().map(|prefix| prefix.name())
+                || declared
+                    .prefix()
+                    .is_some_and(|prefix| Some(prefix) != input.prefix())
+            {
+                return Err(ModelError::Conflict(
+                    "compiler product selected input epoch",
+                ));
+            }
+            let relation = workspace
+                .model()
+                .relation(input.name())
+                .ok_or(ModelError::Schema("product input relation"))?;
+            let mut validation = ValidationInput::of_relation(relation, &[]);
+            if let Some(prefix) = input.prefix() {
+                validation = validation.at_epoch(prefix);
+            }
+            if workspace.input_relation(&validation)?.snapshot().identity() != token.identity {
+                return Err(ModelError::Conflict(
+                    "compiler product selected input identity",
+                ));
+            }
+            let mut resolved = token.clone();
+            resolved.prefix = input.prefix().map(|prefix| prefix.name().to_owned());
+            Ok(resolved)
+        })
+        .collect()
 }
 
 /// Freeze only completed shared descriptors, once all statically named producers for a
@@ -705,8 +758,10 @@ async fn compile_driver(
         let output = workspace.producer(declaration, profile, access.clone());
         let access = output.bound_inputs()?;
         let product = output.product_request()?;
-        products.bind_selected(&product,
-            &selected_product_dependencies(workspace, declaration, &selected, &product)?)?;
+        products.bind_selected(
+            &product,
+            &selected_product_dependencies(workspace, declaration, &selected, &product)?,
+        )?;
         let phase = Phase::begin(declaration.name);
         let result = async {
             match normalization {
@@ -777,8 +832,12 @@ async fn compile_driver(
     };
     let analytics_requested = prepared.is_some_and(|p| analytics::build::requested(p.settings()));
     let initial_needs = preparation::Needs::remaining(
-        schedule.stages().iter().filter_map(|s| UpperStage::resolve(s.name).ok()),
-        profile, analytics_requested,
+        schedule
+            .stages()
+            .iter()
+            .filter_map(|s| UpperStage::resolve(s.name).ok()),
+        profile,
+        analytics_requested,
     );
     preparation::release_unused(&mut bindings, initial_needs.bindings);
     let mut graphs = None;
@@ -810,10 +869,18 @@ async fn compile_driver(
         let phase = Phase::begin(declaration.name);
         let result = async {
             let eligibility = binding.reuse(declaration.effect, profile, prepared);
-            let hit = if eligibility.reason().is_none() { output.reuse_product().await? } else { None };
-            tracing::debug!(operation = declaration.name, hit = hit.is_some(),
-                inputs = selected_dependencies.len(), reason = eligibility.reason(),
-                "compiler product disposition");
+            let hit = if eligibility.reason().is_none() {
+                output.reuse_product().await?
+            } else {
+                None
+            };
+            tracing::debug!(
+                operation = declaration.name,
+                hit = hit.is_some(),
+                inputs = selected_dependencies.len(),
+                reason = eligibility.reason(),
+                "compiler product disposition"
+            );
             if let Some(outcome) = hit {
                 output.finish(outcome).await?;
                 // These owners have the same terminal lifetime on a hit as on fresh execution.
@@ -824,240 +891,259 @@ async fn compile_driver(
                     _ => {}
                 }
             } else {
-            if uniform::unrequested(binding,profile,prepared) {
-                uniform::produce(access,output,workspace,declaration).await?;
-                match binding {
-                    UpperStage::Enriched=>source_calls=None,
-                    UpperStage::Models=>evaluations=None,
-                    UpperStage::Summary=>local=None,
-                    _=>{},
+                if uniform::unrequested(binding, profile, prepared) {
+                    uniform::produce(access, output, workspace, declaration).await?;
+                    match binding {
+                        UpperStage::Enriched => source_calls = None,
+                        UpperStage::Models => evaluations = None,
+                        UpperStage::Summary => local = None,
+                        _ => {}
+                    }
+                } else {
+                    if analysis::owner::AnalysisOwner::resolve(binding.name())
+                        .is_ok_and(|owner| owner.can_be_wholly_unrequested())
+                    {
+                        output
+                            .declare_async::<uniform_outcome::UniformNotRequested>()
+                            .await?;
+                    }
+                    if !binding.graphs(profile).is_empty()
+                        && (binding != UpperStage::Analytic
+                            || analytics::build::requested(prepared.settings()))
+                        && graphs.is_none()
+                    {
+                        graphs = Some(
+                            PreparedGraphs::load(
+                                &access,
+                                workspace,
+                                normalized_authority.as_ref().expect("normalized authority"),
+                                model,
+                                &preparation::Needs::remaining(
+                                    schedule.stages()[stage_index..]
+                                        .iter()
+                                        .filter_map(|s| UpperStage::resolve(s.name).ok()),
+                                    profile,
+                                    analytics_requested,
+                                )
+                                .graphs,
+                            )
+                            .await?,
+                        );
+                    }
+                    match binding {
+                        UpperStage::Configuration(group) => {
+                            crate::analysis_prepare::configuration(
+                                access,
+                                output,
+                                model,
+                                workspace,
+                                &prepared.configuration,
+                                group,
+                            )
+                            .await?
+                        }
+                        UpperStage::Native => {
+                            crate::analysis_prepare::native_inventory(
+                                access, output, workspace, model,
+                            )
+                            .await?
+                        }
+                        UpperStage::EmbeddingConfiguration => {
+                            crate::analysis_prepare::embedding_configuration(
+                                access,
+                                output,
+                                model,
+                                workspace,
+                                prepared.embedding.as_ref(),
+                            )
+                            .await?
+                        }
+                        UpperStage::Text => {
+                            crate::analytic_text::publish(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                prepared.text.clone(),
+                            )
+                            .await?
+                        }
+                        UpperStage::Embedding => {
+                            crate::analytic_embedding::produce(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                embedder,
+                                cache.clone(),
+                            )
+                            .await?
+                        }
+                        UpperStage::CatalogCore => {
+                            crate::catalog_core::produce(access, output, workspace, model).await?
+                        }
+                        UpperStage::CatalogEvidence => {
+                            crate::catalog_evidence::produce(access, output, workspace, model)
+                                .await?
+                        }
+                        UpperStage::Selection => {
+                            crate::catalog_selection::produce(access, output, workspace, model)
+                                .await?
+                        }
+                        UpperStage::Local => {
+                            local = crate::local_semantics::run(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                prepared.definition(AnalysisMethod::LocalTransfers)?,
+                            )
+                            .await?;
+                        }
+                        UpperStage::Base => {
+                            evaluations = crate::semantic_execution::evaluate_base(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                prepared.definition(AnalysisMethod::Execution)?,
+                                local.as_ref(),
+                            )
+                            .await?;
+                        }
+                        UpperStage::Completion => {
+                            completed_bodies = crate::semantic_execution::complete_base(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                prepared.definition(AnalysisMethod::Completion)?,
+                                evaluations.as_ref(),
+                            )
+                            .await?;
+                        }
+                        UpperStage::SourceCalls => {
+                            source_calls = crate::semantic_execution::prepare_source_calls(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                prepared.definition(AnalysisMethod::SourceCalls)?,
+                                bindings.as_ref(),
+                                evaluations.as_ref(),
+                                completed_bodies.as_ref(),
+                            )
+                            .await?;
+                            completed_bodies = None;
+                        }
+                        UpperStage::Enriched => {
+                            crate::semantic_execution::enrich(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                prepared.definition(AnalysisMethod::EnrichedExecution)?,
+                                bindings.as_ref(),
+                                evaluations.as_ref(),
+                                source_calls.as_ref(),
+                            )
+                            .await?;
+                            source_calls = None;
+                        }
+                        UpperStage::Models => {
+                            crate::semantic_models::apply(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                prepared.definition(AnalysisMethod::Models)?,
+                                bindings.as_ref(),
+                                evaluations.as_ref(),
+                                local.as_ref(),
+                            )
+                            .await?;
+                            evaluations = None;
+                        }
+                        UpperStage::Summary => {
+                            crate::semantic_summaries::produce(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                prepared.definition(AnalysisMethod::Summaries)?,
+                                graphs.as_ref(),
+                                bindings.as_ref(),
+                                local.as_ref(),
+                            )
+                            .await?;
+                            local = None;
+                        }
+                        UpperStage::Structural => {
+                            crate::structural::produce(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                graphs.as_ref().expect("prepared selected graphs"),
+                            )
+                            .await?
+                        }
+                        UpperStage::Analytic => {
+                            crate::analytic::produce(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                graphs.as_ref(),
+                            )
+                            .await?
+                        }
+                        UpperStage::AnalysisFrontier => {
+                            crate::final_coverage::produce(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                analysis::frontier::Target::Analysis,
+                            )
+                            .await?
+                        }
+                        UpperStage::CatalogFrontier => {
+                            crate::final_coverage::produce(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                analysis::frontier::Target::Catalog,
+                            )
+                            .await?
+                        }
+                        UpperStage::Synthesis => {
+                            crate::synthesis::produce(access, output, workspace, model).await?
+                        }
+                        UpperStage::Retrieval => {
+                            crate::retrieval::produce(
+                                access,
+                                output,
+                                workspace,
+                                model,
+                                embedder,
+                                cache.clone(),
+                            )
+                            .await?
+                        }
+                    }
                 }
-            }else{
-            if analysis::owner::AnalysisOwner::resolve(binding.name()).is_ok_and(|owner|owner.can_be_wholly_unrequested()){
-                output.declare_async::<uniform_outcome::UniformNotRequested>().await?;
-            }
-            if !binding.graphs(profile).is_empty()
-                && (binding != UpperStage::Analytic
-                    || analytics::build::requested(prepared.settings()))
-                && graphs.is_none()
-            {
-                graphs = Some(
-                    PreparedGraphs::load(
-                        &access,
-                        workspace,
-                        normalized_authority.as_ref().expect("normalized authority"),
-                        model,
-                        &preparation::Needs::remaining(
-                            schedule.stages()[stage_index..].iter()
-                                .filter_map(|s| UpperStage::resolve(s.name).ok()),
-                            profile, analytics_requested,
-                        ).graphs,
-                    )
-                    .await?,
-                );
-            }
-            match binding {
-                UpperStage::Configuration(group) => {
-                    crate::analysis_prepare::configuration(
-                        access,
-                        output,
-                        model,
-                        workspace,
-                        &prepared.configuration,
-                        group,
-                    )
-                    .await?
-                }
-                UpperStage::Native => {
-                    crate::analysis_prepare::native_inventory(access, output, workspace, model)
-                        .await?
-                }
-                UpperStage::EmbeddingConfiguration => {
-                    crate::analysis_prepare::embedding_configuration(
-                        access,
-                        output,
-                        model,
-                        workspace,
-                        prepared.embedding.as_ref(),
-                    )
-                    .await?
-                }
-                UpperStage::Text => {
-                    crate::analytic_text::publish(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        prepared.text.clone(),
-                    )
-                    .await?
-                }
-                UpperStage::Embedding => {
-                    crate::analytic_embedding::produce(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        embedder,
-                        cache.clone(),
-                    )
-                    .await?
-                }
-                UpperStage::CatalogCore => {
-                    crate::catalog_core::produce(access, output, workspace, model).await?
-                }
-                UpperStage::CatalogEvidence => {
-                    crate::catalog_evidence::produce(access, output, workspace, model).await?
-                }
-                UpperStage::Selection => {
-                    crate::catalog_selection::produce(access, output, workspace, model).await?
-                }
-                UpperStage::Local => {
-                    local = crate::local_semantics::run(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        prepared.definition(AnalysisMethod::LocalTransfers)?,
-                    )
-                    .await?;
-                }
-                UpperStage::Base => {
-                    evaluations = crate::semantic_execution::evaluate_base(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        prepared.definition(AnalysisMethod::Execution)?,
-                        local.as_ref(),
-                    )
-                    .await?;
-                }
-                UpperStage::Completion => {
-                    completed_bodies = crate::semantic_execution::complete_base(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        prepared.definition(AnalysisMethod::Completion)?,
-                        evaluations.as_ref(),
-                    )
-                    .await?;
-                }
-                UpperStage::SourceCalls => {
-                    source_calls = crate::semantic_execution::prepare_source_calls(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        prepared.definition(AnalysisMethod::SourceCalls)?,
-                        bindings.as_ref(),
-                        evaluations.as_ref(),
-                        completed_bodies.as_ref(),
-                    )
-                    .await?;
-                    completed_bodies = None;
-                }
-                UpperStage::Enriched => {
-                    crate::semantic_execution::enrich(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        prepared.definition(AnalysisMethod::EnrichedExecution)?,
-                        bindings.as_ref(),
-                        evaluations.as_ref(),
-                        source_calls.as_ref(),
-                    )
-                    .await?;
-                    source_calls = None;
-                }
-                UpperStage::Models => {
-                    crate::semantic_models::apply(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        prepared.definition(AnalysisMethod::Models)?,
-                        bindings.as_ref(),
-                        evaluations.as_ref(),
-                        local.as_ref(),
-                    )
-                    .await?;
-                    evaluations = None;
-                }
-                UpperStage::Summary => {
-                    crate::semantic_summaries::produce(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        prepared.definition(AnalysisMethod::Summaries)?,
-                        graphs.as_ref(),
-                        bindings.as_ref(),
-                        local.as_ref(),
-                    )
-                    .await?;
-                    local = None;
-                }
-                UpperStage::Structural => {
-                    crate::structural::produce(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        graphs.as_ref().expect("prepared selected graphs"),
-                    )
-                    .await?
-                }
-                UpperStage::Analytic => {
-                    crate::analytic::produce(access, output, workspace, model, graphs.as_ref())
-                        .await?
-                }
-                UpperStage::AnalysisFrontier => {
-                    crate::final_coverage::produce(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        analysis::frontier::Target::Analysis,
-                    )
-                    .await?
-                }
-                UpperStage::CatalogFrontier => {
-                    crate::final_coverage::produce(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        analysis::frontier::Target::Catalog,
-                    )
-                    .await?
-                }
-                UpperStage::Synthesis => {
-                    crate::synthesis::produce(access, output, workspace, model).await?
-                }
-                UpperStage::Retrieval => {
-                    crate::retrieval::produce(
-                        access,
-                        output,
-                        workspace,
-                        model,
-                        embedder,
-                        cache.clone(),
-                    )
-                    .await?
-                }
-            }
-            }
             }
             // Future cache decisions remain stage-local. A possible selected consumer keeps
             // preparation alive; completing that stage (hit or fresh) retires its demand.
             // Release before later frontier freezing/product bookkeeping can admit more work.
             let remaining = preparation::Needs::remaining(
-                schedule.stages()[stage_index + 1..].iter()
+                schedule.stages()[stage_index + 1..]
+                    .iter()
                     .filter_map(|s| UpperStage::resolve(s.name).ok()),
-                profile, analytics_requested,
+                profile,
+                analytics_requested,
             );
             if let Some(graphs) = &mut graphs {
                 graphs.retain(&remaining.graphs);
@@ -1144,7 +1230,12 @@ mod publication_tests {
             .collect()
     }
     async fn completed_rows<R: lctx_model::domain::Record>(workspace: &Workspace) -> Vec<R> {
-        let mut batches = workspace.completed::<R>().unwrap().batches_async().await.unwrap();
+        let mut batches = workspace
+            .completed::<R>()
+            .unwrap()
+            .batches_async()
+            .await
+            .unwrap();
         let mut rows = Vec::new();
         while let Some(batch) = batches.next_async().await {
             rows.extend(R::decode(&batch.unwrap()).unwrap());
@@ -1279,7 +1370,11 @@ mod publication_tests {
             .verify_export(&destination, &workspace)
             .await
             .unwrap();
-        assert!(completed_rows::<d::source::SourceArtifact>(&workspace).await.contains(&source));
+        assert!(
+            completed_rows::<d::source::SourceArtifact>(&workspace)
+                .await
+                .contains(&source)
+        );
         let source_id = EntityId::of(source.id());
         let originals =
             std::fs::read(destination.join(format!("original-{}.bin", source_id.0.hex()))).unwrap();

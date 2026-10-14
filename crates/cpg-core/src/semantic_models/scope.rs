@@ -63,7 +63,12 @@ impl ModelWindow<'_> {
         let mut data = ModelData::new(budget);
         for (table, input) in self.scopes.calls.inputs().iter().enumerate() {
             let gathered = self.columns.gather(
-                &[partition], table, table, budget, cancellation, &mut |_, _| true,
+                &[partition],
+                table,
+                table,
+                budget,
+                cancellation,
+                &mut |_, _| true,
             )?;
             for selected in gathered.rows() {
                 data.visit_input(input, selected)?;
@@ -533,7 +538,12 @@ impl ModelScopes {
         Ok(ModelWindow {
             scopes: self,
             columns: lctx_compiler_store::scoped_positions::IndexedRootColumns::new(
-                batch, self.calls.inputs(), columns.rows, columns.charge, budget, cancellation,
+                batch,
+                self.calls.inputs(),
+                columns.rows,
+                columns.charge,
+                budget,
+                cancellation,
             )?,
         })
     }
@@ -844,10 +854,16 @@ mod model_scope_controls {
                     let target = &mut columns.rows[table];
                     let additional = if target.len() == target.capacity() {
                         target.capacity().max(4)
-                    } else { 0 };
-                    columns.charge.grow(
-                        rows.get_array_memory_size() + additional * size_of::<arrow_array::RecordBatch>(),
-                    ).unwrap();
+                    } else {
+                        0
+                    };
+                    columns
+                        .charge
+                        .grow(
+                            rows.get_array_memory_size()
+                                + additional * size_of::<arrow_array::RecordBatch>(),
+                        )
+                        .unwrap();
                     target.reserve_exact(additional);
                     target.push(rows);
                 }
@@ -855,9 +871,14 @@ mod model_scope_controls {
             let window = ModelWindow {
                 scopes: &scopes,
                 columns: lctx_compiler_store::scoped_positions::IndexedRootColumns::new(
-                    batch, scopes.calls.inputs(), columns.rows, columns.charge, &budget,
+                    batch,
+                    scopes.calls.inputs(),
+                    columns.rows,
+                    columns.charge,
+                    &budget,
                     &crate::workspace::Cancellation::default(),
-                ).unwrap(),
+                )
+                .unwrap(),
             };
             let invocation = analysis::model::AnalysisInvocation::new(
                 run.input,

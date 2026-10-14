@@ -94,6 +94,7 @@ The [architecture map](../design/README.md) and its section owners own contracts
 | [ADR-0163](0163-checked-installer-handoff.md) | Hand off maintenance executables against unchanged native installations | 2026-10-12 | [§6.5](../design/sections/storage-and-publication.md#section-6-5) | Interface-checked |  |
 | [ADR-0165](0165-prepared-completion-and-owned-lifecycle.md) | Prepare protected contributions and realize only independently required boundaries | 2026-10-12 | [§6](../design/sections/storage-and-publication.md#section-6), [§6.1](../design/sections/storage-and-publication.md#section-6-1), [§6.2](../design/sections/storage-and-publication.md#section-6-2), [§15.1](../design/sections/semantic-model.md#section-15-1) | Proposed | ADR-0164 |
 | [ADR-0166](0166-exact-completed-transport-and-selector-eligibility.md) | Bind portable copies and native substitution independently of semantic identity | 2026-10-13 | [§6.1](../design/sections/storage-and-publication.md#section-6-1), [§6.2](../design/sections/storage-and-publication.md#section-6-2), [§15.1](../design/sections/semantic-model.md#section-15-1) | Interface-checked |  |
+| [ADR-0167](0167-disposal-current-quiescence.md) | Transfer ordinary campaign maintenance only after fresh current quiescence | 2026-10-13 | [§6](../design/sections/storage-and-publication.md#section-6) | Tested |  |
 
 ## Proposed: open choices, not accepted decisions
 

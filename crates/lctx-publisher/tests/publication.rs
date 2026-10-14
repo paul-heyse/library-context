@@ -552,8 +552,14 @@ async fn publication_control() {
     let mut completion = finalize_reader_owners([&mut inspector_owner, &mut viewer_owner]).await;
     // Assertion unwinding must not drop either original compiler owner before its
     // actual native session and source/workspace signal have been reconciled.
-    for workspace in [receiving_workspace_owner, source_workspace_owner].into_iter().flatten() {
-        completion.step("publication control compiler finality", finalize_compiler_workspace(&workspace).await);
+    for workspace in [receiving_workspace_owner, source_workspace_owner]
+        .into_iter()
+        .flatten()
+    {
+        completion.step(
+            "publication control compiler finality",
+            finalize_compiler_workspace(&workspace).await,
+        );
     }
     let cleanup = completion::complete(Ok(()), completion);
     if let Err(primary) = outcome {
@@ -859,17 +865,33 @@ async fn small_publication_from_source(
     } else {
         native.fail();
     }
-    if built.as_ref().err().is_none_or(ModelError::permits_storage_cleanup)
+    if built
+        .as_ref()
+        .err()
+        .is_none_or(ModelError::permits_storage_cleanup)
         && completion.local == completion::LocalState::Terminal
         && completion.remote == completion::RemoteState::Confirmed
-        && completion.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+        && completion
+            .failures
+            .iter()
+            .all(|failure| failure.error.permits_storage_cleanup())
     {
-        completion.step("small publication original store finality", native.abandon().await);
+        completion.step(
+            "small publication original store finality",
+            native.abandon().await,
+        );
     } else {
-        completion.storage.push(completion::StorageState::Orphan(
-            format!("native_attempt:{}", native.attempt().hex()),
-        ));
-        if built.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+        completion
+            .storage
+            .push(completion::StorageState::Orphan(format!(
+                "native_attempt:{}",
+                native.attempt().hex()
+            )));
+        if built
+            .as_ref()
+            .err()
+            .is_some_and(|error| !error.permits_storage_cleanup())
+        {
             completion.remote = completion::RemoteState::Unknown;
         }
     }
@@ -977,7 +999,9 @@ async fn retire_publication_completely(
     config: &RuntimeConfig,
     handle: &SnapshotHandle,
 ) -> Result<(), ModelError> {
-    retire_publication_progress(config, handle).await.map(|_| ())
+    retire_publication_progress(config, handle)
+        .await
+        .map(|_| ())
 }
 
 // Shared retained descendants are a separate axis from pending work. A cold
@@ -1116,12 +1140,22 @@ async fn advance_source_cleanup<Context>(
     let mut charge = charged::StateCharge::new(budget, "cold-control-source-cleanup-jobs");
     let mut jobs = std::collections::BTreeSet::new();
     let discovery_phase = lctx_native::phase::Phase::begin("cold_source_job_discovery");
-    let _window = budget.reserve("cold-control-root-inquiry-window",
-        lctx_native::loader::NATIVE_WINDOW_ROWS.saturating_mul(1024).saturating_add(4096))?;
+    let _window = budget.reserve(
+        "cold-control-root-inquiry-window",
+        lctx_native::loader::NATIVE_WINDOW_ROWS
+            .saturating_mul(1024)
+            .saturating_add(4096),
+    )?;
     let mut roots = evidence.roots.keys();
     loop {
-        let roots = roots.by_ref().take(lctx_native::loader::NATIVE_WINDOW_ROWS).cloned().collect::<Vec<_>>();
-        if roots.is_empty() { break; }
+        let roots = roots
+            .by_ref()
+            .take(lctx_native::loader::NATIVE_WINDOW_ROWS)
+            .cloned()
+            .collect::<Vec<_>>();
+        if roots.is_empty() {
+            break;
+        }
         let mut after = Value::None;
         loop {
             let mut variables = Variables::new();
@@ -1138,13 +1172,18 @@ async fn advance_source_cleanup<Context>(
             }
             assert!(rows.len() <= lctx_native::loader::NATIVE_WINDOW_ROWS);
             for row in rows {
-                let (Some(Value::RecordId(id)), Some(Value::RecordId(object)), Some(Value::RecordId(job))) =
-                    (row.get("id"), row.get("object"), row.get("job"))
+                let (
+                    Some(Value::RecordId(id)),
+                    Some(Value::RecordId(object)),
+                    Some(Value::RecordId(job)),
+                ) = (row.get("id"), row.get("object"), row.get("job"))
                 else {
                     return Err(ModelError::Schema("cold control source cleanup nomination"));
                 };
                 if roots.binary_search(object).is_err() {
-                    return Err(ModelError::Conflict("cold control foreign source root inquiry"));
+                    return Err(ModelError::Conflict(
+                        "cold control foreign source root inquiry",
+                    ));
                 }
                 assert_eq!(job.table.as_str(), "native_retirement");
                 assert!(after == Value::None || after < Value::RecordId(id.clone()));
@@ -1158,8 +1197,15 @@ async fn advance_source_cleanup<Context>(
     let mut proven = 0;
     // This job is not discovered from an epoch: it is the actual checked result
     // of retiring this fixture's exact publication through backup::retire.
-    charge.grow(publication.retained.iter().chain(&publication.remaining)
-        .map(|value| value.capacity().saturating_add(128)).sum::<usize>().saturating_add(512))?;
+    charge.grow(
+        publication
+            .retained
+            .iter()
+            .chain(&publication.remaining)
+            .map(|value| value.capacity().saturating_add(128))
+            .sum::<usize>()
+            .saturating_add(512),
+    )?;
     let mut checked_progress = vec![(publication.identity, publication)];
     let mut checked_jobs = std::collections::BTreeSet::from([checked_progress[0].0]);
     for job in jobs {
@@ -1277,25 +1323,42 @@ async fn advance_source_cleanup<Context>(
     charge.grow(checked_jobs.len().saturating_mul(1024))?;
     let retirement_phase = lctx_native::phase::Phase::begin("cold_source_job_retirement");
     let results = futures::future::join_all(checked_jobs.into_iter().map(|identity| async move {
-        let mut progress = lctx_native::control::resume_retirement(reader.client(), identity, 4096).await?;
+        let mut progress =
+            lctx_native::control::resume_retirement(reader.client(), identity, 4096).await?;
         while !progress.remaining.is_empty() {
-            let next = lctx_native::control::resume_retirement(reader.client(), identity, 4096).await?;
+            let next =
+                lctx_native::control::resume_retirement(reader.client(), identity, 4096).await?;
             if next == progress {
-                return Err(ModelError::Conflict("cold control source cleanup made no progress"));
+                return Err(ModelError::Conflict(
+                    "cold control source cleanup made no progress",
+                ));
             }
             progress = next;
         }
         Ok::<_, ModelError>((identity, progress))
-    })).await;
+    }))
+    .await;
     let mut completion = completion::Completion::default();
     checked_progress.clear();
     for result in results {
         match result {
             Ok((identity, progress)) => {
-                eprintln!("advanced exact source cleanup job: identity={} retired={} examined={} retained={}",
-                    identity.hex(), progress.retired, progress.examined, progress.retained.len());
-                charge.grow(progress.retained.iter().chain(&progress.remaining)
-                    .map(|value| value.capacity().saturating_add(128)).sum::<usize>().saturating_add(512))?;
+                eprintln!(
+                    "advanced exact source cleanup job: identity={} retired={} examined={} retained={}",
+                    identity.hex(),
+                    progress.retired,
+                    progress.examined,
+                    progress.retained.len()
+                );
+                charge.grow(
+                    progress
+                        .retained
+                        .iter()
+                        .chain(&progress.remaining)
+                        .map(|value| value.capacity().saturating_add(128))
+                        .sum::<usize>()
+                        .saturating_add(512),
+                )?;
                 checked_progress.push((identity, progress));
             }
             Err(error) => completion.step("cold source exact job advancement", Err(error)),
@@ -1313,11 +1376,21 @@ async fn advance_source_cleanup<Context>(
     loop {
         let mut changed = false;
         let mut retained = false;
-        let round = futures::future::join_all(checked_progress.iter()
-            .filter(|(_, progress)| !progress.remaining.is_empty() || !progress.retained.is_empty())
-            .map(|(identity, _)| async move {
-                (*identity, lctx_native::control::resume_retirement(reader.client(), *identity, 4096).await)
-            })).await;
+        let round = futures::future::join_all(
+            checked_progress
+                .iter()
+                .filter(|(_, progress)| {
+                    !progress.remaining.is_empty() || !progress.retained.is_empty()
+                })
+                .map(|(identity, _)| async move {
+                    (
+                        *identity,
+                        lctx_native::control::resume_retirement(reader.client(), *identity, 4096)
+                            .await,
+                    )
+                }),
+        )
+        .await;
         let mut completion = completion::Completion::default();
         for (identity, result) in round {
             let next = match result {
@@ -1327,27 +1400,48 @@ async fn advance_source_cleanup<Context>(
                     continue;
                 }
             };
-            let (_, previous) = checked_progress.iter_mut().find(|(id, _)| *id == identity)
+            let (_, previous) = checked_progress
+                .iter_mut()
+                .find(|(id, _)| *id == identity)
                 .expect("only prevalidated exact invocation IDs enter this round");
             changed |= next.retired > previous.retired
-                || next.remaining != previous.remaining || next.retained != previous.retained;
+                || next.remaining != previous.remaining
+                || next.retained != previous.retained;
             retained |= !next.remaining.is_empty() || !next.retained.is_empty();
-            charge.grow(next.retained.iter().chain(&next.remaining)
-                .map(|value| value.capacity().saturating_add(128)).sum::<usize>().saturating_add(512))?;
+            charge.grow(
+                next.retained
+                    .iter()
+                    .chain(&next.remaining)
+                    .map(|value| value.capacity().saturating_add(128))
+                    .sum::<usize>()
+                    .saturating_add(512),
+            )?;
             *previous = next;
         }
         completion::complete(Ok(()), completion)?;
-        if !retained { break; }
+        if !retained {
+            break;
+        }
         if !changed {
-            if checked_progress.iter().any(|(_, progress)| !progress.remaining.is_empty()) {
-                return Err(ModelError::Conflict("cold source captured cleanup has unresolved pending work"));
+            if checked_progress
+                .iter()
+                .any(|(_, progress)| !progress.remaining.is_empty())
+            {
+                return Err(ModelError::Conflict(
+                    "cold source captured cleanup has unresolved pending work",
+                ));
             }
             // Canonical payloads may be shared by unrelated valid/failed attempts.
             // A cold source is not a globally empty database. The caller next
             // proves every exact source publication/original/blob/chunk/copy/member
             // absent before restoration; any retained source owner still fails it.
-            eprintln!("cold source cleanup reached stable shared frontier: {} retained observations; exact source physical absence checked next",
-                checked_progress.iter().map(|(_, progress)| progress.retained.len()).sum::<usize>());
+            eprintln!(
+                "cold source cleanup reached stable shared frontier: {} retained observations; exact source physical absence checked next",
+                checked_progress
+                    .iter()
+                    .map(|(_, progress)| progress.retained.len())
+                    .sum::<usize>()
+            );
             break;
         }
     }
@@ -1950,7 +2044,11 @@ async fn backup_omissions_and_concurrent_warm_restores_preserve_fresh_ownership(
             2,
             "each restore creates a fresh mutable attempt owner"
         );
-        assert!(fresh.iter().all(|attempt| !source_ownership.attempts.contains(attempt)));
+        assert!(
+            fresh
+                .iter()
+                .all(|attempt| !source_ownership.attempts.contains(attempt))
+        );
         let mut ownership = surrealdb_vars();
         ownership.insert("attempts", fresh.clone());
         let attempts: Vec<lctx_native::surrealdb::types::Object> = viewer
@@ -1992,10 +2090,17 @@ async fn backup_omissions_and_concurrent_warm_restores_preserve_fresh_ownership(
         );
         let restored_viewer = restored_viewer_owner.as_ref().unwrap();
         assert_eq!(owners.len(), fresh.len());
-        let winning = publication_ownership(restored_viewer, &budget).await.unwrap();
-        assert_eq!((winning.completion_attempt, winning.completion_epoch),
-            (source_ownership.completion_attempt, source_ownership.completion_epoch),
-            "warm equal restores preserve the existing publication's exact source completion");
+        let winning = publication_ownership(restored_viewer, &budget)
+            .await
+            .unwrap();
+        assert_eq!(
+            (winning.completion_attempt, winning.completion_epoch),
+            (
+                source_ownership.completion_attempt,
+                source_ownership.completion_epoch
+            ),
+            "warm equal restores preserve the existing publication's exact source completion"
+        );
         assert_eq!(fixture.manifest.originals.len(), 1);
         for original in &fixture.manifest.originals {
             let bytes = restored_viewer
@@ -2149,11 +2254,22 @@ async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelE
     let mut terminal = workspace.drain_owned_report().await;
     if terminal.local == completion::LocalState::Terminal
         && terminal.remote == completion::RemoteState::Confirmed
-        && terminal.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+        && terminal
+            .failures
+            .iter()
+            .all(|failure| failure.error.permits_storage_cleanup())
     {
-        terminal.step("publication control original compiler finality", workspace.native().abandon().await);
+        terminal.step(
+            "publication control original compiler finality",
+            workspace.native().abandon().await,
+        );
     } else {
-        terminal.storage.push(completion::StorageState::Orphan(format!("native_attempt:{}", workspace.native().attempt().hex())));
+        terminal
+            .storage
+            .push(completion::StorageState::Orphan(format!(
+                "native_attempt:{}",
+                workspace.native().attempt().hex()
+            )));
     }
     let settled = workspace.complete_signal(&terminal).await;
     terminal.step("publication control workspace signal finality", settled);

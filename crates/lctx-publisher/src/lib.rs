@@ -9,20 +9,28 @@ use lctx_native::RuntimeConfig;
 mod native_publication;
 use native_publication::{Admission, Publication};
 /// Independently compare the installed current executable definitions without DDL.
-pub async fn check_definitions(config: &RuntimeConfig, blueprint: &str) -> Result<lctx_model::domain::ContentHash, ModelError> {
+pub async fn check_definitions(
+    config: &RuntimeConfig,
+    blueprint: &str,
+) -> Result<lctx_model::domain::ContentHash, ModelError> {
     let client = lctx_native::reader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         config.namespace.as_str(),
         config.database.as_str(),
-    ).await?;
+    )
+    .await?;
     let result = async {
         lctx_native::control::check_installation(&client, config.service_generation).await?;
         let loader = lctx_native::Loader::new(client.clone());
         crate::definitions::verify_epoch(&loader, blueprint).await
-    }.await;
+    }
+    .await;
     let mut completion = Completion::default();
-    completion.step("definition verification session invalidation", client.invalidate().await.map_err(ModelError::codec));
+    completion.step(
+        "definition verification session invalidation",
+        client.invalidate().await.map_err(ModelError::codec),
+    );
     complete(result, completion)
 }
 /// Install additive immutable executable definitions under explicit root maintenance authority.
@@ -64,23 +72,26 @@ pub async fn publish(
     native_definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
     let native = export.native();
-    let publication = match Publication::new(Admission::Export(export), config, native_definitions).await {
-        Ok(publication) => publication,
-        Err(error) => {
-            let result = Err(error);
-            let completion = publication_completion(native, &result).await;
-            return complete(result, completion);
-        }
-    };
+    let publication =
+        match Publication::new(Admission::Export(export), config, native_definitions).await {
+            Ok(publication) => publication,
+            Err(error) => {
+                let result = Err(error);
+                let completion = publication_completion(native, &result).await;
+                return complete(result, completion);
+            }
+        };
     let result = async {
-        if publication.is_unchanged(){return publication.seal(config,native_definitions).await;}
+        if publication.is_unchanged() {
+            return publication.seal(config, native_definitions).await;
+        }
         publication.materialize_references().await?;
         publication.materialize_search().await?;
         publication.seal(config, native_definitions).await
     }
     .await;
     let mut completion = Completion::default();
-    if let Err(error)=&result {
+    if let Err(error) = &result {
         completion.step(
             "publication session invalidation",
             publication.invalidate(error).await,
@@ -97,23 +108,26 @@ pub async fn seal_completed(
     native_definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
     let native = artifact.native();
-    let publication = match Publication::new(Admission::Completed(artifact), config, native_definitions).await {
-        Ok(publication) => publication,
-        Err(error) => {
-            let result = Err(error);
-            let completion = publication_completion(native, &result).await;
-            return complete(result, completion);
-        }
-    };
+    let publication =
+        match Publication::new(Admission::Completed(artifact), config, native_definitions).await {
+            Ok(publication) => publication,
+            Err(error) => {
+                let result = Err(error);
+                let completion = publication_completion(native, &result).await;
+                return complete(result, completion);
+            }
+        };
     let result = async {
-        if publication.is_unchanged(){return publication.seal(config,native_definitions).await;}
+        if publication.is_unchanged() {
+            return publication.seal(config, native_definitions).await;
+        }
         publication.materialize_references().await?;
         publication.materialize_search().await?;
         publication.seal(config, native_definitions).await
     }
     .await;
     let mut completion = Completion::default();
-    if let Err(error)=&result {
+    if let Err(error) = &result {
         completion.step(
             "publication session invalidation",
             publication.invalidate(error).await,
@@ -151,18 +165,24 @@ async fn publication_completion<T>(
 #[cfg(test)]
 mod publication_completion_controls {
     use super::*;
-    use lctx_model::domain::{resources::ResourceBudget, admission::Frontier};
-    use lctx_native::NativeReader;
     use lctx_compiler_store::compiler::NativeCompilerStore;
+    use lctx_model::domain::{admission::Frontier, resources::ResourceBudget};
+    use lctx_native::NativeReader;
     use lctx_native::surrealdb::types::{RecordId, Variables};
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn retained_publication_acknowledgement_prevents_abandon_on_confirmed_finalization_error() {
+    async fn retained_publication_acknowledgement_prevents_abandon_on_confirmed_finalization_error()
+    {
         let config = RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
-        )).unwrap();
-        let native = NativeCompilerStore::begin(&config, Frontier::Facts).await.unwrap();
-        let client = lctx_compiler_store::compiler::check_installation(&config).await.unwrap();
+        ))
+        .unwrap();
+        let native = NativeCompilerStore::begin(&config, Frontier::Facts)
+            .await
+            .unwrap();
+        let client = lctx_compiler_store::compiler::check_installation(&config)
+            .await
+            .unwrap();
         let reader = NativeReader::private(client.clone());
         let result = async {
             let budget = ResourceBudget::fixed(256 << 20)?;
@@ -179,30 +199,55 @@ mod publication_completion_controls {
             assert!(!failed.as_ref().unwrap_err().has_committed_effect());
             let completion = publication_completion(&native, &failed).await;
             let mut variables = Variables::new();
-            variables.insert("attempt", RecordId::new("native_attempt", native.attempt().hex()));
-            let states: Vec<String> = reader.query_native(
-                "SELECT VALUE state FROM $attempt", variables,
-            ).await?;
+            variables.insert(
+                "attempt",
+                RecordId::new("native_attempt", native.attempt().hex()),
+            );
+            let states: Vec<String> = reader
+                .query_native("SELECT VALUE state FROM $attempt", variables)
+                .await?;
             assert_eq!(states, ["open"], "acknowledgement excludes abandonment");
-            assert_eq!(completion.local, lctx_model::domain::completion::LocalState::Terminal);
+            assert_eq!(
+                completion.local,
+                lctx_model::domain::completion::LocalState::Terminal
+            );
             assert_eq!(completion.remote, RemoteState::Confirmed);
-            assert_eq!(completion.committed, [lctx_model::domain::completion::CommittedEffect {
-                kind: "published unselected manifest", identity,
-            }]);
-            assert!(completion.failures.iter().all(|failure| failure.step != "publication abandon"));
+            assert_eq!(
+                completion.committed,
+                [lctx_model::domain::completion::CommittedEffect {
+                    kind: "published unselected manifest",
+                    identity,
+                }]
+            );
+            assert!(
+                completion
+                    .failures
+                    .iter()
+                    .all(|failure| failure.step != "publication abandon")
+            );
             let error = complete(failed, completion).unwrap_err();
             assert!(error.has_committed_effect());
-            assert!(matches!(error.primary(), Some(ModelError::Conflict(
-                "controlled confirmed post-marker close failure",
-            ))));
+            assert!(matches!(
+                error.primary(),
+                Some(ModelError::Conflict(
+                    "controlled confirmed post-marker close failure",
+                ))
+            ));
             Ok::<_, ModelError>(())
-        }.await;
+        }
+        .await;
         // This nonce attempt has no publication content; its explicit test owner
         // releases it only after observing the production finalizer's decision.
         let mut cleanup = Completion::default();
-        cleanup.step("controlled publication attempt cleanup", native.abandon().await);
+        cleanup.step(
+            "controlled publication attempt cleanup",
+            native.abandon().await,
+        );
         cleanup.step("controlled publication reader close", reader.close().await);
-        cleanup.step("controlled publication session invalidation", client.invalidate().await.map_err(ModelError::codec));
+        cleanup.step(
+            "controlled publication session invalidation",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
         complete(result, cleanup).unwrap();
     }
 }
@@ -211,10 +256,10 @@ mod search;
 pub use search::{materialize_search, reconcile_search};
 
 pub mod backup;
-mod selected_backup;
-mod owned_read;
 mod backup_import;
+mod owned_read;
 mod restore;
+mod selected_backup;
 
 mod definitions;
 pub(crate) use definitions::verify_realization;

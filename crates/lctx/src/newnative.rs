@@ -103,7 +103,10 @@ pub(crate) async fn finalize_compilation<T>(
     result: &Result<T, lctx_model::domain::ModelError>,
     committed: Option<String>,
 ) -> lctx_model::domain::completion::Completion {
-    use lctx_model::domain::{ModelError, completion::{LocalState, RemoteState, StorageState}};
+    use lctx_model::domain::{
+        ModelError,
+        completion::{LocalState, RemoteState, StorageState},
+    };
     let mut completion = workspace.drain_owned_report().await;
     if let Some(identity) = committed {
         completion.committed("published unselected manifest", identity);
@@ -111,15 +114,31 @@ pub(crate) async fn finalize_compilation<T>(
     if result.is_err() || !completion.failures.is_empty() {
         native.fail();
     }
-    if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup)
+    if result
+        .as_ref()
+        .err()
+        .is_none_or(ModelError::permits_storage_cleanup)
         && completion.local == LocalState::Terminal
         && completion.remote == RemoteState::Confirmed
-        && completion.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+        && completion
+            .failures
+            .iter()
+            .all(|failure| failure.error.permits_storage_cleanup())
     {
-        completion.step("CLI original compiler store finality", native.abandon().await);
+        completion.step(
+            "CLI original compiler store finality",
+            native.abandon().await,
+        );
     } else {
-        completion.storage.push(StorageState::Orphan(format!("native_attempt:{}", native.attempt().hex())));
-        if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+        completion.storage.push(StorageState::Orphan(format!(
+            "native_attempt:{}",
+            native.attempt().hex()
+        )));
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(|error| !error.permits_storage_cleanup())
+        {
             completion.remote = RemoteState::Unknown;
         }
     }

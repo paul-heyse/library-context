@@ -1217,7 +1217,7 @@ mod selected_copy_controls {
             ValidationInput::of::<assertion::AssertionQualification>(&["id"])
                 .at_epoch(PublicationBoundary::Local),
         ];
-        let keys = [vec![], vec![*local.id().bytes(), [255;16]]];
+        let keys = [vec![], vec![*local.id().bytes(), [255; 16]]];
         let selected = union
             .selected_copy(
                 &inputs,

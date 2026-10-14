@@ -379,9 +379,18 @@ pub async fn produce(
     }
     declare_outputs(&output).await?;
     let mut invocations = Rows::new(runtime.budget());
-    for run in frames.runs.iter(){
-        for kind in [analysis::owner::AnalysisOwner::Local,analysis::owner::AnalysisOwner::SourceCalls]{
-            if let Some(domain)=admission.uniform_analysis(kind,run.input,run.context,&definitions,runtime.budget())?{
+    for run in frames.runs.iter() {
+        for kind in [
+            analysis::owner::AnalysisOwner::Local,
+            analysis::owner::AnalysisOwner::SourceCalls,
+        ] {
+            if let Some(domain) = admission.uniform_analysis(
+                kind,
+                run.input,
+                run.context,
+                &definitions,
+                runtime.budget(),
+            )? {
                 frames.compact.include(domain)?;
             }
         }

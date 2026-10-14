@@ -1,4 +1,5 @@
 //! Private publication workflow over nominal semantic admission owners.
+use futures::TryStreamExt;
 use lctx_compiler_store::artifact::{AdmittedArtifact, RestoredAdmission, VerifiedExport};
 use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{
@@ -11,7 +12,6 @@ use lctx_model::domain::{
 };
 use lctx_native::{Loader, NativeReader, RuntimeConfig, phase::Phase};
 use std::sync::Arc;
-use futures::TryStreamExt;
 
 /// Only semantic admission owners can enter the private publication workflow.
 pub(crate) enum Admission<'a> {
@@ -20,14 +20,19 @@ pub(crate) enum Admission<'a> {
     Restored(&'a RestoredAdmission),
 }
 impl Admission<'_> {
-    async fn entities(&self) -> Result<futures::stream::BoxStream<'static, Result<Entity, ModelError>>, ModelError> {
+    async fn entities(
+        &self,
+    ) -> Result<futures::stream::BoxStream<'static, Result<Entity, ModelError>>, ModelError> {
         match self {
             Self::Completed(owner) => owner.entities().await,
             Self::Export(owner) => owner.native_entities().await,
             Self::Restored(owner) => owner.entities().await,
         }
     }
-    async fn assertions(&self) -> Result<futures::stream::BoxStream<'static, Result<Assertion, ModelError>>, ModelError> {
+    async fn assertions(
+        &self,
+    ) -> Result<futures::stream::BoxStream<'static, Result<Assertion, ModelError>>, ModelError>
+    {
         match self {
             Self::Completed(owner) => owner.assertions().await,
             Self::Export(owner) => owner.native_assertions().await,
@@ -257,7 +262,8 @@ impl<'a> Publication<'a> {
             }
             self.assertion_references(&assertions).await?;
             Ok::<(), ModelError>(())
-        }.await;
+        }
+        .await;
         phase.finish_result(&result);
         result
     }

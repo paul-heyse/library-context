@@ -2,7 +2,11 @@
 use crate::workspace::{CompletedInputs, ProducerOutput, Workspace};
 use futures::future::BoxFuture;
 use lctx_model::domain::{
-    analysis::{native::*, preparation::{Configuration, ConfigurationGroup}, *},
+    analysis::{
+        native::*,
+        preparation::{Configuration, ConfigurationGroup},
+        *,
+    },
     assertion::AssertionQualification,
     models::{AuthoredContextProtocol, AuthoredModel, AuthoredTarget, ModelCatalog},
     stages::*,
@@ -38,9 +42,16 @@ pub async fn configuration(
             write!(MethodParameters, configuration.parameters());
             write!(AnalysisDefinition, configuration.definitions());
         }
-        ConfigurationGroup::Projections => write!(ProjectionDefinition, configuration.projections()),
-        ConfigurationGroup::Analytics => write!(settings::AnalyticsConfiguration, configuration.analytics()),
-        ConfigurationGroup::Retrieval => write!(lctx_model::domain::retrieval::RetrievalDefinition, configuration.retrieval()),
+        ConfigurationGroup::Projections => {
+            write!(ProjectionDefinition, configuration.projections())
+        }
+        ConfigurationGroup::Analytics => {
+            write!(settings::AnalyticsConfiguration, configuration.analytics())
+        }
+        ConfigurationGroup::Retrieval => write!(
+            lctx_model::domain::retrieval::RetrievalDefinition,
+            configuration.retrieval()
+        ),
     }
     output.finish(ProviderOutcome::Complete).await
 }
@@ -142,7 +153,8 @@ pub async fn native_inventory(
         // Preserve the former collect-before-write refusal boundary without keeping
         // another complete pair/qualification map beside the charged native inventory.
         inventory.for_each(|_, _| Ok(()))
-    }.await;
+    }
+    .await;
     phase.finish_result(&loaded);
     loaded?;
     let phase = lctx_native::phase::Phase::begin("native_inventory_output");
@@ -155,7 +167,8 @@ pub async fn native_inventory(
             output.push(qualification).await?;
         }
         Ok::<_, ModelError>(())
-    }.await;
+    }
+    .await;
     phase.finish_result(&emitted);
     emitted?;
     drop(inventory);

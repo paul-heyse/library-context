@@ -132,10 +132,17 @@ impl Data {
         crate::catalog_evidence_outputs!(copy_evidence);
         macro_rules! copy_facts{($($field:ident:$ty:ty,)*)=>{$(crate::domain::normalized::copy_selected_rows(&self.facts.$field,&mut selected.facts.$field,inputs,None,keys)?;)*};}
         crate::catalog_selection_inputs!(copy_facts);
-        crate::domain::normalized::visit_selected_ids::<input::DistributionVerification, I>(inputs, None, keys, &mut |id| {
-            if let Some(release) = self.verification_releases.get(&id) { selected.insert_verification(id, *release)?; }
-            Ok(())
-        })?;
+        crate::domain::normalized::visit_selected_ids::<input::DistributionVerification, I>(
+            inputs,
+            None,
+            keys,
+            &mut |id| {
+                if let Some(release) = self.verification_releases.get(&id) {
+                    selected.insert_verification(id, *release)?;
+                }
+                Ok(())
+            },
+        )?;
         Ok(selected)
     }
     pub fn consumed_inputs(_profile: Profile) -> Vec<ValidationInput> {
@@ -1237,11 +1244,14 @@ mod selected_copy_controls {
         let inputs = vec![ValidationInput::of::<input::DistributionVerification>(&[
             "id",
         ])];
-        let keys = [*selected_id.bytes(), [255;16]];
+        let keys = [*selected_id.bytes(), [255; 16]];
         let data = union
             .selected_copy(
                 &inputs,
-                &mut |table| { assert_eq!(table,0); Ok(keys.iter().copied()) },
+                &mut |table| {
+                    assert_eq!(table, 0);
+                    Ok(keys.iter().copied())
+                },
                 &budget,
             )
             .unwrap();

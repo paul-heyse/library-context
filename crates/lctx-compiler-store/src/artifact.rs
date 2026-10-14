@@ -1071,7 +1071,8 @@ impl RestoredAdmission {
     }
     pub async fn assertions(
         &self,
-    ) -> Result<futures::stream::BoxStream<'static, Result<Assertion, ModelError>>, ModelError> {
+    ) -> Result<futures::stream::BoxStream<'static, Result<Assertion, ModelError>>, ModelError>
+    {
         crate::native_canonical::assertions(self.workspace.clone()).await
     }
 }

@@ -364,9 +364,15 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
         drop(reader);
     }
     if let Some(workspace) = &workspace_owner {
-        terminal.step("compact workspace owned drain", completion::complete(Ok(()), workspace.drain_owned_report().await));
+        terminal.step(
+            "compact workspace owned drain",
+            completion::complete(Ok(()), workspace.drain_owned_report().await),
+        );
     } else {
-        terminal.step("compact original store drain", completion::complete(Ok(()), native.drain_report().await));
+        terminal.step(
+            "compact original store drain",
+            completion::complete(Ok(()), native.drain_report().await),
+        );
     }
     let confirmed = result
         .as_ref()
@@ -379,25 +385,36 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
             .iter()
             .all(|failure| failure.error.permits_storage_cleanup());
     if confirmed {
-        terminal.step(
-            "compact original store finality",
-            native.abandon().await,
-        );
+        terminal.step("compact original store finality", native.abandon().await);
     }
     if !confirmed {
-        terminal.storage.push(completion::StorageState::Orphan(format!("native_attempt:{}", native.attempt().hex())));
-        if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
-            terminal.remote=completion::RemoteState::Unknown;
+        terminal
+            .storage
+            .push(completion::StorageState::Orphan(format!(
+                "native_attempt:{}",
+                native.attempt().hex()
+            )));
+        if result
+            .as_ref()
+            .err()
+            .is_some_and(|error| !error.permits_storage_cleanup())
+        {
+            terminal.remote = completion::RemoteState::Unknown;
         }
     }
     if let Some(workspace) = workspace_owner {
-        let settled=workspace.complete_signal(&terminal).await;
+        let settled = workspace.complete_signal(&terminal).await;
         terminal.step("compact workspace signal finality", settled);
     }
-    if confirmed && terminal.local == completion::LocalState::Terminal
+    if confirmed
+        && terminal.local == completion::LocalState::Terminal
         && terminal.remote == completion::RemoteState::Confirmed
-        && terminal.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
-        && let Some(handle) = handle {
+        && terminal
+            .failures
+            .iter()
+            .all(|failure| failure.error.permits_storage_cleanup())
+        && let Some(handle) = handle
+    {
         terminal.step(
             "compact unselected publication retirement",
             retire_owned(&config, &handle).await,

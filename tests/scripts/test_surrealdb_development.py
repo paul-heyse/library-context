@@ -36,7 +36,11 @@ def compiled_info():
                     "documentation_blake3": "b" * 64,
                 },
             }
-            for name, version in (("surrealkit", "1.0.0-beta.1"), ("surrealdb", "3.3.0"), ("surrealdb-rpc", "3.3.0"))
+            for name, version in (
+                ("surrealkit", "1.0.0-beta.1"),
+                ("surrealdb", "3.3.0"),
+                ("surrealdb-rpc", "3.3.0"),
+            )
         },
         "schema": {
             "source": "compiled-embedded-native-schema",
@@ -48,7 +52,11 @@ def compiled_info():
 
 
 def finite_provenance(worker):
-    return {"worker_sha256": service.file_sha256(worker), "recorded_at": runs.now(), "build_info": compiled_info()}
+    return {
+        "worker_sha256": service.file_sha256(worker),
+        "recorded_at": runs.now(),
+        "build_info": compiled_info(),
+    }
 
 
 def test_copy_tests_preserves_nested_suite_toml_and_sql_only(tmp_path):
@@ -389,20 +397,33 @@ def test_inspection_preserves_independent_terminal_unknown_and_cleanup_axes(
     run_path = tmp_path / "inspect-run"
     run_path.mkdir()
     owner = {**service.ProcessIdentity.of().to_json(), "pid": 99999999, "start_ticks": 1}
-    service.private_json(run_path / runs.RECORD, {
-        "owner": owner, "child": None, "termination": "completed",
-        "cleanup": {"status": cleanup, "reason": "secret-credential-path"},
-    })
+    service.private_json(
+        run_path / runs.RECORD,
+        {
+            "owner": owner,
+            "child": None,
+            "termination": "completed",
+            "cleanup": {"status": cleanup, "reason": "secret-credential-path"},
+        },
+    )
     ledger = installation.directory / "development" / run_path.name
     ledger.mkdir(parents=True)
     row = {
         "installation_id": installation.id,
         "server_generation": bytes(installation.record["service_generation"]).hex(),
-        "run_path": str(run_path), "owner": owner, "recorded_at": runs.now(),
-        "operation": "test", "database": "lifecycle_" + "a" * 32,
+        "run_path": str(run_path),
+        "owner": owner,
+        "recorded_at": runs.now(),
+        "operation": "test",
+        "database": "lifecycle_" + "a" * 32,
         "worker_sha256": "d" * 64,
-        "worker_provenance": {"worker_sha256": "d" * 64, "recorded_at": runs.now(), "build_info": compiled_info()},
-        "command_exit": command_exit, "outcome": "passed" if command_exit == 0 else "failed",
+        "worker_provenance": {
+            "worker_sha256": "d" * 64,
+            "recorded_at": runs.now(),
+            "build_info": compiled_info(),
+        },
+        "command_exit": command_exit,
+        "outcome": "passed" if command_exit == 0 else "failed",
         "report": {"status": "passed", "path": "secret-credential-path"},
         "child_cleanup": {"status": cleanup, "reason": "secret-credential-path"},
         "credential_cleanup": {"status": "failed", "original": "secret-credential"},
@@ -412,15 +433,31 @@ def test_inspection_preserves_independent_terminal_unknown_and_cleanup_axes(
     row["worker_provenance"]["build_info"]["credentials"] = "secret-credential"
     service.private_json(ledger / "record.json", row)
     service.private_json(installation.directory / "maintenance.json", {"operation": "closed"})
-    service.private_json(installation.directory / "disposal.json", {
-        "maintenance_successor": {"operation": "dispose-campaign", "token": "secret-credential-successor"},
-        "transferred_maintenance": {"predecessor": {
-            "sha256": "a" * 64, "bytes": "secret-credential-marker-bytes",
-            "record": {"operation": "maintenance", "token": "secret-credential-predecessor"},
-        }},
-    })
-    monkeypatch.setattr(service, "sql", lambda *args, **kwargs: pytest.fail("ordinary inspection must not connect"))
-    monkeypatch.setattr(service, "borrow", lambda *args: pytest.fail("ordinary inspection must not seek admission"))
+    service.private_json(
+        installation.directory / "disposal.json",
+        {
+            "maintenance_successor": {
+                "operation": "dispose-campaign",
+                "token": "secret-credential-successor",
+            },
+            "transferred_maintenance": {
+                "predecessor": {
+                    "sha256": "a" * 64,
+                    "bytes": "secret-credential-marker-bytes",
+                    "record": {
+                        "operation": "maintenance",
+                        "token": "secret-credential-predecessor",
+                    },
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(
+        service, "sql", lambda *args, **kwargs: pytest.fail("ordinary inspection must not connect")
+    )
+    monkeypatch.setattr(
+        service, "borrow", lambda *args: pytest.fail("ordinary inspection must not seek admission")
+    )
     before = (ledger / "record.json").read_bytes()
     value = development.inspect_campaign(installation, installation.id, False)
     (observed,) = value["workers"]
@@ -445,11 +482,16 @@ def test_inspection_preserves_independent_terminal_unknown_and_cleanup_axes(
     assert (ledger / "record.json").read_bytes() == before
     row["worker_provenance"]["worker_sha256"] = "e" * 64
     service.private_json(ledger / "record.json", row)
-    assert service.development_workers(installation)[0]["worker_provenance"]["build_info"] == {"status": "unknown"}
+    assert service.development_workers(installation)[0]["worker_provenance"]["build_info"] == {
+        "status": "unknown"
+    }
     record = runs.load_record(run_path)
     record["owner"]["start_ticks"] += 1
     service.private_json(run_path / runs.RECORD, record)
-    assert service.development_workers(installation)[0]["observation"]["owner_correspondence"] == "differs"
+    assert (
+        service.development_workers(installation)[0]["observation"]["owner_correspondence"]
+        == "differs"
+    )
 
 
 def test_inspection_refuses_wrong_target_and_preserves_missing_evidence(
@@ -461,11 +503,14 @@ def test_inspection_refuses_wrong_target_and_preserves_missing_evidence(
     run_path = tmp_path / "missing-run"
     ledger = installation.directory / "development" / run_path.name
     ledger.mkdir(parents=True)
-    service.private_json(ledger / "record.json", {
-        "installation_id": installation.id,
-        "server_generation": bytes(installation.record["service_generation"]).hex(),
-        "run_path": str(run_path),
-    })
+    service.private_json(
+        ledger / "record.json",
+        {
+            "installation_id": installation.id,
+            "server_generation": bytes(installation.record["service_generation"]).hex(),
+            "run_path": str(run_path),
+        },
+    )
     (observed,) = service.development_workers(installation)
     assert observed["pending"]
     assert observed["command_exit"] is None
@@ -474,18 +519,24 @@ def test_inspection_refuses_wrong_target_and_preserves_missing_evidence(
     assert observed["observation"]["run_record"] == "missing"
     for field in ("child_cleanup", "credential_cleanup", "remote", "report"):
         assert observed[field] == {"status": "unknown"}
+
     @contextlib.contextmanager
     def closed(inst):
         raise service.FixtureBlocked("maintenance", "admission closed")
         yield
+
     monkeypatch.setattr(service, "borrow", closed)
-    monkeypatch.setattr(service, "sql", lambda *args, **kwargs: pytest.fail("closed admission cannot connect"))
+    monkeypatch.setattr(
+        service, "sql", lambda *args, **kwargs: pytest.fail("closed admission cannot connect")
+    )
     with pytest.raises(service.FixtureBlocked, match="admission closed"):
         development.inspect_campaign(installation, installation.id, True)
 
 
 @pytest.mark.parametrize("fault", [None, "missing", "invalid", "changed"])
-def test_build_info_handshake_is_bound_to_worker_bytes_and_safe_on_refusal(tmp_path, monkeypatch, fault):
+def test_build_info_handshake_is_bound_to_worker_bytes_and_safe_on_refusal(
+    tmp_path, monkeypatch, fault
+):
     worker = tmp_path / "worker"
     value = compiled_info()
     if fault == "invalid":
@@ -496,10 +547,12 @@ def test_build_info_handshake_is_bound_to_worker_bytes_and_safe_on_refusal(tmp_p
         worker = tmp_path / "missing"
     elif fault == "changed":
         original_run = development.subprocess.run
+
         def replace(*args, **kwargs):
             result = original_run(*args, **kwargs)
             worker.write_text("changed")
             return result
+
         monkeypatch.setattr(development.subprocess, "run", replace)
     if fault:
         with pytest.raises(service.FixtureBlocked) as error:

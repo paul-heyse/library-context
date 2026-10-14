@@ -249,7 +249,10 @@ fn borrowed_pairs_match_complete_projection_without_a_second_inventory() {
     for pair in native.pairs() {
         let (premise, qualification) = pair.unwrap();
         assert_eq!(output.premises.get(premise.id()), Some(premise));
-        assert_eq!(output.qualifications.get(qualification.id()), Some(&qualification));
+        assert_eq!(
+            output.qualifications.get(qualification.id()),
+            Some(&qualification)
+        );
     }
     drop(output);
     assert_eq!(budget.reserved(), retained);
@@ -264,8 +267,11 @@ fn borrowed_pairs_match_complete_projection_without_a_second_inventory() {
 fn borrowed_pairs_preserve_complete_projection_refusal() {
     let frames = facts();
     for missing in [SyntaxObservation::NAME, AssertionQualification::NAME] {
-        let remaining = frames.iter().filter(|(name, _)| *name != missing)
-            .cloned().collect::<Vec<_>>();
+        let remaining = frames
+            .iter()
+            .filter(|(name, _)| *name != missing)
+            .cloned()
+            .collect::<Vec<_>>();
         let native = inventory(&remaining, &budget()).unwrap();
         assert!(native.for_each(|_, _| Ok(())).is_err());
         assert!(native.pairs().any(|pair| pair.is_err()));

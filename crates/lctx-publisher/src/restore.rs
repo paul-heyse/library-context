@@ -1329,17 +1329,29 @@ pub(crate) async fn restore(
             // The restored admission is no longer borrowed after publication. Its
             // original session remains ours even when a separate publication session
             // has already committed and closed the attempt.
-            if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup)
+            if result
+                .as_ref()
+                .err()
+                .is_none_or(ModelError::permits_storage_cleanup)
                 && completion.local == lctx_model::domain::completion::LocalState::Terminal
                 && completion.remote == lctx_model::domain::completion::RemoteState::Confirmed
-                && completion.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+                && completion
+                    .failures
+                    .iter()
+                    .all(|failure| failure.error.permits_storage_cleanup())
             {
                 completion.step("restore original store finality", native.abandon().await);
             } else {
-                completion.storage.push(lctx_model::domain::completion::StorageState::Orphan(
-                    format!("native_attempt:{}", native.attempt().hex()),
-                ));
-                if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+                completion
+                    .storage
+                    .push(lctx_model::domain::completion::StorageState::Orphan(
+                        format!("native_attempt:{}", native.attempt().hex()),
+                    ));
+                if result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| !error.permits_storage_cleanup())
+                {
                     completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
                 }
             }

@@ -89,7 +89,8 @@ pub async fn compile(
         .await;
         if let Err(error) = cache_setup {
             let result: Result<_, lctx_model::domain::ModelError> = Err(error);
-            let completion = crate::newnative::finalize_compilation(&workspace, &store, &result, None).await;
+            let completion =
+                crate::newnative::finalize_compilation(&workspace, &store, &result, None).await;
             return lctx_model::domain::completion::complete(result, completion)
                 .map_err(Into::into);
         }
@@ -172,7 +173,8 @@ pub async fn compile(
     Ok(output)
     }.await;
     let result = result.map_err(crate::newnative::operation_error);
-    let completion = crate::newnative::finalize_compilation(&workspace, &store, &result, committed).await;
+    let completion =
+        crate::newnative::finalize_compilation(&workspace, &store, &result, committed).await;
     let output = lctx_model::domain::completion::complete(result, completion);
     operation_phase.finish_result(&output);
     let output = output?;

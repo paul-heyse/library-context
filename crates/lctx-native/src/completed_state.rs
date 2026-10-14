@@ -499,7 +499,11 @@ pub(crate) async fn require_hold(
     Ok(())
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct SelectorCopyRequirement { physical: ContentHash, incarnation: i64, logical: ContentHash }
+struct SelectorCopyRequirement {
+    physical: ContentHash,
+    incarnation: i64,
+    logical: ContentHash,
+}
 struct InstalledRefRequests<'a> {
     selectors: Vec<(RecordId, &'a crate::installed_view::InstalledViewCompletion)>,
     copies: Vec<SelectorCopyRequirement>,
@@ -513,13 +517,18 @@ fn installed_ref_requests<'a>(
     let completion = data.identity()?;
     let mut selectors = std::collections::BTreeMap::new();
     let mut targets = std::collections::BTreeMap::new();
-    let mut requests = d::charged::StateCharge::new(budget, "compound selector exact observation requests");
+    let mut requests =
+        d::charged::StateCharge::new(budget, "compound selector exact observation requests");
     for reference in references {
         reference.validate()?;
         let selector = &reference.selector;
-        if selector.parent_completion != completion || selector.generation != data.generation
-            || selector.validity_epoch != data.validity_epoch {
-            return Err(ModelError::Conflict("compound selector exact parent/context"));
+        if selector.parent_completion != completion
+            || selector.generation != data.generation
+            || selector.validity_epoch != data.validity_epoch
+        {
+            return Err(ModelError::Conflict(
+                "compound selector exact parent/context",
+            ));
         }
         let address = selector.record()?;
         requests.grow(crate::selection::node_bytes(&address).saturating_add(256))?;
@@ -529,20 +538,44 @@ fn installed_ref_requests<'a>(
         for mapping in &selector.mappings {
             if let Some(previous) = targets.get(&mapping.physical) {
                 if *previous != (mapping.incarnation, mapping.logical) {
-                    return Err(ModelError::Conflict("compound selected physical mapping contradiction"));
+                    return Err(ModelError::Conflict(
+                        "compound selected physical mapping contradiction",
+                    ));
                 }
             } else {
-                requests.grow(std::mem::size_of::<crate::installed_view::ContributorRealization>().saturating_add(256))?;
+                requests.grow(
+                    std::mem::size_of::<crate::installed_view::ContributorRealization>()
+                        .saturating_add(256),
+                )?;
                 targets.insert(mapping.physical, (mapping.incarnation, mapping.logical));
             }
         }
     }
-    requests.grow(selectors.len().saturating_mul(std::mem::size_of::<(RecordId, &crate::installed_view::InstalledViewCompletion)>()))?;
+    requests.grow(selectors.len().saturating_mul(std::mem::size_of::<(
+        RecordId,
+        &crate::installed_view::InstalledViewCompletion,
+    )>()))?;
     let selectors = selectors.into_iter().collect::<Vec<_>>();
-    requests.grow(targets.len().saturating_mul(std::mem::size_of::<SelectorCopyRequirement>()))?;
-    let copies = targets.into_iter().map(|(physical, (incarnation, logical))|
-        SelectorCopyRequirement { physical, incarnation, logical }).collect();
-    Ok(InstalledRefRequests { selectors, copies, _charge: requests })
+    requests.grow(
+        targets
+            .len()
+            .saturating_mul(std::mem::size_of::<SelectorCopyRequirement>()),
+    )?;
+    let copies = targets
+        .into_iter()
+        .map(
+            |(physical, (incarnation, logical))| SelectorCopyRequirement {
+                physical,
+                incarnation,
+                logical,
+            },
+        )
+        .collect();
+    Ok(InstalledRefRequests {
+        selectors,
+        copies,
+        _charge: requests,
+    })
 }
 pub(crate) async fn verify_installed_refs(
     reader: &crate::NativeReader<()>,
@@ -559,10 +592,18 @@ pub(crate) async fn verify_installed_refs(
     while offset < selectors.len() {
         let count = width.min(selectors.len() - offset);
         let observed = async {
-            let _page = if count > 1 { Some(budget.reserve("compound selector observation page identities", count.saturating_mul(1024))?) } else { None };
+            let _page = if count > 1 {
+                Some(budget.reserve(
+                    "compound selector observation page identities",
+                    count.saturating_mul(1024),
+                )?)
+            } else {
+                None
+            };
             let page = &selectors[offset..offset + count];
             let ids = page.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>();
-            let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
+            let mut actual =
+                crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
             for (id, selector) in page {
                 let expected = actual.take_required(id)?;
                 if expected.row() != &selector.value()? {
@@ -574,16 +615,28 @@ pub(crate) async fn verify_installed_refs(
                 // Preserve the original scalar hold observation at the final width.
                 require_hold(reader, &parent, &page[0].0).await
             } else {
-                let pairs = ids.into_iter().map(|id| (parent.clone(), id)).collect::<Vec<_>>();
-                let mut holds = crate::control::inspect_hold_window_read(reader, &pairs, budget).await?;
-                for (owner, object) in &pairs { holds.take_required(owner, object)?; }
+                let pairs = ids
+                    .into_iter()
+                    .map(|id| (parent.clone(), id))
+                    .collect::<Vec<_>>();
+                let mut holds =
+                    crate::control::inspect_hold_window_read(reader, &pairs, budget).await?;
+                for (owner, object) in &pairs {
+                    holds.take_required(owner, object)?;
+                }
                 holds.finish()
             }
-        }.await;
+        }
+        .await;
         match observed {
-            Err(ModelError::Resource { .. }) if count > 1 => { width = (count / 2).max(1); }
+            Err(ModelError::Resource { .. }) if count > 1 => {
+                width = (count / 2).max(1);
+            }
             Err(error) => return Err(error),
-            Ok(()) => { offset += count; width = crate::loader::NATIVE_WINDOW_ROWS; }
+            Ok(()) => {
+                offset += count;
+                width = crate::loader::NATIVE_WINDOW_ROWS;
+            }
         }
     }
     let targets = &requests.copies;
@@ -599,33 +652,52 @@ pub(crate) async fn verify_installed_refs(
             continue;
         }
         let observed = async {
-            let _page = budget.reserve("compound selector observation page identities", count.saturating_mul(2048))?;
+            let _page = budget.reserve(
+                "compound selector observation page identities",
+                count.saturating_mul(2048),
+            )?;
             let page = &targets[offset..offset + count];
             let mut ids = Vec::with_capacity(count * 2);
             let mut pairs = Vec::with_capacity(count * 2);
             for mapping in page {
-                for object in [contributor_copy_record(completion, mapping.physical),
-                    RecordId::new("compiler_contribution", mapping.physical.hex())] {
+                for object in [
+                    contributor_copy_record(completion, mapping.physical),
+                    RecordId::new("compiler_contribution", mapping.physical.hex()),
+                ] {
                     pairs.push((parent.clone(), object.clone()));
                     ids.push(object);
                 }
             }
-            let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
+            let mut actual =
+                crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
             for mapping in page {
-                let copy = actual.take_required(&contributor_copy_record(completion, mapping.physical))?;
+                let copy =
+                    actual.take_required(&contributor_copy_record(completion, mapping.physical))?;
                 let copy = ContributorCopy::from_row(copy.row(), completion)?;
-                let physical = actual.take_required(&RecordId::new("compiler_contribution", mapping.physical.hex()))?;
+                let physical = actual.take_required(&RecordId::new(
+                    "compiler_contribution",
+                    mapping.physical.hex(),
+                ))?;
                 verify_mapped_copy(mapping, &copy, physical.incarnation(), physical.row())?;
             }
             actual.finish()?;
-            let mut holds = crate::control::inspect_hold_window_read(reader, &pairs, budget).await?;
-            for (owner, object) in &pairs { holds.take_required(owner, object)?; }
+            let mut holds =
+                crate::control::inspect_hold_window_read(reader, &pairs, budget).await?;
+            for (owner, object) in &pairs {
+                holds.take_required(owner, object)?;
+            }
             holds.finish()
-        }.await;
+        }
+        .await;
         match observed {
-            Err(ModelError::Resource { .. }) => { width = (count / 2).max(1); }
+            Err(ModelError::Resource { .. }) => {
+                width = (count / 2).max(1);
+            }
             Err(error) => return Err(error),
-            Ok(()) => { offset += count; width = (crate::loader::NATIVE_WINDOW_ROWS / 2).max(1); }
+            Ok(()) => {
+                offset += count;
+                width = (crate::loader::NATIVE_WINDOW_ROWS / 2).max(1);
+            }
         }
     }
     Ok(())
@@ -638,15 +710,19 @@ async fn verify_installed_copy(
 ) -> Result<(), ModelError> {
     let completion = data.identity()?;
     let copy_address = contributor_copy_record(completion, mapping.physical);
-    let mut vars = surrealdb::types::Variables::new(); vars.insert("copy", copy_address.clone());
+    let mut vars = surrealdb::types::Variables::new();
+    vars.insert("copy", copy_address.clone());
     let copies: Vec<Value> = reader.query_native("SELECT * FROM $copy", vars).await?;
     let [copy] = copies.as_slice() else {
-        return Err(ModelError::Conflict("compound selected copy inventory cardinality"));
+        return Err(ModelError::Conflict(
+            "compound selected copy inventory cardinality",
+        ));
     };
     let copy = ContributorCopy::from_row(copy, completion)?;
     require_hold(reader, &data.record()?, &copy_address).await?;
     let physical = RecordId::new("compiler_contribution", mapping.physical.hex());
-    let actual = crate::control::inspect_expected_read(reader, physical.clone(), budget).await?
+    let actual = crate::control::inspect_expected_read(reader, physical.clone(), budget)
+        .await?
         .ok_or(ModelError::Conflict("compound mapped contributor missing"))?;
     verify_mapped_copy(mapping, &copy, actual.incarnation(), actual.row())?;
     require_hold(reader, &data.record()?, &physical).await
@@ -657,14 +733,22 @@ fn verify_mapped_copy(
     incarnation: i64,
     row: &Value,
 ) -> Result<(), ModelError> {
-    if copy.physical != mapping.physical || copy.incarnation != mapping.incarnation
-        || copy.descriptor.identity()? != mapping.logical {
-        return Err(ModelError::Conflict("compound exact selected copy incidence"));
+    if copy.physical != mapping.physical
+        || copy.incarnation != mapping.incarnation
+        || copy.descriptor.identity()? != mapping.logical
+    {
+        return Err(ModelError::Conflict(
+            "compound exact selected copy incidence",
+        ));
     }
     crate::completed_rows::validate_state_row("compiler_contribution", row)?;
     if incarnation != copy.incarnation
-        || crate::installed_view::audit::descriptor::<d::completed::CompletedContribution>(row)? != copy.descriptor {
-        return Err(ModelError::Conflict("compound mapped full descriptor/incarnation"));
+        || crate::installed_view::audit::descriptor::<d::completed::CompletedContribution>(row)?
+            != copy.descriptor
+    {
+        return Err(ModelError::Conflict(
+            "compound mapped full descriptor/incarnation",
+        ));
     }
     Ok(())
 }
@@ -1486,26 +1570,47 @@ mod compound_controls {
         }
     }
     #[test]
-    fn installed_ref_requests_preserve_each_exact_selector_and_share_only_equal_copy_requirements() {
+    fn installed_ref_requests_preserve_each_exact_selector_and_share_only_equal_copy_requirements()
+    {
         let budget = d::resources::ResourceBudget::fixed(1 << 20).unwrap();
         let data = completion();
         let mut first = selector();
         first.selector.parent_completion = data.identity().unwrap();
         let mut second = first.clone();
-        second.selector.view = d::completed::CompletedView::new("releases".into(), first.selector.view.contributions.clone(), 0).unwrap();
+        second.selector.view = d::completed::CompletedView::new(
+            "releases".into(),
+            first.selector.view.contributions.clone(),
+            0,
+        )
+        .unwrap();
         second.logical_view = second.selector.view.identity;
         second.selector.mappings[0].view = second.logical_view;
         let references = vec![first, second];
         let requests = installed_ref_requests(&data, &references, &budget).unwrap();
         assert_eq!(requests.selectors.len(), 2);
         assert_eq!(requests.copies.len(), 1);
-        assert_eq!(requests.copies[0].physical, references[0].selector.mappings[0].physical);
-        assert_eq!(requests.copies[0].incarnation, references[0].selector.mappings[0].incarnation);
-        assert_eq!(requests.copies[0].logical, references[0].selector.mappings[0].logical);
+        assert_eq!(
+            requests.copies[0].physical,
+            references[0].selector.mappings[0].physical
+        );
+        assert_eq!(
+            requests.copies[0].incarnation,
+            references[0].selector.mappings[0].incarnation
+        );
+        assert_eq!(
+            requests.copies[0].logical,
+            references[0].selector.mappings[0].logical
+        );
         for (id, expected) in &requests.selectors {
-            let original = references.iter().find(|reference| reference.selector.record().unwrap() == *id).unwrap();
+            let original = references
+                .iter()
+                .find(|reference| reference.selector.record().unwrap() == *id)
+                .unwrap();
             assert!(std::ptr::eq(*expected, &original.selector));
-            assert_eq!(expected.value().unwrap(), original.value(data.identity().unwrap()).unwrap());
+            assert_eq!(
+                expected.value().unwrap(),
+                original.value(data.identity().unwrap()).unwrap()
+            );
         }
         let mut changed = references.clone();
         changed[1].selector.mappings[0].incarnation += 1;
@@ -1515,7 +1620,8 @@ mod compound_controls {
     fn installed_ref_requests_refuse_duplicate_foreign_context_and_unfunded_targets() {
         let budget = d::resources::ResourceBudget::fixed(1 << 20).unwrap();
         let data = completion();
-        let mut exact = selector(); exact.selector.parent_completion = data.identity().unwrap();
+        let mut exact = selector();
+        exact.selector.parent_completion = data.identity().unwrap();
         assert!(installed_ref_requests(&data, &[exact.clone(), exact.clone()], &budget).is_err());
         for foreign in 0..3 {
             let mut changed = exact.clone();
@@ -1526,7 +1632,14 @@ mod compound_controls {
             }
             assert!(installed_ref_requests(&data, &[changed], &budget).is_err());
         }
-        assert!(matches!(installed_ref_requests(&data, &[exact], &d::resources::ResourceBudget::fixed(1).unwrap()), Err(ModelError::Resource { .. })));
+        assert!(matches!(
+            installed_ref_requests(
+                &data,
+                &[exact],
+                &d::resources::ResourceBudget::fixed(1).unwrap()
+            ),
+            Err(ModelError::Resource { .. })
+        ));
     }
     #[test]
     fn compound_parent_link_is_acyclic_but_exact_persisted_selector_is_parent_bound() {

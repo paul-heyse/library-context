@@ -93,9 +93,27 @@ impl Data {
             })*};}
             crate::synthesis_frame_inputs!(copy);
         }
-        copy_selected_rows(&self.frames.analytic_parents.frames, &mut out.frames.analytic_parents.frames, inputs, None, keys)?;
-        copy_selected_rows(&self.frames.analytic_parents.invocations, &mut out.frames.analytic_parents.invocations, inputs, None, keys)?;
-        copy_selected_rows(&self.frames.analytic_parents.results, &mut out.frames.analytic_parents.results, inputs, None, keys)?;
+        copy_selected_rows(
+            &self.frames.analytic_parents.frames,
+            &mut out.frames.analytic_parents.frames,
+            inputs,
+            None,
+            keys,
+        )?;
+        copy_selected_rows(
+            &self.frames.analytic_parents.invocations,
+            &mut out.frames.analytic_parents.invocations,
+            inputs,
+            None,
+            keys,
+        )?;
+        copy_selected_rows(
+            &self.frames.analytic_parents.results,
+            &mut out.frames.analytic_parents.results,
+            inputs,
+            None,
+            keys,
+        )?;
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
                 let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Facts);
@@ -138,7 +156,8 @@ impl Data {
             })*};}
             crate::synthesis_terminal_inputs!(copy);
         }
-        self.terminal.copy_selected_ownership(&mut out.terminal, inputs, keys)?;
+        self.terminal
+            .copy_selected_ownership(&mut out.terminal, inputs, keys)?;
         {
             macro_rules! copy {($($field:ident:$ty:ty,)*)=>{$({
                 let epoch = is_vocabulary(<$ty>::NAME).then_some(PublicationBoundary::Facts);
@@ -168,9 +187,27 @@ impl Data {
             crate::entry_value_inputs!(copy);
         }
         // Cumulative Local flow vocabulary stays separate from its Facts entry.
-        copy_selected_rows(&self.patterns.flow.local.qualifications, &mut out.patterns.flow.local.qualifications, inputs, Some(PublicationBoundary::Local), keys)?;
-        copy_selected_rows(&self.patterns.flow.local.conditions, &mut out.patterns.flow.local.conditions, inputs, Some(PublicationBoundary::Local), keys)?;
-        copy_selected_rows(&self.patterns.flow.local.condition_nodes, &mut out.patterns.flow.local.condition_nodes, inputs, Some(PublicationBoundary::Local), keys)?;
+        copy_selected_rows(
+            &self.patterns.flow.local.qualifications,
+            &mut out.patterns.flow.local.qualifications,
+            inputs,
+            Some(PublicationBoundary::Local),
+            keys,
+        )?;
+        copy_selected_rows(
+            &self.patterns.flow.local.conditions,
+            &mut out.patterns.flow.local.conditions,
+            inputs,
+            Some(PublicationBoundary::Local),
+            keys,
+        )?;
+        copy_selected_rows(
+            &self.patterns.flow.local.condition_nodes,
+            &mut out.patterns.flow.local.condition_nodes,
+            inputs,
+            Some(PublicationBoundary::Local),
+            keys,
+        )?;
         copy_selected_rows(&self.public, &mut out.public, inputs, None, keys)?;
         Ok(out)
     }
@@ -550,33 +587,89 @@ mod tests {
 mod selected_copy_controls {
     use super::*;
     fn nominal<T>(byte: u8) -> Id<T> {
-        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<_, serde::de::value::Error>::new([byte;16].into_iter())).unwrap()
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([byte; 16].into_iter()))
+        .unwrap()
     }
     #[test]
     fn selected_copy_keeps_facts_analytic_and_local_ports_distinct() {
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let mut source = Data::new(&budget);
         let qualification = |context| assertion::AssertionQualification {
-            context: nominal(context), scope: nominal(2), condition: conditions::Diagram::always().id(),
-            assumptions: assumptions::AssumptionSet::empty_id(), modality: attribution::Modality::Definite,
+            context: nominal(context),
+            scope: nominal(2),
+            condition: conditions::Diagram::always().id(),
+            assumptions: assumptions::AssumptionSet::empty_id(),
+            modality: attribution::Modality::Definite,
             approximation: assertion::Approximation::Exact,
         };
         let facts = qualification(3);
         let analytic = qualification(4);
         let local = qualification(5);
-        for row in [&local,&facts,&analytic] {
-            source.documentary.qualifications.insert_borrowed(row).unwrap();
-            source.observations.qualifications.insert_borrowed(row).unwrap();
-            source.patterns.flow.local.qualifications.insert_borrowed(row).unwrap();
+        for row in [&local, &facts, &analytic] {
+            source
+                .documentary
+                .qualifications
+                .insert_borrowed(row)
+                .unwrap();
+            source
+                .observations
+                .qualifications
+                .insert_borrowed(row)
+                .unwrap();
+            source
+                .patterns
+                .flow
+                .local
+                .qualifications
+                .insert_borrowed(row)
+                .unwrap();
         }
-        let inputs = [PublicationBoundary::Local,PublicationBoundary::Facts,PublicationBoundary::Analytic]
-            .map(|epoch| ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(epoch));
-        let selected = [&local,&facts,&analytic].map(|row| [*row.id().bytes(),[255;16]].into_iter().collect::<std::collections::BTreeSet<_>>());
-        let result = source.selected_copy(&inputs,&mut |port| Ok(selected[port].iter().copied()),&budget).unwrap();
-        assert_eq!(result.documentary.qualifications.iter().collect::<Vec<_>>(), [&facts]);
-        assert_eq!(result.observations.qualifications.iter().collect::<Vec<_>>(), [&analytic]);
-        assert_eq!(result.patterns.flow.local.qualifications.iter().collect::<Vec<_>>(), [&local]);
-        drop((source,result));
-        assert_eq!(budget.reserved(),0);
+        let inputs = [
+            PublicationBoundary::Local,
+            PublicationBoundary::Facts,
+            PublicationBoundary::Analytic,
+        ]
+        .map(|epoch| {
+            ValidationInput::of::<assertion::AssertionQualification>(&["id"]).at_epoch(epoch)
+        });
+        let selected = [&local, &facts, &analytic].map(|row| {
+            [*row.id().bytes(), [255; 16]]
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
+        });
+        let result = source
+            .selected_copy(
+                &inputs,
+                &mut |port| Ok(selected[port].iter().copied()),
+                &budget,
+            )
+            .unwrap();
+        assert_eq!(
+            result.documentary.qualifications.iter().collect::<Vec<_>>(),
+            [&facts]
+        );
+        assert_eq!(
+            result
+                .observations
+                .qualifications
+                .iter()
+                .collect::<Vec<_>>(),
+            [&analytic]
+        );
+        assert_eq!(
+            result
+                .patterns
+                .flow
+                .local
+                .qualifications
+                .iter()
+                .collect::<Vec<_>>(),
+            [&local]
+        );
+        drop((source, result));
+        assert_eq!(budget.reserved(), 0);
     }
 }

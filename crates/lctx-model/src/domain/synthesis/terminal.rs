@@ -335,7 +335,11 @@ pub(super) fn selected<'a>(
     inv: &owner::Invocation,
 ) -> Result<Vec<Checked<'a>>, ModelError> {
     let mut out = vec![];
-    for w in d.witnesses.iter().filter(|w| Some(w.invocation) == frame.summary) {
+    for w in d
+        .witnesses
+        .iter()
+        .filter(|w| Some(w.invocation) == frame.summary)
+    {
         out.push(checked(
             d,
             s,
@@ -355,6 +359,7 @@ impl Data {
         inputs: &[ValidationInput],
         keys: &mut dyn FnMut(usize) -> Result<I, ModelError>,
     ) -> Result<(), ModelError> {
-        self.scope.copy_selected_into(&mut target.scope, inputs, keys)
+        self.scope
+            .copy_selected_into(&mut target.scope, inputs, keys)
     }
 }

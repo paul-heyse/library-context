@@ -70,7 +70,9 @@ fn distinct_declaration_views<'a>(
         view.validate()?;
         if let Some(previous) = seen.get(&view.identity) {
             if *previous != *view {
-                return Err(ModelError::Conflict("semantic declaration view descriptor collision"));
+                return Err(ModelError::Conflict(
+                    "semantic declaration view descriptor collision",
+                ));
             }
         } else {
             seen.insert(view.identity, view);
@@ -78,7 +80,11 @@ fn distinct_declaration_views<'a>(
         }
     }
     drop(seen);
-    retained.try_resize(unique.capacity().saturating_mul(size_of::<&CompletedView>()))?;
+    retained.try_resize(
+        unique
+            .capacity()
+            .saturating_mul(size_of::<&CompletedView>()),
+    )?;
     Ok((unique, retained))
 }
 
@@ -722,14 +728,15 @@ impl OperationLease {
         result: Result<T, ModelError>,
         cached_exact: bool,
     ) -> Result<T, ModelError> {
-        let local_refusal = cached_exact && result.as_ref().is_err_and(|mut error| {
-            // SharedCause adds no completion state. Contextual Cause and Completion
-            // remain opaque, including resource errors with uncertain reader cleanup.
-            while let ModelError::SharedCause(inner) = error {
-                error = inner.as_ref();
-            }
-            matches!(error, ModelError::Resource { .. })
-        });
+        let local_refusal = cached_exact
+            && result.as_ref().is_err_and(|mut error| {
+                // SharedCause adds no completion state. Contextual Cause and Completion
+                // remain opaque, including resource errors with uncertain reader cleanup.
+                while let ModelError::SharedCause(inner) = error {
+                    error = inner.as_ref();
+                }
+                matches!(error, ModelError::Resource { .. })
+            });
         if local_refusal {
             self.finish();
             result
@@ -1369,15 +1376,19 @@ impl NativeCompilerStore {
         // the cache. Only this borrowed path may refuse locally; fresh earning stays strict.
         let cached = match self.installed_views.lock() {
             Ok(views) => views.get(&view.identity).cloned(),
-            Err(_) => return lease.finish_with(Err(ModelError::Conflict("native installed view owner"))),
+            Err(_) => {
+                return lease.finish_with(Err(ModelError::Conflict("native installed view owner")));
+            }
         };
         let borrowed = cached.is_some();
-        let result = lease.within(async {
-            match cached {
-                Some(held) => self.borrow_cached_installed_view(held, view, budget).await,
-                None => self.installed_view_inner(view, budget).await,
-            }
-        }).await;
+        let result = lease
+            .within(async {
+                match cached {
+                    Some(held) => self.borrow_cached_installed_view(held, view, budget).await,
+                    None => self.installed_view_inner(view, budget).await,
+                }
+            })
+            .await;
         lease.finish_cached_view_borrow(result, borrowed)
     }
     /// Reader construction consumes native-held exact copies, never logical view
@@ -8521,7 +8532,11 @@ mod completion_tests {
         assert!(std::ptr::eq(unique[1], &package));
         assert!(retained.size() > 0);
         assert_eq!(budget.reserved(), retained.size());
-        assert_eq!(supplied.len(), 5, "the caller's semantic inventory is unchanged");
+        assert_eq!(
+            supplied.len(),
+            5,
+            "the caller's semantic inventory is unchanged"
+        );
         drop(unique);
         drop(retained);
         assert_eq!(budget.reserved(), 0);
@@ -8529,14 +8544,31 @@ mod completion_tests {
     #[test]
     fn declaration_views_refuse_invalid_later_duplicates_and_budget_before_native_work() {
         let budget = ResourceBudget::fixed(16384).unwrap();
-        let view = CompletedView::new("packages".into(), [ContentHash::of(b"declaration-refusal-control")].into(), 0).unwrap();
+        let view = CompletedView::new(
+            "packages".into(),
+            [ContentHash::of(b"declaration-refusal-control")].into(),
+            0,
+        )
+        .unwrap();
         let mut different = view.clone();
         different.rows = 1;
-        let error = distinct_declaration_views(&[&view, &view, &different], &budget).err().unwrap();
-        assert!(matches!(error, ModelError::Conflict("completed view identity")));
-        assert_eq!(budget.reserved(), 0, "refused input publishes no prepared declaration");
+        let error = distinct_declaration_views(&[&view, &view, &different], &budget)
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error,
+            ModelError::Conflict("completed view identity")
+        ));
+        assert_eq!(
+            budget.reserved(),
+            0,
+            "refused input publishes no prepared declaration"
+        );
         let small = ResourceBudget::fixed(1).unwrap();
-        assert!(matches!(distinct_declaration_views(&[&view], &small), Err(ModelError::Resource { .. })));
+        assert!(matches!(
+            distinct_declaration_views(&[&view], &small),
+            Err(ModelError::Resource { .. })
+        ));
         assert_eq!(small.reserved(), 0);
     }
     fn test_view_borrow_lease() -> (Arc<OperationAdmission>, OperationLease) {
@@ -8570,26 +8602,43 @@ mod completion_tests {
         ))));
         let mut unknown = d::completion::Completion::default();
         unknown.remote = d::completion::RemoteState::Unknown;
-        let unknown = d::completion::complete::<()>(Err(test_view_borrow_resource()), unknown)
-            .unwrap_err();
+        let unknown =
+            d::completion::complete::<()>(Err(test_view_borrow_resource()), unknown).unwrap_err();
         let mut failed_close = d::completion::Completion::default();
         failed_close.step("borrowed reader close", Err(test_view_borrow_resource()));
-        let failed_close = d::completion::complete::<()>(
-            Err(test_view_borrow_resource()), failed_close,
-        ).unwrap_err();
+        let failed_close =
+            d::completion::complete::<()>(Err(test_view_borrow_resource()), failed_close)
+                .unwrap_err();
         for (cached_exact, error, poisoned) in [
             (true, test_view_borrow_resource(), false),
             (true, shared, false),
             (false, test_view_borrow_resource(), true),
             (true, unknown, true),
             (true, failed_close, true),
-            (true, ModelError::Cause(Box::new(test_view_borrow_resource())), true),
-            (true, ModelError::Conflict("borrowed installation incarnation changed"), true),
-            (true, ModelError::infrastructure(d::Infrastructure::Unconfirmed, "borrowed reader close unknown"), true),
+            (
+                true,
+                ModelError::Cause(Box::new(test_view_borrow_resource())),
+                true,
+            ),
+            (
+                true,
+                ModelError::Conflict("borrowed installation incarnation changed"),
+                true,
+            ),
+            (
+                true,
+                ModelError::infrastructure(
+                    d::Infrastructure::Unconfirmed,
+                    "borrowed reader close unknown",
+                ),
+                true,
+            ),
         ] {
             let uncertain = !error.permits_storage_cleanup();
             let (owner, lease) = test_view_borrow_lease();
-            let error = lease.finish_cached_view_borrow::<()>(Err(error), cached_exact).unwrap_err();
+            let error = lease
+                .finish_cached_view_borrow::<()>(Err(error), cached_exact)
+                .unwrap_err();
             let state = owner.state.lock().unwrap();
             assert_eq!(state.active, 0);
             assert_eq!(state.failed, poisoned, "{error:?}");
@@ -8598,7 +8647,9 @@ mod completion_tests {
         }
         // Ordinary producer/write leases retain their strict resource policy.
         let (owner, lease) = test_view_borrow_lease();
-        lease.finish_with::<()>(Err(test_view_borrow_resource())).unwrap_err();
+        lease
+            .finish_with::<()>(Err(test_view_borrow_resource()))
+            .unwrap_err();
         assert!(owner.state.lock().unwrap().failed);
         // No local-error exemption is earned by dropping a pending borrow.
         let (owner, lease) = test_view_borrow_lease();
@@ -8612,40 +8663,84 @@ mod completion_tests {
         let config = RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
                 .expect("owned schema8 validation runtime"),
-        )).unwrap();
-        let store = NativeCompilerStore::begin(&config, Frontier::Facts).await.unwrap();
+        ))
+        .unwrap();
+        let store = NativeCompilerStore::begin(&config, Frontier::Facts)
+            .await
+            .unwrap();
         let observer = reader::connect(
-            &config.endpoint, &config.writer_credentials(),
-            store.namespace().as_str(), store.database().as_str(),
-        ).await.unwrap();
+            &config.endpoint,
+            &config.writer_credentials(),
+            store.namespace().as_str(),
+            store.database().as_str(),
+        )
+        .await
+        .unwrap();
         let result = async {
-            store.client.query("INFO FOR DB").await.map_err(reader::sdk_error)?
-                .check().map_err(reader::sdk_error)?;
+            store
+                .client
+                .query("INFO FOR DB")
+                .await
+                .map_err(reader::sdk_error)?
+                .check()
+                .map_err(reader::sdk_error)?;
             // A separate publisher session can close the attempt while the original
             // compiler session is still authenticated. Drain alone does not close it.
             crate::control::close_attempt(&observer, store.attempt(), "closed").await?;
             d::completion::complete(Ok(()), store.drain_report().await)?;
-            store.client.query("INFO FOR DB").await.map_err(reader::sdk_error)?
-                .check().map_err(reader::sdk_error)?;
-            assert!(!store.admission.source_finalization.lock().await.session_closed);
+            store
+                .client
+                .query("INFO FOR DB")
+                .await
+                .map_err(reader::sdk_error)?
+                .check()
+                .map_err(reader::sdk_error)?;
+            assert!(
+                !store
+                    .admission
+                    .source_finalization
+                    .lock()
+                    .await
+                    .session_closed
+            );
             store.abandon().await?;
             let source = store.admission.source_finalization.lock().await;
             assert!(source.attempt_closed && source.session_closed);
             drop(source);
             let response = store.client.query("INFO FOR DB").await;
-            assert!(response.and_then(|response| response.check()).is_err(),
-                "original compiler session must no longer authenticate database inspection");
-            let mut response = observer.query("SELECT VALUE state FROM $attempt")
-                .bind(("attempt", RecordId::new("native_attempt", store.attempt().hex())))
-                .await.map_err(reader::sdk_error)?.check().map_err(reader::sdk_error)?;
+            assert!(
+                response.and_then(|response| response.check()).is_err(),
+                "original compiler session must no longer authenticate database inspection"
+            );
+            let mut response = observer
+                .query("SELECT VALUE state FROM $attempt")
+                .bind((
+                    "attempt",
+                    RecordId::new("native_attempt", store.attempt().hex()),
+                ))
+                .await
+                .map_err(reader::sdk_error)?
+                .check()
+                .map_err(reader::sdk_error)?;
             let states: Vec<String> = response.take(0).map_err(ModelError::codec)?;
-            assert_eq!(states, ["closed"], "last-use finality preserves prior terminal state");
+            assert_eq!(
+                states,
+                ["closed"],
+                "last-use finality preserves prior terminal state"
+            );
             store.abandon().await?;
             Ok::<_, ModelError>(())
-        }.await;
+        }
+        .await;
         let mut terminal = d::completion::Completion::default();
-        terminal.step("last-use control original store finality", store.abandon().await);
-        terminal.step("last-use control observer finality", observer.invalidate().await.map_err(ModelError::codec));
+        terminal.step(
+            "last-use control original store finality",
+            store.abandon().await,
+        );
+        terminal.step(
+            "last-use control observer finality",
+            observer.invalidate().await.map_err(ModelError::codec),
+        );
         d::completion::complete(result, terminal).unwrap();
     }
     fn local_store() -> Arc<NativeCompilerStore> {

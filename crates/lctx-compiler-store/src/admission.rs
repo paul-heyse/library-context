@@ -1221,9 +1221,12 @@ impl AdmissionRuntime {
             } else {
                 None
             };
-            let session = external
-                .map(|(session, _)| session)
-                .unwrap_or_else(|| &owned_session.as_ref().expect("private admission session").context);
+            let session = external.map(|(session, _)| session).unwrap_or_else(|| {
+                &owned_session
+                    .as_ref()
+                    .expect("private admission session")
+                    .context
+            });
             let planner = external
                 .map(|(_, planner)| planner)
                 .unwrap_or(&inputs as &dyn ValidationPlanner);
@@ -2141,7 +2144,9 @@ impl AdmissionRuntime {
         owned: Option<&ValidationSession>,
     ) -> Result<(), ModelError> {
         self.cancellation.check()?;
-        if let Some(owned) = owned { owned.require_owner(self, session)?; }
+        if let Some(owned) = owned {
+            owned.require_owner(self, session)?;
+        }
         let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
         let mut tables = BTreeMap::<ContentHash, (Relation, String)>::new();
         let mut seen_views = BTreeMap::new();
@@ -2171,11 +2176,20 @@ impl AdmissionRuntime {
         // Captured companions carry independently protected canonical rows; each
         // selected copy of their IDs must preserve every typed field as well.
         for (position, (left_identity, (left_relation, left_table))) in tables.iter().enumerate() {
-            let matching = tables.iter().skip(position + 1).any(|(_, (right, _))| right.name() == left_relation.name());
+            let matching = tables
+                .iter()
+                .skip(position + 1)
+                .any(|(_, (right, _))| right.name() == left_relation.name());
             let left_empty = if matching {
-                match owned { Some(owned) => owned.earned_empty(self, session, left_identity).await?, None => false }
-            } else { false };
-            for (right_identity, (right_relation, right_table)) in tables.iter().skip(position + 1) {
+                match owned {
+                    Some(owned) => owned.earned_empty(self, session, left_identity).await?,
+                    None => false,
+                }
+            } else {
+                false
+            };
+            for (right_identity, (right_relation, right_table)) in tables.iter().skip(position + 1)
+            {
                 self.cancellation.check()?;
                 if left_relation.name() != right_relation.name() {
                     continue;
@@ -2202,7 +2216,9 @@ impl AdmissionRuntime {
                         owned.check_empty(self, session, left_identity)?;
                         continue;
                     }
-                    if owned.earned_empty(self, session, right_identity).await? { continue; }
+                    if owned.earned_empty(self, session, right_identity).await? {
+                        continue;
+                    }
                 }
                 let sql = format!(
                     "SELECT l.id FROM {} l JOIN {} r ON l.id=r.id WHERE {differences} LIMIT 1",
@@ -2229,9 +2245,18 @@ impl AdmissionRuntime {
             // One current-owner observation covers this synchronous empty-source
             // field block. Every field still checks cancellation and schema/premise
             // obligations; an empty block never suspends after earning this fact.
-            let empty = if relation.fields().iter().any(|field| !field.list() && field.target().is_some()) {
-                match owned { Some(owned) => owned.earned_empty(self, session, identity).await?, None => false }
-            } else { false };
+            let empty = if relation
+                .fields()
+                .iter()
+                .any(|field| !field.list() && field.target().is_some())
+            {
+                match owned {
+                    Some(owned) => owned.earned_empty(self, session, identity).await?,
+                    None => false,
+                }
+            } else {
+                false
+            };
             for field in relation.fields().iter().filter(|field| !field.list()) {
                 self.cancellation.check()?;
                 let Some((_, target)) = field.target() else {
@@ -2257,22 +2282,36 @@ impl AdmissionRuntime {
                 // an invalid declared reference target.
                 let subtype = if let Some((_, (target_relation, _))) = targets.first() {
                     if let Some(tag) = field.subtype() {
-                        let tag_field = target_relation.sum().ok_or(ModelError::Schema("nominal subtype target"))?.tag;
-                        format!(" OR t.{} IS NULL OR t.{}<>{tag}", quote(tag_field), quote(tag_field))
-                    } else { String::new() }
-                } else { String::new() };
+                        let tag_field = target_relation
+                            .sum()
+                            .ok_or(ModelError::Schema("nominal subtype target"))?
+                            .tag;
+                        format!(
+                            " OR t.{} IS NULL OR t.{}<>{tag}",
+                            quote(tag_field),
+                            quote(tag_field)
+                        )
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
                 if empty {
-                    owned.expect("earned empty private session").check_empty(self, session, identity)?;
+                    owned
+                        .expect("earned empty private session")
+                        .check_empty(self, session, identity)?;
                     self.remember_premise(Some(premise))?;
                     continue;
                 }
-                if owned.is_some() && self
-                    .memo
-                    .checked
-                    .lock()
-                    .map_err(|_| poisoned())?
-                    .0
-                    .contains(&premise)
+                if owned.is_some()
+                    && self
+                        .memo
+                        .checked
+                        .lock()
+                        .map_err(|_| poisoned())?
+                        .0
+                        .contains(&premise)
                 {
                     let owner = owned.expect("native reference memo owner");
                     // A preceding nonempty field may have suspended for SQL. Do
@@ -2316,7 +2355,9 @@ impl AdmissionRuntime {
                         )));
                     }
                 }
-                if owned.is_some() { self.remember_premise(Some(premise))?; }
+                if owned.is_some() {
+                    self.remember_premise(Some(premise))?;
+                }
             }
         }
         Ok(())
@@ -2332,29 +2373,51 @@ struct ValidationSession {
 }
 impl std::ops::Deref for ValidationSession {
     type Target = SessionContext;
-    fn deref(&self) -> &Self::Target { &self.context }
+    fn deref(&self) -> &Self::Target {
+        &self.context
+    }
 }
 impl ValidationSession {
-    fn require_owner(&self, runtime: &AdmissionRuntime, context: &SessionContext) -> Result<(), ModelError> {
+    fn require_owner(
+        &self,
+        runtime: &AdmissionRuntime,
+        context: &SessionContext,
+    ) -> Result<(), ModelError> {
         runtime.cancellation.check()?;
         if !Arc::ptr_eq(&self.native, &runtime.native) || !std::ptr::eq(&self.context, context) {
-            return Err(ModelError::Conflict("reference emptiness belongs to another session or native owner"));
+            return Err(ModelError::Conflict(
+                "reference emptiness belongs to another session or native owner",
+            ));
         }
         Ok(())
     }
-    fn check_empty(&self, runtime: &AdmissionRuntime, context: &SessionContext, identity: &ContentHash) -> Result<(), ModelError> {
+    fn check_empty(
+        &self,
+        runtime: &AdmissionRuntime,
+        context: &SessionContext,
+        identity: &ContentHash,
+    ) -> Result<(), ModelError> {
         self.require_owner(runtime, context)?;
         if let Some(sources) = self.native_sources.get(identity) {
-            for source in sources { source.check()?; }
+            for source in sources {
+                source.check()?;
+            }
         }
         Ok(())
     }
-    async fn earned_empty(&self, runtime: &AdmissionRuntime, context: &SessionContext, identity: &ContentHash) -> Result<bool, ModelError> {
+    async fn earned_empty(
+        &self,
+        runtime: &AdmissionRuntime,
+        context: &SessionContext,
+        identity: &ContentHash,
+    ) -> Result<bool, ModelError> {
         self.require_owner(runtime, context)?;
         if let Some(sources) = self.native_sources.get(identity) {
             // Nonempty providers also check their original producing and installed
             // owners before native reference memoization becomes eligible.
-            for source in sources { source.current().await?; }
+            for source in sources {
+                source.current().await?;
+            }
             runtime.cancellation.check()?;
             return Ok(sources.iter().all(|source| source.is_empty()));
         }
@@ -2385,34 +2448,68 @@ impl ValidationInputs {
     }
     fn private_session(&self, runtime: &AdmissionRuntime) -> ValidationSession {
         ValidationSession {
-            context: SessionContext::new_with_config_rt(runtime.context.copied_config(), runtime.context.runtime_env()),
+            context: SessionContext::new_with_config_rt(
+                runtime.context.copied_config(),
+                runtime.context.runtime_env(),
+            ),
             native: runtime.native.clone(),
             native_sources: BTreeMap::new(),
             empty_companions: BTreeSet::new(),
             _charge: StateCharge::new(runtime.budget(), "private reference source handles"),
         }
     }
-    async fn reference_session(&self, runtime: &AdmissionRuntime, external: &SessionContext) -> Result<Option<ValidationSession>, ModelError> {
+    async fn reference_session(
+        &self,
+        runtime: &AdmissionRuntime,
+        external: &SessionContext,
+    ) -> Result<Option<ValidationSession>, ModelError> {
         // Captured companions use the private inputs.session route. An external
         // companion registration cannot assert ownership of those captured rows.
-        if !self.companions.is_empty() { return Ok(None); }
+        if !self.companions.is_empty() {
+            return Ok(None);
+        }
         let mut snapshot = self.private_session(runtime);
         for ((name, prefix), source) in &self.relations {
             runtime.cancellation.check()?;
             let alias = Self::table(name, *prefix);
-            let provider = external.table_provider(alias.as_str()).await.map_err(ModelError::codec)?;
-            let Some(actual) = crate::compiler_provider::reference_source(&provider, &runtime.native, &source.view, &source.relation, runtime.budget()) else {
+            let provider = external
+                .table_provider(alias.as_str())
+                .await
+                .map_err(ModelError::codec)?;
+            let Some(actual) = crate::compiler_provider::reference_source(
+                &provider,
+                &runtime.native,
+                &source.view,
+                &source.relation,
+                runtime.budget(),
+            ) else {
                 return Ok(None);
             };
-            snapshot._charge.grow(alias.len().saturating_add(std::mem::size_of::<crate::compiler_provider::ReferenceSource>()).saturating_add(128))?;
-            snapshot.context.register_table(alias, actual.provider()).map_err(ModelError::codec)?;
-            snapshot.native_sources.entry(source.view.identity).or_default().push(actual);
+            snapshot._charge.grow(
+                alias
+                    .len()
+                    .saturating_add(
+                        std::mem::size_of::<crate::compiler_provider::ReferenceSource>(),
+                    )
+                    .saturating_add(128),
+            )?;
+            snapshot
+                .context
+                .register_table(alias, actual.provider())
+                .map_err(ModelError::codec)?;
+            snapshot
+                .native_sources
+                .entry(source.view.identity)
+                .or_default()
+                .push(actual);
         }
         // Qualify every captured source and target, including nonempty memo inputs,
         // only after all aliases match. Closed/failed owner errors propagate instead
         // of silently converting an actual native source to finite external SQL.
         for sources in snapshot.native_sources.values() {
-            for source in sources { source.current().await?; }
+            for source in sources {
+                source.current().await?;
+            }
         }
         runtime.cancellation.check()?;
         Ok(Some(snapshot))
@@ -2437,22 +2534,44 @@ impl ValidationInputs {
         }
         for companion in self.companions.values() {
             if companion.batches.iter().all(|batch| batch.num_rows() == 0) {
-                session._charge.grow(std::mem::size_of::<ContentHash>().saturating_add(64))?;
+                session
+                    ._charge
+                    .grow(std::mem::size_of::<ContentHash>().saturating_add(64))?;
                 session.empty_companions.insert(companion.identity);
             }
         }
         for ((name, prefix), source) in bindings {
-            let provider = runtime.native.table_provider(&source.view, source.relation.clone(), runtime.budget.clone(), runtime.options.batch_rows).await?;
-            let actual = crate::compiler_provider::reference_source(&provider, &runtime.native, &source.view, &source.relation, runtime.budget())
-                .ok_or(ModelError::Conflict("private reference provider differs from its input"))?;
-            session._charge.grow(std::mem::size_of::<crate::compiler_provider::ReferenceSource>().saturating_add(128))?;
-            session
-                .register_table(
-                    Self::table(name, *prefix),
-                    provider,
+            let provider = runtime
+                .native
+                .table_provider(
+                    &source.view,
+                    source.relation.clone(),
+                    runtime.budget.clone(),
+                    runtime.options.batch_rows,
                 )
+                .await?;
+            let actual = crate::compiler_provider::reference_source(
+                &provider,
+                &runtime.native,
+                &source.view,
+                &source.relation,
+                runtime.budget(),
+            )
+            .ok_or(ModelError::Conflict(
+                "private reference provider differs from its input",
+            ))?;
+            session._charge.grow(
+                std::mem::size_of::<crate::compiler_provider::ReferenceSource>()
+                    .saturating_add(128),
+            )?;
+            session
+                .register_table(Self::table(name, *prefix), provider)
                 .map_err(ModelError::codec)?;
-            session.native_sources.entry(source.view.identity).or_default().push(actual);
+            session
+                .native_sources
+                .entry(source.view.identity)
+                .or_default()
+                .push(actual);
         }
         let names = self
             .relations
@@ -2668,222 +2787,696 @@ impl<T: NativeRuntime> NativeRuntime for Arc<T> {
 #[cfg(test)]
 mod reference_empty_controls {
     use super::*;
-    use lctx_model::domain::{analysis::sources::SourceSnapshot, input::{Package, Release}};
-    fn runtime(model: Arc<ValidatedModel>, native: Option<Arc<NativeCompilerStore>>) -> Arc<AdmissionRuntime> {
-        let native = native.unwrap_or_else(|| NativeCompilerStore::from_existing(
-            Arc::new(lctx_native::surrealdb::Surreal::init()),
-            lctx_model::domain::serving::Name::new("reference_empty_control").unwrap(),
-            lctx_model::domain::serving::Name::new("reference_empty_control").unwrap(),
-        ));
-        AdmissionRuntime::with_budget(model, AdmissionOptions::default(),
-            ResourceBudget::fixed(AdmissionOptions::default().memory_bytes).unwrap(), native).unwrap()
+    use lctx_model::domain::{
+        analysis::sources::SourceSnapshot,
+        input::{Package, Release},
+    };
+    fn runtime(
+        model: Arc<ValidatedModel>,
+        native: Option<Arc<NativeCompilerStore>>,
+    ) -> Arc<AdmissionRuntime> {
+        let native = native.unwrap_or_else(|| {
+            NativeCompilerStore::from_existing(
+                Arc::new(lctx_native::surrealdb::Surreal::init()),
+                lctx_model::domain::serving::Name::new("reference_empty_control").unwrap(),
+                lctx_model::domain::serving::Name::new("reference_empty_control").unwrap(),
+            )
+        });
+        AdmissionRuntime::with_budget(
+            model,
+            AdmissionOptions::default(),
+            ResourceBudget::fixed(AdmissionOptions::default().memory_bytes).unwrap(),
+            native,
+        )
+        .unwrap()
     }
     fn companion<R: Record>(rows: &[R]) -> CompanionTable {
         let mut identity = lctx_model::domain::KeySink::new("reference-empty-control-companion");
         identity.part(b"relation", R::NAME.as_bytes());
-        for row in rows { identity.part(b"content", &row.content_digest().0); }
-        CompanionTable { relation: Relation::of::<R>(), batches: vec![R::encode(rows).unwrap()], identity: identity.finish() }
+        for row in rows {
+            identity.part(b"content", &row.content_digest().0);
+        }
+        CompanionTable {
+            relation: Relation::of::<R>(),
+            batches: vec![R::encode(rows).unwrap()],
+            identity: identity.finish(),
+        }
     }
     fn selected(runtime: &AdmissionRuntime, views: Vec<CompletedView>) -> ValidationInputs {
-        let bindings = views.into_iter().enumerate().map(|(role, view)| {
-            let relation = runtime.model.relation(&view.relation).unwrap();
-            SelectedBinding { role, requested: None, resolved: None, binding: CompletedBinding {
-                source: SourceSnapshot::of_completed_view(relation, runtime.model.digest(), &view).unwrap(),
-                view, boundary: None, configuration: None,
-            }}
-        }).collect();
+        let bindings = views
+            .into_iter()
+            .enumerate()
+            .map(|(role, view)| {
+                let relation = runtime.model.relation(&view.relation).unwrap();
+                SelectedBinding {
+                    role,
+                    requested: None,
+                    resolved: None,
+                    binding: CompletedBinding {
+                        source: SourceSnapshot::of_completed_view(
+                            relation,
+                            runtime.model.digest(),
+                            &view,
+                        )
+                        .unwrap(),
+                        view,
+                        boundary: None,
+                        configuration: None,
+                    },
+                }
+            })
+            .collect();
         runtime.selected(Profile::Catalog, bindings).unwrap()
     }
     #[tokio::test]
     async fn forged_external_zero_row_selection_cannot_hide_actual_dangling_rows() {
-        let model = Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()]).unwrap());
+        let model = Arc::new(
+            ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()])
+                .unwrap(),
+        );
         let runtime = runtime(model, None);
-        let views = [Package::NAME, Release::NAME].map(|name| CompletedView::new(name.into(), [ContentHash::of(b"unearned-reference-control-contributor")].into(), 0).unwrap());
+        let views = [Package::NAME, Release::NAME].map(|name| {
+            CompletedView::new(
+                name.into(),
+                [ContentHash::of(b"unearned-reference-control-contributor")].into(),
+                0,
+            )
+            .unwrap()
+        });
         let inputs = selected(&runtime, views.to_vec());
-        let package = Package { name: "missing-package".into() };
-        let dangling = Release { package: package.id(), version: "1.0".into() };
+        let package = Package {
+            name: "missing-package".into(),
+        };
+        let dangling = Release {
+            package: package.id(),
+            version: "1.0".into(),
+        };
         let session = SessionContext::new();
-        session.register_batch(ValidationInputs::table(Package::NAME, None), Package::encode(&[]).unwrap()).unwrap();
-        session.register_batch(ValidationInputs::table(Release::NAME, None), Release::encode(&[dangling]).unwrap()).unwrap();
-        let bindings = inputs.relations.values().map(|source| SelectedBinding { role: source.role,
-            requested: source.requested, resolved: source.resolved, binding: CompletedBinding {
-                source: source.source.snapshot(), view: source.view.clone(), boundary: None, configuration: None,
-            }}).collect();
-        let error = runtime.validate_compiler_selection(Profile::Catalog, false, bindings, &session, &inputs).await.unwrap_err();
-        assert!(error.to_string().contains("missing or wrong-subtype nominal reference"), "actual dangling row must be read: {error}");
+        session
+            .register_batch(
+                ValidationInputs::table(Package::NAME, None),
+                Package::encode(&[]).unwrap(),
+            )
+            .unwrap();
+        session
+            .register_batch(
+                ValidationInputs::table(Release::NAME, None),
+                Release::encode(&[dangling]).unwrap(),
+            )
+            .unwrap();
+        let bindings = inputs
+            .relations
+            .values()
+            .map(|source| SelectedBinding {
+                role: source.role,
+                requested: source.requested,
+                resolved: source.resolved,
+                binding: CompletedBinding {
+                    source: source.source.snapshot(),
+                    view: source.view.clone(),
+                    boundary: None,
+                    configuration: None,
+                },
+            })
+            .collect();
+        let error = runtime
+            .validate_compiler_selection(Profile::Catalog, false, bindings, &session, &inputs)
+            .await
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("missing or wrong-subtype nominal reference"),
+            "actual dangling row must be read: {error}"
+        );
         lctx_model::domain::completion::complete(Ok(()), runtime.drain_report().await).unwrap();
     }
     #[tokio::test]
-    async fn captured_empty_reference_premises_bind_all_targets_and_refuse_cancelled_or_foreign_sessions() {
-        let model = Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()]).unwrap());
+    async fn captured_empty_reference_premises_bind_all_targets_and_refuse_cancelled_or_foreign_sessions()
+     {
+        let model = Arc::new(
+            ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()])
+                .unwrap(),
+        );
         let runtime = runtime(model.clone(), None);
-        let mut inputs = ValidationInputs { relations: BTreeMap::new(), profile: Profile::Catalog,
-            companions: [(Package::NAME, companion::<Package>(&[])), (Release::NAME, companion::<Release>(&[]))].into() };
+        let mut inputs = ValidationInputs {
+            relations: BTreeMap::new(),
+            profile: Profile::Catalog,
+            companions: [
+                (Package::NAME, companion::<Package>(&[])),
+                (Release::NAME, companion::<Release>(&[])),
+            ]
+            .into(),
+        };
         let session = inputs.session(&runtime).await.unwrap();
-        runtime.validate_references(&session, &[], &inputs, Some(&session)).await.unwrap();
+        runtime
+            .validate_references(&session, &[], &inputs, Some(&session))
+            .await
+            .unwrap();
         let initial = runtime.memo.checked.lock().unwrap().0.len();
         assert!(initial > 0);
-        inputs.companions.insert(Package::NAME, companion(&[Package { name: "present-package".into() }]));
+        inputs.companions.insert(
+            Package::NAME,
+            companion(&[Package {
+                name: "present-package".into(),
+            }]),
+        );
         let changed = inputs.session(&runtime).await.unwrap();
-        runtime.validate_references(&changed, &[], &inputs, Some(&changed)).await.unwrap();
-        assert_eq!(runtime.memo.checked.lock().unwrap().0.len(), initial + 1, "empty target identities remain in the premise");
+        runtime
+            .validate_references(&changed, &[], &inputs, Some(&changed))
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime.memo.checked.lock().unwrap().0.len(),
+            initial + 1,
+            "empty target identities remain in the premise"
+        );
         inputs.companions.remove(Package::NAME);
         let missing = inputs.session(&runtime).await.unwrap();
-        runtime.validate_references(&missing, &[], &inputs, Some(&missing)).await.unwrap();
-        assert_eq!(runtime.memo.checked.lock().unwrap().0.len(), initial + 2, "missing-target identity remains distinct");
+        runtime
+            .validate_references(&missing, &[], &inputs, Some(&missing))
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime.memo.checked.lock().unwrap().0.len(),
+            initial + 2,
+            "missing-target identity remains distinct"
+        );
         let foreign = SessionContext::new();
-        assert!(runtime.validate_references(&foreign, &[], &inputs, Some(&missing)).await.is_err());
+        assert!(
+            runtime
+                .validate_references(&foreign, &[], &inputs, Some(&missing))
+                .await
+                .is_err()
+        );
         let other = self::runtime(model, None);
-        assert!(other.validate_references(&missing, &[], &inputs, Some(&missing)).await.is_err());
+        assert!(
+            other
+                .validate_references(&missing, &[], &inputs, Some(&missing))
+                .await
+                .is_err()
+        );
         runtime.cancellation.cancel();
-        assert!(runtime.validate_references(&missing, &[], &inputs, Some(&missing)).await.is_err());
+        assert!(
+            runtime
+                .validate_references(&missing, &[], &inputs, Some(&missing))
+                .await
+                .is_err()
+        );
         lctx_model::domain::completion::complete(Ok(()), runtime.drain_report().await).unwrap();
         lctx_model::domain::completion::complete(Ok(()), other.drain_report().await).unwrap();
     }
-    #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain, serde::Serialize, serde::Deserialize)]
+    #[derive(
+        Debug, Clone, PartialEq, Eq, lctx_model::Domain, serde::Serialize, serde::Deserialize,
+    )]
     #[model(name = "reference_subtype_source")]
     struct SubtypeSource {
         #[model(key)]
         key: i64,
         value: lctx_model::domain::ArmId<lctx_model::domain::value::Literal, 0>,
     }
-    #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain, serde::Serialize, serde::Deserialize)]
+    #[derive(
+        Debug, Clone, PartialEq, Eq, lctx_model::Domain, serde::Serialize, serde::Deserialize,
+    )]
     #[model(name = "literal_values")]
-    struct NonSumTarget { #[model(key)] key: i64 }
-    #[derive(Debug, Clone, PartialEq, Eq, lctx_model::Domain, serde::Serialize, serde::Deserialize)]
+    struct NonSumTarget {
+        #[model(key)]
+        key: i64,
+    }
+    #[derive(
+        Debug, Clone, PartialEq, Eq, lctx_model::Domain, serde::Serialize, serde::Deserialize,
+    )]
     #[model(name = "packages")]
-    struct DifferentPackageType { #[model(key)] name: String }
+    struct DifferentPackageType {
+        #[model(key)]
+        name: String,
+    }
     #[tokio::test]
     async fn empty_reference_source_still_rejects_nonsum_subtype_target() {
-        let model = Arc::new(ValidatedModel::declared(vec![Relation::of::<lctx_model::domain::value::Literal>(), Relation::of::<SubtypeSource>()]).unwrap());
+        let model = Arc::new(
+            ValidatedModel::declared(vec![
+                Relation::of::<lctx_model::domain::value::Literal>(),
+                Relation::of::<SubtypeSource>(),
+            ])
+            .unwrap(),
+        );
         let runtime = runtime(model, None);
-        let inputs = ValidationInputs { relations: BTreeMap::new(), profile: Profile::Catalog,
-            companions: [(SubtypeSource::NAME, companion::<SubtypeSource>(&[])), (NonSumTarget::NAME, companion::<NonSumTarget>(&[]))].into() };
+        let inputs = ValidationInputs {
+            relations: BTreeMap::new(),
+            profile: Profile::Catalog,
+            companions: [
+                (SubtypeSource::NAME, companion::<SubtypeSource>(&[])),
+                (NonSumTarget::NAME, companion::<NonSumTarget>(&[])),
+            ]
+            .into(),
+        };
         let session = inputs.session(&runtime).await.unwrap();
-        assert!(matches!(runtime.validate_references(&session, &[], &inputs, Some(&session)).await,
-            Err(ModelError::Schema("nominal subtype target"))));
+        assert!(matches!(
+            runtime
+                .validate_references(&session, &[], &inputs, Some(&session))
+                .await,
+            Err(ModelError::Schema("nominal subtype target"))
+        ));
         lctx_model::domain::completion::complete(Ok(()), runtime.drain_report().await).unwrap();
     }
     #[tokio::test]
     async fn owned_native_empty_reference_proof_refuses_failed_source_even_after_memo_success() {
-        use lctx_model::domain::{completed::{ContributionSpec, OutputProfile}, stages::ProviderOutcome};
+        use lctx_model::domain::{
+            completed::{ContributionSpec, OutputProfile},
+            stages::ProviderOutcome,
+        };
         let config = lctx_native::RuntimeConfig::read(&std::path::PathBuf::from(
-            std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("explicit owned validation fixture"))).unwrap();
-        let model = Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()]).unwrap());
-        let native = NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts).await.unwrap();
+            std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
+                .expect("explicit owned validation fixture"),
+        ))
+        .unwrap();
+        let model = Arc::new(
+            ValidatedModel::declared(vec![Relation::of::<Package>(), Relation::of::<Release>()])
+                .unwrap(),
+        );
+        let native =
+            NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
+                .await
+                .unwrap();
         let runtime = runtime(model.clone(), Some(native.clone()));
         let outcome = std::panic::AssertUnwindSafe(async {
             let relations = [Relation::of::<Package>(), Relation::of::<Release>()];
-            let pending = native.begin_contribution(ContributionSpec { captured_binding: None, producer: "empty-reference-control".into(),
-                profile: OutputProfile::Specific(Profile::Catalog), model: model.digest(),
-                implementation: ContentHash::of(b"empty-reference-control/v1"), configuration: None, inputs: vec![],
-                outputs: relations.iter().map(|relation| relation.name().into()).collect() }).await.unwrap();
-            native.write_batch(&pending, &relations[0], &Package::encode(&[]).unwrap(), runtime.budget()).await.unwrap();
-            native.write_batch(&pending, &relations[1], &Release::encode(&[]).unwrap(), runtime.budget()).await.unwrap();
-            let views = native.complete_contribution(pending, ProviderOutcome::Complete, &relations, &BTreeMap::new(), runtime.budget()).await.unwrap();
+            let pending = native
+                .begin_contribution(ContributionSpec {
+                    captured_binding: None,
+                    producer: "empty-reference-control".into(),
+                    profile: OutputProfile::Specific(Profile::Catalog),
+                    model: model.digest(),
+                    implementation: ContentHash::of(b"empty-reference-control/v1"),
+                    configuration: None,
+                    inputs: vec![],
+                    outputs: relations
+                        .iter()
+                        .map(|relation| relation.name().into())
+                        .collect(),
+                })
+                .await
+                .unwrap();
+            native
+                .write_batch(
+                    &pending,
+                    &relations[0],
+                    &Package::encode(&[]).unwrap(),
+                    runtime.budget(),
+                )
+                .await
+                .unwrap();
+            native
+                .write_batch(
+                    &pending,
+                    &relations[1],
+                    &Release::encode(&[]).unwrap(),
+                    runtime.budget(),
+                )
+                .await
+                .unwrap();
+            let views = native
+                .complete_contribution(
+                    pending,
+                    ProviderOutcome::Complete,
+                    &relations,
+                    &BTreeMap::new(),
+                    runtime.budget(),
+                )
+                .await
+                .unwrap();
             let inputs = selected(&runtime, views.into_values().collect());
             let session = inputs.session(&runtime).await.unwrap();
             assert_eq!(session.native_sources.len(), 2);
-            runtime.validate_references(&session, &[], &inputs, Some(&session)).await.unwrap();
+            runtime
+                .validate_references(&session, &[], &inputs, Some(&session))
+                .await
+                .unwrap();
             assert!(!runtime.memo.checked.lock().unwrap().0.is_empty());
             // Production compiler selection supplies external sessions of actual
             // native providers. Preserve their producing owner in a private snapshot.
-            let producing = native.producing_scope(ContentHash::of(b"empty-reference-producing"), runtime.budget()).unwrap();
+            let producing = native
+                .producing_scope(
+                    ContentHash::of(b"empty-reference-producing"),
+                    runtime.budget(),
+                )
+                .unwrap();
             let external_native = SessionContext::new();
             for (name, prefix) in inputs.relations.keys() {
-                let provider = session.table_provider(ValidationInputs::table(name, *prefix)).await.unwrap();
-                let bound = crate::compiler_provider::bind_producing(&provider, &producing).unwrap();
-                external_native.register_table(ValidationInputs::table(name, *prefix), bound).unwrap();
+                let provider = session
+                    .table_provider(ValidationInputs::table(name, *prefix))
+                    .await
+                    .unwrap();
+                let bound =
+                    crate::compiler_provider::bind_producing(&provider, &producing).unwrap();
+                external_native
+                    .register_table(ValidationInputs::table(name, *prefix), bound)
+                    .unwrap();
             }
-            let snapshot = inputs.reference_session(&runtime, &external_native).await.unwrap().expect("actual native aliases earn the snapshot");
-            runtime.validate_references(&snapshot, &[], &inputs, Some(&snapshot)).await.unwrap();
-            let package_source = inputs.relations.values().find(|source| source.relation.name() == Package::NAME).unwrap();
-            let package_provider = external_native.table_provider(ValidationInputs::table(Package::NAME, None)).await.unwrap();
-            assert!(crate::compiler_provider::reference_source(&package_provider, &native, &package_source.view, &package_source.relation, runtime.budget()).is_some());
-            let wrong_store = NativeCompilerStore::from_existing(Arc::new(lctx_native::surrealdb::Surreal::init()),
+            let snapshot = inputs
+                .reference_session(&runtime, &external_native)
+                .await
+                .unwrap()
+                .expect("actual native aliases earn the snapshot");
+            runtime
+                .validate_references(&snapshot, &[], &inputs, Some(&snapshot))
+                .await
+                .unwrap();
+            let package_source = inputs
+                .relations
+                .values()
+                .find(|source| source.relation.name() == Package::NAME)
+                .unwrap();
+            let package_provider = external_native
+                .table_provider(ValidationInputs::table(Package::NAME, None))
+                .await
+                .unwrap();
+            assert!(
+                crate::compiler_provider::reference_source(
+                    &package_provider,
+                    &native,
+                    &package_source.view,
+                    &package_source.relation,
+                    runtime.budget()
+                )
+                .is_some()
+            );
+            let wrong_store = NativeCompilerStore::from_existing(
+                Arc::new(lctx_native::surrealdb::Surreal::init()),
                 lctx_model::domain::serving::Name::new("different_reference_owner").unwrap(),
-                lctx_model::domain::serving::Name::new("different_reference_owner").unwrap());
-            let wrong_store_eligible = crate::compiler_provider::reference_source(&package_provider, &wrong_store, &package_source.view, &package_source.relation, runtime.budget()).is_some();
-            lctx_model::domain::completion::complete(Ok(()), wrong_store.drain_report().await).unwrap();
+                lctx_model::domain::serving::Name::new("different_reference_owner").unwrap(),
+            );
+            let wrong_store_eligible = crate::compiler_provider::reference_source(
+                &package_provider,
+                &wrong_store,
+                &package_source.view,
+                &package_source.relation,
+                runtime.budget(),
+            )
+            .is_some();
+            lctx_model::domain::completion::complete(Ok(()), wrong_store.drain_report().await)
+                .unwrap();
             assert!(!wrong_store_eligible);
-            let different_view = CompletedView::new(package_source.view.relation.clone(), package_source.view.contributions.clone(), 1).unwrap();
-            assert!(crate::compiler_provider::reference_source(&package_provider, &native, &different_view, &package_source.relation, runtime.budget()).is_none());
-            assert!(crate::compiler_provider::reference_source(&package_provider, &native, &package_source.view, &Relation::of::<Release>(), runtime.budget()).is_none());
-            assert!(crate::compiler_provider::reference_source(&package_provider, &native, &package_source.view, &Relation::of::<DifferentPackageType>(), runtime.budget()).is_none(), "Arrow shape cannot substitute for typed relation identity");
-            assert!(crate::compiler_provider::reference_source(&package_provider, &native, &package_source.view, &package_source.relation, &ResourceBudget::fixed(runtime.budget().limit()).unwrap()).is_none());
-            let filtered = crate::compiler_provider::select_table(&package_provider, Arc::new(vec![[1;16]]), Arc::new(StateCharge::new(runtime.budget(), "reference filtered control"))).unwrap().unwrap();
-            assert!(crate::compiler_provider::reference_source(&filtered, &native, &package_source.view, &package_source.relation, runtime.budget()).is_none());
+            let different_view = CompletedView::new(
+                package_source.view.relation.clone(),
+                package_source.view.contributions.clone(),
+                1,
+            )
+            .unwrap();
+            assert!(
+                crate::compiler_provider::reference_source(
+                    &package_provider,
+                    &native,
+                    &different_view,
+                    &package_source.relation,
+                    runtime.budget()
+                )
+                .is_none()
+            );
+            assert!(
+                crate::compiler_provider::reference_source(
+                    &package_provider,
+                    &native,
+                    &package_source.view,
+                    &Relation::of::<Release>(),
+                    runtime.budget()
+                )
+                .is_none()
+            );
+            assert!(
+                crate::compiler_provider::reference_source(
+                    &package_provider,
+                    &native,
+                    &package_source.view,
+                    &Relation::of::<DifferentPackageType>(),
+                    runtime.budget()
+                )
+                .is_none(),
+                "Arrow shape cannot substitute for typed relation identity"
+            );
+            assert!(
+                crate::compiler_provider::reference_source(
+                    &package_provider,
+                    &native,
+                    &package_source.view,
+                    &package_source.relation,
+                    &ResourceBudget::fixed(runtime.budget().limit()).unwrap()
+                )
+                .is_none()
+            );
+            let filtered = crate::compiler_provider::select_table(
+                &package_provider,
+                Arc::new(vec![[1; 16]]),
+                Arc::new(StateCharge::new(
+                    runtime.budget(),
+                    "reference filtered control",
+                )),
+            )
+            .unwrap()
+            .unwrap();
+            assert!(
+                crate::compiler_provider::reference_source(
+                    &filtered,
+                    &native,
+                    &package_source.view,
+                    &package_source.relation,
+                    runtime.budget()
+                )
+                .is_none()
+            );
             // The same exact declared views and memo must not vouch for arbitrary
             // external tables that contain a nonempty dangling source.
             let external = SessionContext::new();
-            let absent = Package { name: "absent-from-owned-empty-view".into() };
-            let dangling = Release { package: absent.id(), version: "1.0".into() };
-            external.register_batch(ValidationInputs::table(Package::NAME, None), Package::encode(&[]).unwrap()).unwrap();
-            external.register_batch(ValidationInputs::table(Release::NAME, None), Release::encode(&[dangling]).unwrap()).unwrap();
-            let replacement = external.table_provider(ValidationInputs::table(Release::NAME, None)).await.unwrap();
-            external_native.deregister_table(ValidationInputs::table(Release::NAME, None)).unwrap().unwrap();
-            external_native.register_table(ValidationInputs::table(Release::NAME, None), replacement).unwrap();
+            let absent = Package {
+                name: "absent-from-owned-empty-view".into(),
+            };
+            let dangling = Release {
+                package: absent.id(),
+                version: "1.0".into(),
+            };
+            external
+                .register_batch(
+                    ValidationInputs::table(Package::NAME, None),
+                    Package::encode(&[]).unwrap(),
+                )
+                .unwrap();
+            external
+                .register_batch(
+                    ValidationInputs::table(Release::NAME, None),
+                    Release::encode(&[dangling]).unwrap(),
+                )
+                .unwrap();
+            let replacement = external
+                .table_provider(ValidationInputs::table(Release::NAME, None))
+                .await
+                .unwrap();
+            external_native
+                .deregister_table(ValidationInputs::table(Release::NAME, None))
+                .unwrap()
+                .unwrap();
+            external_native
+                .register_table(ValidationInputs::table(Release::NAME, None), replacement)
+                .unwrap();
             // The already captured original native Arcs remain the authority.
-            runtime.validate_references(&snapshot, &[], &inputs, Some(&snapshot)).await.unwrap();
-            assert!(inputs.reference_session(&runtime, &external_native).await.unwrap().is_none(), "a later capture sees the finite replacement");
-            let bindings = inputs.relations.values().map(|source| SelectedBinding { role: source.role,
-                requested: source.requested, resolved: source.resolved, binding: CompletedBinding {
-                    source: source.source.snapshot(), view: source.view.clone(), boundary: None, configuration: None,
-                }}).collect();
-            let external_error = runtime.validate_compiler_selection(Profile::Catalog, false, bindings, &external, &inputs).await.unwrap_err();
-            assert!(external_error.to_string().contains("missing or wrong-subtype nominal reference"),
-                "owned empty memo must not bypass external actual rows: {external_error}");
+            runtime
+                .validate_references(&snapshot, &[], &inputs, Some(&snapshot))
+                .await
+                .unwrap();
+            assert!(
+                inputs
+                    .reference_session(&runtime, &external_native)
+                    .await
+                    .unwrap()
+                    .is_none(),
+                "a later capture sees the finite replacement"
+            );
+            let bindings = inputs
+                .relations
+                .values()
+                .map(|source| SelectedBinding {
+                    role: source.role,
+                    requested: source.requested,
+                    resolved: source.resolved,
+                    binding: CompletedBinding {
+                        source: source.source.snapshot(),
+                        view: source.view.clone(),
+                        boundary: None,
+                        configuration: None,
+                    },
+                })
+                .collect();
+            let external_error = runtime
+                .validate_compiler_selection(Profile::Catalog, false, bindings, &external, &inputs)
+                .await
+                .unwrap_err();
+            assert!(
+                external_error
+                    .to_string()
+                    .contains("missing or wrong-subtype nominal reference"),
+                "owned empty memo must not bypass external actual rows: {external_error}"
+            );
             producing.close_and_wait().await.unwrap();
-            assert!(runtime.validate_references(&snapshot, &[], &inputs, Some(&snapshot)).await.is_err(), "empty/memo proof cannot outlive its original producing scope");
+            assert!(
+                runtime
+                    .validate_references(&snapshot, &[], &inputs, Some(&snapshot))
+                    .await
+                    .is_err(),
+                "empty/memo proof cannot outlive its original producing scope"
+            );
             // Restore actual native registrations so closed-owner failure cannot
             // be confused with the finite-provider fallback above.
             for ((name, prefix), source) in &inputs.relations {
-                let provider = session.table_provider(ValidationInputs::table(name, *prefix)).await.unwrap();
-                external_native.deregister_table(ValidationInputs::table(name, *prefix)).unwrap().unwrap();
-                external_native.register_table(ValidationInputs::table(name, *prefix), crate::compiler_provider::bind_producing(&provider, &producing).unwrap()).unwrap();
+                let provider = session
+                    .table_provider(ValidationInputs::table(name, *prefix))
+                    .await
+                    .unwrap();
+                external_native
+                    .deregister_table(ValidationInputs::table(name, *prefix))
+                    .unwrap()
+                    .unwrap();
+                external_native
+                    .register_table(
+                        ValidationInputs::table(name, *prefix),
+                        crate::compiler_provider::bind_producing(&provider, &producing).unwrap(),
+                    )
+                    .unwrap();
                 assert_eq!(source.view.rows, 0);
             }
-            assert!(inputs.reference_session(&runtime, &external_native).await.is_err(), "closed actual owner must propagate instead of falling back");
+            assert!(
+                inputs
+                    .reference_session(&runtime, &external_native)
+                    .await
+                    .is_err(),
+                "closed actual owner must propagate instead of falling back"
+            );
             // Nonempty reference SQL can earn memo reuse too; it still belongs
             // to the original producing owner rather than just logical identities.
-            let pending = native.begin_contribution(ContributionSpec { captured_binding: None, producer: "nonempty-reference-control".into(),
-                profile: OutputProfile::Specific(Profile::Catalog), model: model.digest(),
-                implementation: ContentHash::of(b"nonempty-reference-control/v1"), configuration: None, inputs: vec![],
-                outputs: relations.iter().map(|relation| relation.name().into()).collect() }).await.unwrap();
-            let package = Package { name: "actual-reference-target".into() };
-            let release = Release { package: package.id(), version: "1.0".into() };
-            native.write_batch(&pending, &relations[0], &Package::encode(&[package]).unwrap(), runtime.budget()).await.unwrap();
-            native.write_batch(&pending, &relations[1], &Release::encode(&[release]).unwrap(), runtime.budget()).await.unwrap();
-            let views = native.complete_contribution(pending, ProviderOutcome::Complete, &relations, &BTreeMap::new(), runtime.budget()).await.unwrap();
+            let pending = native
+                .begin_contribution(ContributionSpec {
+                    captured_binding: None,
+                    producer: "nonempty-reference-control".into(),
+                    profile: OutputProfile::Specific(Profile::Catalog),
+                    model: model.digest(),
+                    implementation: ContentHash::of(b"nonempty-reference-control/v1"),
+                    configuration: None,
+                    inputs: vec![],
+                    outputs: relations
+                        .iter()
+                        .map(|relation| relation.name().into())
+                        .collect(),
+                })
+                .await
+                .unwrap();
+            let package = Package {
+                name: "actual-reference-target".into(),
+            };
+            let release = Release {
+                package: package.id(),
+                version: "1.0".into(),
+            };
+            native
+                .write_batch(
+                    &pending,
+                    &relations[0],
+                    &Package::encode(&[package]).unwrap(),
+                    runtime.budget(),
+                )
+                .await
+                .unwrap();
+            native
+                .write_batch(
+                    &pending,
+                    &relations[1],
+                    &Release::encode(&[release]).unwrap(),
+                    runtime.budget(),
+                )
+                .await
+                .unwrap();
+            let views = native
+                .complete_contribution(
+                    pending,
+                    ProviderOutcome::Complete,
+                    &relations,
+                    &BTreeMap::new(),
+                    runtime.budget(),
+                )
+                .await
+                .unwrap();
             let nonempty = selected(&runtime, views.into_values().collect());
             let base = nonempty.session(&runtime).await.unwrap();
-            let scope = native.producing_scope(ContentHash::of(b"nonempty-reference-producing"), runtime.budget()).unwrap();
+            let scope = native
+                .producing_scope(
+                    ContentHash::of(b"nonempty-reference-producing"),
+                    runtime.budget(),
+                )
+                .unwrap();
             let external_nonempty = SessionContext::new();
             for (name, prefix) in nonempty.relations.keys() {
                 let alias = ValidationInputs::table(name, *prefix);
                 let provider = base.table_provider(alias.as_str()).await.unwrap();
-                external_nonempty.register_table(alias, crate::compiler_provider::bind_producing(&provider, &scope).unwrap()).unwrap();
+                external_nonempty
+                    .register_table(
+                        alias,
+                        crate::compiler_provider::bind_producing(&provider, &scope).unwrap(),
+                    )
+                    .unwrap();
             }
-            let nonempty_snapshot = nonempty.reference_session(&runtime, &external_nonempty).await.unwrap().unwrap();
+            let nonempty_snapshot = nonempty
+                .reference_session(&runtime, &external_nonempty)
+                .await
+                .unwrap()
+                .unwrap();
             let before = runtime.memo.checked.lock().unwrap().0.len();
-            runtime.validate_references(&nonempty_snapshot, &[], &nonempty, Some(&nonempty_snapshot)).await.unwrap();
+            runtime
+                .validate_references(&nonempty_snapshot, &[], &nonempty, Some(&nonempty_snapshot))
+                .await
+                .unwrap();
             let checked = runtime.memo.checked.lock().unwrap().0.len();
-            assert!(checked > before, "actual nonempty reference SQL earns its own full premise");
-            runtime.validate_references(&nonempty_snapshot, &[], &nonempty, Some(&nonempty_snapshot)).await.unwrap();
+            assert!(
+                checked > before,
+                "actual nonempty reference SQL earns its own full premise"
+            );
+            runtime
+                .validate_references(&nonempty_snapshot, &[], &nonempty, Some(&nonempty_snapshot))
+                .await
+                .unwrap();
             assert_eq!(runtime.memo.checked.lock().unwrap().0.len(), checked);
             scope.close_and_wait().await.unwrap();
-            assert!(runtime.validate_references(&nonempty_snapshot, &[], &nonempty, Some(&nonempty_snapshot)).await.is_err(), "nonempty memo cannot outlive producing authority");
+            assert!(
+                runtime
+                    .validate_references(
+                        &nonempty_snapshot,
+                        &[],
+                        &nonempty,
+                        Some(&nonempty_snapshot)
+                    )
+                    .await
+                    .is_err(),
+                "nonempty memo cannot outlive producing authority"
+            );
             native.fail();
-            assert!(runtime.validate_references(&session, &[], &inputs, Some(&session)).await.is_err(),
-                "cached empty premise cannot outlive native source authority");
-        }).catch_unwind().await;
+            assert!(
+                runtime
+                    .validate_references(&session, &[], &inputs, Some(&session))
+                    .await
+                    .is_err(),
+                "cached empty premise cannot outlive native source authority"
+            );
+        })
+        .catch_unwind()
+        .await;
         let mut terminal = runtime.drain_owned_report().await;
-        terminal.step("empty reference original native finality", native.abandon().await);
+        terminal.step(
+            "empty reference original native finality",
+            native.abandon().await,
+        );
         let settled = runtime.complete_signal(&terminal).await;
         terminal.step("empty reference runtime signal finality", settled);
         let cleanup = lctx_model::domain::completion::complete(Ok(()), terminal);
         if let Err(panic) = outcome {
-            if let Err(error) = cleanup { eprintln!("empty reference cleanup also failed: {error}"); }
+            if let Err(error) = cleanup {
+                eprintln!("empty reference cleanup also failed: {error}");
+            }
             std::panic::resume_unwind(panic);
         }
         cleanup.unwrap();

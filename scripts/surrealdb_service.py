@@ -1533,11 +1533,15 @@ def _private_campaign_record(path: Path) -> tuple[dict[str, Any], bytes]:
                 raise ValueError
             raw = stream.read()
             row = json.loads(raw)
-            if not isinstance(row, dict) or executable_identity(path.lstat()) != executable_identity(info):
+            if not isinstance(row, dict) or executable_identity(
+                path.lstat()
+            ) != executable_identity(info):
                 raise ValueError
             return row, raw
     except OSError, ValueError, TypeError:
-        raise FixtureBlocked("ownership", "campaign maintenance record is not private and physical") from None
+        raise FixtureBlocked(
+            "ownership", "campaign maintenance record is not private and physical"
+        ) from None
 
 
 def _run_maintenance_installer(
@@ -1549,24 +1553,48 @@ def _run_maintenance_installer(
 
     run_path = runs.new_run_dir()
     with admission([installation.directory, run_path]):
-        argv = ["/usr/bin/env", "LCTX_SURREAL_SERVICE_CONFIG=" + str(installation.directory / "installation.json"), *args]
-        owner = runs.Owner(run_path, argv, label=f"lifecycle-maintenance-{action}-{database}", cwd=str(ROOT), mode="foreground", stream=True)
+        argv = [
+            "/usr/bin/env",
+            "LCTX_SURREAL_SERVICE_CONFIG=" + str(installation.directory / "installation.json"),
+            *args,
+        ]
+        owner = runs.Owner(
+            run_path,
+            argv,
+            label=f"lifecycle-maintenance-{action}-{database}",
+            cwd=str(ROOT),
+            mode="foreground",
+            stream=True,
+        )
         owner.write()
         consumer = f"lifecycle-maintenance:{installation.id}:{run_path.name}"
-        content = Storage().publish(run_path, "run-receipt", {"kind": "run", "path": str(run_path)}, consumer, managed=True)
+        content = Storage().publish(
+            run_path, "run-receipt", {"kind": "run", "path": str(run_path)}, consumer, managed=True
+        )
         directory = installation.directory / "maintenance-commands"
         directory.mkdir(mode=0o700, exist_ok=True)
         reference = directory / (run_path.name + ".json")
-        private_json(reference, {
-            "installation_id": installation.id,
-            "generation": bytes(installation.record["service_generation"]).hex(),
-            "run_path": str(run_path), "owner": owner.record["owner"], "argv": argv,
-            "storage": {"receipt": content, "consumer": consumer},
-        })
+        private_json(
+            reference,
+            {
+                "installation_id": installation.id,
+                "generation": bytes(installation.record["service_generation"]).hex(),
+                "run_path": str(run_path),
+                "owner": owner.record["owner"],
+                "argv": argv,
+                "storage": {"receipt": content, "consumer": consumer},
+            },
+        )
         code = owner.run()
         record = runs.load_record(run_path)
-        if record is not None and not runs.cleanup_protected(record) and runs.group_of(record)["status"] == "gone":
-            Storage().release(content, consumer, "ordinary maintenance command local drainage confirmed")
+        if (
+            record is not None
+            and not runs.cleanup_protected(record)
+            and runs.group_of(record)["status"] == "gone"
+        ):
+            Storage().release(
+                content, consumer, "ordinary maintenance command local drainage confirmed"
+            )
             reference.unlink()
         # An interrupted owner leaves the enrolled reference and its consumer intact.
         return code
@@ -1576,7 +1604,11 @@ def _campaign_run_quiescence(run_path: Path, record: dict[str, Any]) -> dict[str
     import runs
 
     try:
-        if not run_path.is_absolute() or ".." in run_path.parts or any(p.is_symlink() for p in (run_path, *run_path.parents)):
+        if (
+            not run_path.is_absolute()
+            or ".." in run_path.parts
+            or any(p.is_symlink() for p in (run_path, *run_path.parents))
+        ):
             raise ValueError
         current, _ = _private_campaign_record(run_path / runs.RECORD)
         if current != record or record.get("id") != run_path.name:
@@ -1586,7 +1618,9 @@ def _campaign_run_quiescence(run_path: Path, record: dict[str, Any]) -> dict[str
         if owner.foreign() or runs.owner_alive(run_path, record) or group["status"] != "gone":
             raise ValueError
     except KeyError, TypeError, ValueError:
-        raise FixtureBlocked("drainage", "campaign command current owner/group quiescence is unavailable") from None
+        raise FixtureBlocked(
+            "drainage", "campaign command current owner/group quiescence is unavailable"
+        ) from None
     return {"run_path": str(run_path), "owner": owner.to_json(), "group": group}
 
 
@@ -1598,8 +1632,22 @@ def _campaign_host_participants(installation: Installation) -> dict[str, Any]:
     client ancestor is not exempt. No raw environment or command text is retained.
     """
     root = installation.directory
-    selectors = {str(root / "installation.json"), *(str(installation.runtime_path(db, installer=privileged)) for db in DATABASES for privileged in (False, True))}
-    keys = {"LCTX_SURREAL_SERVICE_CONFIG", "LCTX_SURREAL_TEST_CONFIG", "LCTX_COMPILER_RUNTIME_CONFIG", "LCTX_SURREAL_INSTALLER_CONFIG", "LCTX_NATIVE_DRAIN_DIRECTORY", "LCTX_NATIVE_SERVING_CONFIG"}
+    selectors = {
+        str(root / "installation.json"),
+        *(
+            str(installation.runtime_path(db, installer=privileged))
+            for db in DATABASES
+            for privileged in (False, True)
+        ),
+    }
+    keys = {
+        "LCTX_SURREAL_SERVICE_CONFIG",
+        "LCTX_SURREAL_TEST_CONFIG",
+        "LCTX_COMPILER_RUNTIME_CONFIG",
+        "LCTX_SURREAL_INSTALLER_CONFIG",
+        "LCTX_NATIVE_DRAIN_DIRECTORY",
+        "LCTX_NATIVE_SERVING_CONFIG",
+    }
     ancestors = set()
     parent = os.getppid()
     while parent > 1:
@@ -1620,10 +1668,25 @@ def _campaign_host_participants(installation: Installation) -> dict[str, Any]:
             selected = any(token.decode(errors="replace") in selectors for token in argv)
             for token in argv:
                 key, _, value = token.partition(b"=")
-                selected |= key.decode(errors="replace") in keys and value.decode(errors="replace") in selectors
+                selected |= (
+                    key.decode(errors="replace") in keys
+                    and value.decode(errors="replace") in selectors
+                )
             supported = selected or any(
-                Path(token.decode(errors="replace")).name in {"lctx", "lctx-surreal-dev", "surrealdb_fixture.py", "surrealdb_service.py", "surrealdb_development.py", "pytest", "pytest3"}
-                or re.fullmatch(r"python(?:3(?:\.[0-9]+)?)?", Path(token.decode(errors="replace")).name) is not None
+                Path(token.decode(errors="replace")).name
+                in {
+                    "lctx",
+                    "lctx-surreal-dev",
+                    "surrealdb_fixture.py",
+                    "surrealdb_service.py",
+                    "surrealdb_development.py",
+                    "pytest",
+                    "pytest3",
+                }
+                or re.fullmatch(
+                    r"python(?:3(?:\.[0-9]+)?)?", Path(token.decode(errors="replace")).name
+                )
+                is not None
                 or str(ROOT / "target") + "/" in token.decode(errors="replace")
                 for token in argv
             )
@@ -1631,13 +1694,18 @@ def _campaign_host_participants(installation: Installation) -> dict[str, Any]:
                 environment = (process / "environ").read_bytes().split(b"\0")
             except PermissionError:
                 if supported:
-                    raise FixtureBlocked("drainage", "current supported host participant selector coverage is inaccessible") from None
+                    raise FixtureBlocked(
+                        "drainage",
+                        "current supported host participant selector coverage is inaccessible",
+                    ) from None
                 continue
             checked += 1
             for token in environment:
                 key, _, value = token.partition(b"=")
                 decoded = value.decode(errors="replace")
-                selected |= key.decode(errors="replace") in keys and (decoded in selectors or decoded.startswith(str(root / "attachments") + "/"))
+                selected |= key.decode(errors="replace") in keys and (
+                    decoded in selectors or decoded.startswith(str(root / "attachments") + "/")
+                )
             if not selected:
                 continue
             identity = ProcessIdentity.of(int(process.name))
@@ -1647,18 +1715,31 @@ def _campaign_host_participants(installation: Installation) -> dict[str, Any]:
             if executor is not None and identity == executor[0]:
                 if executable_identity((process / "exe").stat()) == executor[1]:
                     continue
-                raise FixtureBlocked("identity", "campaign executor changed during participant inspection")
+                raise FixtureBlocked(
+                    "identity", "campaign executor changed during participant inspection"
+                )
             executable = Path(argv[0].decode(errors="replace")).name
-            dispatch = executable in {"just", "uv", "bash", "sh", "env"} or any(Path(token.decode(errors="replace")).name == "runs.py" for token in argv[1:3])
+            dispatch = executable in {"just", "uv", "bash", "sh", "env"} or any(
+                Path(token.decode(errors="replace")).name == "runs.py" for token in argv[1:3]
+            )
             if identity.pid in ancestors and dispatch:
                 continue
             if identity.foreign() or identity.alive():
-                raise FixtureBlocked("drainage", "an explicitly campaign-bound host participant is still live")
+                raise FixtureBlocked(
+                    "drainage", "an explicitly campaign-bound host participant is still live"
+                )
         except FileNotFoundError, ProcessLookupError:
             continue
         except PermissionError:
-            raise FixtureBlocked("drainage", "current host participant selector coverage is inaccessible") from None
-    return {"source": "fresh-supported-host-selectors", "observed_at": time.time(), "same_uid_processes_observed": checked, "participants": []}
+            raise FixtureBlocked(
+                "drainage", "current host participant selector coverage is inaccessible"
+            ) from None
+    return {
+        "source": "fresh-supported-host-selectors",
+        "observed_at": time.time(),
+        "same_uid_processes_observed": checked,
+        "participants": [],
+    }
 
 
 def _campaign_participant_run(path: Path) -> dict[str, Any]:
@@ -1667,27 +1748,52 @@ def _campaign_participant_run(path: Path) -> dict[str, Any]:
     from storage_lifecycle import Storage, physical
 
     try:
-        if not path.is_absolute() or ".." in path.parts or any(p.is_symlink() for p in (path, *path.parents)) or not path.is_dir() or path.stat().st_uid != os.getuid():
+        if (
+            not path.is_absolute()
+            or ".." in path.parts
+            or any(p.is_symlink() for p in (path, *path.parents))
+            or not path.is_dir()
+            or path.stat().st_uid != os.getuid()
+        ):
             raise ValueError
         record, _ = _private_campaign_record(path / runs.RECORD)
         owner = ProcessIdentity.from_json(record["owner"])
         owned = Storage().get(record["storage"]["receipt"])
-        if record.get("id") != path.name or owned.get("owner") != {"kind": "run", "path": str(path)} or owned.get("path") != str(path) or owned.get("category") != "run-receipt" or owned.get("identity") != physical(path):
+        if (
+            record.get("id") != path.name
+            or owned.get("owner") != {"kind": "run", "path": str(path)}
+            or owned.get("path") != str(path)
+            or owned.get("category") != "run-receipt"
+            or owned.get("identity") != physical(path)
+        ):
             raise ValueError
         argv = record["argv"]
-        if not isinstance(argv, list) or not argv or not all(isinstance(item, str) for item in argv):
+        if (
+            not isinstance(argv, list)
+            or not argv
+            or not all(isinstance(item, str) for item in argv)
+        ):
             raise ValueError
         return {
             "source": "operator-supplied-additional-quiescence-obligation",
-            "run_path": str(path), "owner": owner.to_json(), "child": record.get("child"),
-            "argv_sha256": hashlib.sha256(json.dumps(argv, separators=(",", ":")).encode()).hexdigest(),
-            "physical": physical(path), "storage_receipt": record["storage"]["receipt"],
+            "run_path": str(path),
+            "owner": owner.to_json(),
+            "child": record.get("child"),
+            "argv_sha256": hashlib.sha256(
+                json.dumps(argv, separators=(",", ":")).encode()
+            ).hexdigest(),
+            "physical": physical(path),
+            "storage_receipt": record["storage"]["receipt"],
         }
     except OSError, KeyError, TypeError, ValueError, StorageBlocked:
-        raise FixtureBlocked("ownership", "campaign participant run identity is unavailable or differs") from None
+        raise FixtureBlocked(
+            "ownership", "campaign participant run identity is unavailable or differs"
+        ) from None
 
 
-def _campaign_disposal_dispatch_run(installation: Installation, path: Path, record: dict[str, Any]) -> bool:
+def _campaign_disposal_dispatch_run(
+    installation: Installation, path: Path, record: dict[str, Any]
+) -> bool:
     """Recognize only this managed disposal command's authenticated own group."""
     import runs
 
@@ -1698,20 +1804,36 @@ def _campaign_disposal_dispatch_run(installation: Installation, path: Path, reco
         operation = argv.index("dispose-campaign")
         if argv[operation + 1] != installation.id:
             return False
-        suffix = argv[operation + 2:]
-        if len(suffix) % 2 or any(suffix[i] != "--participant-run" or not suffix[i + 1] for i in range(0, len(suffix), 2)):
+        suffix = argv[operation + 2 :]
+        if len(suffix) % 2 or any(
+            suffix[i] != "--participant-run" or not suffix[i + 1] for i in range(0, len(suffix), 2)
+        ):
             return False
         # Shell/-c scripts cannot qualify by merely containing these words.
         prefix = argv[:operation]
-        if "-c" in prefix or "-lc" in prefix or not any(Path(value).name in {"just", "surrealdb_service.py"} for value in prefix):
+        if (
+            "-c" in prefix
+            or "-lc" in prefix
+            or not any(Path(value).name in {"just", "surrealdb_service.py"} for value in prefix)
+        ):
             return False
         child = ProcessIdentity.from_json(record["child"])
-        return not child.foreign() and child.alive() and record["child"]["pgid"] == os.getpgrp() == child.pid and runs.group_of(record)["status"] == "owned"
+        return (
+            not child.foreign()
+            and child.alive()
+            and record["child"]["pgid"] == os.getpgrp() == child.pid
+            and runs.group_of(record)["status"] == "owned"
+        )
     except KeyError, TypeError, ValueError, IndexError:
         return False
 
 
-def _campaign_current_quiescence(installation: Installation, *, allow_removed_unit: bool = False, participant_runs: Sequence[Mapping[str, Any]] = ()) -> dict[str, Any]:
+def _campaign_current_quiescence(
+    installation: Installation,
+    *,
+    allow_removed_unit: bool = False,
+    participant_runs: Sequence[Mapping[str, Any]] = (),
+) -> dict[str, Any]:
     """Reobserve current clients even when historical receipts say confirmed."""
     import runs
     from harness import recorded_group, try_hold_lock
@@ -1732,20 +1854,31 @@ def _campaign_current_quiescence(installation: Installation, *, allow_removed_un
             if (
                 reference["installation_id"] != installation.id
                 or reference["generation"] != bytes(installation.record["service_generation"]).hex()
-                or not run_path.is_absolute() or any(p.is_symlink() for p in (run_path, *run_path.parents))
-                or not isinstance(record, dict) or record.get("owner") != reference["owner"]
+                or not run_path.is_absolute()
+                or any(p.is_symlink() for p in (run_path, *run_path.parents))
+                or not isinstance(record, dict)
+                or record.get("owner") != reference["owner"]
                 or record.get("argv") != reference["argv"]
                 or path.stem != run_path.name
                 or record.get("id") != run_path.name
-                or reference["argv"][:2] != ["/usr/bin/env", "LCTX_SURREAL_SERVICE_CONFIG=" + str(root / "installation.json")]
+                or reference["argv"][:2]
+                != [
+                    "/usr/bin/env",
+                    "LCTX_SURREAL_SERVICE_CONFIG=" + str(root / "installation.json"),
+                ]
                 or owned.get("owner") != {"kind": "run", "path": str(run_path)}
-                or owned.get("path") != str(run_path) or owned.get("category") != "run-receipt" or owned.get("identity") != physical(run_path)
-                or reference["storage"]["consumer"] != f"lifecycle-maintenance:{installation.id}:{run_path.name}"
+                or owned.get("path") != str(run_path)
+                or owned.get("category") != "run-receipt"
+                or owned.get("identity") != physical(run_path)
+                or reference["storage"]["consumer"]
+                != f"lifecycle-maintenance:{installation.id}:{run_path.name}"
                 or reference["storage"]["consumer"] not in owned.get("obligations", {})
             ):
                 raise ValueError
         except OSError, KeyError, TypeError, ValueError, StorageBlocked:
-            raise FixtureBlocked("ownership", "campaign maintenance command reference differs") from None
+            raise FixtureBlocked(
+                "ownership", "campaign maintenance command reference differs"
+            ) from None
         result["runs"].append(_campaign_run_quiescence(run_path, record))
         seen.add(str(run_path))
     # Existing development bindings provide exact run references even before the
@@ -1756,7 +1889,13 @@ def _campaign_current_quiescence(installation: Installation, *, allow_removed_un
         try:
             run_path = Path(row["run_path"])
             record = runs.load_record(run_path)
-            if row.get("installation_id") != installation.id or row.get("server_generation") != bytes(installation.record["service_generation"]).hex() or not isinstance(record, dict) or row.get("owner") != record.get("owner"):
+            if (
+                row.get("installation_id") != installation.id
+                or row.get("server_generation")
+                != bytes(installation.record["service_generation"]).hex()
+                or not isinstance(record, dict)
+                or row.get("owner") != record.get("owner")
+            ):
                 raise ValueError
         except OSError, KeyError, TypeError, ValueError:
             raise FixtureBlocked("ownership", "campaign development run binding differs") from None
@@ -1771,12 +1910,18 @@ def _campaign_current_quiescence(installation: Installation, *, allow_removed_un
     for path in runs.all_runs():
         record = runs.load_record(path)
         if isinstance(record, dict) and _campaign_disposal_dispatch_run(installation, path, record):
-            result["dispatcher"] = {"run_path": str(path), "source": "authenticated-current-disposal-command-group"}
+            result["dispatcher"] = {
+                "run_path": str(path),
+                "source": "authenticated-current-disposal-command-group",
+            }
             continue
         argv = (record or {}).get("argv", [])
         if not isinstance(argv, list):
             continue
-        if str(root / "installation.json") in argv or "LCTX_SURREAL_SERVICE_CONFIG=" + str(root / "installation.json") in argv:
+        if (
+            str(root / "installation.json") in argv
+            or "LCTX_SURREAL_SERVICE_CONFIG=" + str(root / "installation.json") in argv
+        ):
             paths.append(path)
     for path in paths:
         if str(path) in seen:
@@ -1800,20 +1945,30 @@ def _campaign_current_quiescence(installation: Installation, *, allow_removed_un
                 group = {"status": "unknown", "reason": "command launch identity unavailable"}
             else:
                 group = {"status": "gone", "members": [], "reason": "no command submitted"}
-            if row.get("fixture") != installation.id or row.get("id") != path.parent.name or owner.foreign() or owner.alive() or group["status"] != "gone":
+            if (
+                row.get("fixture") != installation.id
+                or row.get("id") != path.parent.name
+                or owner.foreign()
+                or owner.alive()
+                or group["status"] != "gone"
+            ):
                 raise ValueError
             lease = try_hold_lock(path.parent / "owner.lock")
             if lease is None:
                 raise ValueError
             os.close(lease)
         except OSError, KeyError, TypeError, ValueError:
-            raise FixtureBlocked("drainage", "campaign attachment current owner/group quiescence is unavailable") from None
+            raise FixtureBlocked(
+                "drainage", "campaign attachment current owner/group quiescence is unavailable"
+            ) from None
         result["attachments"].append({"id": row["id"], "owner": owner.to_json(), "group": group})
     result["coordination"] = _coordination_identity(installation)
     # Authenticate the executor before distinguishing it from native clients.
     _campaign_executor(installation, allow_removed_unit=allow_removed_unit)
     result["host"] = _campaign_host_participants(installation)
-    result["executor_active"] = _campaign_executor(installation, allow_removed_unit=allow_removed_unit)
+    result["executor_active"] = _campaign_executor(
+        installation, allow_removed_unit=allow_removed_unit
+    )
     return result
 
 
@@ -1824,26 +1979,54 @@ def _disposal_predecessor(installation: Installation, receipt: dict | None) -> d
     marker, raw = _private_campaign_record(path)
     try:
         value = marker["owner"]
-        if not isinstance(value, dict) or set(value) != {"pid", "start_ticks", "boot_id", "pid_namespace"} or any(type(value[key]) is not int or value[key] <= 0 for key in ("pid", "start_ticks", "pid_namespace")) or not isinstance(value["boot_id"], str) or str(uuid.UUID(value["boot_id"])) != value["boot_id"]:
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"pid", "start_ticks", "boot_id", "pid_namespace"}
+            or any(
+                type(value[key]) is not int or value[key] <= 0
+                for key in ("pid", "start_ticks", "pid_namespace")
+            )
+            or not isinstance(value["boot_id"], str)
+            or str(uuid.UUID(value["boot_id"])) != value["boot_id"]
+        ):
             raise ValueError
         owner = ProcessIdentity.from_json(value)
         if owner.foreign():
             raise ValueError
         if marker.get("operation") == "dispose-campaign":
-            if set(marker) != {"operation", "owner", "installation_id", "token"} or marker.get("installation_id") != installation.id or receipt is None or marker != receipt.get("maintenance_successor") or not isinstance(marker.get("token"), str) or not marker["token"] or (owner.alive() and owner != ProcessIdentity.of()):
+            if (
+                set(marker) != {"operation", "owner", "installation_id", "token"}
+                or marker.get("installation_id") != installation.id
+                or receipt is None
+                or marker != receipt.get("maintenance_successor")
+                or not isinstance(marker.get("token"), str)
+                or not marker["token"]
+                or (owner.alive() and owner != ProcessIdentity.of())
+            ):
                 raise ValueError
             return None
         if owner.alive():
             raise ValueError
-        if set(marker) != {"operation", "owner", "token"} or marker["operation"] != "maintenance" or not isinstance(marker["token"], str) or not marker["token"]:
+        if (
+            set(marker) != {"operation", "owner", "token"}
+            or marker["operation"] != "maintenance"
+            or not isinstance(marker["token"], str)
+            or not marker["token"]
+        ):
             raise ValueError
-        evidence = {"record": marker, "bytes": base64.b64encode(raw).decode(), "sha256": hashlib.sha256(raw).hexdigest()}
+        evidence = {
+            "record": marker,
+            "bytes": base64.b64encode(raw).decode(),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }
         previous = (receipt or {}).get("transferred_maintenance")
         if previous is not None and previous.get("predecessor") != evidence:
             raise ValueError
         return evidence
     except KeyError, TypeError, ValueError:
-        raise FixtureBlocked("maintenance", "campaign has an unresolved maintenance owner") from None
+        raise FixtureBlocked(
+            "maintenance", "campaign has an unresolved maintenance owner"
+        ) from None
 
 
 def _campaign_disposal_projection(receipt: Mapping[str, Any]) -> dict[str, Any]:
@@ -1869,12 +2052,20 @@ def _release_disposal_participants(installation: Installation, receipt: Mapping[
         storage = Storage()
         owned = storage.get(reference["storage_receipt"])
         consumer = f"lifecycle-disposal-participant:{installation.id}:{path.name}"
-        if owned.get("owner") != {"kind": "run", "path": str(path)} or owned.get("path") != str(path) or consumer not in owned.get("obligations", {}):
+        if (
+            owned.get("owner") != {"kind": "run", "path": str(path)}
+            or owned.get("path") != str(path)
+            or consumer not in owned.get("obligations", {})
+        ):
             raise FixtureBlocked("ownership", "disposal participant storage consumer differs")
-        storage.release(reference["storage_receipt"], consumer, "checked terminal campaign disposal")
+        storage.release(
+            reference["storage_receipt"], consumer, "checked terminal campaign disposal"
+        )
 
 
-def dispose_campaign(installation: Installation, identity: str, *, participant_runs: Sequence[str] = ()) -> dict[str, Any]:
+def dispose_campaign(
+    installation: Installation, identity: str, *, participant_runs: Sequence[str] = ()
+) -> dict[str, Any]:
     """Drain and discard one explicitly owned target, retaining only current disposition."""
     lifecycle_campaign(installation, identity)
     from storage_lifecycle import Storage, admission
@@ -1910,19 +2101,24 @@ def dispose_campaign(installation: Installation, identity: str, *, participant_r
             _release_disposal_participants(current, receipt)
             return receipt
         import runs
+
         supplied = []
         for value in participant_runs:
             try:
                 path = runs.resolve(value)
             except runs.RunNotFound:
-                raise FixtureBlocked("ownership", "participant run selector is unavailable or ambiguous") from None
+                raise FixtureBlocked(
+                    "ownership", "participant run selector is unavailable or ambiguous"
+                ) from None
             stack.enter_context(admission([path]))
             supplied.append(_campaign_participant_run(path))
         if len({row["run_path"] for row in supplied}) != len(supplied):
             raise FixtureBlocked("ownership", "participant run selectors must be distinct")
         enrolled = (receipt or {}).get("participant_runs", [])
         if not isinstance(enrolled, list) or (supplied and enrolled and supplied != enrolled):
-            raise FixtureBlocked("ownership", "campaign participant run enrollment differs on retry")
+            raise FixtureBlocked(
+                "ownership", "campaign participant run enrollment differs on retry"
+            )
         for row in enrolled:
             try:
                 path = Path(row["run_path"])
@@ -1930,7 +2126,9 @@ def dispose_campaign(installation: Installation, identity: str, *, participant_r
                 if _campaign_participant_run(path) != row:
                     raise ValueError
             except OSError, KeyError, TypeError, ValueError:
-                raise FixtureBlocked("ownership", "campaign participant run enrollment differs on retry") from None
+                raise FixtureBlocked(
+                    "ownership", "campaign participant run enrollment differs on retry"
+                ) from None
         participant_references = enrolled or supplied
         if current.record.get("phase") == "disposed":
             if not receipt or receipt.get("outcome") != "passed":
@@ -1994,12 +2192,22 @@ def dispose_campaign(installation: Installation, identity: str, *, participant_r
             # Admission excludes retirement while journal and retention become durable.
             # Keep this consumer through every retry, including final credential cleanup.
             for reference in participant_references:
-                Storage().retain(reference["storage_receipt"],
-                    f"lifecycle-disposal-participant:{identity}:{Path(reference['run_path']).name}")
+                Storage().retain(
+                    reference["storage_receipt"],
+                    f"lifecycle-disposal-participant:{identity}:{Path(reference['run_path']).name}",
+                )
         # Fresh native-client and executor observations precede any ownership transfer.
-        proof = _campaign_current_quiescence(current, allow_removed_unit=receipt["steps"].get("executor-shutdown") == "passed" and not _unit_path(current.unit).exists(), participant_runs=participant_references)
+        proof = _campaign_current_quiescence(
+            current,
+            allow_removed_unit=receipt["steps"].get("executor-shutdown") == "passed"
+            and not _unit_path(current.unit).exists(),
+            participant_runs=participant_references,
+        )
         if predecessor is not None:
-            receipt["transferred_maintenance"] = {"predecessor": predecessor, "current_quiescence": proof}
+            receipt["transferred_maintenance"] = {
+                "predecessor": predecessor,
+                "current_quiescence": proof,
+            }
         receipt["current_quiescence"] = proof
         private_json(receipt_path, receipt)
         if predecessor is not None:
@@ -2079,7 +2287,9 @@ def dispose_campaign(installation: Installation, identity: str, *, participant_r
                 not _unit_path(current.unit).exists()
                 and receipt["steps"].get("executor-shutdown") == "passed"
             )
-            receipt["current_quiescence"] = _campaign_current_quiescence(current, allow_removed_unit=removed_unit, participant_runs=participant_references)
+            receipt["current_quiescence"] = _campaign_current_quiescence(
+                current, allow_removed_unit=removed_unit, participant_runs=participant_references
+            )
             private_json(receipt_path, receipt)
             if not removed_unit:
                 _stop_owned(current)
@@ -2159,7 +2369,11 @@ def dispose_campaign(installation: Installation, identity: str, *, participant_r
                 )
             for reference_path in (root / "maintenance-commands").glob("*.json"):
                 reference, _ = _private_campaign_record(reference_path)
-                Storage().release(reference["storage"]["receipt"], reference["storage"]["consumer"], "checked whole campaign disposal")
+                Storage().release(
+                    reference["storage"]["receipt"],
+                    reference["storage"]["consumer"],
+                    "checked whole campaign disposal",
+                )
                 reference_path.unlink()
             receipt["steps"]["storage-release"] = "passed"
             receipt["outcome"] = "passed"
@@ -4097,7 +4311,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "dispose-campaign", help="checked whole owned lifecycle target disposal"
     )
     dispose_parser.add_argument("installation_id")
-    dispose_parser.add_argument("--participant-run", action="append", default=[], metavar="RUN", help="additional exact managed-run quiescence obligation; does not establish target or marker ancestry")
+    dispose_parser.add_argument(
+        "--participant-run",
+        action="append",
+        default=[],
+        metavar="RUN",
+        help="additional exact managed-run quiescence obligation; does not establish target or marker ancestry",
+    )
     commands.add_parser("check", help="read-only compatibility and native readiness")
     commands.add_parser("status", help="read-only ownership, state and maintenance observation")
     backup_parser = commands.add_parser(
@@ -4279,7 +4499,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     value["purpose"] = LIFECYCLE_PURPOSE
                     value["development_workers"] = development_workers(installation)
                     disposal = read_json(installation.directory / "disposal.json")
-                    value["disposal"] = _campaign_disposal_projection(disposal) if disposal is not None else None
+                    value["disposal"] = (
+                        _campaign_disposal_projection(disposal) if disposal is not None else None
+                    )
                     value["native_inspection"] = {
                         "status": "not_inspected",
                         "reason": "host status grants no database admission",
@@ -4287,7 +4509,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     }
                     value["observed_at"] = time.time()
             elif args.action == "dispose-campaign":
-                value = _campaign_disposal_projection(dispose_campaign(installation, args.installation_id, participant_runs=args.participant_run))
+                value = _campaign_disposal_projection(
+                    dispose_campaign(
+                        installation, args.installation_id, participant_runs=args.participant_run
+                    )
+                )
             elif args.action == "check":
                 value = installation.check()
             elif args.action == "backup":

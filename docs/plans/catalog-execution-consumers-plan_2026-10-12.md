@@ -89,6 +89,18 @@ protected internal selection supplies input authority; it must not require a new
 for each root. New analysis semantics, behavioral research stages and ranking changes are out of
 scope merely because these consumers run analyses.
 
+Actual rich builder consumers also participate: Evidence, Selection and Synthesis copy only the
+borrowed ordered keys of their exact nominal input port using `Rows::get`; ScopeIndex uses its
+charged nominal corpus/distribution lookups without rescanning collapsed values. LocalSemantics
+explicitly merges all its declared ports for a nominal type, deduplicating overlaps rather than
+applying the other builders' unique-port rule. Necessary charged owned builder state remains.
+These adaptations do not change graph universes, Facts/local namespaces, omitted dangling keys,
+model ordering or independent checker semantics. Position/gather primitive controls alone do not
+establish that these rich consumers migrated; coordinator §6 owns their current acceptance.
+SourceCallWindow and semantic ModelWindow also use prepared input-port positions instead of
+rebuilding rich union masks per root. SourceCall's opaque-literal exclusion remains an independent
+filter on the selected rows; model application retains its required input universe and checker state.
+
 **Acceptance:** explicit overlapping partitions over a small union; a path/cycle crossing an output
 partition; an isolate and parallel assertions; empty and all-row selections; shuffled canonical
 input; wrong-input/order/resource-owner refusal. Independently specify each consumer's required
@@ -228,7 +240,7 @@ are not imported authority. The selected backup carrier is bounded data-only SQL
 completed transport; SQL is parsed, never executed. Legacy framing/readers and restore normalization
 are removed. Current supported state may be regenerated; unrelated shared/operator state is untouched.
 
-CU01 demanded-original/source/blob preparation, CU02 both scoped position/gather consumers, CU03
+CU01 demanded-original/source/blob preparation, CU02 scoped position/gather and rich consumers, CU03
 compiler/artifact/selected-backup/cold consumers and CU04 checked immutable recipe response are
 source-integrated in the current execution. Source review addressed full-view cloning, mismatched
 complete-frame bounds and cold dependency-hold ordering. Standard externally tagged Serde frames

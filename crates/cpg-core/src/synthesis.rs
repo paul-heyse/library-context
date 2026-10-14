@@ -298,8 +298,11 @@ impl SynthesisScopes {
         let mut selected = union.selected_copy(
             &self.inputs,
             &mut |table| {
-                let include = self.inputs[table].type_id() != std::any::TypeId::of::<artifact::ArtifactChunk>();
-                batch.keys(partition, table).map(|keys| keys.filter(move |_| include))
+                let include = self.inputs[table].type_id()
+                    != std::any::TypeId::of::<artifact::ArtifactChunk>();
+                batch
+                    .keys(partition, table)
+                    .map(|keys| keys.filter(move |_| include))
             },
             budget,
         )?;
@@ -445,8 +448,16 @@ fn load_ranking<'a, R: Record>(
             let alias = identifier(&access.table_for(&input)?);
             let parameters = scope_program::ScopeParameters(vec![
                 scope_program::ScopeValue::Nominal(*parent.structural.bytes()),
-                parent.analytic.map_or(scope_program::ScopeValue::AbsentNominal,|id|scope_program::ScopeValue::Nominal(*id.bytes())),
-                parent.summary.map_or(scope_program::ScopeValue::AbsentNominal,|id|scope_program::ScopeValue::Nominal(*id.bytes())),
+                parent
+                    .analytic
+                    .map_or(scope_program::ScopeValue::AbsentNominal, |id| {
+                        scope_program::ScopeValue::Nominal(*id.bytes())
+                    }),
+                parent
+                    .summary
+                    .map_or(scope_program::ScopeValue::AbsentNominal, |id| {
+                        scope_program::ScopeValue::Nominal(*id.bytes())
+                    }),
             ]);
             let (roots, _query) =
                 tables
@@ -484,8 +495,16 @@ async fn ranking(
     let mut slots = synthesis::seeds::PublicSlots::new(budget);
     let parameters = scope_program::ScopeParameters(vec![
         scope_program::ScopeValue::Nominal(*parent.structural.bytes()),
-        parent.analytic.map_or(scope_program::ScopeValue::AbsentNominal,|id|scope_program::ScopeValue::Nominal(*id.bytes())),
-        parent.summary.map_or(scope_program::ScopeValue::AbsentNominal,|id|scope_program::ScopeValue::Nominal(*id.bytes())),
+        parent
+            .analytic
+            .map_or(scope_program::ScopeValue::AbsentNominal, |id| {
+                scope_program::ScopeValue::Nominal(*id.bytes())
+            }),
+        parent
+            .summary
+            .map_or(scope_program::ScopeValue::AbsentNominal, |id| {
+                scope_program::ScopeValue::Nominal(*id.bytes())
+            }),
     ]);
     let (roots, _query) = scopes.inventory_sql(
         std::any::TypeId::of::<structural::PublicCandidate>(),
@@ -780,7 +799,24 @@ pub async fn produce(
     .await?;
     consumed.finish(access.name())?;
     let (_, definition) = synthesis::build::definition();
-    for run in data.frames.runs.iter(){for kind in [analysis::owner::AnalysisOwner::Local,analysis::owner::AnalysisOwner::SourceCalls,analysis::owner::AnalysisOwner::Analytic,analysis::owner::AnalysisOwner::Summary]{if let Some(domain)=admission.uniform_analysis(kind,run.input,run.context,&data.frames.definitions,runtime.budget())?{data.frames.compact.include(domain)?;}}}
+    for run in data.frames.runs.iter() {
+        for kind in [
+            analysis::owner::AnalysisOwner::Local,
+            analysis::owner::AnalysisOwner::SourceCalls,
+            analysis::owner::AnalysisOwner::Analytic,
+            analysis::owner::AnalysisOwner::Summary,
+        ] {
+            if let Some(domain) = admission.uniform_analysis(
+                kind,
+                run.input,
+                run.context,
+                &data.frames.definitions,
+                runtime.budget(),
+            )? {
+                data.frames.compact.include(domain)?;
+            }
+        }
+    }
     let settings = data.frames.configuration()?;
     let parents = synthesis::frames::parents(&data.frames, runtime.budget())?;
     declare_outputs(&output).await?;
@@ -1101,8 +1137,16 @@ pub async fn produce(
                 .ok_or(ModelError::Schema("S0 conclusion root"))?;
             let parameters = scope_program::ScopeParameters(vec![
                 scope_program::ScopeValue::Nominal(*frame.structural.bytes()),
-                frame.analytic.map_or(scope_program::ScopeValue::AbsentNominal,|id|scope_program::ScopeValue::Nominal(*id.bytes())),
-                frame.summary.map_or(scope_program::ScopeValue::AbsentNominal,|id|scope_program::ScopeValue::Nominal(*id.bytes())),
+                frame
+                    .analytic
+                    .map_or(scope_program::ScopeValue::AbsentNominal, |id| {
+                        scope_program::ScopeValue::Nominal(*id.bytes())
+                    }),
+                frame
+                    .summary
+                    .map_or(scope_program::ScopeValue::AbsentNominal, |id| {
+                        scope_program::ScopeValue::Nominal(*id.bytes())
+                    }),
             ]);
             let (roots_sql, _query) = scopes.inventory_sql(kind, &parameters, runtime.budget())?;
             let mut roots = crate::sql::query(&session, &roots_sql)

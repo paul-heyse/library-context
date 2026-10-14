@@ -1667,9 +1667,11 @@ fn copy_local_rows<R: Record, I: Iterator<Item = [u8; 16]>>(
     for (table, _) in inputs.iter().enumerate().filter(|(_, input)| {
         input.type_id() == std::any::TypeId::of::<R>() && input.name() == R::NAME
     }) {
-        normalized::visit_ordered_port_ids::<R,I>(table, keys, &mut |id| {
+        normalized::visit_ordered_port_ids::<R, I>(table, keys, &mut |id| {
             if target.get(id).is_none() {
-                if let Some(row) = source.get(id) { target.insert_borrowed(row)?; }
+                if let Some(row) = source.get(id) {
+                    target.insert_borrowed(row)?;
+                }
             }
             Ok(())
         })?;
@@ -1682,27 +1684,59 @@ mod selected_copy_controls {
     use super::*;
     #[test]
     fn selected_copy_merges_declared_ports_and_deduplicates_overlap_without_union_scan() {
-        use crate::domain::input::{Package,Release};
+        use crate::domain::input::{Package, Release};
         use crate::domain::stages::PublicationBoundary;
         let budget = resources::ResourceBudget::fixed(1 << 20).unwrap();
-        let records = ["facts","local","shared","excluded"].map(|name| Package { name: name.into() });
+        let records =
+            ["facts", "local", "shared", "excluded"].map(|name| Package { name: name.into() });
         let mut union = Rows::new(&budget);
-        for row in records.iter().rev() { union.insert_borrowed(row).unwrap(); }
-        let inputs = [ValidationInput::of::<Release>(&["id"]),
+        for row in records.iter().rev() {
+            union.insert_borrowed(row).unwrap();
+        }
+        let inputs = [
+            ValidationInput::of::<Release>(&["id"]),
             ValidationInput::of::<Package>(&["id"]).at_epoch(PublicationBoundary::Facts),
-            ValidationInput::of::<Package>(&["id"]).at_epoch(PublicationBoundary::Local)];
+            ValidationInput::of::<Package>(&["id"]).at_epoch(PublicationBoundary::Local),
+        ];
         let ports = [
-            [*records[3].id().bytes()].into_iter().collect::<std::collections::BTreeSet<_>>(),
-            [*records[0].id().bytes(),*records[2].id().bytes(),[255;16]].into_iter().collect(),
-            [*records[1].id().bytes(),*records[2].id().bytes(),[254;16]].into_iter().collect(),
+            [*records[3].id().bytes()]
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>(),
+            [
+                *records[0].id().bytes(),
+                *records[2].id().bytes(),
+                [255; 16],
+            ]
+            .into_iter()
+            .collect(),
+            [
+                *records[1].id().bytes(),
+                *records[2].id().bytes(),
+                [254; 16],
+            ]
+            .into_iter()
+            .collect(),
         ];
         let mut selected = Rows::new(&budget);
-        copy_local_rows(&union,&mut selected,&inputs,&mut |table| { assert_ne!(table,0); Ok(ports[table].iter().copied()) }).unwrap();
-        assert_eq!(selected.len(),3);
-        for row in &records[..3] { assert_eq!(selected.get(row.id()),Some(row)); }
+        copy_local_rows(&union, &mut selected, &inputs, &mut |table| {
+            assert_ne!(table, 0);
+            Ok(ports[table].iter().copied())
+        })
+        .unwrap();
+        assert_eq!(selected.len(), 3);
+        for row in &records[..3] {
+            assert_eq!(selected.get(row.id()), Some(row));
+        }
         assert!(selected.get(records[3].id()).is_none());
-        assert!(selected.iter().map(Record::id).collect::<Vec<_>>().windows(2).all(|pair| pair[0] < pair[1]));
-        drop((union,selected));
-        assert_eq!(budget.reserved(),0);
+        assert!(
+            selected
+                .iter()
+                .map(Record::id)
+                .collect::<Vec<_>>()
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+        );
+        drop((union, selected));
+        assert_eq!(budget.reserved(), 0);
     }
 }

@@ -94,6 +94,13 @@ retained products may earn separate boundaries for independent lifetimes. Preser
 bindings, composed directed aliases, exact physical copy/incarnation and EOF/finality authority.
 Version the physical selector codec/schema/definition identity and migrate all retained/cold consumers.
 
+Whole-owner `NotRequested` production uses Fresh eligibility before optional product lookup. It
+still reconstructs protected current metadata/domains, emits exact compact declarations and explicit
+empty ordinary views, and independently completes and admits those outputs. A separately retained
+dependency closure is not automatically useful for that compact path. Requested operations retain
+their existing reuse eligibility even when their result has no rows; output cardinality alone does
+not measure the work avoided by reuse. Native retention failures remain strict once work is submitted.
+
 Operation-owned canonical runs normalize logical IDs before ordering, then compose exact equal-row
 unions without re-sorting unchanged fragments. Full six-family flat v4 identity is earned at actual
 frozen/retained boundaries, with full dependency keys and no provisional cached success. Direct logical
@@ -245,6 +252,13 @@ Native reachability owns publication roots, admitted reusable content, active at
 and recovery holds. Retirement and pin acquisition serialize on exact guard records. Collection
 rechecks reachability and full identity under guards; local manager policy delegates rather than
 performing its own database deletion. Shared surviving content is never removed by attempt cleanup.
+Cleanup nomination consumes exact object/positive incarnation, not an earlier whole guard revision.
+Its locked guard must remain active and not retired at the captured incarnation; exact cleanup,
+origin, owner, epoch and complete hold-page checks remain. Nomination and release of that owner's
+incoming holds are atomic, so proper retirement cannot cross the still-present hold and recreation
+cannot reuse the captured incarnation. Benign same-incarnation activity does not invalidate this
+nomination. This does not relax generic effect expectations, incidence coordination or original-byte
+completion's independently validated content premises.
 **Accepted lifecycle target, 2026-10-10 (ADR-0145); qualification open.** Native-control
 version 4 captures issuance era before submission and retains original owner epochs through retry.
 Permanent closed-through fencing, outcome references and native guards have distinct lifetimes.

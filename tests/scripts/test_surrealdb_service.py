@@ -2868,12 +2868,18 @@ def dead_campaign_owner():
 
 
 def ordinary_campaign_marker(installation):
-    marker = {"operation": "maintenance", "owner": dead_campaign_owner(), "token": "prior-private-owner"}
+    marker = {
+        "operation": "maintenance",
+        "owner": dead_campaign_owner(),
+        "token": "prior-private-owner",
+    }
     service.private_json(installation.directory / "maintenance.json", marker)
     return marker
 
 
-def test_campaign_disposal_transfers_dead_ordinary_marker_using_current_quiescence(lifecycle_campaign_ready):
+def test_campaign_disposal_transfers_dead_ordinary_marker_using_current_quiescence(
+    lifecycle_campaign_ready,
+):
     import base64
     import hashlib
 
@@ -2893,8 +2899,13 @@ def test_campaign_disposal_transfers_dead_ordinary_marker_using_current_quiescen
     assert "ancestry" not in transfer
 
 
-@pytest.mark.parametrize("change", ["live", "foreign", "specialized", "recovery", "extra", "empty_token", "public", "symlink"])
-def test_campaign_disposal_refuses_ineligible_predecessor_before_transfer(lifecycle_campaign_ready, change):
+@pytest.mark.parametrize(
+    "change",
+    ["live", "foreign", "specialized", "recovery", "extra", "empty_token", "public", "symlink"],
+)
+def test_campaign_disposal_refuses_ineligible_predecessor_before_transfer(
+    lifecycle_campaign_ready, change
+):
     installation, actions = lifecycle_campaign_ready
     marker = ordinary_campaign_marker(installation)
     path = installation.directory / "maintenance.json"
@@ -2924,7 +2935,9 @@ def test_campaign_disposal_refuses_ineligible_predecessor_before_transfer(lifecy
     assert not (installation.directory / "disposal.json").exists()
 
 
-def test_campaign_disposal_journals_before_transfer_and_resumes_same_predecessor(lifecycle_campaign_ready, monkeypatch):
+def test_campaign_disposal_journals_before_transfer_and_resumes_same_predecessor(
+    lifecycle_campaign_ready, monkeypatch
+):
     installation, actions = lifecycle_campaign_ready
     marker = ordinary_campaign_marker(installation)
     write = service.private_json
@@ -2932,7 +2945,11 @@ def test_campaign_disposal_journals_before_transfer_and_resumes_same_predecessor
 
     def interrupt_transfer(path, value):
         nonlocal injected
-        if path.name == "maintenance.json" and value.get("operation") == "dispose-campaign" and not injected:
+        if (
+            path.name == "maintenance.json"
+            and value.get("operation") == "dispose-campaign"
+            and not injected
+        ):
             injected = True
             journal = service.read_json(installation.directory / "disposal.json")
             assert journal["transferred_maintenance"]["predecessor"]["record"] == marker
@@ -2951,7 +2968,9 @@ def test_campaign_disposal_journals_before_transfer_and_resumes_same_predecessor
 
 
 @pytest.mark.parametrize("live_axis", ["command", "owner"])
-def test_campaign_disposal_reobserves_released_attachment_instead_of_cached_cleanup(lifecycle_campaign_ready, monkeypatch, live_axis):
+def test_campaign_disposal_reobserves_released_attachment_instead_of_cached_cleanup(
+    lifecycle_campaign_ready, monkeypatch, live_axis
+):
     import harness
 
     installation, actions = lifecycle_campaign_ready
@@ -2961,10 +2980,17 @@ def test_campaign_disposal_reobserves_released_attachment_instead_of_cached_clea
     child = harness.spawn_group([sys.executable, "-c", "import signal; signal.pause()"])
     with harness.SpawnGuard(child, grace=0.1):
         row = {
-            "id": directory.name, "fixture": installation.id,
+            "id": directory.name,
+            "fixture": installation.id,
             "released": True,
-            "owner": service.ProcessIdentity.of().to_json() if live_axis == "owner" else dead_campaign_owner(),
-            "command": {"leader": {**service.ProcessIdentity.of(child.pid).to_json(), "pgid": child.pid}} if live_axis == "command" else None,
+            "owner": service.ProcessIdentity.of().to_json()
+            if live_axis == "owner"
+            else dead_campaign_owner(),
+            "command": {
+                "leader": {**service.ProcessIdentity.of(child.pid).to_json(), "pgid": child.pid}
+            }
+            if live_axis == "command"
+            else None,
             "command_cleanup": {"status": "confirmed", "survivors": []},
         }
         service.private_json(directory / "record.json", row)
@@ -2975,22 +3001,30 @@ def test_campaign_disposal_reobserves_released_attachment_instead_of_cached_clea
         assert "stop" not in actions
 
 
-def test_campaign_disposal_ignores_unrelated_maintenance_run(lifecycle_campaign_ready, monkeypatch, tmp_path):
+def test_campaign_disposal_ignores_unrelated_maintenance_run(
+    lifecycle_campaign_ready, monkeypatch, tmp_path
+):
     import runs
 
     installation, _ = lifecycle_campaign_ready
     ordinary_campaign_marker(installation)
     path = tmp_path / "unrelated-managed-run"
     path.mkdir()
-    service.private_json(path / runs.RECORD, {
-        "owner": service.ProcessIdentity.of().to_json(), "child": None,
-        "argv": ["just", "service", "maintenance", "--check"],
-    })
+    service.private_json(
+        path / runs.RECORD,
+        {
+            "owner": service.ProcessIdentity.of().to_json(),
+            "child": None,
+            "argv": ["just", "service", "maintenance", "--check"],
+        },
+    )
     monkeypatch.setattr(runs, "all_runs", lambda: [path])
     assert service.dispose_campaign(installation, installation.id)["outcome"] == "passed"
 
 
-def test_campaign_disposal_reobserves_exact_run_group_despite_confirmed_cleanup(lifecycle_campaign_ready, monkeypatch, tmp_path):
+def test_campaign_disposal_reobserves_exact_run_group_despite_confirmed_cleanup(
+    lifecycle_campaign_ready, monkeypatch, tmp_path
+):
     import harness
     import runs
 
@@ -3000,12 +3034,22 @@ def test_campaign_disposal_reobserves_exact_run_group_despite_confirmed_cleanup(
     path.mkdir()
     child = harness.spawn_group([sys.executable, "-c", "import signal; signal.pause()"])
     with harness.SpawnGuard(child, grace=0.1):
-        service.private_json(path / runs.RECORD, {
-            "owner": dead_campaign_owner(),
-            "child": {**service.ProcessIdentity.of(child.pid).to_json(), "pgid": child.pid},
-            "cleanup": {"status": "confirmed", "survivors": []},
-            "argv": ["/usr/bin/env", "LCTX_SURREAL_SERVICE_CONFIG=" + str(installation.directory / "installation.json"), "just", "service", "maintenance"],
-        })
+        service.private_json(
+            path / runs.RECORD,
+            {
+                "owner": dead_campaign_owner(),
+                "child": {**service.ProcessIdentity.of(child.pid).to_json(), "pgid": child.pid},
+                "cleanup": {"status": "confirmed", "survivors": []},
+                "argv": [
+                    "/usr/bin/env",
+                    "LCTX_SURREAL_SERVICE_CONFIG="
+                    + str(installation.directory / "installation.json"),
+                    "just",
+                    "service",
+                    "maintenance",
+                ],
+            },
+        )
         monkeypatch.setattr(runs, "all_runs", lambda: [path])
         with pytest.raises(service.FixtureBlocked, match="current owner/group"):
             service.dispose_campaign(installation, installation.id)
@@ -3017,13 +3061,21 @@ def test_campaign_host_selector_observes_actual_current_client(lifecycle_campaig
     import harness
 
     installation, _ = lifecycle_campaign_ready
-    child = harness.spawn_group([sys.executable, "-c", "import signal; signal.pause()"], env={**os.environ, "LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json")})
+    child = harness.spawn_group(
+        [sys.executable, "-c", "import signal; signal.pause()"],
+        env={
+            **os.environ,
+            "LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json"),
+        },
+    )
     with harness.SpawnGuard(child, grace=0.1):
         with pytest.raises(service.FixtureBlocked, match="campaign-bound host participant"):
             service._campaign_host_participants(installation)
 
 
-def test_ordinary_campaign_installer_enrolls_target_before_managed_spawn(lifecycle_campaign_ready, tmp_path, monkeypatch):
+def test_ordinary_campaign_installer_enrolls_target_before_managed_spawn(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
     import runs
 
     installation, _ = lifecycle_campaign_ready
@@ -3045,7 +3097,12 @@ def test_ordinary_campaign_installer_enrolls_target_before_managed_spawn(lifecyc
         return execute(owner)
 
     monkeypatch.setattr(runs.Owner, "run", checked_spawn)
-    assert service._run_maintenance_installer(installation, [sys.executable, "-c", "raise SystemExit(0)"], "check", "validation") == 0
+    assert (
+        service._run_maintenance_installer(
+            installation, [sys.executable, "-c", "raise SystemExit(0)"], "check", "validation"
+        )
+        == 0
+    )
     assert len(observed) == 1
     assert list((installation.directory / "maintenance-commands").glob("*.json")) == []
     record = runs.load_record(Path(observed[0]["run_path"]))
@@ -3057,12 +3114,21 @@ def completed_disposal_participant(tmp_path, monkeypatch):
 
     monkeypatch.setenv("LCTX_RUNS_ROOT", str(tmp_path / "participant-runs"))
     path = runs.new_run_dir()
-    owner = runs.Owner(path, [sys.executable, "-c", "raise SystemExit(0)"], label="additional-quiescence-only", cwd=str(service.ROOT), mode="foreground", stream=False)
+    owner = runs.Owner(
+        path,
+        [sys.executable, "-c", "raise SystemExit(0)"],
+        label="additional-quiescence-only",
+        cwd=str(service.ROOT),
+        mode="foreground",
+        stream=False,
+    )
     assert owner.run() == 0
     return path
 
 
-def test_campaign_disposal_additional_run_is_quiescence_obligation_without_ancestry_claim(lifecycle_campaign_ready, tmp_path, monkeypatch):
+def test_campaign_disposal_additional_run_is_quiescence_obligation_without_ancestry_claim(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
     installation, actions = lifecycle_campaign_ready
     ordinary_campaign_marker(installation)
     path = completed_disposal_participant(tmp_path, monkeypatch)
@@ -3073,17 +3139,26 @@ def test_campaign_disposal_additional_run_is_quiescence_obligation_without_ances
     assert "argv" not in reference and "ancestry" not in reference
     assert receipt["current_quiescence"]["runs"][0]["group"]["status"] == "gone"
     assert receipt["outcome"] == "passed"
-    assert ("storage-release", reference["storage_receipt"],
-        f"lifecycle-disposal-participant:{installation.id}:{path.name}") in actions
-    completed = service.Installation(installation.directory,
-        service.read_json(installation.directory / "installation.json"))
-    monkeypatch.setattr(service, "_campaign_participant_run",
-        lambda path: pytest.fail("terminal disposal must not require retired run contents"))
+    assert (
+        "storage-release",
+        reference["storage_receipt"],
+        f"lifecycle-disposal-participant:{installation.id}:{path.name}",
+    ) in actions
+    completed = service.Installation(
+        installation.directory, service.read_json(installation.directory / "installation.json")
+    )
+    monkeypatch.setattr(
+        service,
+        "_campaign_participant_run",
+        lambda path: pytest.fail("terminal disposal must not require retired run contents"),
+    )
     assert service.dispose_campaign(completed, installation.id) == receipt
 
 
 @pytest.mark.parametrize("axis", ["owner", "group", "foreign", "malformed"])
-def test_campaign_disposal_additional_run_refuses_unresolved_current_identity(lifecycle_campaign_ready, tmp_path, monkeypatch, axis):
+def test_campaign_disposal_additional_run_refuses_unresolved_current_identity(
+    lifecycle_campaign_ready, tmp_path, monkeypatch, axis
+):
     import harness
     import runs
 
@@ -3110,7 +3185,9 @@ def test_campaign_disposal_additional_run_refuses_unresolved_current_identity(li
         assert "stop" not in actions
 
 
-def test_campaign_disposal_additional_run_retry_keeps_reference_and_refuses_replacement(lifecycle_campaign_ready, tmp_path, monkeypatch):
+def test_campaign_disposal_additional_run_retry_keeps_reference_and_refuses_replacement(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
     import runs
 
     installation, actions = lifecycle_campaign_ready
@@ -3127,9 +3204,12 @@ def test_campaign_disposal_additional_run_retry_keeps_reference_and_refuses_repl
     marker = service.read_json(installation.directory / "maintenance.json")
     assert receipt["maintenance_successor"] == marker
     from storage_lifecycle import Storage
+
     (reference,) = receipt["participant_runs"]
     consumer = f"lifecycle-disposal-participant:{installation.id}:{path.name}"
-    assert Storage().get(reference["storage_receipt"])["obligations"][consumer]["released_at"] is None
+    assert (
+        Storage().get(reference["storage_receipt"])["obligations"][consumer]["released_at"] is None
+    )
     record = runs.load_record(path)
     record["argv"] = [sys.executable, "-c", "different-command"]
     service.private_json(path / runs.RECORD, record)
@@ -3139,10 +3219,18 @@ def test_campaign_disposal_additional_run_retry_keeps_reference_and_refuses_repl
     assert "stop" not in actions
 
 
-def test_campaign_disposal_retry_rejects_unjournaled_successor(lifecycle_campaign_ready, monkeypatch):
+def test_campaign_disposal_retry_rejects_unjournaled_successor(
+    lifecycle_campaign_ready, monkeypatch
+):
     installation, actions = lifecycle_campaign_ready
     ordinary_campaign_marker(installation)
-    monkeypatch.setattr(service, "_stop_owned", lambda inst: (_ for _ in ()).throw(service.FixtureBlocked("drainage", "controlled stop refusal")))
+    monkeypatch.setattr(
+        service,
+        "_stop_owned",
+        lambda inst: (_ for _ in ()).throw(
+            service.FixtureBlocked("drainage", "controlled stop refusal")
+        ),
+    )
     with pytest.raises(service.FixtureBlocked, match="stop refusal"):
         service.dispose_campaign(installation, installation.id)
     marker = service.read_json(installation.directory / "maintenance.json")
@@ -3153,11 +3241,19 @@ def test_campaign_disposal_retry_rejects_unjournaled_successor(lifecycle_campaig
     assert "stop" not in actions
 
 
-def test_campaign_disposal_retry_reuses_journaled_successor_across_marker_write_crash(lifecycle_campaign_ready, monkeypatch):
+def test_campaign_disposal_retry_reuses_journaled_successor_across_marker_write_crash(
+    lifecycle_campaign_ready, monkeypatch
+):
     installation, actions = lifecycle_campaign_ready
     ordinary_campaign_marker(installation)
     stop = service._stop_owned
-    monkeypatch.setattr(service, "_stop_owned", lambda inst: (_ for _ in ()).throw(service.FixtureBlocked("drainage", "controlled stop refusal")))
+    monkeypatch.setattr(
+        service,
+        "_stop_owned",
+        lambda inst: (_ for _ in ()).throw(
+            service.FixtureBlocked("drainage", "controlled stop refusal")
+        ),
+    )
     with pytest.raises(service.FixtureBlocked, match="stop refusal"):
         service.dispose_campaign(installation, installation.id)
     marker = service.read_json(installation.directory / "maintenance.json")
@@ -3182,7 +3278,9 @@ def test_campaign_disposal_retry_reuses_journaled_successor_across_marker_write_
     assert "stop" in actions
 
 
-def test_campaign_disposal_releases_interrupted_maintenance_reference_without_rewriting_unknown(lifecycle_campaign_ready, tmp_path, monkeypatch):
+def test_campaign_disposal_releases_interrupted_maintenance_reference_without_rewriting_unknown(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
     import runs
 
     installation, actions = lifecycle_campaign_ready
@@ -3196,7 +3294,9 @@ def test_campaign_disposal_releases_interrupted_maintenance_reference_without_re
             self.cleanup = {"status": "unknown", "reason": "withheld original evidence"}
 
     monkeypatch.setattr(runs, "SpawnGuard", UnknownGuard)
-    service._run_maintenance_installer(installation, [sys.executable, "-c", "raise SystemExit(1)"], "check", "validation")
+    service._run_maintenance_installer(
+        installation, [sys.executable, "-c", "raise SystemExit(1)"], "check", "validation"
+    )
     (reference_path,) = (installation.directory / "maintenance-commands").glob("*.json")
     reference = service.read_json(reference_path)
     run_path = Path(reference["run_path"])
@@ -3206,10 +3306,16 @@ def test_campaign_disposal_releases_interrupted_maintenance_reference_without_re
     assert service.dispose_campaign(installation, installation.id)["outcome"] == "passed"
     assert not reference_path.exists()
     assert runs.load_record(run_path)["cleanup"]["status"] == "unknown"
-    assert ("storage-release", reference["storage"]["receipt"], reference["storage"]["consumer"]) in actions
+    assert (
+        "storage-release",
+        reference["storage"]["receipt"],
+        reference["storage"]["consumer"],
+    ) in actions
 
 
-def test_campaign_host_selector_refuses_inaccessible_supported_python_adapter(lifecycle_campaign_ready, tmp_path, monkeypatch):
+def test_campaign_host_selector_refuses_inaccessible_supported_python_adapter(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
     installation, _ = lifecycle_campaign_ready
     process = tmp_path / "99999996"
     process.mkdir()
@@ -3223,32 +3329,46 @@ def test_campaign_host_selector_refuses_inaccessible_supported_python_adapter(li
         return read(path)
 
     monkeypatch.setattr(Path, "read_bytes", inaccessible)
-    monkeypatch.setattr(Path, "iterdir", lambda path: iter([process]) if path == Path("/proc") else iterate(path))
-    with pytest.raises(service.FixtureBlocked, match="supported host participant selector coverage is inaccessible"):
+    monkeypatch.setattr(
+        Path, "iterdir", lambda path: iter([process]) if path == Path("/proc") else iterate(path)
+    )
+    with pytest.raises(
+        service.FixtureBlocked, match="supported host participant selector coverage is inaccessible"
+    ):
         service._campaign_host_participants(installation)
 
 
-def test_campaign_host_selector_recognizes_legacy_env_assignment(lifecycle_campaign_ready, tmp_path, monkeypatch):
+def test_campaign_host_selector_recognizes_legacy_env_assignment(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
     installation, _ = lifecycle_campaign_ready
     process = tmp_path / str(os.getpid() + 123)
     process.mkdir()
-    (process / "cmdline").write_bytes(b"/usr/bin/env\0LCTX_SURREAL_SERVICE_CONFIG=" + os.fsencode(installation.directory / "installation.json") + b"\0native-client\0")
+    (process / "cmdline").write_bytes(
+        b"/usr/bin/env\0LCTX_SURREAL_SERVICE_CONFIG="
+        + os.fsencode(installation.directory / "installation.json")
+        + b"\0native-client\0"
+    )
     (process / "environ").write_bytes(b"")
     iterate = Path.iterdir
     identity = service.ProcessIdentity.of()
-    monkeypatch.setattr(Path, "iterdir", lambda path: iter([process]) if path == Path("/proc") else iterate(path))
+    monkeypatch.setattr(
+        Path, "iterdir", lambda path: iter([process]) if path == Path("/proc") else iterate(path)
+    )
     monkeypatch.setattr(service.ProcessIdentity, "of", classmethod(lambda cls, pid=None: identity))
     with pytest.raises(service.FixtureBlocked, match="campaign-bound host participant"):
         service._campaign_host_participants(installation)
 
 
-def test_campaign_disposal_recognizes_only_its_actual_managed_dispatch_group(lifecycle_campaign_ready, tmp_path, monkeypatch):
+def test_campaign_disposal_recognizes_only_its_actual_managed_dispatch_group(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
     import runs
 
     installation, _ = lifecycle_campaign_ready
     monkeypatch.setenv("LCTX_RUNS_ROOT", str(tmp_path / "dispatcher-runs"))
     script = tmp_path / "surrealdb_service.py"
-    script.write_text(f'''import os, sys, time
+    script.write_text(f"""import os, sys, time
 from pathlib import Path
 sys.path.insert(0, {str(service.ROOT / "scripts")!r})
 import runs, surrealdb_service as service
@@ -3261,19 +3381,34 @@ installation = service.Installation(Path({str(installation.directory)!r}), {{"in
 assert service._campaign_disposal_dispatch_run(installation, path, record)
 record["argv"] = ["bash", "-c", "just", "service", "dispose-campaign", installation.id]
 assert not service._campaign_disposal_dispatch_run(installation, path, record)
-''')
+""")
     path = runs.new_run_dir()
-    owner = runs.Owner(path, [sys.executable, str(script), "dispose-campaign", installation.id], label="finite-disposal-dispatch-control", cwd=str(service.ROOT), mode="foreground", stream=False)
+    owner = runs.Owner(
+        path,
+        [sys.executable, str(script), "dispose-campaign", installation.id],
+        label="finite-disposal-dispatch-control",
+        cwd=str(service.ROOT),
+        mode="foreground",
+        stream=False,
+    )
     assert owner.run() == 0
     assert runs.group_of(runs.load_record(path))["status"] == "gone"
 
 
 @pytest.mark.parametrize("changed", [False, True])
-def test_campaign_host_selector_distinguishes_authenticated_executor(lifecycle_campaign_ready, changed):
+def test_campaign_host_selector_distinguishes_authenticated_executor(
+    lifecycle_campaign_ready, changed
+):
     import harness
 
     installation, _ = lifecycle_campaign_ready
-    child = harness.spawn_group([sys.executable, "-c", "import signal; signal.pause()"], env={**os.environ, "LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json")})
+    child = harness.spawn_group(
+        [sys.executable, "-c", "import signal; signal.pause()"],
+        env={
+            **os.environ,
+            "LCTX_SURREAL_SERVICE_CONFIG": str(installation.directory / "installation.json"),
+        },
+    )
     with harness.SpawnGuard(child, grace=0.1):
         identity = service.ProcessIdentity.of(child.pid)
         executable = service.executable_identity(Path(f"/proc/{child.pid}/exe").stat())
@@ -3285,8 +3420,18 @@ def test_campaign_host_selector_distinguishes_authenticated_executor(lifecycle_c
             assert service._campaign_host_participants(installation)["participants"] == []
 
 
-@pytest.mark.parametrize("field,value", [("pid", -1), ("start_ticks", True), ("pid_namespace", "invalid"), ("boot_id", "not-a-boot-id")])
-def test_campaign_disposal_refuses_malformed_dead_predecessor_identity(lifecycle_campaign_ready, field, value):
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("pid", -1),
+        ("start_ticks", True),
+        ("pid_namespace", "invalid"),
+        ("boot_id", "not-a-boot-id"),
+    ],
+)
+def test_campaign_disposal_refuses_malformed_dead_predecessor_identity(
+    lifecycle_campaign_ready, field, value
+):
     installation, actions = lifecycle_campaign_ready
     marker = ordinary_campaign_marker(installation)
     marker["owner"][field] = value
@@ -3296,13 +3441,22 @@ def test_campaign_disposal_refuses_malformed_dead_predecessor_identity(lifecycle
     assert "stop" not in actions
 
 
-def test_ordinary_campaign_installer_routes_both_scopes_through_managed_owner(lifecycle_campaign_ready, tmp_path, monkeypatch):
+def test_ordinary_campaign_installer_routes_both_scopes_through_managed_owner(
+    lifecycle_campaign_ready, tmp_path, monkeypatch
+):
     import harness
     import runs
 
     installation, _ = lifecycle_campaign_ready
     monkeypatch.setenv("LCTX_RUNS_ROOT", str(tmp_path / "installer-runs"))
-    service.private_json(installation.directory / "maintenance.json", {"operation": "maintenance", "owner": service.ProcessIdentity.of().to_json(), "token": "current"})
+    service.private_json(
+        installation.directory / "maintenance.json",
+        {
+            "operation": "maintenance",
+            "owner": service.ProcessIdentity.of().to_json(),
+            "token": "current",
+        },
+    )
     installer = tmp_path / "finite-installer"
     installer.write_text("#!" + sys.executable + "\nraise SystemExit(0)\n")
     installer.chmod(0o700)
@@ -3313,37 +3467,71 @@ def test_ordinary_campaign_installer_routes_both_scopes_through_managed_owner(li
         os.close(gate)
     records = [runs.load_record(path) for path in runs.all_runs()]
     assert len(records) == 2
-    assert {row["label"] for row in records} == {"lifecycle-maintenance-check-main", "lifecycle-maintenance-check-validation"}
-    assert all(row["cleanup"]["status"] == "confirmed" and runs.group_of(row)["status"] == "gone" for row in records)
+    assert {row["label"] for row in records} == {
+        "lifecycle-maintenance-check-main",
+        "lifecycle-maintenance-check-validation",
+    }
+    assert all(
+        row["cleanup"]["status"] == "confirmed" and runs.group_of(row)["status"] == "gone"
+        for row in records
+    )
     assert list((installation.directory / "maintenance-commands").glob("*.json")) == []
 
 
 def test_campaign_disposal_cli_projection_retains_transfer_identity_without_private_tokens():
     receipt = {
         "maintenance_successor": {"operation": "dispose-campaign", "token": "successor-secret"},
-        "transferred_maintenance": {"predecessor": {"sha256": "a" * 64, "bytes": "private-raw-marker", "record": {"operation": "maintenance", "token": "predecessor-secret"}}},
+        "transferred_maintenance": {
+            "predecessor": {
+                "sha256": "a" * 64,
+                "bytes": "private-raw-marker",
+                "record": {"operation": "maintenance", "token": "predecessor-secret"},
+            }
+        },
     }
     projected = service._campaign_disposal_projection(receipt)
     assert "token" not in projected["maintenance_successor"]
-    assert projected["transferred_maintenance"]["predecessor"] == {"sha256": "a" * 64, "record": {"operation": "maintenance"}}
+    assert projected["transferred_maintenance"]["predecessor"] == {
+        "sha256": "a" * 64,
+        "record": {"operation": "maintenance"},
+    }
     assert receipt["maintenance_successor"]["token"] == "successor-secret"
-    assert receipt["transferred_maintenance"]["predecessor"]["record"]["token"] == "predecessor-secret"
+    assert (
+        receipt["transferred_maintenance"]["predecessor"]["record"]["token"] == "predecessor-secret"
+    )
 
 
-def test_campaign_status_redacts_disposal_transfer_tokens(lifecycle_campaign_ready, monkeypatch, capsys):
+def test_campaign_status_redacts_disposal_transfer_tokens(
+    lifecycle_campaign_ready, monkeypatch, capsys
+):
     installation, _ = lifecycle_campaign_ready
-    service.private_json(installation.directory / "disposal.json", {
-        "maintenance_successor": {"operation": "dispose-campaign", "token": "successor-secret"},
-        "transferred_maintenance": {"predecessor": {
-            "sha256": "a" * 64, "bytes": "private-raw-marker",
-            "record": {"operation": "maintenance", "token": "predecessor-secret"},
-        }},
-    })
-    monkeypatch.setattr(service.Installation, "load", classmethod(lambda cls, *args, **kwargs: installation))
+    service.private_json(
+        installation.directory / "disposal.json",
+        {
+            "maintenance_successor": {"operation": "dispose-campaign", "token": "successor-secret"},
+            "transferred_maintenance": {
+                "predecessor": {
+                    "sha256": "a" * 64,
+                    "bytes": "private-raw-marker",
+                    "record": {"operation": "maintenance", "token": "predecessor-secret"},
+                }
+            },
+        },
+    )
+    monkeypatch.setattr(
+        service.Installation, "load", classmethod(lambda cls, *args, **kwargs: installation)
+    )
     monkeypatch.setattr(service, "borrowers", lambda inst: [])
     import storage_service
+
     monkeypatch.setattr(storage_service, "dependencies", lambda inst: [])
     assert service.main(["status"]) == 0
     output = capsys.readouterr().out
-    assert all(secret not in output for secret in ["successor-secret", "predecessor-secret", "private-raw-marker"])
-    assert json.loads(output)["disposal"]["transferred_maintenance"]["predecessor"]["sha256"] == "a" * 64
+    assert all(
+        secret not in output
+        for secret in ["successor-secret", "predecessor-secret", "private-raw-marker"]
+    )
+    assert (
+        json.loads(output)["disposal"]["transferred_maintenance"]["predecessor"]["sha256"]
+        == "a" * 64
+    )

@@ -1,7 +1,7 @@
 # Catalog execution and lifecycle completion plan
 
-**Accepted direction / Proposed implementation, 2026-10-12.** Plan authoring implements the
-operator's approved consolidation; it does not execute the production packages below. This
+**Implemented source / focused acceptance partial, 2026-10-13.** This track implements the
+operator's approved consolidation; CE01–CE03 still require their stated exits. This
 coordinator is the sole current disposition, dependency and receipt owner for the combined scope.
 It entirely replaces the four SurrealDB lifecycle plans dated 2026-10-12. Other active plans remain
 paused, separately owned and unsuperseded until CE03 reconciles affected scope after this track.
@@ -313,9 +313,28 @@ confirmed. Source review identifies full native-guard equality as an unnecessary
 the durable item consumes exact object/positive incarnation, while the exact incoming hold stays
 present until atomic nomination/release. Independent review supports checking the locked actual
 guard's active/not-retired state and captured incarnation, preserving exact cleanup/origin/owner/
-epoch/hold-page CAS, generic expectations, incidence and original-blob fencing. This correction and
-revealing same-incarnation/independent-holder and atomic refusal controls are in progress; the
+epoch/hold-page CAS, generic expectations, incidence and original-blob fencing. `e7ad22f8` implements
+that consumed-predicate correction; release native-library compile and5 focused controls in
+`20261013T231745.600Z-a0e9c0` passed (6.367s bodies, enclosing exit0/local cleanup confirmed).
+The new actual controls verify legitimate guarded revision advance with independent held objects,
+and atomic late refusal for changed incarnation/phase/retired/missing guard or full hold page. This
+establishes nomination/release and peer protection, not global root deletion. Cold composition
+`8e948b` timed out370.027s during source-retirement fixed-point work, before strict source absence
+or either restore. It reached no nomination refusal, but does not qualify the terminal fix. Its
+local cleanup was confirmed; original native uncertainty remains. The observer's actual root-to-
+job inquiry loop was outside the discovery phase and queried each known root separately. It now
+uses charged bounded exact-root windows, identity-correlated results and keyset/EOF completion,
+while retaining each candidate's complete original recipe/incarnation/digest proof. Narrow backup/
+retirement phases make future attribution possible; the unobserved207.9s interval does not establish
+which enclosed call dominated. The
 failing receipt alone does not identify which guard field changed or exclude ABA.
+After the bounded inquiry correction `ca0aae1c`, cold composition
+`20261013T234009.970Z-922690` **passed**235.692s (Nextest `357a0565…`, enclosing fixture exit0,
+local cleanup confirmed). It establishes strict actual source publication/original/blob/chunk/
+contribution/member absence, refusal of the old source publication, both independently restored
+admissions and graph/search claims, distinct positive fresh owner pairs, winning-owner context,
+exact original bytes and no selection. This closes that cold composition boundary; it does not
+qualify Catalog generation or imply a measured speed ratio.
 The Corrupt primary/full-row/EOF checks remain, with narrow graph/search and ID/digest diagnostics.
 Diagnostic-only `501425` was cancelled before any body once source established the omission; it is
 neither a product pass nor a body failure. No foreign holder is reclaimed, deadline/budget increased,
@@ -373,11 +392,74 @@ view declarations repeated before mapping/hold effects; `6d65c20c` validates eve
 and collision before effects, then maps/declares/holds each unique exact view once. Compile and2
 pure controls passed (`a9661ac0…`); current Catalog composition remains required. CU02 follow-up
 found that its position/gather primitive had not migrated Evidence/Selection/Synthesis rich union
-copies, ScopeIndex compact copies, or LocalSemantics' deliberately merged input ports. They are now
-being migrated to borrowed ordered keys and nominal point lookup, preserving charged owned builder
-data and each port policy. Buffered per-row pushes are not per-row database effects. Serial final-
+copies, ScopeIndex compact copies, or LocalSemantics' deliberately merged input ports. `191f33cc`
+and `c311d200` migrate those paths to borrowed ordered keys and nominal point lookup, preserving
+charged owned builder data and each port policy. Touched model/cpg library/test compile checks and
+6 then7 focused model controls passed (`03b67003…`, `51de8d00…`). Independent bounded consumer
+review additionally found SourceCallWindow and semantic ModelWindow per-partition full union masks.
+`d0178f25` migrates them through shared prepared index/gather leaves, consuming exact immutable roots,
+columns and their existing backing charge. Actual backing-size floor and exact resource-pool checks
+reject undercharged/foreign handoffs; opaque-key filtering, full model universes, physical duplicate
+rows, ordering, cancellation and borrowed lifetimes remain. Final affected compile passed;2 actual
+finite Cpg consumer controls passed (`6db10687…`), and3 compiler-store controls passed (`97e44b46…`).
+Buffered per-row pushes are not per-row database effects. Serial final-
 writer acknowledgements are a separate ownership lead, not an established timeout cause; cancellable
 worker drainage remains protected.
+Their current serial encoding/acknowledgement is retained: encoding expands each final batch's
+reservation, and the shared ingress mutex already owns submission/previous acknowledgement.
+Mechanical concurrent closes would increase live encoded state and start later effects after an
+earlier failure. Revisit only for a material final-writer demand with a complete submit/settle route
+that preserves reservation, cancellation and every started failure. The bounded128-row immutable
+creation-index search and compact emission-presence set scan are other potential work-reduction
+leads, not established dominant costs or additional acceptance gates.
+Independent review also found an optional selected-domain fallback inspecting `error.primary()`
+after submitted native token work. It could erase Resource-primary completion/Unknown or pretend a
+failed/cancelled native owner remained feasible. The correction classifies only actual local token
+reservation growth at its two preparation sites; every submitted native failure propagates intact.
+`3dcdf4c0` implements the correction; source review, affected compile and its local-refusal/full-
+finality countercontrol passed in `97e44b46…`. Final independent source review accepts these changes
+and finds no remaining rich-mask route in the bounded actual-consumer coverage. Current CLI/serving
+test-target compile `36cb10` and Python native-bridge compile-only `bd82bd` passed with confirmed
+local cleanup. External embedding and MCP-submitted runtime remain not_run. Actual final Catalog
+composition `cd8335` timed out370.032s after Catalog evidence and compact Enriched production,
+during Models' optional native product retention, before final artifact admission/publication/
+queries. Local cleanup was confirmed; attachment `6fa2c886-e9aa-44bf-aa8d-394559dedc52` retains its
+original native uncertainty. Those phase labels do not mean Catalog executed the behavioral
+kernels: the existing `uniform::unrequested` path produces exact compact `NotRequested` declarations
+and ordinary empty views. Source investigation found its optional lookup ran before dispatch,
+arming independent retained-product construction on a miss. Fresh compact production retains all
+required metadata/EOF/dependency binding and completion, while avoiding that optional lifetime.
+Focused independent design review accepts Fresh eligibility before lookup only for the already
+selected uniform path; expensive requested computations returning no rows retain their prior reuse
+eligibility. This is a local fit refinement under ADR-0143/0165, with no generic row-count threshold,
+new ADR, error suppression or new physical protocol. `27746855` implements that exact execution-
+predicate eligibility. Cpg release library/test compile and the actual-config policy countercontrol
+passed (`65a29b64…`): all9 uniform owners Fresh, requested ordinary/Behavioral/Analytic Rows and
+private-kernel Fresh boundaries preserved. Independent source review accepts the two-file change.
+The existing actual cache matrix retains full equivalence/identity/declaration checks and now
+expects no uniform attachments; that long matrix is not_run. Required Catalog composition
+`20261013T235123.169Z-aa1f3c` is in progress with every compact-owner/publication assertion retained;
+the older efficiency target's compact-hit expectations will be reconciled only in CE03.
+`aa1f3c` subsequently **failed**, rather than timed out, at359.182s in analysis-frontier admission:
+`uniform outcome has no selected admitted owner`. Exact source review by two agents found a
+pre-existing consumer wiring omission: final frontier supplied facts availability's deliberately
+NativeFamily-only owners while loading current descriptors that also contain AnalysisOwner rows.
+There is no evidence optional retention supplied a required witness or physical closure was missing.
+`final_coverage` now uses the existing exact mixed `uniform_owners_async` admission route, already
+used by Workspace coverage admission, retaining metadata/EOF/selected-descriptor validation and
+missing-owner refusal. Cpg release library/test compile passed2.11s; actual frontier acceptance
+remains required. A documented900-second orchestration exception for the full generated-analysis/
+admission/publication/query control has been requested from the operator; no deadline change or
+dependent longer run occurs without that answer. Other bounds/assertions and original failures stay
+unchanged. Cold and focused controls are not substituted for that remaining composition.
+`31ce1158` is the compiled frontier handoff correction. Current native composition binary build
+`20261014T000541.649Z-ea17a1` passed with confirmed local cleanup. Adjacent current-source audit
+found no second mixed-owner handoff through facts availability; its remaining facts/normalization/
+native-manifest consumers correctly retain NativeFamily scope. All implementation agents are
+finished, source is committed on main, and no worktree or owned transient process remains. Owned i
+stays retained for the remaining acceptance run and subsequent checked disposal. CE02/CE03 and
+whole-plan completion remain open; older plans are not substantively reconciled early. Broad repo
+quality/qualification and excluded runtime remain not_run under the operator's scope.
 
 Independent implementation review found selector-crossing alias witnesses, partially committed
 receiving attachment, and abandoned retained-boundary pin release. Corrections are source-reviewed:
@@ -395,8 +477,8 @@ asserted timeout cause.
 | catalog#F02 | Native reuse/retained collision and exact portable incidence implemented/source-reviewed; focused acceptance in progress; CP00/CP04/CU03 | Protected independent eligibility, root-qualified copy closure, fresh receiving authority and complete cold/physical consumers; enclosing CE01 remains separate |
 | catalog#F03 | Implemented primitives; remaining consumer migration/source review and actual controls in progress; CP03/CP04 | Transport/retained-selector/held-alias set demand now windows (`ae14125d`, `c3eceeb8`); operation-registry first-miss preparation and retry accounting remain under correction; exact correspondence/CAS/finality required |
 | catalog#F04 | Directed selection implemented; 25 pure controls passed2026-10-13; cross-boundary equivalence and enclosing native acceptance open; CP03/CP04 | Prepared directed frontier, composed exact aliases, unreachable-source refusal, spill and safe reuse |
-| catalog#F05 | Implemented/source-reviewed; backup reached; cold restoration open at closeout; CU01 | Demanded typed metadata, one combined original/payload pass, complete EOF/conflict checks, independently supplied receipt and fresh restoration |
-| catalog#F06 | Position/gather primitive focused-Tested; actual rich-consumer migration in progress2026-10-13; CU02 | Borrowed ordered keys and nominal point lookup must replace rich union rescans in Evidence/Selection/Synthesis/ScopeIndex/LocalSemantics, preserving exact vs merged port policy, compact/spill topology and output semantics |
+| catalog#F05 | Closed at source/focused-Tested and actual cold-composition strength2026-10-13; CU01 | Demanded typed metadata, combined original/payload pass, complete EOF/conflict checks, independently supplied receipt and both fresh restorations passed in922690; enclosing Catalog CE01 remains separate |
+| catalog#F06 | Closed at source/focused-Tested strength2026-10-13; CU02 | Position/gather and nominal-key consumers migrated through actual Evidence/Selection/Synthesis/ScopeIndex/LocalSemantics/SourceCall/Model paths; exact and merged port policies, opaque literals, compact/spill topology and output semantics preserved; enclosing CE01 remains separate |
 | catalog#F07 | Implemented/source-reviewed; focused transport bodies passed, enclosing acceptance partial; CU03 | Direct unchanged v4 fold, opaque frozen/published preparation once, root-qualified exact copies and receiving semantic/eligibility admission |
 | catalog#F08 | Closed at source/focused-Tested strength2026-10-13; CU04 | Factory-checked recursively immutable Spec, one eager versioned Rust response; all11 pure adapter controls passed after native extension refresh |
 | lifecycle#F01 | Open, implementation/source evidence available; CP04/CE01 | Populated generated-analysis/admitted-publication/native-query assertions remain not_run |

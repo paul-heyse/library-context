@@ -174,6 +174,15 @@ first. Sustained replay can still prevent progress; revisit only for an actual s
 requirement or a revealing current failure, preserving the original typed effect outcome. This is
 not a measured timeout diagnosis or new runtime acceptance.
 
+Cleanup root nomination has a different consumed premise from blob-byte completion. An item binds
+the exact object and captured positive incarnation. Under object coordination its locked current
+guard must exist, remain active/not retired and match that incarnation. The original exact incoming
+hold stays present until nomination and owner-hold release commit together; unrelated surviving
+holders remain protected. Exact cleanup/origin/owner/epoch/full hold-page checks, generic effect
+expectations and incidence coordination remain. A benign guard revision advance is not a changed
+nomination identity. This narrower predicate does not change IF04's full-content validation or its
+typed recapture rule. Current implementation and revealing refusal/race controls belong to §6.
+
 ## 3. CP01 — immutable canonical runs and non-consuming ordered union
 
 Extend [ordered_rows](../../crates/lctx-native/src/ordered_rows.rs), whose `PreparedRows` already
@@ -412,6 +421,13 @@ the entire provisional preparation, including poisoned sorters, before retrying 
 The final singleton path preserves the original allocation/refusal behavior. No partial fragment is
 cached, no native write is retried here, and the registered worker still checks exact source bytes/
 incarnation/context, closes its reader and checks its actual live pin before publishing success.
+
+Optional reusable-product retention follows actual execution demand. The existing uniform
+whole-owner `NotRequested` route selects Fresh before lookup/capture: protected compact metadata,
+exact domain declarations, ordinary empty outputs and native completion remain required, while an
+additional retained dependency closure is omitted. No generic empty-result rule follows; requested
+computations with costly empty results retain their existing reuse eligibility. Once native
+retention starts, its failures/Unknown remain strict. Coordinator §6 owns source and runtime scope.
 
 The existing selected-member work result now retains its EOF-validated count and content digest
 beside the immutable run. Boundary earning consumes that result instead of discarding and immediately

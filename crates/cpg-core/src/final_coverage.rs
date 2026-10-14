@@ -15,7 +15,8 @@ async fn load<R: Record>(
     let permit = access.read_at::<R>(declaration.prefix())?;
     crate::consumed_rows::stream_at(&permit, declaration, access, session, |_, batch| {
         data.visit(R::NAME, batch)
-    }).await
+    })
+    .await
 }
 pub async fn produce(
     access: CompletedInputs,
@@ -33,16 +34,22 @@ pub async fn produce(
     let mut data = FrontierData::new(access.profile(), budget);
     // Frontier inputs include both native-family and analysis-owner declarations.
     // Facts availability deliberately admits only the native-family subset.
-    let owners=runtime.admission_runtime(access.profile())?
-        .uniform_owners_async(access.profile()).await?;
-    for owner in owners.owners(){data.admit_uniform_owner(owner)?;}
+    let owners = runtime
+        .admission_runtime(access.profile())?
+        .uniform_owners_async(access.profile())
+        .await?;
+    for owner in owners.owners() {
+        data.admit_uniform_owner(owner)?;
+    }
     let session = access.session(runtime).await?;
     macro_rules! read{($($ty:ty),* $(,)?)=>{$(if let Some(input)=inputs.iter().find(|i|i.type_id()==std::any::TypeId::of::<$ty>()){load::<$ty>(&access,&session,input,&mut data).await?;})*};}
     lctx_model::final_frontier_inputs!(read);
     let records = frontier::derive(&data, target, budget)?;
     match target {
         Target::Analysis => {
-            output.declare_async::<frontier::AnalysisAssessment>().await?;
+            output
+                .declare_async::<frontier::AnalysisAssessment>()
+                .await?;
             output.declare_async::<frontier::AnalysisMember>().await?;
             for row in records.analysis.iter() {
                 output.push(row.clone()).await?;
@@ -52,7 +59,9 @@ pub async fn produce(
             }
         }
         Target::Catalog => {
-            output.declare_async::<frontier::CatalogAssessment>().await?;
+            output
+                .declare_async::<frontier::CatalogAssessment>()
+                .await?;
             output.declare_async::<frontier::CatalogMember>().await?;
             for row in records.catalog.iter() {
                 output.push(row.clone()).await?;

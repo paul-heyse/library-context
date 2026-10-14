@@ -137,9 +137,22 @@ async fn run(
     expected: &[u8],
     names: &[&str],
 ) -> Receipt {
-    run_with_analytics(config, input, profile, frontier, reuse_admitted, expected, names, false).await
+    run_with_analytics(
+        config,
+        input,
+        profile,
+        frontier,
+        reuse_admitted,
+        expected,
+        names,
+        false,
+    )
+    .await
 }
-#[allow(clippy::too_many_arguments, reason = "Focused control keeps the compile selection, cache decision and independent source oracle explicit")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Focused control keeps the compile selection, cache decision and independent source oracle explicit"
+)]
 async fn run_with_analytics(
     config: &lctx_native::RuntimeConfig,
     input: &Path,
@@ -290,28 +303,80 @@ fn reused(receipt: &Receipt) -> bool {
 }
 /// Observe current compact completions and each operation's absence of attachment,
 /// independently of eligible package or normalization hits in the same compilation.
-async fn compact_completion_identities(receipt: &Receipt) -> std::collections::BTreeMap<String, ContentHash> {
-    use lctx_model::domain::{analysis::owner::AnalysisOwner, uniform_outcome::UniformNotRequested};
-    let expected = AnalysisOwner::ALL.into_iter().filter(|owner|owner.can_be_wholly_unrequested())
-        .map(|owner|owner.name()).collect::<BTreeSet<_>>();
-    let contributions = receipt.workspace.native().contributions(receipt.workspace.budget()).await.unwrap();
+async fn compact_completion_identities(
+    receipt: &Receipt,
+) -> std::collections::BTreeMap<String, ContentHash> {
+    use lctx_model::domain::{
+        analysis::owner::AnalysisOwner, uniform_outcome::UniformNotRequested,
+    };
+    let expected = AnalysisOwner::ALL
+        .into_iter()
+        .filter(|owner| owner.can_be_wholly_unrequested())
+        .map(|owner| owner.name())
+        .collect::<BTreeSet<_>>();
+    let contributions = receipt
+        .workspace
+        .native()
+        .contributions(receipt.workspace.budget())
+        .await
+        .unwrap();
     let mut identities = std::collections::BTreeMap::new();
-    for owner in contributions.iter().filter(|owner|expected.contains(owner.spec.producer.as_str())) {
-        assert_eq!(owner.outcome, ProviderOutcome::Complete.code(), "physical compact production completed");
-        assert_eq!(owner.outputs.get(UniformNotRequested::NAME).map(|output|output.rows), Some(1),
-            "one actual input/context retains one compact descriptor");
-        assert!(owner.outputs.iter().all(|(name,output)|name==UniformNotRequested::NAME || output.rows==0),
-            "compact ordinary outputs remain explicitly empty");
-        assert!(identities.insert(owner.spec.producer.clone(),owner.identity().unwrap()).is_none(),
-            "one exact compact contribution per current owner");
+    for owner in contributions
+        .iter()
+        .filter(|owner| expected.contains(owner.spec.producer.as_str()))
+    {
+        assert_eq!(
+            owner.outcome,
+            ProviderOutcome::Complete.code(),
+            "physical compact production completed"
+        );
+        assert_eq!(
+            owner
+                .outputs
+                .get(UniformNotRequested::NAME)
+                .map(|output| output.rows),
+            Some(1),
+            "one actual input/context retains one compact descriptor"
+        );
+        assert!(
+            owner
+                .outputs
+                .iter()
+                .all(|(name, output)| name == UniformNotRequested::NAME || output.rows == 0),
+            "compact ordinary outputs remain explicitly empty"
+        );
+        assert!(
+            identities
+                .insert(owner.spec.producer.clone(), owner.identity().unwrap())
+                .is_none(),
+            "one exact compact contribution per current owner"
+        );
     }
-    assert_eq!(identities.keys().map(String::as_str).collect::<BTreeSet<_>>(), expected);
-    for owner in AnalysisOwner::ALL.into_iter().filter(|owner|owner.can_be_wholly_unrequested()) {
-        let attached = receipt.hit_log.lines().any(|line|line.contains("admitted compiled product attached")
-            && line.split_whitespace().any(|field|field.strip_prefix("operation=")
-                .is_some_and(|name|name.trim_matches('"')==owner.name())));
-        assert!(!attached,
-            "current unrequested compact metadata must be produced without attachment for {}: {}", owner.name(), receipt.hit_log);
+    assert_eq!(
+        identities
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>(),
+        expected
+    );
+    for owner in AnalysisOwner::ALL
+        .into_iter()
+        .filter(|owner| owner.can_be_wholly_unrequested())
+    {
+        let attached = receipt.hit_log.lines().any(|line| {
+            line.contains("admitted compiled product attached")
+                && line.split_whitespace().any(|field| {
+                    field
+                        .strip_prefix("operation=")
+                        .is_some_and(|name| name.trim_matches('"') == owner.name())
+                })
+        });
+        assert!(
+            !attached,
+            "current unrequested compact metadata must be produced without attachment for {}: {}",
+            owner.name(),
+            receipt.hit_log
+        );
     }
     identities
 }
@@ -466,10 +531,17 @@ async fn matrix(profile: Profile, frontier: Frontier) {
         assert_eq!(compact_completion_identities(&warm).await, original);
         assert_eq!(compact_completion_identities(&reload).await, original);
         let changed_owners = compact_completion_identities(&changed).await;
-        assert_eq!(compact_completion_identities(&changed_off).await, changed_owners);
+        assert_eq!(
+            compact_completion_identities(&changed_off).await,
+            changed_owners
+        );
         for (name, identity) in &original {
-            assert_ne!(changed_owners.get(name), Some(identity),
-                "changed actual input/domain cannot inherit {}'s previous compact completion", name);
+            assert_ne!(
+                changed_owners.get(name),
+                Some(identity),
+                "changed actual input/domain cannot inherit {}'s previous compact completion",
+                name
+            );
         }
         assert_eq!(compact_completion_identities(&deleted).await, original);
         assert_eq!(compact_completion_identities(&deleted_off).await, original);
@@ -500,17 +572,40 @@ async fn behavioral_compiler_cache_off_cold_hit_reload_and_changed_source_are_eq
 async fn optional_analytic_preparation_cold_and_warm_preserve_exact_outputs() {
     let config = lctx_native::RuntimeConfig::read(Path::new(
         &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
-    )).unwrap();
+    ))
+    .unwrap();
     let input = tempfile::tempdir().unwrap();
     std::fs::write(input.path().join("api.py"), ORIGINAL).unwrap();
     // Two attempts, rather than the full invalidation matrix: selected optional Analytic
     // extends graph lifetime after Structural, and warm attachment can remove consumers.
-    let cold = run_with_analytics(&config, input.path(), Profile::Catalog, Frontier::Analysis,
-        false, ORIGINAL, &["identity"], true).await;
-    let warm = run_with_analytics(&config, input.path(), Profile::Catalog, Frontier::Analysis,
-        true, ORIGINAL, &["identity"], true).await;
+    let cold = run_with_analytics(
+        &config,
+        input.path(),
+        Profile::Catalog,
+        Frontier::Analysis,
+        false,
+        ORIGINAL,
+        &["identity"],
+        true,
+    )
+    .await;
+    let warm = run_with_analytics(
+        &config,
+        input.path(),
+        Profile::Catalog,
+        Frontier::Analysis,
+        true,
+        ORIGINAL,
+        &["identity"],
+        true,
+    )
+    .await;
     assert!(!reused(&cold));
-    assert!(reused(&warm), "actual warm admitted attachment missing: {}", warm.hit_log);
+    assert!(
+        reused(&warm),
+        "actual warm admitted attachment missing: {}",
+        warm.hit_log
+    );
     equivalent(&cold, &warm);
     for receipt in [cold, warm] {
         receipt.workspace.native().abandon().await.unwrap();
@@ -520,37 +615,89 @@ async fn optional_analytic_preparation_cold_and_warm_preserve_exact_outputs() {
 #[test]
 fn known_uniform_metadata_is_fresh_without_changing_requested_rows_eligibility() {
     let budget = resources::ResourceBudget::fixed(16 << 20).unwrap();
-    let catalog = models::Catalog::parse("external.toml",
-        include_str!("../../../lctx-model/models/external.toml")).unwrap();
-    let prepared = PreparedCompilation::new(Frontier::Catalog, settings(), &catalog, None, &budget).unwrap();
-    for owner in [UpperStage::Local, UpperStage::Base, UpperStage::Completion,
-        UpperStage::SourceCalls, UpperStage::Enriched, UpperStage::Models,
-        UpperStage::Summary, UpperStage::Embedding, UpperStage::Analytic] {
+    let catalog = models::Catalog::parse(
+        "external.toml",
+        include_str!("../../../lctx-model/models/external.toml"),
+    )
+    .unwrap();
+    let prepared =
+        PreparedCompilation::new(Frontier::Catalog, settings(), &catalog, None, &budget).unwrap();
+    for owner in [
+        UpperStage::Local,
+        UpperStage::Base,
+        UpperStage::Completion,
+        UpperStage::SourceCalls,
+        UpperStage::Enriched,
+        UpperStage::Models,
+        UpperStage::Summary,
+        UpperStage::Embedding,
+        UpperStage::Analytic,
+    ] {
         assert!(uniform::unrequested(owner, Profile::Catalog, &prepared));
-        assert!(matches!(owner.reuse(Effect::Pure, Profile::Catalog, &prepared), reuse::Eligibility::Fresh(_)),
-            "actual unrequested dispatch must not perform a reuse lookup for {owner:?}");
+        assert!(
+            matches!(
+                owner.reuse(Effect::Pure, Profile::Catalog, &prepared),
+                reuse::Eligibility::Fresh(_)
+            ),
+            "actual unrequested dispatch must not perform a reuse lookup for {owner:?}"
+        );
     }
     // No output cardinality enters this decision. Requested owners keep their existing
     // Rows policy even if their actual computation later produces an empty relation.
     for profile in [Profile::Catalog, Profile::Behavioral] {
-        for owner in [UpperStage::Text, UpperStage::CatalogCore, UpperStage::CatalogEvidence,
-            UpperStage::Structural, UpperStage::Selection, UpperStage::Synthesis, UpperStage::Retrieval] {
+        for owner in [
+            UpperStage::Text,
+            UpperStage::CatalogCore,
+            UpperStage::CatalogEvidence,
+            UpperStage::Structural,
+            UpperStage::Selection,
+            UpperStage::Synthesis,
+            UpperStage::Retrieval,
+        ] {
             assert!(!uniform::unrequested(owner, profile, &prepared));
-            assert!(matches!(owner.reuse(Effect::Pure, profile, &prepared), reuse::Eligibility::Rows));
+            assert!(matches!(
+                owner.reuse(Effect::Pure, profile, &prepared),
+                reuse::Eligibility::Rows
+            ));
         }
     }
-    for owner in [UpperStage::Enriched, UpperStage::Models, UpperStage::Summary] {
+    for owner in [
+        UpperStage::Enriched,
+        UpperStage::Models,
+        UpperStage::Summary,
+    ] {
         assert!(!uniform::unrequested(owner, Profile::Behavioral, &prepared));
-        assert!(matches!(owner.reuse(Effect::Pure, Profile::Behavioral, &prepared), reuse::Eligibility::Rows));
+        assert!(matches!(
+            owner.reuse(Effect::Pure, Profile::Behavioral, &prepared),
+            reuse::Eligibility::Rows
+        ));
     }
-    for owner in [UpperStage::Local, UpperStage::Base, UpperStage::Completion, UpperStage::SourceCalls] {
+    for owner in [
+        UpperStage::Local,
+        UpperStage::Base,
+        UpperStage::Completion,
+        UpperStage::SourceCalls,
+    ] {
         assert!(!uniform::unrequested(owner, Profile::Behavioral, &prepared));
-        assert!(matches!(owner.reuse(Effect::Pure, Profile::Behavioral, &prepared), reuse::Eligibility::Fresh(_)),
-            "the existing private-kernel Fresh policy remains unchanged");
+        assert!(
+            matches!(
+                owner.reuse(Effect::Pure, Profile::Behavioral, &prepared),
+                reuse::Eligibility::Fresh(_)
+            ),
+            "the existing private-kernel Fresh policy remains unchanged"
+        );
     }
     let mut requested = settings();
     requested.pagerank = true;
-    let prepared = PreparedCompilation::new(Frontier::Catalog, requested, &catalog, None, &budget).unwrap();
-    assert!(!uniform::unrequested(UpperStage::Analytic, Profile::Catalog, &prepared));
-    assert!(matches!(UpperStage::Analytic.reuse(Effect::Pure, Profile::Catalog, &prepared), reuse::Eligibility::Rows));
+    let prepared =
+        PreparedCompilation::new(Frontier::Catalog, requested, &catalog, None, &budget).unwrap();
+    assert!(!uniform::unrequested(
+        UpperStage::Analytic,
+        Profile::Catalog,
+        &prepared
+    ));
+    assert!(matches!(
+        UpperStage::Analytic.reuse(Effect::Pure, Profile::Catalog, &prepared),
+        reuse::Eligibility::Rows
+    ));
 }

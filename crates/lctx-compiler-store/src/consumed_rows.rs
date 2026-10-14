@@ -10,17 +10,60 @@ use std::{
     collections::{BTreeMap, BTreeSet},
 };
 
-pub fn identifier(name:&str)->String{format!("\"{}\"",name.replace('"',"\"\""))}
-pub fn stream_batches<'a>(declaration:&'a ValidationInput,session:&'a SessionContext,selected:&'a str,predicate:Option<datafusion::logical_expr::Expr>,consume:&'a mut(dyn FnMut(&arrow_array::RecordBatch)->Result<(),ModelError>+Send))->futures::future::BoxFuture<'a,Result<(),ModelError>>{
- Box::pin(async move{
-  let order=declaration.order().iter().map(|column|identifier(column)).collect::<Vec<_>>().join(",");
-  let sql=format!("SELECT * FROM ({selected}) AS scoped_input{}",if order.is_empty(){String::new()}else{format!(" ORDER BY {order}")});
-  let selected=crate::sql::query(session,&sql).await.map_err(crate::sql::model_error)?;
-  stream_planned(selected,predicate,consume).await
- })
+pub fn identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
 }
-pub fn stream_planned<'a>(selected:datafusion::dataframe::DataFrame,predicate:Option<datafusion::logical_expr::Expr>,consume:&'a mut(dyn FnMut(&arrow_array::RecordBatch)->Result<(),ModelError>+Send))->futures::future::BoxFuture<'a,Result<(),ModelError>>{
- Box::pin(async move{let selected=if let Some(predicate)=predicate{selected.filter(predicate).map_err(crate::sql::model_error)?}else{selected};let mut batches=selected.execute_stream().await.map_err(crate::sql::model_error)?;while let Some(batch)=batches.try_next().await.map_err(crate::sql::model_error)?{consume(&batch)?;tokio::task::yield_now().await;}Ok(())})
+pub fn stream_batches<'a>(
+    declaration: &'a ValidationInput,
+    session: &'a SessionContext,
+    selected: &'a str,
+    predicate: Option<datafusion::logical_expr::Expr>,
+    consume: &'a mut (dyn FnMut(&arrow_array::RecordBatch) -> Result<(), ModelError> + Send),
+) -> futures::future::BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let order = declaration
+            .order()
+            .iter()
+            .map(|column| identifier(column))
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT * FROM ({selected}) AS scoped_input{}",
+            if order.is_empty() {
+                String::new()
+            } else {
+                format!(" ORDER BY {order}")
+            }
+        );
+        let selected = crate::sql::query(session, &sql)
+            .await
+            .map_err(crate::sql::model_error)?;
+        stream_planned(selected, predicate, consume).await
+    })
+}
+pub fn stream_planned<'a>(
+    selected: datafusion::dataframe::DataFrame,
+    predicate: Option<datafusion::logical_expr::Expr>,
+    consume: &'a mut (dyn FnMut(&arrow_array::RecordBatch) -> Result<(), ModelError> + Send),
+) -> futures::future::BoxFuture<'a, Result<(), ModelError>> {
+    Box::pin(async move {
+        let selected = if let Some(predicate) = predicate {
+            selected
+                .filter(predicate)
+                .map_err(crate::sql::model_error)?
+        } else {
+            selected
+        };
+        let mut batches = selected
+            .execute_stream()
+            .await
+            .map_err(crate::sql::model_error)?;
+        while let Some(batch) = batches.try_next().await.map_err(crate::sql::model_error)? {
+            consume(&batch)?;
+            tokio::task::yield_now().await;
+        }
+        Ok(())
+    })
 }
 /// An immutable table binding chosen by the consumer, including its exact vocabulary epoch.
 /// The alias is supplied by the admitted completed-input or detached validation session.
@@ -77,10 +120,7 @@ impl NominalClosure {
         self.native.extend(other.native);
         Ok(())
     }
-    pub fn retain_lowering(
-        &mut self,
-        charge: Box<dyn lctx_model::domain::resources::Reservation>,
-    ) {
+    pub fn retain_lowering(&mut self, charge: Box<dyn lctx_model::domain::resources::Reservation>) {
         self.lowering_charges.push(charge);
     }
     pub fn retain_program(
@@ -1344,9 +1384,7 @@ impl PreparedEdges {
         let mut cursor = EdgeCursor::new(&self.0, budget)?;
         while !pending.is_empty() {
             check_cancellation(cancellation)?;
-            let count = pending
-                .len()
-                .min(crate::compiler_provider::REFERENCE_KEYS);
+            let count = pending.len().min(crate::compiler_provider::REFERENCE_KEYS);
             let mut frontier_charge =
                 charged::StateCharge::new(budget, "semantic-grain-native-frontier");
             frontier_charge.grow(count.saturating_mul(256).saturating_add(4096))?;
@@ -1566,9 +1604,16 @@ struct UnionContentTokens {
 }
 impl PreparedRootBatch {
     pub(crate) fn require_owner(&self, budget: &ResourceBudget) -> Result<(), ModelError> {
-        for charge in [&self._charge, self.union._charge.as_ref(),
-            &self.union.edges._provider_charge, &self.union.edges._index_charge] {
-            if charge.budget().is_none_or(|owner| !owner.shares_pool(budget)) {
+        for charge in [
+            &self._charge,
+            self.union._charge.as_ref(),
+            &self.union.edges._provider_charge,
+            &self.union.edges._index_charge,
+        ] {
+            if charge
+                .budget()
+                .is_none_or(|owner| !owner.shares_pool(budget))
+            {
                 return Err(ModelError::Conflict("selected root resource owner"));
             }
         }
@@ -1611,7 +1656,9 @@ impl PreparedRootBatch {
                 let mut charge = charged::StateCharge::new(budget, "selected-union-content-tokens");
                 let mut tables = Vec::new();
                 for (table, keys) in self.union.native_keys.iter().take(inputs.len()).enumerate() {
-                    if !optional_domain_retention(charge.grow(keys.len().saturating_mul(160).saturating_add(4096)))? {
+                    if !optional_domain_retention(
+                        charge.grow(keys.len().saturating_mul(160).saturating_add(4096)),
+                    )? {
                         return Ok(None);
                     }
                     let provider = self.union.edges.providers[table].clone();
@@ -1655,7 +1702,9 @@ impl PreparedRootBatch {
             }
             input.encode_contract(&mut context);
             let count = self.keys(partition, table)?.count();
-            if !optional_domain_retention(charge.grow(count.saturating_mul(352).saturating_add(4096)))? {
+            if !optional_domain_retention(
+                charge.grow(count.saturating_mul(352).saturating_add(4096)),
+            )? {
                 return Ok(None);
             }
             let keys = self.keys(partition, table)?.collect::<Vec<_>>();
@@ -1995,13 +2044,23 @@ mod nominal_closure_controls {
         assert!(optional_domain_retention(charge.grow(1)).unwrap());
         assert_eq!(budget.reserved(), 1);
         let native_resource = budget.reserve("submitted-native-refusal", 1).unwrap_err();
-        let mut finality = completion::Completion { remote: completion::RemoteState::Unknown,
-            ..Default::default() };
-        finality.step("native reader close", Err(ModelError::Conflict("close failed")));
+        let mut finality = completion::Completion {
+            remote: completion::RemoteState::Unknown,
+            ..Default::default()
+        };
+        finality.step(
+            "native reader close",
+            Err(ModelError::Conflict("close failed")),
+        );
         let error = completion::complete::<()>(Err(native_resource), finality).unwrap_err();
         let error = optional_domain_retention(Err(error)).unwrap_err();
-        let ModelError::Completion(outcome) = error else { panic!("full completion must survive"); };
-        assert!(matches!(outcome.primary.as_deref(), Some(ModelError::Resource { .. })));
+        let ModelError::Completion(outcome) = error else {
+            panic!("full completion must survive");
+        };
+        assert!(matches!(
+            outcome.primary.as_deref(),
+            Some(ModelError::Resource { .. })
+        ));
         assert_eq!(outcome.completion.remote, completion::RemoteState::Unknown);
         assert_eq!(outcome.completion.failures.len(), 1);
         assert!(optional_domain_retention(Err(ModelError::Conflict("native failure"))).is_err());
@@ -2085,19 +2144,84 @@ mod nominal_closure_controls {
         releases: &[Release],
         root: Id<Package>,
     ) -> ContentHash {
-        use crate::admission::{AdmissionRuntime,AdmissionOptions};
-        use lctx_model::domain::{admission::Frontier, stages::Profile, completed::ContributionSpec};
-        let native = crate::compiler::NativeCompilerStore::begin(config, Frontier::Facts).await.unwrap();
-        let budget=ResourceBudget::fixed(64<<20).unwrap();
-        let model=Arc::new(lctx_model::domain::model().unwrap());
-        let relations=vec![Relation::of::<Package>(),Relation::of::<Release>()];
-        let contribution=native.begin_contribution(ContributionSpec{captured_binding:None,producer:"domain-fixture".into(),profile:lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),model:model.digest(),implementation:ContentHash::of(b"domain-fixture/v1"),configuration:None,inputs:vec![],outputs:relations.iter().map(|r|r.name().to_owned()).collect()}).await.unwrap();
-        native.write_batch(&contribution,&relations[0],&Package::encode(packages).unwrap(), &budget).await.unwrap();
-        native.write_batch(&contribution,&relations[1],&Release::encode(releases).unwrap(), &budget).await.unwrap();
-        let views=native.complete_contribution(contribution,stages::ProviderOutcome::Complete,&relations,&BTreeMap::new(),&budget).await.unwrap();
-        let workspace=AdmissionRuntime::with_budget(model,AdmissionOptions{memory_bytes:64<<20,..Default::default()},budget,native.clone()).unwrap();
-        let session=workspace.transport_session();
-        for relation in &relations{session.register_table(relation.name(),native.table_provider(&views[relation.name()],relation.clone(),workspace.budget().clone(),4096).await.unwrap()).unwrap();}
+        use crate::admission::{AdmissionOptions, AdmissionRuntime};
+        use lctx_model::domain::{
+            admission::Frontier, completed::ContributionSpec, stages::Profile,
+        };
+        let native = crate::compiler::NativeCompilerStore::begin(config, Frontier::Facts)
+            .await
+            .unwrap();
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let model = Arc::new(lctx_model::domain::model().unwrap());
+        let relations = vec![Relation::of::<Package>(), Relation::of::<Release>()];
+        let contribution = native
+            .begin_contribution(ContributionSpec {
+                captured_binding: None,
+                producer: "domain-fixture".into(),
+                profile: lctx_model::domain::completed::OutputProfile::Specific(Profile::Catalog),
+                model: model.digest(),
+                implementation: ContentHash::of(b"domain-fixture/v1"),
+                configuration: None,
+                inputs: vec![],
+                outputs: relations.iter().map(|r| r.name().to_owned()).collect(),
+            })
+            .await
+            .unwrap();
+        native
+            .write_batch(
+                &contribution,
+                &relations[0],
+                &Package::encode(packages).unwrap(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        native
+            .write_batch(
+                &contribution,
+                &relations[1],
+                &Release::encode(releases).unwrap(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        let views = native
+            .complete_contribution(
+                contribution,
+                stages::ProviderOutcome::Complete,
+                &relations,
+                &BTreeMap::new(),
+                &budget,
+            )
+            .await
+            .unwrap();
+        let workspace = AdmissionRuntime::with_budget(
+            model,
+            AdmissionOptions {
+                memory_bytes: 64 << 20,
+                ..Default::default()
+            },
+            budget,
+            native.clone(),
+        )
+        .unwrap();
+        let session = workspace.transport_session();
+        for relation in &relations {
+            session
+                .register_table(
+                    relation.name(),
+                    native
+                        .table_provider(
+                            &views[relation.name()],
+                            relation.clone(),
+                            workspace.budget().clone(),
+                            4096,
+                        )
+                        .await
+                        .unwrap(),
+                )
+                .unwrap();
+        }
         let inputs = vec![
             ValidationInput::of::<Release>(&["id"]),
             ValidationInput::of::<Package>(&["id"]),
@@ -2891,10 +3015,20 @@ mod nominal_closure_controls {
 
     #[tokio::test]
     async fn many_pair_streams_share_one_external_sort_with_the_workspace_eight_mib_pool() {
-        use crate::admission::{AdmissionRuntime,AdmissionOptions};
-        let budget=ResourceBudget::fixed(8<<20).unwrap();
-        let workspace=AdmissionRuntime::with_budget(Arc::new(model().unwrap()),AdmissionOptions{memory_bytes:8<<20,partitions:1,batch_rows:16},budget,crate::test_native::store()).unwrap();
-        let session=workspace.transport_session();
+        use crate::admission::{AdmissionOptions, AdmissionRuntime};
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let workspace = AdmissionRuntime::with_budget(
+            Arc::new(model().unwrap()),
+            AdmissionOptions {
+                memory_bytes: 8 << 20,
+                partitions: 1,
+                batch_rows: 16,
+            },
+            budget,
+            crate::test_native::store(),
+        )
+        .unwrap();
+        let session = workspace.transport_session();
         let package = Package {
             name: "bounded-owner".into(),
         };

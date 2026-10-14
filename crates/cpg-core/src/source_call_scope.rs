@@ -267,7 +267,11 @@ impl SourceCallWindow<'_> {
     ) -> Result<(), ModelError> {
         for (table, input) in self.scopes.inputs.iter().enumerate() {
             let gathered = self.columns.gather(
-                &[partition], table, table, budget, cancellation,
+                &[partition],
+                table,
+                table,
+                budget,
+                cancellation,
                 &mut |selected_partition, key| {
                     !(input.type_id() == TypeId::of::<value::Literal>()
                         && self.opaque.contains(&(selected_partition, key)))
@@ -670,7 +674,12 @@ impl SourceCallScopes {
         Ok(SourceCallWindow {
             scopes: self,
             columns: lctx_compiler_store::scoped_positions::IndexedRootColumns::new(
-                batch, &self.inputs, rows, charge, budget, cancellation,
+                batch,
+                &self.inputs,
+                rows,
+                charge,
+                budget,
+                cancellation,
             )?,
             opaque,
         })

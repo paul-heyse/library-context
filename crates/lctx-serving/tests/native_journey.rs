@@ -41,11 +41,22 @@ async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelE
     let mut terminal = workspace.drain_owned_report().await;
     if terminal.local == completion::LocalState::Terminal
         && terminal.remote == completion::RemoteState::Confirmed
-        && terminal.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+        && terminal
+            .failures
+            .iter()
+            .all(|failure| failure.error.permits_storage_cleanup())
     {
-        terminal.step("journey original compiler finality", workspace.native().abandon().await);
+        terminal.step(
+            "journey original compiler finality",
+            workspace.native().abandon().await,
+        );
     } else {
-        terminal.storage.push(completion::StorageState::Orphan(format!("native_attempt:{}", workspace.native().attempt().hex())));
+        terminal
+            .storage
+            .push(completion::StorageState::Orphan(format!(
+                "native_attempt:{}",
+                workspace.native().attempt().hex()
+            )));
     }
     let settled = workspace.complete_signal(&terminal).await;
     terminal.step("journey workspace signal finality", settled);
