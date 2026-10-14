@@ -4,7 +4,7 @@ use cpg_core::{
     compilation::{self, PreparedCompilation},
     workspace::{Workspace, WorkspaceOptions},
 };
-use futures::TryStreamExt;
+use futures::{FutureExt, TryStreamExt};
 use lctx_model::domain::{execution::summary_production::*, normalized::Rows, stages::*, *};
 use std::{fmt::Debug, sync::Arc};
 fn identifier(name: &str) -> String {
@@ -45,18 +45,27 @@ async fn compare<R: Record + PartialEq + Debug>(
 }
 #[tokio::test]
 async fn actual_summary_matches_complete_finite_whole_operation() {
+    use tracing::instrument::WithSubscriber;
+    actual_summary_control()
+        .with_subscriber(cpg_extract::logging::dispatch())
+        .await;
+}
+async fn actual_summary_control() {
     let profile = Profile::Behavioral;
     let model = Arc::new(model().unwrap());
+    let native = crate::native_fixture::store();
+    let mut workspace_owner = None;
+    let result = std::panic::AssertUnwindSafe(async {
     let workspace = Workspace::new(
         model.clone(),
         WorkspaceOptions {
             memory_bytes: 1 << 30,
-            partitions: 1,
-            batch_rows: 7,
+            ..WorkspaceOptions::default()
         },
-        crate::native_fixture::store(),
+        native.clone(),
     )
     .unwrap();
+    workspace_owner = Some(workspace.clone());
     let captured = runtime::capture("scoped_summary_preparation", profile, workspace.budget());
     let configuration = ContentHash::of(b"scoped-summary-oracle");
     let prepared = PreparedCompilation::new(
@@ -222,4 +231,54 @@ async fn actual_summary_matches_complete_finite_whole_operation() {
         workspace: workspace.clone(),
         session,
     }).await;
+    }).catch_unwind().await;
+    // This control owns the original compiler attempt, including its session.
+    // Drain actual execution before abandoning it and settle the workspace signal
+    // using the combined report, also when compilation or oracle assertions panic.
+    use lctx_model::domain::completion::{self, LocalState, RemoteState, StorageState};
+    let mut finality = match &workspace_owner {
+        Some(workspace) => workspace.drain_owned_report().await,
+        None => completion::Completion::default(),
+    };
+    if finality.local == LocalState::Terminal
+        && finality.remote == RemoteState::Confirmed
+        && finality
+            .failures
+            .iter()
+            .all(|failure| failure.error.permits_storage_cleanup())
+    {
+        let mut source = native.abandon_finality_report().await;
+        if source.local == LocalState::Outstanding {
+            finality.local = LocalState::Outstanding;
+        }
+        if source.remote == RemoteState::Unknown {
+            finality.remote = RemoteState::Unknown;
+        }
+        finality.storage.append(&mut source.storage);
+        finality.committed.append(&mut source.committed);
+        finality.failures.append(&mut source.failures);
+    } else {
+        finality.storage.push(StorageState::Orphan(format!(
+            "native_attempt:{}",
+            native.attempt().hex()
+        )));
+    }
+    if let Some(workspace) = &workspace_owner {
+        let signal = workspace.complete_signal(&finality).await;
+        finality.step("scoped Summary workspace signal", signal);
+    }
+    let diagnostics = native.drain_report().await;
+    if let Err(panic) = result {
+        if let Err(error) = completion::complete(Ok(()), finality) {
+            eprintln!("scoped Summary finalization after assertion panic: {error:#?}");
+        }
+        if !diagnostics.failures.is_empty() {
+            eprintln!(
+                "scoped Summary operation diagnostics after assertion panic: {diagnostics:#?}"
+            );
+        }
+        std::panic::resume_unwind(panic);
+    }
+    completion::complete(Ok(()), finality).unwrap();
+    completion::complete(Ok(()), diagnostics).unwrap();
 }

@@ -135,11 +135,12 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
             }
             completion.step("provider bridge drain", self.bridge.drain().await);
             completion.step("native calls drain", self.native_calls.drain().await);
-            completion.step("private scoped check release", self.admission_memo.close_scoped());
             completion.step(
-                "native store drain",
-                lctx_model::domain::completion::complete(Ok(()), self.native.drain_report().await),
+                "private scoped check release",
+                self.admission_memo.close_scoped(),
             );
+            let native = self.native.drain_finality_report().await;
+            completion.merge(native);
             let cache = match self.product_cache.lock() {
                 Ok(mut cache) => cache.take(),
                 Err(_) => {
@@ -906,6 +907,7 @@ impl Workspace {
         self.cancellation.clone()
     }
     /// Join execution before the enclosing owner reconciles or abandons native state.
+    /// Report actual finality; aggregate operation diagnostics remain with `drain_report`.
     pub async fn drain_owned_report(&self) -> lctx_model::domain::completion::Completion {
         use lctx_compiler_store::admission::ExecutionOwner;
         self.execution.drain_owned_report().await
@@ -922,6 +924,9 @@ impl Workspace {
         let mut completion = self.drain_owned_report().await;
         let signal = self.complete_signal(&completion).await;
         completion.step("compiler workspace signal finality", signal);
+        // Acknowledged operation refusals still fail the caller, after actual
+        // execution finality has been recorded independently.
+        self.native.append_operation_failures(&mut completion);
         completion
     }
     pub async fn drain(&self) -> Result<(), ModelError> {
@@ -3203,11 +3208,17 @@ impl Reservation for WorkspaceReservation {
     fn try_resize(&mut self, bytes: usize) -> Result<(), ModelError> {
         self.reservation
             .try_resize(bytes)
-            .map_err(|_| ModelError::Resource {
-                owner: self.owner,
-                requested: bytes.saturating_sub(self.reservation.size()),
-                used: self.pool.reserved(),
-                limit: self.limit,
+            .map_err(|error| {
+                // The runtime's existing TrackConsumersPool reports its largest
+                // live consumers. Keep that diagnostic when translating the
+                // refusal into our stable typed resource error.
+                tracing::warn!(owner = self.owner, cause = %error, "workspace memory reservation refused");
+                ModelError::Resource {
+                    owner: self.owner,
+                    requested: bytes.saturating_sub(self.reservation.size()),
+                    used: self.pool.reserved(),
+                    limit: self.limit,
+                }
             })
     }
 }
@@ -3451,66 +3462,117 @@ mod tests {
         let late = place("later");
         let mut identities = Vec::new();
         for reversed in [false, true] {
-            let workspace = Workspace::new(
-                declared.clone(),
-                Default::default(),
-                crate::test_native::store(),
-            )
-            .unwrap();
-            assert!(
-                workspace
+            let native = crate::test_native::store();
+            let mut workspace_owner = None;
+            let result = std::panic::AssertUnwindSafe(async {
+                let workspace =
+                    Workspace::new(declared.clone(), Default::default(), native.clone()).unwrap();
+                workspace_owner = Some(workspace.clone());
+                assert!(
+                    workspace
+                        .bind_scheduled_inputs(&schedule, &reader)
+                        .await
+                        .is_err()
+                );
+                let order = if reversed {
+                    [(&later, &late), (&first, &earlier)]
+                } else {
+                    [(&first, &earlier), (&later, &late)]
+                };
+                for (stage, row) in order {
+                    let access = workspace.stage_inputs(stage, Profile::Catalog).unwrap();
+                    let output = workspace.producer(stage, Profile::Catalog, access);
+                    output.declare_async::<Place>().await.unwrap();
+                    output.push(row.clone()).await.unwrap();
+                    output.finish(ProviderOutcome::Complete).await.unwrap();
+                }
+                let selected = workspace
                     .bind_scheduled_inputs(&schedule, &reader)
                     .await
-                    .is_err()
-            );
-            let order = if reversed {
-                [(&later, &late), (&first, &earlier)]
-            } else {
-                [(&first, &earlier), (&later, &late)]
-            };
-            for (stage, row) in order {
-                let access = workspace.stage_inputs(stage, Profile::Catalog).unwrap();
-                let output = workspace.producer(stage, Profile::Catalog, access);
-                output.declare_async::<Place>().await.unwrap();
-                output.push(row.clone()).await.unwrap();
-                output.finish(ProviderOutcome::Complete).await.unwrap();
-            }
-            let selected = workspace
-                .bind_scheduled_inputs(&schedule, &reader)
-                .await
-                .unwrap();
-            let access = workspace
-                .stage_inputs_selected(&reader, &selected, Profile::Catalog)
-                .unwrap();
-            let exact = access.relation::<Place>().unwrap();
-            assert_eq!(exact.rows(), 1);
-            let mut actual = Vec::new();
-            for batch in exact.batches_async().await.unwrap() {
-                actual.extend(Place::decode(&batch.unwrap()).unwrap());
-            }
-            assert_eq!(actual, vec![earlier.clone()]);
-            identities.push(exact.view_identity());
-            workspace
-                .freeze_scheduled_prefix(&schedule, PublicationBoundary::Local)
-                .await
-                .unwrap_err();
-            // Whole-prefix completion still requires the unfinished literal owner.
-            let local_places = schedule
-                .prefix_selections(PublicationBoundary::Local)
-                .unwrap()
-                .iter()
-                .find(|selection| selection.relation == Place::NAME)
-                .unwrap();
-            workspace.bind_exact_selection(local_places).await.unwrap();
-            assert_eq!(
+                    .unwrap();
+                let access = workspace
+                    .stage_inputs_selected(&reader, &selected, Profile::Catalog)
+                    .unwrap();
+                let exact = access.relation::<Place>().unwrap();
+                assert_eq!(exact.rows(), 1);
+                let mut actual = Vec::new();
+                for batch in exact.batches_async().await.unwrap() {
+                    actual.extend(Place::decode(&batch.unwrap()).unwrap());
+                }
+                assert_eq!(actual, vec![earlier.clone()]);
+                identities.push(exact.view_identity());
                 workspace
-                    .input_relation(
-                        &ValidationInput::of::<Place>(&[]).at_epoch(PublicationBoundary::Local)
-                    )
+                    .freeze_scheduled_prefix(&schedule, PublicationBoundary::Local)
+                    .await
+                    .unwrap_err();
+                // Whole-prefix completion still requires the unfinished literal owner.
+                let local_places = schedule
+                    .prefix_selections(PublicationBoundary::Local)
                     .unwrap()
-                    .rows(),
-                2
-            );
+                    .iter()
+                    .find(|selection| selection.relation == Place::NAME)
+                    .unwrap();
+                workspace.bind_exact_selection(local_places).await.unwrap();
+                assert_eq!(
+                    workspace
+                        .input_relation(
+                            &ValidationInput::of::<Place>(&[]).at_epoch(PublicationBoundary::Local)
+                        )
+                        .unwrap()
+                        .rows(),
+                    2
+                );
+            })
+            .catch_unwind()
+            .await;
+            // This control owns each source attempt: execution drainage alone
+            // cannot settle its session or the workspace's enclosing signal.
+            use lctx_model::domain::completion::{self, LocalState, RemoteState, StorageState};
+            let mut finality = match &workspace_owner {
+                Some(workspace) => workspace.drain_owned_report().await,
+                None => completion::Completion::default(),
+            };
+            if finality.local == LocalState::Terminal
+                && finality.remote == RemoteState::Confirmed
+                && finality
+                    .failures
+                    .iter()
+                    .all(|failure| failure.error.permits_storage_cleanup())
+            {
+                let mut source = native.abandon_finality_report().await;
+                if source.local == LocalState::Outstanding {
+                    finality.local = LocalState::Outstanding;
+                }
+                if source.remote == RemoteState::Unknown {
+                    finality.remote = RemoteState::Unknown;
+                }
+                finality.storage.append(&mut source.storage);
+                finality.committed.append(&mut source.committed);
+                finality.failures.append(&mut source.failures);
+            } else {
+                finality.storage.push(StorageState::Orphan(format!(
+                    "native_attempt:{}",
+                    native.attempt().hex()
+                )));
+            }
+            if let Some(workspace) = &workspace_owner {
+                let signal = workspace.complete_signal(&finality).await;
+                finality.step("exact selection workspace signal", signal);
+            }
+            let diagnostics = native.drain_report().await;
+            if let Err(panic) = result {
+                if let Err(error) = completion::complete(Ok(()), finality) {
+                    eprintln!("exact selection finalization after assertion panic: {error:#?}");
+                }
+                if !diagnostics.failures.is_empty() {
+                    eprintln!(
+                        "exact selection operation diagnostics after assertion panic: {diagnostics:#?}"
+                    );
+                }
+                std::panic::resume_unwind(panic);
+            }
+            completion::complete(Ok(()), finality).unwrap();
+            completion::complete(Ok(()), diagnostics).unwrap();
         }
         assert_eq!(identities[0], identities[1]);
     }

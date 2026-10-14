@@ -39,9 +39,9 @@ pub(super) async fn produce(
         {
             continue;
         }
-        let rows = source.batches_async().await?;
+        let mut rows = source.batches_async().await?;
         let mut count = 0u64;
-        for batch in rows {
+        while let Some(batch) = rows.next_async().await {
             let batch = batch?;
             workspace.cancellation().check()?;
             count = count

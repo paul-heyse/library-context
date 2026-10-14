@@ -628,14 +628,91 @@ impl StageResult {
     }
 }
 
+/// Terminal results remain private until the scheduler accepts them. The schedule
+/// bounds this queue; each result retains its original preparation/descriptor charge.
+struct ReadyStages<T> {
+    rows: std::collections::VecDeque<T>,
+    limit: usize,
+    _charge: Box<dyn resources::Reservation>,
+}
+impl<T> ReadyStages<T> {
+    fn new(limit: usize, budget: &resources::ResourceBudget) -> Result<Self, ModelError> {
+        let bytes = limit
+            .checked_mul(std::mem::size_of::<T>())
+            .ok_or(ModelError::Schema(
+                "compiler ready stage allowance overflow",
+            ))?;
+        let charge = budget.reserve("compiler ready stage results", bytes)?;
+        Ok(Self {
+            rows: std::collections::VecDeque::with_capacity(limit),
+            limit,
+            _charge: charge,
+        })
+    }
+    fn push(&mut self, row: T) -> Result<(), ModelError> {
+        if self.rows.len() == self.limit {
+            return Err(ModelError::Conflict(
+                "compiler ready stages exceed schedule",
+            ));
+        }
+        self.rows.push_back(row);
+        Ok(())
+    }
+}
+
+/// Coordinator selection/freezing can wait for a gate held (or FIFO-reserved) by
+/// an unspawned producer. Keep polling those owners while awaiting the action.
+/// After a sibling refusal, finish the already-started action but accept no success.
+async fn coordinate_with_pending<T, A>(
+    action: impl std::future::Future<Output = Result<A, ModelError>>,
+    cancellation: &crate::workspace::Cancellation,
+    pending: &mut FuturesUnordered<BoxFuture<'_, Result<T, ModelError>>>,
+    ready: &mut ReadyStages<T>,
+) -> Result<A, ModelError> {
+    tokio::pin!(action);
+    let mut failure = None;
+    let mut terminal = completion::Completion::default();
+    loop {
+        tokio::select! {
+            biased;
+            result = pending.next(), if !pending.is_empty() => {
+                let result = result.expect("nonempty pending stage owner");
+                let accepted = match result {
+                    Ok(row) if failure.is_none() => ready.push(row),
+                    Ok(_) => Ok(()),
+                    Err(error) => Err(error),
+                };
+                if let Err(error) = accepted {
+                    cancellation.cancel();
+                    if failure.is_none() { failure = Some(error); }
+                    else { terminal.step("sibling stage during coordinator wait", Err(error)); }
+                }
+            }
+            result = &mut action => {
+                return match failure {
+                    Some(error) => {
+                        if let Err(secondary) = result {
+                            terminal.step("coordinator action after sibling refusal", Err(secondary));
+                        }
+                        completion::complete(Err(error), terminal)
+                    }
+                    None => result,
+                };
+            }
+        }
+    }
+}
+
 /// Failure settlement keeps polling every owned task through its cleanup. Successful
 /// sibling results are not admitted after failure; their private preparation drops here.
 async fn settle_upper_pending<T>(
     cancellation: &crate::workspace::Cancellation,
     pending: &mut FuturesUnordered<BoxFuture<'_, Result<T, ModelError>>>,
+    ready: &mut ReadyStages<T>,
     primary: ModelError,
 ) -> Result<(), ModelError> {
     cancellation.cancel();
+    ready.rows.clear();
     let mut terminal = completion::Completion::default();
     while let Some(result) = pending.next().await {
         if let Err(error) = result {
@@ -1105,10 +1182,19 @@ async fn compile_driver(
     let mut products = reuse::SelectedBindings::new(workspace.budget())?;
     let mut started = completed.clone();
     let mut pending = FuturesUnordered::new();
+    let mut ready = ReadyStages::new(schedule.stages().len(), workspace.budget())?;
     let mut failure = None;
-    let mut terminal = completion::Completion::default();
     loop {
-        if failure.is_none() {
+        if let Some(error) = failure.take() {
+            return settle_upper_pending(
+                &workspace.cancellation(),
+                &mut pending,
+                &mut ready,
+                error,
+            )
+            .await;
+        }
+        if ready.rows.is_empty() {
             for declaration in schedule.stages() {
                 let Some(normalization) = Normalization::ALL
                     .into_iter()
@@ -1119,29 +1205,34 @@ async fn compile_driver(
                 if started.contains(declaration.name) {
                     continue;
                 }
-                let launch = async {
-                    if !schedule.ready(declaration.name, &completed)? {
-                        return Ok(None);
-                    }
-                    let selected = workspace
-                        .bind_scheduled_inputs(&schedule, declaration)
-                        .await?;
-                    let access =
-                        workspace.stage_inputs_selected(declaration, &selected, profile)?;
-                    let output = workspace.producer(declaration, profile, access);
-                    let access = output.bound_inputs()?;
-                    let product = output.product_request()?;
-                    products.bind_selected(
-                        &product,
-                        &selected_product_dependencies(
-                            workspace,
-                            declaration,
-                            &selected,
+                let launch = coordinate_with_pending(
+                    async {
+                        if !schedule.ready(declaration.name, &completed)? {
+                            return Ok(None);
+                        }
+                        let selected = workspace
+                            .bind_scheduled_inputs(&schedule, declaration)
+                            .await?;
+                        let access =
+                            workspace.stage_inputs_selected(declaration, &selected, profile)?;
+                        let output = workspace.producer(declaration, profile, access);
+                        let access = output.bound_inputs()?;
+                        let product = output.product_request()?;
+                        products.bind_selected(
                             &product,
-                        )?,
-                    )?;
-                    Ok::<_, ModelError>(Some((access, output)))
-                }
+                            &selected_product_dependencies(
+                                workspace,
+                                declaration,
+                                &selected,
+                                &product,
+                            )?,
+                        )?;
+                        Ok::<_, ModelError>(Some((access, output)))
+                    },
+                    &workspace.cancellation(),
+                    &mut pending,
+                    &mut ready,
+                )
                 .await;
                 let (access, output) = match launch {
                     Ok(Some(value)) => value,
@@ -1215,8 +1306,15 @@ async fn compile_driver(
                 );
             }
         }
-        let Some(result) = pending.next().await else {
-            break;
+        if failure.is_some() {
+            continue;
+        }
+        let result = match ready.rows.pop_front() {
+            Some(result) => Ok(result),
+            None => match pending.next().await {
+                Some(result) => result,
+                None => break,
+            },
         };
         let accepted = match result {
             Ok(result) if failure.is_none() => {
@@ -1238,7 +1336,13 @@ async fn compile_driver(
                         }
                     }
                     completed.insert(result.name);
-                    freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen).await?;
+                    coordinate_with_pending(
+                        freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen),
+                        &workspace.cancellation(),
+                        &mut pending,
+                        &mut ready,
+                    )
+                    .await?;
                     Ok(())
                 }
                 .await
@@ -1247,16 +1351,9 @@ async fn compile_driver(
             Err(error) => Err(error),
         };
         if let Err(error) = accepted {
-            if failure.is_none() {
-                workspace.cancellation().cancel();
-                failure = Some(error);
-            } else {
-                terminal.step("sibling normalization completion", Err(error));
-            }
+            workspace.cancellation().cancel();
+            failure = Some(error);
         }
-    }
-    if let Some(error) = failure {
-        return completion::complete(Err(error), terminal);
     }
     if Normalization::ALL
         .into_iter()
@@ -1300,61 +1397,82 @@ async fn compile_driver(
     let mut failure = None;
     loop {
         if let Some(error) = failure.take() {
-            return settle_upper_pending(&workspace.cancellation(), &mut pending, error).await;
+            return settle_upper_pending(
+                &workspace.cancellation(),
+                &mut pending,
+                &mut ready,
+                error,
+            )
+            .await;
         }
-        if failure.is_none() {
+        if ready.rows.is_empty() {
             for declaration in schedule.stages() {
                 if started.contains(declaration.name) {
                     continue;
                 }
-                let launch = async {
-                    if !schedule.ready(declaration.name, &completed)? {
-                        return Ok(None);
-                    }
-                    let binding = UpperStage::resolve(declaration.name)?;
-                    let prepared =
-                        prepared.ok_or(ModelError::Conflict("missing upper configuration"))?;
-                    let selected = workspace
-                        .bind_scheduled_inputs(&schedule, declaration)
-                        .await?;
-                    let access =
-                        workspace.stage_inputs_selected(declaration, &selected, profile)?;
-                    let output = workspace.producer(declaration, profile, access);
-                    let access = output.bound_inputs()?;
-                    let product = output.product_request()?;
-                    let selected_dependencies =
-                        selected_product_dependencies(workspace, declaration, &selected, &product)?;
-                    products.bind_selected(&product, &selected_dependencies)?;
-                    let needs =
-                        preparation::Needs::remaining([binding], profile, analytics_requested);
-                    let shared = UpperPreparation {
-                        bindings: needs.bindings.then(|| bindings.clone()).flatten(),
-                        local: needs.local.then(|| local.clone()).flatten(),
-                        evaluations: needs.evaluations.then(|| evaluations.clone()).flatten(),
-                        completed_bodies: needs.bodies.then(|| completed_bodies.clone()).flatten(),
-                        source_calls: needs.source_calls.then(|| source_calls.clone()).flatten(),
-                        graphs: if needs.graphs.is_empty() {
-                            None
-                        } else {
-                            graphs.select(binding.graphs(profile))?
-                        },
-                    };
-                    Ok::<_, ModelError>(Some(UpperTask {
-                        workspace: workspace.clone(),
-                        model: model.clone(),
-                        declaration: declaration.clone(),
-                        binding,
-                        access,
-                        output,
-                        profile,
-                        prepared,
-                        embedder,
-                        cache: cache.clone(),
-                        checked: normalized_authority.clone(),
-                        shared,
-                        selected_dependencies: selected_dependencies.len(),
-                    }))
-                }
+                let launch = coordinate_with_pending(
+                    async {
+                        if !schedule.ready(declaration.name, &completed)? {
+                            return Ok(None);
+                        }
+                        let binding = UpperStage::resolve(declaration.name)?;
+                        let prepared =
+                            prepared.ok_or(ModelError::Conflict("missing upper configuration"))?;
+                        let selected = workspace
+                            .bind_scheduled_inputs(&schedule, declaration)
+                            .await?;
+                        let access =
+                            workspace.stage_inputs_selected(declaration, &selected, profile)?;
+                        let output = workspace.producer(declaration, profile, access);
+                        let access = output.bound_inputs()?;
+                        let product = output.product_request()?;
+                        let selected_dependencies = selected_product_dependencies(
+                            workspace,
+                            declaration,
+                            &selected,
+                            &product,
+                        )?;
+                        products.bind_selected(&product, &selected_dependencies)?;
+                        let needs =
+                            preparation::Needs::remaining([binding], profile, analytics_requested);
+                        let shared = UpperPreparation {
+                            bindings: needs.bindings.then(|| bindings.clone()).flatten(),
+                            local: needs.local.then(|| local.clone()).flatten(),
+                            evaluations: needs.evaluations.then(|| evaluations.clone()).flatten(),
+                            completed_bodies: needs
+                                .bodies
+                                .then(|| completed_bodies.clone())
+                                .flatten(),
+                            source_calls: needs
+                                .source_calls
+                                .then(|| source_calls.clone())
+                                .flatten(),
+                            graphs: if needs.graphs.is_empty() {
+                                None
+                            } else {
+                                graphs.select(binding.graphs(profile))?
+                            },
+                        };
+                        Ok::<_, ModelError>(Some(UpperTask {
+                            workspace: workspace.clone(),
+                            model: model.clone(),
+                            declaration: declaration.clone(),
+                            binding,
+                            access,
+                            output,
+                            profile,
+                            prepared,
+                            embedder,
+                            cache: cache.clone(),
+                            checked: normalized_authority.clone(),
+                            shared,
+                            selected_dependencies: selected_dependencies.len(),
+                        }))
+                    },
+                    &workspace.cancellation(),
+                    &mut pending,
+                    &mut ready,
+                )
                 .await;
                 match launch {
                     Ok(Some(task)) => {
@@ -1373,8 +1491,12 @@ async fn compile_driver(
         if failure.is_some() {
             continue;
         }
-        let Some(result) = pending.next().await else {
-            break;
+        let result = match ready.rows.pop_front() {
+            Some(result) => Ok(result),
+            None => match pending.next().await {
+                Some(result) => result,
+                None => break,
+            },
         };
         let accepted = match result {
             Ok(result) if failure.is_none() => {
@@ -1395,7 +1517,13 @@ async fn compile_driver(
                         }
                     }
                     completed.insert(result.name);
-                    freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen).await?;
+                    coordinate_with_pending(
+                        freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen),
+                        &workspace.cancellation(),
+                        &mut pending,
+                        &mut ready,
+                    )
+                    .await?;
                     Ok(())
                 }
                 .await
@@ -1455,6 +1583,221 @@ mod upper_completion_controls {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
+    struct OwnedPreparation {
+        _charge: Box<dyn resources::Reservation>,
+        dropped: Arc<AtomicUsize>,
+    }
+    impl Drop for OwnedPreparation {
+        fn drop(&mut self) {
+            self.dropped.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn coordinator_wait_polls_gate_holder_and_fifo_waiter() {
+        for queued in [false, true] {
+            let budget = resources::ResourceBudget::fixed(4096).unwrap();
+            let cancellation = crate::workspace::Cancellation::default();
+            let gate = Arc::new(tokio::sync::Mutex::new(()));
+            let held = gate.clone().lock_owned().await;
+            let (held_by_producer, queued_behind) = if queued {
+                (None, Some(held))
+            } else {
+                (Some(held), None)
+            };
+            let dropped = Arc::new(AtomicUsize::new(0));
+            let preparation = OwnedPreparation {
+                _charge: budget.reserve("gate producer preparation", 256).unwrap(),
+                dropped: dropped.clone(),
+            };
+            let producer_gate = gate.clone();
+            let (release, released) = tokio::sync::oneshot::channel();
+            let mut pending = FuturesUnordered::new();
+            pending.push(
+                async move {
+                    let held = match held_by_producer {
+                        Some(held) => held,
+                        None => producer_gate.lock_owned().await,
+                    };
+                    released.await.map_err(ModelError::codec)?;
+                    drop(held);
+                    Ok(preparation)
+                }
+                .boxed(),
+            );
+            let mut ready = ReadyStages::new(1, &budget).unwrap();
+            let queue_bytes = budget.reserved() - 256;
+            assert!(futures::poll!(pending.next()).is_pending());
+            let mut coordinating = Box::pin(coordinate_with_pending(
+                async {
+                    let _gate = gate.lock().await;
+                    Ok(())
+                },
+                &cancellation,
+                &mut pending,
+                &mut ready,
+            ));
+            assert!(futures::poll!(&mut coordinating).is_pending());
+            drop(queued_behind);
+            release.send(()).unwrap();
+            coordinating.await.unwrap();
+            assert!(pending.is_empty());
+            assert_eq!(
+                ready.rows.len(),
+                1,
+                "terminal producer remains unaccepted during boundary coordination"
+            );
+            assert_eq!(dropped.load(Ordering::SeqCst), 0);
+            assert_eq!(
+                budget.reserved(),
+                queue_bytes + 256,
+                "queued preparation keeps its actual reservation"
+            );
+            let accepted = ready.rows.pop_front().unwrap();
+            drop(accepted);
+            assert_eq!(dropped.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                budget.reserved(),
+                queue_bytes,
+                "allocated queue remains charged when empty"
+            );
+            drop(ready);
+            assert_eq!(budget.reserved(), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn coordinator_refusal_finishes_action_and_drains_owned_preparations() {
+        let budget = resources::ResourceBudget::fixed(16384).unwrap();
+        let cancellation = crate::workspace::Cancellation::default();
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let owned = || OwnedPreparation {
+            _charge: budget.reserve("coordinator preparation", 256).unwrap(),
+            dropped: dropped.clone(),
+        };
+        let mut ready = ReadyStages::new(5, &budget).unwrap();
+        let queue_bytes = budget.reserved();
+        let mut pending: FuturesUnordered<BoxFuture<'_, Result<OwnedPreparation, ModelError>>> =
+            FuturesUnordered::new();
+        let first = owned();
+        pending.push(async move { Ok(first) }.boxed());
+        let (refuse, refusal) = tokio::sync::oneshot::channel();
+        pending.push(
+            async move {
+                refusal.await.map_err(ModelError::codec)?;
+                Err(ModelError::Conflict("first sibling refusal"))
+            }
+            .boxed(),
+        );
+        let token = cancellation.clone();
+        let later = owned();
+        pending.push(
+            async move {
+                token.cancelled().await;
+                Ok(later)
+            }
+            .boxed(),
+        );
+        let token = cancellation.clone();
+        let (secondary, secondary_ready) = tokio::sync::oneshot::channel();
+        pending.push(
+            async move {
+                token.cancelled().await;
+                secondary_ready.await.map_err(ModelError::codec)?;
+                Err(ModelError::Conflict("second sibling refusal"))
+            }
+            .boxed(),
+        );
+        let token = cancellation.clone();
+        let tail = owned();
+        let (drain, drained) = tokio::sync::oneshot::channel();
+        pending.push(
+            async move {
+                token.cancelled().await;
+                drained.await.map_err(ModelError::codec)?;
+                drop(tail);
+                Err(ModelError::Conflict("drained sibling refusal"))
+            }
+            .boxed(),
+        );
+        let action_terminal = Arc::new(AtomicUsize::new(0));
+        let observed = action_terminal.clone();
+        let token = cancellation.clone();
+        let (finish_action, action_finished) = tokio::sync::oneshot::channel();
+        let mut coordinating = Box::pin(coordinate_with_pending(
+            async move {
+                token.cancelled().await;
+                action_finished.await.map_err(ModelError::codec)?;
+                observed.store(1, Ordering::SeqCst);
+                Err::<(), _>(ModelError::Conflict("coordinator action refusal"))
+            },
+            &cancellation,
+            &mut pending,
+            &mut ready,
+        ));
+        assert!(futures::poll!(&mut coordinating).is_pending());
+        refuse.send(()).unwrap();
+        assert!(futures::poll!(&mut coordinating).is_pending());
+        assert!(cancellation.check().is_err());
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            1,
+            "success observed after refusal is never accepted or buffered"
+        );
+        assert_eq!(budget.reserved(), queue_bytes + 512);
+        secondary.send(()).unwrap();
+        assert!(futures::poll!(&mut coordinating).is_pending());
+        finish_action.send(()).unwrap();
+        let primary = coordinating.await.unwrap_err();
+        assert_eq!(
+            action_terminal.load(Ordering::SeqCst),
+            1,
+            "accepted coordinator work reaches terminal before returning refusal"
+        );
+        assert!(matches!(
+            primary.primary(),
+            Some(ModelError::Conflict("first sibling refusal"))
+        ));
+        let mut settlement = Box::pin(settle_upper_pending(
+            &cancellation,
+            &mut pending,
+            &mut ready,
+            primary,
+        ));
+        assert!(futures::poll!(&mut settlement).is_pending());
+        assert_eq!(
+            dropped.load(Ordering::SeqCst),
+            2,
+            "buffered private preparation drops on failure"
+        );
+        assert_eq!(
+            budget.reserved(),
+            queue_bytes + 256,
+            "drain retains the unfinished sibling's charge"
+        );
+        drain.send(()).unwrap();
+        let error = settlement.await.unwrap_err();
+        assert!(pending.is_empty() && ready.rows.is_empty());
+        assert_eq!(dropped.load(Ordering::SeqCst), 3);
+        assert_eq!(budget.reserved(), queue_bytes);
+        assert!(matches!(
+            error.primary(),
+            Some(ModelError::Conflict("first sibling refusal"))
+        ));
+        for cause in [
+            "second sibling refusal",
+            "coordinator action refusal",
+            "drained sibling refusal",
+        ] {
+            assert!(
+                error.to_string().contains(cause),
+                "secondary refusal lost: {cause}: {error}"
+            );
+        }
+        drop(ready);
+        assert_eq!(budget.reserved(), 0);
+    }
+
     #[tokio::test]
     async fn upper_failure_cancels_and_drains_started_tasks_before_releasing_owned_state() {
         let cancellation = crate::workspace::Cancellation::default();
@@ -1491,9 +1834,11 @@ mod upper_completion_controls {
         }
         assert!(futures::poll!(pending.next()).is_pending());
         assert_eq!(started.load(Ordering::SeqCst), 3);
+        let mut ready = ReadyStages::<()>::new(3, &budget).unwrap();
         let mut settlement = Box::pin(settle_upper_pending(
             &cancellation,
             &mut pending,
+            &mut ready,
             ModelError::Conflict("original upper setup failed"),
         ));
         assert!(futures::poll!(&mut settlement).is_pending());
