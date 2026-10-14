@@ -239,6 +239,116 @@ bans. No required finding is closed by a conditional avenue's justified rejectio
 
 ## 6. Sole disposition and execution checkpoint
 
+**Current closeout,2026-10-14: operator requested completion of active edits/checks and pause
+for a distinct Catalog-generation review.** Execution started from clean `35053d52` on shared main.
+No auxiliary worktree was created. CE01/CE02/CE03 remain open; no further Catalog journey or older
+queue is started during this closeout. This checkpoint replaces the transient queued/running states.
+
+**Implemented / source-reviewed corrections:** bounded128-slot contributor discovery; one-pass
+borrowed creation lookup; ordered emission intersections; lazy normalization/view futures; selective
+operation-owned relation membership preparation (integrated F01); bounded detached copy/alias receiving
+with post-ack registration and complete incidences (integrated F02); model-owned C1 admitted compact
+lower-frame routing. Obsolete-only vector-neighbor transition cleanup is removed; the current neighbor
+HNSW definition remains. These are qualitative work reductions, not measured speed claims.
+
+Follow-up integrated F03 corrects repeated acquisition of protected source records/incidences into the
+same actual live audit during retained/final construction. The explicit borrowed-source path is source-integrated under actual client/pin/generation/validity/resource-pool and source-liveness checks; first
+misses use existing owned workers. The subsequent admitted hold also retains the exact opaque physical
+owner's charged inventory under fresh original-parent full-byte/incarnation/frozen-owner and admission
+checks. Data-only/foreign/cold paths stay fresh. Receiving inventory preparation uses guarded child fetches once and direct comparison of ordered actual parent holds against the expected
+cursor, preserving complete EOF, correspondence, missing/extra/corruption refusal and final CAS.
+Current source acceptance and closeout check results follow below; new native runtime acceptance remains
+pending rather than inherited from earlier passes.
+
+| Current execution evidence,2026-10-14 | Outcome and exact boundary |
+|---|---|
+| Cpg pure `3549b7`; creation `8a401d`; selective membership `33fafd` | **passed3**, **passed1**, **passed3**, respectively; confirmed cleanup. Lazy stage/output/cancellation, ordered intersections, first-equal/full-conflict creation and selective canonical/empty/overlap/spill/lifetime controls. |
+| Native `fbbf2c`, `93dea5` | **passed1** corrected frozen transport/replay/corruption and **passed7** contributor/alias/empty/root/backing controls; confirmed cleanup. |
+| Facts availability `7cce1c` | **passed1** exact memo reuse and changed-invalid membership refusal; confirmed cleanup. |
+| Post-receiving native `e511d5`, `1b83ef` | **passed3** exact copy/alias/frozen transport and **passed1** imported reachability/partial-owner/no-duplicate-root/shared-value/retirement; confirmed cleanup. |
+| Strict cold `20261014T043204.842Z-1586b7` | **passed1**,283.172s at unchanged360s, confirmed cleanup: strict physical source absence, two fresh independent receiving/admission owners, exact semantic/eligibility receipts and original-byte equality. Predates F03/inventory follow-ups. |
+| C1 model `6684a9`, `1e68a8` | Two existing strict C1/C2 controls passed within the failed composite; corrected new revealing control **passed1**, no warnings/confirmed cleanup. Exact admitted compact domains accept; missing/wrong-context proofs refuse and evidence bytes stay unchanged. |
+| CLI/development ordinary codegen `f589bc` | **passed**, no warnings/confirmed cleanup after receiving/C1 corrections; predates F03/inventory follow-ups. |
+| Full strict Clippy `20261014T045053.190Z-b083bf` | **passed** `cargo clippy --release --workspace --all-targets --keep-going -- -D warnings`, no errors/warnings/confirmed cleanup; predates F03/inventory follow-ups. |
+| Generated schema `b9fd92`; guard-free readiness `53fac5` | **passed** within their dated scopes; no new schema/version or native extension refresh claimed after F03. |
+
+**Actual Catalog remains failed.** `20261014T035144.915Z-39eae3` failed689.175s within900s at
+strict C1 missing lower-frame routing, before artifact admission/publication/query assertions. Its
+correction passed revealing pure controls. Rerun `20261014T044619.523Z-343d1b` then **timed out**
+910.091s at unchanged900s, exit100/local cleanup confirmed/no survivors. Retrieval passed206.233s
+including retention121.953s; admission passed freeze1.159s, selection assurance103.417s, family
+union0.515s and child installation9.435s, then cancellation interrupted receiving inventory.
+Full artifact admission, publication, native get/search/compare and original-evidence composition
+remain unproven. Phase observations establish neither timeout dominance nor a performance ratio.
+Its native attachment `3b4d2a4c-2ac8-4cdd-8378-12a2f2d8578e` was Unknown; original outcome remains
+unchanged after checked target disposal. No budget/deadline increase or assertion relaxation selected.
+
+**Other original failed receipts remain failed:** creation compile `391b1b` (fixed `8a401d`);
+native8 `22ada0` (seven passed, stale pre-freeze identity assertion repaired in `fbbf2c`);
+cold `f8f754` timed out366.721s/360 after strict source absence, before dual restored admission
+(fixed scope passed later in `1586b7`); imported ownership `1e2cbe` lacked its existing caller budget
+(fixed `1b83ef`); C1 fixture compile `5546fe` and setup `6684a9` (fixed `1e68a8`). None is relabelled.
+
+**Owned lifecycle closeout:** retained qualified server generation `ced8e696…` is unchanged.
+Both actual configured selection files on j/k were absent when observed2026-10-14; no operator
+selection/adoption or useful selected current view was discovered within this owned scope.
+
+| Campaign | Checked disposition |
+|---|---|
+| i (`c3e1f0a3-8e7e-42a1-924c-eabab61bc866`) | Initial `c5f294` blocked local cleanup; exact recovery `b9d305` confirmed local drain but failed native release; disposal retry `eb8f47` **passed** physical shutdown/discard and release. Original failed logical drain/Unknown remain unchanged. |
+| j (`3f9e84b6-a530-436d-9757-2874f88a0611`) | Install `28f3b5` passed; checked disposal `695561` **passed every step**, including native drain. Cold timeout attachment `1d232908-b6be-4728-904c-519663207176` obligation settled by discard; original failed/Unknown unchanged. |
+| k (`237b722d-bf77-4413-9ff5-c74ca38fcdad`) | Install `9b65f3` passed; checked disposal `240726` **passed** executor/datastore/attachment/installer/unit/credential/storage release. Validation logical drain **failed** and remains failed; authenticated whole-target discard settles disposal only. |
+| l (`b7f03c9c-b602-48a0-9459-4f4072c7d654`) | Install `20261014T052021.678Z-1fa22d` passed before operator closeout; no fixture/product workload ran. Checked disposal `20261014T052126.089Z-ae75a4` **passed every step**, local cleanup confirmed/no survivors. |
+
+Shared/operator/older paused targets, warm caches and historical unresolved proof bytes remain
+protected and uninspected. Receipts/logs retain consumer `citation:catalog-execution-patterns-target`.
+Full16-compilation cache matrix, broad assembled qualification, external embeddings/MCP-submitted
+runtime, real-library/operator activation and push remain **not_run**. No CE03 substantive older-plan
+reconciliation is inferred: its CE01/CE02 prerequisites are still unsatisfied. A separate Catalog-
+generation review is the operator's next intended activity, not another journey launched here.
+
+**Final closeout checks,2026-10-14:** source compile attempts `f0ac90`/`b8c4a7` failed on
+protected-source result type inference before any control body ran. An explicit `Result` annotation
+fixed it. Corrected focused release control run `20261014T052617.154Z-92e411` **passed5** with no
+warnings, exit0/cleanup confirmed/no survivors:
+`cargo nextest run --release --locked --no-fail-fast -p lctx-native --lib -E
+"test(protected_source_scope_) | test(independent_boundary_scope_starts_fresh_and_refuses_another_real_pin_context) |
+test(inventory_projection_pointers_require_exact_guarded_children_and_stream_order) |
+test(parent_hold_inventory_refuses_extra_copy_missing_selector_equal_count_substitution_and_duplicate)"`.
+These pure controls exercise source/fresh routing, first-miss worker/refusal, session/pool/pin/context/
+closed/uncertain-source refusal, exact guarded pointer correlation/order and parent-hold EOF/corruption
+semantics. Their modeled premises do not establish real native source lifetime or receiving transport.
+Scoped strict Clippy `6c2648` failed on one collapsible-if warning promoted to error; the equivalent
+let-chain removes it. Final `20261014T052919.038Z-6bf02c` **passed**
+`cargo clippy --release --locked -p lctx-native -p lctx-compiler-store --all-targets --keep-going -- -D warnings`,
+no errors or warnings, exit0/cleanup confirmed/no survivors. The pure run compiled before this style-
+only let-chain change; predicate semantics are unchanged. All active subagent assignments concluded;
+no further product run followed the operator's closeout request. Current-source actual native/cold/
+Catalog, full-workspace Clippy and refreshed CLI/native extension remain **not_run** after the final
+F03/inventory changes; prior wider passes retain their explicit earlier source boundary.
+
+Documentation closeout `20261014T053515.638Z-9f06f7` **failed**, `just docs-check`, exit1/
+confirmed cleanup. Its ADR-lint prerequisite reports13 unresolved owner-qualified design references
+in unchanged ADR-0152/0155/0156/0157/0158/0160/0161 and missing ADR-0151 from the unchanged semantic
+§15.1 decision line. This turn changes neither those ADR records/lint implementation nor the flagged
+section IDs/decision lines; storage-owner changes add only the protected-source paragraph. These
+baseline documentation-reference issues are outside this operator-requested bounded closeout; no
+publication/link-check pass is claimed. No product acceptance is inferred from documentation checks.
+
+**Carry-forward investigation leads (source-only, not additional accepted timeout causes):** the
+operation alias-composition cache retains only the latest exact contributor set, although individual
+contributor runs persist. Repeated switching between previously seen exact sets may repeat composed
+proof work; first establish a real repeated-demand consumer before adding charged owner-local
+retention. Retirement inspection also observed single-item queue discovery and repeated invocation
+lineage reads per hold page. These are bounded follow-up leads with native retirement as their owner,
+not selected production changes or evidence that retirement dominated either timeout. The separate
+Catalog-generation review should examine actual producer/preparation demand and the complete generated
+artifact path on first principles, using the failed run's reached/unreached boundary honestly.
+Resuming runtime acceptance additionally requires a real opaque-source positive/foreign-owner and
+closed/fenced or changed-incarnation refusal control, current receiving/cold validation after the last
+source edits, and the actual Catalog composition at its existing900s allowance. No historical corpus,
+benchmark series or longer deadline is a prerequisite or selected remedy.
+
 **2026-10-13: remaining-scope execution resumed from `1b45554b`. CU01–CU04 and overlapping CP04
 equivalence are source-integrated; focused acceptance is partial.** Work is on shared main;
 no auxiliary worktree was created. Source integration is not whole-package or CE01 acceptance.
@@ -563,6 +673,9 @@ asserted timeout cause.
 | Source-qualified finding | Current disposition and responsible route | Closure/evidence boundary |
 |---|---|---|
 | catalog#F01 | Implemented/source-reviewed; focused acceptance pending; CP01/CP02/CP04 | Internal views stop full reconstruction; exact final union independently checked; actual CE01 journey |
+| [catalog-integrated#F01](../design_review/reviews/design_review_catalog-execution-integrated_2026-10-13.md#F01) | Closed at source/focused pure-Tested strength2026-10-14; CP02/CP04 | One canonical EOF pass retains selective relation runs; unchanged v4 union/hash, empty/nonempty selection, overlap/collision, large frame, last borrower, cancellation and reservation cleanup passed3 (`33fafd`). Enclosing native/Catalog acceptance remains separate. |
+| catalog-integrated#F02 | Closed at source/focused native and cold-Tested strength2026-10-14; CP03/CU03 | Independently reviewed bounded copy/alias receiving preserves post-ack registration, complete incidence and finality. Native3 (`e511d5`), partial-import ownership1 (`1b83ef`) and strict dual-owner cold1 (`1586b7`) passed. No timeout dominance claim; enclosing CE01 remains open. |
+| [catalog-integrated#F03](../design_review/reviews/design_review_catalog-execution-integrated_2026-10-13.md#F03) | Implemented/source-accepted; pure5/scoped strict Clippy passed; native acceptance pending; CP02/CP04 | Explicit actual audit/client/pin/context/pool source reuse, first-miss earning and owner-aware admitted inventory sharing. New-parent receiving/CAS/inventory and cold factories remain independent; one-pass guarded receiving/direct hold cursor preserve EOF. Actual Catalog acceptance separate. |
 | catalog#F02 | Native reuse/retained collision and exact portable incidence implemented/source-reviewed; focused acceptance in progress; CP00/CP04/CU03 | Protected independent eligibility, root-qualified copy closure, fresh receiving authority and complete cold/physical consumers; enclosing CE01 remains separate |
 | catalog#F03 | Implemented primitives; remaining consumer migration/source review and actual controls in progress; CP03/CP04 | Transport/retained-selector/held-alias set demand now windows (`ae14125d`, `c3eceeb8`); operation-registry first-miss preparation and retry accounting remain under correction; exact correspondence/CAS/finality required |
 | catalog#F04 | Directed selection implemented; 25 pure controls passed2026-10-13; cross-boundary equivalence and enclosing native acceptance open; CP03/CP04 | Prepared directed frontier, composed exact aliases, unreachable-source refusal, spill and safe reuse |
@@ -570,7 +683,7 @@ asserted timeout cause.
 | catalog#F06 | Closed at source/focused-Tested strength2026-10-13; CU02 | Position/gather and nominal-key consumers migrated through actual Evidence/Selection/Synthesis/ScopeIndex/LocalSemantics/SourceCall/Model paths; exact and merged port policies, opaque literals, compact/spill topology and output semantics preserved; enclosing CE01 remains separate |
 | catalog#F07 | Implemented/source-reviewed; focused transport bodies passed, enclosing acceptance partial; CU03 | Direct unchanged v4 fold, opaque frozen/published preparation once, root-qualified exact copies and receiving semantic/eligibility admission |
 | catalog#F08 | Closed at source/focused-Tested strength2026-10-13; CU04 | Factory-checked recursively immutable Spec, one eager versioned Rust response; all11 pure adapter controls passed after native extension refresh |
-| lifecycle#F01 | Open, implementation/source evidence available; CP04/CE01 | Populated generated-analysis/admitted-publication/native-query assertions remain not_run |
+| lifecycle#F01 | Open, implementation/source evidence available; CP04/CE01 | Generated analysis/retrieval reached; actual admission/publication/native-query composition remains failed/incomplete (`343d1b`), not a full pass |
 | lifecycle#F02 | Closed at source/focused-Tested strength, inherited 2026-10-12; CP03 preserves it | Existing actual originals/audit, exact-view and late-terminal controls; not proof all catalog#F03 scalar sites migrated |
 | lifecycle#F03 | Partial, protected batch preparation source-accepted and cold-batch Tested; CP02/CP04 | Existing scoped reuse survives; catalog#F01/F02 and enclosing functional acceptance remain open |
 | lifecycle#F04 | Closed at source/focused-Tested strength, inherited 2026-10-12; OP01 preserves/adapts | Actual writer/host diagnostic round trips; failure/Unknown/disposal independent |

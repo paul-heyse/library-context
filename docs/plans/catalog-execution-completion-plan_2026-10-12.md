@@ -129,8 +129,9 @@ remain independent obligations. Source review accepted this route; coordinator �
 
 **Protected discovery and receiving consumers, 2026-10-13 (Implemented source).** Exact physical
 rows and typed contribution descriptors are shared by charged handles instead of retained anew in
-every selector closure. A fresh physical-boundary inspection starts empty. Internal selections may
-reuse discovery only within their actual operation audit's pin, installation context and resource pool,
+every selector closure. Data-only and independently received physical-boundary inspection starts empty. Explicit protected-
+source construction and internal selections may reuse discovery only within their actual live operation
+audit's client, pin, installation context and resource pool,
 after exact row/incarnation receiving CAS and terminal inspection. Reused required incidences have
 both immutable endpoints pinned; retirement's incoming-hold exclusion preserves their outgoing
 edges. Every selector still performs its own domain traversal, exact mapping correspondence,
@@ -351,14 +352,17 @@ availability. This package cannot claim those unreached stages passed from earli
 or a compile-only check. CE02 owns actual regeneration under live-owner drainage, and CE03 owns
 older-plan reconciliation; neither is completed by this document.
 
-**Fresh boundary observation windows (source-integrated, 2026-10-13).** Retained and final physical
-inventories share one phase-local mapping reader and charged physical observation map across their
-exact per-view traversals, bypassing cached-capability discovery. Independent native earning still
-starts empty. It prewarms unique physical contributor/view rows in bounded record/guard windows,
-transfers exact incarnations/full bytes under receiving CAS, then reads required owner incidences in
-heterogeneous bounded hold windows. Empty dependency views are included from actual specifications.
-Each selector retains its domain traversal, exact mappings, membership and alias proof; final copy and
-parent completion checks remain independent. This changes repeated preparation, not authority.
+**Protected source and fresh receiving observation (accepted correction, 2026-10-14).** Retained
+and final construction may borrow exact source observations from the actual still-live compiler audit,
+with explicit client/pin/generation/validity/resource-pool and selector correspondence. Missing
+observations use existing registered preparation workers; source closure or a foreign owner refuses
+borrowing. This does not transfer authority by descriptor, hash or portable proof. Every selector
+retains its domain traversal, exact mappings, membership and composed alias proof. New-parent full-
+byte/incarnation contributor acquisition, complete fresh child/incidence inventory EOF, original-parent
+revision/context CAS and independent retained pin remain mandatory. Data-only, foreign-owner/pool
+and cold factories start fresh. [Integrated review F03](../design_review/reviews/design_review_catalog-execution-integrated_2026-10-13.md#F03)
+corrects the earlier requirement to reread/reacquire protected source metadata into the same audit pin;
+ADR-0165 already permits this owner-bound reuse. Coordinator §6 owns implementation and acceptance.
 
 **Import endpoint ownership (source-integrated, 2026-10-13).** A fresh imported contributor owns
 canonical endpoints as well as selected backing nodes. Import uses the same charged full canonical
@@ -374,7 +378,8 @@ membership access check that pin plus actual current installation generation/val
 not recapture every full contributor row and hold for every local query. Compiler operation/reader
 leases and exact registry Arc correspondence still own delayed execution and drainage. Source close
 ends that borrow; independently received readers retain their own separately earned authority. Full
-`ensure_current`, exact receiving CAS and fresh/retained/frozen/cold boundary inspection remain.
+`ensure_current`, exact receiving CAS and fresh retained/frozen receiving inventory remain; independent
+cold/data-only inspection never inherits an operation's observation registry.
 No serialized metadata, negative lookup or unrelated pin establishes this authority.
 
 Retained-product replay first performs a terminal optional point observation. Actual absence returns
@@ -444,3 +449,27 @@ frame/spill/merge ownership. This removes dead workspace from the merge peak wit
 smaller multiplier or raising a pool. No guard/incarnation capability survives the data transfer.
 The private transfer requires the same actual pool; current call sites obtain it from the same-window
 observation and sorter budget. Source authority/finality checks remain outside this mechanical step.
+
+**Selective contributor membership access (Implemented/source-reviewed, 2026-10-13 local /
+2026-10-14 UTC).** Each exact operation-owned contributor preparation retains its full canonical
+`RecordId::Ord` membership run for unchanged six-family v4 hashing and prepares relation partitions
+once through checked canonical EOF. Exact selectors read only their requested relation partitions;
+absence means empty only beneath the already earned complete contributor. Selector rekeying, full-value
+overlap/collision refusal, exact count/content and independent physical-copy checks remain. Both
+provisional and retained sparse-map nodes/keys, Arc ownership, spill lifetimes and the source frame
+bound are charged. Late cancellation/failure publishes no shared access layout. This addresses the
+independent integrated review's `catalog-integrated#F01`; its runtime evidence is owned only by
+coordinator §6, alongside bounded contributor-discovery record/guard windows.
+
+**Operator closeout,2026-10-14 (Implemented/source-accepted; native acceptance pending).** The explicit
+protected-source factories and owner-aware admitted hold are integrated. The latter shares the exact
+still-owned physical completion inventory only with actual client/pool correspondence and fresh
+original-incarnation/full-parent/frozen-owner and semantic-admission checks; public identity factories
+retain independent inventory earning. First receiving inventory streams bounded canonical pointers,
+fetches each guarded child once and hashes in stream order; actual ordered parent holds compare directly
+to the prepared expected cursor, preserving both EOFs and full-envelope/refusal semantics. The
+[independent integrated assessment](../design_review/reviews/design_review_catalog-execution-integrated_2026-10-13.md#F03)
+accepts the bounded source correction. Coordinator §6 records pure5 and scoped all-target strict Clippy passes, and owns the still-
+missing native owner/closed/ABA probe, current cold rerun and actual Catalog composition. Earlier cold
+`1586b7` passed before these changes. The operator requested a separate Catalog-generation review;
+no full journey or older-plan queue starts during this closeout.

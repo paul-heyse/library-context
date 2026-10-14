@@ -1,6 +1,6 @@
 # Catalog execution: consumer preparation
 
-**Accepted direction / source-integrated, 2026-10-13.** Companion to the
+**Accepted direction / source-integrated; operator closeout, 2026-10-14.** Companion to the
 [coordinator](catalog-execution-plan_2026-10-12.md), the sole disposition/checkpoint owner.
 This document owns Catalog-review F05–F08 and their affected consumers. The combined planning
 request activates their former deferral triggers. They remain distinct closure obligations even
@@ -269,3 +269,12 @@ fixed point before the cold control asserts physical absence. Its source proof r
 original roots/digests/incarnations, and its publication continuation comes directly from checked
 retirement of the exact fixture publication. Receipts, dual independent admission, originals and
 no-selection assertions remain required; source review cannot replace their runtime result.
+
+**Current acceptance boundary,2026-10-14:** coordinator §6 records the actual cold dual-owner restore
+pass (`1586b7`) and C1 admitted compact-frame correction/control pass (`1e68a8`). The generated Catalog
+rerun (`343d1b`) passed retrieval but timed out during independent admission inventory at unchanged900s;
+publication/native-query/original composition remains unproven. Subsequent protected-source and
+receiving-inventory preparation corrections are source-integrated at closeout; their native behavior
+and actual composition are not inherited from those earlier passes. No new journey runs during the
+operator's transition to a separate Catalog-generation review. CU scopes retain their distinct
+finding/evidence boundaries in the coordinator; CE01/CE02/CE03 are not complete.

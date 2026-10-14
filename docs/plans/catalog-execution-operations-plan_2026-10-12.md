@@ -220,10 +220,12 @@ actual selected project state under real drainage; CE03 then reconciles older pl
 non-adoption closes only its fit decision, never a mandatory finding or required functional assertion.
 No progress ledger or new evidence registry belongs in this companion.
 
-Current schema8 host/beta readback/declarative/index-inspection controls and checked owned
-campaign disposals retain their exact outcomes in coordinator §6. ADR-0167's fresh-current-
-quiescence transfer settled owned g through checked disposal; its original native Unknown remains
-unchanged. This narrow ordinary-marker repair does not alter specialized recovery/SOURCE_JOIN or
-another target's obligations. Current validation i must still be disposed after authenticated
-drainage, including its retained Unknown attachment. Shared/operator and older paused targets
-remain outside this campaign's authority.
+Current schema8 host/beta readback/declarative/index-inspection controls retain their exact outcomes
+in coordinator §6. ADR-0167's checked owned dispositions include g/i/j/k and unused l; l disposal
+`20261014T052126.089Z-ae75a4` passed every step. The failed logical drains on i/k and original
+interrupted native Unknown outcomes remain unchanged; authenticated whole-target shutdown/discard
+settles their disposal obligations only. All owned current campaign resources are closed at the
+operator's2026-10-14 closeout. No new target/journey is launched for the separate Catalog-generation
+review. Ordinary-marker repair changes neither specialized recovery/SOURCE_JOIN nor another target's
+obligations. Shared/operator and older paused targets remain protected and outside this campaign's
+authority. CE02's track exit and CE03 substantive reconciliation still await CE01 acceptance.

@@ -303,6 +303,15 @@ alias, incarnation and terminal checks. Terminal-validated canonical runs compos
 non-consuming ordered union with equal-row deduplication and conflicting-payload refusal. Internal
 selection does not hash all six families; independently retained/frozen boundaries earn the full
 flat v4 identity from the selected prepared fragments. The coordinator owns current runtime evidence.
+**Implemented source / runtime acceptance pending,2026-10-14:** explicit retained/frozen construction
+borrows protected source observations from the actual live operation audit, checking native client,
+pin, generation/validity, resource pool and source closure; first misses use existing owned workers.
+New physical parents still earn full-byte/incarnation contributor holds, complete actual child/hold
+inventory EOF, final revision/context CAS and retained ownership. During subsequent semantic admission,
+the opaque still-owned physical completion may share its charged inventory only under exact native
+client/pool and fresh original-parent bytes/incarnation/frozen-owner plus admission checks. Data-only,
+foreign and cold factories independently earn fresh inventory. No serialized identity supplies reuse
+authority. The Catalog coordinator owns remaining native controls and generated composition.
 **Open equivalence boundary,2026-10-13:** equal v4 content does not bind contributor-local alias
 incidence. Cold alias transport currently refuses; unchanged publication/convergence and retained
 attachment still require an independently checked eligibility comparison or bound physical identity
