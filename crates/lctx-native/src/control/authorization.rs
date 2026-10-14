@@ -630,7 +630,7 @@ async fn execute_recorded(
     }
     result
 }
-struct OwnerEffectPlan {
+pub(super) struct OwnerEffectPlan {
     query: String,
     intent: String,
     intent_bindings: Variables,
@@ -639,7 +639,7 @@ struct OwnerEffectPlan {
     retain: bool,
 }
 /// Pure shared protocol lowering: sizing and execution use precisely the same wrappers.
-fn owner_effect_plan(
+pub(super) fn owner_effect_plan(
     request: NativeRequest,
     owner: &EffectOwner,
     sql: &str,

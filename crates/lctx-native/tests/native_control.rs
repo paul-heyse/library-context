@@ -971,6 +971,11 @@ async fn post_cut_cleanup_and_retirement_preserve_scope_across_two_successors() 
         while !progress.remaining.is_empty(){progress=control::resume_retirement(&client,retirement_two,8).await?;}
         let mut response=client.query("SELECT epoch,owners,state FROM $cleanup; SELECT id,incarnation,cutoff FROM $claimed; SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt; SELECT VALUE id FROM $payloads").bind(("cleanup",RecordId::new("native_cleanup",cleanup_two.hex()))).bind(("claimed",claimed.iter().filter_map(|row|row.get("id")).cloned().collect::<Vec<_>>())).bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("payloads",vec![parent.clone(),child.clone(),cleanup_target.clone()])).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
         let cleaned:Vec<Object>=response.take(0).map_err(ModelError::codec)?;let final_claim:Vec<Object>=response.take(1).map_err(ModelError::codec)?;let holds:Vec<RecordId>=response.take(2).map_err(ModelError::codec)?;let payloads:Vec<RecordId>=response.take(3).map_err(ModelError::codec)?;
+        // The two successor snapshots above were taken under closed admission.
+        // This fresh ordinary teardown invocation needs admission just like setup;
+        // the exclusive host lease still excludes other borrowers, and the common
+        // finalizer below restores the original admission state even on refusal.
+        lctx_compiler_store::compiler::open_admission(&cfg).await?;
         control::retire(&client,cleanup_target.clone()).await?;
         Ok::<_,ModelError>((old_cleanup_fenced,old_retirement_fenced,cleanup_one,retirement_one,cleanup_two,retirement_two,repeat_one,repeat_two,stale_predecessors,progress,cleaned,final_claim,holds,payloads,cleanup_era,epochs,claimed,retirement,cleanup,original))
     }.await;
