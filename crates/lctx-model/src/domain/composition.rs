@@ -14,7 +14,7 @@ use super::normalized::{
         BindingData, BindingOutput, CompositionAdmission, SourceBodySignatureClosure,
         ValidatedBoundCall, VerifiedBindings,
     },
-    bindings::CallBindingAttempt,
+    bindings::{CallBinding, CallBindingAttempt},
     events::NormalizedCallEvent,
 };
 use super::resources::{Reservation, ResourceBudget};
@@ -47,6 +47,7 @@ use std::sync::Arc;
 
 /// Only replayed normalized bindings can enter the composer. The borrowed inputs are compared
 /// to the private receipt and used to derive checked guard bindings; no admission booleans exist.
+#[derive(Clone, Copy)]
 pub struct CallBindingFrame<'a> {
     checked: &'a ValidatedBoundCall,
     admission: &'a CompositionAdmission,
@@ -88,9 +89,10 @@ impl<'a> CallBindingFrame<'a> {
     }
     fn guards(
         &self,
-        callee: &CalleeFrame<'_>,
         condition: &Diagram,
         catalog: &GuardCatalog<'_>,
+        ports: &Ports,
+        rows: &[CallBinding],
     ) -> Result<BTreeMap<Id<PlaceRoot>, RootBinding>, ObligationKind> {
         let mut roots = BTreeMap::new();
         let mut needed = BTreeSet::new();
@@ -110,21 +112,15 @@ impl<'a> CallBindingFrame<'a> {
             }
         }
 
-        for row in self
-            .output
-            .bindings
-            .iter()
-            .filter(|row| row.attempt == self.attempt.id())
-        {
+        for row in rows {
             let slot = self
                 .data
                 .callable_slots
                 .get(row.slot)
                 .ok_or(ObligationKind::MissingEvidence)?;
-            let link = callee
-                .links
-                .iter()
-                .find(|link| link.parameter == slot.parameter)
+            let declaration = ports
+                .by_parameter
+                .get(&slot.parameter)
                 .ok_or(ObligationKind::NoSourceDeclaration)?;
             let source = self
                 .output
@@ -137,7 +133,7 @@ impl<'a> CallBindingFrame<'a> {
                 .get(row.projection)
                 .ok_or(ObligationKind::MissingEvidence)?;
             let root = PlaceRoot::Formal {
-                declaration: link.declaration,
+                declaration: *declaration,
             }
             .id();
             if !needed.contains(&root) {
@@ -493,24 +489,32 @@ struct PortBinding {
     projection: BindingProjection,
 }
 /// A callee root at this call: an entry-value port, or the parameter variable.
-enum Port {
-    Entry(Vec<PortBinding>),
-    Variable(Vec<PortBinding>),
+enum Port<'a> {
+    Entry(&'a [PortBinding]),
+    Variable(&'a [PortBinding]),
 }
 /// The call's ports, total over the bound signature: every parameter has exactly one declaration
 /// link and at least one binding. A bound receiver is a binding of the first parameter.
 struct Ports {
     callable: Id<Occurrence>,
     by_declaration: BTreeMap<Id<Occurrence>, Vec<PortBinding>>,
+    by_parameter: BTreeMap<Id<SignatureParameter>, Id<Occurrence>>,
 }
 impl Ports {
     fn build(
         bound: &BoundCall,
         callee: &CalleeFrame<'_>,
     ) -> Result<Result<Self, ObligationKind>, ModelError> {
+        Self::build_rows(bound.signature(), bound.bindings(), callee)
+    }
+    fn build_rows(
+        signature: Id<Signature>,
+        bindings: &[super::calls::Binding],
+        callee: &CalleeFrame<'_>,
+    ) -> Result<Result<Self, ObligationKind>, ModelError> {
         let mut members = BTreeSet::new();
         for (ordinal, parameter) in callee.parameters.iter().enumerate() {
-            if parameter.signature != bound.signature() || parameter.ordinal != ordinal as i64 {
+            if parameter.signature != signature || parameter.ordinal != ordinal as i64 {
                 return Err(invalid(
                     "callee parameters are not the bound signature's, in order",
                 ));
@@ -534,41 +538,59 @@ impl Ports {
         if declared.len() != members.len() {
             return Ok(Err(ObligationKind::NoSourceDeclaration));
         }
-        let mut by_declaration = BTreeMap::new();
+        let mut by_declaration = BTreeMap::<_, Vec<_>>::new();
+        for binding in bindings {
+            if let Some(declaration) = declared.get(&binding.formal) {
+                by_declaration
+                    .entry(*declaration)
+                    .or_default()
+                    .push(PortBinding {
+                        source: binding.source.clone(),
+                        projection: binding.projection.clone(),
+                    });
+            }
+        }
         for parameter in callee.parameters {
-            let own: Vec<_> = bound
-                .bindings()
-                .iter()
-                .filter(|b| b.formal == parameter.id())
-                .map(|b| PortBinding {
-                    source: b.source.clone(),
-                    projection: b.projection.clone(),
-                })
-                .collect();
-            if own.is_empty() {
+            if !by_declaration.contains_key(&declared[&parameter.id()]) {
                 return Err(invalid("a bound parameter has no binding"));
             }
-            by_declaration.insert(declared[&parameter.id()], own);
         }
         Ok(Ok(Self {
             callable: callee.declaration.declaration,
             by_declaration,
+            by_parameter: declared,
         }))
+    }
+    fn retained_bytes(&self) -> usize {
+        self.by_declaration
+            .values()
+            .map(|rows| {
+                size_of::<Id<Occurrence>>()
+                    + size_of::<Vec<PortBinding>>()
+                    + 32
+                    + rows.capacity().saturating_mul(size_of::<PortBinding>())
+                    + rows
+                        .iter()
+                        .map(|row| row.source.heap_bytes() + row.projection.heap_bytes())
+                        .sum::<usize>()
+            })
+            .sum::<usize>()
+            .saturating_add(self.by_parameter.len().saturating_mul(
+                size_of::<Id<SignatureParameter>>() + size_of::<Id<Occurrence>>() + 32,
+            ))
     }
     /// The port a callee root names; `None` for a root that is not a parameter of this callee,
     /// such as an enclosing function's parameter read through a closure.
-    fn port(&self, root: &PlaceRoot) -> Result<Option<Port>, ModelError> {
+    fn port(&self, root: &PlaceRoot) -> Result<Option<Port<'_>>, ModelError> {
         Ok(match root {
             PlaceRoot::Entry { declaration } => self
                 .by_declaration
                 .get(declaration)
-                .cloned()
-                .map(Port::Entry),
+                .map(|rows| Port::Entry(rows.as_slice())),
             PlaceRoot::Formal { declaration } => self
                 .by_declaration
                 .get(declaration)
-                .cloned()
-                .map(Port::Variable),
+                .map(|rows| Port::Variable(rows.as_slice())),
             PlaceRoot::Receiver { .. } => {
                 return Err(invalid(
                     "a declared callable's receiver is its first parameter's entry value",
@@ -591,11 +613,14 @@ enum Mapped {
 
 struct Composer<'a> {
     site: &'a dyn source::properties::OccurrenceView,
-    ports: Ports,
+    ports: &'a Ports,
     records: CompositionRecords,
 }
 impl Composer<'_> {
-    fn projection(&mut self, projection: &BindingProjection) -> Option<PathSegment> {
+    fn projection(
+        records: &mut CompositionRecords,
+        projection: &BindingProjection,
+    ) -> Option<PathSegment> {
         let literal = match projection {
             BindingProjection::Whole => return None,
             BindingProjection::Positional { index } => Literal::Integer {
@@ -606,8 +631,8 @@ impl Composer<'_> {
             },
         };
         let segment = PathSegment::Item { key: literal.id() };
-        self.records.literals.push(literal);
-        self.records.segments.push(segment.clone());
+        records.literals.push(literal);
+        records.segments.push(segment.clone());
         Some(segment)
     }
     /// A callee output root on the caller side. Writing a whole parameter slot (rebinding the
@@ -645,7 +670,7 @@ impl Composer<'_> {
                     .iter()
                     .map(|binding| match &binding.source {
                         BindingSource::Actual { occurrence: actual } => {
-                            let prefix = self.projection(&binding.projection);
+                            let prefix = Self::projection(&mut self.records, &binding.projection);
                             Mapped::Root {
                                 root: PlaceRoot::Occurrence {
                                     occurrence: *actual,
@@ -681,6 +706,173 @@ pub fn compose_call(
     catalog: &CompositionCatalog<'_>,
     budget: &ResourceBudget,
 ) -> Result<CompositionResults, ModelError> {
+    let mut ports = PreparedPorts::default();
+    compose_call_impl(
+        caller,
+        callee,
+        call,
+        (caller_frame, callee_frame),
+        catalog,
+        budget,
+        &mut ports,
+    )
+}
+
+// Only the prepared owner constructs its callee frame. The borrowed admission is checked at the
+// same lazy port gate as ordinary composition, so cached ports cannot be applied to another call.
+pub(crate) struct PreparedCallee<'a> {
+    binding: CallBindingFrame<'a>,
+    symbol: source::properties::SymbolProperties,
+    declaration: &'a SymbolDeclaration,
+    parameters: Vec<SignatureParameter>,
+    links: Vec<ParameterDeclaration>,
+    ports: PreparedPorts<'a>,
+    _reservation: Box<dyn Reservation>,
+}
+impl<'a> PreparedCallee<'a> {
+    pub(crate) fn new(
+        binding: CallBindingFrame<'a>,
+        symbol: source::properties::SymbolProperties,
+        declaration: &'a SymbolDeclaration,
+        parameters: Vec<SignatureParameter>,
+        links: Vec<ParameterDeclaration>,
+        reservation: Box<dyn Reservation>,
+    ) -> Self {
+        Self {
+            binding,
+            symbol,
+            declaration,
+            parameters,
+            links,
+            ports: PreparedPorts::default(),
+            _reservation: reservation,
+        }
+    }
+    pub(crate) fn compose(
+        &mut self,
+        caller: &dyn CompositionOperand,
+        callee: &dyn CompositionOperand,
+        call: &CallFrame<'_>,
+        caller_frame: &CallerFrame<'_>,
+        evidence: (
+            &BTreeMap<Id<EvaluationAtom>, CheckedStability>,
+            &CompositionCatalog<'_>,
+        ),
+        budget: &ResourceBudget,
+    ) -> Result<CompositionResults, ModelError> {
+        let (witnesses, catalog) = evidence;
+        let frame = CalleeFrame {
+            symbol: &self.symbol,
+            declaration: self.declaration,
+            parameters: &self.parameters,
+            links: &self.links,
+            witnesses: Some(witnesses),
+        };
+        self.ports.binding = Some(self.binding);
+        compose_call_impl(
+            caller,
+            callee,
+            call,
+            (caller_frame, &frame),
+            catalog,
+            budget,
+            &mut self.ports,
+        )
+    }
+}
+#[derive(Default)]
+struct PreparedPorts<'a> {
+    binding: Option<CallBindingFrame<'a>>,
+    rows: Option<Result<Ports, ObligationKind>>,
+    guard_rows: Vec<CallBinding>,
+    _reservation: Option<Box<dyn Reservation>>,
+}
+type PreparedPortResult<'a> = Result<(&'a Ports, &'a [CallBinding]), ObligationKind>;
+impl PreparedPorts<'_> {
+    fn get(
+        &mut self,
+        binding: &CallBindingFrame<'_>,
+        callee: &CalleeFrame<'_>,
+        budget: &ResourceBudget,
+    ) -> Result<PreparedPortResult<'_>, ModelError> {
+        if self.binding.is_some_and(|expected| {
+            !std::ptr::eq(expected.checked, binding.checked)
+                || !std::ptr::eq(expected.admission, binding.admission)
+                || !std::ptr::eq(expected.data, binding.data)
+                || !std::ptr::eq(expected.output, binding.output)
+                || !std::ptr::eq(expected.attempt, binding.attempt)
+                || !std::ptr::eq(expected.event, binding.event)
+        }) {
+            return Err(invalid(
+                "prepared callee belongs to another checked call owner",
+            ));
+        }
+        if self.rows.is_none() {
+            let bound = binding.checked.bound();
+            let guard_count = binding
+                .output
+                .bindings
+                .iter()
+                .filter(|r| r.attempt == binding.attempt.id())
+                .count();
+            let bytes = bound
+                .heap_bytes()
+                .checked_mul(2)
+                .and_then(|n| {
+                    n.checked_add(
+                        bound
+                            .bindings()
+                            .len()
+                            .checked_mul(size_of::<PortBinding>() + 128)?,
+                    )
+                })
+                .and_then(|n| n.checked_add(callee.parameters.len().checked_mul(256)?))
+                .and_then(|n| n.checked_add(callee.links.len().checked_mul(256)?))
+                .and_then(|n| n.checked_add(guard_count.checked_mul(size_of::<CallBinding>())?))
+                .ok_or_else(|| invalid("prepared call ports allowance overflow"))?;
+            let mut reservation = budget.reserve("prepared-call-ports", bytes)?;
+            let rows = Ports::build(bound, callee)?;
+            if let Ok(ports) = &rows {
+                self.guard_rows = Vec::with_capacity(guard_count);
+                self.guard_rows.extend(
+                    binding
+                        .output
+                        .bindings
+                        .iter()
+                        .filter(|r| r.attempt == binding.attempt.id())
+                        .cloned(),
+                );
+                let retained = ports
+                    .retained_bytes()
+                    .checked_add(
+                        self.guard_rows
+                            .capacity()
+                            .checked_mul(size_of::<CallBinding>())
+                            .ok_or_else(|| invalid("prepared guard rows allowance overflow"))?,
+                    )
+                    .ok_or_else(|| invalid("prepared call ports allowance overflow"))?;
+                reservation.try_resize(retained)?;
+                self._reservation = Some(reservation);
+            }
+            self.rows = Some(rows);
+        }
+        Ok(match self.rows.as_ref().expect("prepared above") {
+            Ok(ports) => Ok((ports, &self.guard_rows)),
+            Err(reason) => Err(*reason),
+        })
+    }
+}
+
+fn compose_call_impl(
+    caller: &dyn CompositionOperand,
+    callee: &dyn CompositionOperand,
+    call: &CallFrame<'_>,
+    frames: (&CallerFrame<'_>, &CalleeFrame<'_>),
+    catalog: &CompositionCatalog<'_>,
+    budget: &ResourceBudget,
+    prepared: &mut PreparedPorts<'_>,
+) -> Result<CompositionResults, ModelError> {
+    let (caller_frame, callee_frame) = frames;
     let (caller_key, callee_key) = (caller.descriptor(), callee.descriptor());
     let _work = budget.reserve(
         "call_composition_work",
@@ -784,7 +976,7 @@ pub fn compose_call(
     let PlaceRoot::Occurrence { occurrence: actual } = root(caller_output.root)? else {
         return CompositionResults::one(CallComposition::Disjoint, budget);
     };
-    let ports = match Ports::build(bound, callee_frame)? {
+    let (ports, guard_rows) = match prepared.get(binding_frame, callee_frame, budget)? {
         Ok(ports) => ports,
         Err(kind) => return CompositionResults::one(CallComposition::Obligation(kind), budget),
     };
@@ -793,7 +985,7 @@ pub fn compose_call(
         Some(Port::Variable(bindings)) => (bindings, false),
         None => return CompositionResults::one(CallComposition::Disjoint, budget),
     };
-    let Some(binding) = bindings.into_iter().find(|b| {
+    let Some(binding) = bindings.iter().find(|b| {
         b.source
             == BindingSource::Actual {
                 occurrence: *actual,
@@ -809,7 +1001,7 @@ pub fn compose_call(
         );
     }
     let guard_bindings =
-        match binding_frame.guards(callee_frame, callee.condition(), &catalog.guards) {
+        match binding_frame.guards(callee.condition(), &catalog.guards, ports, guard_rows) {
             Ok(bindings) => bindings,
             Err(reason) => {
                 return CompositionResults::one(CallComposition::Obligation(reason), budget);
@@ -822,7 +1014,7 @@ pub fn compose_call(
     };
     // In port coordinates the caller's value sits at the projection, then the caller's path.
     let mut delivered = AccessPath::empty();
-    if let Some(segment) = composer.projection(&binding.projection) {
+    if let Some(segment) = Composer::projection(&mut composer.records, &binding.projection) {
         delivered = delivered.extend(segment.id());
     }
     let delivered = delivered.append(path(caller_output.path)?);
@@ -1840,11 +2032,13 @@ impl CompositionCheck {
             .ok_or_else(|| invalid("composition site absent"))?;
         let mut composer = Composer {
             site,
-            ports,
+            ports: &ports,
             records: Default::default(),
         };
         let mut delivered = AccessPath::empty();
-        if let Some(segment) = composer.projection(&source_binding.projection) {
+        if let Some(segment) =
+            Composer::projection(&mut composer.records, &source_binding.projection)
+        {
             delivered = delivered.extend(segment.id());
         }
         delivered = delivered.append(delivered_path);
@@ -2262,4 +2456,202 @@ type RestatementIndex = ChargedMap<(Id<Occurrence>, Id<EvaluationAtom>), Vec<Id<
 
 pub(crate) fn composition_invariants_refs() -> Vec<&'static str> {
     vec!["call_composition_frames"]
+}
+
+#[cfg(test)]
+mod prepared_port_controls {
+    use super::*;
+    fn nominal<R>(n: u8) -> Id<R> {
+        serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
+            _,
+            serde::de::value::Error,
+        >::new([n; 16].into_iter()))
+        .unwrap()
+    }
+    fn symbol() -> ProviderSymbol {
+        ProviderSymbol {
+            provider: nominal(1),
+            context: nominal(2),
+            module: nominal(3),
+            native_key: "callee".into(),
+            name: "callee".into(),
+            kind: calls::SymbolKind::Function,
+        }
+    }
+    #[test]
+    fn indexed_ports_preserve_all_actuals_defaults_and_entry_formal_distinction() {
+        let symbol = symbol();
+        let declaration = SymbolDeclaration {
+            qualification: nominal(4),
+            symbol: symbol.id(),
+            declaration: nominal(5),
+        };
+        let signature = nominal(6);
+        let parameters = [0, 1].map(|ordinal| SignatureParameter {
+            signature,
+            ordinal,
+            shape: nominal(10 + ordinal as u8),
+        });
+        let links = parameters.each_ref().map(|p| ParameterDeclaration {
+            qualification: nominal(4),
+            parameter: p.id(),
+            declaration: nominal(20 + p.ordinal as u8),
+        });
+        let actuals = [nominal(30), nominal(31)];
+        let bindings = [
+            calls::Binding {
+                formal: parameters[0].id(),
+                source: BindingSource::Actual {
+                    occurrence: actuals[1],
+                },
+                kind: calls::BindingKind::Varargs,
+                projection: BindingProjection::Positional { index: 1 },
+            },
+            calls::Binding {
+                formal: parameters[1].id(),
+                source: BindingSource::Default,
+                kind: calls::BindingKind::Default,
+                projection: BindingProjection::Whole,
+            },
+            calls::Binding {
+                formal: parameters[0].id(),
+                source: BindingSource::Actual {
+                    occurrence: actuals[0],
+                },
+                kind: calls::BindingKind::Varargs,
+                projection: BindingProjection::Positional { index: 0 },
+            },
+        ];
+        let frame = CalleeFrame {
+            symbol: &symbol,
+            declaration: &declaration,
+            parameters: &parameters,
+            links: &links,
+            witnesses: None,
+        };
+        let ports = Ports::build_rows(signature, &bindings, &frame)
+            .unwrap()
+            .unwrap();
+        let root = PlaceRoot::Entry {
+            declaration: links[0].declaration,
+        };
+        let Some(Port::Entry(rows)) = ports.port(&root).unwrap() else {
+            panic!("entry port absent")
+        };
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[0].source,
+            BindingSource::Actual {
+                occurrence: actuals[1]
+            }
+        );
+        assert_eq!(
+            rows[1].source,
+            BindingSource::Actual {
+                occurrence: actuals[0]
+            }
+        );
+        assert_eq!(
+            rows[0].projection,
+            BindingProjection::Positional { index: 1 }
+        );
+        let Some(Port::Entry(again)) = ports.port(&root).unwrap() else {
+            panic!("entry port absent")
+        };
+        assert!(
+            std::ptr::eq(rows, again),
+            "port reads borrow retained bindings rather than clone prefixes"
+        );
+        let Some(Port::Variable(variable)) = ports
+            .port(&PlaceRoot::Formal {
+                declaration: links[0].declaration,
+            })
+            .unwrap()
+        else {
+            panic!("formal port absent")
+        };
+        assert!(std::ptr::eq(rows, variable));
+        let Some(Port::Entry(default)) = ports
+            .port(&PlaceRoot::Entry {
+                declaration: links[1].declaration,
+            })
+            .unwrap()
+        else {
+            panic!("default absent")
+        };
+        assert_eq!(default.len(), 1);
+        assert_eq!(default[0].source, BindingSource::Default);
+        assert!(
+            ports
+                .port(&PlaceRoot::Entry {
+                    declaration: nominal(99)
+                })
+                .unwrap()
+                .is_none()
+        );
+    }
+    #[test]
+    fn missing_ambiguous_and_out_of_order_declarations_keep_distinct_refusals() {
+        let symbol = symbol();
+        let declaration = SymbolDeclaration {
+            qualification: nominal(4),
+            symbol: symbol.id(),
+            declaration: nominal(5),
+        };
+        let signature = nominal(6);
+        let parameter = SignatureParameter {
+            signature,
+            ordinal: 0,
+            shape: nominal(7),
+        };
+        let link = ParameterDeclaration {
+            qualification: nominal(4),
+            parameter: parameter.id(),
+            declaration: nominal(8),
+        };
+        let binding = calls::Binding {
+            formal: parameter.id(),
+            source: BindingSource::Default,
+            kind: calls::BindingKind::Default,
+            projection: BindingProjection::Whole,
+        };
+        let mut frame = CalleeFrame {
+            symbol: &symbol,
+            declaration: &declaration,
+            parameters: std::slice::from_ref(&parameter),
+            links: &[],
+            witnesses: None,
+        };
+        assert!(matches!(
+            Ports::build_rows(signature, std::slice::from_ref(&binding), &frame).unwrap(),
+            Err(ObligationKind::NoSourceDeclaration)
+        ));
+        let ambiguous = [
+            link.clone(),
+            ParameterDeclaration {
+                qualification: nominal(9),
+                ..link
+            },
+        ];
+        frame.links = &ambiguous;
+        assert!(
+            Ports::build_rows(signature, std::slice::from_ref(&binding), &frame)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("not one-to-one")
+        );
+        let disordered = [SignatureParameter {
+            ordinal: 1,
+            ..parameter
+        }];
+        frame.parameters = &disordered;
+        assert!(
+            Ports::build_rows(signature, &[binding], &frame)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("in order")
+        );
+    }
 }

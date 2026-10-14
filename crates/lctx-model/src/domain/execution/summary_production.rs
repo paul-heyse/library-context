@@ -899,7 +899,7 @@ impl SummaryData {
         Ok((results, charge))
     }
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct CallInfo {
     attempt: Id<CallBindingAttempt>,
     // Retain the existing private inventory footprint used by resource reservations.
@@ -981,137 +981,251 @@ fn call_infos(
     }
     Ok((calls, charge))
 }
-struct CompositionInputs<'a> {
+// One invocation borrows the complete immutable source and private admission owners. Entries are
+// created only for a pair actually consumed by the existing worklist, never for a queued suffix.
+struct CallPreparation<'a> {
     data: &'a SummaryData,
     verified: &'a VerifiedBindings,
-    vocabulary: &'a Vocabulary,
-    guards: &'a BTreeMap<Id<EvaluationAtom>, CheckedStability>,
+    calls: BTreeMap<Id<CallBindingAttempt>, PreparedAttempt<'a>>,
+    charge: StateCharge,
 }
-
-fn compose(
-    composition_inputs: CompositionInputs<'_>,
-    call: &CallInfo,
-    caller: &WorkBranch,
-    callee: &WorkBranch,
-    budget: &ResourceBudget,
-) -> Result<CompositionResults, ModelError> {
-    let CompositionInputs {
-        data,
-        verified,
-        vocabulary,
-        guards,
-    } = composition_inputs;
-    let attempt = need(&data.binding_output.attempts, call.attempt)?;
-    let target = need(&data.bindings.targets, call.target)?;
-    let bound = verified
-        .bound(call.attempt)
-        .ok_or_else(|| invalid("Summary bound call absent"))?;
-    let signature = need(&data.bindings.signatures, bound.bound().signature())?;
-    let symbol = data
-        .symbol(signature.symbol)
-        .ok_or_else(|| invalid("Summary callee symbol absent"))?;
-    let mut declarations = data
-        .entry
-        .symbol_declarations
-        .iter()
-        .filter(|d| d.symbol == symbol.id());
-    let declaration = declarations
-        .next()
-        .ok_or_else(|| invalid("Summary callee source declaration absent"))?;
-    if declarations.next().is_some() {
-        return Err(invalid("Summary callee declaration ambiguous"));
+impl<'a> CallPreparation<'a> {
+    fn new(data: &'a SummaryData, verified: &'a VerifiedBindings, budget: &ResourceBudget) -> Self {
+        Self {
+            data,
+            verified,
+            calls: BTreeMap::new(),
+            charge: StateCharge::new(budget, "summary-prepared-call-slots"),
+        }
     }
-    let admission = verified
-        .composition(call.attempt)
-        .ok_or_else(|| invalid("Summary composition admission absent"))?;
-    let mut callers = data
-        .entry
-        .symbol_declarations
-        .iter()
-        .filter(|d| d.declaration == admission.owner_declaration());
-    let caller_declaration = callers
-        .next()
-        .ok_or_else(|| invalid("Summary caller declaration absent"))?;
-    if callers.next().is_some() {
-        return Err(invalid("Summary caller declaration ambiguous"));
+    fn get(
+        &mut self,
+        call: &CallInfo,
+        budget: &ResourceBudget,
+    ) -> Result<&mut PreparedAttempt<'a>, ModelError> {
+        if let std::collections::btree_map::Entry::Vacant(entry) = self.calls.entry(call.attempt) {
+            self.charge.grow(
+                size_of::<Id<CallBindingAttempt>>() + size_of::<PreparedAttempt<'a>>() + 128,
+            )?;
+            let prepared = PreparedAttempt::new(self.data, self.verified, call, budget)?;
+            entry.insert(prepared);
+        }
+        let prepared = self.calls.get_mut(&call.attempt).expect("prepared above");
+        if prepared.info != *call {
+            return Err(invalid(
+                "Summary prepared call changes its exact admission frame",
+            ));
+        }
+        Ok(prepared)
     }
-    let bytes = data
-        .bindings
-        .parameters
-        .len()
-        .saturating_mul(size_of::<SignatureParameter>())
-        .saturating_add(
+}
+struct PreparedAttempt<'a> {
+    info: CallInfo,
+    caller: CallerFrame<'a>,
+    site: source::properties::OccurrenceProperties,
+    target: &'a CallTarget,
+    qualification: &'a AssertionQualification,
+    destination: &'a CallDestination,
+    receiver: &'a Receiver,
+    binding: CallBindingFrame<'a>,
+    arguments: Vec<CallArgument>,
+    callee: PreparedCallee<'a>,
+    _arguments_charge: Box<dyn Reservation>,
+}
+impl<'a> PreparedAttempt<'a> {
+    fn new(
+        data: &'a SummaryData,
+        verified: &'a VerifiedBindings,
+        call: &CallInfo,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let attempt = need(&data.binding_output.attempts, call.attempt)?;
+        let target = need(&data.bindings.targets, call.target)?;
+        let bound = verified
+            .bound(call.attempt)
+            .ok_or_else(|| invalid("Summary bound call absent"))?;
+        let signature = need(&data.bindings.signatures, bound.bound().signature())?;
+        let symbol = data
+            .symbol(signature.symbol)
+            .ok_or_else(|| invalid("Summary callee symbol absent"))?;
+        let mut declarations = data
+            .entry
+            .symbol_declarations
+            .iter()
+            .filter(|d| d.symbol == symbol.id());
+        let declaration = declarations
+            .next()
+            .ok_or_else(|| invalid("Summary callee source declaration absent"))?;
+        if declarations.next().is_some() {
+            return Err(invalid("Summary callee declaration ambiguous"));
+        }
+        let admission = verified
+            .composition(call.attempt)
+            .ok_or_else(|| invalid("Summary composition admission absent"))?;
+        let mut callers = data
+            .entry
+            .symbol_declarations
+            .iter()
+            .filter(|d| d.declaration == admission.owner_declaration());
+        let caller_declaration = callers
+            .next()
+            .ok_or_else(|| invalid("Summary caller declaration absent"))?;
+        if callers.next().is_some() {
+            return Err(invalid("Summary caller declaration ambiguous"));
+        }
+        // Reserve the selected frame before cloning its rows. Unrelated signatures and calls do not
+        // inflate each cache entry; all vectors and the temporary membership set stay charged.
+        let parameter_count = data
+            .bindings
+            .parameters
+            .iter()
+            .filter(|p| p.signature == signature.id())
+            .count();
+        let parameter_bytes = parameter_count
+            .checked_mul(size_of::<SignatureParameter>() + 128)
+            .ok_or_else(|| invalid("Summary prepared signature allowance overflow"))?;
+        let parameter_charge = budget.reserve("summary-prepared-signature", parameter_bytes)?;
+        let mut parameters = Vec::with_capacity(parameter_count);
+        parameters.extend(
+            data.bindings
+                .parameters
+                .iter()
+                .filter(|p| p.signature == signature.id())
+                .cloned(),
+        );
+        parameters.sort_by_key(|p| p.ordinal);
+        let parameter_ids = parameters.iter().map(Record::id).collect::<BTreeSet<_>>();
+        let link_count = data
+            .entry
+            .declarations
+            .iter()
+            .filter(|p| parameter_ids.contains(&p.parameter))
+            .count();
+        let mut signature_charge = parameter_charge;
+        signature_charge.try_resize(
+            parameter_bytes
+                .checked_add(
+                    link_count
+                        .checked_mul(size_of::<declarations::ParameterDeclaration>())
+                        .ok_or_else(|| invalid("Summary prepared links allowance overflow"))?,
+                )
+                .ok_or_else(|| invalid("Summary prepared links allowance overflow"))?,
+        )?;
+        let mut links = Vec::with_capacity(link_count);
+        links.extend(
             data.entry
                 .declarations
-                .len()
-                .saturating_mul(size_of::<declarations::ParameterDeclaration>()),
-        )
-        .saturating_add(
+                .iter()
+                .filter(|p| parameter_ids.contains(&p.parameter))
+                .cloned(),
+        );
+        drop(parameter_ids);
+        // The membership set is gone; only the selected row vectors remain retained.
+        signature_charge.try_resize(
+            parameters
+                .capacity()
+                .checked_mul(size_of::<SignatureParameter>())
+                .and_then(|n| {
+                    n.checked_add(
+                        links
+                            .capacity()
+                            .checked_mul(size_of::<declarations::ParameterDeclaration>())?,
+                    )
+                })
+                .ok_or_else(|| invalid("Summary retained signature allowance overflow"))?,
+        )?;
+        let syntax = attempt
+            .syntax
+            .ok_or_else(|| invalid("Summary call syntax absent"))?;
+        let argument_count = data
+            .bindings
+            .arguments
+            .iter()
+            .filter(|a| a.call == syntax)
+            .count();
+        let argument_bytes = data
+            .bindings
+            .arguments
+            .iter()
+            .filter(|a| a.call == syntax)
+            .try_fold(
+                argument_count
+                    .checked_mul(size_of::<CallArgument>())
+                    .ok_or_else(|| invalid("Summary prepared arguments allowance overflow"))?,
+                |bytes, argument| {
+                    bytes
+                        .checked_add(argument.heap_bytes())
+                        .ok_or_else(|| invalid("Summary prepared arguments allowance overflow"))
+                },
+            )?;
+        let arguments_charge = budget.reserve("summary-prepared-arguments", argument_bytes)?;
+        let mut arguments = Vec::with_capacity(argument_count);
+        arguments.extend(
             data.bindings
                 .arguments
-                .len()
-                .saturating_mul(size_of::<CallArgument>() + 128),
+                .iter()
+                .filter(|a| a.call == syntax)
+                .cloned(),
         );
-    let _frame = budget.reserve("summary-call-frame", bytes)?;
-    let mut parameters = data
-        .bindings
-        .parameters
-        .iter()
-        .filter(|p| p.signature == signature.id())
-        .cloned()
-        .collect::<Vec<_>>();
-    parameters.sort_by_key(|p| p.ordinal);
-    let links = data
-        .entry
-        .declarations
-        .iter()
-        .filter(|p| parameters.iter().any(|v| v.id() == p.parameter))
-        .cloned()
-        .collect::<Vec<_>>();
-    let syntax = attempt
-        .syntax
-        .ok_or_else(|| invalid("Summary call syntax absent"))?;
-    let mut arguments = data
-        .bindings
-        .arguments
-        .iter()
-        .filter(|a| a.call == syntax)
-        .cloned()
-        .collect::<Vec<_>>();
-    arguments.sort_by_key(|a| a.ordinal);
-    let site = data
-        .occurrence(target.site)
-        .ok_or_else(|| invalid("Summary call occurrence absent"))?;
-    let frame = CallFrame {
-        site: &site,
-        target,
-        qualification: need(&data.bindings.qualifications, target.qualification)?,
-        destination: need(&data.bindings.destinations, target.destination)?,
-        receiver: need(&data.bindings.receivers, target.receiver)?,
-        binding: Some(
+        arguments.sort_by_key(|a| a.ordinal);
+        let site = data
+            .occurrence(target.site)
+            .ok_or_else(|| invalid("Summary call occurrence absent"))?;
+        let qualification = need(&data.bindings.qualifications, target.qualification)?;
+        let destination = need(&data.bindings.destinations, target.destination)?;
+        let receiver = need(&data.bindings.receivers, target.receiver)?;
+        let binding =
             CallBindingFrame::new(verified, call.attempt, &data.bindings, &data.binding_output)
-                .map_err(|r| invalid(format!("Summary checked call refused: {r:?}")))?,
-        ),
-        arguments: &arguments,
-    };
-    compose_call(
-        caller,
-        callee,
-        &frame,
-        &CallerFrame {
-            declaration: caller_declaration,
-            owner: call.owner,
-        },
-        &CalleeFrame {
-            symbol: &symbol,
-            declaration,
-            parameters: &parameters,
-            links: &links,
-            witnesses: Some(guards),
-        },
-        &vocabulary.catalog(),
-        budget,
-    )
+                .map_err(|r| invalid(format!("Summary checked call refused: {r:?}")))?;
+        Ok(Self {
+            info: *call,
+            caller: CallerFrame {
+                declaration: caller_declaration,
+                owner: call.owner,
+            },
+            site,
+            target,
+            qualification,
+            destination,
+            receiver,
+            binding,
+            arguments,
+            callee: PreparedCallee::new(
+                binding,
+                symbol,
+                declaration,
+                parameters,
+                links,
+                signature_charge,
+            ),
+            _arguments_charge: arguments_charge,
+        })
+    }
+    fn compose(
+        &mut self,
+        caller: &WorkBranch,
+        callee: &WorkBranch,
+        vocabulary: &Vocabulary,
+        guards: &BTreeMap<Id<EvaluationAtom>, CheckedStability>,
+        budget: &ResourceBudget,
+    ) -> Result<CompositionResults, ModelError> {
+        self.callee.compose(
+            caller,
+            callee,
+            &CallFrame {
+                site: &self.site,
+                target: self.target,
+                qualification: self.qualification,
+                destination: self.destination,
+                receiver: self.receiver,
+                binding: Some(self.binding),
+                arguments: &self.arguments,
+            },
+            &self.caller,
+            (guards, &vocabulary.catalog()),
+            budget,
+        )
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum WorkItem {
@@ -2108,6 +2222,7 @@ fn produce_with_application(
             .push(index);
     }
     let (guards, _guards) = data.guards(budget, actual)?;
+    let mut call_preparation = CallPreparation::new(data, verified, budget);
     let mut vocabulary = data.vocabulary.copy(budget)?;
     for root in out.vocabulary.roots.values() {
         vocabulary
@@ -2273,16 +2388,11 @@ fn produce_with_application(
                         witness,
                         reason,
                     };
-                    for result in compose(
-                        CompositionInputs {
-                            data,
-                            verified,
-                            vocabulary: &vocabulary,
-                            guards: &guards,
-                        },
-                        call,
+                    for result in call_preparation.get(call, budget)?.compose(
                         &caller,
                         &callee,
+                        &vocabulary,
+                        &guards,
                         budget,
                     )? {
                         match result {
@@ -2680,6 +2790,9 @@ fn produce_with_application(
         run.work += i64::from(queue.work());
         out.components.insert(row)?;
     }
+    // No remaining pair can borrow prepared calls. Later publication and closure questions
+    // consume published outcomes and private binding authority, not parameter/port allocations.
+    drop(call_preparation);
     run.components = out.components.len() as i64;
     run.proofs =
         (out.witnesses.len() + out.path_witnesses.len() + out.capture_witnesses.len()) as i64;
