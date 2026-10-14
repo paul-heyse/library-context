@@ -71,6 +71,19 @@ pub struct Completion {
     pub failures: Vec<Finalization>,
 }
 impl Completion {
+    /// Compose actual owner reports without converting successful metadata into `()`.
+    /// Outstanding work and unknown acknowledgements remain sticky; outcomes retain order.
+    pub fn merge(&mut self, report: Self) {
+        if report.local == LocalState::Outstanding {
+            self.local = report.local;
+        }
+        if report.remote == RemoteState::Unknown {
+            self.remote = report.remote;
+        }
+        self.storage.extend(report.storage);
+        self.committed.extend(report.committed);
+        self.failures.extend(report.failures);
+    }
     pub fn step(&mut self, step: &'static str, result: Result<(), ModelError>) {
         if let Err(error) = result {
             self.observe(&error);
@@ -452,5 +465,43 @@ mod tests {
         let error = complete(Ok(17), finality).unwrap_err();
         assert!(error.has_committed_effect());
         assert!(error.to_string().contains("owned-handle"));
+    }
+
+    #[test]
+    fn merged_owner_reports_preserve_success_metadata_and_prior_uncertainty() {
+        let mut finality = Completion {
+            local: LocalState::Outstanding,
+            remote: RemoteState::Unknown,
+            ..Default::default()
+        };
+        let mut closed = Completion::default();
+        closed.cleanup("released-source", Ok(()));
+        closed.committed("unselected publication", "actual-handle");
+        finality.merge(closed);
+        let mut failed = Completion::default();
+        failed.cleanup(
+            "unreleased-reader",
+            Err(ModelError::Schema("close refused")),
+        );
+        finality.merge(failed);
+        let error = complete(Ok(()), finality).unwrap_err();
+        assert!(error.has_committed_effect());
+        let ModelError::Completion(outcome) = error else {
+            panic!("combined owner outcome")
+        };
+        assert_eq!(outcome.completion.local, LocalState::Outstanding);
+        assert_eq!(outcome.completion.remote, RemoteState::Unknown);
+        assert_eq!(
+            outcome.completion.storage,
+            [
+                StorageState::Removed("released-source".into()),
+                StorageState::Orphan("unreleased-reader".into())
+            ]
+        );
+        assert_eq!(outcome.completion.failures.len(), 1);
+        assert!(matches!(
+            outcome.completion.failures[0].error,
+            ModelError::Schema("close refused")
+        ));
     }
 }

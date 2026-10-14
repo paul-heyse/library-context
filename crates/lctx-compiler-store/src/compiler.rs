@@ -1566,7 +1566,9 @@ impl NativeCompilerStore {
     ) -> Result<(), ModelError> {
         let lease = self.admit(false, "private executed scoped source borrow", true)?;
         let view = held.completion().view.clone();
-        let result = lease.within(self.borrow_cached_installed_view(held, &view, budget)).await;
+        let result = lease
+            .within(self.borrow_cached_installed_view(held, &view, budget))
+            .await;
         lease.finish_with(result).map(|_| ())
     }
     async fn borrow_cached_installed_view(
@@ -4652,6 +4654,23 @@ impl NativeCompilerStore {
                 "read owner has no attempt abandonment authority",
             ));
         }
+        let mut completion = self.abandon_finality_report().await;
+        self.append_operation_failures(&mut completion);
+        d::completion::complete(Ok(()), completion)
+    }
+    /// Finalize this attempt and its session, reporting actual owner finality only.
+    /// Acknowledged operation refusals remain available through `append_operation_failures`.
+    pub async fn abandon_finality_report(&self) -> d::completion::Completion {
+        if self.read_only.load(Ordering::Acquire) {
+            let mut completion = d::completion::Completion::default();
+            completion.step(
+                "native attempt abandonment authority",
+                Err(ModelError::Conflict(
+                    "read owner has no attempt abandonment authority",
+                )),
+            );
+            return completion;
+        }
         // Serialize acknowledgements, including callers repeating abandonment after
         // its original operation failed. Never query an already invalidated session.
         let mut source = self.admission.source_finalization.lock().await;
@@ -4691,8 +4710,7 @@ impl NativeCompilerStore {
             completion.local = d::completion::LocalState::Outstanding;
         }
         self.complete_source_signals(&source, &mut completion).await;
-        self.append_operation_failures(&mut completion);
-        d::completion::complete(Ok(()), completion)
+        completion
     }
     async fn complete_source_signals(
         &self,
@@ -4714,16 +4732,19 @@ impl NativeCompilerStore {
     /// Local terminality and remote acknowledgement are independent facts. The admission owner
     /// remains registered when this future is interrupted, allowing a later drain to finish.
     pub async fn drain_report(&self) -> d::completion::Completion {
+        let mut completion = self.drain_finality_report().await;
+        self.append_operation_failures(&mut completion);
+        completion
+    }
+    /// Close execution admission and join accepted work, reporting actual finality only.
+    /// This does not close an owned attempt/session or discard operation diagnostics.
+    pub async fn drain_finality_report(&self) -> d::completion::Completion {
         let source = self.admission.source_finalization.lock().await;
-        let mut completion = if source.attempt_closed {
+        if source.attempt_closed {
             self.acknowledged_finality()
         } else {
             self.drain_finality().await
-        };
-        // Attempt cleanup may already be acknowledged while session close is still
-        // owned by abandonment. This report covers execution drainage, not that close.
-        self.append_operation_failures(&mut completion);
-        completion
+        }
     }
     fn acknowledged_finality(&self) -> d::completion::Completion {
         let mut completion = d::completion::Completion::default();
@@ -4739,7 +4760,8 @@ impl NativeCompilerStore {
         }
         completion
     }
-    fn append_operation_failures(&self, completion: &mut d::completion::Completion) {
+    /// Append sticky operation diagnostics without performing or claiming owner finalization.
+    pub fn append_operation_failures(&self, completion: &mut d::completion::Completion) {
         if let Ok(state) = self.admission.state.lock() {
             for failure in &state.failures {
                 completion.step(
@@ -5425,32 +5447,20 @@ impl NativeCompilerStore {
                     self.registered_view(view).await?;
                     contributions.extend(&view.contributions);
                 }
+                let candidate = CompletedView::new(relation.name().into(), contributions, 0)?;
+                let count = self.count_completed_memberships(&candidate, budget).await?;
+                // Registration proves the descriptor's identity, not its nominal
+                // union. Even a covers-set reuse must earn actual count/conflicts.
                 if let Some(view) = views
                     .iter()
-                    .find(|view| view.contributions == contributions)
+                    .find(|view| view.contributions == candidate.contributions)
                 {
-                    return Ok(view.clone());
-                }
-                let candidate = CompletedView::new(relation.name().into(), contributions, 0)?;
-                let prepared = self.prepare_memberships(&candidate, budget).await?;
-                let mut ordered = AsyncOrderedCandidates::new_registered(
-                    prepared,
-                    budget,
-                    self.blocking_owner()?,
-                    self.blocking_observer()?,
-                )
-                .await?;
-                let mut count = 0u64;
-                loop {
-                    let rows = ordered
-                        .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
-                        .await?;
-                    if rows.is_empty() {
-                        break;
+                    if view.rows != count {
+                        return Err(ModelError::Conflict(
+                            "exact composition registered count differs",
+                        ));
                     }
-                    count = count
-                        .checked_add(rows.len() as u64)
-                        .ok_or(ModelError::Schema("exact composition count overflow"))?;
+                    return Ok(view.clone());
                 }
                 let view = CompletedView::new(candidate.relation, candidate.contributions, count)?;
                 self.declare_completed_views(&[&view], budget).await?;
@@ -5458,6 +5468,45 @@ impl NativeCompilerStore {
             })
             .await;
         lease.finish_with(result)
+    }
+
+    /// One selected relation's actual nominal union, with equal payload coalescing
+    /// and unequal payload refusal. This is not whole-prefix or model replay.
+    async fn count_completed_memberships(
+        self: &Arc<Self>,
+        view: &CompletedView,
+        budget: &ResourceBudget,
+    ) -> Result<u64, ModelError> {
+        let prepared = self.prepare_memberships(view, budget).await?;
+        let mut ordered = AsyncOrderedCandidates::new_registered(
+            prepared,
+            budget,
+            self.blocking_owner()?,
+            self.blocking_observer()?,
+        )
+        .await?;
+        let result = async {
+            let mut count = 0u64;
+            loop {
+                let rows = ordered
+                    .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
+                    .await?;
+                if rows.is_empty() {
+                    break;
+                }
+                count = count
+                    .checked_add(rows.len() as u64)
+                    .ok_or(ModelError::Schema("exact composition count overflow"))?;
+            }
+            Ok(count)
+        }
+        .await;
+        let mut terminal = d::completion::Completion::default();
+        terminal.step(
+            "selected completed membership union drainage",
+            ordered.drain().await,
+        );
+        d::completion::complete(result, terminal)
     }
 
     pub async fn complete_contribution(
@@ -5622,24 +5671,7 @@ impl NativeCompilerStore {
                     .unwrap_or_default();
                 contributions.extend(singleton.contributions);
                 let candidate = CompletedView::new(relation.name().into(), contributions, 0)?;
-                let prepared = self.prepare_memberships(&candidate, budget).await?;
-                let mut ordered = AsyncOrderedCandidates::new_registered(
-                    prepared,
-                    budget,
-                    self.blocking_owner()?,
-                    self.blocking_observer()?,
-                )
-                .await?;
-                let mut count = 0u64;
-                loop {
-                    let rows = ordered
-                        .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
-                        .await?;
-                    if rows.is_empty() {
-                        break;
-                    }
-                    count += rows.len() as u64;
-                }
+                let count = self.count_completed_memberships(&candidate, budget).await?;
                 let view = CompletedView::new(candidate.relation, candidate.contributions, count)?;
                 views.insert(relation.name().to_string(), view);
             }
@@ -5650,14 +5682,6 @@ impl NativeCompilerStore {
             .await?;
             return Ok(views);
         }
-        let prior_ids = outputs
-            .iter()
-            .filter_map(|relation| previous.get(relation.name()))
-            .map(|view| {
-                self.view_owners(view)
-                    .map(|owners| (view.relation.clone(), owners))
-            })
-            .collect::<Result<BTreeMap<_, _>, _>>()?;
         let mut content = BTreeMap::<String, (u64, KeySink)>::new();
         for output in outputs {
             content.insert(
@@ -5665,9 +5689,6 @@ impl NativeCompilerStore {
                 (0, KeySink::new("native-contribution-output/v1")),
             );
         }
-        let mut added = BTreeMap::<String, u64>::new();
-        let mut pending_relation = None::<String>;
-        let mut pending = Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS);
         let mut b = Variables::new();
         b.insert(
             "contribution",
@@ -5683,41 +5704,9 @@ impl NativeCompilerStore {
                 .ok_or(ModelError::Conflict("undeclared native output"))?;
             row.semantic_key.encode(sink);
             row.content.encode(sink);
-            *count += 1;
-            if pending_relation
-                .as_ref()
-                .is_some_and(|relation| relation != &row.relation)
-            {
-                let relation = pending_relation.take().expect("nonempty key window");
-                let owners = &prior_ids[&relation];
-                *added.entry(relation.clone()).or_default() += self
-                    .new_membership_keys(&relation, &pending, owners)
-                    .await?;
-                pending.clear();
-            }
-            if previous
-                .get(&row.relation)
-                .is_some_and(|prior| prior.rows > 0)
-            {
-                pending_relation = Some(row.relation.clone());
-                pending.push(row.semantic_key);
-                if pending.len() == crate::loader::NATIVE_WINDOW_ROWS {
-                    let owners = &prior_ids[&row.relation];
-                    *added.entry(row.relation.clone()).or_default() += self
-                        .new_membership_keys(&row.relation, &pending, owners)
-                        .await?;
-                    pending.clear();
-                    pending_relation = None;
-                }
-            } else {
-                *added.entry(row.relation).or_default() += 1;
-            }
-        }
-        if let Some(relation) = pending_relation {
-            let owners = &prior_ids[&relation];
-            *added.entry(relation.clone()).or_default() += self
-                .new_membership_keys(&relation, &pending, owners)
-                .await?;
+            *count = count
+                .checked_add(1)
+                .ok_or(ModelError::Schema("native contribution count overflow"))?;
         }
         self.complete_contribution_originals(id, budget).await?;
         let descriptor = CompletedContribution {
@@ -5771,6 +5760,19 @@ impl NativeCompilerStore {
                 output.rows,
             )?);
         }
+        // Preserve the independently completed producer's exact singleton views.
+        // Current cumulative bindings remain untouched until every affected union
+        // has earned actual conflict/count validity below.
+        {
+            let _references = budget.reserve(
+                "completion singleton view references",
+                singletons
+                    .len()
+                    .saturating_mul(std::mem::size_of::<&CompletedView>()),
+            )?;
+            let references = singletons.iter().collect::<Vec<_>>();
+            self.declare_completed_views(&references, budget).await?;
+        }
         let mut views = BTreeMap::new();
         for relation in outputs {
             let mut contributions = previous
@@ -5778,25 +5780,30 @@ impl NativeCompilerStore {
                 .map(|v| v.contributions.clone())
                 .unwrap_or_default();
             contributions.insert(logical);
-            let prior = previous.get(relation.name());
-            let new = added.get(relation.name()).copied().unwrap_or(0);
-            let count = prior
-                .map(|view| view.rows)
-                .unwrap_or(0)
-                .checked_add(new)
-                .ok_or(ModelError::Schema("native union count overflow"))?;
-            let view = CompletedView::new(relation.name().into(), contributions, count)?;
+            // This invocation has already traversed the new producer's immutable
+            // memberships to terminal EOF and counted each output above. Its
+            // contribution-qualified membership keys enforce uniqueness at ingress.
+            // Only an actual multi-contributor union adds nominal conflict/count work.
+            if contributions.len() == 1 {
+                let singleton = singletons
+                    .iter()
+                    .find(|view| view.relation == relation.name())
+                    .ok_or(ModelError::Conflict("completed singleton output absent"))?;
+                views.insert(relation.name().to_string(), singleton.clone());
+                continue;
+            }
+            let candidate = CompletedView::new(relation.name().into(), contributions, 0)?;
+            let count = self.count_completed_memberships(&candidate, budget).await?;
+            let view = CompletedView::new(candidate.relation, candidate.contributions, count)?;
             views.insert(relation.name().to_string(), view);
         }
         let _installation_charge = budget.reserve(
             "completion installed view references",
-            singletons
+            views
                 .len()
-                .saturating_add(views.len())
                 .saturating_mul(std::mem::size_of::<&CompletedView>()),
         )?;
-        let mut installation = Vec::with_capacity(singletons.len().saturating_add(views.len()));
-        installation.extend(singletons.iter().chain(views.values()));
+        let installation = views.values().collect::<Vec<_>>();
         self.declare_completed_views(&installation, budget).await?;
         Ok(views)
     }
@@ -5949,31 +5956,6 @@ impl NativeCompilerStore {
             output.rows,
         )?;
         Ok(view)
-    }
-
-    /// Reuse the necessary ordered content pass to probe only one bounded window of newly
-    /// produced nominal keys. Prior memberships are selected before transfer; neither prior
-    /// payloads nor the entire prior key universe are reconstructed for a union count.
-    async fn new_membership_keys(
-        self: &Arc<Self>,
-        relation: &str,
-        keys: &[String],
-        owners: &[ContentHash],
-    ) -> Result<u64, ModelError> {
-        if keys.is_empty()
-            || keys.len() > crate::loader::NATIVE_WINDOW_ROWS
-            || keys.windows(2).any(|pair| pair[0] >= pair[1])
-        {
-            return Err(ModelError::Schema("incremental membership key window"));
-        }
-        let keys = keys
-            .iter()
-            .map(|key| decode_nominal_key(key))
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut lookup =
-            MembershipLookup::new(self.clone(), relation.into(), keys, owners.to_vec());
-        let nodes = lookup.collect().await?;
-        u64::try_from(lookup.keys.len() - nodes.len()).map_err(ModelError::codec)
     }
 
     async fn validate_inputs(
@@ -10407,7 +10389,7 @@ mod completion_tests {
                 "acknowledged immutable refusal",
             )))
             .unwrap_err();
-        let finality = store.drain_finality().await;
+        let finality = store.drain_finality_report().await;
         assert_eq!(finality.local, d::completion::LocalState::Terminal);
         assert_eq!(finality.remote, d::completion::RemoteState::Confirmed);
         assert!(
@@ -10466,7 +10448,9 @@ mod completion_tests {
     }
     #[tokio::test]
     async fn acknowledged_abandonment_replays_original_failure_without_reopening_session() {
-        let store = local_store();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let observed = cancelled.clone();
+        let mut store = local_store();
         let lease = store
             .admit(false, "acknowledged control write", true)
             .unwrap();
@@ -10475,6 +10459,12 @@ mod completion_tests {
                 "original acknowledged refusal",
             )))
             .unwrap_err();
+        let owner = Arc::get_mut(&mut store).unwrap();
+        owner.owns_session = true;
+        owner.signals = Ok(lctx_native::signal::SignalRegistration::process(move || {
+            observed.store(true, Ordering::Release);
+        })
+        .unwrap());
         // Model the two already received native acknowledgements. The unconnected
         // SDK below makes any accidental repeated remote work fail this control.
         {
@@ -10488,6 +10478,13 @@ mod completion_tests {
             source.session_closed = true;
         }
         for _ in 0..2 {
+            let finality = store.abandon_finality_report().await;
+            assert_eq!(finality.local, d::completion::LocalState::Terminal);
+            assert_eq!(finality.remote, d::completion::RemoteState::Confirmed);
+            assert!(
+                finality.failures.is_empty(),
+                "acknowledged refusal is not failed finalization"
+            );
             let ModelError::Completion(outcome) = store.abandon().await.unwrap_err() else {
                 panic!("original operation failure remains returned")
             };
@@ -10514,6 +10511,115 @@ mod completion_tests {
         let drained = store.drain_report().await;
         assert_eq!(drained.failures.len(), 1);
         assert_eq!(drained.remote, d::completion::RemoteState::Confirmed);
+        drop(store);
+        assert!(
+            !cancelled.load(Ordering::Acquire),
+            "actual source signal completed after both acknowledgements"
+        );
+    }
+    #[tokio::test]
+    async fn acknowledged_refusal_does_not_hide_unknown_finality_or_finish_source_signal() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let observed = cancelled.clone();
+        let mut store = local_store();
+        let refused = store
+            .admit(false, "acknowledged control refusal", true)
+            .unwrap();
+        let unacknowledged = store
+            .admit(false, "unacknowledged control tail", true)
+            .unwrap();
+        assert!(
+            refused
+                .finish_with(Err::<(), _>(ModelError::Conflict(
+                    "acknowledged immutable refusal"
+                )))
+                .is_err()
+        );
+        drop(unacknowledged);
+        let owner = Arc::get_mut(&mut store).unwrap();
+        owner.owns_session = true;
+        owner.signals = Ok(lctx_native::signal::SignalRegistration::process(move || {
+            observed.store(true, Ordering::Release);
+        })
+        .unwrap());
+        let finality = store.abandon_finality_report().await;
+        assert_eq!(finality.local, d::completion::LocalState::Outstanding);
+        assert_eq!(finality.remote, d::completion::RemoteState::Unknown);
+        assert!(
+            finality
+                .failures
+                .iter()
+                .any(|failure| failure.step == "native acknowledgement")
+        );
+        assert!(
+            !finality
+                .failures
+                .iter()
+                .any(|failure| failure.step == "acknowledged control refusal")
+        );
+        let mut diagnostics = store.drain_finality_report().await;
+        store.append_operation_failures(&mut diagnostics);
+        assert_eq!(diagnostics.remote, d::completion::RemoteState::Unknown);
+        assert!(
+            diagnostics
+                .failures
+                .iter()
+                .any(|failure| failure.step == "acknowledged control refusal")
+        );
+        drop(store);
+        assert!(
+            cancelled.load(Ordering::Acquire),
+            "unknown native tail leaves the actual source signal unfinished"
+        );
+    }
+    #[tokio::test]
+    async fn acknowledged_refusal_does_not_hide_failed_finality_or_finish_source_signal() {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let observed = cancelled.clone();
+        let mut store = local_store();
+        let refused = store
+            .admit(false, "acknowledged control refusal", true)
+            .unwrap();
+        assert!(
+            refused
+                .finish_with(Err::<(), _>(ModelError::Conflict(
+                    "acknowledged immutable refusal"
+                )))
+                .is_err()
+        );
+        let owner = Arc::get_mut(&mut store).unwrap();
+        owner.owns_session = true;
+        owner.signals = Ok(lctx_native::signal::SignalRegistration::process(move || {
+            observed.store(true, Ordering::Release);
+        })
+        .unwrap());
+        // Poison the actual admission lock, rather than constructing a failed report.
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _state = store.admission.state.lock().unwrap();
+                panic!("injected actual admission owner failure");
+            }))
+            .is_err()
+        );
+        let finality = store.abandon_finality_report().await;
+        assert_eq!(finality.local, d::completion::LocalState::Outstanding);
+        assert!(
+            finality
+                .failures
+                .iter()
+                .any(|failure| failure.step == "close native admission")
+        );
+        assert!(
+            !finality
+                .failures
+                .iter()
+                .any(|failure| failure.step == "acknowledged control refusal")
+        );
+        drop(store);
+        assert!(
+            cancelled.load(Ordering::Acquire),
+            "failed drainage leaves the actual source signal unfinished"
+        );
     }
     #[tokio::test]
     async fn local_terminal_drain_retains_unknown_native_acknowledgement() {

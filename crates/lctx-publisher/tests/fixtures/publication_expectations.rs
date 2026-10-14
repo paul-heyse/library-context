@@ -1,13 +1,41 @@
 //! Private end-to-end CN02 controls. Run only on the coordinator's wholly owned
 //! lifecycle campaign under its live maintenance lease. Database names grant no authority.
 use super::{Admission, Publication};
-use cpg_core::{artifact, compilation, workspace::{Workspace, WorkspaceOptions}};
-use lctx_model::domain::{*, admission::Frontier, stages::Profile, completion::{Completion, complete}};
-use lctx_native::{Loader, RuntimeConfig, surrealdb::types::{Value, Variables}};
-use std::sync::Arc;
+use cpg_core::{
+    artifact, compilation,
+    workspace::{Workspace, WorkspaceOptions},
+};
+use futures::FutureExt;
+use lctx_model::domain::{
+    admission::Frontier,
+    completion::{Completion, complete},
+    stages::Profile,
+    *,
+};
+use lctx_native::phase::{Phase, Terminal};
+use lctx_native::{
+    Loader, RuntimeConfig,
+    surrealdb::types::{Value, Variables},
+};
+use std::{panic::AssertUnwindSafe, sync::Arc};
+use tracing::instrument::WithSubscriber;
 
 #[derive(Clone, Copy)]
-enum Mutation { Search, Lexical, Analyzer }
+enum Mutation {
+    Search,
+    Lexical,
+    Analyzer,
+}
+
+async fn observed<T>(
+    name: &'static str,
+    operation: impl std::future::Future<Output = Result<T, ModelError>>,
+) -> Result<T, ModelError> {
+    let phase = Phase::begin(name);
+    let result = operation.await;
+    phase.finish_result(&result);
+    result
+}
 
 fn require_campaign_maintenance(config: &RuntimeConfig) -> Result<(), ModelError> {
     // Reuse the service owner's exact descriptor and live host-lock/process checks.
@@ -46,7 +74,10 @@ assert (runtime["endpoint"], runtime["namespace"], bytes(runtime["service_genera
         .arg(config.database.as_str())
         .output().map_err(ModelError::codec)?;
     if !proof.status.success() {
-        return Err(ModelError::Invalid(format!("CN02 owned campaign maintenance proof refused: {}", String::from_utf8_lossy(&proof.stderr))));
+        return Err(ModelError::Invalid(format!(
+            "CN02 owned campaign maintenance proof refused: {}",
+            String::from_utf8_lossy(&proof.stderr)
+        )));
     }
     Ok(())
 }
@@ -59,13 +90,27 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
     let installer = RuntimeConfig::read(std::path::Path::new(
         &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("owned campaign installer"),
     ))?;
-    if installer.endpoint != config.endpoint || installer.namespace != config.namespace || installer.database != config.database
-        || installer.service_generation != config.service_generation || installer.authentication != lctx_native::AuthenticationScope::Root {
-        return Err(ModelError::Conflict("CN02 exact campaign installer correspondence"));
+    if installer.endpoint != config.endpoint
+        || installer.namespace != config.namespace
+        || installer.database != config.database
+        || installer.service_generation != config.service_generation
+        || installer.authentication != lctx_native::AuthenticationScope::Root
+    {
+        return Err(ModelError::Conflict(
+            "CN02 exact campaign installer correspondence",
+        ));
     }
-    let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog).await?;
-    let workspace = Workspace::new(Arc::new(model()?), WorkspaceOptions::default(), native.clone())?;
-    let result = async {
+    let model = Arc::new(model()?);
+    let native =
+        lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Catalog)
+            .await?;
+    let workspace = match Workspace::new(model, WorkspaceOptions::default(), native.clone()) {
+        Ok(workspace) => workspace,
+        Err(error) => return complete(Err(error), native.abandon_finality_report().await),
+    };
+    let mut terminal = Completion::default();
+    let mut expected_refusal = None;
+    let result = AssertUnwindSafe(async {
         let scratch = tempfile::tempdir().map_err(ModelError::codec)?;
         let module = format!("cn02_{}", native.attempt().hex());
         let path = format!("{module}.py");
@@ -85,17 +130,28 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
             type_layer: false, mention_layer: false, knn_layer: false,
         };
         let prepared = compilation::PreparedCompilation::new(Frontier::Catalog, analytics, captured.config().catalog(), None, workspace.budget())?;
-        compilation::compile(&workspace, captured.clone(), Profile::Catalog, settings, Frontier::Catalog, Some(&prepared), None, None).await?;
+        observed("cn02_compile", compilation::compile(&workspace, captured.clone(), Profile::Catalog, settings, Frontier::Catalog, Some(&prepared), None, None)).await?;
         drop(prepared);
-        let admitted = artifact::admit(&workspace, &captured, Frontier::Catalog, Profile::Catalog, settings).await?;
+        let admitted = observed("cn02_admit", artifact::admit(&workspace, &captured, Frontier::Catalog, Profile::Catalog, settings)).await?;
         let definitions = lctx_native::materialization::native_definitions();
-        let mut publication = Publication::new(Admission::Completed(&admitted), &config, &definitions).await?;
         let client = lctx_native::reader::connect(&installer.endpoint, &installer.writer_credentials(), installer.namespace.as_str(), installer.database.as_str()).await?;
         let root = Loader::new(client.clone()).with_budget(workspace.budget());
+        let created = AssertUnwindSafe(observed("cn02_publication_prepare", Publication::new(Admission::Completed(&admitted), &config, &definitions))).catch_unwind().await;
+        let mut publication = match created {
+            Ok(Ok(publication)) => publication,
+            failed => {
+                terminal.step("CN02 installer setup session invalidation", root.client().invalidate().await.map_err(ModelError::codec));
+                match failed {
+                    Ok(Err(error)) => return Err(error),
+                    Err(panic) => std::panic::resume_unwind(panic),
+                    Ok(Ok(_)) => unreachable!(),
+                }
+            }
+        };
         let mut original = None;
-        let exercised = async {
-            publication.materialize_references().await?;
-            publication.materialize_search().await?;
+        let exercised = AssertUnwindSafe(async {
+            observed("cn02_materialize_references", publication.materialize_references()).await?;
+            observed("cn02_materialize_search", publication.materialize_search()).await?;
             if matches!(mutation, Mutation::Lexical) {
                 // Test the actual retained route before any native mutation. Equal
                 // metadata and a shared staging root never grant a foreign Loader use.
@@ -121,7 +177,8 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
                 if rejected.is_ok() { return Err(ModelError::Conflict("CN02 changed pool borrowed preparation")); }
             }
             // The cold route has no access to Publication's retained expectations.
-            lctx_native::derived_search::reconcile_search(publication.loader()).await?;
+            observed("cn02_cold_search_reconcile", lctx_native::derived_search::reconcile_search(publication.loader())).await?;
+            observed("cn02_mutate", async {
             let reader = publication.loader().reader();
             if matches!(mutation, Mutation::Analyzer) {
                 client.query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS blank FILTERS lowercase;").await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
@@ -162,39 +219,131 @@ async fn control(mutation: Mutation) -> Result<(), ModelError> {
                 client.query(sql).bind(vars).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
             }
             drop(reader);
-            let outcome = publication.seal(&config, &definitions).await;
+            Ok(())
+            }).await?;
+            let outcome = observed("cn02_seal", publication.seal(&config, &definitions)).await;
             let error = match outcome { Ok(_) => return Err(ModelError::Conflict("CN02 mutated state was published")), Err(error) => error };
             if error.has_committed_effect() { return Err(ModelError::Conflict("CN02 refusal acknowledged a publication")); }
-            publication.invalidate(&error).await?;
+            let correct_refusal = match mutation {
+                Mutation::Search => matches!(error.primary(), Some(ModelError::Serving(lctx_model::domain::serving::FailureKind::Corrupt))),
+                Mutation::Lexical => matches!(error.primary(), Some(ModelError::Conflict("frozen lexical statistics differ"))),
+                Mutation::Analyzer => matches!(error.primary(), Some(ModelError::Conflict("pinned executable definition epoch"))),
+            };
+            if !correct_refusal { return Err(ModelError::Invalid(format!("CN02 unexpected seal refusal: {error:#?}"))); }
+            expected_refusal = Some(error);
+            observed("cn02_publication_invalidate", publication.invalidate(expected_refusal.as_ref().unwrap())).await?;
             Ok(())
-        }.await;
+        }).catch_unwind().await;
         // Restore exactly this test's mutation before attempting logical cleanup.
-        let restored = if matches!(mutation, Mutation::Analyzer) {
+        let restored = observed("cn02_restore", async { if matches!(mutation, Mutation::Analyzer) {
             client.query("DEFINE ANALYZER OVERWRITE lctx_discovery TOKENIZERS class,camel FILTERS lowercase;").await.map_err(ModelError::codec).and_then(|response| response.check().map(drop).map_err(ModelError::codec))
         } else if let Some((id, value)) = original {
             let mut vars = Variables::new(); vars.insert("id", id); vars.insert("row", value);
             client.query("UPDATE $id CONTENT $row RETURN NONE").bind(vars).await.map_err(ModelError::codec).and_then(|response| response.check().map(drop).map_err(ModelError::codec))
-        } else { Ok(()) };
-        let mut terminal = Completion::default(); terminal.step("CN02 original mutation restoration", restored);
-        if let Err(error) = &exercised { terminal.step("CN02 publication invalidation", publication.invalidate(error).await); }
-        terminal.step("CN02 installer session invalidation", root.client().invalidate().await.map_err(ModelError::codec));
-        complete(exercised, terminal)
-    }.await;
-    let mut terminal = workspace.drain_owned_report().await;
-    if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup) {
-        terminal.step("CN02 failed campaign attempt cleanup", native.abandon().await);
+        } else { Ok(()) } }).await;
+        terminal.step("CN02 original mutation restoration", restored);
+        match &exercised {
+            Ok(Err(error)) => terminal.step("CN02 publication invalidation", observed("cn02_publication_invalidate", publication.invalidate(error)).await),
+            Err(_) => terminal.step("CN02 panicked publication invalidation", observed("cn02_publication_invalidate", publication.invalidate(&ModelError::Invalid("CN02 control panicked".into()))).await),
+            Ok(Ok(())) => {},
+        }
+        terminal.step("CN02 installer session invalidation", observed("cn02_installer_session_close", async { root.client().invalidate().await.map_err(ModelError::codec) }).await);
+        match exercised {
+            Ok(result) => result,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }).catch_unwind().await;
+    let phase = Phase::begin("cn02_workspace_drain");
+    let drained = workspace.drain_owned_report().await;
+    phase.finish(Terminal::Returned);
+    terminal.merge(drained);
+    // Abandonment itself refuses unknown drainage. Its actual report must precede
+    // the workspace signal; historical negative-control errors are diagnostics.
+    let phase = Phase::begin("cn02_native_abandon");
+    let abandoned = native.abandon_finality_report().await;
+    phase.finish(Terminal::Returned);
+    terminal.merge(abandoned);
+    let signalled = observed(
+        "cn02_workspace_signal",
+        workspace.complete_signal(&terminal),
+    )
+    .await;
+    terminal.step("CN02 workspace signal finality", signalled);
+    let mut diagnostics = Completion::default();
+    native.append_operation_failures(&mut diagnostics);
+    match result {
+        Ok(Ok(())) => {
+            complete(Ok(()), terminal)?;
+            let expected = expected_refusal
+                .as_ref()
+                .ok_or(ModelError::Schema("CN02 expected seal refusal"))?;
+            if diagnostics.failures.is_empty()
+                || diagnostics.failures.iter().any(|failure| {
+                    failure.step != "native final seal" || !same_refusal(&failure.error, expected)
+                })
+            {
+                return Err(ModelError::Invalid(format!(
+                    "CN02 unexpected operation diagnostics: {diagnostics:#?}"
+                )));
+            }
+            eprintln!(
+                "CN02 expected seal refusal retained after actual finality: {diagnostics:#?}"
+            );
+            Ok(())
+        }
+        Ok(Err(error)) => {
+            terminal.merge(diagnostics);
+            complete(Err(error), terminal)
+        }
+        Err(panic) => {
+            terminal.merge(diagnostics);
+            if let Err(error) = complete(Ok(()), terminal) {
+                eprintln!("CN02 panic cleanup: {error}");
+            }
+            std::panic::resume_unwind(panic)
+        }
     }
-    complete(result, terminal)
+}
+
+// Native lease refusal and sticky diagnostics retain the exact same shared cause.
+fn same_refusal(actual: &ModelError, expected: &ModelError) -> bool {
+    let mut actual = actual;
+    while let ModelError::SharedCause(source) = actual {
+        let mut expected = expected;
+        while let ModelError::SharedCause(other) = expected {
+            if Arc::ptr_eq(source, other) {
+                return true;
+            }
+            expected = other;
+        }
+        actual = source;
+    }
+    false
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires coordinator-owned disposable maintenance campaign"]
-async fn materialize_search_then_mutate_document_seal_refuses() { control(Mutation::Search).await.unwrap(); }
+async fn materialize_search_then_mutate_document_seal_refuses() {
+    control(Mutation::Search)
+        .with_subscriber(cpg_extract::logging::dispatch())
+        .await
+        .unwrap();
+}
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires coordinator-owned disposable maintenance campaign"]
-async fn materialize_search_then_mutate_lexical_seal_refuses() { control(Mutation::Lexical).await.unwrap(); }
+async fn materialize_search_then_mutate_lexical_seal_refuses() {
+    control(Mutation::Lexical)
+        .with_subscriber(cpg_extract::logging::dispatch())
+        .await
+        .unwrap();
+}
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires exclusive coordinator-owned disposable maintenance campaign"]
-async fn materialize_search_then_change_actual_analyzer_seal_refuses() { control(Mutation::Analyzer).await.unwrap(); }
+async fn materialize_search_then_change_actual_analyzer_seal_refuses() {
+    control(Mutation::Analyzer)
+        .with_subscriber(cpg_extract::logging::dispatch())
+        .await
+        .unwrap();
+}

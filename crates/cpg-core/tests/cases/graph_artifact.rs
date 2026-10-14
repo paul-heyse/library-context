@@ -85,12 +85,10 @@ async fn focused_facts_export_requires_retained_receipt_and_exact_originals() {
     assert!(admitted.export(&output).await.is_err());
     assert_eq!(std::fs::read(output.join("manifest.json")).unwrap(), marker);
     let mut finality = admitted.drain_owned_report().await;
-    finality.step(
-        "export source attempt finalization",
-        admitted.native().abandon().await,
-    );
+    finality.merge(admitted.native().abandon_finality_report().await);
     let signal = admitted.complete_signal(&finality).await;
     finality.step("export source execution finality", signal);
+    admitted.native().append_operation_failures(&mut finality);
     lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
     drop(admitted);
     let importer = || {
@@ -135,12 +133,10 @@ async fn focused_facts_export_requires_retained_receipt_and_exact_originals() {
         Err(ModelError::Conflict("artifact original bytes"))
     ));
     let mut finality = receiving.drain_owned_report().await;
-    finality.step(
-        "artifact receiving attempt finalization",
-        receiving.native().abandon().await,
-    );
+    finality.merge(receiving.native().abandon_finality_report().await);
     let signal = receiving.complete_signal(&finality).await;
     finality.step("artifact receiving execution finality", signal);
+    receiving.native().append_operation_failures(&mut finality);
     lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
 }
 async fn admit_frontier_and_export_exact_originals(profile: Profile, frontier: Frontier) {

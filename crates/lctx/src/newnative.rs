@@ -125,10 +125,8 @@ pub(crate) async fn finalize_compilation<T>(
             .iter()
             .all(|failure| failure.error.permits_storage_cleanup())
     {
-        completion.step(
-            "CLI original compiler store finality",
-            native.abandon().await,
-        );
+        let finality = native.abandon_finality_report().await;
+        completion.merge(finality);
     } else {
         completion.storage.push(StorageState::Orphan(format!(
             "native_attempt:{}",
@@ -144,6 +142,9 @@ pub(crate) async fn finalize_compilation<T>(
     }
     let settled = workspace.complete_signal(&completion).await;
     completion.step("CLI compiler workspace signal finality", settled);
+    // Sticky acknowledged operation failures remain part of the caller outcome;
+    // they are not failed joins or failed native source/session finalization.
+    native.append_operation_failures(&mut completion);
     completion
 }
 

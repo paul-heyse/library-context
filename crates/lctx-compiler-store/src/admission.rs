@@ -3,8 +3,8 @@ mod uniform;
 pub use uniform::AdmittedUniformOwners;
 pub(crate) mod candidate;
 mod durable;
-pub(crate) mod scoped;
 mod normalization_declarations;
+pub(crate) mod scoped;
 use crate::compiler::NativeCompilerStore;
 use arrow_array::RecordBatch;
 use datafusion::{
@@ -253,10 +253,10 @@ impl AdmissionMemo {
     pub fn close_scoped(&self) -> Result<(), ModelError> {
         self.scoped.close()
     }
-
 }
 /// Shared execution finality retained independently from a producer's read catalog.
 pub trait ExecutionOwner: Send + Sync {
+    /// Actual joins and cleanup only; acknowledged operation outcomes remain separate.
     fn drain_owned_report(&self) -> BoxFuture<'_, lctx_model::domain::completion::Completion>;
     fn complete_signal<'a>(
         &'a self,
@@ -678,7 +678,8 @@ impl AdmissionRuntime {
     ) -> BoxFuture<'_, Result<T, ModelError>> {
         self.native_calls.call(future)
     }
-    /// Drain execution ownership without ending a surrounding publication's signal lifetime.
+    /// Drain actual execution ownership without ending a surrounding publication's signal lifetime.
+    /// Historical acknowledged operation failures are appended by the aggregate wrapper.
     pub async fn drain_owned_report(&self) -> lctx_model::domain::completion::Completion {
         if let Some(execution) = &self.borrowed_execution {
             return execution.drain_owned_report().await;
@@ -686,10 +687,8 @@ impl AdmissionRuntime {
         let mut completion = lctx_model::domain::completion::Completion::default();
         completion.step("native calls drain", self.native_calls.drain().await);
         completion.step("private scoped check release", self.memo.close_scoped());
-        completion.step(
-            "native store drain",
-            lctx_model::domain::completion::complete(Ok(()), self.native.drain_report().await),
-        );
+        let native = self.native.drain_finality_report().await;
+        completion.merge(native);
         completion
     }
     /// The enclosing lifetime supplies finality after publication reconciliation and cleanup.
@@ -709,6 +708,7 @@ impl AdmissionRuntime {
         let mut completion = self.drain_owned_report().await;
         let settled = self.complete_signal(&completion).await;
         completion.step("independent artifact admission signal finality", settled);
+        self.native.append_operation_failures(&mut completion);
         completion
     }
     pub fn completed<R: Record>(&self) -> Result<Arc<ExactRelation>, ModelError> {
@@ -1279,10 +1279,18 @@ impl AdmissionRuntime {
                             )
                             .map_err(ModelError::codec)?;
                         if !std::ptr::eq(session, reference_session) {
-                            reference_session.register_batch(
-                                relation.name(),
-                                RecordBatch::new_empty(self.model.relation(relation.name()).ok_or(ModelError::Schema(relation.name()))?.schema().clone()),
-                            ).map_err(ModelError::codec)?;
+                            reference_session
+                                .register_batch(
+                                    relation.name(),
+                                    RecordBatch::new_empty(
+                                        self.model
+                                            .relation(relation.name())
+                                            .ok_or(ModelError::Schema(relation.name()))?
+                                            .schema()
+                                            .clone(),
+                                    ),
+                                )
+                                .map_err(ModelError::codec)?;
                         }
                         unrequested.insert(relation.name());
                     }
@@ -1312,7 +1320,9 @@ impl AdmissionRuntime {
             let uniform = self.uniform_owners_async(profile).await?;
             let scoped_inventory = if admission && reference_owner.is_some() {
                 Some(self.scoped_inventory()?)
-            } else { None };
+            } else {
+                None
+            };
             for invariant in checks {
                 tracing::info!(target:"lctx_phase", invariant=invariant.name, "semantic check selected");
                 let premise = if inputs.companions.is_empty() {
@@ -1338,15 +1348,30 @@ impl AdmissionRuntime {
                 } else {
                     session
                 };
-                if !is_scoped && !earn
+                if !is_scoped
+                    && !earn
                     && let Some(premise) = premise
-                    && self.memo.checked.lock().map_err(|_| poisoned())?.0.contains(&premise)
+                    && self
+                        .memo
+                        .checked
+                        .lock()
+                        .map_err(|_| poisoned())?
+                        .0
+                        .contains(&premise)
                 {
                     continue;
                 }
                 let scoped = if is_scoped && let Some(inventory) = &scoped_inventory {
-                    self.scoped_premise(&invariant, &inputs, &unrequested, profile,
-                        check.scoped_uniform_independent(), uniform.owners().is_empty(), inventory).await?
+                    self.scoped_premise(
+                        &invariant,
+                        &inputs,
+                        &unrequested,
+                        profile,
+                        check.scoped_uniform_independent(),
+                        uniform.owners().is_empty(),
+                        inventory,
+                    )
+                    .await?
                 } else {
                     None
                 };
@@ -1401,9 +1426,12 @@ impl AdmissionRuntime {
                         }
                         if let Some(prepared) = scoped {
                             self.native.check()?;
-                            let executed = prepared.finish(Execution::EmptyDomain, &self.cancellation)?;
+                            let executed =
+                                prepared.finish(Execution::EmptyDomain, &self.cancellation)?;
                             scoped_attempt.retain(executed.clone())?;
-                            if earn { scoped_borrowers.push(executed); }
+                            if earn {
+                                scoped_borrowers.push(executed);
+                            }
                         }
                         self.remember_premise(premise)?;
                         continue;
@@ -1462,12 +1490,15 @@ impl AdmissionRuntime {
                                 )?);
                             }
                             if let Some(prepared) = scoped {
-                            self.native.check()?;
-                            let executed = prepared.finish(Execution::EmptyDomain, &self.cancellation)?;
-                            scoped_attempt.retain(executed.clone())?;
-                            if earn { scoped_borrowers.push(executed); }
-                        }
-                        self.remember_premise(premise)?;
+                                self.native.check()?;
+                                let executed =
+                                    prepared.finish(Execution::EmptyDomain, &self.cancellation)?;
+                                scoped_attempt.retain(executed.clone())?;
+                                if earn {
+                                    scoped_borrowers.push(executed);
+                                }
+                            }
+                            self.remember_premise(premise)?;
                             continue;
                         }
                     }
@@ -1522,12 +1553,14 @@ impl AdmissionRuntime {
                         )?);
                     }
                     if let Some(prepared) = scoped {
-                            self.native.check()?;
-                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
-                            scoped_attempt.retain(executed.clone())?;
-                            if earn { scoped_borrowers.push(executed); }
+                        self.native.check()?;
+                        let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                        scoped_attempt.retain(executed.clone())?;
+                        if earn {
+                            scoped_borrowers.push(executed);
                         }
-                        self.remember_premise(premise)?;
+                    }
+                    self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = projection_scope {
@@ -1569,12 +1602,14 @@ impl AdmissionRuntime {
                         )?);
                     }
                     if let Some(prepared) = scoped {
-                            self.native.check()?;
-                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
-                            scoped_attempt.retain(executed.clone())?;
-                            if earn { scoped_borrowers.push(executed); }
+                        self.native.check()?;
+                        let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                        scoped_attempt.retain(executed.clone())?;
+                        if earn {
+                            scoped_borrowers.push(executed);
                         }
-                        self.remember_premise(premise)?;
+                    }
+                    self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = normalization_scope {
@@ -1654,12 +1689,14 @@ impl AdmissionRuntime {
                         )?);
                     }
                     if let Some(prepared) = scoped {
-                            self.native.check()?;
-                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
-                            scoped_attempt.retain(executed.clone())?;
-                            if earn { scoped_borrowers.push(executed); }
+                        self.native.check()?;
+                        let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                        scoped_attempt.retain(executed.clone())?;
+                        if earn {
+                            scoped_borrowers.push(executed);
                         }
-                        self.remember_premise(premise)?;
+                    }
+                    self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = execution_scope {
@@ -1702,12 +1739,14 @@ impl AdmissionRuntime {
                         )?);
                     }
                     if let Some(prepared) = scoped {
-                            self.native.check()?;
-                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
-                            scoped_attempt.retain(executed.clone())?;
-                            if earn { scoped_borrowers.push(executed); }
+                        self.native.check()?;
+                        let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                        scoped_attempt.retain(executed.clone())?;
+                        if earn {
+                            scoped_borrowers.push(executed);
                         }
-                        self.remember_premise(premise)?;
+                    }
+                    self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = check.aspect_scope() {
@@ -1750,12 +1789,14 @@ impl AdmissionRuntime {
                         )?);
                     }
                     if let Some(prepared) = scoped {
-                            self.native.check()?;
-                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
-                            scoped_attempt.retain(executed.clone())?;
-                            if earn { scoped_borrowers.push(executed); }
+                        self.native.check()?;
+                        let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                        scoped_attempt.retain(executed.clone())?;
+                        if earn {
+                            scoped_borrowers.push(executed);
                         }
-                        self.remember_premise(premise)?;
+                    }
+                    self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = check.inventory_scope() {
@@ -1797,12 +1838,14 @@ impl AdmissionRuntime {
                         )?);
                     }
                     if let Some(prepared) = scoped {
-                            self.native.check()?;
-                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
-                            scoped_attempt.retain(executed.clone())?;
-                            if earn { scoped_borrowers.push(executed); }
+                        self.native.check()?;
+                        let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                        scoped_attempt.retain(executed.clone())?;
+                        if earn {
+                            scoped_borrowers.push(executed);
                         }
-                        self.remember_premise(premise)?;
+                    }
+                    self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = check.support_scope() {
@@ -1845,12 +1888,14 @@ impl AdmissionRuntime {
                         )?);
                     }
                     if let Some(prepared) = scoped {
-                            self.native.check()?;
-                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
-                            scoped_attempt.retain(executed.clone())?;
-                            if earn { scoped_borrowers.push(executed); }
+                        self.native.check()?;
+                        let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                        scoped_attempt.retain(executed.clone())?;
+                        if earn {
+                            scoped_borrowers.push(executed);
                         }
-                        self.remember_premise(premise)?;
+                    }
+                    self.remember_premise(premise)?;
                     continue;
                 }
                 if external.is_none()
@@ -3634,12 +3679,10 @@ mod reference_empty_controls {
         .catch_unwind()
         .await;
         let mut terminal = runtime.drain_owned_report().await;
-        terminal.step(
-            "empty reference original native finality",
-            native.abandon().await,
-        );
+        terminal.merge(native.abandon_finality_report().await);
         let settled = runtime.complete_signal(&terminal).await;
         terminal.step("empty reference runtime signal finality", settled);
+        native.append_operation_failures(&mut terminal);
         let cleanup = lctx_model::domain::completion::complete(Ok(()), terminal);
         if let Err(panic) = outcome {
             if let Err(error) = cleanup {

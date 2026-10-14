@@ -880,10 +880,7 @@ async fn small_publication_from_source(
             .iter()
             .all(|failure| failure.error.permits_storage_cleanup())
     {
-        completion.step(
-            "small publication original store finality",
-            native.abandon().await,
-        );
+        completion.merge(native.abandon_finality_report().await);
     } else {
         completion
             .storage
@@ -901,6 +898,7 @@ async fn small_publication_from_source(
     }
     let signal = workspace.complete_signal(&completion).await;
     completion.step("small publication workspace finality", signal);
+    native.append_operation_failures(&mut completion);
     let (handle, manifest, source, source_cleanup) = completion::complete(built, completion)?;
     Ok(SmallPublication {
         scratch,
@@ -2260,10 +2258,7 @@ async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelE
             .iter()
             .all(|failure| failure.error.permits_storage_cleanup())
     {
-        terminal.step(
-            "publication control original compiler finality",
-            workspace.native().abandon().await,
-        );
+        terminal.merge(workspace.native().abandon_finality_report().await);
     } else {
         terminal
             .storage
@@ -2274,6 +2269,7 @@ async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelE
     }
     let settled = workspace.complete_signal(&terminal).await;
     terminal.step("publication control workspace signal finality", settled);
+    workspace.native().append_operation_failures(&mut terminal);
     completion::complete(Ok(()), terminal)
 }
 

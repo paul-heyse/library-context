@@ -364,15 +364,9 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
         drop(reader);
     }
     if let Some(workspace) = &workspace_owner {
-        terminal.step(
-            "compact workspace owned drain",
-            completion::complete(Ok(()), workspace.drain_owned_report().await),
-        );
+        terminal.merge(workspace.drain_owned_report().await);
     } else {
-        terminal.step(
-            "compact original store drain",
-            completion::complete(Ok(()), native.drain_report().await),
-        );
+        terminal.merge(native.drain_finality_report().await);
     }
     let confirmed = result
         .as_ref()
@@ -385,7 +379,7 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
             .iter()
             .all(|failure| failure.error.permits_storage_cleanup());
     if confirmed {
-        terminal.step("compact original store finality", native.abandon().await);
+        terminal.merge(native.abandon_finality_report().await);
     }
     if !confirmed {
         terminal
@@ -406,6 +400,7 @@ async fn journey_with_native_queries(empty: bool, queries: bool) -> Result<(), M
         let settled = workspace.complete_signal(&terminal).await;
         terminal.step("compact workspace signal finality", settled);
     }
+    native.append_operation_failures(&mut terminal);
     if confirmed
         && terminal.local == completion::LocalState::Terminal
         && terminal.remote == completion::RemoteState::Confirmed

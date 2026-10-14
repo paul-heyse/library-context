@@ -46,10 +46,7 @@ async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelE
             .iter()
             .all(|failure| failure.error.permits_storage_cleanup())
     {
-        terminal.step(
-            "journey original compiler finality",
-            workspace.native().abandon().await,
-        );
+        terminal.merge(workspace.native().abandon_finality_report().await);
     } else {
         terminal
             .storage
@@ -60,6 +57,7 @@ async fn finalize_compiler_workspace(workspace: &Workspace) -> Result<(), ModelE
     }
     let settled = workspace.complete_signal(&terminal).await;
     terminal.step("journey workspace signal finality", settled);
+    workspace.native().append_operation_failures(&mut terminal);
     completion::complete(Ok(()), terminal)
 }
 const LIBRARY: &str = "synthesis-sources";

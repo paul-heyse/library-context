@@ -1311,20 +1311,11 @@ pub(crate) async fn restore(
             } else {
                 native.fail();
             }
-            if let Some(runtime) = &runtime {
-                completion.step(
-                    "restored admission owned drain",
-                    lctx_model::domain::completion::complete(
-                        Ok(()),
-                        runtime.drain_owned_report().await,
-                    ),
-                );
-            } else {
-                completion.step(
-                    "restore original store drain",
-                    lctx_model::domain::completion::complete(Ok(()), native.drain_report().await),
-                );
-            }
+            let drained = match &runtime {
+                Some(runtime) => runtime.drain_owned_report().await,
+                None => native.drain_finality_report().await,
+            };
+            completion.merge(drained);
             // The restored admission is no longer borrowed after publication. Its
             // original session remains ours even when a separate publication session
             // has already committed and closed the attempt.
@@ -1339,7 +1330,7 @@ pub(crate) async fn restore(
                     .iter()
                     .all(|failure| failure.error.permits_storage_cleanup())
             {
-                completion.step("restore original store finality", native.abandon().await);
+                completion.merge(native.abandon_finality_report().await);
             } else {
                 completion
                     .storage
@@ -1358,6 +1349,7 @@ pub(crate) async fn restore(
                 let settled = runtime.complete_signal(&completion).await;
                 completion.step("restored admission signal finality", settled);
             }
+            native.append_operation_failures(&mut completion);
             lctx_model::domain::completion::complete(result, completion)
         }
         .await;
