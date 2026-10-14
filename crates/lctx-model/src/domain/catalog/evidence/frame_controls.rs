@@ -4,6 +4,7 @@ use crate::domain::{analysis::owner::AnalysisOwner, *};
 
 struct Fixture {
     budget: ResourceBudget,
+    context: attribution::AnalysisContext,
     proofs: Vec<uniform_outcome::ValidatedUniformOwner>,
     batches: Vec<(&'static str, arrow_array::RecordBatch)>,
     core: core::Invocation,
@@ -88,6 +89,7 @@ fn fixture() -> Fixture {
     ]);
     Fixture {
         budget,
+        context,
         proofs,
         batches,
         core,
@@ -147,6 +149,114 @@ fn catalog_evidence_accepts_protected_compact_parents_for_empty_input_and_refuse
     );
     f.batches.push(batch(&[ordinary]));
     assert!(evidence_check(&f, true).is_err());
+}
+#[test]
+fn retrieval_reconstructs_admitted_compact_evidence_frames_and_refuses_missing_or_wrong_context_owner()
+ {
+    use analysis::{
+        expected::CoverageAdmission,
+        sources::{CapturedSources, CompletedInput},
+    };
+    let f = fixture();
+    let mut inputs = Rows::<input::InputRevision>::new(&f.budget);
+    let mut scopes = Rows::<source::CoverageScope>::new(&f.budget);
+    for (name, batch) in &f.batches {
+        if *name == input::InputRevision::NAME {
+            inputs.decode(batch).unwrap();
+        }
+        if *name == source::CoverageScope::NAME {
+            scopes.decode(batch).unwrap();
+        }
+    }
+    let local = f
+        .proofs
+        .iter()
+        .find(|owner| owner.analysis_owner() == Some(AnalysisOwner::Local))
+        .unwrap();
+    let source = f
+        .proofs
+        .iter()
+        .find(|owner| owner.analysis_owner() == Some(AnalysisOwner::SourceCalls))
+        .unwrap();
+    let mut foreign_context = f.context.clone();
+    foreign_context.config_digest = ContentHash::of(b"foreign-retrieval-frame-context");
+    let foreign = uniform_outcome::test_support::empty_owner(
+        AnalysisOwner::Local,
+        inputs.iter().next().unwrap(),
+        &foreign_context,
+        &f.budget,
+    );
+    let model = model().unwrap().digest();
+    fn permit<R: Record>(rows: &Rows<R>, model: ContentHash) -> CompletedInput<R> {
+        CompletedInput::new(
+            "retrieval-compact-frame-control",
+            model,
+            ContentHash::of(b"retrieval-compact-frame-control/v1"),
+            ContentHash::of(R::NAME.as_bytes()),
+            rows.len() as u64,
+        )
+        .unwrap()
+    }
+    let check = |local_owner: Option<&uniform_outcome::ValidatedUniformOwner>,
+                 local_descriptor: &uniform_outcome::UniformNotRequested|
+     -> Result<(), ModelError> {
+        let mut descriptors = Rows::new(&f.budget);
+        descriptors.insert(local_descriptor.clone())?;
+        descriptors.insert(source.descriptor().clone())?;
+        let input_permit = permit(&inputs, model);
+        let scope_permit = permit(&scopes, model);
+        let descriptor_permit = permit(&descriptors, model);
+        let captured = CapturedSources::capture(
+            stages::Profile::Catalog,
+            [
+                input_permit.snapshot(),
+                scope_permit.snapshot(),
+                descriptor_permit.snapshot(),
+            ],
+            &f.budget,
+        )?;
+        let mut admission = CoverageAdmission::new(&captured, &f.budget)?;
+        for owner in local_owner.into_iter().chain(std::iter::once(source)) {
+            admission.admit_uniform_owner(owner)?;
+        }
+        admission.visit(
+            &input_permit,
+            &input::InputRevision::encode(&inputs.iter().cloned().collect::<Vec<_>>())?,
+        )?;
+        admission.visit(
+            &scope_permit,
+            &<source::CoverageScope as Record>::encode(
+                &scopes.iter().cloned().collect::<Vec<_>>(),
+            )?,
+        )?;
+        admission.visit(
+            &descriptor_permit,
+            &uniform_outcome::UniformNotRequested::encode(
+                &descriptors.iter().cloned().collect::<Vec<_>>(),
+            )?,
+        )?;
+        let mut data = retrieval::build::Data::new(&f.budget);
+        for (name, batch) in &f.batches {
+            data.visit(name, batch)?;
+        }
+        assert!(data.source.runtime.local_invocations.is_empty());
+        assert!(data.source.runtime.source_invocations.is_empty());
+        assert!(matches!(super::verify(
+            &data.source.facts.runs, &data.source.facts.core_invocations,
+            &data.facts.evidence_invocations, &data.facts.evidence_sources,
+            &data.facts.evidence_inputs, &data.source.runtime.lower(), &f.budget,
+        ), Err(ModelError::Invalid(message)) if message == "C1 named lower native frame absent"));
+        data.verify_evidence_frames(&admission, &f.budget)?;
+        assert!(data.facts.evidence_sources.same(&f.sources));
+        assert!(data.facts.evidence_inputs.same(&f.inputs));
+        Ok(())
+    };
+    check(Some(local), local.descriptor()).unwrap();
+    assert!(check(None, local.descriptor()).is_err());
+    assert!(
+        matches!(check(Some(&foreign.owner), foreign.owner.descriptor()),
+        Err(ModelError::Invalid(message)) if message == "C1 named lower native frame absent")
+    );
 }
 #[test]
 fn catalog_selection_rechecks_compact_evidence_parents_and_exact_empty_frame_membership() {

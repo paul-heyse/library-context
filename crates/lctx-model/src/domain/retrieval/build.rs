@@ -663,6 +663,45 @@ impl Data {
             TypeId::of::<assertion::AssertionQualification>(),
         ]
     }
+    /// Reconstruct admitted compact lower owners before rechecking the exact C1 frame domain.
+    /// Catalog's unrequested owners supply their actual descriptors, never ordinary frame IDs.
+    pub fn verify_evidence_frames(
+        &mut self,
+        admission: &analysis::expected::CoverageAdmission<'_>,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let mut compact = uniform_outcome::AnalysisPredecessors::new(budget);
+        for run in self.source.facts.runs.iter() {
+            for kind in [
+                analysis::owner::AnalysisOwner::Local,
+                analysis::owner::AnalysisOwner::SourceCalls,
+            ] {
+                if let Some(domain) = admission.uniform_analysis(
+                    kind,
+                    run.input,
+                    run.context,
+                    &self.synthesis.analysis_definitions,
+                    budget,
+                )? {
+                    compact.include(domain)?;
+                }
+            }
+        }
+        c1::frames::verify(
+            &self.source.facts.runs,
+            &self.source.facts.core_invocations,
+            &self.facts.evidence_invocations,
+            &self.facts.evidence_sources,
+            &self.facts.evidence_inputs,
+            &c1::frames::LowerFrames {
+                compact: &compact,
+                ..self.source.runtime.lower()
+            },
+            budget,
+        )?;
+        self.source.runtime.compact = compact;
+        Ok(())
+    }
     /// Small fixed metadata is prepared once, including frames without any retrieval document.
     pub fn frame_inputs() -> Vec<ValidationInput> {
         let mut inputs = crate::domain::selection::frames::Frames::inputs();

@@ -406,13 +406,31 @@ impl EmissionPresence {
         batch: &crate::consumed_rows::PreparedRootBatch,
         partition: usize,
     ) -> Result<bool, ModelError> {
-        for (table, key) in self.keys.iter() {
-            if batch.contains(partition, *table, *key)? {
-                return Ok(true);
-            }
+        if self.keys.is_empty() {
+            return Ok(false);
         }
-        Ok(false)
+        Ok(emission_overlap(
+            batch.memberships(partition)?,
+            self.keys.iter().copied(),
+        ))
     }
+}
+// Both sources are ordered by the exact bound table and nominal key. Walk their intersection
+// without allocating another membership index or probing the tree once per emitted row.
+fn emission_overlap(
+    mut memberships: impl Iterator<Item = (usize, [u8; 16])>,
+    mut emissions: impl Iterator<Item = (usize, [u8; 16])>,
+) -> bool {
+    let mut member = memberships.next();
+    let mut emitted = emissions.next();
+    while let (Some(left), Some(right)) = (member, emitted) {
+        match left.cmp(&right) {
+            std::cmp::Ordering::Less => member = memberships.next(),
+            std::cmp::Ordering::Greater => emitted = emissions.next(),
+            std::cmp::Ordering::Equal => return true,
+        }
+    }
+    false
 }
 fn nominal<T>(bytes: &[u8]) -> Result<Id<T>, ModelError> {
     serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
@@ -1256,6 +1274,41 @@ pub async fn produce(
 #[cfg(test)]
 mod decoder_tests {
     use super::*;
+    #[test]
+    fn emission_presence_intersects_exact_partition_ports_and_stops_at_first_match() {
+        let emissions = [(1, [3; 16]), (2, [1; 16]), (4, [9; 16])];
+        let partitions = [
+            vec![],
+            vec![(1, [1; 16]), (1, [4; 16]), (3, [9; 16])],
+            vec![(1, [1; 16]), (1, [3; 16]), (4, [9; 16])],
+            vec![(2, [1; 16]), (5, [9; 16])],
+            vec![(1, [9; 16]), (3, [1; 16])],
+        ];
+        for (partition, expected) in partitions.iter().zip([false, false, true, true, false]) {
+            assert_eq!(
+                emission_overlap(partition.iter().copied(), emissions.into_iter()),
+                expected,
+            );
+        }
+        assert!(!emission_overlap(
+            partitions[2].iter().copied(),
+            [].into_iter()
+        ));
+
+        let member_reads = std::cell::Cell::new(0);
+        let emission_reads = std::cell::Cell::new(0);
+        assert!(emission_overlap(
+            partitions[2]
+                .iter()
+                .copied()
+                .inspect(|_| member_reads.set(member_reads.get() + 1)),
+            emissions
+                .into_iter()
+                .inspect(|_| emission_reads.set(emission_reads.get() + 1)),
+        ));
+        assert_eq!(member_reads.get(), 2);
+        assert_eq!(emission_reads.get(), 1);
+    }
     #[test]
     fn declared_sources_have_decoder_reachability_in_both_profiles() {
         let mut decoders = std::collections::BTreeSet::new();

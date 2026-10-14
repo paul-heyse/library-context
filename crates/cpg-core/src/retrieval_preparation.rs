@@ -469,15 +469,7 @@ impl Preparation {
         .await?;
         consumed.finish("retrieval-metadata")?;
         metadata.selected()?;
-        c1::frames::verify(
-            &metadata.source.facts.runs,
-            &metadata.source.facts.core_invocations,
-            &metadata.facts.evidence_invocations,
-            &metadata.facts.evidence_sources,
-            &metadata.facts.evidence_inputs,
-            &metadata.source.runtime.lower(),
-            runtime.budget(),
-        )?;
+        metadata.verify_evidence_frames(admission, runtime.budget())?;
         let inputs = Data::inputs();
         let tables: Vec<_> = inputs
             .iter()
