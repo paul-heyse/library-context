@@ -715,8 +715,11 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
     let mut admin_owner = None;
     let mut restored_owner = None;
     let mut restored_admin_owner = None;
+    let mut replay_owner = None;
+    let mut replay_admin_owner = None;
     let mut store_finalized = false;
     let mut restored_finalized = false;
+    let mut replay_finalized = false;
     let outcome = AssertUnwindSafe(async {
         admin_owner = Some(fixture_client(&store, &config).await);
         let admin = admin_owner.as_ref().unwrap();
@@ -837,15 +840,14 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
         let selected = rows.try_next().await.unwrap().unwrap();
         assert_eq!(Package::decode(&selected).unwrap(), vec![second]);
         assert!(rows.try_next().await.unwrap().is_none());
-        assert_eq!(
-            store
-                .completed_state(&native_operation_budget)
-                .await
-                .unwrap()
-                .contributions,
-            0,
+        assert!(
+            store.views().await.unwrap().is_empty(),
             "unbound intermediate views are not completed-state roots"
         );
+        assert!(matches!(
+            store.completed_state(&native_operation_budget).await,
+            Err(ModelError::Conflict("native content is not frozen"))
+        ));
         let current_view = current[relation.name()].clone();
         store
             .bind(lctx_model::domain::completed::CompletedBinding {
@@ -861,16 +863,16 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             })
             .await
             .unwrap();
+        store
+            .freeze_content(&native_operation_budget)
+            .await
+            .unwrap();
         let state = store
             .completed_state(&native_operation_budget)
             .await
             .unwrap();
         assert_eq!(state.contributions, 2);
         assert_eq!(state.memberships, 3);
-        store
-            .freeze_content(&native_operation_budget)
-            .await
-            .unwrap();
         let file = tempfile::NamedTempFile::new().unwrap();
         let receipt = store
             .export_state(file.path(), &native_operation_budget)
@@ -899,6 +901,10 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             .import_state(file.path(), &receipt, &native_operation_budget)
             .await
             .unwrap();
+        restored
+            .freeze_content(&native_operation_budget)
+            .await
+            .unwrap();
         assert_eq!(
             restored
                 .completed_state(&native_operation_budget)
@@ -908,16 +914,25 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
         );
         // Replay compares complete immutable membership rows, rather than replacing corrupted
         // metadata or silently ignoring an existing key. Published graph payloads remain identical.
-        let replay = restored
+        // A separate mutable attempt owns this mutation challenge; the transported owner is frozen.
+        replay_owner = Some(
+            NativeCompilerStore::begin(&config, lctx_model::domain::admission::Frontier::Facts)
+                .await
+                .unwrap(),
+        );
+        let replay_store = replay_owner.as_ref().unwrap();
+        replay_admin_owner = Some(fixture_client(replay_store, &config).await);
+        let replay_admin = replay_admin_owner.as_ref().unwrap();
+        let replay = replay_store
             .begin_contribution(spec("replay", &relation))
             .await
             .unwrap();
         let batch = Package::encode(std::slice::from_ref(&first)).unwrap();
-        restored
+        replay_store
             .write_batch(&replay, &relation, &batch, &native_operation_budget)
             .await
             .unwrap();
-        restored
+        replay_store
             .write_batch(&replay, &relation, &batch, &native_operation_budget)
             .await
             .unwrap();
@@ -927,7 +942,7 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             lctx_native::surrealdb::types::RecordId::new("compiler_contribution", replay.hex()),
         );
         bindings.insert("content", ContentHash::of(b"corrupt-membership").hex());
-        restored_admin
+        replay_admin
             .query(
                 "UPDATE compiler_membership SET content=$content WHERE contribution=$contribution",
             )
@@ -936,15 +951,17 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             .unwrap()
             .check()
             .unwrap();
-        let error = restored
+        let error = replay_store
             .write_batch(&replay, &relation, &batch, &native_operation_budget)
             .await
             .unwrap_err();
         assert_acknowledged_native_guard(&error, "native immutable address collision");
         store.abandon().await.unwrap();
         store_finalized = true;
-        abandon_acknowledged_write_failure(restored, &config, &error).await;
+        restored.abandon().await.unwrap();
         restored_finalized = true;
+        abandon_acknowledged_write_failure(replay_store, &config, &error).await;
+        replay_finalized = true;
     })
     .catch_unwind()
     .await;
@@ -960,9 +977,21 @@ async fn pending_overlap_frozen_selection_and_state_transport() {
             restored.abandon().await,
         );
     }
-    for client in [admin_owner.as_ref(), restored_admin_owner.as_ref()]
-        .into_iter()
-        .flatten()
+    if let Some(replay) = replay_owner.as_ref()
+        && !replay_finalized
+    {
+        completion.step(
+            "pending overlap replay finalization",
+            replay.abandon().await,
+        );
+    }
+    for client in [
+        admin_owner.as_ref(),
+        restored_admin_owner.as_ref(),
+        replay_admin_owner.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
     {
         completion.step(
             "pending overlap observer invalidation",

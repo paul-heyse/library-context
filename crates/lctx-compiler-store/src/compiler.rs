@@ -2243,7 +2243,10 @@ impl NativeCompilerStore {
                 )
                 .saturating_add(128)
         };
-        struct PendingView(CompletedView, Box<dyn d::resources::Reservation>);
+        struct PendingView {
+            view: CompletedView,
+            _charge: Box<dyn d::resources::Reservation>,
+        }
         impl d::HeapSize for PendingView {
             // The descriptor's reservation moves with it through processing;
             // ChargedVec separately retains the stack's highwater capacity.
@@ -2255,22 +2258,72 @@ impl NativeCompilerStore {
         let mut pending_capacity =
             d::charged::StateCharge::new(budget, "selected dependency pending capacity");
         let mut pending = d::charged::ChargedVec::default();
-        pending.push(&mut pending_capacity, PendingView(view.clone(), initial))?;
+        pending.push(
+            &mut pending_capacity,
+            PendingView {
+                view: view.clone(),
+                _charge: initial,
+            },
+        )?;
         let mut seen = std::collections::BTreeSet::new();
         let mut mappings = BTreeMap::new();
         let mut working =
             d::charged::StateCharge::new(budget, "selected dependency traversal state");
-        while let Some(PendingView(selected, _selected_charge)) =
-            pending.take_last(&mut pending_capacity)
-        {
-            if seen.contains(&selected.identity) {
-                continue;
+        struct SelectedSlot<'a> {
+            view: &'a CompletedView,
+            logical: ContentHash,
+            physical: ContentHash,
+            incarnation: Option<i64>,
+        }
+        impl d::HeapSize for SelectedSlot<'_> {
+            fn heap_bytes(&self) -> usize {
+                0
             }
-            working.grow(std::mem::size_of::<ContentHash>() + 64)?;
-            seen.insert(selected.identity);
-            for logical in &selected.contributions {
-                let explicit =
-                    self.view_mappings
+        }
+        while !pending.is_empty() {
+            // Dependencies become known only after decoding their selected contributors.
+            // Borrow its current frontier; newly discovered views enter the next round.
+            let _frontier_capacity = std::mem::replace(
+                &mut pending_capacity,
+                d::charged::StateCharge::new(budget, "selected dependency pending capacity"),
+            );
+            let frontier = std::mem::take(&mut pending);
+            let mut views = frontier.iter();
+            let mut current_view = None::<(
+                &CompletedView,
+                std::collections::btree_set::Iter<'_, ContentHash>,
+            )>;
+            loop {
+                let mut frontier_charge = d::charged::StateCharge::new(
+                    budget,
+                    "selected dependency frontier preparation",
+                );
+                let mut slots = d::charged::ChargedVec::default();
+                let mut unseen = d::charged::ChargedSet::default();
+                while slots.len() < crate::loader::NATIVE_WINDOW_ROWS {
+                    if current_view.is_none() {
+                        let Some(PendingView { view: selected, .. }) = views.next() else {
+                            break;
+                        };
+                        if seen.contains(&selected.identity) {
+                            continue;
+                        }
+                        working.grow(std::mem::size_of::<ContentHash>() + 64)?;
+                        seen.insert(selected.identity);
+                        current_view = Some((selected, selected.contributions.iter()));
+                    }
+                    let Some((selected, contributions)) = &mut current_view else {
+                        return Err(ModelError::Conflict(
+                            "selected dependency frontier view absent",
+                        ));
+                    };
+                    let Some(logical) = contributions.next() else {
+                        current_view = None;
+                        continue;
+                    };
+                    let selected = *selected;
+                    let explicit = self
+                        .view_mappings
                         .lock()
                         .map_err(|_| ModelError::Conflict("native exact view mappings"))?
                         .get(&selected.identity)
@@ -2280,92 +2333,138 @@ impl NativeCompilerStore {
                             })
                         })
                         .cloned();
-                let physical = if let Some(mapping) = &explicit {
-                    mapping.physical
-                } else {
-                    *self
-                        .known_contributors
-                        .lock()
-                        .map_err(|_| ModelError::Conflict("native contributor candidates"))?
-                        .get(logical)
-                        .ok_or(ModelError::Conflict(
-                            "dependency has no explicitly selected physical contributor",
-                        ))?
-                };
-                if let std::collections::btree_map::Entry::Vacant(entry) = observed.entry(physical)
-                {
-                    let expected =
-                        lctx_native::installed_view::inspect_contributor(reader, physical, budget)
-                            .await?
+                    let physical = if let Some(mapping) = &explicit {
+                        mapping.physical
+                    } else {
+                        *self
+                            .known_contributors
+                            .lock()
+                            .map_err(|_| ModelError::Conflict("native contributor candidates"))?
+                            .get(logical)
                             .ok_or(ModelError::Conflict(
-                                "selected dependency contributor missing",
-                            ))?;
-                    validate_state_row("compiler_contribution", expected.row())?;
-                    let mut retained = budget.reserve(
-                        "selected mapping observed full descriptor",
-                        crate::loader::native_bytes(expected.row())
-                            .saturating_mul(32)
-                            .saturating_add(66560),
+                                "dependency has no explicitly selected physical contributor",
+                            ))?
+                    };
+                    slots.push(
+                        &mut frontier_charge,
+                        SelectedSlot {
+                            view: selected,
+                            logical: *logical,
+                            physical,
+                            incarnation: explicit.as_ref().map(|mapping| mapping.incarnation),
+                        },
                     )?;
-                    let descriptor: CompletedContribution = decode_descriptor(expected.row())?;
-                    retained.try_resize(
-                        crate::loader::native_bytes(expected.row())
-                            .saturating_mul(8)
-                            .saturating_add(1024),
+                    if !observed.contains_key(&physical) {
+                        unseen.insert(&mut frontier_charge, physical)?;
+                    }
+                }
+                if slots.is_empty() {
+                    break;
+                }
+                let mut physicals = unseen.iter().copied();
+                while physicals.len() > 0 {
+                    // Both the physical keys and their record-ID encoding remain window-sized.
+                    let _window_charge = budget.reserve(
+                        "selected dependency exact record window",
+                        physicals
+                            .len()
+                            .min(crate::loader::NATIVE_WINDOW_ROWS)
+                            .saturating_mul(1024),
                     )?;
-                    entry.insert((expected, descriptor, retained));
+                    let window = physicals
+                        .by_ref()
+                        .take(crate::loader::NATIVE_WINDOW_ROWS)
+                        .collect::<Vec<_>>();
+                    let records = window
+                        .iter()
+                        .map(|physical| RecordId::new("compiler_contribution", physical.hex()))
+                        .collect::<Vec<_>>();
+                    let mut inspected =
+                        crate::control::inspect_expected_window_read(reader, &records, budget)
+                            .await?;
+                    for (physical, record) in window.into_iter().zip(&records) {
+                        let expected =
+                            inspected
+                                .take_optional(record)?
+                                .ok_or(ModelError::Conflict(
+                                    "selected dependency contributor missing",
+                                ))?;
+                        validate_state_row("compiler_contribution", expected.row())?;
+                        let mut retained = budget.reserve(
+                            "selected mapping observed full descriptor",
+                            crate::loader::native_bytes(expected.row())
+                                .saturating_mul(32)
+                                .saturating_add(66560),
+                        )?;
+                        let descriptor: CompletedContribution = decode_descriptor(expected.row())?;
+                        retained.try_resize(
+                            crate::loader::native_bytes(expected.row())
+                                .saturating_mul(8)
+                                .saturating_add(1024),
+                        )?;
+                        observed.insert(physical, (expected, descriptor, retained));
+                    }
+                    inspected.finish()?;
                 }
-                let (expected, descriptor, _) = observed.get(&physical).ok_or(
-                    ModelError::Conflict("selected mapping observed descriptor absent"),
-                )?;
-                if explicit
-                    .as_ref()
-                    .is_some_and(|mapping| mapping.incarnation != expected.incarnation())
-                {
-                    return Err(ModelError::Conflict(
-                        "selected dependency incarnation changed",
-                    ));
-                }
-
-                if descriptor.identity()? != *logical
-                    || !descriptor.outputs.contains_key(&selected.relation)
-                {
-                    return Err(ModelError::Conflict("selected dependency logical output"));
-                }
-                let mapping = ContributorRealization {
-                    view: selected.identity,
-                    logical: *logical,
-                    physical,
-                    incarnation: expected.incarnation(),
-                };
-                if let Some(previous) = mappings.get(&(selected.identity, *logical)) {
-                    if previous != &mapping {
+                for slot in slots.iter() {
+                    let SelectedSlot {
+                        view: selected,
+                        logical,
+                        physical,
+                        incarnation,
+                    } = slot;
+                    let (expected, descriptor, _) = observed.get(physical).ok_or(
+                        ModelError::Conflict("selected mapping observed descriptor absent"),
+                    )?;
+                    if incarnation.is_some_and(|incarnation| incarnation != expected.incarnation())
+                    {
                         return Err(ModelError::Conflict(
-                            "one view closure selects incompatible physical copies",
+                            "selected dependency incarnation changed",
                         ));
                     }
-                } else {
-                    working.grow(
-                        std::mem::size_of::<ContributorRealization>()
-                            + std::mem::size_of::<(ContentHash, ContentHash)>()
-                            + 64,
-                    )?;
-                    mappings.insert((selected.identity, *logical), mapping);
-                }
-                for source in &descriptor.spec.inputs {
-                    let known = self
-                        .known_views
-                        .lock()
-                        .map_err(|_| ModelError::Conflict("native declared views"))?;
-                    let dependency = known.get(&source.view()).ok_or(ModelError::Conflict(
-                        "dependency view requires exact prior attachment/import",
-                    ))?;
-                    let retained = budget
-                        .reserve("selected dependency pending view", view_bytes(dependency))?;
-                    pending.push(
-                        &mut pending_capacity,
-                        PendingView(dependency.clone(), retained),
-                    )?;
+                    if descriptor.identity()? != *logical
+                        || !descriptor.outputs.contains_key(&selected.relation)
+                    {
+                        return Err(ModelError::Conflict("selected dependency logical output"));
+                    }
+                    let mapping = ContributorRealization {
+                        view: selected.identity,
+                        logical: *logical,
+                        physical: *physical,
+                        incarnation: expected.incarnation(),
+                    };
+                    if let Some(previous) = mappings.get(&(selected.identity, *logical)) {
+                        if previous != &mapping {
+                            return Err(ModelError::Conflict(
+                                "one view closure selects incompatible physical copies",
+                            ));
+                        }
+                    } else {
+                        working.grow(
+                            std::mem::size_of::<ContributorRealization>()
+                                + std::mem::size_of::<(ContentHash, ContentHash)>()
+                                + 64,
+                        )?;
+                        mappings.insert((selected.identity, *logical), mapping);
+                    }
+                    for source in &descriptor.spec.inputs {
+                        let known = self
+                            .known_views
+                            .lock()
+                            .map_err(|_| ModelError::Conflict("native declared views"))?;
+                        let dependency = known.get(&source.view()).ok_or(ModelError::Conflict(
+                            "dependency view requires exact prior attachment/import",
+                        ))?;
+                        let retained = budget
+                            .reserve("selected dependency pending view", view_bytes(dependency))?;
+                        pending.push(
+                            &mut pending_capacity,
+                            PendingView {
+                                view: dependency.clone(),
+                                _charge: retained,
+                            },
+                        )?;
+                    }
                 }
             }
         }
@@ -2524,13 +2623,14 @@ impl NativeCompilerStore {
             // the earlier scan's bound to satisfy finalization.
             let completed = Arc::new(match audit {
                 Some(audit) => {
-                    lctx_native::completed_state::complete_frozen_content_scoped(
+                    let source = audit.protected_source(&self.client, budget).await?;
+                    lctx_native::completed_state::complete_frozen_content_from_source(
                         self.client.clone(),
                         &fence,
                         &bindings,
                         &selections,
                         budget,
-                        &audit,
+                        &source,
                     )
                     .await?
                 }
@@ -2606,10 +2706,9 @@ impl NativeCompilerStore {
         let (sql, variables, _plan_charge) =
             crate::control::completed_admission_plan(physical, &persisted, budget)?;
         crate::control::effect_frozen_attempt(&self.client, self.attempt, &sql, variables).await?;
-        lctx_native::completed_state::hold_completed_state_with_model(
+        lctx_native::completed_state::hold_completed_state_from_source_with_model(
             self.client.clone(),
-            self.attempt,
-            data.identity()?,
+            physical,
             admission.model(),
             budget,
         )
@@ -2765,13 +2864,14 @@ impl NativeCompilerStore {
                     drop(scope);
                     let boundary = match audit {
                         Some(audit) => {
-                            lctx_native::completed_state::complete_retained_content_scoped(
+                            let source = audit.protected_source(&self.client, budget).await?;
+                            lctx_native::completed_state::complete_retained_content_from_source(
                                 self.client.clone(),
                                 self.attempt,
                                 &[],
                                 &selections,
                                 budget,
-                                &audit,
+                                &source,
                             )
                             .await?
                         }
@@ -6307,8 +6407,10 @@ impl NativeCompilerStore {
             lease.finish_with(result)
         })
     }
-    async fn views_inner(self: &Arc<Self>) -> Result<Vec<CompletedView>, ModelError> {
-        Ok(self.state_closure().await?.0.into_values().collect())
+    fn views_inner<'a>(
+        self: &'a Arc<Self>,
+    ) -> BoxFuture<'a, Result<Vec<CompletedView>, ModelError>> {
+        Box::pin(async move { Ok(self.state_closure().await?.0.into_values().collect()) })
     }
     pub fn completed_state<'a>(
         self: &'a Arc<Self>,
@@ -6715,10 +6817,8 @@ impl NativeCompilerStore {
                     .saturating_add(2048),
             )?;
             let mut owners = BTreeMap::new();
-            for copy in &envelope.copies {
-                let physical = self.register_transport_copy(copy, expected, budget).await?;
-                owners.insert(copy.label, physical);
-            }
+            self.register_transport_copies(&envelope.copies, expected, budget, &mut owners)
+                .await?;
             // Native backing and declarations are reconstructed from canonical data only.
             for index in [2usize, 3, 4] {
                 let mut cursor = decoded.families()[index].cursor_with_budget(budget)?;
@@ -6785,10 +6885,54 @@ impl NativeCompilerStore {
                     self.insert_transport_rows(pending, None, budget).await?;
                 }
             }
+            // Copy creation already acknowledged each attempt→copy hold. Only
+            // dependency-view incidences remain, after all views exist locally.
+            let mut input_holds = Vec::new();
+            let mut input_charges = Vec::new();
+            let mut input_bytes = 0usize;
             for copy in &envelope.copies {
-                self.hold_contribution_inputs(owners[&copy.label], &copy.descriptor.spec)
-                    .await?;
+                for input in &copy.descriptor.spec.inputs {
+                    let bytes = 4096usize;
+                    if !input_holds.is_empty()
+                        && (input_holds.len() >= crate::loader::NATIVE_WINDOW_ROWS
+                            || input_bytes.saturating_add(bytes) > d::resources::TRANSFER_BYTES
+                            || bytes > budget.limit().saturating_sub(budget.reserved()))
+                    {
+                        crate::control::hold_many(
+                            &self.client,
+                            Some(self.attempt),
+                            std::mem::take(&mut input_holds),
+                        )
+                        .await?;
+                        input_charges = Vec::new();
+                        input_bytes = 0;
+                    }
+                    let charge = loop {
+                        match budget.reserve("import dependency hold window", bytes) {
+                            Ok(charge) => break charge,
+                            Err(ModelError::Resource { .. }) if !input_holds.is_empty() => {
+                                crate::control::hold_many(
+                                    &self.client,
+                                    Some(self.attempt),
+                                    std::mem::take(&mut input_holds),
+                                )
+                                .await?;
+                                input_charges = Vec::new();
+                                input_bytes = 0;
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    };
+                    input_charges.push(charge);
+                    input_holds.push((
+                        RecordId::new("compiler_contribution", owners[&copy.label].hex()),
+                        RecordId::new("compiler_view", input.view().hex()),
+                    ));
+                    input_bytes = input_bytes.saturating_add(bytes);
+                }
             }
+            crate::control::hold_many(&self.client, Some(self.attempt), input_holds).await?;
+            drop(input_charges);
             for copy in decoded.copies() {
                 let physical = owners[&copy.label];
                 let owner = RecordId::new("compiler_contribution", physical.hex());
@@ -6869,17 +7013,78 @@ impl NativeCompilerStore {
                         .await?;
                 }
             }
+            async fn flush_aliases(
+                store: &NativeCompilerStore,
+                rows: &mut Vec<Value>,
+                holds: &mut Vec<(RecordId, RecordId)>,
+                charges: &mut Vec<Box<dyn Reservation>>,
+            ) -> Result<(), ModelError> {
+                crate::control::ensure_rows(
+                    &store.client,
+                    Some(store.attempt),
+                    std::mem::take(rows),
+                )
+                .await?;
+                crate::control::hold_many(
+                    &store.client,
+                    Some(store.attempt),
+                    std::mem::take(holds),
+                )
+                .await?;
+                // Both physical effects have acknowledged before releasing workspaces.
+                *charges = Vec::new();
+                Ok(())
+            }
+            let mut alias_rows = Vec::new();
+            let mut alias_holds = Vec::new();
+            let mut alias_charges = Vec::new();
+            let mut alias_bytes = 0usize;
             for copy in decoded.copies() {
                 let physical = owners[&copy.label];
                 let owner = RecordId::new("compiler_contribution", physical.hex());
-                let mut cursor = copy.aliases.cursor_with_budget(budget)?;
+                let mut cursor = match copy.aliases.cursor_with_budget(budget) {
+                    Ok(cursor) => cursor,
+                    Err(ModelError::Resource { .. }) if !alias_rows.is_empty() => {
+                        // The next cursor must not compete with a prior copy's pending
+                        // work. Only this local admission is retried after acknowledgement.
+                        flush_aliases(self, &mut alias_rows, &mut alias_holds, &mut alias_charges)
+                            .await?;
+                        alias_bytes = 0;
+                        copy.aliases.cursor_with_budget(budget)?
+                    }
+                    Err(error) => return Err(error),
+                };
                 while let Some(row) = cursor.next_row()? {
-                    let _alias_charge = budget.reserve(
-                        "import local alias effect",
-                        crate::loader::native_bytes(&row)
-                            .saturating_mul(4)
-                            .saturating_add(4096),
-                    )?;
+                    let bytes = crate::loader::native_bytes(&row)
+                        .saturating_mul(4)
+                        .saturating_add(4096);
+                    if !alias_rows.is_empty()
+                        && (alias_rows.len() >= crate::loader::NATIVE_WINDOW_ROWS
+                            || alias_holds.len().saturating_add(3)
+                                > crate::loader::NATIVE_WINDOW_ROWS
+                            || alias_bytes.saturating_add(bytes) > d::resources::TRANSFER_BYTES
+                            || bytes > budget.limit().saturating_sub(budget.reserved()))
+                    {
+                        flush_aliases(self, &mut alias_rows, &mut alias_holds, &mut alias_charges)
+                            .await?;
+                        alias_bytes = 0;
+                    }
+                    let charge = loop {
+                        match budget.reserve("import local alias effect", bytes) {
+                            Ok(charge) => break charge,
+                            Err(ModelError::Resource { .. }) if !alias_rows.is_empty() => {
+                                flush_aliases(
+                                    self,
+                                    &mut alias_rows,
+                                    &mut alias_holds,
+                                    &mut alias_charges,
+                                )
+                                .await?;
+                                alias_bytes = 0;
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    };
                     let object = row
                         .as_object()
                         .ok_or(ModelError::Schema("import local alias"))?;
@@ -6891,24 +7096,17 @@ impl NativeCompilerStore {
                     else {
                         return Err(ModelError::Schema("import local alias endpoints"));
                     };
-                    crate::control::ensure_rows(
-                        &self.client,
-                        Some(self.attempt),
-                        vec![row.clone()],
-                    )
-                    .await?;
-                    crate::control::hold_many(
-                        &self.client,
-                        Some(self.attempt),
-                        vec![
-                            (owner.clone(), id.clone()),
-                            (owner.clone(), target.clone()),
-                            (id.clone(), source.clone()),
-                        ],
-                    )
-                    .await?;
+                    alias_charges.push(charge);
+                    alias_holds.extend([
+                        (owner.clone(), id.clone()),
+                        (owner.clone(), target.clone()),
+                        (id.clone(), source.clone()),
+                    ]);
+                    alias_rows.push(row);
+                    alias_bytes = alias_bytes.saturating_add(bytes);
                 }
             }
+            flush_aliases(self, &mut alias_rows, &mut alias_holds, &mut alias_charges).await?;
             let owner_records = owners
                 .values()
                 .map(|owner| RecordId::new("compiler_contribution", owner.hex()))
@@ -7042,18 +7240,74 @@ impl NativeCompilerStore {
             Ok(())
         })
     }
+    #[cfg(test)]
     async fn register_transport_copy(
         self: &Arc<Self>,
         copy: &TransportCopy,
         expected: &CompletedTransportReceipt,
         budget: &ResourceBudget,
     ) -> Result<ContentHash, ModelError> {
-        let mut sink = KeySink::new("completed-import-copy/v1");
-        expected.envelope.encode(&mut sink);
-        sink.part(b"label", &copy.label.to_le_bytes());
-        let seed = sink.finish();
-        let physical = attempt_contribution(self.attempt, seed);
-        let descriptor = &copy.descriptor;
+        let mut owners = BTreeMap::new();
+        self.register_transport_copies(std::slice::from_ref(copy), expected, budget, &mut owners)
+            .await?;
+        owners
+            .get(&copy.label)
+            .copied()
+            .ok_or(ModelError::Conflict("registered imported copy absent"))
+    }
+    async fn register_transport_copies(
+        self: &Arc<Self>,
+        copies: &[TransportCopy],
+        expected: &CompletedTransportReceipt,
+        budget: &ResourceBudget,
+        owners: &mut BTreeMap<CopyLabel, ContentHash>,
+    ) -> Result<(), ModelError> {
+        struct PendingCopy {
+            label: CopyLabel,
+            physical: ContentHash,
+            logical: ContentHash,
+            row: Value,
+            registration: Option<RegisteredContribution>,
+            _encoding: Box<dyn Reservation>,
+        }
+        async fn flush(
+            store: &Arc<NativeCompilerStore>,
+            pending: &mut Vec<PendingCopy>,
+            owners: &mut BTreeMap<CopyLabel, ContentHash>,
+        ) -> Result<(), ModelError> {
+            if pending.is_empty() {
+                return Ok(());
+            }
+            let mut window = std::mem::take(pending);
+            let mut rows = Vec::with_capacity(window.len());
+            let mut holds = Vec::with_capacity(window.len());
+            for copy in &mut window {
+                rows.push(std::mem::replace(&mut copy.row, Value::None));
+                holds.push((
+                    RecordId::new("native_attempt", store.attempt.hex()),
+                    RecordId::new("compiler_contribution", copy.physical.hex()),
+                ));
+            }
+            crate::control::ensure_rows(&store.client, Some(store.attempt), rows).await?;
+            crate::control::hold_many(&store.client, Some(store.attempt), holds).await?;
+            // Only acknowledged rows and exact attempt holds become locally known.
+            // All encoding/metadata arenas remain live until publication is complete.
+            for copy in &mut window {
+                let registration = copy.registration.take().ok_or(ModelError::Conflict(
+                    "import copy pending registration absent",
+                ))?;
+                store
+                    .specifications
+                    .lock()
+                    .map_err(|_| ModelError::Conflict("import copy ownership"))?
+                    .insert(copy.physical, registration);
+                store.remember_contributor(copy.logical, copy.physical)?;
+                if owners.insert(copy.label, copy.physical).is_some() {
+                    return Err(ModelError::Conflict("import duplicate copy label"));
+                }
+            }
+            Ok(())
+        }
         struct EncodedSize(usize);
         impl std::io::Write for EncodedSize {
             fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -7064,61 +7318,84 @@ impl NativeCompilerStore {
                 Ok(())
             }
         }
-        let mut size = EncodedSize(0);
-        serde_json::to_writer(&mut size, descriptor).map_err(ModelError::codec)?;
-        let _encoding = budget.reserve(
-            "fresh copy descriptor encoding",
-            size.0.saturating_mul(32).saturating_add(65536),
-        )?;
-        let retained = Arc::new(budget.reserve(
-            "fresh copy retained specification",
-            size.0.saturating_mul(8).saturating_add(2048),
-        )?);
-        let mut row = Object::new();
-        row.insert("id", RecordId::new("compiler_contribution", physical.hex()));
-        row.insert(
-            "attempt",
-            RecordId::new("native_attempt", self.attempt.hex()),
-        );
-        row.insert("transport_copy", seed.hex());
-        row.insert(
-            "descriptor",
-            Bytes::from(serde_json::to_vec(descriptor).map_err(ModelError::codec)?),
-        );
-        row.insert(
-            "spec",
-            Bytes::from(serde_json::to_vec(&descriptor.spec).map_err(ModelError::codec)?),
-        );
-        row.insert("logical", descriptor.identity()?.hex());
-        row.insert("outcome", descriptor.outcome);
-        row.insert("completed", false);
-        for (key, value) in contribution_projection(&descriptor.spec) {
-            row.insert(key, value);
-        }
-        self.specifications
-            .lock()
-            .map_err(|_| ModelError::Conflict("import copy ownership"))?
-            .insert(
+        let mut pending = Vec::new();
+        let mut bytes = 0usize;
+        for copy in copies {
+            let descriptor = &copy.descriptor;
+            let mut size = EncodedSize(0);
+            serde_json::to_writer(&mut size, descriptor).map_err(ModelError::codec)?;
+            let encoding_bytes = size.0.saturating_mul(32).saturating_add(65536);
+            let retained_bytes = size.0.saturating_mul(8).saturating_add(2048);
+            let admission_bytes = encoding_bytes.saturating_add(retained_bytes);
+            if !pending.is_empty()
+                && (pending.len() >= crate::loader::NATIVE_WINDOW_ROWS
+                    || bytes.saturating_add(admission_bytes) > d::resources::TRANSFER_BYTES
+                    || admission_bytes > budget.limit().saturating_sub(budget.reserved()))
+            {
+                flush(self, &mut pending, owners).await?;
+                bytes = 0;
+            }
+            let (encoding, retained) = loop {
+                let admitted = (|| {
+                    let encoding =
+                        budget.reserve("fresh copy descriptor encoding", encoding_bytes)?;
+                    let retained = Arc::new(
+                        budget.reserve("fresh copy retained specification", retained_bytes)?,
+                    );
+                    Ok::<_, ModelError>((encoding, retained))
+                })();
+                match admitted {
+                    Ok(admitted) => break admitted,
+                    Err(ModelError::Resource { .. }) if !pending.is_empty() => {
+                        // Retry admission only; never retry an uncertain issued effect.
+                        flush(self, &mut pending, owners).await?;
+                        bytes = 0;
+                    }
+                    Err(error) => return Err(error),
+                }
+            };
+            let mut sink = KeySink::new("completed-import-copy/v1");
+            expected.envelope.encode(&mut sink);
+            sink.part(b"label", &copy.label.to_le_bytes());
+            let seed = sink.finish();
+            let physical = attempt_contribution(self.attempt, seed);
+            let logical = descriptor.identity()?;
+            let mut row = Object::new();
+            row.insert("id", RecordId::new("compiler_contribution", physical.hex()));
+            row.insert(
+                "attempt",
+                RecordId::new("native_attempt", self.attempt.hex()),
+            );
+            row.insert("transport_copy", seed.hex());
+            row.insert(
+                "descriptor",
+                Bytes::from(serde_json::to_vec(descriptor).map_err(ModelError::codec)?),
+            );
+            row.insert(
+                "spec",
+                Bytes::from(serde_json::to_vec(&descriptor.spec).map_err(ModelError::codec)?),
+            );
+            row.insert("logical", logical.hex());
+            row.insert("outcome", descriptor.outcome);
+            row.insert("completed", false);
+            for (key, value) in contribution_projection(&descriptor.spec) {
+                row.insert(key, value);
+            }
+            pending.push(PendingCopy {
+                label: copy.label,
                 physical,
-                RegisteredContribution {
+                logical,
+                row: Value::Object(row),
+                registration: Some(RegisteredContribution {
                     spec: descriptor.spec.clone(),
                     ownership: ContributionOwnership::Registering,
                     _transport_charge: Some(retained),
-                },
-            );
-        crate::control::ensure_rows(&self.client, Some(self.attempt), vec![Value::Object(row)])
-            .await?;
-        crate::control::hold_many(
-            &self.client,
-            Some(self.attempt),
-            vec![(
-                RecordId::new("native_attempt", self.attempt.hex()),
-                RecordId::new("compiler_contribution", physical.hex()),
-            )],
-        )
-        .await?;
-        self.remember_contributor(descriptor.identity()?, physical)?;
-        Ok(physical)
+                }),
+                _encoding: encoding,
+            });
+            bytes = bytes.saturating_add(admission_bytes);
+        }
+        flush(self, &mut pending, owners).await
     }
     async fn insert_transport_rows(
         self: &Arc<Self>,
@@ -10864,7 +11141,8 @@ mod compiler_scope_tests {
             .await
             .unwrap();
         let client = check_installation(&config).await.unwrap();
-        let reader = crate::NativeReader::private(client.clone());
+        let reader =
+            crate::NativeReader::private(client.clone()).with_budget(&native_operation_budget);
         let result = async {
             let nonce = crate::control::fresh_identity("partial-membership-import")?;
             let row = d::analytics::QualityStep {

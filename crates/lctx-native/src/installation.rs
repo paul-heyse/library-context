@@ -124,9 +124,6 @@ pub async fn install_shared(
     let mut catalog = loader.installation_catalog().await?;
     crate::materialization::validate_native_definitions(native_definitions)?;
     catalog
-        .retire_unneeded_vector_neighbor(native_definitions)
-        .await?;
-    catalog
         .apply(crate::control::schema(), "native durable control schema")
         .await?;
     catalog.install(native_definitions).await?;

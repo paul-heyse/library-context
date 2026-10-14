@@ -125,6 +125,26 @@ pub struct InstallationAudit {
     work: std::sync::Arc<WorkOwner>,
     worker: bool,
 }
+/// Borrowed operation source for boundary construction. This cannot outlive its actual audit;
+/// serialized descriptors and independently owned audits cannot supply its observations.
+pub struct ProtectedInspectionSource<'a> {
+    audit: &'a InstallationAudit,
+}
+impl ProtectedInspectionSource<'_> {
+    pub(crate) fn audit(&self) -> &InstallationAudit {
+        self.audit
+    }
+    pub(crate) fn inspection_scope(
+        &self,
+        reader: &NativeReader<()>,
+        budget: &ResourceBudget,
+    ) -> Result<ClosureInspectionScope, ModelError> {
+        self.audit.check_source_local(reader, budget)?;
+        let mut scope = ClosureInspectionScope::for_operation(self.audit, budget)?;
+        scope.source = true;
+        Ok(scope)
+    }
+}
 impl InstallationAudit {
     pub async fn new(
         client: std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
@@ -218,6 +238,54 @@ impl InstallationAudit {
             ));
         }
         Ok(())
+    }
+    fn check_source_local(
+        &self,
+        reader: &NativeReader<()>,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        self.check(reader, budget)?;
+        if self.closed.load(std::sync::atomic::Ordering::Acquire)
+            || !self
+                .work
+                .accepting
+                .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(ModelError::Conflict("protected inspection source closed"));
+        }
+        Ok(())
+    }
+    /// Explicitly borrow live exact observations from this operation's real source pin.
+    pub async fn protected_source<'a>(
+        &'a self,
+        client: &surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>,
+        budget: &ResourceBudget,
+    ) -> Result<ProtectedInspectionSource<'a>, ModelError> {
+        if !std::ptr::eq(self.client.as_ref(), client) {
+            return Err(ModelError::Conflict(
+                "installation audit foreign native session",
+            ));
+        }
+        let reader = NativeReader::private(self.client.clone()).with_budget(budget);
+        let result: Result<ProtectedInspectionSource<'a>, ModelError> = async {
+            self.check_source_local(&reader, budget)?;
+            self.ensure_context(&reader, budget).await?;
+            self.check_source_local(&reader, budget)?;
+            Ok(ProtectedInspectionSource { audit: self })
+        }
+        .await;
+        let closed = reader.close().await;
+        if closed.is_err()
+            || result
+                .as_ref()
+                .err()
+                .is_some_and(|error| !error.permits_storage_cleanup())
+        {
+            self.retain_unknown();
+        }
+        let mut terminal = d::completion::Completion::default();
+        terminal.step("protected inspection source capture reader close", closed);
+        d::completion::complete(result, terminal)
     }
     pub(crate) async fn ensure_context(
         &self,
@@ -585,8 +653,87 @@ impl InstallationAudit {
 #[derive(Clone)]
 pub(crate) struct LogicalContributorRows {
     contribution: crate::ordered_rows::PreparedRows,
+    // The complete canonical RecordId::Ord run remains the six-family hash input.
     memberships: crate::ordered_rows::PreparedRows,
+    relation_memberships: std::sync::Arc<PreparedMembershipRelations>,
     backing: crate::ordered_rows::PreparedRows,
+}
+/// A derived access layout beneath the exact contributor preparation. All rows
+/// have reached the canonical run's EOF before an absent relation means empty.
+/// These ordinary prepared runs share the operation's pool and spill ownership.
+struct PreparedMembershipRelations {
+    rows: BTreeMap<String, crate::ordered_rows::PreparedRows>,
+    _charge: StateCharge,
+}
+impl PreparedMembershipRelations {
+    fn prepare(
+        memberships: &crate::ordered_rows::PreparedRows,
+        budget: &ResourceBudget,
+        mut check: impl FnMut() -> Result<(), ModelError>,
+    ) -> Result<Self, ModelError> {
+        check()?;
+        let mut charge = StateCharge::new(budget, "logical membership relation access metadata");
+        // Include the Arc header used by the retaining LogicalContributorRows owner.
+        charge.grow(std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>())?;
+        let mut partitions = BTreeMap::<String, crate::ordered_rows::SortedRows>::new();
+        let mut cursor = memberships.cursor_with_budget(budget)?;
+        loop {
+            check()?;
+            let Some(row) = cursor.next_row()? else {
+                break;
+            };
+            let Some(Value::String(relation)) = row.as_object().and_then(|row| row.get("relation"))
+            else {
+                return Err(ModelError::Schema("prepared logical membership relation"));
+            };
+            if let Some(partition) = partitions.get_mut(relation.as_str()) {
+                partition.push(row)?;
+            } else {
+                // Admit both provisional and finished map nodes before cloning the key.
+                charge.grow(
+                    std::mem::size_of::<(String, crate::ordered_rows::SortedRows)>()
+                        .saturating_add(std::mem::size_of::<(
+                            String,
+                            crate::ordered_rows::PreparedRows,
+                        )>())
+                        .saturating_mul(11)
+                        .saturating_add(relation.len().saturating_mul(2))
+                        .saturating_add(256),
+                )?;
+                let relation = relation.clone();
+                let mut partition = crate::ordered_rows::SortedRows::with_budget_and_row_bytes(
+                    budget,
+                    d::resources::MAX_ROW_BYTES,
+                )?;
+                partition.push(row)?;
+                partitions.insert(relation, partition);
+            }
+        }
+        drop(cursor);
+        check()?;
+        let mut rows = BTreeMap::new();
+        let mut retained = std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>();
+        for (relation, partition) in partitions {
+            check()?;
+            let run = partition.finish()?.into_prepared();
+            retained = retained.saturating_add(
+                std::mem::size_of::<(String, crate::ordered_rows::PreparedRows)>()
+                    .saturating_mul(11)
+                    .saturating_add(relation.capacity())
+                    .saturating_add(128),
+            );
+            rows.insert(relation, run);
+        }
+        check()?;
+        charge.release(charge.reserved().saturating_sub(retained));
+        Ok(Self {
+            rows,
+            _charge: charge,
+        })
+    }
+    fn relation(&self, relation: &str) -> Option<&crate::ordered_rows::PreparedRows> {
+        self.rows.get(relation)
+    }
 }
 struct ScopedAliasRows {
     // Ordered exact physical contributors and positive incarnations. Full native
@@ -738,6 +885,7 @@ pub(crate) struct ClosureInspectionScope {
     holds: std::collections::BTreeSet<(RecordId, RecordId)>,
     protected: std::collections::BTreeSet<RecordId>,
     operation: bool,
+    source: bool,
     context_checked: bool,
     charge: StateCharge,
 }
@@ -761,6 +909,7 @@ impl ClosureInspectionScope {
             holds: std::collections::BTreeSet::new(),
             protected: std::collections::BTreeSet::new(),
             operation: false,
+            source: false,
             context_checked: false,
             charge: StateCharge::new(budget, "boundary exact observation shared handles"),
         })
@@ -787,7 +936,11 @@ impl ClosureInspectionScope {
                 "boundary inspection foreign audit pin/context",
             ));
         }
-        audit.check(reader, budget)?;
+        if self.source {
+            audit.check_source_local(reader, budget)?;
+        } else {
+            audit.check(reader, budget)?;
+        }
         self.pin.ensure_live()
     }
     async fn check(
@@ -3972,9 +4125,14 @@ async fn prepare_logical_contributor_window(
             actual.finish()?;
         }
     }
+    let memberships = memberships.finish()?.into_prepared();
+    let relation_memberships = PreparedMembershipRelations::prepare(&memberships, budget, || {
+        reader.check_read_admission()
+    })?;
     Ok(LogicalContributorRows {
         contribution: contribution.finish()?.into_prepared(),
-        memberships: memberships.finish()?.into_prepared(),
+        memberships,
+        relation_memberships: std::sync::Arc::new(relation_memberships),
         backing: backing.finish()?.into_prepared(),
     })
 }
@@ -4664,6 +4822,38 @@ mod family_dependency_controls {
     }
 }
 
+/// Only the already prepared relation runs enter selector projection. The sorter
+/// retains equal deduplication and refuses unequal rows sharing one selector key.
+fn compose_selected_member_runs(
+    selector: ContentHash,
+    relation: &str,
+    runs: &[crate::ordered_rows::PreparedRows],
+    budget: &ResourceBudget,
+    mut check: impl FnMut() -> Result<(), ModelError>,
+) -> Result<crate::ordered_rows::PreparedRows, ModelError> {
+    check()?;
+    let mut rows = crate::ordered_rows::SortedRows::with_budget(budget)?;
+    for run in runs {
+        let mut cursor = run.cursor_with_budget(budget)?;
+        loop {
+            check()?;
+            let Some(row) = cursor.next_row()? else {
+                break;
+            };
+            if !matches!(row.as_object().and_then(|row| row.get("relation")),
+                Some(Value::String(actual)) if actual == relation)
+            {
+                return Err(ModelError::Conflict("selected prepared relation partition"));
+            }
+            rows.push(crate::completed_state::earning::member(selector, &row)?)?;
+        }
+    }
+    check()?;
+    let rows = rows.finish()?.into_prepared();
+    check()?;
+    Ok(rows)
+}
+
 pub(crate) async fn selected_prepared_members(
     closure: &InspectedClosure,
     view: &CompletedView,
@@ -4706,8 +4896,11 @@ async fn selected_prepared_member_result(
             .logical_contributors
             .get(&physical)
             .ok_or(ModelError::Conflict("selected prepared contributor absent"))?;
-        handles.grow(std::mem::size_of::<crate::ordered_rows::PreparedRows>().saturating_mul(2))?;
-        runs.push(prepared.memberships.clone());
+        if let Some(run) = prepared.relation_memberships.relation(&view.relation) {
+            handles
+                .grow(std::mem::size_of::<crate::ordered_rows::PreparedRows>().saturating_mul(2))?;
+            runs.push(run.clone());
+        }
     }
     let relation = view.relation.clone();
     let count = view.rows;
@@ -4719,19 +4912,13 @@ async fn selected_prepared_member_result(
                 if owner.selected_members.contains_key(&selector) {
                     return Ok(());
                 }
-                let mut rows = crate::ordered_rows::SortedRows::with_budget(&worker_budget)?;
-                for run in runs {
-                    let mut cursor = run.cursor_with_budget(&worker_budget)?;
-                    while let Some(row) = cursor.next_row()? {
-                        owner.pin.ensure_live()?;
-                        if row.as_object().and_then(|row| row.get("relation"))
-                            == Some(&Value::String(relation.clone()))
-                        {
-                            rows.push(crate::completed_state::earning::member(selector, &row)?)?;
-                        }
-                    }
-                }
-                let rows = rows.finish()?.into_prepared();
+                let rows = compose_selected_member_runs(
+                    selector,
+                    &relation,
+                    &runs,
+                    &worker_budget,
+                    || owner.pin.ensure_live(),
+                )?;
                 let content = crate::completed_state::earning::selected_membership_content(
                     &rows,
                     count,
@@ -4778,6 +4965,262 @@ mod shared_preparation_controls {
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
     };
+    fn relation_member(owner: &str, relation: &str, key: u8, content: &str) -> Value {
+        let logical = ContentHash::of(owner.as_bytes());
+        let key = [key; 16];
+        let mut row = surrealdb::types::Object::new();
+        row.insert(
+            "id",
+            crate::completed_rows::membership_id(logical, relation, &key),
+        );
+        row.insert(
+            "contribution",
+            RecordId::new("compiler_contribution", logical.hex()),
+        );
+        row.insert("relation", relation);
+        row.insert("semantic_key", hex::encode(key));
+        row.insert("node", RecordId::new("entity", hex::encode(key)));
+        row.insert("content", ContentHash::of(content.as_bytes()).hex());
+        Value::Object(row)
+    }
+    fn membership_run(
+        rows: impl IntoIterator<Item = Value>,
+        budget: &ResourceBudget,
+    ) -> crate::ordered_rows::PreparedRows {
+        let mut sorted = crate::ordered_rows::SortedRows::with_budget_and_row_bytes(
+            budget,
+            d::resources::MAX_ROW_BYTES,
+        )
+        .unwrap();
+        for row in rows {
+            sorted.push(row).unwrap();
+        }
+        sorted.finish().unwrap().into_prepared()
+    }
+    fn membership_root(
+        runs: &[crate::ordered_rows::PreparedRows],
+        budget: &ResourceBudget,
+    ) -> d::completed_identity::CompletedFamilyRoot {
+        let mut hash = d::completed_identity::CompletedFamilyHasher::new(
+            d::recovery_closure::RecoveryFamily::Memberships,
+        )
+        .unwrap();
+        crate::ordered_rows::PreparedRows::fold_union(
+            runs,
+            budget,
+            || Ok(()),
+            |_, bytes| hash.row(bytes),
+        )
+        .unwrap();
+        hash.finish()
+    }
+    #[test]
+    fn relation_preparation_selects_only_own_rows_preserves_full_hash_and_large_frames() {
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let mut large = relation_member("same-logical-copy", "unrelated", 9, "large");
+        // The derived layout must retain the canonical source's admitted frame bound.
+        if let Value::Object(row) = &mut large {
+            row.insert(
+                "node",
+                RecordId::new("entity", "x".repeat(crate::ordered_rows::ROW_BYTES + 512)),
+            );
+        }
+        let full = membership_run(
+            [
+                large,
+                relation_member("same-logical-copy", "packages", 2, "second"),
+                relation_member("same-logical-copy", "releases", 3, "release"),
+                relation_member("same-logical-copy", "packages", 1, "first"),
+            ],
+            &budget,
+        );
+        let before = membership_root(std::slice::from_ref(&full), &budget);
+        let access =
+            Arc::new(PreparedMembershipRelations::prepare(&full, &budget, || Ok(())).unwrap());
+        assert!(access.relation("explicit_empty").is_none());
+        let selected = access.relation("packages").unwrap().clone();
+        let all = access.rows.values().cloned().collect::<Vec<_>>();
+        assert_eq!(membership_root(&all, &budget), before);
+        assert_eq!(
+            membership_root(std::slice::from_ref(&full), &budget),
+            before
+        );
+        let selector = ContentHash::of(b"selective packages");
+        let mut checks = 0;
+        let members = compose_selected_member_runs(
+            selector,
+            "packages",
+            std::slice::from_ref(&selected),
+            &budget,
+            || {
+                checks += 1;
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            checks, 6,
+            "two requested rows plus cursor EOF and final checks"
+        );
+        crate::completed_state::earning::selected_membership_content(&members, 2, &budget).unwrap();
+        let empty =
+            compose_selected_member_runs(selector, "explicit_empty", &[], &budget, || Ok(()))
+                .unwrap();
+        crate::completed_state::earning::selected_membership_content(&empty, 0, &budget).unwrap();
+        drop(empty);
+        drop(members);
+        drop(all);
+        drop(access);
+        drop(full);
+        let mut cursor = selected.cursor_with_budget(&budget).unwrap();
+        drop(selected);
+        let mut count = 0;
+        while let Some(row) = cursor.next_row().unwrap() {
+            assert_eq!(
+                row.as_object().unwrap().get("relation"),
+                Some(&Value::String("packages".into()))
+            );
+            count += 1;
+        }
+        assert_eq!(
+            count, 2,
+            "a last borrower keeps only the requested prepared run alive"
+        );
+        drop(cursor);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn relation_selector_preserves_overlap_dedup_and_unequal_collision_refusal() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let first_full = membership_run(
+            [relation_member("logical-one", "packages", 1, "equal")],
+            &budget,
+        );
+        let second_full = membership_run(
+            [relation_member("logical-two", "packages", 1, "equal")],
+            &budget,
+        );
+        let unequal_full = membership_run(
+            [relation_member("logical-two", "packages", 1, "unequal")],
+            &budget,
+        );
+        let first = PreparedMembershipRelations::prepare(&first_full, &budget, || Ok(())).unwrap();
+        let second =
+            PreparedMembershipRelations::prepare(&second_full, &budget, || Ok(())).unwrap();
+        let unequal =
+            PreparedMembershipRelations::prepare(&unequal_full, &budget, || Ok(())).unwrap();
+        drop(first_full);
+        drop(second_full);
+        drop(unequal_full);
+        let selector = ContentHash::of(b"overlap selector");
+        let equal = compose_selected_member_runs(
+            selector,
+            "packages",
+            &[
+                first.relation("packages").unwrap().clone(),
+                first.relation("packages").unwrap().clone(),
+                second.relation("packages").unwrap().clone(),
+            ],
+            &budget,
+            || Ok(()),
+        )
+        .unwrap();
+        crate::completed_state::earning::selected_membership_content(&equal, 1, &budget).unwrap();
+        let retained = budget.reserved();
+        assert!(matches!(
+            compose_selected_member_runs(
+                selector,
+                "packages",
+                &[
+                    first.relation("packages").unwrap().clone(),
+                    unequal.relation("packages").unwrap().clone(),
+                ],
+                &budget,
+                || Ok(())
+            ),
+            Err(ModelError::Conflict("conflicting physical row identity"))
+        ));
+        assert_eq!(
+            budget.reserved(),
+            retained,
+            "failed projection releases its provisional run"
+        );
+        assert!(
+            compose_selected_member_runs(
+                selector,
+                "releases",
+                &[first.relation("packages").unwrap().clone(),],
+                &budget,
+                || Ok(())
+            )
+            .is_err()
+        );
+        drop(equal);
+        drop(unequal);
+        drop(second);
+        drop(first);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn relation_preparation_refuses_late_cancellation_and_resource_without_publishing() {
+        let budget = ResourceBudget::fixed(8 << 20).unwrap();
+        let full = membership_run(
+            [
+                relation_member("logical", "packages", 1, "one"),
+                relation_member("logical", "releases", 2, "two"),
+            ],
+            &budget,
+        );
+        let retained = budget.reserved();
+        let flag = Arc::new(AtomicBool::new(false));
+        let mut checks = 0;
+        let refused = PreparedMembershipRelations::prepare(&full, &budget, || {
+            checks += 1;
+            if checks == 5 {
+                flag.store(true, Ordering::Release);
+            }
+            crate::prepared::check_read_cancellation(Some(&flag))
+        });
+        assert!(
+            refused.is_err(),
+            "cancellation after canonical EOF publishes no access layout"
+        );
+        assert_eq!(budget.reserved(), retained);
+        let tiny = ResourceBudget::fixed(1).unwrap();
+        assert!(matches!(
+            PreparedMembershipRelations::prepare(&full, &tiny, || Ok(())),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(tiny.reserved(), 0);
+        let access = PreparedMembershipRelations::prepare(&full, &budget, || Ok(())).unwrap();
+        let retained = budget.reserved();
+        let flag = Arc::new(AtomicBool::new(false));
+        let mut checks = 0;
+        assert!(
+            compose_selected_member_runs(
+                ContentHash::of(b"late selective cancellation"),
+                "packages",
+                std::slice::from_ref(access.relation("packages").unwrap()),
+                &budget,
+                || {
+                    checks += 1;
+                    if checks == 5 {
+                        flag.store(true, Ordering::Release);
+                    }
+                    crate::prepared::check_read_cancellation(Some(&flag))
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(
+            budget.reserved(),
+            retained,
+            "late refusal drops the completed provisional selector"
+        );
+        drop(access);
+        drop(full);
+        assert_eq!(budget.reserved(), 0);
+    }
     fn exact_alias(source: &RecordId, target: &RecordId) -> Value {
         let mut sink = d::KeySink::new("native-place-alias/v1");
         sink.part(b"source", &serde_json::to_vec(source).unwrap());
@@ -5329,6 +5772,118 @@ mod closure_metadata_controls {
             )]
             .into(),
         }
+    }
+    #[tokio::test]
+    async fn protected_source_scope_reuses_operation_holds_and_refuses_unobserved_incidence() {
+        let audit = shared_preparation_controls::test_audit(1 << 20);
+        let budget = audit.budget.clone();
+        let reader = NativeReader::private(audit.client.clone()).with_budget(&budget);
+        // This pure control tests routing under modeled pinned endpoints. The client is
+        // disconnected, so a missing incidence cannot acquire fabricated native success.
+        let source = ProtectedInspectionSource { audit: &audit };
+        let mut scope = source.inspection_scope(&reader, &budget).unwrap();
+        let owner = RecordId::new("compiler_view", "one");
+        let object = RecordId::new("compiler_contribution", "two");
+        scope.remember(&owner).unwrap();
+        scope.remember(&object).unwrap();
+        audit
+            .inspected_holds
+            .insert((owner.clone(), object.clone()), ());
+        assert!(scope.source && scope.operation);
+        scope
+            .require_hold(&reader, &owner, &object, &audit, &budget)
+            .await
+            .unwrap();
+
+        let mut fresh = ClosureInspectionScope::new(&audit, &budget).unwrap();
+        fresh.remember(&owner).unwrap();
+        fresh.remember(&object).unwrap();
+        assert!(
+            fresh
+                .require_hold(&reader, &owner, &object, &audit, &budget)
+                .await
+                .is_err()
+        );
+        assert!(
+            fresh.holds.is_empty(),
+            "fresh construction cannot borrow source discovery"
+        );
+
+        let missing = RecordId::new("compiler_contribution", "missing");
+        scope.remember(&missing).unwrap();
+        let before = audit.work.next.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(
+            scope
+                .require_hold(&reader, &owner, &missing, &audit, &budget)
+                .await
+                .is_err()
+        );
+        assert!(
+            audit.work.next.load(std::sync::atomic::Ordering::Relaxed) > before,
+            "first miss must reach the actual inspection worker"
+        );
+        assert!(!audit.inspected_holds.contains_key(&(owner, missing)));
+        audit.drain_workers().await.unwrap();
+        reader.close().await.unwrap();
+        audit.retain_unknown();
+        audit
+            .closed
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+    #[tokio::test]
+    async fn protected_source_scope_refuses_foreign_session_pool_pin_context_and_closed_source() {
+        let audit = shared_preparation_controls::test_audit(1 << 20);
+        let budget = audit.budget.clone();
+        let reader = NativeReader::private(audit.client.clone()).with_budget(&budget);
+        let source = ProtectedInspectionSource { audit: &audit };
+        let scope = source.inspection_scope(&reader, &budget).unwrap();
+        let foreign_client = Arc::new(surrealdb::Surreal::init());
+        let foreign_reader = NativeReader::private(foreign_client.clone()).with_budget(&budget);
+        assert!(source.inspection_scope(&foreign_reader, &budget).is_err());
+        assert!(
+            audit
+                .protected_source(&foreign_client, &budget)
+                .await
+                .is_err()
+        );
+        let foreign_budget = ResourceBudget::fixed(1 << 20).unwrap();
+        assert!(source.inspection_scope(&reader, &foreign_budget).is_err());
+        assert!(
+            audit
+                .protected_source(&audit.client, &foreign_budget)
+                .await
+                .is_err()
+        );
+        let mut changed = audit.clone();
+        changed.context.1 += 1;
+        assert!(scope.check_local(&reader, &changed, &budget).is_err());
+        let mut foreign_pin = audit.clone();
+        foreign_pin.pin = crate::control::ReaderPin::test_detached(false);
+        assert!(scope.check_local(&reader, &foreign_pin, &budget).is_err());
+        foreign_pin.retain_unknown();
+        audit
+            .work
+            .accepting
+            .store(false, std::sync::atomic::Ordering::Release);
+        assert!(scope.check_local(&reader, &audit, &budget).is_err());
+        assert!(
+            audit
+                .protected_source(&audit.client, &budget)
+                .await
+                .is_err()
+        );
+        audit
+            .work
+            .accepting
+            .store(true, std::sync::atomic::Ordering::Release);
+        audit
+            .closed
+            .store(true, std::sync::atomic::Ordering::Release);
+        assert!(source.inspection_scope(&reader, &budget).is_err());
+        audit.retain_unknown();
+        assert!(source.inspection_scope(&reader, &budget).is_err());
+        reader.close().await.unwrap();
+        foreign_reader.close().await.unwrap();
     }
     #[test]
     fn many_selector_maps_share_one_charged_full_descriptor_and_keep_exact_logical_values() {

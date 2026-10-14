@@ -1,7 +1,7 @@
 //! Installation-local completed view data and held read authority.
 //! Deserializing completion data never establishes a native hold or cold admission.
 pub(crate) mod audit;
-pub use audit::InstallationAudit;
+pub use audit::{InstallationAudit, ProtectedInspectionSource};
 mod earned;
 mod live;
 mod receiving;

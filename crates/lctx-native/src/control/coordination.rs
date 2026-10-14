@@ -266,14 +266,51 @@ pub(super) async fn prepare_expectations(
 fn creation_indices(
     bindings: &Variables,
 ) -> Result<std::collections::BTreeMap<RecordId, Value>, ModelError> {
-    let mut indices = std::collections::BTreeMap::new();
     let Some(values) = bindings.get("__immutable_creations") else {
-        return Ok(indices);
+        return Ok(std::collections::BTreeMap::new());
     };
     let Value::Array(values) = values else {
         return Err(ModelError::Schema("native immutable creations"));
     };
-    for value in values.iter() {
+    #[derive(Default)]
+    struct SourceIndex {
+        first: Option<usize>,
+        collision: bool,
+    }
+    #[derive(Default)]
+    struct CreationIndex {
+        sources: [SourceIndex; 2],
+        bound: Option<(usize, usize)>,
+    }
+    // Borrow wanted identities; retain only indices, not cloned payloads. This
+    // scratch replaces the output map until validation finishes, rather than
+    // retaining a second full-row index alongside the completed bindings.
+    let mut wanted = std::collections::BTreeMap::<&RecordId, CreationIndex>::new();
+    for value in values {
+        if let Some(Value::RecordId(record)) = value.as_object().and_then(|row| row.get("record")) {
+            wanted.entry(record).or_default();
+        }
+    }
+    for (source, name) in ["rows", "original_blobs"].into_iter().enumerate() {
+        if let Some(Value::Array(rows)) = bindings.get(name) {
+            for (index, row) in rows.iter().enumerate() {
+                let Some(Value::RecordId(record)) = row.as_object().and_then(|row| row.get("id"))
+                else {
+                    continue;
+                };
+                if let Some(wanted) = wanted.get_mut(record) {
+                    let selected = &mut wanted.sources[source];
+                    if let Some(first) = selected.first {
+                        selected.collision |= rows[first] != *row;
+                    } else {
+                        selected.first = Some(index);
+                    }
+                }
+            }
+        }
+    }
+    // Preserve declaration-order refusal and first equal payload selection.
+    for value in values {
         let Value::Object(creation) = value else {
             return Err(ModelError::Schema("native immutable creation"));
         };
@@ -282,45 +319,48 @@ fn creation_indices(
         else {
             return Err(ModelError::Schema("native immutable creation envelope"));
         };
-        if kind != "immutable"
-            && !(kind == "original_blob" && record.table.as_str() == "original_blob")
-        {
-            return Err(ModelError::Schema("native immutable creation kind"));
-        }
         let source = if kind == "immutable" {
-            "rows"
+            0
+        } else if kind == "original_blob" && record.table.as_str() == "original_blob" {
+            1
         } else {
-            "original_blobs"
+            return Err(ModelError::Schema("native immutable creation kind"));
         };
-        let Some(Value::Array(rows)) = bindings.get(source) else {
+        if !matches!(
+            bindings.get(["rows", "original_blobs"][source]),
+            Some(Value::Array(_))
+        ) {
             return Err(ModelError::Schema("native immutable creation payload"));
-        };
-        let mut selected: Option<(usize, &Value)> = None;
-        for (index, row) in rows.iter().enumerate().filter(|(_, row)| {
-            row.as_object().and_then(|row| row.get("id")) == Some(&Value::RecordId(record.clone()))
-        }) {
-            if let Some((_, previous)) = selected {
-                if previous != row {
-                    return Err(ModelError::Conflict("native immutable creation collision"));
-                }
-            } else {
-                selected = Some((index, row));
-            }
         }
-        let (index, _) =
-            selected.ok_or(ModelError::Schema("native immutable creation row missing"))?;
-        let mut reference = Object::new();
-        reference.insert("kind", kind.clone());
-        reference.insert("index", index as i64);
-        let reference = Value::Object(reference);
-        if let Some(previous) = indices.insert(record.clone(), reference.clone())
-            && previous != reference
+        let selected = wanted
+            .get_mut(record)
+            .ok_or(ModelError::Schema("native immutable creation row missing"))?;
+        if selected.sources[source].collision {
+            return Err(ModelError::Conflict("native immutable creation collision"));
+        }
+        let index = selected.sources[source]
+            .first
+            .ok_or(ModelError::Schema("native immutable creation row missing"))?;
+        if let Some(previous) = selected.bound
+            && previous != (source, index)
         {
             return Err(ModelError::Conflict("native immutable creation collision"));
         }
+        selected.bound = Some((source, index));
     }
-    Ok(indices)
+    Ok(wanted
+        .into_iter()
+        .filter_map(|(record, selected)| {
+            selected.bound.map(|(source, index)| {
+                let mut reference = Object::new();
+                reference.insert("kind", ["immutable", "original_blob"][source]);
+                reference.insert("index", index as i64);
+                (record.clone(), Value::Object(reference))
+            })
+        })
+        .collect())
 }
+
 pub(super) const EXPECTED_OBJECT_GUARD: &str = r#"
 FOR $__expected IN ($__object_expectations ?? []) {
     LET $__guard_id=$__expected.guard;
@@ -451,6 +491,84 @@ mod tests {
         bindings.insert("rows", rows);
         preflight(ALL_STRIPES_GUARD, &bindings).unwrap();
     }
+    #[test]
+    fn creation_lookup_preserves_first_equal_row_kind_and_declaration_order_refusal() {
+        fn row(id: RecordId, payload: i64) -> Value {
+            let mut row = Object::new();
+            row.insert("id", id);
+            row.insert("payload", payload);
+            Value::Object(row)
+        }
+        fn declaration(id: RecordId, kind: &str) -> Value {
+            let mut row = Object::new();
+            row.insert("record", id);
+            row.insert("kind", kind);
+            Value::Object(row)
+        }
+        let a = RecordId::new("entity", "a");
+        let b = RecordId::new("original_blob", "b");
+        let unrelated = RecordId::new("entity", "unrelated");
+        let mut bindings = Variables::new();
+        bindings.insert(
+            "rows",
+            vec![
+                row(unrelated.clone(), 0),
+                row(a.clone(), 1),
+                row(a.clone(), 1),
+                row(unrelated, 2),
+            ],
+        );
+        bindings.insert("original_blobs", vec![row(b.clone(), 3)]);
+        bindings.insert(
+            "__immutable_creations",
+            vec![
+                declaration(a.clone(), "immutable"),
+                declaration(a.clone(), "immutable"),
+                declaration(b.clone(), "original_blob"),
+            ],
+        );
+        let indices = creation_indices(&bindings).unwrap();
+        assert_eq!(indices.len(), 2);
+        assert_eq!(
+            indices[&a].as_object().unwrap().get("index"),
+            Some(&Value::Number(surrealdb::types::Number::Int(1)))
+        );
+        assert_eq!(
+            indices[&b].as_object().unwrap().get("index"),
+            Some(&Value::Number(surrealdb::types::Number::Int(0)))
+        );
+        assert_eq!(
+            indices[&b].as_object().unwrap().get("kind"),
+            Some(&Value::String("original_blob".into()))
+        );
+        bindings.insert("rows", vec![row(a.clone(), 1), row(a.clone(), 2)]);
+        assert!(matches!(
+            creation_indices(&bindings),
+            Err(ModelError::Conflict("native immutable creation collision"))
+        ));
+        bindings.insert("rows", Vec::<Value>::new());
+        bindings.insert(
+            "__immutable_creations",
+            vec![declaration(a, "immutable"), Value::None],
+        );
+        assert!(matches!(
+            creation_indices(&bindings),
+            Err(ModelError::Schema("native immutable creation row missing"))
+        ));
+        bindings.insert("rows", vec![row(b.clone(), 3)]);
+        bindings.insert(
+            "__immutable_creations",
+            vec![
+                declaration(b.clone(), "immutable"),
+                declaration(b, "original_blob"),
+            ],
+        );
+        assert!(matches!(
+            creation_indices(&bindings),
+            Err(ModelError::Conflict("native immutable creation collision"))
+        ));
+    }
+
     #[test]
     fn active_expectations_ignore_hold_revision_but_tombstones_bind_revision() {
         let id = RecordId::new("original", "candidate");

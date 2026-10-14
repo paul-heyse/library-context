@@ -101,29 +101,6 @@ fn missing<'a>(
     }
     Ok(result)
 }
-const LEGACY_VECTOR_NEIGHBOR: &str =
-    "DEFINE INDEX neighbor ON vector FIELDS embedding HNSW DIMENSION 1024 DIST COSINE TYPE F32;";
-fn obsolete_vector_neighbor(
-    actual: &BTreeMap<DefinitionKey, String>,
-    blueprint: &str,
-) -> Result<bool, ModelError> {
-    let legacy = prepare(LEGACY_VECTOR_NEIGHBOR)?
-        .pop()
-        .ok_or(ModelError::Schema("legacy vector index declaration"))?;
-    if prepare(blueprint)?
-        .iter()
-        .any(|declaration| declaration.key == legacy.key)
-    {
-        return Ok(false);
-    }
-    match actual.get(&legacy.key) {
-        None => Ok(false),
-        Some(sql) if *sql == legacy.sql => Ok(true),
-        Some(_) => Err(ModelError::Conflict(
-            "obsolete vector index has unexpected named meaning",
-        )),
-    }
-}
 /// A checked catalog belongs to one retained native session and excluded installation.
 /// Ordinary publication, backup and cold admission perform their own actual-state capture.
 pub struct InstallationCatalog {
@@ -147,51 +124,6 @@ impl InstallationCatalog {
             ));
         }
         Ok(())
-    }
-    /// Only the explicit root/closed-admission installation owner calls this.
-    /// A current blueprint that still requires the index never retires it. Once
-    /// its numerical consumers migrate, remove precisely the known old index;
-    /// a same-name index with different meaning must be investigated first.
-    pub(crate) async fn retire_unneeded_vector_neighbor(
-        &mut self,
-        blueprint: &str,
-    ) -> Result<(), ModelError> {
-        if !obsolete_vector_neighbor(&self.actual, blueprint)? {
-            return Ok(());
-        }
-        let result = self
-            .client
-            .query("REMOVE INDEX IF EXISTS neighbor ON vector;")
-            .await
-            .and_then(|response| response.check())
-            .map(|_| ())
-            .map_err(write_failure);
-        let mut completion = lctx_model::domain::completion::Completion::default();
-        let refreshed = self
-            .refresh(&BTreeSet::from([Group::Table("vector".into())]))
-            .await;
-        let reconciled = refreshed.is_ok()
-            && !self
-                .actual
-                .contains_key(&DefinitionKey::Index("vector".into(), "neighbor".into()));
-        completion.step(
-            "obsolete vector index independent catalog readback",
-            refreshed,
-        );
-        if reconciled {
-            completion.committed("obsolete vector index retired", "neighbor ON vector");
-        }
-        match result {
-            Ok(()) if reconciled => lctx_model::domain::completion::complete(Ok(()), completion),
-            Err(_) if reconciled => lctx_model::domain::completion::complete(Ok(()), completion),
-            Err(error) => lctx_model::domain::completion::complete(Err(error), completion),
-            Ok(()) => lctx_model::domain::completion::complete(
-                Err(ModelError::Conflict(
-                    "obsolete vector index remains installed",
-                )),
-                completion,
-            ),
-        }
     }
     async fn info(&self, sql: String) -> Result<Object, ModelError> {
         let mut response = self
@@ -376,25 +308,6 @@ impl InstallationCatalog {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn obsolete_vector_index_requires_exact_old_meaning_and_no_current_consumer() {
-        let old = prepare(LEGACY_VECTOR_NEIGHBOR).unwrap();
-        let actual = old
-            .into_iter()
-            .map(|declaration| (declaration.key, declaration.sql))
-            .collect();
-        assert!(!obsolete_vector_neighbor(&actual, LEGACY_VECTOR_NEIGHBOR).unwrap());
-        assert!(obsolete_vector_neighbor(&actual, "DEFINE TABLE vector SCHEMAFULL;").unwrap());
-        assert!(
-            !obsolete_vector_neighbor(&BTreeMap::new(), "DEFINE TABLE vector SCHEMAFULL;").unwrap()
-        );
-        let other = prepare("DEFINE INDEX neighbor ON vector FIELDS embedding;")
-            .unwrap()
-            .into_iter()
-            .map(|declaration| (declaration.key, declaration.sql))
-            .collect();
-        assert!(obsolete_vector_neighbor(&other, "DEFINE TABLE vector SCHEMAFULL;").is_err());
-    }
     #[test]
     fn operation_catalog_refuses_named_drift_before_missing_effects() {
         let original = prepare("DEFINE TABLE t SCHEMAFULL; DEFINE FIELD x ON t TYPE int;").unwrap();

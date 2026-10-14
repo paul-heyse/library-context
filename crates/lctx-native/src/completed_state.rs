@@ -4,8 +4,9 @@ pub(crate) mod earning;
 mod product_replay;
 mod uniform;
 pub use earning::{
-    ViewSelection, complete_frozen_content, complete_frozen_content_scoped,
-    complete_retained_content, complete_retained_content_scoped,
+    ViewSelection, complete_frozen_content, complete_frozen_content_from_source,
+    complete_frozen_content_scoped, complete_retained_content,
+    complete_retained_content_from_source, complete_retained_content_scoped,
 };
 use lctx_model::domain::{self as d, ContentHash, Key, KeySink, ModelError};
 pub use product_replay::check_retained_product_replay;
@@ -408,6 +409,40 @@ pub async fn hold_completed_state_with_model(
     model: &d::ValidatedModel,
     budget: &d::resources::ResourceBudget,
 ) -> Result<HeldFrozenCompletedState, ModelError> {
+    hold_completed_state_inner(client, attempt, identity, model, budget, None).await
+}
+/// Borrow the exact inventory earned by a still-owned physical completion. This is
+/// not a data-only route: the actual client/pool and original parent incarnation
+/// must correspond, and fresh frozen-owner/admission CAS checks still run.
+pub async fn hold_completed_state_from_source_with_model(
+    client: std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
+    source: &NativeCompletedState,
+    model: &d::ValidatedModel,
+    budget: &d::resources::ResourceBudget,
+) -> Result<HeldFrozenCompletedState, ModelError> {
+    if !std::sync::Arc::ptr_eq(&client, &source.client) || !source.budget.shares_pool(budget) {
+        return Err(ModelError::Conflict(
+            "completed source client/resource owner",
+        ));
+    }
+    hold_completed_state_inner(
+        client,
+        source.completion.attempt,
+        source.completion.identity()?,
+        model,
+        budget,
+        Some(source),
+    )
+    .await
+}
+async fn hold_completed_state_inner(
+    client: std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
+    attempt: ContentHash,
+    identity: ContentHash,
+    model: &d::ValidatedModel,
+    budget: &d::resources::ResourceBudget,
+    source: Option<&NativeCompletedState>,
+) -> Result<HeldFrozenCompletedState, ModelError> {
     use surrealdb::types::Variables;
     let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = async {
@@ -428,9 +463,19 @@ pub async fn hold_completed_state_with_model(
         if data.identity()? != identity || data.attempt != attempt {
             return Err(ModelError::Conflict("native completed owner/identity"));
         }
+        if let Some(source) = source
+            && (data != source.completion || expected.incarnation() != source.incarnation())
+        {
+            return Err(ModelError::Conflict(
+                "completed source exact parent changed",
+            ));
+        }
         let held = crate::control::hold_frozen_completed_expected(&client, &data, expected, budget)
             .await?;
-        let inventory = inspect_inventory(&reader, &data, budget).await?;
+        let inventory = match source {
+            Some(source) => source.inventory.clone(),
+            None => inspect_inventory(&reader, &data, budget).await?,
+        };
         let mut vars = Variables::new();
         vars.insert("attempt", RecordId::new("native_attempt", attempt.hex()));
         let admissions: Vec<RecordId> = reader
@@ -816,7 +861,6 @@ pub(crate) async fn inspect_inventory(
     data: &FrozenCompletion,
     budget: &d::resources::ResourceBudget,
 ) -> Result<std::sync::Arc<InstalledViewInventory>, ModelError> {
-    let identity = data.identity()?;
     let parent = data.record()?;
     let mut result = InstalledViewInventory {
         references: Vec::new(),
@@ -828,18 +872,26 @@ pub(crate) async fn inspect_inventory(
     };
     let mut variables = surrealdb::types::Variables::new();
     variables.insert("parent", parent.clone());
-    let mut copies=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables.clone(),vec![],vec!["SELECT * FROM native_completed_contributor WITH INDEX completion_contributor WHERE completion=$parent ORDER BY physical,id".into()])?)?;
+    let _window = budget.reserve(
+        "compound exact inventory pointer windows",
+        crate::loader::NATIVE_WINDOW_ROWS.saturating_mul(2048),
+    )?;
+    let mut copies=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables.clone(),vec![],vec!["SELECT id,physical FROM native_completed_contributor WITH INDEX completion_contributor WHERE completion=$parent ORDER BY physical,id".into()])?)?;
     let observed = async {
         let mut hasher = ContributorHasher::default();
+        let mut previous = None;
+        let mut window = Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS / 2);
         while let Some(row) = copies.next().await? {
-            result._charge.grow(
-                crate::loader::native_bytes(&row)
-                    .saturating_mul(32)
-                    .saturating_add(2048),
-            )?;
-            let copy = ContributorCopy::from_row(&row, identity)?;
-            hasher.row(&copy)?;
-            result.copies.insert(copy.physical, copy);
+            let pointer = InventoryPointer::from_row(&row, "physical", previous.as_ref())?;
+            previous = Some(pointer.key.clone());
+            window.push(pointer);
+            if window.len() >= crate::loader::NATIVE_WINDOW_ROWS / 2 {
+                audit_copy_window(reader, data, &window, &mut result, &mut hasher, budget).await?;
+                window.clear();
+            }
+        }
+        if !window.is_empty() {
+            audit_copy_window(reader, data, &window, &mut result, &mut hasher, budget).await?;
         }
         if hasher.finish() != data.contributor_inventory {
             return Err(ModelError::Conflict(
@@ -855,41 +907,23 @@ pub(crate) async fn inspect_inventory(
         copies.drain_transport().await,
     );
     d::completion::complete(observed, terminal)?;
-    // Inspect each exact physical contributor once, in actual heterogeneous row/guard
-    // windows with its canonical copy child. No selector repeats this acquisition.
-    let _window = budget.reserve(
-        "compound exact copy window handles",
-        crate::loader::NATIVE_WINDOW_ROWS.saturating_mul(2048),
-    )?;
-    let mut windows = Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS);
-    for copy in result.copies.values() {
-        windows.push(copy);
-        if windows.len() >= crate::loader::NATIVE_WINDOW_ROWS / 2 {
-            audit_copy_window(reader, data, &windows, budget).await?;
-            windows.clear();
-        }
-    }
-    if !windows.is_empty() {
-        audit_copy_window(reader, data, &windows, budget).await?;
-    }
-    drop(windows);
-    let mut selectors=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables.clone(),vec![],vec!["SELECT * FROM native_completed_view WITH INDEX completion_view WHERE completion=$parent ORDER BY logical_view,id".into()])?)?;
+    let mut selectors=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables.clone(),vec![],vec!["SELECT id,logical_view FROM native_completed_view WITH INDEX completion_view WHERE completion=$parent ORDER BY logical_view,id".into()])?)?;
     let observed = async {
         let mut hasher = RealizationHasher::default();
+        let mut previous = None;
+        let mut window = Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS / 2);
         while let Some(row) = selectors.next().await? {
-            result._charge.grow(
-                crate::loader::native_bytes(&row)
-                    .saturating_mul(32)
-                    .saturating_add(2048)
-                    .saturating_add(2 * std::mem::size_of::<InstalledViewRef>()),
-            )?;
-            let reference = InstalledViewRef::from_row(&row, identity)?;
-            hasher.row(&reference)?;
-            validate_selector_copies(data, &reference.selector, &result.copies)?;
-            result
-                .installed
-                .insert(reference.logical_view, reference.selector.clone());
-            result.references.push(reference);
+            let pointer = InventoryPointer::from_row(&row, "logical_view", previous.as_ref())?;
+            previous = Some(pointer.key.clone());
+            window.push(pointer);
+            if window.len() >= crate::loader::NATIVE_WINDOW_ROWS / 2 {
+                audit_selector_window(reader, data, &window, &mut result, &mut hasher, budget)
+                    .await?;
+                window.clear();
+            }
+        }
+        if !window.is_empty() {
+            audit_selector_window(reader, data, &window, &mut result, &mut hasher, budget).await?;
         }
         if hasher.finish() != data.realization_inventory {
             return Err(ModelError::Conflict(
@@ -925,18 +959,6 @@ pub(crate) async fn inspect_inventory(
             "compound contributor inventory extra/missing selector incidence",
         ));
     }
-    let mut windows = Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS / 2);
-    for reference in &result.references {
-        windows.push(reference);
-        if windows.len() >= crate::loader::NATIVE_WINDOW_ROWS / 2 {
-            audit_selector_window(reader, data, &windows, budget).await?;
-            windows.clear();
-        }
-    }
-    if !windows.is_empty() {
-        audit_selector_window(reader, data, &windows, budget).await?;
-    }
-    drop(windows);
     let mut bindings=reader.stream_prepared(crate::prepared::PreparedQuery::new(variables,vec![],vec!["SELECT object AS id FROM native_hold WITH INDEX owner_holds WHERE owner=$parent AND record::table(object)='compiler_binding_descriptor' ORDER BY object".into()])?)?;
     let observed = async {
         let mut window = Vec::with_capacity(crate::loader::NATIVE_WINDOW_ROWS);
@@ -1005,26 +1027,94 @@ pub(crate) fn validate_selector_copies(
     }
     Ok(())
 }
+/// Narrow discovery retains stream order; exact guarded children establish meaning.
+struct InventoryPointer {
+    id: RecordId,
+    key: String,
+}
+impl InventoryPointer {
+    fn from_row(row: &Value, key: &str, previous: Option<&String>) -> Result<Self, ModelError> {
+        let object = row
+            .as_object()
+            .ok_or(ModelError::Schema("compound inventory pointer"))?;
+        let (Some(Value::RecordId(id)), Some(Value::String(value))) =
+            (object.get("id"), object.get(key))
+        else {
+            return Err(ModelError::Schema("compound inventory pointer fields"));
+        };
+        let table = match key {
+            "physical" => "native_completed_contributor",
+            "logical_view" => "native_completed_view",
+            _ => return Err(ModelError::Schema("compound inventory pointer key")),
+        };
+        let hex = |value: &str| {
+            value.len() == 64
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        };
+        let surrealdb::types::RecordIdKey::String(id_key) = &id.key else {
+            return Err(ModelError::Schema("compound inventory pointer identity"));
+        };
+        if object.len() != 2
+            || id.table.as_str() != table
+            || !hex(id_key)
+            || !hex(value)
+            || previous.is_some_and(|previous| previous >= value)
+        {
+            return Err(ModelError::Conflict(
+                "compound inventory pointer envelope/order/duplicate",
+            ));
+        }
+        Ok(Self {
+            id: id.clone(),
+            key: value.clone(),
+        })
+    }
+    fn copy(&self, row: &Value, completion: ContentHash) -> Result<ContributorCopy, ModelError> {
+        let copy = ContributorCopy::from_row(row, completion)?;
+        if self.id != copy.record(completion) || self.key != copy.physical.hex() {
+            return Err(ModelError::Conflict("compound copy pointer exact child"));
+        }
+        Ok(copy)
+    }
+    fn selector(
+        &self,
+        row: &Value,
+        completion: ContentHash,
+    ) -> Result<InstalledViewRef, ModelError> {
+        let reference = InstalledViewRef::from_row(row, completion)?;
+        if self.id != reference.record(completion) || self.key != reference.logical_view.hex() {
+            return Err(ModelError::Conflict(
+                "compound selector pointer exact child",
+            ));
+        }
+        Ok(reference)
+    }
+}
 async fn audit_copy_window(
     reader: &crate::NativeReader<()>,
     data: &FrozenCompletion,
-    copies: &[&ContributorCopy],
+    pointers: &[InventoryPointer],
+    inventory: &mut InstalledViewInventory,
+    hasher: &mut ContributorHasher,
     budget: &d::resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     let identity = data.identity()?;
-    let mut ids = Vec::with_capacity(copies.len() * 2);
-    for copy in copies {
-        ids.push(copy.record(identity));
-        ids.push(RecordId::new("compiler_contribution", copy.physical.hex()));
+    let mut ids = Vec::with_capacity(pointers.len() * 2);
+    for pointer in pointers {
+        ids.push(pointer.id.clone());
+        ids.push(RecordId::new("compiler_contribution", pointer.key.clone()));
     }
     let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
-    for copy in copies {
-        let child = actual.take_required(&copy.record(identity))?;
-        if child.row() != copy.value(identity)? {
-            return Err(ModelError::Conflict(
-                "compound guarded copy descriptor changed",
-            ));
-        }
+    for pointer in pointers {
+        let child = actual.take_required(&pointer.id)?;
+        inventory._charge.grow(
+            crate::loader::native_bytes(child.row())
+                .saturating_mul(32)
+                .saturating_add(2048),
+        )?;
+        let copy = pointer.copy(child.row(), identity)?;
         let physical = RecordId::new("compiler_contribution", copy.physical.hex());
         let expected = actual.take_required(&physical)?;
         crate::completed_rows::validate_state_row("compiler_contribution", expected.row())?;
@@ -1037,29 +1127,35 @@ async fn audit_copy_window(
                 "compound contributor actual full descriptor/incarnation",
             ));
         }
+        hasher.row(&copy)?;
+        inventory.copies.insert(copy.physical, copy);
     }
     actual.finish()
 }
 async fn audit_selector_window(
     reader: &crate::NativeReader<()>,
     data: &FrozenCompletion,
-    references: &[&InstalledViewRef],
+    pointers: &[InventoryPointer],
+    inventory: &mut InstalledViewInventory,
+    hasher: &mut RealizationHasher,
     budget: &d::resources::ResourceBudget,
 ) -> Result<(), ModelError> {
     let identity = data.identity()?;
-    let mut ids = Vec::with_capacity(references.len() * 2);
-    for reference in references {
-        ids.push(reference.record(identity));
-        ids.push(RecordId::new("compiler_view", reference.logical_view.hex()));
+    let mut ids = Vec::with_capacity(pointers.len() * 2);
+    for pointer in pointers {
+        ids.push(pointer.id.clone());
+        ids.push(RecordId::new("compiler_view", pointer.key.clone()));
     }
     let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
-    for reference in references {
-        let selector = actual.take_required(&reference.record(identity))?;
-        if selector.row() != reference.value(identity)? {
-            return Err(ModelError::Conflict(
-                "compound guarded selector bytes changed",
-            ));
-        }
+    for pointer in pointers {
+        let selector = actual.take_required(&pointer.id)?;
+        inventory._charge.grow(
+            crate::loader::native_bytes(selector.row())
+                .saturating_mul(32)
+                .saturating_add(2048)
+                .saturating_add(2 * std::mem::size_of::<InstalledViewRef>()),
+        )?;
+        let reference = pointer.selector(selector.row(), identity)?;
         let semantic = actual.take_required(&RecordId::new(
             "compiler_view",
             reference.logical_view.hex(),
@@ -1072,6 +1168,12 @@ async fn audit_selector_window(
                 "compound semantic view descriptor changed",
             ));
         }
+        validate_selector_copies(data, &reference.selector, &inventory.copies)?;
+        hasher.row(&reference)?;
+        inventory
+            .installed
+            .insert(reference.logical_view, reference.selector.clone());
+        inventory.references.push(reference);
     }
     actual.finish()
 }
@@ -1123,6 +1225,9 @@ async fn audit_binding_window(
 /// Physical completion precedes semantic admission. This private-field owner can only
 /// be earned by the independent native completion writer under a durable frozen fence.
 pub struct NativeCompletedState {
+    // Actual source provenance, never reconstructed from serialized identities.
+    pub(crate) client: std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
+    pub(crate) budget: d::resources::ResourceBudget,
     pub(crate) completion: FrozenCompletion,
     pub(crate) held: crate::control::HeldRecord,
     pub(crate) inventory: std::sync::Arc<InstalledViewInventory>,
@@ -1201,6 +1306,8 @@ pub(crate) async fn hold_physical_state_for_attempt(
         let repeated =
             crate::control::hold_frozen_physical_expected(&client, &data, expected, budget).await?;
         Ok(NativeCompletedState {
+            client: client.clone(),
+            budget: budget.clone(),
             completion: data,
             held: repeated,
             inventory,
@@ -1706,6 +1813,81 @@ mod compound_controls {
         assert!(changed.validate().is_err());
     }
     #[test]
+    fn inventory_projection_pointers_require_exact_guarded_children_and_stream_order() {
+        let parent = completion().identity().unwrap();
+        let copy = ContributorCopy {
+            physical: ContentHash([5; 32]),
+            incarnation: 1,
+            descriptor: contributor(),
+        };
+        let copy_row = copy.value(parent).unwrap();
+        let mut reference = selector();
+        reference.selector.parent_completion = parent;
+        let selector_row = reference.value(parent).unwrap();
+        let projection = |id: RecordId, key: &str, value: String| {
+            let mut row = Object::new();
+            row.insert("id", id);
+            row.insert(key, value);
+            Value::Object(row)
+        };
+        for (row, key, value) in [
+            (&copy_row, "physical", copy.physical.hex()),
+            (&selector_row, "logical_view", reference.logical_view.hex()),
+        ] {
+            let id =
+                RecordId::from_value(row.as_object().unwrap().get("id").unwrap().clone()).unwrap();
+            let projected = projection(id, key, value.clone());
+            let pointer = InventoryPointer::from_row(&projected, key, None).unwrap();
+            if key == "physical" {
+                assert_eq!(pointer.copy(row, parent).unwrap(), copy);
+                assert!(pointer.copy(row, ContentHash([9; 32])).is_err());
+                let wrong_key = InventoryPointer {
+                    id: pointer.id.clone(),
+                    key: ContentHash([8; 32]).hex(),
+                };
+                assert!(wrong_key.copy(row, parent).is_err());
+                let wrong_id = InventoryPointer {
+                    id: RecordId::new("native_completed_contributor", "other"),
+                    key: value.clone(),
+                };
+                assert!(wrong_id.copy(row, parent).is_err());
+            } else {
+                assert_eq!(pointer.selector(row, parent).unwrap(), reference);
+                assert!(pointer.selector(row, ContentHash([9; 32])).is_err());
+                let wrong_key = InventoryPointer {
+                    id: pointer.id.clone(),
+                    key: ContentHash([8; 32]).hex(),
+                };
+                assert!(wrong_key.selector(row, parent).is_err());
+                let wrong_id = InventoryPointer {
+                    id: RecordId::new("native_completed_view", "other"),
+                    key: value.clone(),
+                };
+                assert!(wrong_id.selector(row, parent).is_err());
+            }
+            assert!(InventoryPointer::from_row(&projected, key, Some(&value)).is_err());
+            assert!(InventoryPointer::from_row(&projected, key, Some(&"f".repeat(64))).is_err());
+            assert!(InventoryPointer::from_row(&projected, key, Some(&"0".repeat(64))).is_ok());
+            assert!(InventoryPointer::from_row(row, key, None).is_err());
+            assert!(
+                InventoryPointer::from_row(
+                    &projection(pointer.id.clone(), key, "bad".into()),
+                    key,
+                    None
+                )
+                .is_err()
+            );
+            assert!(
+                InventoryPointer::from_row(
+                    &projection(RecordId::new("foreign", "0".repeat(64)), key, value),
+                    key,
+                    None
+                )
+                .is_err()
+            );
+        }
+    }
+    #[test]
     fn retained_boundary_preserves_zero_source_revision_without_claiming_aggregate_freeze() {
         let mut retained = completion();
         retained.completed_revision = 0;
@@ -1780,7 +1962,7 @@ async fn audit_parent_holds(
         )?)?;
     }
     let expected = expected.finish()?.into_prepared();
-    let mut actual = crate::ordered_rows::SortedRows::with_budget(budget)?;
+    let mut exact = ParentHoldInventoryCursor::new(&expected, budget)?;
     let mut variables = surrealdb::types::Variables::new();
     variables.insert("parent", parent.clone());
     let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(
@@ -1792,18 +1974,10 @@ async fn audit_parent_holds(
         ],
     )?)?;
     let result = async {
-        let mut previous = None;
         while let Some(row) = rows.next().await? {
-            let _scratch = budget.reserve(
-                "compound actual hold inventory envelope",
-                crate::loader::native_bytes(&row)
-                    .saturating_mul(16)
-                    .saturating_add(4096),
-            )?;
-            previous = Some(check_parent_hold(&parent, &row, previous.as_ref())?);
-            actual.push(row)?;
+            exact.row(&parent, &row, budget)?;
         }
-        Ok(())
+        exact.finish()
     }
     .await;
     let mut terminal = d::completion::Completion::default();
@@ -1811,8 +1985,7 @@ async fn audit_parent_holds(
         "compound parent hold complete EOF/drain",
         rows.drain_transport().await,
     );
-    d::completion::complete(result, terminal)?;
-    exact_parent_hold_inventory(&expected, &actual.finish()?.into_prepared(), budget)
+    d::completion::complete(result, terminal)
 }
 fn parent_hold(parent: &RecordId, object: RecordId) -> Result<Value, ModelError> {
     let mut row = Object::new();
@@ -1842,24 +2015,51 @@ fn check_parent_hold(
     }
     Ok(id)
 }
-fn exact_parent_hold_inventory(
-    expected: &crate::ordered_rows::PreparedRows,
-    actual: &crate::ordered_rows::PreparedRows,
-    budget: &d::resources::ResourceBudget,
-) -> Result<(), ModelError> {
-    let mut expected = expected.frame_cursor(budget)?;
-    let mut actual = actual.frame_cursor(budget)?;
-    loop {
-        match (expected.next_frame()?, actual.next_frame()?) {
-            (None, None) => return Ok(()),
-            (Some((left_id, left)), Some((right_id, right)))
-                if left_id == right_id && left == right => {}
-            _ => {
-                return Err(ModelError::Conflict(
-                    "compound parent actual hold inventory extra/missing/substitution",
-                ));
+struct ParentHoldInventoryCursor {
+    expected: crate::ordered_rows::PreparedFrameRows,
+    previous: Option<RecordId>,
+}
+impl ParentHoldInventoryCursor {
+    fn new(
+        expected: &crate::ordered_rows::PreparedRows,
+        budget: &d::resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        Ok(Self {
+            expected: expected.frame_cursor(budget)?,
+            previous: None,
+        })
+    }
+    fn row(
+        &mut self,
+        parent: &RecordId,
+        row: &Value,
+        budget: &d::resources::ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let _scratch = budget.reserve(
+            "compound actual hold inventory envelope",
+            crate::loader::native_bytes(row)
+                .saturating_mul(16)
+                .saturating_add(4096),
+        )?;
+        let id = check_parent_hold(parent, row, self.previous.as_ref())?;
+        let frame = serde_json::to_vec(row).map_err(ModelError::codec)?;
+        match self.expected.next_frame()? {
+            Some((expected_id, expected)) if expected_id == &id && expected == frame => {
+                self.previous = Some(id);
+                Ok(())
             }
+            _ => Err(ModelError::Conflict(
+                "compound parent actual hold inventory extra/missing/substitution",
+            )),
         }
+    }
+    fn finish(mut self) -> Result<(), ModelError> {
+        if self.expected.next_frame()?.is_some() {
+            return Err(ModelError::Conflict(
+                "compound parent actual hold inventory extra/missing/substitution",
+            ));
+        }
+        Ok(())
     }
 }
 #[cfg(test)]
@@ -1883,16 +2083,24 @@ mod parent_hold_controls {
             rows.finish().unwrap().into_prepared()
         };
         let expected = prepare(&copies);
-        exact_parent_hold_inventory(&expected, &prepare(&copies), &budget).unwrap();
+        let compare = |actual: &crate::ordered_rows::PreparedRows| -> Result<(), ModelError> {
+            let mut exact = ParentHoldInventoryCursor::new(&expected, &budget)?;
+            let mut rows = actual.cursor_with_budget(&budget)?;
+            while let Some(row) = rows.next_row()? {
+                exact.row(&parent, &row, &budget)?;
+            }
+            exact.finish()
+        };
+        compare(&prepare(&copies)).unwrap();
         let mut extra = copies.to_vec();
         extra.push(RecordId::new("compiler_contribution", "extra"));
-        assert!(exact_parent_hold_inventory(&expected, &prepare(&extra), &budget).is_err());
-        assert!(exact_parent_hold_inventory(&expected, &prepare(&copies[..1]), &budget).is_err());
+        assert!(compare(&prepare(&extra)).is_err());
+        assert!(compare(&prepare(&copies[..1])).is_err());
         let substituted = [
             copies[0].clone(),
             RecordId::new("native_completed_view", "other"),
         ];
-        assert!(exact_parent_hold_inventory(&expected, &prepare(&substituted), &budget).is_err());
+        assert!(compare(&prepare(&substituted)).is_err());
         let row = parent_hold(&parent, copies[0].clone()).unwrap();
         let previous = check_parent_hold(&parent, &row, None).unwrap();
         assert!(check_parent_hold(&parent, &row, Some(&previous)).is_err());
@@ -1903,6 +2111,41 @@ mod parent_hold_controls {
                 None
             )
             .is_err()
+        );
+        let mut rows = expected.cursor_with_budget(&budget).unwrap();
+        let first = rows.next_row().unwrap().unwrap();
+        let second = rows.next_row().unwrap().unwrap();
+        let mut duplicate = ParentHoldInventoryCursor::new(&expected, &budget).unwrap();
+        duplicate.row(&parent, &first, &budget).unwrap();
+        assert!(duplicate.row(&parent, &first, &budget).is_err());
+        let mut reversed = ParentHoldInventoryCursor::new(&expected, &budget).unwrap();
+        assert!(reversed.row(&parent, &second, &budget).is_err());
+        let mut foreign = ParentHoldInventoryCursor::new(&expected, &budget).unwrap();
+        assert!(
+            foreign
+                .row(
+                    &RecordId::new("native_completed_state", "foreign"),
+                    &first,
+                    &budget
+                )
+                .is_err()
+        );
+        assert!(
+            ParentHoldInventoryCursor::new(&expected, &budget)
+                .unwrap()
+                .finish()
+                .is_err()
+        );
+        let empty = prepare(&[]);
+        ParentHoldInventoryCursor::new(&empty, &budget)
+            .unwrap()
+            .finish()
+            .unwrap();
+        assert!(
+            ParentHoldInventoryCursor::new(&empty, &budget)
+                .unwrap()
+                .row(&parent, &first, &budget)
+                .is_err()
         );
     }
 }

@@ -1,5 +1,6 @@
-//! Native physical completion earning. All public inputs are data, independently audited
-//! against exact held physical copies; semantic admission is a separate opaque transition.
+//! Native physical completion earning. Data-only factories independently audit exact held
+//! copies; explicit source-backed construction borrows a live protected audit. Every new
+//! receiver earns its inventory and finality; semantic admission is a separate transition.
 use super::*;
 use crate::{
     installed_view::{self, ContributorRealization, InstalledViewCompletion},
@@ -98,6 +99,29 @@ enum BoundaryMode<'a> {
     Frozen(&'a FrozenContentFence),
     Live(crate::control::live_view::LiveViewOwner),
 }
+#[derive(Clone, Copy)]
+enum BoundaryInspection<'a> {
+    Fresh(&'a installed_view::InstallationAudit),
+    Source(&'a installed_view::ProtectedInspectionSource<'a>),
+}
+impl<'a> BoundaryInspection<'a> {
+    fn audit(self) -> &'a installed_view::InstallationAudit {
+        match self {
+            Self::Fresh(audit) => audit,
+            Self::Source(source) => source.audit(),
+        }
+    }
+    fn scope(
+        self,
+        reader: &crate::NativeReader<()>,
+        budget: &ResourceBudget,
+    ) -> Result<installed_view::audit::ClosureInspectionScope, ModelError> {
+        match self {
+            Self::Fresh(audit) => installed_view::audit::ClosureInspectionScope::new(audit, budget),
+            Self::Source(source) => source.inspection_scope(reader, budget),
+        }
+    }
+}
 fn boundary_writer<'a>(
     client: &'a Surreal<Client>,
     mode: &BoundaryMode<'_>,
@@ -183,7 +207,28 @@ pub async fn complete_frozen_content_scoped(
         selections,
         budget,
         BoundaryMode::Frozen(fence),
-        audit,
+        BoundaryInspection::Fresh(audit),
+    )
+    .await
+}
+/// Internal composition may borrow exact observations beneath its still-live source audit.
+/// The new boundary independently earns all selected-copy holds and receiving finality.
+pub async fn complete_frozen_content_from_source(
+    client: Arc<Surreal<Client>>,
+    fence: &FrozenContentFence,
+    bindings: &[d::completed::CompletedBinding],
+    selections: &[ViewSelection],
+    budget: &ResourceBudget,
+    source: &installed_view::ProtectedInspectionSource<'_>,
+) -> Result<NativeCompletedState, ModelError> {
+    complete_boundary_content(
+        client,
+        fence,
+        bindings,
+        selections,
+        budget,
+        BoundaryMode::Frozen(fence),
+        BoundaryInspection::Source(source),
     )
     .await
 }
@@ -211,6 +256,43 @@ pub async fn complete_retained_content_scoped(
     budget: &ResourceBudget,
     audit: &installed_view::InstallationAudit,
 ) -> Result<NativeRetainedState, ModelError> {
+    complete_retained_content_inner(
+        client,
+        attempt,
+        bindings,
+        selections,
+        budget,
+        BoundaryInspection::Fresh(audit),
+    )
+    .await
+}
+/// Borrow protected operation observations while earning an independent retained lifetime.
+pub async fn complete_retained_content_from_source(
+    client: Arc<Surreal<Client>>,
+    attempt: ContentHash,
+    bindings: &[d::completed::CompletedBinding],
+    selections: &[ViewSelection],
+    budget: &ResourceBudget,
+    source: &installed_view::ProtectedInspectionSource<'_>,
+) -> Result<NativeRetainedState, ModelError> {
+    complete_retained_content_inner(
+        client,
+        attempt,
+        bindings,
+        selections,
+        budget,
+        BoundaryInspection::Source(source),
+    )
+    .await
+}
+async fn complete_retained_content_inner(
+    client: Arc<Surreal<Client>>,
+    attempt: ContentHash,
+    bindings: &[d::completed::CompletedBinding],
+    selections: &[ViewSelection],
+    budget: &ResourceBudget,
+    inspection: BoundaryInspection<'_>,
+) -> Result<NativeRetainedState, ModelError> {
     let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = async {
         let owner = crate::control::live_view::capture(&reader, attempt, budget).await?;
@@ -231,7 +313,7 @@ pub async fn complete_retained_content_scoped(
             selections,
             budget,
             BoundaryMode::Live(owner),
-            audit,
+            inspection,
         )
         .await?;
         let pin = crate::control::ReaderPin::acquire(client.clone(), &[]).await?;
@@ -294,8 +376,9 @@ async fn complete_boundary_content(
     selections: &[ViewSelection],
     budget: &ResourceBudget,
     mode: BoundaryMode<'_>,
-    audit: &installed_view::InstallationAudit,
+    inspection: BoundaryInspection<'_>,
 ) -> Result<NativeCompletedState, ModelError> {
+    let audit = inspection.audit();
     let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = async {
         audit.ensure_context(&reader, budget).await?;
@@ -316,7 +399,7 @@ async fn complete_boundary_content(
         let mut copies = std::collections::BTreeMap::<ContentHash, ContributorCopy>::new();
         let mut alias_runs = Vec::new();
         let assurance_phase = crate::phase::Phase::begin("native_compound_selection_assurance");
-        let mut inspections = installed_view::audit::ClosureInspectionScope::new(audit, budget)?;
+        let mut inspections = inspection.scope(&reader, budget)?;
         inspections
             .prepare_views(
                 &reader,
@@ -490,6 +573,8 @@ async fn complete_boundary_content(
             }
             let held = hold_boundary(&client, &mode, &data, expected, budget).await?;
             return Ok(NativeCompletedState {
+                client: client.clone(),
+                budget: budget.clone(),
                 completion: data,
                 held,
                 inventory,
@@ -613,6 +698,8 @@ async fn complete_boundary_content(
             .ok_or(ModelError::Conflict("compound completed parent absent"))?;
         let held = hold_boundary(&client, &mode, &data, expected, budget).await?;
         Ok(NativeCompletedState {
+            client: client.clone(),
+            budget: budget.clone(),
             completion: data,
             held,
             inventory,
