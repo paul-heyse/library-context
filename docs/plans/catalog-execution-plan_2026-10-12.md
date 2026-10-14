@@ -465,6 +465,21 @@ stays retained for the remaining acceptance run and subsequent checked disposal.
 whole-plan completion remain open; older plans are not substantively reconciled early. Broad repo
 quality/qualification and excluded runtime remain not_run under the operator's scope.
 
+**Operator-requested pause,2026-10-13 local /2026-10-14 UTC.** Current-source Catalog run
+`20261014T005612.809Z-4c15ff` compiled successfully, then was explicitly cancelled by
+`just runs cancel 20261014T005612.809Z-4c15ff` at01:09:08UTC. Managed exit143/local cleanup
+confirmed01:09:09UTC, owner/group gone and no survivors. Nextest reports0 passed/1 failed/2 skipped,
+SIGKILL after567.384s; this is interrupted evidence, not a completed functional verdict or timeout.
+Catalog selection completed; synthesis reached native contribution completion and was interrupted
+during subsequent `native_compound_selection_assurance` retention. The full generated-analysis,
+independent admission, publication and linked-query acceptance remains unproven. Native completion
+is not established by local cleanup; attachment `b60cf585-fb41-4acd-85cb-a6b008e53578` and owned
+target i remain protected. No restart, native recovery, disposal or CE03 reconciliation follows the
+stop. Await the operator's requested check. CE01/CE02/CE03 remain open; original failures/Unknown
+remain unchanged. The previously interrupted diagnostic attachment's authenticated local recovery
+`20261014T010109.133Z-7210d5` confirmed local cleanup but exited1 refusing native release because
+completion was not observed; it does not establish native cleanup or whole-run success.
+
 Independent implementation review found selector-crossing alias witnesses, partially committed
 receiving attachment, and abandoned retained-boundary pin release. Corrections are source-reviewed:
 alias edges carry selector eligibility; full attachment prevalidation precedes one receiving CAS;
