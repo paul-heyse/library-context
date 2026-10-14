@@ -112,10 +112,10 @@ surfaces, integration and acceptance; independent ready work may proceed with no
 | CC01 — dependency-ready compilation | CC00's exact prerequisite/selection contract plus working assembly/freeze integration; retain dependency metadata and migrate facts, normalization/upper dispatch and actual consumers coherently |
 | CC02 — provider cancellation/preparation | Register transaction-local Pyrefly cancellation with existing run ownership; complete D01/D07/D08/D09/D13 decisions and chosen local changes. Cancellation capability should precede relying on concurrent sibling failure handling |
 | CC03 — Behavioral Flow streaming | Preserve one prepared import Program; lower/emit module results incrementally with refusal/backpressure. Independent of optional module-query concurrency |
-| CA03 — selected graph/analytic refinements | Complete D03–D06; integrate each selected change with its real consumers and independent semantic controls. No all-pairs closure, full-lattice or new solver adoption by default |
+| CA03 — selected graph/analytic refinements | Preserve D04's flat witness choice and complete D03/D05/D06; integrate each selected change with its real consumers and independent semantic controls. No all-pairs closure, full-lattice or new solver adoption by default |
 | CN01 — carry executed scoped validity | CC00 exact premise/owner contract; successful terminal checks create private evidence. Final certification certifies new/changed scope and current physical realization |
 | CN02 — retain search expectations | Exact immutable canonical input/definition context; retain ordered expected runs through finalization, rewind for fresh actual comparison; cold routes derive independently |
-| CN03 — inherited native/consumer completion | Preserve CP/CU foundations; complete current-source protected-source/receiving/cold acceptance and any exposed migration gaps. Complete D02/D10–D12, integrating selected corrections without weakening guards |
+| CN03 — inherited native/consumer completion | Preserve CP/CU foundations; complete current-source protected-source/receiving/cold acceptance and any exposed migration gaps. Preserve D02's root fencing and complete D10–D12, integrating selected corrections without weakening guards |
 | CO01 — changed operations seams | Adapt affected diagnostics/generated definitions/beta controls alongside the changes that require them; retain existing target/run/storage owners and C01–C11 choices |
 | CX01 — focused composition | Required functional changes and selected investigations integrated; independent integrated design assessment, focused affected controls and genuine fixture Catalog/admission/publication/native-query/original composition |
 | CX02 — pinned FastMCP exit | Working CX01 critical path; full Catalog compile, independent admission, unselected publication and linked native-query/original evidence over the pinned project, embeddings/MCP runtime disabled |
@@ -199,23 +199,91 @@ In particular S04/F01 overlaps N10/F05 without importing all of N10's migration 
 
 ## 6. Sole disposition and execution checkpoint
 
-**2026-10-14: documentation consolidation only.** New remedies and CX01–CX04 are not_run; existing
-CP/CU/OP foundations below retain their precise source/test limits. The predecessor CE01/CE02/CE03
-remain unsatisfied through CX01–CX04. No production source, format, schema, service or selection
-changed during authoring. The old coordinator/companions were retired after complete transfer.
+**2026-10-14: CC00/compiler source delivery and focused closeout.** ADR-0168 accepts exact relation readiness
+independently of whole-prefix publication and complete private same-operation validity/expectation
+premises. CC00's D02 retains root fencing; D04 retains flat published witnesses with internal arenas
+left to CA02. RC03 is unused. CC01 exact selections/native composition, ready provider/normalization/
+upper dispatch and actual-borrower preparation are source-integrated; pure acceptance passed and native acceptance is blocked below.
+CC02 cancellable Pyrefly and compact inherited-field correspondence and CC03 module streaming are
+source-integrated. Focused cancellation/Flow/model/preparation controls and scoped compilation/Clippy
+support their stated boundaries; native selection/ingress and inherited-field acceptance remain blocked.
+No timing benefit, native validity/search implementation or enclosing Catalog
+acceptance follows. CN01–CN03, CA01–CA03, CO01 and CX01–CX04 remain scheduled; no full journey,
+regeneration, operator adoption or older-plan handback ran.
 
-**Authoring checks,2026-10-14:** focused independent compiler/native advice and root integration
-assessment supplied the foundation decisions; read-only carry-forward checking confirmed finding/
-package/acceptance transfer, with the G chronology reconciled against its later disposal receipt.
-`uv run --no-project --offline --no-python-downloads python -` source-reference inspection passed537
-local references across26 changed/new Markdown documents; no retired-coordinator references remain.
-`git diff --check` passed. `just docs-check` failed before publication on13 existing ADR owner-reference
-errors and the existing missing ADR-0151 decision line; before commit its immutability guard also
-flags the three operator-authorized navigation-only ADR edits. That guard is unchanged. No full
-publication pass, separate formal plan acceptance, product check or runtime result is claimed.
-Post-commit `just docs-check` at `ae91b3c4` again failed on only the14 unchanged baseline metadata
-errors above; no authorized-navigation immutability diagnostic remained. Full publication was still
-not reached. This follow-up changes no architectural or execution disposition.
+The publication-only baseline `c9b7cd31` retains its537-reference check and14 pre-existing ADR
+metadata failures. Earlier receipts below retain their dates/source limits. Execution receipts below record terminal outcome/cleanup separately from builds and source review.
+
+### Compiler delivery and focused receipts,2026-10-14
+
+CC00 contracts and D01/D02/D04/D07/D08/D09/D13 dispositions are complete at their stated source/
+focused strengths. CC01/CC02 implementations are integrated, with native acceptance blocked below.
+CC03's visitor and real Flow controls satisfy its bounded exit. Old serial/result-gather routes and
+full inherited Spans retention are removed; only test-local Flow collection remains. The normalized
+barrier, genuine Behavioral authority chain, root fencing, ordinary outcomes and exact selected
+ports remain. Ready futures overlap async/native waits and existing off-thread kernels; synchronous
+model work inside one poll is not claimed to use all CPUs concurrently. No measured speed claim.
+
+| Command / receipt | Outcome and scope |
+|---|---|
+| `cargo check --release --locked -p cpg-core --tests -p cpg-extract -p cpg-flow -p lctx-model -p lctx-compiler-store` | passed; affected production/test typechecking. Later private binding boxing also passed all-target Clippy |
+| `cargo check --release --locked -p lctx -p lctx-semantics` | passed; CLI/Python bridge compile only, no embedding/MCP runtime |
+| `just verify --rerun 20261014T084201.379Z-ae5959` → `20261014T084422.549Z-e44254` | passed8 filtered cancellation/span controls, including actual pinned Pyrefly dependency-wave cancellation. Recorder lifecycle cases establish contracts, not real-library/provider qualification |
+| `just verify --select providers:flow --nextest-args '-E test(settings_tests::)'` → `20261014T084342.282Z-a4428f` | passed7 pure controls: one Program/cross-module facts, exact view identities, incremental query/emission, callback stop, module failure/empty input and lexer recovery comparison |
+| `just verify --select model:rust --nextest-args "--lib --test domain_stages --test analysis_schedule --test dependency_closure -E 'binary(domain_stages) \| binary(analysis_schedule) \| binary(dependency_closure) \| test(compact_)'"` → `20261014T091845.626Z-408d30` | original run failed:42 passed,1 failed on a newly overbroad RunFamily dependency assertion. Captured-domain reconstruction needs admitted metadata; original chunks/family completeness remain at prior admission. Corrected case is the next receipt, not a retroactive whole-run pass |
+| `just verify --select model:rust --nextest-args "--lib -E 'test(compact_catalog_inputs_retain_domain_and_config_without_execution_predecessors)'"` → `20261014T092417.444Z-dfcaac` | passed corrected compact contract case; actual required frame/source/config metadata and ordinary/Behavioral preservation remain asserted |
+| `just run --label catalog-compiler-pure -- cargo nextest run --release --no-fail-fast --no-tests=fail -p cpg-core --lib -E 'test(upper_completion_controls) \| test(compilation::preparation::controls) \| test(projection_slots_coalesce) \| test(graph_selection_refuses) \| test(value_publication_boundaries)'` → `20261014T091114.753Z-f50774` | passed7 pure controls: actual production failure-settlement helper, last-running/remaining consumers, slot refusal/accounting and semantic value boundaries; not native upper-dispatch qualification |
+| `just run --label catalog-compiler-schedule -- cargo nextest run --release --no-fail-fast --no-tests=fail -p cpg-core --test compilation_schedule -E 'test(prepared_schedules_bind_canonical_values_to_completed_producer_epochs)'` → `20261014T092507.695Z-eb1d48` | passed actual declaration test across both profiles/selected analytics settings; seven Catalog compact peers ready together, C0 genuine prerequisites and canonical value epochs preserved |
+| `just run --label catalog-compiler-clippy -- cargo clippy --release --locked --all-targets --keep-going -p lctx-model -p lctx-compiler-store -p cpg-core -p cpg-extract -p cpg-flow -- -D warnings` → `20261014T091218.154Z-b5b363` | failed only cpg-core large-enum-variant diagnostic; four other owners checked clean. Boxed private BindingApplication, preserving owned handoff |
+| `just run --label catalog-compiler-clippy-repair -- cargo clippy --release --locked --all-targets --keep-going -p cpg-core -- -D warnings` → `20261014T092233.443Z-763887` | passed; no warnings, confirmed owner cleanup |
+
+Structured evidence and generic-run receipt/log objects cited above retain consumer
+`citation:catalog-creation-compiler`. Child outcomes and native attachment finality remain separate.
+Initial in-flight duplicate-derive/test-iterator failures and a zero-selected Flow filter were repaired;
+they do not qualify anything. `just adr-lint` / `just docs-check` encounter the14 baseline
+metadata defects after scoped turn-end refreshed the ADR index and affected formatting. No unrelated metadata repair or
+full documentation publication pass is claimed. All owned workers/commands have ended; no worktree
+was created. The operator's Cargo clean is expected rebuild cost, not a product failure or timing
+comparison; completed receipts retain their original conditions.
+
+### Current native validation block,2026-10-14
+
+The installed stable validation target lacks `native_admission_stripe`, already required by baseline
+`c9b7cd31` native schema/authorization. Run `20261014T085155.389Z-5048dc` and the final inherited-field
+retry failed before intended native behavior. In5048dc, five existing native selection controls failed
+at the missing table; its two other failures were the new partial-model test fixture (corrected to the
+full model) and inferred-writer prerequisite handling (corrected, actual schedule now passes `eb1d48`).
+The corrected native test remains unrun against this unavailable prerequisite. Original outcomes
+remain failed; affected native acceptance is blocked on infrastructure. No service/schema install, repair, restart or scratch fallback
+was performed. Root `5048dc` child cleanup is confirmed; attachment `be1dcfff-2b76-4bfd-8675-a07cc2ee5bef`
+retains five Started native compiler-store receipts and protected Unknown. The inherited retry's
+attachment `931e1988-60d3-4346-ad16-6efe7d9889a0` likewise retains Started native completion Unknown.
+Both name fixture `58abe9ea-2088-4109-95ab-8440a3749c51`, generation
+`cfe8cd1ee735f4c65eae9f03b1d04bb390a561cb058933bbd655f9eb2b55ac30`.
+
+Run `20261014T090155.489Z-3f4c06` was cancelled before test execution after this prerequisite was
+known. Child cleanup is confirmed and attachment `dd95ee19-056e-45cc-8b19-918504d9ee2b` is unprotected,
+cleanup confirmed, native completion exactly NotObserved/no owners. It is not another native Unknown.
+Its pure selections were rerouted through `f50774` without a fixture.
+
+The service/lifecycle owner must establish supported stable schema repair and authenticated Started
+native-owner reconciliation. `maintenance --recover-native-attachment` is campaign-only; it is not
+an applicable stable-target repair. Existing install's ready-state check is not demonstrated to
+repair this absent table. Unknown receipts remain protected independently of child exit; no row or
+attachment deletion is authorized by these failures. New current-source native selection/ingress
+and inherited-field controls remain blocked; passing pure controls do not replace them.
+
+### Compiler decision dispositions,2026-10-14
+
+| Decision | Supported choice and preservation / revisit |
+|---|---|
+| D01 | Allow actual ready Deployment/Python and bounded work overlap. Keep each Pyrefly release/corpus session sequential within its existing input loop; the native State module/loader/stdlib heap is not bounded by adapter transfer charges. Required dependency imports and promotion remain. Revisit concrete larger workloads/capacity observations; no process ceiling or arbitrary worker cap |
+| D02 | Keep root fencing. Native intent/effect authorization, delayed issuance/epoch, producer/global freeze, immutable conflicts, idempotent outcomes, Unknown, retirement and ABA require a complete replacement protocol. Revisit in CN03 only for material observed contention or a simpler fully specified protocol, with separate rule disposition/review; contention unmeasured |
+| D04 | Keep flat published Path/Step and ControlPath/ControlStep; internal predecessor arenas remain CA02. Admission, synthesis, graph/native hydration and original evidence require identities, ordered continuity and qualified alternatives. Revisit material residual published-prefix work after CA02; no witness migration or semantic-v4 change |
+| D07 | Keep parser-mediated rewrite recovery. Exact lexer parity holds for valid examples but differs on malformed f/t-string interpolations. Revisit an equivalent recovering tokens-only API or a deliberate supported-input contract change; no dual runtime route |
+| D08 | Reuse current canonical Spans for the same source while already live. Foreign inherited sources use lazy name-only correspondence once/source under actual selected Ruff settings/limits, retaining refusal semantics. Avoid retaining every root/AST; revisit demonstrated useful cross-root overlap with complete source/parser/context identity |
+| D09 | Keep distinct States for release/corpus resolver contexts and the existing shared pool. ConfigFinder supports custom configuration, but Handle identity lacks input/config context and stdlib cache is per SysInfo. Revisit a safe context-keyed library preparation contract or demonstrated context-independent duplicate work |
+| D13 | Keep opening and post-provider captured-closure verification/poisoning. Same-process readonly permissions do not enforce immutability throughout providers/cancellation/final eligibility. Revisit only an enforced immutable capture owner |
 
 Source prefixes below retain review-local IDs; `creation#F01` is not `catalog#F01`. Source reviews
 retain dated diagnoses; this section now owns scheduled disposition. Supporting plans explain work
@@ -224,10 +292,10 @@ without another mutable findings/receipt ledger.
 | Source finding | Current disposition / route | Closure boundary |
 |---|---|---|
 | creation#F01 | Proposed CA01 | One keyed preparation per actual grain; independent ambiguity/default/context/alias evidence |
-| creation#F02 | Proposed CC00/CC01; RC01 confirmed | Genuine ready overlap with exact inputs, complete assembly, deterministic results and failure drainage |
-| creation#F03 | Proposed CC00/CN01/CN02; RC02 confirmed | Private terminal executed evidence, changed-premise refusal, fresh native/search comparison and cold independence |
-| creation#F04 | Proposed CC02 | Queued native cancellation, interrupted-run refusal, joined workers and settled ingress |
-| creation#F05 | Proposed CC03; Behavioral only | Cross-module semantics, incremental emission and sink-refusal stop |
+| creation#F02 | CC00 accepted; CC01 source-integrated/pure-focused2026-10-14, native blocked | Genuine ready overlap with exact inputs, complete assembly, deterministic results and failure drainage |
+| creation#F03 | CC00 interface accepted ADR-0168; CN01/CN02 implementation remains Proposed | Private terminal executed evidence, changed-premise refusal, fresh native/search comparison and cold independence |
+| creation#F04 | Closed source/focused cancellation2026-10-14 (`e44254`); no hard active-callback latency claim | Queued native cancellation, interrupted-run refusal, joined workers and settled ingress |
+| creation#F05 | Closed source/pure-focused2026-10-14 (`a4428f`); Behavioral only | Cross-module semantics, incremental emission and sink-refusal stop |
 | creation#F06 | Proposed CA02 | Scratch charge released with allocations; canonical bounded control witnesses and live output charging |
 | catalog#F01 | Source-integrated/source-reviewed; native/composition acceptance open, CN03/CX01 | Fewer demanded independent boundaries, reusable exact union; actual current native/Catalog composition |
 | catalog-integrated#F01 | Closed source/pure-focused2026-10-14 (`33fafd`); preserve | Relation-selective canonical runs, unchanged v4 union, overlap/empty/spill/lifetime; enclosing acceptance separate |
@@ -321,6 +389,8 @@ qualification and operator activation remain not_run and are not silently added 
 | LO00–LO02 | Operations diagnostics/taxonomy/provenance and all C01–C11 routes |
 | LD00–LD04 | Exact beta.1 development-only integration, generated authority, owned campaigns, independent outcomes and exact running provenance |
 
-**Next executable work:** CC00's exact readiness/validity contracts and early D01/D02/D04 decisions,
-with independent CA01/CA02 local corrections. Plan writing is complete; production execution awaits
-its own authorization. CX04's substantive older-plan reconciliation has not occurred.
+**Next executable work:** resolve stable validation schema/native-owner prerequisites through the
+service/lifecycle owner, then rerun blocked exact-selection/ingress and inherited-field controls.
+Independent CA01/CA02 and CN01/CN02 remain ready against accepted CC00 contracts. CN03 preserves required
+current-source receiving/cold/native acceptance. CX04's substantive older-plan reconciliation has
+not occurred; the900s fixture and pinned FastMCP exit remain later CX01/CX02 work.

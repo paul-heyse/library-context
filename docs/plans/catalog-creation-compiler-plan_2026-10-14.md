@@ -1,9 +1,15 @@
 # Catalog creation: compiler inputs and execution
 
-**Proposed, 2026-10-14.** Companion to the [coordinator](catalog-creation-plan_2026-10-14.md),
+**Source-integrated / focused acceptance in progress,2026-10-14.** Companion to the [coordinator](catalog-creation-plan_2026-10-14.md),
 whose §6 alone owns dispositions and receipts. Covers creation F02/F04/F05, analyzer decisions
 D01/D07/D08/D09/D13 and preservation of prior exact partition/recipe/consumer contracts. This
 document schedules implementation; it does not assert a new compile or provider qualification.
+
+The current implementation retains model prerequisite/selection recipes and native-earned exact
+relation bindings, a single ready-work coordinator, owned private stage results and per-projection
+shared preparation. Normalized admission and native root fencing remain. Pyrefly uses transaction-local
+cancellation across dependency waves; Flow emits through a fallible ordered visitor over one Program.
+ADR-0168 and coordinator §6 own accepted contracts, bounded decisions and exact test/closure status.
 
 ## 1. Target and inspected foundations
 

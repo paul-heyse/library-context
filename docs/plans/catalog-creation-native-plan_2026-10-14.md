@@ -222,6 +222,9 @@ finish the enclosing owner. Unknown remains protected until actual reconciliatio
 
 ## 5. Native decisions and their boundaries
 
+CC00 settled D02 with retained root fencing; coordinator §6 owns the rationale and revisit trigger.
+CN03 preserves that decision while completing D10–D12 and its independent native acceptance.
+
 | Decision | Comparison, preservation and settling case | Supported fallback |
 |---|---|---|
 | D02 — root attempt write point | Compare existing guarded batching with a concrete producer-owned payload protocol. Enumerate accepted effects, producer/global freeze race, all writers/ingress drainage, shared immutable conflicts, delayed issuance/epoch/ABA, idempotent requests, Unknown and retirement. Source establishes common writes, not observed contention. Use a tiny owned race probe only if source cannot settle a material premise | Retain root fencing; useful pure preparation and CN01/CN02 remain independent. No guard deletion, new fixed submission cap or more workers as a protocol substitute |

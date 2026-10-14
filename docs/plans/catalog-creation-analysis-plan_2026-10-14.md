@@ -119,6 +119,9 @@ removes. Reopen for a concrete many-wrapper suffix workload, not graph cyclicity
 
 ### D04 — published witness representation
 
+CC00 selected flat published output with internal predecessor arenas; coordinator §6 owns this
+supported disposition and revisit trigger. CA02/CA03 preserve the choice rather than repeat it.
+
 Inventory actual Path/PathStep, ControlPath/ControlStep, synthesis, original-evidence and native
 hydration/rendering consumers. Compare internal predecessor arenas with current output against a
 shared immutable witness DAG preserving every required path/ArcId/qualification identity and bounded
