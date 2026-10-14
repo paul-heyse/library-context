@@ -5,19 +5,44 @@ use lctx_model::domain::{
     serving::*,
     *,
 };
-fn exception(evidence: &selection::Witness, data: &selection::classification::ClassificationData)
-    -> Result<Option<BehavioralExceptionPacket>, ModelError> {
-    let selection::Witness::SummaryException { outcome } = evidence else { return Ok(None); };
-    let outcome = data.facts.exception_outcomes.get(*outcome).ok_or(ModelError::Schema("runtime exception outcome"))?;
-    let q = data.source.core.qualifications.get(outcome.qualification).ok_or(ModelError::Schema("runtime exception qualification"))?;
+fn exception(
+    evidence: &selection::Witness,
+    data: &selection::classification::ClassificationData,
+) -> Result<Option<BehavioralExceptionPacket>, ModelError> {
+    let selection::Witness::SummaryException { outcome } = evidence else {
+        return Ok(None);
+    };
+    let outcome = data
+        .facts
+        .exception_outcomes
+        .get(*outcome)
+        .ok_or(ModelError::Schema("runtime exception outcome"))?;
+    let q = data
+        .source
+        .core
+        .qualifications
+        .get(outcome.qualification)
+        .ok_or(ModelError::Schema("runtime exception qualification"))?;
     BehavioralExceptionPacket::from_canonical(outcome, q).map(Some)
 }
 /// Preserve every off-page refusal without constructing releases, requirement DTOs or claims.
 /// The small checked exception conversion is shared with actual page construction.
-pub(crate) fn validate(value: &CandidateSelection, data: &selection::classification::ClassificationData,
-    domains: &[LibraryDomainPacket]) -> Result<(), ModelError> {
-    let member = data.source.catalog.members.get(value.member).ok_or(ModelError::Schema("selected catalog member"))?;
-    if !domains.iter().flat_map(|domain| &domain.captures).any(|capture| capture.release.input == member.input) {
+pub(crate) fn validate(
+    value: &CandidateSelection,
+    data: &selection::classification::ClassificationData,
+    domains: &[LibraryDomainPacket],
+) -> Result<(), ModelError> {
+    let member = data
+        .source
+        .catalog
+        .members
+        .get(value.member)
+        .ok_or(ModelError::Schema("selected catalog member"))?;
+    if !domains
+        .iter()
+        .flat_map(|domain| &domain.captures)
+        .any(|capture| capture.release.input == member.input)
+    {
         return Err(ModelError::Schema("selected member release admission"));
     }
     for requirement in &value.requirements {
@@ -25,13 +50,27 @@ pub(crate) fn validate(value: &CandidateSelection, data: &selection::classificat
             let (positive, negative) = match witness {
                 RequirementWitness::Positive { evidence, .. } => (evidence.as_slice(), &[][..]),
                 RequirementWitness::Negative { evidence, .. } => (&[][..], evidence.as_slice()),
-                RequirementWitness::Conflict { positive, negative, .. } => (positive.as_slice(), negative.as_slice()),
+                RequirementWitness::Conflict {
+                    positive, negative, ..
+                } => (positive.as_slice(), negative.as_slice()),
             };
-            for evidence in positive.iter().chain(negative) { exception(evidence, data)?; }
+            for evidence in positive.iter().chain(negative) {
+                exception(evidence, data)?;
+            }
         }
     }
-    for callable in data.source.catalog.callables.iter().filter(|callable| callable.member == member.id()) {
-        data.source.core.assessments.get(callable.assessment).ok_or(ModelError::Schema("effective callable assessment"))?;
+    for callable in data
+        .source
+        .catalog
+        .callables
+        .iter()
+        .filter(|callable| callable.member == member.id())
+    {
+        data.source
+            .core
+            .assessments
+            .get(callable.assessment)
+            .ok_or(ModelError::Schema("effective callable assessment"))?;
     }
     Name::new(value.path.join(".")).map_err(wire)?;
     Ok(())
@@ -39,9 +78,14 @@ pub(crate) fn validate(value: &CandidateSelection, data: &selection::classificat
 pub(crate) fn selection_key(value: &CandidateSelection) -> ContentHash {
     candidate_key(value.member, value.analysis)
 }
-fn candidate_key(member: Id<catalog::CatalogMember>, analysis: Id<attribution::AnalysisContext>) -> ContentHash {
+fn candidate_key(
+    member: Id<catalog::CatalogMember>,
+    analysis: Id<attribution::AnalysisContext>,
+) -> ContentHash {
     let mut sink = KeySink::new("native-operation-candidate/v1");
-    member.encode(&mut sink); analysis.encode(&mut sink); sink.finish()
+    member.encode(&mut sink);
+    analysis.encode(&mut sink);
+    sink.finish()
 }
 pub fn packet(
     value: &CandidateSelection,
@@ -96,7 +140,9 @@ pub fn packet(
             let n = neg.iter().map(Record::id).collect::<Vec<_>>();
             let mut exceptions = Vec::new();
             for evidence in pos.iter().chain(neg) {
-                if let Some(packet) = exception(evidence, data)? { exceptions.push(packet); }
+                if let Some(packet) = exception(evidence, data)? {
+                    exceptions.push(packet);
+                }
             }
             contexts.push(context.id());
             positive.extend(p.iter().copied());
@@ -168,6 +214,7 @@ pub fn packet(
         signature_knowledge: knowledge,
     })
 }
+#[cfg(test)]
 pub fn key(candidate: &OperationCandidate) -> ContentHash {
     candidate_key(candidate.member, candidate.analysis)
 }

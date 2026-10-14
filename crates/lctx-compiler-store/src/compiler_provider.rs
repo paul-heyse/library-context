@@ -18,6 +18,7 @@ use datafusion::{
         streaming::{PartitionStream, StreamingTableExec},
     },
 };
+use futures::FutureExt;
 use lctx_model::domain::{
     ModelError, Relation,
     charged::StateCharge,
@@ -450,10 +451,12 @@ impl PartitionStream for NativePartition {
                     store,
                     view,
                     relation,
-                    projection,
-                    predicate,
+                    BatchScanDemand {
+                        projection,
+                        predicate,
+                        batch_rows,
+                    },
                     budget,
-                    batch_rows,
                     Some(source_installed.clone()),
                 )
                 .await
@@ -773,10 +776,12 @@ fn selected_batches(
                     store,
                     view,
                     relation,
-                    projection,
-                    Some(predicate),
+                    BatchScanDemand {
+                        projection,
+                        predicate: Some(predicate),
+                        batch_rows,
+                    },
                     budget,
-                    batch_rows,
                     installed,
                 )
                 .await
@@ -806,57 +811,76 @@ pub async fn scan_batches(
     batch_rows: usize,
 ) -> Result<SendableRecordBatchStream, ModelError> {
     scan_batches_with_installed(
-        store, view, relation, projection, predicate, budget, batch_rows, None,
+        store,
+        view,
+        relation,
+        BatchScanDemand {
+            projection,
+            predicate,
+            batch_rows,
+        },
+        budget,
+        None,
     )
     .await
 }
-async fn scan_batches_with_installed(
+struct BatchScanDemand {
+    projection: Option<Vec<usize>>,
+    predicate: Option<NativePredicate>,
+    batch_rows: usize,
+}
+fn scan_batches_with_installed(
     store: Arc<NativeCompilerStore>,
     view: CompletedView,
     relation: Relation,
-    projection: Option<Vec<usize>>,
-    predicate: Option<NativePredicate>,
+    demand: BatchScanDemand,
     budget: ResourceBudget,
-    batch_rows: usize,
     installed: Option<Arc<lctx_native::installed_view::HeldInstalledView>>,
-) -> Result<SendableRecordBatchStream, ModelError> {
-    if batch_rows == 0 {
-        return Err(ModelError::Schema("native Arrow batch rows"));
-    }
-    let schema = match &projection {
-        Some(projection) => Arc::new(
-            relation
-                .schema()
-                .project(projection)
-                .map_err(ModelError::codec)?,
-        ),
-        None => relation.schema().clone(),
-    };
-    let columns = schema
-        .fields()
-        .iter()
-        .map(|field| field.name().clone())
-        .collect::<Vec<_>>();
-    let rows = match installed {
-        Some(installed) => {
-            store
-                .scan_rows_with_installed(
-                    &view,
-                    &relation,
-                    Some(&columns),
-                    predicate,
-                    &budget,
-                    installed,
-                )
-                .await?
+) -> futures::future::BoxFuture<'static, Result<SendableRecordBatchStream, ModelError>> {
+    Box::pin(async move {
+        let BatchScanDemand {
+            projection,
+            predicate,
+            batch_rows,
+        } = demand;
+        if batch_rows == 0 {
+            return Err(ModelError::Schema("native Arrow batch rows"));
         }
-        None => {
-            store
-                .scan_rows(&view, &relation, Some(&columns), predicate, &budget)
-                .await?
-        }
-    };
-    batches_from_rows(rows, relation, schema, &budget, batch_rows)
+        let schema = match &projection {
+            Some(projection) => Arc::new(
+                relation
+                    .schema()
+                    .project(projection)
+                    .map_err(ModelError::codec)?,
+            ),
+            None => relation.schema().clone(),
+        };
+        let columns = schema
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<Vec<_>>();
+        let rows = match installed {
+            Some(installed) => {
+                store
+                    .scan_rows_with_installed(
+                        &view,
+                        &relation,
+                        Some(&columns),
+                        predicate,
+                        &budget,
+                        installed,
+                    )
+                    .await?
+            }
+            None => {
+                store
+                    .scan_rows(&view, &relation, Some(&columns), predicate, &budget)
+                    .await?
+            }
+        };
+        batches_from_rows(rows, relation, schema, &budget, batch_rows)
+    })
 }
 /// Share bounded Arrow transfer after the native owner has admitted the exact row selection.
 pub(crate) fn batches_from_rows(
@@ -869,29 +893,33 @@ pub(crate) fn batches_from_rows(
     let builder = ProjectedBuilder::new(relation, schema.clone(), budget)?;
     let stream = futures::stream::try_unfold(
         (rows, builder, false),
-        move |(mut rows, mut builder, done)| async move {
-            if done {
-                return Ok(None);
-            }
-            builder.release().map_err(df_error)?;
-            loop {
-                match rows.next().await.map_err(df_error)? {
-                    Some(row) => builder.push(row).map_err(df_error)?,
-                    None => {
-                        if builder.rows() == 0 {
-                            return Ok(None);
+        move |(mut rows, mut builder, done)| {
+            // Type-erasure follows the bounded transfer unit, never each native row.
+            async move {
+                if done {
+                    return Ok(None);
+                }
+                builder.release().map_err(df_error)?;
+                loop {
+                    match rows.next().await.map_err(df_error)? {
+                        Some(row) => builder.push(row).map_err(df_error)?,
+                        None => {
+                            if builder.rows() == 0 {
+                                return Ok(None);
+                            }
+                            let batch = builder.finish().map_err(df_error)?;
+                            return Ok(Some((batch, (rows, builder, true))));
                         }
+                    }
+                    if builder.rows() >= batch_rows
+                        || builder.bytes() >= lctx_model::domain::resources::TRANSFER_BYTES
+                    {
                         let batch = builder.finish().map_err(df_error)?;
-                        return Ok(Some((batch, (rows, builder, true))));
+                        return Ok(Some((batch, (rows, builder, false))));
                     }
                 }
-                if builder.rows() >= batch_rows
-                    || builder.bytes() >= lctx_model::domain::resources::TRANSFER_BYTES
-                {
-                    let batch = builder.finish().map_err(df_error)?;
-                    return Ok(Some((batch, (rows, builder, false))));
-                }
             }
+            .boxed()
         },
     );
     Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
@@ -1723,11 +1751,17 @@ mod tests {
             Precision::Inexact(64)
         );
         assert_eq!(
-            row_statistics(relation.schema(), 64, &[selected.clone()], false).num_rows,
+            row_statistics(
+                relation.schema(),
+                64,
+                std::slice::from_ref(&selected),
+                false
+            )
+            .num_rows,
             Precision::Inexact(2)
         );
         assert_eq!(
-            row_statistics(relation.schema(), 64, &[field.clone()], false).num_rows,
+            row_statistics(relation.schema(), 64, std::slice::from_ref(&field), false).num_rows,
             Precision::Inexact(64),
             "non-unique field keys cannot certify a nominal row-count bound"
         );
@@ -1916,7 +1950,7 @@ mod tests {
             .scan(
                 &session.state(),
                 Some(&vec![0, 2]),
-                &[combined.clone()],
+                std::slice::from_ref(&combined),
                 Some(1),
             )
             .await

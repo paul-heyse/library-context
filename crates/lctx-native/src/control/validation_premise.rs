@@ -440,7 +440,10 @@ impl PendingValidation {
             .chunks(crate::loader::NATIVE_WINDOW_ROWS)
             .zip(bodies.chunks(crate::loader::NATIVE_WINDOW_ROWS))
         {
-            let mut demand = keys.iter().map(|(key, _)| *key).collect::<Vec<_>>();
+            let mut demand = keys
+                .iter()
+                .map(|fingerprint| fingerprint.nominal)
+                .collect::<Vec<_>>();
             demand.sort_unstable();
             demand.dedup();
             if demand.len() != keys.len() {
@@ -485,7 +488,8 @@ impl PendingValidation {
                     "native observed exact backing missing/extra",
                 ));
             }
-            for ((key, _), body) in keys.iter().zip(bodies) {
+            for (fingerprint, body) in keys.iter().zip(bodies) {
+                let key = &fingerprint.nominal;
                 let member = members
                     .rows()
                     .iter()
@@ -514,7 +518,9 @@ impl PendingValidation {
             }
         }
         let state = &mut self.observed[index];
-        for (key, content) in fingerprints {
+        for fingerprint in fingerprints {
+            let key = fingerprint.nominal;
+            let content = fingerprint.content;
             let sink = state.sink.as_mut().ok_or(ModelError::Conflict(
                 "native observed premise already consumed",
             ))?;

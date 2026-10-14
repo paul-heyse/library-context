@@ -5,6 +5,10 @@ use lctx_native::control::validation_premise::{PendingValidation, SelectedInput}
 impl AdmissionRuntime {
     // Called only after every specialized scope branch has selected its genuine
     // grouped kernel. Unsupported premises still execute that ordinary kernel.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Independent invariant, selected inputs, requestedness, compact owners, planner and session remain explicit"
+    )]
     pub(super) fn validate_durable_whole<'a>(
         &'a self,
         invariant: &'a d::Invariant,

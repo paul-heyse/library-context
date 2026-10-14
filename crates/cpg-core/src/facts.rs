@@ -26,8 +26,17 @@ pub async fn compile_facts(
         .into_iter()
         .filter(|p| p.declaration(profile).profiles.contains(&profile))
         .collect();
-    let sources=cpg_extract::contracts::captured_sources(captured)?;
-    let declarations = offered.iter().map(|provider|cpg_extract::contracts::bind_stage_with_sources(provider.declaration(profile),captured,&sources)).collect::<Result<Vec<_>,ModelError>>()?;
+    let sources = cpg_extract::contracts::captured_sources(captured)?;
+    let declarations = offered
+        .iter()
+        .map(|provider| {
+            cpg_extract::contracts::bind_stage_with_sources(
+                provider.declaration(profile),
+                captured,
+                &sources,
+            )
+        })
+        .collect::<Result<Vec<_>, ModelError>>()?;
     let schedule = Schedule::build(workspace.model(), declarations, &[], profile)?;
     for declaration in schedule.stages() {
         let position = offered
@@ -59,10 +68,13 @@ pub async fn compile_facts(
             )
             .await;
             execution.finish_result(&result);
-            if let Err(error)=result {
-                let mut completion=lctx_model::domain::completion::Completion::default();
-                completion.step("failed provider accepted ingress drain",output.finish_ingress().await);
-                return lctx_model::domain::completion::complete(Err(error),completion);
+            if let Err(error) = result {
+                let mut completion = lctx_model::domain::completion::Completion::default();
+                completion.step(
+                    "failed provider accepted ingress drain",
+                    output.finish_ingress().await,
+                );
+                return lctx_model::domain::completion::complete(Err(error), completion);
             }
             let completion = lctx_native::phase::Phase::begin("provider_completion");
             let result = async {
@@ -178,7 +190,8 @@ pub async fn inspect_with_budget(
     }
     Ok((model, workspace))
 }
-pub(crate) use lctx_compiler_store::facts::{RecordedFacts,recorded_coverage};
+#[cfg(test)]
+use lctx_compiler_store::facts::{RecordedFacts, recorded_coverage};
 
 #[cfg(test)]
 mod recorded_coverage_controls {
@@ -243,7 +256,12 @@ mod recorded_coverage_controls {
                 input: input.id(),
                 context: Some(context.id()),
                 configuration: Some(context.config_digest),
-                acquisition: lctx_model::domain::producer_contract::acquisition::CapturedAcquisition::tree(input.clone(), "captured fixture".into()).into(),
+                acquisition:
+                    lctx_model::domain::producer_contract::acquisition::CapturedAcquisition::tree(
+                        input.clone(),
+                        "captured fixture".into(),
+                    )
+                    .into(),
             }];
             for provider in binding.suppliers.values_mut() {
                 *provider = replacements[provider];

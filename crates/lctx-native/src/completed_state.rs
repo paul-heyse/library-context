@@ -606,7 +606,7 @@ pub(crate) async fn verify_installed_refs(
                 crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
             for (id, selector) in page {
                 let expected = actual.take_required(id)?;
-                if expected.row() != &selector.value()? {
+                if expected.row() != selector.value()? {
                     return Err(ModelError::Conflict("compound exact selector bytes"));
                 }
             }
@@ -1020,7 +1020,7 @@ async fn audit_copy_window(
     let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
     for copy in copies {
         let child = actual.take_required(&copy.record(identity))?;
-        if child.row() != &copy.value(identity)? {
+        if child.row() != copy.value(identity)? {
             return Err(ModelError::Conflict(
                 "compound guarded copy descriptor changed",
             ));
@@ -1055,7 +1055,7 @@ async fn audit_selector_window(
     let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
     for reference in references {
         let selector = actual.take_required(&reference.record(identity))?;
-        if selector.row() != &reference.value(identity)? {
+        if selector.row() != reference.value(identity)? {
             return Err(ModelError::Conflict(
                 "compound guarded selector bytes changed",
             ));
@@ -1834,7 +1834,7 @@ fn check_parent_hold(
     };
     let id = crate::control::hold_record_id(parent, target)?;
     if previous.is_some_and(|previous| previous >= &id)
-        || row != &parent_hold(parent, target.clone())?
+        || row != parent_hold(parent, target.clone())?
     {
         return Err(ModelError::Conflict(
             "compound parent hold exact envelope/order/duplicate",

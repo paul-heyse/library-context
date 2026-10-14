@@ -7,9 +7,9 @@ use lctx_model::domain::{
     retrieval::{consumption::RetrievalEmbeddingUse, *},
     *,
 };
-use lctx_publisher::{materialize_search, reconcile_search};
 use lctx_native::surrealdb::types::{RecordId, Value, Variables};
 use lctx_native::{Loader, RuntimeConfig};
+use lctx_publisher::{materialize_search, reconcile_search};
 #[path = "../../lctx-serving/tests/fixtures/scoped.rs"]
 mod scoped;
 struct FixtureIdentity {
@@ -749,8 +749,7 @@ async fn streamed_control(target: AuditTarget) {
         // Its otherwise valid occurrence must not enter the first view's cold audit.
         let foreign_binding = foreign_binding.unwrap();
         let foreign_payload =
-            lctx_native::loader::entity_payload_id(&Entity::from(foreign_binding.clone()))
-                .unwrap();
+            lctx_native::loader::entity_payload_id(&Entity::from(foreign_binding.clone())).unwrap();
         let mut foreign_entities = entities.clone();
         foreign_entities.push(Entity::from(foreign_binding));
         let mut foreign = scoped::reader(&config, &foreign_entities, &assertions)
@@ -903,7 +902,7 @@ async fn streamed_control(target: AuditTarget) {
                     let row = row.as_object().unwrap();
                     ["member", "anchor", "binding"]
                         .into_iter()
-                        .all(|field| row.get(field).is_some_and(|value| value != &Value::Null))
+                        .all(|field| row.get(field).is_some_and(|value| value != Value::Null))
                 })
                 .unwrap()
                 .clone()
@@ -1023,7 +1022,7 @@ async fn streamed_control(target: AuditTarget) {
                 }
                 for field in ["member", "anchor", "binding"] {
                     assert!(
-                        object.get(field).is_some_and(|value| value != &Value::Null),
+                        object.get(field).is_some_and(|value| value != Value::Null),
                         "nonnull fixture {field}"
                     );
                 }

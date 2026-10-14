@@ -219,11 +219,19 @@ struct ScopeValidation {
     evidence: Option<CheckedSemanticScope>,
 }
 
+type UniformOwnersKey = (Profile, ContentHash);
+type CachedUniformOwners = (UniformOwnersKey, Arc<AdmittedUniformOwners>);
+/// Exact completed metadata and the reservation covering its transfer lifetime.
+pub struct CompletedInventory {
+    pub contributions: Vec<CompletedContribution>,
+    pub bindings: Vec<CompletedBinding>,
+    pub transfer: Box<dyn Reservation>,
+}
 /// Share compact premises across compiler validation calls without sharing mutable provider state.
 pub struct AdmissionMemo {
     checked: Mutex<(BTreeSet<ContentHash>, StateCharge)>,
     facts: Mutex<Option<(FactsAvailabilityKey, Arc<AdmittedFacts>)>>,
-    uniform: Mutex<Option<((Profile, ContentHash), Arc<AdmittedUniformOwners>)>>,
+    uniform: Mutex<Option<CachedUniformOwners>>,
 }
 impl AdmissionMemo {
     pub fn new(budget: &ResourceBudget) -> Arc<Self> {
@@ -361,6 +369,10 @@ impl AdmissionRuntime {
         }))
     }
     /// Borrow runtime services and their checked execution owner. No caller catalog is copied.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Composition wires independent semantic, execution, cancellation and resource owners explicitly"
+    )]
     pub fn borrow_runtime(
         model: Arc<ValidatedModel>,
         options: AdmissionOptions,
@@ -406,16 +418,7 @@ impl AdmissionRuntime {
         }))
     }
     /// Transfer exact admitted metadata without exposing the private read catalog.
-    pub fn completed_inventory(
-        &self,
-    ) -> Result<
-        (
-            Vec<CompletedContribution>,
-            Vec<CompletedBinding>,
-            Box<dyn Reservation>,
-        ),
-        ModelError,
-    > {
+    pub fn completed_inventory(&self) -> Result<CompletedInventory, ModelError> {
         let owners = self.owners.lock().map_err(|_| poisoned())?;
         let bytes = owners.1.reserved().saturating_mul(3).saturating_add(
             self.bindings_charge
@@ -427,11 +430,11 @@ impl AdmissionRuntime {
         let transfer = self
             .budget
             .reserve("compiler-completed-inventory-transfer", bytes)?;
-        Ok((
-            owners.0.values().cloned().collect(),
-            self.bindings()?,
+        Ok(CompletedInventory {
+            contributions: owners.0.values().cloned().collect(),
+            bindings: self.bindings()?,
             transfer,
-        ))
+        })
     }
     pub fn install_completed(
         &self,
@@ -734,8 +737,6 @@ impl AdmissionRuntime {
     }
     fn inputs(
         &self,
-        _name: &'static str,
-        profile: Profile,
         names: impl IntoIterator<Item = &'static str>,
     ) -> Result<ValidationInputs, ModelError> {
         let mut relations = BTreeMap::new();
@@ -753,7 +754,6 @@ impl AdmissionRuntime {
         }
         Ok(ValidationInputs {
             relations,
-            profile,
             companions: BTreeMap::new(),
         })
     }
@@ -765,7 +765,7 @@ impl AdmissionRuntime {
         session: &SessionContext,
         planner: &dyn ValidationPlanner,
     ) -> Result<ContentHash, ModelError> {
-        let inputs = self.selected(profile, bindings)?;
+        let inputs = self.selected(bindings)?;
         self.validate_scope(
             profile,
             admission,
@@ -776,11 +776,7 @@ impl AdmissionRuntime {
         .await
         .map(|result| result.identity)
     }
-    fn selected(
-        &self,
-        profile: Profile,
-        bindings: Vec<SelectedBinding>,
-    ) -> Result<ValidationInputs, ModelError> {
+    fn selected(&self, bindings: Vec<SelectedBinding>) -> Result<ValidationInputs, ModelError> {
         let mut roles = BTreeSet::new();
         let mut relations = BTreeMap::new();
         let mut exact = BTreeMap::<ContentHash, Arc<ExactRelation>>::new();
@@ -818,7 +814,6 @@ impl AdmissionRuntime {
         }
         Ok(ValidationInputs {
             relations,
-            profile,
             companions: BTreeMap::new(),
         })
     }
@@ -831,11 +826,7 @@ impl AdmissionRuntime {
     ) -> BoxFuture<'a, Result<CheckedSemanticScope, ModelError>> {
         Box::pin(async move {
             let relations = self.completed_relations()?;
-            let mut inputs = self.inputs(
-                "semantic-admission",
-                profile,
-                relations.iter().map(|r| r.name()),
-            )?;
+            let mut inputs = self.inputs(relations.iter().map(|r| r.name()))?;
             self.bind_admission_epochs(&mut inputs)?;
             self.validate_scope(profile, true, Some(&inputs), None, true)
                 .await?
@@ -1208,7 +1199,7 @@ impl AdmissionRuntime {
             // Reconstructing this set by name would silently substitute the latest stream.
             let mut inputs = match selected {
                 Some(inputs) => inputs.clone(),
-                None => self.inputs("artifact-admission", profile, names.iter().copied())?,
+                None => self.inputs(names.iter().copied())?,
             };
             if selected.is_none() {
                 self.bind_admission_epochs(&mut inputs)?;
@@ -1291,7 +1282,7 @@ impl AdmissionRuntime {
                         })
                     })
                     .collect(),
-                None => self.validation_views(&session).await?,
+                None => self.validation_views(session).await?,
             };
             let checks = if admission {
                 self.model.admission_candidates_for_scope(&names)?
@@ -1334,7 +1325,7 @@ impl AdmissionRuntime {
                         "SELECT id FROM {} LIMIT 1",
                         crate::consumed_rows::identifier(&alias)
                     );
-                    let mut roots = crate::sql::query(&session, &sql)
+                    let mut roots = crate::sql::query(session, &sql)
                         .await
                         .map_err(ModelError::codec)?
                         .execute_stream()
@@ -1380,7 +1371,7 @@ impl AdmissionRuntime {
                                 Self::validation_table(root, &frozen_tables)?.to_owned()
                             };
                             let mut rows = crate::sql::query(
-                                &session,
+                                session,
                                 &format!(
                                     "SELECT id FROM {} LIMIT 1",
                                     crate::consumed_rows::identifier(&alias)
@@ -1451,7 +1442,7 @@ impl AdmissionRuntime {
                         &invariant,
                         scope,
                         tables,
-                        &session,
+                        session,
                         self.budget(),
                         &self.cancellation,
                     )
@@ -1492,7 +1483,7 @@ impl AdmissionRuntime {
                         scope,
                         &invariant,
                         tables,
-                        &session,
+                        session,
                         self.budget(),
                         &self.cancellation,
                     )
@@ -1535,7 +1526,7 @@ impl AdmissionRuntime {
                             crate::normalize::validate_callables(
                                 &invariant,
                                 tables,
-                                &session,
+                                session,
                                 self.budget(),
                                 &self.cancellation,
                                 &self.model,
@@ -1546,7 +1537,7 @@ impl AdmissionRuntime {
                             crate::normalize::validate_receivers(
                                 &invariant,
                                 tables,
-                                &session,
+                                session,
                                 self.budget(),
                                 &self.cancellation,
                                 &self.model,
@@ -1557,7 +1548,7 @@ impl AdmissionRuntime {
                             crate::normalize::validate_events(
                                 &invariant,
                                 tables,
-                                &session,
+                                session,
                                 self.budget(),
                                 &self.cancellation,
                                 &self.model,
@@ -1568,7 +1559,7 @@ impl AdmissionRuntime {
                             crate::normalize::validate_bindings(
                                 &invariant,
                                 tables,
-                                &session,
+                                session,
                                 self.budget(),
                                 &self.cancellation,
                                 &self.model,
@@ -1613,7 +1604,7 @@ impl AdmissionRuntime {
                         &scope,
                         tables,
                         &self.model,
-                        &session,
+                        session,
                         self.budget(),
                         &self.cancellation,
                     )
@@ -1655,7 +1646,7 @@ impl AdmissionRuntime {
                         &scope,
                         tables,
                         &self.model,
-                        &session,
+                        session,
                         self.budget(),
                         &self.cancellation,
                     )
@@ -1696,7 +1687,7 @@ impl AdmissionRuntime {
                         &invariant,
                         &scope,
                         tables,
-                        &session,
+                        session,
                         self.budget(),
                         &self.cancellation,
                     )
@@ -1738,7 +1729,7 @@ impl AdmissionRuntime {
                         &scope,
                         tables,
                         &self.model,
-                        &session,
+                        session,
                         self.budget(),
                         &self.cancellation,
                     )
@@ -1763,7 +1754,7 @@ impl AdmissionRuntime {
                             &unrequested,
                             profile,
                             uniform.owners(),
-                            &session,
+                            session,
                             planner,
                         )
                         .await?
@@ -1806,7 +1797,7 @@ impl AdmissionRuntime {
                         }
                     );
                     let mut stream = planner
-                        .query(&session, input, &sql)
+                        .query(session, input, &sql)
                         .await?
                         .execute_stream()
                         .await
@@ -1994,11 +1985,7 @@ impl AdmissionRuntime {
         let mut evidence = Vec::with_capacity(ids.len());
         let mut charge = StateCharge::new(self.budget(), "executed frontier evidence");
         let relations = self.completed_relations()?;
-        let mut access = self.inputs(
-            "frontier-admission",
-            profile,
-            relations.iter().map(|r| r.name()),
-        )?;
+        let mut access = self.inputs(relations.iter().map(|r| r.name()))?;
         self.bind_admission_epochs(&mut access)?;
         let session = access.session(self).await?;
         let uniform = self.uniform_owners_async(profile).await?;
@@ -2148,30 +2135,7 @@ impl AdmissionRuntime {
             owned.require_owner(self, session)?;
         }
         let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
-        let mut tables = BTreeMap::<ContentHash, (Relation, String)>::new();
-        let mut seen_views = BTreeMap::new();
-        for ((name, prefix), source) in &inputs.relations {
-            if seen_views
-                .insert(source.view.identity, &source.view)
-                .is_some_and(|prior| prior != &source.view)
-            {
-                return Err(ModelError::Conflict(
-                    "reference target view descriptor collision",
-                ));
-            }
-            tables.entry(source.view.identity).or_insert_with(|| {
-                (
-                    source.relation.clone(),
-                    ValidationInputs::table(name, *prefix),
-                )
-            });
-        }
-        for companion in inputs.companions.values() {
-            tables.insert(
-                companion.identity,
-                (companion.relation.clone(), companion.table()),
-            );
-        }
+        let tables = inputs.reference_targets()?;
         // A union of reference targets cannot hide conflicting nominal payloads.
         // Captured companions carry independently protected canonical rows; each
         // selected copy of their IDs must preserve every typed field as well.
@@ -2304,7 +2268,7 @@ impl AdmissionRuntime {
                     self.remember_premise(Some(premise))?;
                     continue;
                 }
-                if owned.is_some()
+                if let Some(owner) = owned
                     && self
                         .memo
                         .checked
@@ -2313,7 +2277,6 @@ impl AdmissionRuntime {
                         .0
                         .contains(&premise)
                 {
-                    let owner = owned.expect("native reference memo owner");
                     // A preceding nonempty field may have suspended for SQL. Do
                     // not let its later memo hit outlive any producing input owner.
                     owner.earned_empty(self, session, identity).await?;
@@ -2428,7 +2391,6 @@ impl ValidationSession {
 #[derive(Clone)]
 struct ValidationInputs {
     relations: BTreeMap<(&'static str, Option<PublicationBoundary>), ResolvedInput>,
-    profile: Profile,
     companions: BTreeMap<&'static str, CompanionTable>,
 }
 #[derive(Clone)]
@@ -2442,7 +2404,36 @@ impl CompanionTable {
         format!("_captured_reference_{}", self.relation.name())
     }
 }
+type ReferenceTargets = BTreeMap<ContentHash, (Relation, String)>;
 impl ValidationInputs {
+    fn reference_targets(&self) -> Result<ReferenceTargets, ModelError> {
+        let mut tables = BTreeMap::<ContentHash, (Relation, String)>::new();
+        let mut seen_views = BTreeMap::new();
+        for ((name, prefix), source) in &self.relations {
+            if seen_views
+                .insert(source.view.identity, &source.view)
+                .is_some_and(|prior| prior != &source.view)
+            {
+                return Err(ModelError::Conflict(
+                    "reference target view descriptor collision",
+                ));
+            }
+            tables.entry(source.view.identity).or_insert_with(|| {
+                (
+                    source.relation.clone(),
+                    ValidationInputs::table(name, *prefix),
+                )
+            });
+        }
+        for companion in self.companions.values() {
+            tables.insert(
+                companion.identity,
+                (companion.relation.clone(), companion.table()),
+            );
+        }
+        Ok(tables)
+    }
+
     fn relations(&self) -> impl Iterator<Item = &Arc<ExactRelation>> {
         self.relations.values().map(|r| &r.source)
     }
@@ -2810,6 +2801,73 @@ mod reference_empty_controls {
         )
         .unwrap()
     }
+    #[tokio::test]
+    async fn reference_target_preparation_preserves_roles_epochs_and_descriptor_refusal() {
+        let model = Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap());
+        let runtime = runtime(model, None);
+        let first = CompletedView::new(
+            Package::NAME.into(),
+            [ContentHash::of(b"first-owner")].into(),
+            1,
+        )
+        .unwrap();
+        let later = CompletedView::new(
+            Package::NAME.into(),
+            [ContentHash::of(b"later-owner")].into(),
+            1,
+        )
+        .unwrap();
+        let mut inputs = selected(&runtime, vec![first]);
+        let source = inputs.relations.values().next().unwrap().clone();
+        inputs.relations.insert(
+            (Package::NAME, Some(PublicationBoundary::Facts)),
+            source.clone(),
+        );
+        assert_eq!(
+            inputs.relations.len(),
+            2,
+            "both semantic roles remain selected"
+        );
+        assert_eq!(
+            inputs.reference_targets().unwrap().len(),
+            1,
+            "one exact view supplies one target table"
+        );
+        let mut distinct = selected(&runtime, vec![later]);
+        inputs.relations.insert(
+            (Package::NAME, Some(PublicationBoundary::CatalogCore)),
+            distinct.relations.pop_first().unwrap().1,
+        );
+        assert_eq!(
+            inputs.reference_targets().unwrap().len(),
+            2,
+            "different epochs retain independent target branches"
+        );
+        let mut collision = source;
+        let mut view = collision.view.clone();
+        view.rows += 1;
+        collision.source = Arc::new(ExactRelation {
+            relation: collision.relation.clone(),
+            view,
+            snapshot: collision.snapshot.clone(),
+        });
+        inputs.relations.insert(
+            (Package::NAME, Some(PublicationBoundary::Dispatch)),
+            collision,
+        );
+        assert!(matches!(
+            inputs.reference_targets(),
+            Err(ModelError::Conflict(
+                "reference target view descriptor collision"
+            ))
+        ));
+        inputs.relations.clear();
+        assert!(
+            inputs.reference_targets().unwrap().is_empty(),
+            "absent authority stays absent"
+        );
+        lctx_model::domain::completion::complete(Ok(()), runtime.drain_report().await).unwrap();
+    }
     fn companion<R: Record>(rows: &[R]) -> CompanionTable {
         let mut identity = lctx_model::domain::KeySink::new("reference-empty-control-companion");
         identity.part(b"relation", R::NAME.as_bytes());
@@ -2846,7 +2904,7 @@ mod reference_empty_controls {
                 }
             })
             .collect();
-        runtime.selected(Profile::Catalog, bindings).unwrap()
+        runtime.selected(bindings).unwrap()
     }
     #[tokio::test]
     async fn forged_external_zero_row_selection_cannot_hide_actual_dangling_rows() {
@@ -2921,7 +2979,6 @@ mod reference_empty_controls {
         let runtime = runtime(model.clone(), None);
         let mut inputs = ValidationInputs {
             relations: BTreeMap::new(),
-            profile: Profile::Catalog,
             companions: [
                 (Package::NAME, companion::<Package>(&[])),
                 (Release::NAME, companion::<Release>(&[])),
@@ -3023,7 +3080,6 @@ mod reference_empty_controls {
         let runtime = runtime(model, None);
         let inputs = ValidationInputs {
             relations: BTreeMap::new(),
-            profile: Profile::Catalog,
             companions: [
                 (SubtypeSource::NAME, companion::<SubtypeSource>(&[])),
                 (NonSumTarget::NAME, companion::<NonSumTarget>(&[])),

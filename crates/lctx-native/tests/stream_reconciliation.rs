@@ -230,7 +230,8 @@ async fn candidate_plan_controls(
     release: &Release,
     expected_members: usize,
 ) {
-    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_native::prepared::{PreparedQuery, scope_constant};
     let record = analytics::QualityStep {
         run: serde_json::from_value(
@@ -246,7 +247,9 @@ async fn candidate_plan_controls(
         .begin_contribution(completed::ContributionSpec {
             captured_binding: None,
             producer: "candidate-plan-quality".into(),
-            profile: lctx_model::domain::completed::OutputProfile::Specific(stages::Profile::Catalog),
+            profile: lctx_model::domain::completed::OutputProfile::Specific(
+                stages::Profile::Catalog,
+            ),
             model: ContentHash::of(b"candidate-plan-model"),
             implementation: ContentHash::of(b"candidate-plan-code"),
             configuration: None,
@@ -267,10 +270,13 @@ async fn candidate_plan_controls(
         .unwrap();
     fixture
         .store
-        .complete_contribution(contribution,
+        .complete_contribution(
+            contribution,
             stages::ProviderOutcome::Complete,
             std::slice::from_ref(&relation),
-            &std::collections::BTreeMap::new(), &native_operation_budget)
+            &std::collections::BTreeMap::new(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     for (table, relation, field, value) in [
@@ -285,8 +291,7 @@ async fn candidate_plan_controls(
             "assertion",
             input::InputDistribution::NAME,
             "release",
-            lctx_native::loader::json_value(serde_json::to_value(release.id()).unwrap())
-                .unwrap(),
+            lctx_native::loader::json_value(serde_json::to_value(release.id()).unwrap()).unwrap(),
         ),
         (
             "compiler_record",
@@ -429,7 +434,8 @@ async fn root_native_query_cancellation_drains_before_fresh_checked_query() {
 
 #[tokio::test]
 async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() {
-    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let config = scoped::config();
     let client = lctx_compiler_store::compiler::check_installation(&config)
         .await
@@ -561,7 +567,8 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
         client.clone(),
         fixture.store.attempt(),
         fixture.views.clone(),
-    ).with_budget(&native_read_budget);
+    )
+    .with_budget(&native_read_budget);
     loader.entities(&entities[..1]).await.unwrap();
     loader.ensure_entities(&entities).await.unwrap();
     loader.ensure_entities(&entities).await.unwrap();
@@ -583,9 +590,7 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
             .unwrap(),
         vec![release.clone()]
     );
-    let expected_members = lctx_native::codec::entity_views(&entities)
-        .unwrap()
-        .len()
+    let expected_members = lctx_native::codec::entity_views(&entities).unwrap().len()
         + lctx_native::codec::assertion_views(std::slice::from_ref(&assertion))
             .unwrap()
             .len();
@@ -741,7 +746,7 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
         "id",
         lctx_native::loader::assertion_payload_id(&assertion).unwrap(),
     );
-    let saved_assertion = physical_row(&native, assertion_bindings.clone()).await;
+    let saved_assertion = physical_row(native, assertion_bindings.clone()).await;
     assertion_bindings.insert("saved", saved_assertion.clone());
     client
         .query("UPDATE $id SET body.role=1")
@@ -767,9 +772,15 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
     let mut chunk_bindings = Variables::new();
     chunk_bindings.insert(
         "id",
-        lctx_native::originals::chunk_id(&lctx_native::originals::Blob::new(original.content,original.byte_len).unwrap().id(),0).unwrap(),
+        lctx_native::originals::chunk_id(
+            &lctx_native::originals::Blob::new(original.content, original.byte_len)
+                .unwrap()
+                .id(),
+            0,
+        )
+        .unwrap(),
     );
-    let saved_chunk = physical_row(&native, chunk_bindings.clone()).await;
+    let saved_chunk = physical_row(native, chunk_bindings.clone()).await;
     chunk_bindings.insert("saved", saved_chunk);
     client
         .query("UPDATE $id SET bytes=b\"00\"")
@@ -805,7 +816,7 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
         "id",
         lctx_native::loader::entity_payload_id(&Entity::from(release.clone())).unwrap(),
     );
-    let before = physical_row(&native, bindings.clone()).await;
+    let before = physical_row(native, bindings.clone()).await;
     bindings.insert("saved", before.clone());
     // The fixed envelope deliberately allows raw nested writes; admission still rejects them.
     client
@@ -834,7 +845,7 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
         .unwrap();
     assert!(loader.ensure_entities(&entities).await.is_err());
     assert!(loader.reconcile(&manifest).await.is_err());
-    let after = physical_row(&native, bindings.clone()).await;
+    let after = physical_row(native, bindings.clone()).await;
     assert_eq!(
         before.as_object().unwrap().get("canonical"),
         after.as_object().unwrap().get("canonical")
@@ -881,7 +892,8 @@ async fn terminal_success_is_required_and_sparse_scope_corruption_is_rejected() 
 
 #[tokio::test(flavor = "multi_thread")]
 async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
-    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     use lctx_native::surrealdb::types::{Bytes, Object};
     let config = scoped::config();
     let client = lctx_compiler_store::compiler::check_installation(&config)
@@ -949,7 +961,8 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
             embeddings: vec![],
         }
     };
-    Loader::for_views(client.clone(), vec![]).with_budget(&native_read_budget)
+    Loader::for_views(client.clone(), vec![])
+        .with_budget(&native_read_budget)
         .reconcile(&manifest_for(&[]))
         .await
         .unwrap();
@@ -959,7 +972,8 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
         client.clone(),
         fixture.store.attempt(),
         fixture.views.clone(),
-    ).with_budget(&native_read_budget);
+    )
+    .with_budget(&native_read_budget);
     loader
         .original_stream(
             original.source.0,
@@ -1048,7 +1062,13 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
             .unwrap();
         loader.reconcile(&manifest).await.unwrap();
     }
-    let chunk_id = lctx_native::originals::chunk_id(&lctx_native::originals::Blob::new(original.content,original.byte_len).unwrap().id(),0).unwrap();
+    let chunk_id = lctx_native::originals::chunk_id(
+        &lctx_native::originals::Blob::new(original.content, original.byte_len)
+            .unwrap()
+            .id(),
+        0,
+    )
+    .unwrap();
     let wrong_id = RecordId::new("original_chunk", format!("corrupted_{}", scope.hex()));
     let mut chunk_bindings = Variables::new();
     chunk_bindings.insert("id", chunk_id);
@@ -1093,7 +1113,8 @@ async fn flexible_body_and_supplied_scopes_are_independently_reconstructed() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires exclusive just service maintenance --native-clients"]
 async fn imported_extra_original_envelope_is_rejected_under_explicit_maintenance() {
-    let native_read_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_read_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let installer_path = std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG")
         .expect("validation maintenance installer configuration");
     let installer =
@@ -1165,7 +1186,8 @@ async fn imported_extra_original_envelope_is_rejected_under_explicit_maintenance
             embeddings: vec![],
         }
     };
-    Loader::for_views(client.clone(), vec![]).with_budget(&native_read_budget)
+    Loader::for_views(client.clone(), vec![])
+        .with_budget(&native_read_budget)
         .reconcile(&manifest_for(&[]))
         .await
         .unwrap();
@@ -1175,7 +1197,8 @@ async fn imported_extra_original_envelope_is_rejected_under_explicit_maintenance
         client.clone(),
         fixture.store.attempt(),
         fixture.views.clone(),
-    ).with_budget(&native_read_budget);
+    )
+    .with_budget(&native_read_budget);
     loader
         .original_stream(
             original.source.0,
@@ -1200,7 +1223,13 @@ async fn imported_extra_original_envelope_is_rejected_under_explicit_maintenance
     let mut chunk_bindings = Variables::new();
     chunk_bindings.insert(
         "id",
-        lctx_native::originals::chunk_id(&lctx_native::originals::Blob::new(original.content,original.byte_len).unwrap().id(),0).unwrap(),
+        lctx_native::originals::chunk_id(
+            &lctx_native::originals::Blob::new(original.content, original.byte_len)
+                .unwrap()
+                .id(),
+            0,
+        )
+        .unwrap(),
     );
     let mut response = client
         .query("SELECT * FROM $id")

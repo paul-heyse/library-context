@@ -203,7 +203,6 @@ impl ProducerOutput {
                 None
             };
             if let Some(candidate) = retained {
-                let id = candidate.physical();
                 // Persisted admission does not carry ephemeral Rust verification owners.
                 // Reconstruct those only for consumers that require them, without ingress.
                 if prepare_owner {

@@ -140,6 +140,13 @@ impl Drop for InsertionOwner {
     }
 }
 #[derive(Clone, PartialEq, serde::Serialize)]
+#[cfg_attr(
+    test,
+    expect(
+        clippy::large_enum_variant,
+        reason = "CompilerViews is a test-only identity; production retains its inline publication handle"
+    )
+)]
 enum PreparationIdentity {
     Publication(SnapshotHandle),
     #[cfg(test)]
@@ -566,10 +573,11 @@ impl PreparedCache {
             let changed = self.lifecycle.changed.notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
-            if {
+            let drained = {
                 let s = self.lifecycle.state.lock().expect("preparation lifecycle");
                 s.owners == 0 && s.requests == 0
-            } {
+            };
+            if drained {
                 break;
             }
             changed.await;
@@ -647,6 +655,26 @@ impl RequestAdmission {
 pub(crate) struct Preparation<'a> {
     pub(crate) cache: &'a Arc<PreparedCache>,
     pub(crate) admission: &'a RequestAdmission,
+}
+/// Borrow one protected reader with preparation for its exact publication pin.
+#[derive(Clone, Copy)]
+pub(crate) struct OperationRead<'a, 'request> {
+    pub(crate) reader: &'a lctx_native::NativeReader,
+    pub(crate) preparation: &'a Preparation<'request>,
+}
+impl<'a, 'request> OperationRead<'a, 'request> {
+    pub(crate) fn new(
+        reader: &'a lctx_native::NativeReader,
+        preparation: &'a Preparation<'request>,
+    ) -> Result<Self, ModelError> {
+        if preparation.cache.pin != PreparationIdentity::Publication(reader.handle().clone()) {
+            return Err(ModelError::Conflict("viewer preparation pin"));
+        }
+        Ok(Self {
+            reader,
+            preparation,
+        })
+    }
 }
 impl Preparation<'_> {
     /// Reuse typed interpretation of the exact checked closure, without replacing native
@@ -1080,13 +1108,31 @@ mod controls {
         assert!(a == same);
         for other in [
             cache
-                .key("closure", &[root.clone()], &reordered, &inputs, &["member"])
+                .key(
+                    "closure",
+                    std::slice::from_ref(&root),
+                    &reordered,
+                    &inputs,
+                    &["member"],
+                )
                 .unwrap(),
             cache
-                .key("closure", &[root.clone()], &inputs, &[], &["member"])
+                .key(
+                    "closure",
+                    std::slice::from_ref(&root),
+                    &inputs,
+                    &[],
+                    &["member"],
+                )
                 .unwrap(),
             cache
-                .key("closure", &[root.clone()], &inputs, &inputs, &["owner"])
+                .key(
+                    "closure",
+                    std::slice::from_ref(&root),
+                    &inputs,
+                    &inputs,
+                    &["owner"],
+                )
                 .unwrap(),
             cache
                 .key("closure", &[], &inputs, &inputs, &["member"])

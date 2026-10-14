@@ -27,6 +27,10 @@ pub struct ScopedFixture {
         reason = "Some kernel controls prepare additional scoped native operators"
     )]
     pub views: Vec<ContentHash>,
+    #[allow(
+        dead_code,
+        reason = "Installed Arcs retain exact owner lifetimes; only some integration targets inspect them"
+    )]
     pub installed: Vec<Arc<lctx_native::installed_view::HeldInstalledView>>,
 }
 impl std::ops::Deref for ScopedFixture {
@@ -36,6 +40,10 @@ impl std::ops::Deref for ScopedFixture {
     }
 }
 impl ScopedFixture {
+    #[allow(
+        dead_code,
+        reason = "Some integration targets need exact contributor identities"
+    )]
     pub fn contributors(&self) -> Vec<lctx_native::surrealdb::types::RecordId> {
         self.installed
             .iter()

@@ -84,8 +84,10 @@ pub(super) struct Conditions<'a> {
 }
 impl<'a> Conditions<'a> {
     pub fn new(data: &'a Data, budget: &resources::ResourceBudget) -> Result<Self, ModelError> {
-        Ok(Self { entry: conditions::PreparedConditions::new(data.entry.condition_nodes.iter(), budget)?,
-            local: conditions::PreparedConditions::new(data.local.condition_nodes.iter(), budget)? })
+        Ok(Self {
+            entry: conditions::PreparedConditions::new(data.entry.condition_nodes.iter(), budget)?,
+            local: conditions::PreparedConditions::new(data.local.condition_nodes.iter(), budget)?,
+        })
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum, serde::Serialize, serde::Deserialize)]
@@ -257,7 +259,11 @@ fn read_region(
 }
 /// The named origin's execution domain, retaining its exact containing native region when needed.
 #[cfg(test)]
-pub(crate) fn named_condition(d: &Data, value: &ValueSource, budget: &resources::ResourceBudget) -> Result<conditions::AdmittedDiagram, ModelError> {
+pub(crate) fn named_condition(
+    d: &Data,
+    value: &ValueSource,
+    budget: &resources::ResourceBudget,
+) -> Result<conditions::AdmittedDiagram, ModelError> {
     let prepared = Conditions::new(d, budget)?;
     named_condition_prepared(d, value, &prepared.entry, budget)
 }
@@ -293,8 +299,7 @@ pub(crate) fn named_condition_prepared(
                 &d.entry.qualifications,
                 need(&d.entry.regions, region)?.qualification,
             )?;
-            let region_condition =
-                prepared.diagram(need(&d.entry.conditions, rq.condition)?)?;
+            let region_condition = prepared.diagram(need(&d.entry.conditions, rq.condition)?)?;
             region_admission = condition
                 .admitted_binary(&region_condition, BooleanOperation::Conjunction, budget)
                 .map_err(condition_error)?;
@@ -320,7 +325,12 @@ pub(crate) fn named_condition_prepared(
 }
 /// One reaching definition under the read condition, in the same provider invocation and scope.
 /// Rebinding selects its actual new definition; unions, loops, foreign supports and captured state refuse.
-pub fn named_definition(d: &Data, value: &Occurrence, context: Id<attribution::AnalysisContext>, budget: &resources::ResourceBudget) -> Result<Option<(Id<Occurrence>, ValueSource)>, ModelError> {
+pub fn named_definition(
+    d: &Data,
+    value: &Occurrence,
+    context: Id<attribution::AnalysisContext>,
+    budget: &resources::ResourceBudget,
+) -> Result<Option<(Id<Occurrence>, ValueSource)>, ModelError> {
     let prepared = Conditions::new(d, budget)?;
     named_definition_prepared(d, value, context, &prepared.entry, budget)
 }
@@ -416,8 +426,7 @@ pub fn named_definition_prepared(
         return Ok(None);
     }
     let condition = prepared.diagram(need(&d.entry.conditions, use_q.condition)?)?;
-    let reach_condition =
-        prepared.diagram(need(&d.entry.conditions, reach_q.condition)?)?;
+    let reach_condition = prepared.diagram(need(&d.entry.conditions, reach_q.condition)?)?;
     let directly_covered = {
         let admitted = condition
             .admitted_binary(&reach_condition, BooleanOperation::Conjunction, budget)
@@ -477,8 +486,7 @@ pub fn named_definition_prepared(
                 &d.entry.qualifications,
                 need(&d.entry.regions, region)?.qualification,
             )?;
-            let region_condition =
-                prepared.diagram(need(&d.entry.conditions, rq.condition)?)?;
+            let region_condition = prepared.diagram(need(&d.entry.conditions, rq.condition)?)?;
             let domain = condition
                 .admitted_binary(&region_condition, BooleanOperation::Conjunction, budget)
                 .map_err(condition_error)?;
@@ -568,10 +576,22 @@ fn rank(role: SourceRole) -> u8 {
         _ => 3,
     }
 }
-pub fn produce(d: &Data, base: &build::Data, frame: &StructuralFrame, invocation: &analysis::structural::Invocation, settings: &AnalyticsConfiguration, out: &mut Output, budget: &resources::ResourceBudget) -> Result<(), ModelError> {
+pub fn produce(
+    d: &Data,
+    base: &build::Data,
+    frame: &StructuralFrame,
+    invocation: &analysis::structural::Invocation,
+    settings: &AnalyticsConfiguration,
+    out: &mut Output,
+    budget: &resources::ResourceBudget,
+) -> Result<(), ModelError> {
     let prepared = Conditions::new(d, budget)?;
     produce_prepared(d, base, frame, invocation, settings, out, &prepared, budget)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Independent structural input owners and borrowed conditions retain separate contracts"
+)]
 pub(super) fn produce_prepared(
     d: &Data,
     base: &build::Data,
@@ -655,12 +675,13 @@ pub(super) fn produce_prepared(
                 },
             ))
         } else if value.syntax_kind == SyntaxKind::ExprName {
-            named_definition_prepared(d, value, invocation.context, &prepared.entry, budget)?.filter(|(origin, _)| {
-                d.entry
-                    .occurrences
-                    .get(*origin)
-                    .is_some_and(|o| o.syntax_kind == SyntaxKind::ExprCall)
-            })
+            named_definition_prepared(d, value, invocation.context, &prepared.entry, budget)?
+                .filter(|(origin, _)| {
+                    d.entry
+                        .occurrences
+                        .get(*origin)
+                        .is_some_and(|o| o.syntax_kind == SyntaxKind::ExprCall)
+                })
         } else {
             None
         };
@@ -918,8 +939,14 @@ mod resource_tests {
         prepared.entry.diagram(&condition).unwrap();
         let denied = resources::ResourceBudget::scoped(&preparation_budget, 1).unwrap();
         assert!(
-            matches!(named_condition_prepared(&data, &value, &prepared.entry, &denied),
-                Err(ModelError::Resource { owner: "condition_binary", used: 0, .. })),
+            matches!(
+                named_condition_prepared(&data, &value, &prepared.entry, &denied),
+                Err(ModelError::Resource {
+                    owner: "condition_binary",
+                    used: 0,
+                    ..
+                })
+            ),
             "checked lowering is retained; apply exhaustion keeps its Resource class"
         );
         assert_eq!(denied.reserved(), 0);

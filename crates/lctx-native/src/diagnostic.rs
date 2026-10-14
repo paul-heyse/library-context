@@ -34,7 +34,8 @@ pub fn failure(stage: &str, error: &ModelError) -> FailureDiagnostic {
                     None,
                     Some(InspectionRoute::NativeAttempt),
                 )
-            } else if let Some(error) = error.downcast_ref::<NativeLifecycleError>() {
+            } else {
+                let error = error.downcast_ref::<NativeLifecycleError>()?;
                 let lifecycle = match error.kind {
                     "reader pin" => Some(LifecycleKind::ReaderPin),
                     "backup hold" => Some(LifecycleKind::BackupHold),
@@ -51,8 +52,6 @@ pub fn failure(stage: &str, error: &ModelError) -> FailureDiagnostic {
                     lifecycle,
                     lifecycle.map(|_| InspectionRoute::NativeLifecycle),
                 )
-            } else {
-                return None;
             };
         Some(DiagnosticCause {
             class: DiagnosticClass::Native,

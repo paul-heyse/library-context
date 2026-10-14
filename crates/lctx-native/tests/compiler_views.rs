@@ -2847,7 +2847,7 @@ async fn shared_dependency_view_requires_each_selected_contributors_exact_hold()
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
     let nonce = lctx_native::control::fresh_identity("shared-dependency-edge-control").unwrap();
     let mut restore: Option<(Object, Object, Object)> = None;
-    let mut audit = lctx_native::installed_view::InstallationAudit::new(admin.clone(), &budget)
+    let audit = lctx_native::installed_view::InstallationAudit::new(admin.clone(), &budget)
         .await
         .unwrap();
     let mut independent_audit = None;
@@ -2866,7 +2866,7 @@ async fn shared_dependency_view_requires_each_selected_contributors_exact_hold()
         }
         let view=previous[relation.name()].clone();assert_eq!(view.contributions.len(),2);assert_eq!(view.rows,0);
         let held=source.installed_view(&view,&budget).await.unwrap();let sealed=held.completion().clone();
-        let original=lctx_native::installed_view::select_live_view_scoped(admin.clone(),source.attempt(),&view,&sealed.mappings,&budget,&mut audit).await.unwrap();
+        let original=lctx_native::installed_view::select_live_view_scoped(admin.clone(),source.attempt(),&view,&sealed.mappings,&budget,&audit).await.unwrap();
         assert_eq!(original.completion(),&sealed,"reselection keeps the exact validated logical/physical selector");
         let last=*view.contributions.iter().next_back().unwrap();
         let selected=sealed.mappings.iter().find(|mapping|mapping.view==view.identity && mapping.logical==last).unwrap();
@@ -2966,7 +2966,7 @@ async fn held_installation_scope_reuses_whole_blob_and_contributor_across_roots(
         .unwrap();
     let admin = fixture_client(&store, &config).await;
     let budget = ResourceBudget::fixed(768 << 20).unwrap();
-    let mut audit = InstallationAudit::new(admin.clone(), &budget)
+    let audit = InstallationAudit::new(admin.clone(), &budget)
         .await
         .unwrap();
     let result=std::panic::AssertUnwindSafe(async{
@@ -2989,14 +2989,14 @@ async fn held_installation_scope_reuses_whole_blob_and_contributor_across_roots(
         for relation in &relations{
             let view=&views[relation.name()];let baseline=store.installed_view(view,&budget).await.unwrap();
             let mappings=baseline.completion().mappings.clone();
-            let checked=select_live_view_scoped(admin.clone(),store.attempt(),view,&mappings,&budget,&mut audit).await.unwrap();
+            let checked=select_live_view_scoped(admin.clone(),store.attempt(),view,&mappings,&budget,&audit).await.unwrap();
             assert_eq!(checked.completion(),baseline.completion());
             assert_eq!(audit.observations(),(1,1),"all six logical ranges share one full blob observation, and later roots reuse exactly the retained contributor");
             drop(checked);
         }
         audit.close().await.unwrap();
         let view=&views[packages.name()];let baseline=store.installed_view(view,&budget).await.unwrap();
-        assert!(select_live_view_scoped(admin.clone(),store.attempt(),view,&baseline.completion().mappings,&budget,&mut audit).await.is_err(),"a released pin never retains reusable authority");
+        assert!(select_live_view_scoped(admin.clone(),store.attempt(),view,&baseline.completion().mappings,&budget,&audit).await.is_err(),"a released pin never retains reusable authority");
     }).catch_unwind().await;
     let mut cleanup = completion::Completion::default();
     cleanup.step("installation observation pin release", audit.close().await);

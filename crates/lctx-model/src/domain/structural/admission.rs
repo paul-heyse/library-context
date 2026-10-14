@@ -38,7 +38,7 @@ fn frame_inputs() -> Vec<ValidationInput> {
 // These global rows are compact frame, membership and stop metadata. No native body, path,
 // graph bytes or rich Structural output is retained by this independent inventory predicate.
 struct FrameCheck {
-    uniform:uniform_outcome::AnalysisUniformConsumer,
+    uniform: uniform_outcome::AnalysisUniformConsumer,
     runs: Rows<ProviderRun>,
     core: Rows<analysis::catalog_core::Invocation>,
     context: Context,
@@ -48,7 +48,10 @@ struct FrameCheck {
 impl FrameCheck {
     fn new(b: &ResourceBudget) -> Self {
         Self {
-            uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Local,b),
+            uniform: uniform_outcome::AnalysisUniformConsumer::new(
+                analysis::owner::AnalysisOwner::Local,
+                b,
+            ),
             runs: Rows::new(b),
             core: Rows::new(b),
             context: Context::new(b),
@@ -65,19 +68,19 @@ impl FrameCheck {
         let mut charge = charged::StateCharge::new(&self.budget, "structural_frame_fidelity");
         for core in parents.iter() {
             let local = self.context.local_source(core)?;
-            if let owner::InvocationSource::Local{invocation}=&local {
-            let mut outcomes = self
-                .context
-                .local_outcomes
-                .iter()
-                .filter(|row| row.invocation == *invocation);
-            let outcome = outcomes
-                .next()
-                .ok_or_else(|| invalid("Structural Local outcome absent"))?;
-            if outcomes.next().is_some() {
-                return Err(invalid("Structural Local outcome domain ambiguous"));
-            }
-            outcome.validate()?;
+            if let owner::InvocationSource::Local { invocation } = &local {
+                let mut outcomes = self
+                    .context
+                    .local_outcomes
+                    .iter()
+                    .filter(|row| row.invocation == *invocation);
+                let outcome = outcomes
+                    .next()
+                    .ok_or_else(|| invalid("Structural Local outcome absent"))?;
+                if outcomes.next().is_some() {
+                    return Err(invalid("Structural Local outcome domain ambiguous"));
+                }
+                outcome.validate()?;
             }
             let frame = frames::frame(&self.context, core)?;
             frames.insert(frame.clone())?;
@@ -149,23 +152,39 @@ impl FrameCheck {
     }
 }
 impl InvariantCheck for FrameCheck {
-    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform.admit(owner)}
+    fn admit_uniform_owner(
+        &mut self,
+        owner: &uniform_outcome::ValidatedUniformOwner,
+    ) -> Result<(), ModelError> {
+        self.uniform.admit(owner)
+    }
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        self.uniform.visit(name,batch)?;
+        self.uniform.visit(name, batch)?;
         if name == ProviderRun::NAME {
             self.runs.decode(batch)
         } else if name == analysis::catalog_core::Invocation::NAME {
             self.core.decode(batch)
-        } else if self.context.visit(name, batch)? || self.output.visit(name, batch)? {
-            Ok(())
-        } else if uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Local,vec![]).iter().any(|input|input.name()==name){
+        } else if self.context.visit(name, batch)?
+            || self.output.visit(name, batch)?
+            || uniform_outcome::AnalysisUniformConsumer::inputs(
+                analysis::owner::AnalysisOwner::Local,
+                vec![],
+            )
+            .iter()
+            .any(|input| input.name() == name)
+        {
             Ok(())
         } else {
             Err(invalid("undeclared Structural frame fidelity input"))
         }
     }
     fn finish(mut self: Box<Self>) -> Result<(), ModelError> {
-        for core in catalog::evidence::frames::parents(&self.runs,&self.core,&self.budget)?.iter(){if let Some(domain)=self.uniform.frame(core.input,core.context)?{self.context.admit_compact_local(domain)?;}}
+        for core in catalog::evidence::frames::parents(&self.runs, &self.core, &self.budget)?.iter()
+        {
+            if let Some(domain) = self.uniform.frame(core.input, core.context)? {
+                self.context.admit_compact_local(domain)?;
+            }
+        }
         self.verify()
     }
 }
@@ -896,7 +915,10 @@ pub(crate) fn invariants() -> Vec<Invariant> {
             revision: 2,
             name: "structural_frame_fidelity",
             purpose: InvariantPurpose::Admission,
-            inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Local,frame_inputs()),
+            inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+                analysis::owner::AnalysisOwner::Local,
+                frame_inputs(),
+            ),
             create: std::sync::Arc::new(|b| Box::new(FrameCheck::new(b))),
         },
         Invariant {
@@ -919,39 +941,173 @@ pub(crate) fn source_refs() -> Vec<&'static str> {
 mod compact_controls {
     use super::*;
     #[test]
-    fn compact_structural_admission_validates_actual_empty_frame_and_refuses_unprotected_or_ordinary_overlap(){
-        let budget=ResourceBudget::fixed(64<<20).unwrap();
-        let (input,context)=uniform_outcome::test_support::input_context();
-        let compact=uniform_outcome::test_support::empty_owner(analysis::owner::AnalysisOwner::Local,&input,&context,&budget);
-        let core=analysis::catalog_core::Invocation::new(input.id(),context.id(),catalog::build::definition().1.id(),None,[]).0;
-        let settings=AnalyticsConfiguration{module_prefixes:vec!["pkg.impl".into()],public_roots:vec!["pkg.api".into()],configured_seeds:vec![],depth:2,vertices:128,arcs:512,witnesses:3,brief_budget:0,communities:false,pagerank:false,fca:false,knn:false,rca:false,type_layer:false,mention_layer:false,knn_layer:false};
-        let mut batches=compact.batches;
-        fn push<R:Record>(batches:&mut Vec<(&'static str,arrow_array::RecordBatch)>,rows:&[R]){batches.push((R::NAME,R::encode(rows).unwrap()));}
-        push(&mut batches,std::slice::from_ref(&core));push(&mut batches,std::slice::from_ref(&settings));
-        for method in [analysis::AnalysisMethod::Delegation,analysis::AnalysisMethod::DirectUsage,analysis::AnalysisMethod::Handoffs,analysis::AnalysisMethod::Controls]{
-            let (parameters,definition)=build::definition(&settings,method).unwrap();
-            let invocation=owner::Invocation::new(input.id(),context.id(),definition.id(),None,[owner::InvocationSource::UniformAnalysis{descriptor:compact.owner.descriptor().id()}.id(),owner::InvocationSource::CatalogCore{invocation:core.id()}.id()]).0;
-            push(&mut batches,&[parameters]);push(&mut batches,&[definition]);push(&mut batches,&[invocation]);
+    fn compact_structural_admission_validates_actual_empty_frame_and_refuses_unprotected_or_ordinary_overlap()
+     {
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let (input, context) = uniform_outcome::test_support::input_context();
+        let compact = uniform_outcome::test_support::empty_owner(
+            analysis::owner::AnalysisOwner::Local,
+            &input,
+            &context,
+            &budget,
+        );
+        let core = analysis::catalog_core::Invocation::new(
+            input.id(),
+            context.id(),
+            catalog::build::definition().1.id(),
+            None,
+            [],
+        )
+        .0;
+        let settings = AnalyticsConfiguration {
+            module_prefixes: vec!["pkg.impl".into()],
+            public_roots: vec!["pkg.api".into()],
+            configured_seeds: vec![],
+            depth: 2,
+            vertices: 128,
+            arcs: 512,
+            witnesses: 3,
+            brief_budget: 0,
+            communities: false,
+            pagerank: false,
+            fca: false,
+            knn: false,
+            rca: false,
+            type_layer: false,
+            mention_layer: false,
+            knn_layer: false,
+        };
+        let mut batches = compact.batches;
+        fn push<R: Record>(
+            batches: &mut Vec<(&'static str, arrow_array::RecordBatch)>,
+            rows: &[R],
+        ) {
+            batches.push((R::NAME, R::encode(rows).unwrap()));
         }
-        for projection in [ProjectionName::CallableInvocation,ProjectionName::DefinitionContainment]{push(&mut batches,&[ProjectionSourceAssessment{input:input.id(),context:context.id(),projection,version:projection::ProjectionSpec::VERSION,vertices:0,arcs:0,gaps:0,availability:projection::ProjectionAvailability::CompleteUnderStatedModel}]);}
+        push(&mut batches, std::slice::from_ref(&core));
+        push(&mut batches, std::slice::from_ref(&settings));
+        for method in [
+            analysis::AnalysisMethod::Delegation,
+            analysis::AnalysisMethod::DirectUsage,
+            analysis::AnalysisMethod::Handoffs,
+            analysis::AnalysisMethod::Controls,
+        ] {
+            let (parameters, definition) = build::definition(&settings, method).unwrap();
+            let invocation = owner::Invocation::new(
+                input.id(),
+                context.id(),
+                definition.id(),
+                None,
+                [
+                    owner::InvocationSource::UniformAnalysis {
+                        descriptor: compact.owner.descriptor().id(),
+                    }
+                    .id(),
+                    owner::InvocationSource::CatalogCore {
+                        invocation: core.id(),
+                    }
+                    .id(),
+                ],
+            )
+            .0;
+            push(&mut batches, &[parameters]);
+            push(&mut batches, &[definition]);
+            push(&mut batches, &[invocation]);
+        }
+        for projection in [
+            ProjectionName::CallableInvocation,
+            ProjectionName::DefinitionContainment,
+        ] {
+            push(
+                &mut batches,
+                &[ProjectionSourceAssessment {
+                    input: input.id(),
+                    context: context.id(),
+                    projection,
+                    version: projection::ProjectionSpec::VERSION,
+                    vertices: 0,
+                    arcs: 0,
+                    gaps: 0,
+                    availability: projection::ProjectionAvailability::CompleteUnderStatedModel,
+                }],
+            );
+        }
         // The producer-side frame is built from the same actual typed metadata and resolved
         // Local domain. The admission instance below independently resolves its own proof.
-        let mut producer=Context::new(&budget);for (name,batch) in &batches{producer.visit(name,batch).unwrap();}
+        let mut producer = Context::new(&budget);
+        for (name, batch) in &batches {
+            producer.visit(name, batch).unwrap();
+        }
         producer.admit_compact_local(compact.domain).unwrap();
-        let frame=frames::frame(&producer,&core).unwrap();assert!(!frame.controls_requested);
-        let mut output=Output::new(&budget);output.frames.insert(frame.clone()).unwrap();
-        for invocation in producer.invocations.iter(){for source in [producer.local_source(&core).unwrap(),owner::InvocationSource::CatalogCore{invocation:core.id()}]{
-            let parent=producer.sources.insert(source).unwrap();producer.inputs.insert(owner::AnalysisInput{invocation:invocation.id(),parent}).unwrap();
-        }}
-        producer.outcomes=outcomes::derive(&producer,&output,&budget).unwrap();
-        push(&mut batches,&[frame]);push(&mut batches,&producer.sources.iter().cloned().collect::<Vec<_>>());push(&mut batches,&producer.inputs.iter().cloned().collect::<Vec<_>>());push(&mut batches,&producer.outcomes.iter().cloned().collect::<Vec<_>>());
-        let invariant=invariants().into_iter().find(|invariant|invariant.name=="structural_frame_fidelity").unwrap();
-        let run=|admit:bool,overlap:bool|{
-            let mut check=(invariant.create)(&budget);if admit{check.admit_uniform_owner(&compact.owner).unwrap();}
-            for (name,batch) in &batches{if invariant.inputs.iter().any(|input|input.name()==*name){check.visit(name,batch).unwrap();}}
-            if overlap{let local=analysis::local::Invocation::new(input.id(),context.id(),local_semantics::definition().1.id(),None,[]).0;check.visit(analysis::local::Invocation::NAME,&analysis::local::Invocation::encode(&[local]).unwrap()).unwrap();}
+        let frame = frames::frame(&producer, &core).unwrap();
+        assert!(!frame.controls_requested);
+        let mut output = Output::new(&budget);
+        output.frames.insert(frame.clone()).unwrap();
+        for invocation in producer.invocations.iter() {
+            for source in [
+                producer.local_source(&core).unwrap(),
+                owner::InvocationSource::CatalogCore {
+                    invocation: core.id(),
+                },
+            ] {
+                let parent = producer.sources.insert(source).unwrap();
+                producer
+                    .inputs
+                    .insert(owner::AnalysisInput {
+                        invocation: invocation.id(),
+                        parent,
+                    })
+                    .unwrap();
+            }
+        }
+        producer.outcomes = outcomes::derive(&producer, &output, &budget).unwrap();
+        push(&mut batches, &[frame]);
+        push(
+            &mut batches,
+            &producer.sources.iter().cloned().collect::<Vec<_>>(),
+        );
+        push(
+            &mut batches,
+            &producer.inputs.iter().cloned().collect::<Vec<_>>(),
+        );
+        push(
+            &mut batches,
+            &producer.outcomes.iter().cloned().collect::<Vec<_>>(),
+        );
+        let invariant = invariants()
+            .into_iter()
+            .find(|invariant| invariant.name == "structural_frame_fidelity")
+            .unwrap();
+        let run = |admit: bool, overlap: bool| {
+            let mut check = (invariant.create)(&budget);
+            if admit {
+                check.admit_uniform_owner(&compact.owner).unwrap();
+            }
+            for (name, batch) in &batches {
+                if invariant.inputs.iter().any(|input| input.name() == *name) {
+                    check.visit(name, batch).unwrap();
+                }
+            }
+            if overlap {
+                let local = analysis::local::Invocation::new(
+                    input.id(),
+                    context.id(),
+                    local_semantics::definition().1.id(),
+                    None,
+                    [],
+                )
+                .0;
+                check
+                    .visit(
+                        analysis::local::Invocation::NAME,
+                        &analysis::local::Invocation::encode(&[local]).unwrap(),
+                    )
+                    .unwrap();
+            }
             check.finish()
         };
-        run(true,false).unwrap();assert!(run(false,false).is_err());assert!(run(true,true).is_err());
+        run(true, false).unwrap();
+        assert!(run(false, false).is_err());
+        assert!(run(true, true).is_err());
     }
 }

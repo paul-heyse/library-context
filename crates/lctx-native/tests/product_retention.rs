@@ -437,11 +437,10 @@ async fn frozen_warm_only_release_requires_real_physical_completion_and_preserve
 
         let product_holds=product.holds().await;let mut original_singletons=Vec::new();
         for edge in &product_holds {
-            if let Some(Value::RecordId(record))=edge.get("object") {
-                if record.table.as_str()=="native_completed_state" {
+            if let Some(Value::RecordId(record))=edge.get("object")
+                && record.table.as_str()=="native_completed_state" {
                     original_singletons.push((record.clone(),product.row(record).await.unwrap()));
                 }
-            }
         }
         assert_eq!(original_singletons.len(),1,"production retains one original compound boundary");
         product.source.freeze_content(&product.budget).await.unwrap();
@@ -530,7 +529,7 @@ async fn history_preserves_a_released_products_durable_nomination() {
         bindings.insert("closed",issuance.era);bindings.insert("after",RecordId::new("native_retirement",ContentHash(bytes).hex()));
         control::effect(&client,None,"IF $__installation.admission_open OR $__installation.history_inventory=NONE OR $__installation.closed_through<$closed { THROW 'product history requires qualified drained horizon'; }; CREATE $checkpoint SET generation=$__generation,era=$__era,epoch=$__epoch,closed_through=$closed,phase='retirement',after=$after,state='open',removed_effects=0,removed_records=0,revision=0 RETURN NONE",bindings).await.unwrap();
         let receipt=control::resume_history_compaction(&client,checkpoint,0,1).await.unwrap();
-        assert_eq!(receipt.examined,[job.clone()]);assert_eq!(receipt.protected,[job.clone()]);assert!(receipt.removed.is_empty());
+        assert_eq!(receipt.examined.as_slice(),std::slice::from_ref(&job));assert_eq!(receipt.protected.as_slice(),std::slice::from_ref(&job));assert!(receipt.removed.is_empty());
         assert!(product.row(&job).await.is_some());assert!(product.row(&product.product).await.is_some());
         assert_eq!(product.release().await,release,"release remains discoverable after the history page");
     }).catch_unwind().await;
@@ -583,8 +582,8 @@ async fn exact_history_page(
         .await
         .unwrap();
     assert_eq!(
-        receipt.examined,
-        [target.clone()],
+        receipt.examined.as_slice(),
+        std::slice::from_ref(target),
         "the page cannot consume another test's history"
     );
     receipt

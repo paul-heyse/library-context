@@ -346,83 +346,93 @@ async fn validate_grain(
     check.finish()
 }
 
-async fn validate_group(
-    invariant: &Invariant,
-    ownership: &SupportOwnership,
-    tables: &[ClosureTable],
-    prepared: &crate::consumed_rows::PreparedEdges,
+struct SupportGroupValidation<'a> {
+    invariant: &'a Invariant,
+    ownership: &'a SupportOwnership,
+    tables: &'a [ClosureTable],
+    prepared: &'a crate::consumed_rows::PreparedEdges,
     root: usize,
-    ids: &[[u8; 16]],
-    grains: &[Grain],
-    budget: &ResourceBudget,
-    cancellation: &Cancellation,
-) -> Result<(), ModelError> {
-    let roots = ids
-        .iter()
-        .map(|key| PreparedRoot {
-            table: root,
-            key: *key,
-            kind: PreparedRootKind::Physical,
-        })
-        .collect::<Vec<_>>();
-    let batch = prepared
-        .batch_with_cancellation(&roots, budget, cancellation)
-        .await?;
-    let mut full = std::collections::BTreeSet::new();
-    full_rows(&ownership.corpus, &mut full);
-    full_rows(&ownership.distributions, &mut full);
-    let mut union = ColumnarInputs::new(&batch, &invariant.inputs, budget)?;
-    // Complete Full ownership is supplied by its spill run. Hydrate every other bound port
-    // once for the entire root group, preserving each input's own declared total order.
-    for (index, input) in invariant.inputs.iter().enumerate() {
-        if full.contains(&index) {
-            continue;
-        }
-        let mut stream = batch
-            .union
-            .ordered_input(index, input)
-            .await?
-            .execute_stream()
-            .await
-            .map_err(crate::sql::model_error)?;
-        while let Some(rows) = stream.try_next().await.map_err(crate::sql::model_error)? {
-            cancellation.check()?;
-            union.push(index, &rows)?;
-        }
-    }
-    let positions =
-        PreparedPositions::new(&batch, &invariant.inputs, &union, budget, cancellation)?;
-    let mut start = 0;
-    while start < ids.len() {
-        let end = start + grains[start..].partition_point(|grain| *grain == grains[start]);
-        let partitions = (start..end).collect::<Vec<_>>();
-        // Declare retained gathers before the scope so error unwinding removes providers before
-        // releasing their backing charges. Every checker still gets its own fresh state.
-        let _handles = budget.reserve(
-            "support-gather-handles",
-            invariant
-                .inputs
-                .len()
-                .saturating_mul(size_of::<crate::scoped_positions::GatheredRows<'_>>()),
-        )?;
-        let mut retained = Vec::with_capacity(invariant.inputs.len());
-        let selected = batch.select_partitions(&partitions, budget)?;
-        let closure = selected.union;
-        for index in 0..invariant.inputs.len() {
+    budget: &'a ResourceBudget,
+    cancellation: &'a Cancellation,
+}
+impl SupportGroupValidation<'_> {
+    async fn validate(&self, ids: &[[u8; 16]], grains: &[Grain]) -> Result<(), ModelError> {
+        let Self {
+            invariant,
+            ownership,
+            tables,
+            prepared,
+            root,
+            budget,
+            cancellation,
+        } = *self;
+        let roots = ids
+            .iter()
+            .map(|key| PreparedRoot {
+                table: root,
+                key: *key,
+                kind: PreparedRootKind::Physical,
+            })
+            .collect::<Vec<_>>();
+        let batch = prepared
+            .batch_with_cancellation(&roots, budget, cancellation)
+            .await?;
+        let mut full = std::collections::BTreeSet::new();
+        full_rows(&ownership.corpus, &mut full);
+        full_rows(&ownership.distributions, &mut full);
+        let mut union = ColumnarInputs::new(&batch, &invariant.inputs, budget)?;
+        // Complete Full ownership is supplied by its spill run. Hydrate every other bound port
+        // once for the entire root group, preserving each input's own declared total order.
+        for (index, input) in invariant.inputs.iter().enumerate() {
             if full.contains(&index) {
                 continue;
             }
-            let gathered = positions.gather(&partitions, index, index, cancellation)?;
-            closure.bind_prepared_rows(index, gathered.rows().to_vec())?;
-            retained.push(gathered);
+            let mut stream = batch
+                .union
+                .ordered_input(index, input)
+                .await?
+                .execute_stream()
+                .await
+                .map_err(crate::sql::model_error)?;
+            while let Some(rows) = stream.try_next().await.map_err(crate::sql::model_error)? {
+                cancellation.check()?;
+                union.push(index, &rows)?;
+            }
         }
-        validate_grain(invariant, ownership, tables, &closure, budget, cancellation).await?;
-        // The borrowed batch providers are removed before their retained row charge is released.
-        drop(closure);
-        drop(retained);
-        start = end;
+        let positions =
+            PreparedPositions::new(&batch, &invariant.inputs, &union, budget, cancellation)?;
+        let mut start = 0;
+        while start < ids.len() {
+            let end = start + grains[start..].partition_point(|grain| *grain == grains[start]);
+            let partitions = (start..end).collect::<Vec<_>>();
+            // Declare retained gathers before the scope so error unwinding removes providers before
+            // releasing their backing charges. Every checker still gets its own fresh state.
+            let _handles = budget.reserve(
+                "support-gather-handles",
+                invariant
+                    .inputs
+                    .len()
+                    .saturating_mul(size_of::<crate::scoped_positions::GatheredRows<'_>>()),
+            )?;
+            let mut retained = Vec::with_capacity(invariant.inputs.len());
+            let selected = batch.select_partitions(&partitions, budget)?;
+            let closure = selected.union;
+            for index in 0..invariant.inputs.len() {
+                if full.contains(&index) {
+                    continue;
+                }
+                let gathered = positions.gather(&partitions, index, index, cancellation)?;
+                closure.bind_prepared_rows(index, gathered.rows().to_vec())?;
+                retained.push(gathered);
+            }
+            validate_grain(invariant, ownership, tables, &closure, budget, cancellation).await?;
+            // The borrowed batch providers are removed before their retained row charge is released.
+            drop(closure);
+            drop(retained);
+            start = end;
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 pub async fn validate_support(
@@ -467,6 +477,15 @@ pub async fn validate_support(
         .execute_stream()
         .await
         .map_err(crate::sql::model_error)?;
+    let group = SupportGroupValidation {
+        invariant,
+        ownership: &declared.ownership,
+        tables: &tables,
+        prepared: &prepared,
+        root,
+        budget,
+        cancellation,
+    };
     let _root_charge = budget.reserve("support-admission-roots", ROOT_ROWS * 128)?;
     let mut ids = Vec::with_capacity(ROOT_ROWS);
     let mut grains = Vec::with_capacity(ROOT_ROWS);
@@ -479,36 +498,14 @@ pub async fn validate_support(
                 column(&batch, "context", row)?,
             ));
             if ids.len() == ROOT_ROWS {
-                validate_group(
-                    invariant,
-                    &declared.ownership,
-                    &tables,
-                    &prepared,
-                    root,
-                    &ids,
-                    &grains,
-                    budget,
-                    cancellation,
-                )
-                .await?;
+                group.validate(&ids, &grains).await?;
                 ids.clear();
                 grains.clear();
             }
         }
     }
     if !ids.is_empty() {
-        validate_group(
-            invariant,
-            &declared.ownership,
-            &tables,
-            &prepared,
-            root,
-            &ids,
-            &grains,
-            budget,
-            cancellation,
-        )
-        .await?;
+        group.validate(&ids, &grains).await?;
     }
     Ok(())
 }

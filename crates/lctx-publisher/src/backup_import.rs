@@ -805,7 +805,7 @@ mod tests {
             panic!("rows")
         };
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].to_sql().contains("é;literal"), true);
+        assert!(rows[0].to_sql().contains("é;literal"));
     }
     #[test]
     fn restore_rejects_arbitrary_effects_and_control_identity_injection() {

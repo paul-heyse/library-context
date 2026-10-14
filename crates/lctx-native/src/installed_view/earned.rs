@@ -218,25 +218,23 @@ pub async fn select_live_view_scoped(
     audit: &InstallationAudit,
 ) -> Result<HeldInstalledView, ModelError> {
     let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
-    let result =
-        async {
-            audit.ensure_context(&reader, budget).await?;
-            let owner = crate::control::live_view::capture(&reader, attempt, budget).await?;
-            let closure =
-                super::audit::inspect_closure_in_audit(&reader, view, mappings, budget, audit)
-                    .await?;
-            super::audit::audit_memberships_scoped(&reader, &closure, budget, audit).await?;
-            // Contributor-local alias integrity is reusable; composed exact-set reachability
-            // is checked before selector authority is published, including cross-owner paths.
-            super::audit::audit_aliases_scoped(&reader, &closure, budget, audit).await?;
-            let prepared =
-                super::audit::prepare_closure_scoped(&reader, &closure, budget, audit).await?;
-            let members =
-                super::audit::selected_prepared_members(&closure, view, budget, audit).await?;
-            let selector = super::realization_id(view, mappings)?;
-            let members = members.point_index(budget)?;
-            let mut charge = StateCharge::new(budget, "earned exact contributor capability");
-            charge.grow(
+    let result = async {
+        audit.ensure_context(&reader, budget).await?;
+        let owner = crate::control::live_view::capture(&reader, attempt, budget).await?;
+        let closure =
+            super::audit::inspect_closure_in_audit(&reader, view, mappings, budget, audit).await?;
+        super::audit::audit_memberships_scoped(&reader, &closure, budget, audit).await?;
+        // Contributor-local alias integrity is reusable; composed exact-set reachability
+        // is checked before selector authority is published, including cross-owner paths.
+        super::audit::audit_aliases_scoped(&reader, &closure, budget, audit).await?;
+        let prepared =
+            super::audit::prepare_closure_scoped(&reader, &closure, budget, audit).await?;
+        let members =
+            super::audit::selected_prepared_members(&closure, view, budget, audit).await?;
+        let selector = super::realization_id(view, mappings)?;
+        let members = members.point_index(budget)?;
+        let mut charge = StateCharge::new(budget, "earned exact contributor capability");
+        charge.grow(
                 closure
                     .contributors
                     .len()
@@ -248,46 +246,46 @@ pub async fn select_live_view_scoped(
                     )
                     .saturating_add(4096),
             )?;
-            let set = Arc::new(EarnedContributionSet {
-                pin: audit.borrow_pin()?,
-                owner: RecordId::new("native_pin", audit.pin_identity().hex()),
-                generation: owner.generation(),
-                validity_epoch: owner.validity_epoch(),
-                contributors: super::audit::protected_contributors(&closure, audit)?,
-                selector,
-                members,
-                _prepared: prepared,
-                _charge: charge,
-            });
-            // Native metadata, whole outputs and selected membership were independently
-            // checked under this actual operation pin. Receiving readers earn their own
-            // exact current authority; publishing another selector retains this pin.
-            audit.ensure_context(&reader, budget).await?;
-            set.pin.ensure_live()?;
-            let mut charge = StateCharge::new(budget, "internal exact view selector");
-            charge.grow(
-                view.relation
-                    .capacity()
-                    .saturating_add(view.contributions.len().saturating_mul(256))
-                    .saturating_add(
-                        mappings
-                            .len()
-                            .saturating_mul(std::mem::size_of::<ContributorRealization>()),
-                    )
-                    .saturating_add(1024),
-            )?;
-            Ok(HeldInstalledView {
-                client: client.clone(),
-                completion: None,
-                selector: SelectedViewDescriptor {
-                    view: view.clone(),
-                    mappings: mappings.to_vec(),
-                },
-                owner: InstalledViewOwner::Earned { set },
-                _charge: charge,
-            })
-        }
-        .await;
+        let set = Arc::new(EarnedContributionSet {
+            pin: audit.borrow_pin()?,
+            owner: RecordId::new("native_pin", audit.pin_identity().hex()),
+            generation: owner.generation(),
+            validity_epoch: owner.validity_epoch(),
+            contributors: super::audit::protected_contributors(&closure, audit)?,
+            selector,
+            members,
+            _prepared: prepared,
+            _charge: charge,
+        });
+        // Native metadata, whole outputs and selected membership were independently
+        // checked under this actual operation pin. Receiving readers earn their own
+        // exact current authority; publishing another selector retains this pin.
+        audit.ensure_context(&reader, budget).await?;
+        set.pin.ensure_live()?;
+        let mut charge = StateCharge::new(budget, "internal exact view selector");
+        charge.grow(
+            view.relation
+                .capacity()
+                .saturating_add(view.contributions.len().saturating_mul(256))
+                .saturating_add(
+                    mappings
+                        .len()
+                        .saturating_mul(std::mem::size_of::<ContributorRealization>()),
+                )
+                .saturating_add(1024),
+        )?;
+        Ok(HeldInstalledView {
+            client: client.clone(),
+            completion: None,
+            selector: SelectedViewDescriptor {
+                view: view.clone(),
+                mappings: mappings.to_vec(),
+            },
+            owner: InstalledViewOwner::Earned { set },
+            _charge: charge,
+        })
+    }
+    .await;
     let mut terminal = Completion::default();
     terminal.step("internal selected view reader close", reader.close().await);
     let result = complete(result, terminal);
@@ -517,7 +515,7 @@ fn decode_selected_member(
     canonical.insert("semantic_key", hex::encode(key));
     canonical.insert("node", node.clone());
     canonical.insert("content", content.hex());
-    if row != &Value::Object(canonical) {
+    if row != Value::Object(canonical) {
         return Err(ModelError::Conflict(
             "canonical selected exact membership envelope",
         ));

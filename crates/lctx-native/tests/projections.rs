@@ -145,7 +145,7 @@ async fn named_projection_preserves_native_universe_arcs_and_gap_metadata() {
         .await
         .unwrap();
     let reader = &fixture.reader;
-    let projection = lctx_native::projections::materialize_scoped(&reader, key, &budget)
+    let projection = lctx_native::projections::materialize_scoped(reader, key, &budget)
         .await
         .unwrap();
     projection.graph.matches(&expected).unwrap();
@@ -183,7 +183,7 @@ async fn named_projection_preserves_native_universe_arcs_and_gap_metadata() {
         name: ProjectionName::PublicExposure,
     };
     assert!(
-        lctx_native::projections::materialize_scoped(&reader, missing, &budget)
+        lctx_native::projections::materialize_scoped(reader, missing, &budget)
             .await
             .is_err()
     );

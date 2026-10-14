@@ -37,7 +37,7 @@ mod preparation;
 mod ranked_results;
 mod service;
 mod vocabulary;
-pub use service::{NativeService, QueryVector, TransportRequest};
+pub use service::{NativeService, QueryVector, ToolInput, TransportRequest};
 
 /// Exact executable Rust operation policy is part of the native realization, separate from graph meaning.
 pub fn operation_definition() -> lctx_model::domain::ContentHash {
@@ -59,7 +59,10 @@ fn executable_constants() -> &'static ExecutableConstants {
         use lctx_model::domain::{ContentHash, serving};
         let wire = serving::wire_identity();
         let operation = operation_identity(
-            ContentHash::of(include_bytes!(concat!(env!("OUT_DIR"), "/serving-implementation.bin"))),
+            ContentHash::of(include_bytes!(concat!(
+                env!("OUT_DIR"),
+                "/serving-implementation.bin"
+            ))),
             lctx_model::domain::implementation_digest(),
             lctx_model::domain::native_requests::definition(),
             serving::mappings::identity().0,
@@ -68,7 +71,9 @@ fn executable_constants() -> &'static ExecutableConstants {
         ExecutableConstants {
             operation,
             wire,
-            policy: serving::ranking::RankingPolicy::default().identity().map_err(|error| error.to_string()),
+            policy: serving::ranking::RankingPolicy::default()
+                .identity()
+                .map_err(|error| error.to_string()),
             default_ordering: ContentHash::of(b"serving-key-order/v2:default"),
             expanded_ordering: ContentHash::of(b"serving-key-order/v2:expanded"),
         }
@@ -98,21 +103,36 @@ mod executable_constant_controls {
         let prepared = executable_constants();
         assert!(std::ptr::eq(prepared, executable_constants()));
         assert_eq!(prepared.wire, serving::wire_identity());
-        assert_eq!(prepared.policy.as_ref().unwrap(), &serving::ranking::RankingPolicy::default().identity().unwrap());
+        assert_eq!(
+            prepared.policy.as_ref().unwrap(),
+            &serving::ranking::RankingPolicy::default()
+                .identity()
+                .unwrap()
+        );
         let inputs = [
-            ContentHash::of(include_bytes!(concat!(env!("OUT_DIR"), "/serving-implementation.bin"))),
+            ContentHash::of(include_bytes!(concat!(
+                env!("OUT_DIR"),
+                "/serving-implementation.bin"
+            ))),
             lctx_model::domain::implementation_digest(),
             lctx_model::domain::native_requests::definition(),
             serving::mappings::identity().0,
             serving::wire_identity().0,
         ];
         let [implementation, model, native_requests, mapping, wire] = inputs;
-        assert_eq!(operation_definition(), operation_identity(implementation, model, native_requests, mapping, wire));
+        assert_eq!(
+            operation_definition(),
+            operation_identity(implementation, model, native_requests, mapping, wire)
+        );
         for index in 0..inputs.len() {
             let mut changed = inputs;
             changed[index] = ContentHash::of(b"changed executable definition");
             let [implementation, model, native_requests, mapping, wire] = changed;
-            assert_ne!(operation_definition(), operation_identity(implementation, model, native_requests, mapping, wire), "semantic input {index} remains bound");
+            assert_ne!(
+                operation_definition(),
+                operation_identity(implementation, model, native_requests, mapping, wire),
+                "semantic input {index} remains bound"
+            );
         }
     }
 }

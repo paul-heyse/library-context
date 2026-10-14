@@ -191,6 +191,16 @@ pub fn realization_identity(native_definitions: &str) -> ContentHash {
     ContentHash::of(&bytes)
 }
 
+/// Originals reference exact shared blob pieces; each piece has one current blob owner.
+pub fn original_blob_schema_target() -> &'static str {
+    "DEFINE TABLE original TYPE NORMAL SCHEMAFULL; DEFINE FIELD id ON original TYPE string; DEFINE FIELD artifact ON original TYPE record<entity>; DEFINE FIELD blob ON original TYPE record<original_blob>; DEFINE FIELD content ON original TYPE string; DEFINE FIELD byte_len ON original TYPE int; DEFINE INDEX blob_layout ON original FIELDS blob,id; DEFINE TABLE original_blob TYPE NORMAL SCHEMAFULL; DEFINE FIELD content ON original_blob TYPE string; DEFINE FIELD byte_len ON original_blob TYPE int; DEFINE FIELD format ON original_blob TYPE string; DEFINE FIELD completed ON original_blob TYPE bool; DEFINE TABLE original_chunk TYPE NORMAL SCHEMAFULL; DEFINE FIELD blob ON original_chunk TYPE record<original_blob>; DEFINE FIELD start ON original_chunk TYPE int; DEFINE FIELD bytes ON original_chunk TYPE bytes; DEFINE FIELD content ON original_chunk TYPE string; DEFINE INDEX position ON original_chunk FIELDS blob,start UNIQUE;"
+}
+
+/// Temporary native ingress work; included only in the target format-six installation.
+pub fn pending_original_schema_target() -> &'static str {
+    "DEFINE TABLE native_pending_original TYPE NORMAL SCHEMAFULL; DEFINE FIELD id ON native_pending_original TYPE string; DEFINE FIELD attempt ON native_pending_original TYPE record<native_attempt>; DEFINE FIELD logical_source ON native_pending_original TYPE record<original>; DEFINE INDEX pending_attempt ON native_pending_original FIELDS attempt,id; DEFINE TABLE native_pending_original_ordinal TYPE NORMAL SCHEMAFULL; DEFINE FIELD id ON native_pending_original_ordinal TYPE string; DEFINE FIELD root ON native_pending_original_ordinal TYPE record<native_pending_original>; DEFINE FIELD ordinal ON native_pending_original_ordinal TYPE int; DEFINE FIELD byte_len ON native_pending_original_ordinal TYPE int; DEFINE FIELD content ON native_pending_original_ordinal TYPE string; DEFINE INDEX pending_ordinals ON native_pending_original_ordinal FIELDS root,id; DEFINE TABLE native_pending_original_piece TYPE NORMAL SCHEMAFULL; DEFINE FIELD ordinal ON native_pending_original_piece TYPE record<native_pending_original_ordinal>; DEFINE FIELD start ON native_pending_original_piece TYPE int; DEFINE FIELD bytes ON native_pending_original_piece TYPE bytes; DEFINE FIELD content ON native_pending_original_piece TYPE string; DEFINE INDEX pending_pieces ON native_pending_original_piece FIELDS ordinal,start UNIQUE; DEFINE INDEX pending_original_retirement ON native_retirement_item FIELDS object,incarnation;"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,14 +322,4 @@ mod tests {
             .join("\n");
         insta::assert_snapshot!("fixed_native_envelopes", statements);
     }
-}
-
-/// Originals reference exact shared blob pieces; each piece has one current blob owner.
-pub fn original_blob_schema_target() -> &'static str {
-    "DEFINE TABLE original TYPE NORMAL SCHEMAFULL; DEFINE FIELD id ON original TYPE string; DEFINE FIELD artifact ON original TYPE record<entity>; DEFINE FIELD blob ON original TYPE record<original_blob>; DEFINE FIELD content ON original TYPE string; DEFINE FIELD byte_len ON original TYPE int; DEFINE INDEX blob_layout ON original FIELDS blob,id; DEFINE TABLE original_blob TYPE NORMAL SCHEMAFULL; DEFINE FIELD content ON original_blob TYPE string; DEFINE FIELD byte_len ON original_blob TYPE int; DEFINE FIELD format ON original_blob TYPE string; DEFINE FIELD completed ON original_blob TYPE bool; DEFINE TABLE original_chunk TYPE NORMAL SCHEMAFULL; DEFINE FIELD blob ON original_chunk TYPE record<original_blob>; DEFINE FIELD start ON original_chunk TYPE int; DEFINE FIELD bytes ON original_chunk TYPE bytes; DEFINE FIELD content ON original_chunk TYPE string; DEFINE INDEX position ON original_chunk FIELDS blob,start UNIQUE;"
-}
-
-/// Temporary native ingress work; included only in the target format-six installation.
-pub fn pending_original_schema_target() -> &'static str {
-    "DEFINE TABLE native_pending_original TYPE NORMAL SCHEMAFULL; DEFINE FIELD id ON native_pending_original TYPE string; DEFINE FIELD attempt ON native_pending_original TYPE record<native_attempt>; DEFINE FIELD logical_source ON native_pending_original TYPE record<original>; DEFINE INDEX pending_attempt ON native_pending_original FIELDS attempt,id; DEFINE TABLE native_pending_original_ordinal TYPE NORMAL SCHEMAFULL; DEFINE FIELD id ON native_pending_original_ordinal TYPE string; DEFINE FIELD root ON native_pending_original_ordinal TYPE record<native_pending_original>; DEFINE FIELD ordinal ON native_pending_original_ordinal TYPE int; DEFINE FIELD byte_len ON native_pending_original_ordinal TYPE int; DEFINE FIELD content ON native_pending_original_ordinal TYPE string; DEFINE INDEX pending_ordinals ON native_pending_original_ordinal FIELDS root,id; DEFINE TABLE native_pending_original_piece TYPE NORMAL SCHEMAFULL; DEFINE FIELD ordinal ON native_pending_original_piece TYPE record<native_pending_original_ordinal>; DEFINE FIELD start ON native_pending_original_piece TYPE int; DEFINE FIELD bytes ON native_pending_original_piece TYPE bytes; DEFINE FIELD content ON native_pending_original_piece TYPE string; DEFINE INDEX pending_pieces ON native_pending_original_piece FIELDS ordinal,start UNIQUE; DEFINE INDEX pending_original_retirement ON native_retirement_item FIELDS object,incarnation;"
 }

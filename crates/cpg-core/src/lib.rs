@@ -22,9 +22,6 @@ mod scope_compilation;
 mod scoped_admission;
 mod scoped_aspects;
 mod scoped_batch;
-mod scoped_execution;
-mod scoped_inventory;
-mod scoped_retrieval;
 pub mod sql;
 pub mod stage_runtime;
 pub mod structural;
@@ -71,7 +68,6 @@ mod native_calls;
 mod original_demands;
 
 pub mod artifact;
-
 
 mod analytical_scopes;
 

@@ -209,20 +209,11 @@ pub use held::{
     ExpectedHold, ExpectedHolds, ExpectedRecord, ExpectedRecords, HeldRecord, hold_expected,
     inspect_expected, inspect_expected_window, inspect_hold_window,
 };
-pub use held::{inspect_expected_window_read, inspect_hold_window_read};
-pub(crate) async fn prepare_maintenance_completion_expectations(
-    client: &Surreal<Client>,
-    bindings: &mut Variables,
-) -> Result<(), ModelError> {
-    coordination::prepare_expectations(client, bindings).await
-}
-pub(crate) fn maintenance_completion_expectation_guard() -> &'static str {
-    coordination::EXPECTED_OBJECT_GUARD
-}
 pub(crate) use held::{
     hold_frozen_admission_expected, hold_frozen_completed_expected, hold_frozen_physical_expected,
     inspect_expected_read,
 };
+pub use held::{inspect_expected_window_read, inspect_hold_window_read};
 pub(crate) mod completed;
 pub mod validation_premise;
 async fn run_transaction(
@@ -565,19 +556,6 @@ pub fn hold_record_id(owner: &RecordId, object: &RecordId) -> Result<RecordId, M
     Ok(RecordId::new("native_hold", sink.finish().hex()))
 }
 
-/// Parent-private staging composition preserves frozen attempt authority. It cannot
-/// mint a public frozen owner or silently authorize mixed pin/attempt references.
-fn hold_plan_for_owner(
-    owner: EffectOwner,
-    references: Vec<(RecordId, RecordId)>,
-) -> Result<Option<(EffectOwner, String, Variables)>, ModelError> {
-    let attempt = match &owner {
-        EffectOwner::OpenAttempt(id) | EffectOwner::FrozenAttempt(id) => *id,
-        _ => return Err(ModelError::Conflict("native staged hold owner family")),
-    };
-    Ok(hold_plan(Some(attempt), references)?.map(|(_, sql, bindings)| (owner, sql, bindings)))
-}
-
 pub async fn pin_views(
     client: &Surreal<Client>,
     views: &[ContentHash],
@@ -725,21 +703,6 @@ async fn finish_attempt_close(
     effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"IF array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$__attempt LIMIT 1)>0 { THROW 'native attempt cleanup incomplete'; }; IF $__owner.state='closing' { UPDATE $__attempt SET state=$state,revision+=1 RETURN NONE; };",bindings).await
 }
 
-async fn cleanup_ids(
-    client: &Surreal<Client>,
-    sql: &str,
-    bindings: Variables,
-) -> Result<Vec<RecordId>, ModelError> {
-    let mut response = client
-        .query(sql)
-        .bind(bindings)
-        .await
-        .map_err(crate::reader::sdk_error)?
-        .check()
-        .map_err(crate::reader::sdk_error)?;
-    response.take(0).map_err(ModelError::codec)
-}
-
 async fn release_cleanup_holds(
     client: &Surreal<Client>,
     authorization: TerminalAttempt,
@@ -879,6 +842,109 @@ impl Drop for ReaderPin {
                 tracing::warn!(%error,"native reader pin release remains unresolved");
             }
         });
+    }
+}
+
+/// Shared by private original staging and publication staging. Each caller validates
+/// its own fixed envelope, then proves exact bytes/incarnation and either its still-live
+/// attempt hold or an already durable retirement obligation before any hold is released.
+async fn nominate_terminal_roots(
+    client: &Surreal<Client>,
+    authorization: TerminalAttempt,
+    values: Vec<Value>,
+) -> Result<(), ModelError> {
+    let attempt = RecordId::new("native_attempt", authorization.identity.hex());
+    let mut roots = Vec::new();
+    let mut proofs = Vec::new();
+    let mut windows = crate::loader::NativeWindows::new(values);
+    let values = windows.next().transpose()?.unwrap_or_default();
+    if windows.next().is_some() {
+        return Err(ModelError::Conflict(
+            "terminal staging page exceeds exact native window",
+        ));
+    }
+    for value in values {
+        let Value::Object(row) = &value else {
+            return Err(ModelError::Schema("terminal staging envelope"));
+        };
+        let Some(Value::RecordId(root)) = row.get("id") else {
+            return Err(ModelError::Schema("terminal staging identity"));
+        };
+        if !matches!(
+            root.table.as_str(),
+            "native_pending_original" | "native_publication_staging"
+        ) || row.get("attempt") != Some(&Value::RecordId(attempt.clone()))
+        {
+            return Err(ModelError::Conflict("terminal staging original owner"));
+        }
+        let guard = guard_id(&Value::RecordId(root.clone()))?;
+        let mut observed=client.query("SELECT * FROM $guard; SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt AND object=$root LIMIT 1")
+            .bind(("guard",guard.clone())).bind(("attempt",attempt.clone())).bind(("root",root.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let physical: Vec<Object> = observed.take(0).map_err(ModelError::codec)?;
+        let held: Vec<RecordId> = observed.take(1).map_err(ModelError::codec)?;
+        let [physical] = physical.as_slice() else {
+            return Err(ModelError::Conflict(
+                "terminal staging physical guard missing",
+            ));
+        };
+        let incarnation = authorization::int_field(physical, "incarnation")?;
+        let Some(Value::String(phase)) = physical.get("phase") else {
+            return Err(ModelError::Schema("terminal staging physical phase"));
+        };
+        if incarnation <= 0
+            || !matches!(phase.as_str(), "active" | "retiring")
+            || (!held.is_empty() && phase != "active")
+        {
+            return Err(ModelError::Conflict("terminal staging incarnation/hold"));
+        }
+        let mut proof = Object::new();
+        proof.insert("id", root.clone());
+        proof.insert("row", value.clone());
+        proof.insert("guard", guard);
+        proof.insert("incarnation", incarnation);
+        proof.insert("phase", phase.clone());
+        proof.insert("held", !held.is_empty());
+        proofs.push(Value::Object(proof));
+        if !held.is_empty() {
+            roots.push(root.clone());
+        }
+    }
+    let mut bindings = Variables::new();
+    bindings.insert("proofs", proofs);
+    effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"FOR $proof IN $proofs { LET $id=$proof.id; LET $guard=$proof.guard; fn::native_touch($id); LET $physical=SELECT * FROM ONLY $guard FOR UPDATE; LET $row=SELECT * FROM ONLY $id FOR UPDATE; IF $row!=$proof.row OR $row.attempt!=$__attempt OR ($row.generation!=NONE AND $row.generation!=$__generation) OR ($row.epoch!=NONE AND $row.epoch!=$__expected_epoch) OR $physical=NONE OR $physical.incarnation!=$proof.incarnation OR $physical.phase!=$proof.phase OR $physical.revision>=9223372036854775807 { THROW 'terminal staging cleanup identity changed'; }; UPDATE $guard SET revision+=1 RETURN NONE; fn::native_incidence($row); IF $proof.held { IF $physical.phase!='active' OR array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$__attempt AND object=$id LIMIT 1)!=1 { THROW 'terminal staging cleanup attempt hold changed'; }; } ELSE { IF array::len(SELECT VALUE id FROM native_retirement_item WITH INDEX object_retirements WHERE object=$id AND incarnation=$proof.incarnation AND state IN ['pending','retained','retiring','done'] AND job.generation=$__generation AND job.state IN ['open','recovering','done'] LIMIT 1)<1 { THROW 'terminal staging cleanup nomination missing'; }; }; };",bindings).await?;
+    if !roots.is_empty() {
+        retire_terminal_roots(client, authorization, roots, 1).await?;
+    }
+    Ok(())
+}
+
+/// No original bytes are read here. Only bounded fixed staging envelopes are discovered.
+async fn nominate_pending_originals(
+    client: &Surreal<Client>,
+    authorization: TerminalAttempt,
+) -> Result<(), ModelError> {
+    let attempt = RecordId::new("native_attempt", authorization.identity.hex());
+    let mut bindings = Variables::new();
+    bindings.insert("attempt", attempt);
+    bindings.insert("after", Value::None);
+    loop {
+        let mut response=client.query("SELECT * FROM native_pending_original WITH INDEX pending_attempt WHERE attempt=$attempt AND ($after=NONE OR id>$after) ORDER BY id LIMIT 32").bind(bindings.clone()).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let values: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
+        if values.is_empty() {
+            return Ok(());
+        }
+        let mut after = None;
+        for value in &values {
+            after = Some(crate::originals::pending_root_identity(
+                authorization.identity,
+                value,
+            )?);
+        }
+        nominate_terminal_roots(client, authorization, values).await?;
+        bindings.insert(
+            "after",
+            after.ok_or(ModelError::Schema("pending original terminal page"))?,
+        );
     }
 }
 
@@ -1122,108 +1188,5 @@ mod tests {
         assert!(!retryable_transaction(
             &transaction_errors(vec![(0, aborted())]).unwrap_err()
         ));
-    }
-}
-
-/// Shared by private original staging and publication staging. Each caller validates
-/// its own fixed envelope, then proves exact bytes/incarnation and either its still-live
-/// attempt hold or an already durable retirement obligation before any hold is released.
-async fn nominate_terminal_roots(
-    client: &Surreal<Client>,
-    authorization: TerminalAttempt,
-    values: Vec<Value>,
-) -> Result<(), ModelError> {
-    let attempt = RecordId::new("native_attempt", authorization.identity.hex());
-    let mut roots = Vec::new();
-    let mut proofs = Vec::new();
-    let mut windows = crate::loader::NativeWindows::new(values);
-    let values = windows.next().transpose()?.unwrap_or_default();
-    if windows.next().is_some() {
-        return Err(ModelError::Conflict(
-            "terminal staging page exceeds exact native window",
-        ));
-    }
-    for value in values {
-        let Value::Object(row) = &value else {
-            return Err(ModelError::Schema("terminal staging envelope"));
-        };
-        let Some(Value::RecordId(root)) = row.get("id") else {
-            return Err(ModelError::Schema("terminal staging identity"));
-        };
-        if !matches!(
-            root.table.as_str(),
-            "native_pending_original" | "native_publication_staging"
-        ) || row.get("attempt") != Some(&Value::RecordId(attempt.clone()))
-        {
-            return Err(ModelError::Conflict("terminal staging original owner"));
-        }
-        let guard = guard_id(&Value::RecordId(root.clone()))?;
-        let mut observed=client.query("SELECT * FROM $guard; SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt AND object=$root LIMIT 1")
-            .bind(("guard",guard.clone())).bind(("attempt",attempt.clone())).bind(("root",root.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-        let physical: Vec<Object> = observed.take(0).map_err(ModelError::codec)?;
-        let held: Vec<RecordId> = observed.take(1).map_err(ModelError::codec)?;
-        let [physical] = physical.as_slice() else {
-            return Err(ModelError::Conflict(
-                "terminal staging physical guard missing",
-            ));
-        };
-        let incarnation = authorization::int_field(physical, "incarnation")?;
-        let Some(Value::String(phase)) = physical.get("phase") else {
-            return Err(ModelError::Schema("terminal staging physical phase"));
-        };
-        if incarnation <= 0
-            || !matches!(phase.as_str(), "active" | "retiring")
-            || (!held.is_empty() && phase != "active")
-        {
-            return Err(ModelError::Conflict("terminal staging incarnation/hold"));
-        }
-        let mut proof = Object::new();
-        proof.insert("id", root.clone());
-        proof.insert("row", value.clone());
-        proof.insert("guard", guard);
-        proof.insert("incarnation", incarnation);
-        proof.insert("phase", phase.clone());
-        proof.insert("held", !held.is_empty());
-        proofs.push(Value::Object(proof));
-        if !held.is_empty() {
-            roots.push(root.clone());
-        }
-    }
-    let mut bindings = Variables::new();
-    bindings.insert("proofs", proofs);
-    effect_for_owner(client,EffectOwner::TerminalAttempt(authorization),"FOR $proof IN $proofs { LET $id=$proof.id; LET $guard=$proof.guard; fn::native_touch($id); LET $physical=SELECT * FROM ONLY $guard FOR UPDATE; LET $row=SELECT * FROM ONLY $id FOR UPDATE; IF $row!=$proof.row OR $row.attempt!=$__attempt OR ($row.generation!=NONE AND $row.generation!=$__generation) OR ($row.epoch!=NONE AND $row.epoch!=$__expected_epoch) OR $physical=NONE OR $physical.incarnation!=$proof.incarnation OR $physical.phase!=$proof.phase OR $physical.revision>=9223372036854775807 { THROW 'terminal staging cleanup identity changed'; }; UPDATE $guard SET revision+=1 RETURN NONE; fn::native_incidence($row); IF $proof.held { IF $physical.phase!='active' OR array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$__attempt AND object=$id LIMIT 1)!=1 { THROW 'terminal staging cleanup attempt hold changed'; }; } ELSE { IF array::len(SELECT VALUE id FROM native_retirement_item WITH INDEX object_retirements WHERE object=$id AND incarnation=$proof.incarnation AND state IN ['pending','retained','retiring','done'] AND job.generation=$__generation AND job.state IN ['open','recovering','done'] LIMIT 1)<1 { THROW 'terminal staging cleanup nomination missing'; }; }; };",bindings).await?;
-    if !roots.is_empty() {
-        retire_terminal_roots(client, authorization, roots, 1).await?;
-    }
-    Ok(())
-}
-
-/// No original bytes are read here. Only bounded fixed staging envelopes are discovered.
-async fn nominate_pending_originals(
-    client: &Surreal<Client>,
-    authorization: TerminalAttempt,
-) -> Result<(), ModelError> {
-    let attempt = RecordId::new("native_attempt", authorization.identity.hex());
-    let mut bindings = Variables::new();
-    bindings.insert("attempt", attempt);
-    bindings.insert("after", Value::None);
-    loop {
-        let mut response=client.query("SELECT * FROM native_pending_original WITH INDEX pending_attempt WHERE attempt=$attempt AND ($after=NONE OR id>$after) ORDER BY id LIMIT 32").bind(bindings.clone()).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-        let values: Vec<Value> = response.take(0).map_err(ModelError::codec)?;
-        if values.is_empty() {
-            return Ok(());
-        }
-        let mut after = None;
-        for value in &values {
-            after = Some(crate::originals::pending_root_identity(
-                authorization.identity,
-                value,
-            )?);
-        }
-        nominate_terminal_roots(client, authorization, values).await?;
-        bindings.insert(
-            "after",
-            after.ok_or(ModelError::Schema("pending original terminal page"))?,
-        );
     }
 }

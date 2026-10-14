@@ -33,10 +33,10 @@ pub struct HeldTerminalProduct {
 }
 impl Drop for HeldTerminalProduct {
     fn drop(&mut self) {
-        if !self.closed {
-            if let Some(pin) = &self.pin {
-                pin.retain_unknown();
-            }
+        if !self.closed
+            && let Some(pin) = &self.pin
+        {
+            pin.retain_unknown();
         }
     }
 }
@@ -253,7 +253,7 @@ impl HeldTerminalProduct {
                 if actual.get("address")!=Some(&Value::RecordId(id.clone())) || actual.get("stored")!=Some(&expected){return Err(ModelError::Conflict("terminal captured native payload differs"));}
                 with_retry_cancellation(self.retry.clone(),self.pin().protect(id.clone())).await?;
                 let protected=held::inspect_expected_read(&reader,id.clone(),budget).await?.ok_or(ModelError::Conflict("terminal captured native backing disappeared"))?;
-                if protected.row()!=&expected{return Err(ModelError::Conflict("terminal captured protected bytes changed"));}
+                if protected.row()!=expected{return Err(ModelError::Conflict("terminal captured protected bytes changed"));}
                 found=true;
             }
             Ok(found)
@@ -435,24 +435,23 @@ pub async fn hold_terminal_product(
         super::live_view::transfer_expected(&pin,&expected,budget).await?;
         crate::completed_state::require_hold(&reader,product.record(),&parent).await?;
         let inventory=crate::completed_state::inspect_inventory(&reader,&data,budget).await?;
-        let mut audit=installed_view::InstallationAudit::new(client.clone(),budget).await?;
+        let audit=installed_view::InstallationAudit::new(client.clone(),budget).await?;
         let acquired=async{
             let mut inspections=installed_view::audit::ClosureInspectionScope::new(&audit,budget)?;
             let mut views=BTreeMap::new();let mut contributors=BTreeMap::new();let mut closures=Vec::new();let mut alias_runs=Vec::new();let mut outputs=BTreeSet::new();
             for reference in inventory.references(){
                 let installed=&reference.selector;
                 let closure=installed_view::audit::inspect_closure_scoped(&reader,&installed.view,&installed.mappings,budget,&audit,&mut inspections).await?;
-                installed_view::audit::audit_memberships_scoped(&reader,&closure,budget,&mut audit).await?;
-                let aliases=installed_view::audit::audit_aliases_scoped(&reader,&closure,budget,&mut audit).await?;
-                installed_view::audit::prepare_closure_scoped(&reader,&closure,budget,&mut audit).await?;
+                installed_view::audit::audit_memberships_scoped(&reader,&closure,budget,&audit).await?;
+                let aliases=installed_view::audit::audit_aliases_scoped(&reader,&closure,budget,&audit).await?;
+                installed_view::audit::prepare_closure_scoped(&reader,&closure,budget,&audit).await?;
                 if inventory.bindings().is_empty() || inventory.bindings().iter().any(|binding|binding.view.identity==installed.view.identity){alias_runs.push(aliases);}
                 let members=installed_view::audit::selected_prepared_members(&closure,&installed.view,budget,&audit).await?;
                 if selected_membership_content(&members,installed.view.rows,budget)?!=installed.membership_content{return Err(ModelError::Conflict("terminal compound selector complete membership"));}
                 if let Some(output)=descriptor.outputs.get(&installed.view.relation){
                     let singleton=CompletedView::new(installed.view.relation.clone(),BTreeSet::from([logical]),output.rows)?;
-                    if installed.view==singleton {
-                        if !installed.mappings.iter().any(|mapping|mapping.view==installed.view.identity && mapping.logical==logical && RecordId::new("compiler_contribution",mapping.physical.hex())==*contribution.record() && mapping.incarnation==contribution.incarnation()) || !outputs.insert(installed.view.relation.clone()){return Err(ModelError::Conflict("terminal exact singleton output selector"));}
-                    }
+                    if installed.view==singleton
+                        && (!installed.mappings.iter().any(|mapping|mapping.view==installed.view.identity && mapping.logical==logical && RecordId::new("compiler_contribution",mapping.physical.hex())==*contribution.record() && mapping.incarnation==contribution.incarnation()) || !outputs.insert(installed.view.relation.clone())){return Err(ModelError::Conflict("terminal exact singleton output selector"));}
                 }
                 for (id,owner) in closure.logical.contributions(){
                     if let Some(previous)=contributors.get(id){if previous!=owner{return Err(ModelError::Conflict("terminal full contributor descriptor collision"));}}else{
@@ -461,14 +460,14 @@ pub async fn hold_terminal_product(
                     }
                 }
                 let expected=held::inspect_expected_read(&reader,installed.record()?,budget).await?.ok_or(ModelError::Conflict("terminal selected view disappeared"))?;
-                if expected.row()!=&installed.value()?{return Err(ModelError::Conflict("terminal selector changed"));}
+                if expected.row()!=installed.value()?{return Err(ModelError::Conflict("terminal selector changed"));}
                 let cap=installed_view::recovery_view(client.clone(),pin.clone(),installed.clone(),expected,inventory.clone(),budget)?;
                 charge.grow(4096)?;views.insert(installed.view.identity,Arc::new(cap));closures.push(closure);
             }
             if outputs!=descriptor.outputs.keys().cloned().collect(){return Err(ModelError::Conflict("terminal complete singleton output selector inventory"));}
             let aliases=crate::ordered_rows::PreparedRows::union_prepared(&alias_runs,budget,||Ok(()))?;
             let semantic=closures.iter().filter(|closure|inventory.bindings().is_empty() || inventory.bindings().iter().any(|binding|closure.logical.views().contains_key(&binding.view.identity))).collect::<Vec<_>>();
-            let roots=installed_view::audit::logical_roots_many_scoped(&reader,&semantic,inventory.bindings(),&aliases,budget,&mut audit).await?;
+            let roots=installed_view::audit::logical_roots_many_scoped(&reader,&semantic,inventory.bindings(),&aliases,budget,&audit).await?;
             if roots!=data.roots{return Err(ModelError::Conflict("terminal compound independently reconstructed six-family state"));}
             Ok((views,contributors))
         }.await;

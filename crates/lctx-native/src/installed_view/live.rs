@@ -306,7 +306,7 @@ pub(crate) fn recovery_view(
     budget: &ResourceBudget,
 ) -> Result<HeldInstalledView, ModelError> {
     pin.ensure_live()?;
-    if expected.row() != &completion.value()? {
+    if expected.row() != completion.value()? {
         return Err(ModelError::Conflict("recovery compound selector envelope"));
     }
     let owner = RecordId::new("native_pin", pin.identity.hex());
@@ -501,14 +501,13 @@ async fn attach_live_views_inner(
                         "attached exact contributor descriptor/incarnation",
                     ));
                 }
-                if let Some(provided) = supplied.remove(&id) {
-                    if provided.incarnation() != actual.incarnation()
-                        || provided.row() != actual.row()
-                    {
-                        return Err(ModelError::Conflict(
-                            "attached supplied contributor bytes/incarnation changed",
-                        ));
-                    }
+                if let Some(provided) = supplied.remove(&id)
+                    && (provided.incarnation() != actual.incarnation()
+                        || provided.row() != actual.row())
+                {
+                    return Err(ModelError::Conflict(
+                        "attached supplied contributor bytes/incarnation changed",
+                    ));
                 }
                 selected.insert(id, actual);
             }

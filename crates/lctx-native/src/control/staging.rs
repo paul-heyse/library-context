@@ -221,47 +221,6 @@ pub fn schema_target() -> &'static str {
     "DEFINE TABLE native_publication_staging SCHEMAFULL; DEFINE FIELD id ON native_publication_staging TYPE string; DEFINE FIELD attempt ON native_publication_staging TYPE record<native_attempt>; DEFINE FIELD completion ON native_publication_staging TYPE record<native_completed_state>; DEFINE FIELD admission ON native_publication_staging TYPE record<native_completed_admission>; DEFINE FIELD derivation ON native_publication_staging TYPE string; DEFINE FIELD state ON native_publication_staging TYPE string; DEFINE FIELD derived_children ON native_publication_staging TYPE option<int>; DEFINE FIELD derived_inventory ON native_publication_staging TYPE option<string>; DEFINE FIELD generation ON native_publication_staging TYPE string; DEFINE FIELD epoch ON native_publication_staging TYPE int; DEFINE FIELD validity_epoch ON native_publication_staging TYPE int; DEFINE INDEX attempt_staging ON native_publication_staging FIELDS attempt,id;"
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn a_frozen_derived_capability_cannot_install_canonical_or_control_content() {
-        let row = |table: &str| {
-            let mut row = Object::new();
-            row.insert("id", RecordId::new(table, "candidate"));
-            Value::Object(row)
-        };
-        for table in [
-            "entity",
-            "assertion",
-            "compiler_record",
-            "compiler_alias",
-            "compiler_binding",
-            "compiler_view",
-            "original",
-            "original_blob",
-            "native_attempt",
-            "native_effect",
-            "publication",
-        ] {
-            assert!(
-                validate_derived_row(&row(table)).is_err(),
-                "frozen canonical mutation: {table}"
-            );
-        }
-        for table in [
-            "participant",
-            "reference",
-            "vector",
-            "lex_occurs",
-            "lexical_document",
-            "lexical_corpus",
-        ] {
-            validate_derived_row(&row(table)).unwrap();
-        }
-    }
-}
-
 /// Called after the exact terminal attempt epoch/state fence and before either
 /// admitted or unadmitted attempt-hold release. Winning publication-held roots remain
 /// retained by their independent publication owner; registration itself never deletes.
@@ -657,4 +616,45 @@ async fn reconcile_root_inventory(
     }
     digest.part(b"children", &count.to_le_bytes());
     Ok((count, digest.finish()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn a_frozen_derived_capability_cannot_install_canonical_or_control_content() {
+        let row = |table: &str| {
+            let mut row = Object::new();
+            row.insert("id", RecordId::new(table, "candidate"));
+            Value::Object(row)
+        };
+        for table in [
+            "entity",
+            "assertion",
+            "compiler_record",
+            "compiler_alias",
+            "compiler_binding",
+            "compiler_view",
+            "original",
+            "original_blob",
+            "native_attempt",
+            "native_effect",
+            "publication",
+        ] {
+            assert!(
+                validate_derived_row(&row(table)).is_err(),
+                "frozen canonical mutation: {table}"
+            );
+        }
+        for table in [
+            "participant",
+            "reference",
+            "vector",
+            "lex_occurs",
+            "lexical_document",
+            "lexical_corpus",
+        ] {
+            validate_derived_row(&row(table)).unwrap();
+        }
+    }
 }

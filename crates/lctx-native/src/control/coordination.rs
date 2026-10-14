@@ -241,10 +241,10 @@ pub(super) async fn prepare_expectations(
         if guard_id(&Value::RecordId(record.clone()))? != *guard {
             return Err(ModelError::Conflict("native expected guard correspondence"));
         }
-        if let Some(prior) = mapping.insert(guard.clone(), record.clone()) {
-            if prior != *record {
-                return Err(ModelError::Conflict("native expected record collision"));
-            }
+        if let Some(prior) = mapping.insert(guard.clone(), record.clone())
+            && prior != *record
+        {
+            return Err(ModelError::Conflict("native expected record collision"));
         }
     }
     let creations = creation_indices(bindings)?;
@@ -313,10 +313,10 @@ fn creation_indices(
         reference.insert("kind", kind.clone());
         reference.insert("index", index as i64);
         let reference = Value::Object(reference);
-        if let Some(previous) = indices.insert(record.clone(), reference.clone()) {
-            if previous != reference {
-                return Err(ModelError::Conflict("native immutable creation collision"));
-            }
+        if let Some(previous) = indices.insert(record.clone(), reference.clone())
+            && previous != reference
+        {
+            return Err(ModelError::Conflict("native immutable creation collision"));
         }
     }
     Ok(indices)
@@ -356,6 +356,53 @@ FOR $__expected IN ($__object_expectations ?? []) {
         };
     };
 };"#;
+
+pub(crate) async fn set_admission(client: &Surreal<Client>, open: bool) -> Result<(), ModelError> {
+    let mut bindings = Variables::new();
+    bindings.insert("open", open);
+    bind_all_stripes(&mut bindings);
+    let sql = format!(
+        "{ALL_STRIPES_GUARD} IF $open {{ IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 {{ THROW 'native admission unresolved effects'; }}; }}; FOR $stripe IN $__stripes {{ UPDATE $stripe SET admission_open=$open RETURN NONE; }}; UPDATE native_installation:current SET admission_open=$open,control_revision+=1 RETURN NONE"
+    );
+    effect(client, None, &sql, bindings).await
+}
+
+pub(super) fn validate_control_records(
+    marker: &Object,
+    stripes: &[Object],
+    gates: &[Object],
+) -> Result<(), ModelError> {
+    let expected = stripe_ids()
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut seen = std::collections::BTreeSet::new();
+    for stripe in stripes {
+        let Some(Value::RecordId(id)) = stripe.get("id") else {
+            return Err(ModelError::Schema("native stripe identity"));
+        };
+        if !expected.contains(id)
+            || !seen.insert(id.clone())
+            || int_field(stripe, "format")? != STRIPE_FORMAT
+            || int_field(stripe, "revision")? < 0
+            || ["generation", "era", "closed_through", "admission_open"]
+                .into_iter()
+                .any(|field| stripe.get(field) != marker.get(field))
+            || serde_json::to_vec(stripe).map_err(ModelError::codec)?.len() > 1024
+        {
+            return Err(ModelError::Conflict("native stripe marker correspondence"));
+        }
+    }
+    if seen != expected {
+        return Err(ModelError::Conflict("native stripe set incomplete"));
+    }
+    let [gate] = gates else {
+        return Err(ModelError::Conflict("native backup gate cardinality"));
+    };
+    if int_field(gate, "revision")? < 0 || int_field(gate, "active_count")? < 0 {
+        return Err(ModelError::Schema("native backup gate counters"));
+    }
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -485,51 +532,4 @@ mod tests {
         bindings.insert("payload", "x".repeat(TRANSFER_BYTES));
         assert!(preflight("BEGIN;COMMIT;", &bindings).is_err());
     }
-}
-
-pub(crate) async fn set_admission(client: &Surreal<Client>, open: bool) -> Result<(), ModelError> {
-    let mut bindings = Variables::new();
-    bindings.insert("open", open);
-    bind_all_stripes(&mut bindings);
-    let sql = format!(
-        "{ALL_STRIPES_GUARD} IF $open {{ IF array::len(SELECT VALUE id FROM native_effect WITH INDEX live_effects WHERE resolved=false AND id!=$__effect LIMIT 1)>0 {{ THROW 'native admission unresolved effects'; }}; }}; FOR $stripe IN $__stripes {{ UPDATE $stripe SET admission_open=$open RETURN NONE; }}; UPDATE native_installation:current SET admission_open=$open,control_revision+=1 RETURN NONE"
-    );
-    effect(client, None, &sql, bindings).await
-}
-
-pub(super) fn validate_control_records(
-    marker: &Object,
-    stripes: &[Object],
-    gates: &[Object],
-) -> Result<(), ModelError> {
-    let expected = stripe_ids()
-        .into_iter()
-        .collect::<std::collections::BTreeSet<_>>();
-    let mut seen = std::collections::BTreeSet::new();
-    for stripe in stripes {
-        let Some(Value::RecordId(id)) = stripe.get("id") else {
-            return Err(ModelError::Schema("native stripe identity"));
-        };
-        if !expected.contains(id)
-            || !seen.insert(id.clone())
-            || int_field(stripe, "format")? != STRIPE_FORMAT
-            || int_field(stripe, "revision")? < 0
-            || ["generation", "era", "closed_through", "admission_open"]
-                .into_iter()
-                .any(|field| stripe.get(field) != marker.get(field))
-            || serde_json::to_vec(stripe).map_err(ModelError::codec)?.len() > 1024
-        {
-            return Err(ModelError::Conflict("native stripe marker correspondence"));
-        }
-    }
-    if seen != expected {
-        return Err(ModelError::Conflict("native stripe set incomplete"));
-    }
-    let [gate] = gates else {
-        return Err(ModelError::Conflict("native backup gate cardinality"));
-    };
-    if int_field(gate, "revision")? < 0 || int_field(gate, "active_count")? < 0 {
-        return Err(ModelError::Schema("native backup gate counters"));
-    }
-    Ok(())
 }

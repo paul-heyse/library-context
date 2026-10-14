@@ -118,18 +118,14 @@ impl<'a> PreparedPositions<'a> {
         namespace: usize,
         cancellation: &Cancellation,
     ) -> Result<GatheredRows<'_>, ModelError> {
-        gather_positions(
-            self.roots,
-            self.inputs,
-            &self.union.rows,
-            &self.ports,
-            self.budget,
-            partitions,
-            port,
-            namespace,
-            cancellation,
-            &mut |_, _| true,
-        )
+        PositionSource {
+            roots: self.roots,
+            inputs: self.inputs,
+            backing: &self.union.rows,
+            ports: &self.ports,
+            budget: self.budget,
+        }
+        .gather(partitions, port, namespace, cancellation, &mut |_, _| true)
     }
 }
 
@@ -183,95 +179,107 @@ fn prepare_positions(
     Ok((ports, charge))
 }
 
-fn gather_positions<'a>(
+struct PositionSource<'a, 'operation> {
     roots: &'a PreparedRootBatch,
     inputs: &'a [ValidationInput],
     backing: &'a [Vec<RecordBatch>],
-    ports: &[PortIndex],
-    budget: &ResourceBudget,
-    partitions: &[usize],
-    port: usize,
-    namespace: usize,
-    cancellation: &Cancellation,
-    include: &mut dyn FnMut(usize, [u8; 16]) -> bool,
-) -> Result<GatheredRows<'a>, ModelError> {
-    cancellation.check()?;
-    let input = inputs
-        .get(port)
-        .ok_or(ModelError::Schema("scoped gather input port"))?;
-    let source_relation = roots.relation(port)?;
-    let namespace_relation = roots.relation(namespace)?;
-    if namespace_relation.type_id() != input.type_id()
-        || namespace_relation.name() != input.name()
-        || namespace_relation.schema() != source_relation.schema()
-    {
-        return Err(ModelError::Conflict("scoped gather root namespace"));
-    }
-    let mut selection_charge = StateCharge::new(budget, "scoped-selected-positions");
-    let mut positions = ChargedSet::default();
-    for partition in partitions {
+    ports: &'operation [PortIndex],
+    budget: &'operation ResourceBudget,
+}
+impl<'a> PositionSource<'a, '_> {
+    fn gather(
+        &self,
+        partitions: &[usize],
+        port: usize,
+        namespace: usize,
+        cancellation: &Cancellation,
+        include: &mut dyn FnMut(usize, [u8; 16]) -> bool,
+    ) -> Result<GatheredRows<'a>, ModelError> {
+        let Self {
+            roots,
+            inputs,
+            backing,
+            ports,
+            budget,
+        } = *self;
         cancellation.check()?;
-        for key in roots.keys(*partition, namespace)? {
+        let input = inputs
+            .get(port)
+            .ok_or(ModelError::Schema("scoped gather input port"))?;
+        let source_relation = roots.relation(port)?;
+        let namespace_relation = roots.relation(namespace)?;
+        if namespace_relation.type_id() != input.type_id()
+            || namespace_relation.name() != input.name()
+            || namespace_relation.schema() != source_relation.schema()
+        {
+            return Err(ModelError::Conflict("scoped gather root namespace"));
+        }
+        let mut selection_charge = StateCharge::new(budget, "scoped-selected-positions");
+        let mut positions = ChargedSet::default();
+        for partition in partitions {
             cancellation.check()?;
-            if !include(*partition, key) {
-                continue;
-            }
-            if let Some(matches) = ports[port].get(&key) {
-                for chunk in matches.chunks(lctx_model::domain::resources::TRANSFER_ROWS) {
-                    cancellation.check()?;
-                    for position in chunk {
-                        positions.insert(&mut selection_charge, *position)?;
+            for key in roots.keys(*partition, namespace)? {
+                cancellation.check()?;
+                if !include(*partition, key) {
+                    continue;
+                }
+                if let Some(matches) = ports[port].get(&key) {
+                    for chunk in matches.chunks(lctx_model::domain::resources::TRANSFER_ROWS) {
+                        cancellation.check()?;
+                        for position in chunk {
+                            positions.insert(&mut selection_charge, *position)?;
+                        }
                     }
                 }
             }
         }
-    }
-    let mut charge = StateCharge::new(budget, "scoped-gathered-rows");
-    // Include both retained batch handles and the handles handed to a scoped provider.
-    charge.grow(
-        backing[port]
-            .len()
-            .saturating_mul(size_of::<RecordBatch>())
-            .saturating_mul(2),
-    )?;
-    let mut rows = Vec::with_capacity(backing[port].len());
-    let mut ordered = positions.iter().copied().peekable();
-    while let Some((batch, _)) = ordered.peek().copied() {
-        cancellation.check()?;
-        let source = &backing[port][batch];
-        let count = positions.range((batch, 0)..=(batch, usize::MAX)).count();
-        let _indices = budget.reserve(
-            "scoped-gather-indices",
-            count.saturating_mul(size_of::<u64>()).saturating_add(128),
-        )?;
-        let mut indices = Vec::with_capacity(count);
-        while let Some((next, row)) = ordered.peek().copied() {
-            if next != batch {
-                break;
-            }
-            ordered.next();
-            indices.push(row as u64);
-        }
-        let indices = UInt64Array::from(indices);
-        // Source, index and selected arrays overlap. The full source allowance bounds a
-        // subset gather, including kernels that retain source backing for view arrays.
+        let mut charge = StateCharge::new(budget, "scoped-gathered-rows");
+        // Include both retained batch handles and the handles handed to a scoped provider.
         charge.grow(
-            source
-                .get_array_memory_size()
-                .saturating_add(count.saturating_mul(32))
-                .saturating_add(4096),
+            backing[port]
+                .len()
+                .saturating_mul(size_of::<RecordBatch>())
+                .saturating_mul(2),
         )?;
-        let selected = datafusion::arrow::compute::take_record_batch(source, &indices)
-            .map_err(ModelError::codec)?;
-        rows.push(selected);
+        let mut rows = Vec::with_capacity(backing[port].len());
+        let mut ordered = positions.iter().copied().peekable();
+        while let Some((batch, _)) = ordered.peek().copied() {
+            cancellation.check()?;
+            let source = &backing[port][batch];
+            let count = positions.range((batch, 0)..=(batch, usize::MAX)).count();
+            let _indices = budget.reserve(
+                "scoped-gather-indices",
+                count.saturating_mul(size_of::<u64>()).saturating_add(128),
+            )?;
+            let mut indices = Vec::with_capacity(count);
+            while let Some((next, row)) = ordered.peek().copied() {
+                if next != batch {
+                    break;
+                }
+                ordered.next();
+                indices.push(row as u64);
+            }
+            let indices = UInt64Array::from(indices);
+            // Source, index and selected arrays overlap. The full source allowance bounds a
+            // subset gather, including kernels that retain source backing for view arrays.
+            charge.grow(
+                source
+                    .get_array_memory_size()
+                    .saturating_add(count.saturating_mul(32))
+                    .saturating_add(4096),
+            )?;
+            let selected = datafusion::arrow::compute::take_record_batch(source, &indices)
+                .map_err(ModelError::codec)?;
+            rows.push(selected);
+        }
+        Ok(GatheredRows {
+            rows,
+            _charge: charge,
+            _roots: roots,
+            _inputs: inputs,
+            _backing: backing,
+        })
     }
-    Ok(GatheredRows {
-        rows,
-        _charge: charge,
-        _roots: roots,
-        _inputs: inputs,
-        _backing: backing,
-    })
 }
 
 /// Immutable owning counterpart for compiler windows that retain their actual root batch
@@ -360,18 +368,14 @@ impl IndexedRootColumns {
         if !self.budget.shares_pool(budget) {
             return Err(ModelError::Conflict("scoped positions resource owner"));
         }
-        gather_positions(
-            &self.roots,
-            &self.inputs,
-            &self.rows,
-            &self.ports,
+        PositionSource {
+            roots: &self.roots,
+            inputs: &self.inputs,
+            backing: &self.rows,
+            ports: &self.ports,
             budget,
-            partitions,
-            port,
-            namespace,
-            cancellation,
-            include,
-        )
+        }
+        .gather(partitions, port, namespace, cancellation, include)
     }
 }
 

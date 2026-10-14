@@ -311,7 +311,7 @@ fn content_hash(raw: &str) -> Result<lctx_model::domain::ContentHash, String> {
         return Err("content digest must contain 64 hexadecimal digits".into());
     }
     let mut bytes = [0u8; 32];
-    for (index, pair) in raw.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in raw.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let pair = std::str::from_utf8(pair).map_err(|_| "content digest must be hexadecimal")?;
         bytes[index] =
             u8::from_str_radix(pair, 16).map_err(|_| "content digest must be hexadecimal")?;

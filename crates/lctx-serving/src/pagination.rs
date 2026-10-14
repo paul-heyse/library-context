@@ -480,15 +480,6 @@ pub fn target_key(target: lctx_model::domain::serving::ranking::Target) -> Conte
         ranking::Target::Unit { unit } => graph::EntityId::of(unit).0,
     }
 }
-pub fn ranked<T: serde::Serialize>(
-    values: Vec<(ranking::RankedHit, ContentHash, T)>,
-    request: &Request,
-    snapshot: &SnapshotHandle,
-    channels: &ChannelState,
-    retained: &mut crate::ranked_results::RankedRequest<'_>,
-) -> Result<(SectionPage<T>, Vec<ranking::RankedHit>), WireError> {
-    retained.page(values, request, snapshot, channels)
-}
 #[cfg(test)]
 mod tests {
     use super::*;

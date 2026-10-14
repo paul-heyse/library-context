@@ -406,85 +406,226 @@ impl FrontierContract {
     }
     /// Bind independently selected supported contracts to immutable captures, without constructing
     /// executable stages. Reported outcomes do not select any expected supplier.
-    pub fn captured_preflight(&self,contracts:&[super::producer_contract::ProducerContract],bindings:&BTreeMap<&str,&super::producer_contract::CapturedProducerBinding>)->Result<Preflight,ModelError> {
-        let mut names=BTreeSet::new();let mut written=BTreeMap::new();let mut coverers:BTreeMap<FactFamily,BTreeSet<Id<Provider>>>=BTreeMap::new();
-        let mut digest=KeySink::new("captured-facts-admission-contract/v1");self.digest.encode(&mut digest);
-        let mut declarations=contracts.iter().collect::<Vec<_>>();declarations.sort_by_key(|contract|contract.name);
+    pub fn captured_preflight(
+        &self,
+        contracts: &[super::producer_contract::ProducerContract],
+        bindings: &BTreeMap<&str, &super::producer_contract::CapturedProducerBinding>,
+    ) -> Result<Preflight, ModelError> {
+        let mut names = BTreeSet::new();
+        let mut written = BTreeMap::new();
+        let mut coverers: BTreeMap<FactFamily, BTreeSet<Id<Provider>>> = BTreeMap::new();
+        let mut digest = KeySink::new("captured-facts-admission-contract/v1");
+        self.digest.encode(&mut digest);
+        let mut declarations = contracts.iter().collect::<Vec<_>>();
+        declarations.sort_by_key(|contract| contract.name);
         for declaration in declarations {
             declaration.validate()?;
-            if !names.insert(declaration.name){return Err(refuse("duplicate producer semantic contract"));}
-            if !declaration.profiles.contains(&self.profile){
+            if !names.insert(declaration.name) {
+                return Err(refuse("duplicate producer semantic contract"));
+            }
+            if !declaration.profiles.contains(&self.profile) {
                 // An inactive analyzer supplies no attempted semantics. Bind only the declared
                 // reporting ownership needed by this profile's NotRequested obligations.
-                for family in declaration.not_requested.iter().copied().collect::<BTreeSet<_>>().into_iter().filter(|family|!self.requested(*family)) {
-                    digest.part(b"not-requested-owner",declaration.name.as_bytes());family.encode(&mut digest);
+                for family in declaration
+                    .not_requested
+                    .iter()
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .filter(|family| !self.requested(*family))
+                {
+                    digest.part(b"not-requested-owner", declaration.name.as_bytes());
+                    family.encode(&mut digest);
                 }
                 continue;
             }
             declaration.identity().encode(&mut digest);
-            let binding=bindings.get(declaration.name).ok_or_else(||refuse("missing captured producer binding"))?;
-            if binding.contract!=declaration.identity(){return Err(refuse("unsupported captured producer contract"));}
-            for relation in declaration.inputs.iter().chain(&declaration.outputs).chain(&declaration.contributes) {
-                if !self.contains(relation.name()){return Err(refuse("producer contract exceeds facts frontier"));}
+            let binding = bindings
+                .get(declaration.name)
+                .ok_or_else(|| refuse("missing captured producer binding"))?;
+            if binding.contract != declaration.identity() {
+                return Err(refuse("unsupported captured producer contract"));
+            }
+            for relation in declaration
+                .inputs
+                .iter()
+                .chain(&declaration.outputs)
+                .chain(&declaration.contributes)
+            {
+                if !self.contains(relation.name()) {
+                    return Err(refuse("producer contract exceeds facts frontier"));
+                }
             }
             for relation in &declaration.outputs {
-                if written.insert(relation.name(),declaration).is_some(){return Err(refuse("ambiguous facts relation writer"));}
+                if written.insert(relation.name(), declaration).is_some() {
+                    return Err(refuse("ambiguous facts relation writer"));
+                }
             }
             for role in &declaration.suppliers {
-                let provider=*binding.suppliers.get(role.name).ok_or_else(||refuse("unbound declared supplier role"))?;
+                let provider = *binding
+                    .suppliers
+                    .get(role.name)
+                    .ok_or_else(|| refuse("unbound declared supplier role"))?;
                 for family in &role.families {
-                    if !self.requested(*family){return Err(refuse("supplier attempts an unrequested family"));}
+                    if !self.requested(*family) {
+                        return Err(refuse("supplier attempts an unrequested family"));
+                    }
                     coverers.entry(*family).or_default().insert(provider);
                 }
             }
         }
         for requirement in &self.requirements {
             if self.requested(requirement.family) {
-                if !coverers.contains_key(&requirement.family){return Err(refuse("requested family lacks declared supplier"));}
-            } else if contracts.iter().filter(|contract|contract.not_requested.contains(&requirement.family)).count()!=1 {
+                if !coverers.contains_key(&requirement.family) {
+                    return Err(refuse("requested family lacks declared supplier"));
+                }
+            } else if contracts
+                .iter()
+                .filter(|contract| contract.not_requested.contains(&requirement.family))
+                .count()
+                != 1
+            {
                 return Err(refuse("unrequested family lacks exact reporting owner"));
             }
         }
-        for (relation,family) in &self.families {
-            match (self.requested(*family),written.get(relation)) {
-                (true,Some(writer)) if writer.suppliers.iter().any(|role|role.families.contains(family))=>{},
-                (false,None)=>{},
-                _=>return Err(refuse("facts assertion writer differs from declared coverage ownership")),
+        for (relation, family) in &self.families {
+            match (self.requested(*family), written.get(relation)) {
+                (true, Some(writer))
+                    if writer
+                        .suppliers
+                        .iter()
+                        .any(|role| role.families.contains(family)) => {}
+                (false, None) => {}
+                _ => {
+                    return Err(refuse(
+                        "facts assertion writer differs from declared coverage ownership",
+                    ));
+                }
             }
         }
-        for relation in [ProviderCoverage::NAME,CoverageScope::NAME] {if !written.contains_key(relation){return Err(refuse("missing declared attribution writer"));}}
-        let mut contract=self.clone();contract.digest=digest.finish();
-        Ok(Preflight{schedule:contract.digest,contract,coverers})
+        for relation in [ProviderCoverage::NAME, CoverageScope::NAME] {
+            if !written.contains_key(relation) {
+                return Err(refuse("missing declared attribution writer"));
+            }
+        }
+        let mut contract = self.clone();
+        contract.digest = digest.finish();
+        Ok(Preflight {
+            schedule: contract.digest,
+            contract,
+            coverers,
+        })
     }
     /// Declaration admission over exact current or independently recovered historical owners.
     /// Historical bindings remain revision one; no current capture completeness is inferred.
-    pub fn admitted_preflight(&self,declarations:&[&super::producer_assurance::AdmittedProducerDeclaration<'_>])->Result<Preflight,ModelError> {
-        let mut ordered=declarations.to_vec();ordered.sort_by_key(|declaration|declaration.name());
-        let mut names=BTreeSet::new();let mut written=BTreeMap::new();let mut reporting=BTreeMap::new();
-        let mut coverers:BTreeMap<FactFamily,BTreeSet<Id<Provider>>>=BTreeMap::new();
-        let mut digest=KeySink::new("admitted-facts-declaration-contract/v1");self.digest.encode(&mut digest);
+    pub fn admitted_preflight(
+        &self,
+        declarations: &[&super::producer_assurance::AdmittedProducerDeclaration<'_>],
+    ) -> Result<Preflight, ModelError> {
+        let mut ordered = declarations.to_vec();
+        ordered.sort_by_key(|declaration| declaration.name());
+        let mut names = BTreeSet::new();
+        let mut written = BTreeMap::new();
+        let mut reporting = BTreeMap::new();
+        let mut coverers: BTreeMap<FactFamily, BTreeSet<Id<Provider>>> = BTreeMap::new();
+        let mut digest = KeySink::new("admitted-facts-declaration-contract/v1");
+        self.digest.encode(&mut digest);
         for declaration in &ordered {
-            if !names.insert(declaration.name()){return Err(refuse("duplicate admitted producer declaration"));}
-            declaration.declaration_identity().encode(&mut digest);declaration.completed().assurance.identity()?.encode(&mut digest);
-            for input in declaration.target_dependency_sources(){if !self.contains(input.relation()){return Err(refuse("admitted input exceeds facts frontier"));}}
-            for output in &declaration.completed().spec.outputs {if !self.contains(output){return Err(refuse("admitted output exceeds facts frontier"));}}
-            let roles=declaration.suppliers();
-            for relation in declaration.written_relations(){if written.insert(relation,roles.iter().flat_map(|role|role.families.iter().copied()).collect::<BTreeSet<_>>()).is_some(){return Err(refuse("ambiguous admitted facts writer"));}}
-            for role in roles {let provider=declaration.supplier(role.name)?;for family in role.families {
-                if !self.requested(family){return Err(refuse("admitted supplier attempts unrequested family"));}
-                coverers.entry(family).or_default().insert(provider);
-            }}
-            for family in declaration.not_requested(){if !self.requested(*family) && reporting.insert(*family,declaration.name()).is_some(){return Err(refuse("ambiguous admitted unrequested reporting"));}}
-        }
-            for declaration in super::producer_contract::facts::facts().iter().filter(|declaration|!declaration.profiles.contains(&self.profile)) {
-                declaration.identity().encode(&mut digest);for family in &declaration.not_requested {if !self.requested(*family) && reporting.insert(*family,declaration.name).is_some(){return Err(refuse("ambiguous inactive reporting"));}}
+            if !names.insert(declaration.name()) {
+                return Err(refuse("duplicate admitted producer declaration"));
             }
-        for requirement in &self.requirements {if self.requested(requirement.family){if !coverers.contains_key(&requirement.family){return Err(refuse("requested family lacks admitted supplier"));}}else if !reporting.contains_key(&requirement.family){return Err(refuse("unrequested family lacks admitted reporting owner"));}}
-        for (relation,family) in &self.families {match (self.requested(*family),written.get(relation)) {
-            (true,Some(families)) if families.contains(family)=>{},(false,None)=>{},_=>return Err(refuse("admitted facts writer differs from supplier coverage")),
-        }}
-        for relation in [ProviderCoverage::NAME,CoverageScope::NAME]{if !written.contains_key(relation){return Err(refuse("missing admitted attribution writer"));}}
-        let mut contract=self.clone();contract.digest=digest.finish();Ok(Preflight{schedule:contract.digest,contract,coverers})
+            declaration.declaration_identity().encode(&mut digest);
+            declaration
+                .completed()
+                .assurance
+                .identity()?
+                .encode(&mut digest);
+            for input in declaration.target_dependency_sources() {
+                if !self.contains(input.relation()) {
+                    return Err(refuse("admitted input exceeds facts frontier"));
+                }
+            }
+            for output in &declaration.completed().spec.outputs {
+                if !self.contains(output) {
+                    return Err(refuse("admitted output exceeds facts frontier"));
+                }
+            }
+            let roles = declaration.suppliers();
+            for relation in declaration.written_relations() {
+                if written
+                    .insert(
+                        relation,
+                        roles
+                            .iter()
+                            .flat_map(|role| role.families.iter().copied())
+                            .collect::<BTreeSet<_>>(),
+                    )
+                    .is_some()
+                {
+                    return Err(refuse("ambiguous admitted facts writer"));
+                }
+            }
+            for role in roles {
+                let provider = declaration.supplier(role.name)?;
+                for family in role.families {
+                    if !self.requested(family) {
+                        return Err(refuse("admitted supplier attempts unrequested family"));
+                    }
+                    coverers.entry(family).or_default().insert(provider);
+                }
+            }
+            for family in declaration.not_requested() {
+                if !self.requested(*family)
+                    && reporting.insert(*family, declaration.name()).is_some()
+                {
+                    return Err(refuse("ambiguous admitted unrequested reporting"));
+                }
+            }
+        }
+        for declaration in super::producer_contract::facts::facts()
+            .iter()
+            .filter(|declaration| !declaration.profiles.contains(&self.profile))
+        {
+            declaration.identity().encode(&mut digest);
+            for family in &declaration.not_requested {
+                if !self.requested(*family) && reporting.insert(*family, declaration.name).is_some()
+                {
+                    return Err(refuse("ambiguous inactive reporting"));
+                }
+            }
+        }
+        for requirement in &self.requirements {
+            if self.requested(requirement.family) {
+                if !coverers.contains_key(&requirement.family) {
+                    return Err(refuse("requested family lacks admitted supplier"));
+                }
+            } else if !reporting.contains_key(&requirement.family) {
+                return Err(refuse("unrequested family lacks admitted reporting owner"));
+            }
+        }
+        for (relation, family) in &self.families {
+            match (self.requested(*family), written.get(relation)) {
+                (true, Some(families)) if families.contains(family) => {}
+                (false, None) => {}
+                _ => {
+                    return Err(refuse(
+                        "admitted facts writer differs from supplier coverage",
+                    ));
+                }
+            }
+        }
+        for relation in [ProviderCoverage::NAME, CoverageScope::NAME] {
+            if !written.contains_key(relation) {
+                return Err(refuse("missing admitted attribution writer"));
+            }
+        }
+        let mut contract = self.clone();
+        contract.digest = digest.finish();
+        Ok(Preflight {
+            schedule: contract.digest,
+            contract,
+            coverers,
+        })
     }
     /// Admission for a frozen prefix of a cumulative schedule. A stage cannot straddle the
     /// checkpoint boundary; later writers are excluded, while the full schedule digest is bound.
@@ -668,11 +809,10 @@ impl Preflight {
         artifacts: &[SourceArtifact],
         uses: &[ArtifactUse],
     ) -> Result<BTreeMap<Expected, CoverageScope>, ModelError> {
-        let domains=coverage_domains(&self.contract,inputs,artifacts,uses)?;
-        let mut expected=BTreeMap::new();
-        for (family,scopes) in domains {
-            let providers: Vec<Option<Id<Provider>>> = match self.coverers.get(&family)
-            {
+        let domains = coverage_domains(&self.contract, inputs, artifacts, uses)?;
+        let mut expected = BTreeMap::new();
+        for (family, scopes) in domains {
+            let providers: Vec<Option<Id<Provider>>> = match self.coverers.get(&family) {
                 Some(providers) if self.contract.requested(family) => {
                     providers.iter().copied().map(Some).collect()
                 }
@@ -683,7 +823,7 @@ impl Preflight {
                     expected.insert(
                         Expected {
                             scope: scope.id(),
-                            family: family,
+                            family,
                             provider: *provider,
                         },
                         scope.clone(),
@@ -697,56 +837,85 @@ impl Preflight {
 
 /// Shared model-owned scope expansion for whole facts and independently admitted
 /// supplier products. Artifact selections, including empty domains, use one definition.
-fn coverage_domains(contract:&FrontierContract,inputs:&[InputRevision],artifacts:&[SourceArtifact],
-    uses:&[ArtifactUse])->Result<BTreeMap<FactFamily,Vec<CoverageScope>>,ModelError>{
-        let owned: BTreeSet<_> = inputs.iter().map(Record::id).collect();
-        if let Some(artifact) = artifacts.iter().find(|a| !owned.contains(&a.input)) {
-            return Err(refuse(format!(
-                "artifact {} belongs to no admitted input",
-                artifact.path
-            )));
-        }
-        let mut domains = BTreeMap::new();
-        let selected = analysis_roots(artifacts, uses)?;
-        for requirement in &contract.requirements {
-            let scopes: Vec<CoverageScope> = requirement
-                .grains
-                .iter()
-                .flat_map(|grain| match grain {
-                    Grain::Input => inputs
-                        .iter()
-                        .map(|input| CoverageScope::Input { input: input.id() })
-                        .collect::<Vec<_>>(),
-                    Grain::Artifact(class) => artifacts
-                        .iter()
-                        .filter(|a| {
-                            ArtifactClass::of(&a.path) == Some(*class) && selected.contains(&a.id())
-                        })
-                        .map(|artifact| CoverageScope::Artifact {
-                            artifact: artifact.id(),
-                        })
-                        .collect::<Vec<_>>(),
-                })
-                .collect();
-            domains.insert(requirement.family,scopes);
-        }
-        Ok(domains)
+fn coverage_domains(
+    contract: &FrontierContract,
+    inputs: &[InputRevision],
+    artifacts: &[SourceArtifact],
+    uses: &[ArtifactUse],
+) -> Result<BTreeMap<FactFamily, Vec<CoverageScope>>, ModelError> {
+    let owned: BTreeSet<_> = inputs.iter().map(Record::id).collect();
+    if let Some(artifact) = artifacts.iter().find(|a| !owned.contains(&a.input)) {
+        return Err(refuse(format!(
+            "artifact {} belongs to no admitted input",
+            artifact.path
+        )));
+    }
+    let mut domains = BTreeMap::new();
+    let selected = analysis_roots(artifacts, uses)?;
+    for requirement in &contract.requirements {
+        let scopes: Vec<CoverageScope> = requirement
+            .grains
+            .iter()
+            .flat_map(|grain| match grain {
+                Grain::Input => inputs
+                    .iter()
+                    .map(|input| CoverageScope::Input { input: input.id() })
+                    .collect::<Vec<_>>(),
+                Grain::Artifact(class) => artifacts
+                    .iter()
+                    .filter(|a| {
+                        ArtifactClass::of(&a.path) == Some(*class) && selected.contains(&a.id())
+                    })
+                    .map(|artifact| CoverageScope::Artifact {
+                        artifact: artifact.id(),
+                    })
+                    .collect::<Vec<_>>(),
+            })
+            .collect();
+        domains.insert(requirement.family, scopes);
+    }
+    Ok(domains)
 }
 impl FrontierContract {
     /// Exact requested-family domain for one authentic supplier declaration. This
     /// grants no completion or semantic admission authority and requires no other supplier.
-    pub fn supplier_coverage(&self,provider:Id<Provider>,families:&[FactFamily],inputs:&[InputRevision],
-        artifacts:&[SourceArtifact],uses:&[ArtifactUse])->Result<BTreeMap<Expected,CoverageScope>,ModelError>{
-        let unique=families.iter().copied().collect::<BTreeSet<_>>();
-        if unique.len()!=families.len() || unique.iter().any(|family|!self.requested(*family)
-            || !self.requirements.iter().any(|requirement|requirement.family==*family)) {
-            return Err(refuse("supplier coverage family differs from requested model contract"));
+    pub fn supplier_coverage(
+        &self,
+        provider: Id<Provider>,
+        families: &[FactFamily],
+        inputs: &[InputRevision],
+        artifacts: &[SourceArtifact],
+        uses: &[ArtifactUse],
+    ) -> Result<BTreeMap<Expected, CoverageScope>, ModelError> {
+        let unique = families.iter().copied().collect::<BTreeSet<_>>();
+        if unique.len() != families.len()
+            || unique.iter().any(|family| {
+                !self.requested(*family)
+                    || !self
+                        .requirements
+                        .iter()
+                        .any(|requirement| requirement.family == *family)
+            })
+        {
+            return Err(refuse(
+                "supplier coverage family differs from requested model contract",
+            ));
         }
-        let domains=coverage_domains(self,inputs,artifacts,uses)?;
-        let mut expected=BTreeMap::new();
+        let domains = coverage_domains(self, inputs, artifacts, uses)?;
+        let mut expected = BTreeMap::new();
         for family in unique {
-            for scope in domains.get(&family).ok_or_else(||refuse("supplier family domain absent"))? {
-                expected.insert(Expected{scope:scope.id(),family,provider:Some(provider)},scope.clone());
+            for scope in domains
+                .get(&family)
+                .ok_or_else(|| refuse("supplier family domain absent"))?
+            {
+                expected.insert(
+                    Expected {
+                        scope: scope.id(),
+                        family,
+                        provider: Some(provider),
+                    },
+                    scope.clone(),
+                );
             }
         }
         Ok(expected)
@@ -819,24 +988,91 @@ mod supplier_product_controls {
     use super::*;
     #[test]
     fn supplier_domain_matches_whole_frontier_without_unrelated_suppliers() {
-        let model=super::super::model().unwrap();
-        let provider=Provider{tool:"supplier-control".into(),revision:"pinned".into(),build_digest:ContentHash::of(b"supplier")}.id();
-        let body=b"x=1\n";
-        let input=InputRevision::from_entries(vec![super::super::input::ManifestEntry{path:"mod.py".into(),content:ContentHash::of(body),byte_len:body.len() as i64}]).unwrap();
-        let artifact=SourceArtifact::from_bytes(input.id(),"mod.py".into(),body).unwrap();
-        let usage=ArtifactUse{artifact:artifact.id(),input:input.id(),role:SourceRole::Release};
-        for profile in [Profile::Catalog,Profile::Behavioral] {
-            let contract=FrontierContract::facts(&model,profile).unwrap();
-            let families=[FactFamily::Artifacts,FactFamily::Syntax];
-            let preflight=Preflight{contract:contract.clone(),schedule:ContentHash::of(b"whole"),coverers:families.into_iter().map(|family|(family,BTreeSet::from([provider]))).collect()};
-            let whole=preflight.expected_coverage(std::slice::from_ref(&input),std::slice::from_ref(&artifact),std::slice::from_ref(&usage)).unwrap();
-            let supplier=contract.supplier_coverage(provider,&families,std::slice::from_ref(&input),std::slice::from_ref(&artifact),std::slice::from_ref(&usage)).unwrap();
-            assert_eq!(supplier,whole.into_iter().filter(|(key,_)|families.contains(&key.family)).collect());
-            assert_eq!(supplier.len(),2);
-            assert!(contract.supplier_coverage(provider,&[FactFamily::Syntax,FactFamily::Syntax],&[],&[],&[]).is_err());
-            assert!(contract.supplier_coverage(provider,&families,&[],std::slice::from_ref(&artifact),std::slice::from_ref(&usage)).is_err());
-            let flow=contract.supplier_coverage(provider,&[FactFamily::Flow],std::slice::from_ref(&input),std::slice::from_ref(&artifact),std::slice::from_ref(&usage));
-            assert_eq!(flow.is_ok(),profile==Profile::Behavioral);
+        let model = super::super::model().unwrap();
+        let provider = Provider {
+            tool: "supplier-control".into(),
+            revision: "pinned".into(),
+            build_digest: ContentHash::of(b"supplier"),
+        }
+        .id();
+        let body = b"x=1\n";
+        let input = InputRevision::from_entries(vec![super::super::input::ManifestEntry {
+            path: "mod.py".into(),
+            content: ContentHash::of(body),
+            byte_len: body.len() as i64,
+        }])
+        .unwrap();
+        let artifact = SourceArtifact::from_bytes(input.id(), "mod.py".into(), body).unwrap();
+        let usage = ArtifactUse {
+            artifact: artifact.id(),
+            input: input.id(),
+            role: SourceRole::Release,
+        };
+        for profile in [Profile::Catalog, Profile::Behavioral] {
+            let contract = FrontierContract::facts(&model, profile).unwrap();
+            let families = [FactFamily::Artifacts, FactFamily::Syntax];
+            let preflight = Preflight {
+                contract: contract.clone(),
+                schedule: ContentHash::of(b"whole"),
+                coverers: families
+                    .into_iter()
+                    .map(|family| (family, BTreeSet::from([provider])))
+                    .collect(),
+            };
+            let whole = preflight
+                .expected_coverage(
+                    std::slice::from_ref(&input),
+                    std::slice::from_ref(&artifact),
+                    std::slice::from_ref(&usage),
+                )
+                .unwrap();
+            let supplier = contract
+                .supplier_coverage(
+                    provider,
+                    &families,
+                    std::slice::from_ref(&input),
+                    std::slice::from_ref(&artifact),
+                    std::slice::from_ref(&usage),
+                )
+                .unwrap();
+            assert_eq!(
+                supplier,
+                whole
+                    .into_iter()
+                    .filter(|(key, _)| families.contains(&key.family))
+                    .collect()
+            );
+            assert_eq!(supplier.len(), 2);
+            assert!(
+                contract
+                    .supplier_coverage(
+                        provider,
+                        &[FactFamily::Syntax, FactFamily::Syntax],
+                        &[],
+                        &[],
+                        &[]
+                    )
+                    .is_err()
+            );
+            assert!(
+                contract
+                    .supplier_coverage(
+                        provider,
+                        &families,
+                        &[],
+                        std::slice::from_ref(&artifact),
+                        std::slice::from_ref(&usage)
+                    )
+                    .is_err()
+            );
+            let flow = contract.supplier_coverage(
+                provider,
+                &[FactFamily::Flow],
+                std::slice::from_ref(&input),
+                std::slice::from_ref(&artifact),
+                std::slice::from_ref(&usage),
+            );
+            assert_eq!(flow.is_ok(), profile == Profile::Behavioral);
         }
     }
 }

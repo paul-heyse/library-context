@@ -1,9 +1,9 @@
 //! Requested sections use their existing semantic kernels and exact captured sources.
-use crate::records::{need, rows, wire, Prepared,PacketRows};
+use crate::records::{PacketRows, Prepared, need, rows, wire};
 use lctx_model::domain::{
     resources::ResourceBudget, serving::mappings::PacketOutput, serving::*, *,
 };
-use lctx_native::{NativeReader, RecordSelection, reader::target_id};
+use lctx_native::{RecordSelection, reader::target_id};
 fn key<R: Record>(id: Id<R>) -> Result<ContentHash, ModelError> {
     match graph::target_for_row(derivation::RowRef::of(id))? {
         graph::Target::Entity(id) => Ok(id.0),
@@ -11,9 +11,8 @@ fn key<R: Record>(id: Id<R>) -> Result<ContentHash, ModelError> {
         _ => Err(ModelError::Schema("external section key")),
     }
 }
-pub async fn get(
-    reader: &NativeReader,
-    preparation: &crate::preparation::Preparation<'_>,
+pub(crate) async fn get(
+    read: crate::preparation::OperationRead<'_, '_>,
     member: &catalog::CatalogMember,
     domains: &[LibraryDomainPacket],
     r: &GetOperationRequest,
@@ -21,6 +20,10 @@ pub async fn get(
     limits: &ResourceLimits,
     b: &ResourceBudget,
 ) -> Result<OperationPacket, ModelError> {
+    let crate::preparation::OperationRead {
+        reader,
+        preparation,
+    } = read;
     let mut requested = r.clone();
     if let Some(demand) = &r.page.evidence_demand.0 {
         for facet in &demand.facets {
@@ -113,8 +116,10 @@ pub async fn get(
         }
         fields.push("release");
     }
-    let source = preparation.hydrate(reader, roots, &inputs, &inputs, &fields).await?;
-    let source=std::sync::Arc::new(Prepared::new(&source,b));
+    let source = preparation
+        .hydrate(reader, roots, &inputs, &inputs, &fields)
+        .await?;
+    let source = std::sync::Arc::new(Prepared::new(&source, b));
     let mut core = crate::core::packet(&source, member, domains, limits, b)?;
     crate::defaults::read_originals(reader, &mut core.interpretation, request, b).await?;
     core.limits.maximum_response_bytes = limits.response_bytes(request.page().expanded);
@@ -128,15 +133,27 @@ pub async fn get(
         lexical: false,
         vector: VectorChannel::Disabled {},
     };
-    let _section_metadata = b.reserve("operation-section-leases", 16 * size_of::<charged::StateCharge>())?;
+    let _section_metadata = b.reserve(
+        "operation-section-leases",
+        16 * size_of::<charged::StateCharge>(),
+    )?;
     let mut section_charges = Vec::with_capacity(16);
     macro_rules! paged {
         ($ty:ty,$name:literal,$section:ident,$values:expr) => {{
             let values: Vec<(ContentHash, $ty)> = $values;
             if r.sections.contains(&OperationSection::$section) {
-                let mut collector = crate::pagination::PageCollector::new(request, reader.handle(), &quiet,
-                    request.tool().name(), $name, Some(member.id()), b);
-                for (key, value) in values { collector.push(key, value)?; }
+                let mut collector = crate::pagination::PageCollector::new(
+                    request,
+                    reader.handle(),
+                    &quiet,
+                    request.tool().name(),
+                    $name,
+                    Some(member.id()),
+                    b,
+                );
+                for (key, value) in values {
+                    collector.push(key, value)?;
+                }
                 let (page, charge) = collector.finish(Availability::Available {})?;
                 section_charges.push(charge);
                 page
@@ -171,11 +188,21 @@ pub async fn get(
         } else {
             Availability::Available {}
         };
-        let mut collector = crate::pagination::PageCollector::new(request, reader.handle(), &quiet,
-            request.tool().name(), "access_routes", Some(member.id()), b);
-        for packet in result.routes { collector.push(crate::pagination::packet_key(&packet)?, packet)?; }
+        let mut collector = crate::pagination::PageCollector::new(
+            request,
+            reader.handle(),
+            &quiet,
+            request.tool().name(),
+            "access_routes",
+            Some(member.id()),
+            b,
+        );
+        for packet in result.routes {
+            collector.push(crate::pagination::packet_key(&packet)?, packet)?;
+        }
         let (page, charge) = collector.finish(availability)?;
-        section_charges.push(charge); page
+        section_charges.push(charge);
+        page
     } else {
         paged!(AccessRoutePacket, "access_routes", AccessRoutes, Vec::new())
     };
@@ -192,10 +219,7 @@ pub async fn get(
             CallableComparisonPacket,
             "callable_comparison",
             CallableComparison,
-            vec![(
-                crate::pagination::packet_key(&result.value)?,
-                result.value
-            )]
+            vec![(crate::pagination::packet_key(&result.value)?, result.value)]
         )
     } else {
         paged!(
@@ -214,10 +238,7 @@ pub async fn get(
             result
                 .value
                 .into_iter()
-                .map(|p| Ok((
-                    crate::pagination::packet_key(&p)?,
-                    p
-                )))
+                .map(|p| Ok((crate::pagination::packet_key(&p)?, p)))
                 .collect::<Result<Vec<_>, ModelError>>()?
         )
     } else {
@@ -272,10 +293,16 @@ pub async fn get(
     let q = rows::<assertion::AssertionQualification>(&source)?;
     let member_associations = if r.sections.contains(&OperationSection::Scenarios) {
         Some(associations.select_for("member", &[member.id()])?)
-    } else { None };
+    } else {
+        None
+    };
     let scenario_count = member_associations.as_ref().map_or(0, |rows| rows.len());
-    let _scenario_order = b.reserve("compact-scenario-page", scenario_count.checked_mul(256)
-        .ok_or(ModelError::Schema("compact scenario page overflow"))?)?;
+    let _scenario_order = b.reserve(
+        "compact-scenario-page",
+        scenario_count
+            .checked_mul(256)
+            .ok_or(ModelError::Schema("compact scenario page overflow"))?,
+    )?;
     let mut scenario_values = Vec::with_capacity(scenario_count);
     if let Some(associations) = &member_associations {
         let mut originals = None;
@@ -285,12 +312,24 @@ pub async fn get(
             // Every off-page original still earns the same address/attribution checks.
             // Only the selected parent will retain a rich span vector and packet body.
             for span in &spans.select_for("scenario", &[scenario.id()])? {
-                if originals.is_none() { originals = Some(crate::originals::Prepared::new(&source)?); }
-                originals.as_ref().expect("prepared original ranges").range(&OriginalReference::Catalog { source: span.source },
-                    Some(context), Some(core.release.release))?;
+                if originals.is_none() {
+                    originals = Some(crate::originals::Prepared::new(&source)?);
+                }
+                originals
+                    .as_ref()
+                    .expect("prepared original ranges")
+                    .range(
+                        &OriginalReference::Catalog {
+                            source: span.source,
+                        },
+                        Some(context),
+                        Some(core.release.release),
+                    )?;
             }
-            scenario_values.push((key(association.id())?,
-                (association.id(), (association, scenario, context))));
+            scenario_values.push((
+                key(association.id())?,
+                (association.id(), (association, scenario, context)),
+            ));
         }
     }
     let parents = if r.sections.contains(&OperationSection::Scenarios) {
@@ -313,10 +352,20 @@ pub async fn get(
     };
     let mut scenario_items = Vec::new();
     for (association, (association_row, scenario, context)) in parents.items {
-        let originals = spans.select_for("scenario", &[scenario.id()])?.iter().map(|span| {
-            crate::originals::range(&source, &OriginalReference::Catalog { source: span.source },
-                Some(context), Some(core.release.release))
-        }).collect::<Result<Vec<_>, _>>()?;
+        let originals = spans
+            .select_for("scenario", &[scenario.id()])?
+            .iter()
+            .map(|span| {
+                crate::originals::range(
+                    &source,
+                    &OriginalReference::Catalog {
+                        source: span.source,
+                    },
+                    Some(context),
+                    Some(core.release.release),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let diagnostic_correlations = crate::pagination::scenario_diagnostics(
             scenario_diagnostics(
                 association,
@@ -332,10 +381,15 @@ pub async fn get(
         )
         .map_err(wire)?;
         scenario_items.push(ScenarioPacket {
-            scenario: scenario.id(), intent: association_row.intent, basis: association_row.basis,
-            spans: originals, diagnostic_correlations,
-            parse: scenario.parse, binding: scenario.binding,
-            environment: scenario.environment, execution: scenario.execution,
+            scenario: scenario.id(),
+            intent: association_row.intent,
+            basis: association_row.basis,
+            spans: originals,
+            diagnostic_correlations,
+            parse: scenario.parse,
+            binding: scenario.binding,
+            environment: scenario.environment,
+            execution: scenario.execution,
         });
     }
     let scenarios = SectionPage {
@@ -357,22 +411,72 @@ pub async fn get(
             let observation = need(&observations, deployment.observation)?;
             let context = need(&q, observation.qualification)?.context;
             Name::new(observation.field.clone()).map_err(wire)?;
-            Name::new(observation.name.clone().unwrap_or_else(|| observation.field.clone())).map_err(wire)?;
-            Text::<0,8192>::new(observation.original.clone()).map_err(wire)?;
-            crate::originals::range(&source, &OriginalReference::Span { span: observation.span }, Some(context), Some(link.release))?;
-            values.push((key(deployment.id())?, (deployment.id(), observation, context, link.release)));
+            Name::new(
+                observation
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| observation.field.clone()),
+            )
+            .map_err(wire)?;
+            Text::<0, 8192>::new(observation.original.clone()).map_err(wire)?;
+            crate::originals::range(
+                &source,
+                &OriginalReference::Span {
+                    span: observation.span,
+                },
+                Some(context),
+                Some(link.release),
+            )?;
+            values.push((
+                key(deployment.id())?,
+                (deployment.id(), observation, context, link.release),
+            ));
         }
-        let compact = crate::pagination::page(values, request, reader.handle(), &quiet,
-            request.tool().name(), "deployment", Some(member.id()), Availability::Available {}).map_err(wire)?;
-        crate::operations::hydrate_page(compact, |(deployment, observation, context, release)| Ok(DeploymentPacket {
-            deployment, field: Name::new(observation.field.clone()).map_err(wire)?,
-            name: Name::new(observation.name.clone().unwrap_or_else(|| observation.field.clone())).map_err(wire)?,
-            value: Text::new(observation.original.clone()).map_err(wire)?,
-            originals: vec![crate::originals::range(&source, &OriginalReference::Span { span: observation.span }, Some(context), Some(release))?],
-        }))?
-    } else { paged!(DeploymentPacket, "deployment", Deployment, Vec::new()) };
-    let mut conflict_collector = crate::pagination::PageCollector::new(request, reader.handle(), &quiet,
-        request.tool().name(), "conflicts", Some(member.id()), b);
+        let compact = crate::pagination::page(
+            values,
+            request,
+            reader.handle(),
+            &quiet,
+            request.tool().name(),
+            "deployment",
+            Some(member.id()),
+            Availability::Available {},
+        )
+        .map_err(wire)?;
+        crate::operations::hydrate_page(compact, |(deployment, observation, context, release)| {
+            Ok(DeploymentPacket {
+                deployment,
+                field: Name::new(observation.field.clone()).map_err(wire)?,
+                name: Name::new(
+                    observation
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| observation.field.clone()),
+                )
+                .map_err(wire)?,
+                value: Text::new(observation.original.clone()).map_err(wire)?,
+                originals: vec![crate::originals::range(
+                    &source,
+                    &OriginalReference::Span {
+                        span: observation.span,
+                    },
+                    Some(context),
+                    Some(release),
+                )?],
+            })
+        })?
+    } else {
+        paged!(DeploymentPacket, "deployment", Deployment, Vec::new())
+    };
+    let mut conflict_collector = crate::pagination::PageCollector::new(
+        request,
+        reader.handle(),
+        &quiet,
+        request.tool().name(),
+        "conflicts",
+        Some(member.id()),
+        b,
+    );
     if r.sections.contains(&OperationSection::Conflicts) {
         let prepared = selection::evaluate::Prepared::from_local_rows(data, output, b)?;
         let requirements: Vec<_> = crate::vocabulary::questions(prepared.data())
@@ -416,8 +520,11 @@ pub async fn get(
     }
     let conflicts = if r.sections.contains(&OperationSection::Conflicts) {
         let (page, charge) = conflict_collector.finish(Availability::Available {})?;
-        section_charges.push(charge); page
-    } else { paged!(ConflictPacket, "conflicts", Conflicts, Vec::new()) };
+        section_charges.push(charge);
+        page
+    } else {
+        paged!(ConflictPacket, "conflicts", Conflicts, Vec::new())
+    };
     let briefs = if r.sections.contains(&OperationSection::Briefs) {
         let links = rows::<synthesis::briefs::BriefAssertion>(&source)?;
         let assertions = rows::<synthesis::assertions::ProgrammaticAssertion>(&source)?;
@@ -425,7 +532,10 @@ pub async fn get(
         let mut ids = std::collections::BTreeSet::new();
         for link in &links {
             if let Some(assertion) = assertions.get(link.assertion)?
-                && invocations.get(assertion.member)?.is_some_and(|invocation| invocation.member == member.id()) {
+                && invocations
+                    .get(assertion.member)?
+                    .is_some_and(|invocation| invocation.member == member.id())
+            {
                 ids.insert(link.brief);
             }
         }
@@ -436,25 +546,63 @@ pub async fn get(
             prepared.validate(id, b)?;
             values.push((key(id)?, id));
         }
-        let compact = crate::pagination::page(values, request, reader.handle(), &quiet,
-            request.tool().name(), "briefs", Some(member.id()), Availability::Available {}).map_err(wire)?;
+        let compact = crate::pagination::page(
+            values,
+            request,
+            reader.handle(),
+            &quiet,
+            request.tool().name(),
+            "briefs",
+            Some(member.id()),
+            Availability::Available {},
+        )
+        .map_err(wire)?;
         crate::operations::hydrate_page(compact, |id| prepared.packet(id, b))?
-    } else { paged!(CapabilityPacket, "briefs", Briefs, Vec::new()) };
+    } else {
+        paged!(CapabilityPacket, "briefs", Briefs, Vec::new())
+    };
     let (relationship_values, _relationship_charge) = relationships(&source, member.id())?;
     let relationships = if r.sections.contains(&OperationSection::Relationships) {
-        let compact = crate::pagination::page(relationship_values, request, reader.handle(), &quiet,
-            request.tool().name(), "relationships", Some(member.id()), Availability::Available {}).map_err(wire)?;
+        let compact = crate::pagination::page(
+            relationship_values,
+            request,
+            reader.handle(),
+            &quiet,
+            request.tool().name(),
+            "relationships",
+            Some(member.id()),
+            Availability::Available {},
+        )
+        .map_err(wire)?;
         crate::operations::hydrate_page(compact, |selected| relationship_packet(&source, selected))?
-    } else { paged!(RelationshipPacket, "relationships", Relationships, Vec::new()) };
+    } else {
+        paged!(
+            RelationshipPacket,
+            "relationships",
+            Relationships,
+            Vec::new()
+        )
+    };
     let behavior = if r.sections.contains(&OperationSection::Behavior) {
-        let mut collector = crate::pagination::PageCollector::new(request, reader.handle(), &quiet,
-            request.tool().name(), "behavior", Some(member.id()), b);
+        let mut collector = crate::pagination::PageCollector::new(
+            request,
+            reader.handle(),
+            &quiet,
+            request.tool().name(),
+            "behavior",
+            Some(member.id()),
+            b,
+        );
         let availability = crate::behavior::visit_packets(&source, member.id(), &mut |packet| {
             collector.push(crate::pagination::packet_key(&packet)?, packet)
-        }).await?;
+        })
+        .await?;
         let (page, charge) = collector.finish(availability)?;
-        section_charges.push(charge); page
-    } else { paged!(BehaviorPacket, "behavior", Behavior, Vec::new()) };
+        section_charges.push(charge);
+        page
+    } else {
+        paged!(BehaviorPacket, "behavior", Behavior, Vec::new())
+    };
     Ok(OperationPacket {
         core,
         access_routes,
@@ -470,62 +618,127 @@ pub async fn get(
         behavior,
     })
 }
-pub(crate) fn compact_push<T>(values: &mut Vec<T>, charge: &mut charged::StateCharge, value: T) -> Result<(), ModelError> {
+pub(crate) fn compact_push<T>(
+    values: &mut Vec<T>,
+    charge: &mut charged::StateCharge,
+    value: T,
+) -> Result<(), ModelError> {
     if values.len() == values.capacity() {
         let additional = values.capacity().max(4);
-        charge.grow(additional.checked_mul(3 * size_of::<T>()).ok_or(ModelError::Schema("compact section capacity overflow"))?)?;
+        charge.grow(
+            additional
+                .checked_mul(3 * size_of::<T>())
+                .ok_or(ModelError::Schema("compact section capacity overflow"))?,
+        )?;
         values.reserve_exact(additional);
     }
-    values.push(value); Ok(())
+    values.push(value);
+    Ok(())
 }
 enum RelationshipSelection {
-    Invocation { target: Id<catalog::CatalogMember>, analysis: Id<attribution::AnalysisContext>,
-        fidelity: selection::Fidelity, alternative: Id<normalized::events::NormalizedCallAlternative> },
-    SourceField { link: Id<catalog::evidence::SourceFieldLink> },
+    Invocation {
+        target: Id<catalog::CatalogMember>,
+        analysis: Id<attribution::AnalysisContext>,
+        fidelity: selection::Fidelity,
+        alternative: Id<normalized::events::NormalizedCallAlternative>,
+    },
+    SourceField {
+        link: Id<catalog::evidence::SourceFieldLink>,
+    },
 }
 fn relationships(
     source: &Prepared<'_>,
     member: Id<catalog::CatalogMember>,
-) -> Result<(Vec<(ContentHash, RelationshipSelection)>, charged::StateCharge), ModelError> {
+) -> Result<
+    (
+        Vec<(ContentHash, RelationshipSelection)>,
+        charged::StateCharge,
+    ),
+    ModelError,
+> {
     let callables = rows::<catalog::CatalogCallable>(source)?;
     let assessments = rows::<normalized::callables::EffectiveCallableAssessment>(source)?;
     let classes = rows::<catalog::CatalogClass>(source)?;
-    let mut owned=std::collections::BTreeSet::new();
-    for callable in callables.select_for("member",&[member])?.iter(){
-        if let Some(assessment)=assessments.get(callable.assessment)?{owned.insert(normalized::entities::EntityRef::Callable{callable:assessment.callable}.id());}
+    let mut owned = std::collections::BTreeSet::new();
+    for callable in callables.select_for("member", &[member])?.iter() {
+        if let Some(assessment) = assessments.get(callable.assessment)? {
+            owned.insert(
+                normalized::entities::EntityRef::Callable {
+                    callable: assessment.callable,
+                }
+                .id(),
+            );
+        }
     }
-    owned.extend(classes.select_for("member",&[member])?.iter().map(|class|normalized::entities::EntityRef::Class{class:class.class}.id()));
-    let witnesses=rows::<selection::Witness>(source)?;
+    owned.extend(
+        classes
+            .select_for("member", &[member])?
+            .iter()
+            .map(|class| normalized::entities::EntityRef::Class { class: class.class }.id()),
+    );
+    let witnesses = rows::<selection::Witness>(source)?;
     let events = rows::<normalized::events::NormalizedCallEvent>(source)?;
     let ownership = rows::<normalized::entities::OccurrenceOwnership>(source)?;
     let alternatives = rows::<normalized::events::NormalizedCallAlternative>(source)?;
     let mut values = Vec::new();
     let mut charge = charged::StateCharge::new(source.budget(), "compact-relationship-page");
-    let mut assessments_checked=false;
+    let mut assessments_checked = false;
     for event in &events {
         if !owned.contains(&need(&ownership, event.owner)?.entity) {
             continue;
         }
-        let event_alternatives=alternatives.select_for("event",&[event.id()])?;
+        let event_alternatives = alternatives.select_for("event", &[event.id()])?;
         for alternative in &event_alternatives {
             let Some(entity) = alternative.entity else {
                 continue;
             };
             // The previous demanded target loop required every callable assessment,
             // including unrelated callables. Preserve that missing-row refusal once.
-            if !assessments_checked{for callable in &callables{need(&assessments,callable.assessment)?;}assessments_checked=true;}
-            let target_assessments=assessments.select_derived("@relationship_callable_entity",&[entity],|assessment|normalized::entities::EntityRef::Callable{callable:assessment.callable}.id())?;
-            let target_callables=callables.select_for("assessment",&target_assessments.iter().map(Record::id).collect::<Vec<_>>())?;
+            if !assessments_checked {
+                for callable in &callables {
+                    need(&assessments, callable.assessment)?;
+                }
+                assessments_checked = true;
+            }
+            let target_assessments = assessments.select_derived(
+                "@relationship_callable_entity",
+                &[entity],
+                |assessment| {
+                    normalized::entities::EntityRef::Callable {
+                        callable: assessment.callable,
+                    }
+                    .id()
+                },
+            )?;
+            let target_callables = callables.select_for(
+                "assessment",
+                &target_assessments
+                    .iter()
+                    .map(Record::id)
+                    .collect::<Vec<_>>(),
+            )?;
             for callable in &target_callables {
                 witnesses.select_for("member", &[callable.member])?;
                 ProofReference::from_canonical(derivation::RowRef::of(alternative.id()))?;
-                compact_push(&mut values, &mut charge, (key(alternative.id())?, RelationshipSelection::Invocation {
-                    target: callable.member, analysis: event.context,
-                    fidelity: if alternative.status == normalized::entities::ResolutionStatus::Resolved {
-                        selection::Fidelity::ResolvedTarget
-                    } else { selection::Fidelity::CandidateTargets },
-                    alternative: alternative.id(),
-                }))?;
+                compact_push(
+                    &mut values,
+                    &mut charge,
+                    (
+                        key(alternative.id())?,
+                        RelationshipSelection::Invocation {
+                            target: callable.member,
+                            analysis: event.context,
+                            fidelity: if alternative.status
+                                == normalized::entities::ResolutionStatus::Resolved
+                            {
+                                selection::Fidelity::ResolvedTarget
+                            } else {
+                                selection::Fidelity::CandidateTargets
+                            },
+                            alternative: alternative.id(),
+                        },
+                    ),
+                )?;
             }
         }
     }
@@ -535,31 +748,59 @@ fn relationships(
     let readers = rows::<normalized::symbolic_fields::SourceFieldReader>(source)?;
     let reader_links = rows::<normalized::symbolic_fields::SourceFieldReaderLink>(source)?;
     let q = rows::<assertion::AssertionQualification>(source)?;
-    let member_options=options.select_for("member",&[member])?;
+    let member_options = options.select_for("member", &[member])?;
     for link in &links {
-        if member_options.get(link.parameter_option)?.is_none()&&member_options.get(link.field_option)?.is_none() {
+        if member_options.get(link.parameter_option)?.is_none()
+            && member_options.get(link.field_option)?.is_none()
+        {
             continue;
         }
         let a = need(&associations, link.association)?;
         let l = need(&reader_links, link.reader)?;
         let r = need(&readers, l.reader)?;
         need(&q, a.qualification)?;
-        for premise in [derivation::RowRef::of(link.id()), derivation::RowRef::of(a.id()), derivation::RowRef::of(l.id())] {
+        for premise in [
+            derivation::RowRef::of(link.id()),
+            derivation::RowRef::of(a.id()),
+            derivation::RowRef::of(l.id()),
+        ] {
             ProofReference::from_canonical(premise)?;
         }
         let _ = r; // The reader companion is required even for off-page links.
-        compact_push(&mut values, &mut charge, (key(link.id())?, RelationshipSelection::SourceField { link: link.id() }))?;
+        compact_push(
+            &mut values,
+            &mut charge,
+            (
+                key(link.id())?,
+                RelationshipSelection::SourceField { link: link.id() },
+            ),
+        )?;
     }
     Ok((values, charge))
 }
 
-fn relationship_packet(source: &Prepared<'_>, selected: RelationshipSelection) -> Result<RelationshipPacket, ModelError> {
+fn relationship_packet(
+    source: &Prepared<'_>,
+    selected: RelationshipSelection,
+) -> Result<RelationshipPacket, ModelError> {
     match selected {
-        RelationshipSelection::Invocation { target, analysis, fidelity, alternative } => {
+        RelationshipSelection::Invocation {
+            target,
+            analysis,
+            fidelity,
+            alternative,
+        } => {
             let witnesses = rows::<selection::Witness>(source)?.select_for("member", &[target])?;
-            Ok(RelationshipPacket::Invocation { target, analysis, role: selection::RelationRole::Invokes, fidelity,
+            Ok(RelationshipPacket::Invocation {
+                target,
+                analysis,
+                role: selection::RelationRole::Invokes,
+                fidelity,
                 witnesses: witnesses.iter().map(Record::id).collect(),
-                proof: vec![ProofReference::from_canonical(derivation::RowRef::of(alternative))?] })
+                proof: vec![ProofReference::from_canonical(derivation::RowRef::of(
+                    alternative,
+                ))?],
+            })
         }
         RelationshipSelection::SourceField { link } => {
             let links = rows::<catalog::evidence::SourceFieldLink>(source)?;
@@ -571,13 +812,27 @@ fn relationship_packet(source: &Prepared<'_>, selected: RelationshipSelection) -
             let readers = rows::<normalized::symbolic_fields::SourceFieldReader>(source)?;
             let reader = need(&readers, reader_link.reader)?;
             let qualifications = rows::<assertion::AssertionQualification>(source)?;
-            Ok(RelationshipPacket::SourceField { link: link.id(), parameter_option: link.parameter_option,
-                field_option: link.field_option, parameter: association.parameter, association: association.id(),
-                reader_link: reader_link.id(), reader: reader.id(), access: reader.access, owner: link.reader_owner,
+            Ok(RelationshipPacket::SourceField {
+                link: link.id(),
+                parameter_option: link.parameter_option,
+                field_option: link.field_option,
+                parameter: association.parameter,
+                association: association.id(),
+                reader_link: reader_link.id(),
+                reader: reader.id(),
+                access: reader.access,
+                owner: link.reader_owner,
                 analysis: need(&qualifications, association.qualification)?.context,
-                source_association: link.source_association, runtime_value: link.runtime_value,
-                proof: [derivation::RowRef::of(link.id()), derivation::RowRef::of(association.id()), derivation::RowRef::of(reader_link.id())]
-                    .into_iter().map(ProofReference::from_canonical).collect::<Result<Vec<_>, _>>()?,
+                source_association: link.source_association,
+                runtime_value: link.runtime_value,
+                proof: [
+                    derivation::RowRef::of(link.id()),
+                    derivation::RowRef::of(association.id()),
+                    derivation::RowRef::of(reader_link.id()),
+                ]
+                .into_iter()
+                .map(ProofReference::from_canonical)
+                .collect::<Result<Vec<_>, _>>()?,
             })
         }
     }
@@ -591,7 +846,7 @@ fn scenario_diagnostics(
     assessments: &PacketRows<catalog::evidence::DiagnosticUseAssessment>,
 ) -> Result<Vec<(ContentHash, Id<catalog::evidence::DiagnosticUseAssessment>)>, ModelError> {
     let mut selected = std::collections::BTreeSet::new();
-    for target in &targets.select_for("association",&[association])? {
+    for target in &targets.select_for("association", &[association])? {
         let link = need(links, target.link)?;
         need(assessments, link.assessment)?;
         selected.insert(link.assessment);
@@ -651,13 +906,22 @@ mod scenario_tests {
                 link: excluded.id(),
             },
         ];
-        let budget=ResourceBudget::fixed(1<<20).unwrap();
-        let targets=PacketRows::new(targets,&budget).unwrap();
-        let links = PacketRows::new(vec![first.clone(), second.clone(), excluded],&budget).unwrap();
-        let assessments = PacketRows::new(vec![assessment.clone(), unrelated],&budget).unwrap();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let targets = PacketRows::new(targets, &budget).unwrap();
+        let links =
+            PacketRows::new(vec![first.clone(), second.clone(), excluded], &budget).unwrap();
+        let assessments = PacketRows::new(vec![assessment.clone(), unrelated], &budget).unwrap();
         let actual = scenario_diagnostics(association, &targets, &links, &assessments).unwrap();
         assert_eq!(actual.len(), 1);
         assert_eq!(actual[0].1, assessment.id());
-        assert!(scenario_diagnostics(association, &targets, &PacketRows::new(vec![second],&budget).unwrap(), &assessments).is_err());
+        assert!(
+            scenario_diagnostics(
+                association,
+                &targets,
+                &PacketRows::new(vec![second], &budget).unwrap(),
+                &assessments
+            )
+            .is_err()
+        );
     }
 }

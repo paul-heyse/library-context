@@ -1,17 +1,79 @@
 //! Compiler input/read conveniences over the shared selected event kernel.
-use crate::{workspace::CompletedInputs,consumed_rows::{ClosureTable,NominalClosure,PreparedEdges}};
-#[cfg(test)]use crate::consumed_rows::PreparedClosure;
-#[cfg(test)]use futures::future::BoxFuture;
-use lctx_model::domain::{normalized::{binding_normalization::BindingData,event_normalization::EventData},*};
-use std::{any::TypeId,sync::Arc};
-pub use lctx_compiler_store::normalize::call_scope::{CallScopeMode,EventSelection,BindingSelection,EventOutputSelection,BindingOutputSelection};
-fn first_input<R:Record>(inputs:&[ValidationInput])->Option<(usize,&ValidationInput)>{inputs.iter().enumerate().find(|(_,i)|i.type_id()==TypeId::of::<R>())}
-pub(crate) struct CallScopes{inner:lctx_compiler_store::normalize::call_scope::CallScopes,#[cfg(test)]inputs:Vec<ValidationInput>}
-impl std::ops::Deref for CallScopes{type Target=lctx_compiler_store::normalize::call_scope::CallScopes;fn deref(&self)->&Self::Target{&self.inner}}
-impl CallScopes{
- fn wrap(inner:lctx_compiler_store::normalize::call_scope::CallScopes)->Self{Self{#[cfg(test)]inputs:inner.inputs().to_vec(),inner}}
- pub(super) async fn prepare(access:&CompletedInputs,session:&datafusion::prelude::SessionContext,model:&Arc<ValidatedModel>,budget:&resources::ResourceBudget,binding:bool)->Result<Self,ModelError>{Ok(Self::wrap(lctx_compiler_store::normalize::call_scope::CallScopes::prepare(access,session,model,budget,binding).await?))}
- pub(crate) async fn from_tables_with(inputs:Vec<ValidationInput>,tables:Vec<ClosureTable>,session:&datafusion::prelude::SessionContext,budget:&resources::ResourceBudget,mode:CallScopeMode,model:&ValidatedModel,extra:impl FnOnce(&mut NominalClosure,&[ClosureTable])->Result<(),ModelError>)->Result<Self,ModelError>{Ok(Self::wrap(lctx_compiler_store::normalize::call_scope::CallScopes::from_tables_with(inputs,tables,session,budget,mode,model,extra).await?))}
+#[cfg(test)]
+use crate::consumed_rows::PreparedClosure;
+use crate::{
+    consumed_rows::{ClosureTable, NominalClosure},
+    workspace::CompletedInputs,
+};
+#[cfg(test)]
+use futures::future::BoxFuture;
+pub use lctx_compiler_store::normalize::call_scope::{
+    BindingSelection, CallScopeMode, EventSelection,
+};
+#[cfg(test)]
+use lctx_model::domain::normalized::{
+    binding_normalization::BindingData, event_normalization::EventData,
+};
+use lctx_model::domain::*;
+#[cfg(test)]
+use std::any::TypeId;
+use std::sync::Arc;
+#[cfg(test)]
+fn first_input<R: Record>(inputs: &[ValidationInput]) -> Option<(usize, &ValidationInput)> {
+    inputs
+        .iter()
+        .enumerate()
+        .find(|(_, i)| i.type_id() == TypeId::of::<R>())
+}
+pub(crate) struct CallScopes {
+    inner: lctx_compiler_store::normalize::call_scope::CallScopes,
+    #[cfg(test)]
+    inputs: Vec<ValidationInput>,
+}
+impl std::ops::Deref for CallScopes {
+    type Target = lctx_compiler_store::normalize::call_scope::CallScopes;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+impl CallScopes {
+    fn wrap(inner: lctx_compiler_store::normalize::call_scope::CallScopes) -> Self {
+        Self {
+            #[cfg(test)]
+            inputs: inner.inputs().to_vec(),
+            inner,
+        }
+    }
+    pub(super) async fn prepare(
+        access: &CompletedInputs,
+        session: &datafusion::prelude::SessionContext,
+        model: &Arc<ValidatedModel>,
+        budget: &resources::ResourceBudget,
+        binding: bool,
+    ) -> Result<Self, ModelError> {
+        Ok(Self::wrap(
+            lctx_compiler_store::normalize::call_scope::CallScopes::prepare(
+                access, session, model, budget, binding,
+            )
+            .await?,
+        ))
+    }
+    pub(crate) async fn from_tables_with(
+        inputs: Vec<ValidationInput>,
+        tables: Vec<ClosureTable>,
+        session: &datafusion::prelude::SessionContext,
+        budget: &resources::ResourceBudget,
+        mode: CallScopeMode,
+        model: &ValidatedModel,
+        extra: impl FnOnce(&mut NominalClosure, &[ClosureTable]) -> Result<(), ModelError>,
+    ) -> Result<Self, ModelError> {
+        Ok(Self::wrap(
+            lctx_compiler_store::normalize::call_scope::CallScopes::from_tables_with(
+                inputs, tables, session, budget, mode, model, extra,
+            )
+            .await?,
+        ))
+    }
     #[cfg(test)]
     pub(crate) async fn grain<R: Record>(
         &self,
@@ -24,7 +86,8 @@ impl CallScopes{
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        self.inner.edges()
+        self.inner
+            .edges()
             .grain(root, &format!("id=X'{hex}'"), budget)
             .await
     }
@@ -96,7 +159,6 @@ fn load_event<'a>(
         Ok(())
     })
 }
-
 
 #[cfg(test)]
 mod call_scope_controls {

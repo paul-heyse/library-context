@@ -123,15 +123,19 @@ async fn backup_owned(
         let state = directory.path().join("completed-state");
         std::fs::File::create(&sql).map_err(ModelError::codec)?;
         let (manifest, state_receipt) = crate::selected_backup::export(
-            &snapshot,
+            &crate::selected_backup::Snapshot {
+                transaction: &snapshot,
+                cancel,
+            },
             &completed,
             &version,
             handle,
             native_definitions,
-            &sql,
-            &state,
+            crate::selected_backup::BackupSpools {
+                claims: &sql,
+                completed_state: &state,
+            },
             &budget,
-            cancel,
         )
         .await?;
         cancel.check()?;
@@ -244,24 +248,23 @@ fn recovery_metadata(
                 == Some(
                     &serde_json::to_value(config.service_generation).map_err(ModelError::codec)?,
                 )
+            && let Some(pointer) = record.get("recovery").filter(|pointer| pointer.is_object())
         {
-            if let Some(pointer) = record.get("recovery").filter(|pointer| pointer.is_object()) {
-                let mut fields = serde_json::Map::new();
-                for name in [
-                    "schema",
-                    "archive",
-                    "sha256",
-                    "installation_id",
-                    "service_generation",
-                    "native_schemas",
-                    "obligations",
-                ] {
-                    if let Some(value) = pointer.get(name) {
-                        fields.insert(name.into(), value.clone());
-                    }
+            let mut fields = serde_json::Map::new();
+            for name in [
+                "schema",
+                "archive",
+                "sha256",
+                "installation_id",
+                "service_generation",
+                "native_schemas",
+                "obligations",
+            ] {
+                if let Some(value) = pointer.get(name) {
+                    fields.insert(name.into(), value.clone());
                 }
-                protected = serde_json::Value::Object(fields);
             }
+            protected = serde_json::Value::Object(fields);
         }
     }
     Ok(

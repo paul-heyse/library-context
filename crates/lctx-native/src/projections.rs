@@ -70,8 +70,6 @@ impl ScopedProjection {
     pub fn write_json(&self, writer: impl Write) -> Result<(), ModelError> {
         write_projection_json(
             None,
-            None,
-            None,
             &self.source,
             &self.graph,
             &self.coverage,
@@ -84,9 +82,11 @@ impl NativeProjection {
     /// The published wrapper retains the exact manifest and executable definition authority.
     pub fn write_json(&self, writer: impl Write) -> Result<(), ModelError> {
         write_projection_json(
-            Some(&self.snapshot),
-            Some(&self.manifest),
-            Some(&self.definition),
+            Some(ProjectionPublication {
+                snapshot: &self.snapshot,
+                manifest: &self.manifest,
+                definition: &self.definition,
+            }),
             &self.source,
             &self.graph,
             &self.coverage,
@@ -95,10 +95,13 @@ impl NativeProjection {
         )
     }
 }
+struct ProjectionPublication<'a> {
+    snapshot: &'a SnapshotHandle,
+    manifest: &'a Manifest,
+    definition: &'a ProjectionDefinition,
+}
 fn write_projection_json(
-    snapshot: Option<&SnapshotHandle>,
-    manifest: Option<&Manifest>,
-    definition: Option<&ProjectionDefinition>,
+    publication: Option<ProjectionPublication<'_>>,
     source: &ProjectionInput,
     graph: &MaterializedGraph,
     coverage: &Rows<ProviderCoverage>,
@@ -147,7 +150,9 @@ fn write_projection_json(
     )?;
     let spec = lctx_model::domain::analysis::ProjectionDefinition::builtin(graph.key().name);
     serde_json::to_writer(writer, &Export {
-            snapshot, manifest, definition,
+            snapshot: publication.as_ref().map(|value| value.snapshot),
+            manifest: publication.as_ref().map(|value| value.manifest),
+            definition: publication.as_ref().map(|value| value.definition),
             specification: serde_json::json!({"name":spec.name,"version":spec.version,"policy":spec.policy}),
             key: graph.key(), assessment: source.assessment(),
             vertices: graph.entities().collect(), arcs: graph.arcs().collect(),
@@ -309,20 +314,40 @@ async fn hydrate<Context>(
         lctx_model::domain::graph::EntityId::of(key.input),
     ));
     bindings.insert("capture", capture);
-    let mut seen = BTreeSet::new(); let mut charge = budget.reserve("native-projection-selection", 0)?;
+    let mut seen = BTreeSet::new();
+    let mut charge = budget.reserve("native-projection-selection", 0)?;
     let mut frontier = Vec::new();
     for (table, predicate) in [
-        ("entity", "anchor=$capture OR (semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)) OR (semantic_type=$symbols AND scope_keys CONTAINS $__projection_context_scope)"),
-        ("assertion", "semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)"),
+        (
+            "entity",
+            "anchor=$capture OR (semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)) OR (semantic_type=$symbols AND scope_keys CONTAINS $__projection_context_scope)",
+        ),
+        (
+            "assertion",
+            "semantic_type IN $types AND scope_keys CONTAINSANY $__projection_input_scopes AND (body.context=NONE OR body.context=NULL OR scope_context=<string>$context)",
+        ),
     ] {
-        frontier.extend(projection_candidates(reader, format!("SELECT id FROM {table} WHERE {predicate}"), bindings.clone(), preparation.clone(), &mut seen, charge.as_mut(), budget).await?);
+        frontier.extend(
+            projection_candidates(
+                reader,
+                format!("SELECT id FROM {table} WHERE {predicate}"),
+                bindings.clone(),
+                preparation.clone(),
+                &mut seen,
+                charge.as_mut(),
+                budget,
+            )
+            .await?,
+        );
     }
     // Owner-first traversal retains isolates and owned relationships. Every native frontier
     // argument is finite; selected membership is tested against the prepared disk cursor.
     while !frontier.is_empty() {
         let mut next = Vec::new();
         for window in frontier.chunks(128) {
-            let mut vars = bindings.clone(); vars.insert("frontier", window.to_vec()); vars.insert("fields", OWNED_FIELDS.to_vec());
+            let mut vars = bindings.clone();
+            vars.insert("frontier", window.to_vec());
+            vars.insert("fields", OWNED_FIELDS.to_vec());
             for table in ["reference", "participant"] {
                 next.extend(projection_candidates(reader, format!("SELECT in AS id FROM {table} WITH INDEX incoming WHERE out IN (SELECT VALUE anchor FROM $frontier) AND field IN $fields AND in.semantic_type IN $types AND (in.body.context=NONE OR in.body.context=NULL OR in.scope_context=<string>$context)"), vars.clone(), vec![], &mut seen, charge.as_mut(), budget).await?);
             }
@@ -334,10 +359,17 @@ async fn hydrate<Context>(
         let mut next = Vec::new();
         for window in frontier.chunks(128) {
             for edge in ["reference", "participant"] {
-                let mut vars = bindings.clone(); vars.insert("frontier", window.to_vec());
+                let mut vars = bindings.clone();
+                vars.insert("frontier", window.to_vec());
                 // Endpoint anchors are read from an actual indexed edge stream, never a
                 // closure-sized server array. Resolve each finite anchor window separately.
-                let mut edges = reader.stream_prepared(crate::prepared::PreparedQuery::new(vars, vec![], vec![format!("SELECT out AS id FROM {edge} WITH INDEX outgoing WHERE in IN $frontier")])?)?;
+                let mut edges = reader.stream_prepared(crate::prepared::PreparedQuery::new(
+                    vars,
+                    vec![],
+                    vec![format!(
+                        "SELECT out AS id FROM {edge} WITH INDEX outgoing WHERE in IN $frontier"
+                    )],
+                )?)?;
                 let result = async {
                     loop {
                         let mut anchors = Vec::new(); while anchors.len() < 128 { let Some(row) = edges.next().await? else { break; }; anchors.push(projection_id(&row)?); }
@@ -349,34 +381,79 @@ async fn hydrate<Context>(
                     }
                     Ok(())
                 }.await;
-                let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("projection outgoing edge drainage", edges.drain_transport().await); lctx_model::domain::completion::complete(result, completion)?;
+                let mut completion = lctx_model::domain::completion::Completion::default();
+                completion.step(
+                    "projection outgoing edge drainage",
+                    edges.drain_transport().await,
+                );
+                lctx_model::domain::completion::complete(result, completion)?;
             }
         }
         frontier = next;
     }
-    let nodes = seen.into_iter().collect::<Vec<_>>(); let types = types.into_iter().collect::<Vec<_>>();
+    let nodes = seen.into_iter().collect::<Vec<_>>();
+    let types = types.into_iter().collect::<Vec<_>>();
     let result = reader.canonical_point_batches(&nodes, &types, budget).await;
-    drop(charge); result
-
+    drop(charge);
+    result
 }
 
 fn projection_id(row: &Value) -> Result<RecordId, ModelError> {
-    let Value::Object(row) = row else { return Err(ModelError::Schema("projection candidate object")); };
-    RecordId::from_value(row.get("id").cloned().ok_or(ModelError::Schema("projection candidate identity"))?).map_err(ModelError::codec)
+    let Value::Object(row) = row else {
+        return Err(ModelError::Schema("projection candidate object"));
+    };
+    RecordId::from_value(
+        row.get("id")
+            .cloned()
+            .ok_or(ModelError::Schema("projection candidate identity"))?,
+    )
+    .map_err(ModelError::codec)
 }
-async fn projection_candidates<Context>(reader: &NativeReader<Context>, sql: String, vars: Variables, preparation: Vec<String>, seen: &mut BTreeSet<RecordId>, charge: &mut dyn lctx_model::domain::resources::Reservation, budget: &ResourceBudget) -> Result<Vec<RecordId>, ModelError> {
-    let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(vars, preparation, vec![sql])?)?;
+async fn projection_candidates<Context>(
+    reader: &NativeReader<Context>,
+    sql: String,
+    vars: Variables,
+    preparation: Vec<String>,
+    seen: &mut BTreeSet<RecordId>,
+    charge: &mut dyn lctx_model::domain::resources::Reservation,
+    budget: &ResourceBudget,
+) -> Result<Vec<RecordId>, ModelError> {
+    let mut rows = reader.stream_prepared(crate::prepared::PreparedQuery::new(
+        vars,
+        preparation,
+        vec![sql],
+    )?)?;
     let mut next = Vec::new();
     let result = async {
         loop {
-            let mut batch = Vec::new(); while batch.len() < 128 { let Some(row) = rows.next().await? else { break; }; batch.push(projection_id(&row)?); }
-            if batch.is_empty() { break; }
+            let mut batch = Vec::new();
+            while batch.len() < 128 {
+                let Some(row) = rows.next().await? else {
+                    break;
+                };
+                batch.push(projection_id(&row)?);
+            }
+            if batch.is_empty() {
+                break;
+            }
             let batch = reader.selected_candidate_ids(&batch, budget).await?;
-            for node in batch { if !seen.contains(&node) { charge.try_resize(seen.len().saturating_add(1).saturating_mul(384))?; seen.insert(node.clone()); next.push(node); } }
+            for node in batch {
+                if !seen.contains(&node) {
+                    charge.try_resize(seen.len().saturating_add(1).saturating_mul(384))?;
+                    seen.insert(node.clone());
+                    next.push(node);
+                }
+            }
         }
         Ok(())
-    }.await;
-    let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("projection indexed candidate drainage", rows.drain_transport().await); lctx_model::domain::completion::complete(result, completion)?;
+    }
+    .await;
+    let mut completion = lctx_model::domain::completion::Completion::default();
+    completion.step(
+        "projection indexed candidate drainage",
+        rows.drain_transport().await,
+    );
+    lctx_model::domain::completion::complete(result, completion)?;
     Ok(next)
 }
 

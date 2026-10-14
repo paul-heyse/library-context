@@ -309,10 +309,24 @@ impl RenderWindow<'_> {
         let key = self.keys[partition];
         if self.brief {
             self.preparation
-                .finish_brief(crate::retrieval::nominal(&key)?, data, budget, runtime, output).await
+                .finish_brief(
+                    crate::retrieval::nominal(&key)?,
+                    data,
+                    budget,
+                    runtime,
+                    output,
+                )
+                .await
         } else {
             self.preparation
-                .finish_root(access, crate::retrieval::nominal(&key)?, data, budget, runtime, output)
+                .finish_root(
+                    access,
+                    crate::retrieval::nominal(&key)?,
+                    data,
+                    budget,
+                    runtime,
+                    output,
+                )
                 .await
         }
     }
@@ -901,14 +915,29 @@ impl Preparation {
         let ranges = retrieval::source::root_ranges(&data, id, budget)?;
         self.chunks(access, &ranges, &mut data, budget).await?;
         drop(ranges);
-        let mut domain=KeySink::new("retrieval-root-payload-domain/v1");id.encode(&mut domain);let domain=domain.finish();
-        let request=crate::retrieval_products::request(&data,output,domain,runtime)?;
-        let hit=match &request {Some((request,_))=>crate::retrieval_products::lookup(request,&data,runtime).await?,None=>None};
+        let mut domain = KeySink::new("retrieval-root-payload-domain/v1");
+        id.encode(&mut domain);
+        let domain = domain.finish();
+        let request = crate::retrieval_products::request(&data, output, domain, runtime)?;
+        let hit = match &request {
+            Some((request, _)) => {
+                crate::retrieval_products::lookup(request, &data, runtime).await?
+            }
+            None => None,
+        };
         drop(request);
-        let reused=hit.is_some();
-        let rows=match hit {Some(rows)=>rows,None=>build::root(&data,id,budget)?};
+        let reused = hit.is_some();
+        let rows = match hit {
+            Some(rows) => rows,
+            None => build::root(&data, id, budget)?,
+        };
         rows.verify_completion(&data, budget)?;
-        if !reused {if let Some((request,_hold))=crate::retrieval_products::request(&data,output,domain,runtime)? {crate::retrieval_products::retain(&request,&rows,runtime).await?;}}
+        if !reused
+            && let Some((request, _hold)) =
+                crate::retrieval_products::request(&data, output, domain, runtime)?
+        {
+            crate::retrieval_products::retain(&request, &rows, runtime).await?;
+        }
         Ok((data, rows))
     }
     async fn finish_brief(
@@ -922,14 +951,33 @@ impl Preparation {
         if data.synthesis.briefs.len() != 1 || data.synthesis.briefs.get(id).is_none() {
             return Err(build::invalid("E0 brief grain membership differs"));
         }
-        let mut domain=KeySink::new("retrieval-brief-payload-domain/v1");id.encode(&mut domain);let domain=domain.finish();
-        let request=crate::retrieval_products::request(&data,output,domain,runtime)?;
-        let hit=match &request {Some((request,_))=>crate::retrieval_products::lookup(request,&data,runtime).await?,None=>None};
+        let mut domain = KeySink::new("retrieval-brief-payload-domain/v1");
+        id.encode(&mut domain);
+        let domain = domain.finish();
+        let request = crate::retrieval_products::request(&data, output, domain, runtime)?;
+        let hit = match &request {
+            Some((request, _)) => {
+                crate::retrieval_products::lookup(request, &data, runtime).await?
+            }
+            None => None,
+        };
         drop(request);
-        let reused=hit.is_some();
-        let rows=match hit {Some(rows)=>rows,None=>{let mut rows=Output::new(budget);build::extend_synthesis(&data,&mut rows,budget)?;rows}};
+        let reused = hit.is_some();
+        let rows = match hit {
+            Some(rows) => rows,
+            None => {
+                let mut rows = Output::new(budget);
+                build::extend_synthesis(&data, &mut rows, budget)?;
+                rows
+            }
+        };
         rows.verify_completion(&data, budget)?;
-        if !reused {if let Some((request,_hold))=crate::retrieval_products::request(&data,output,domain,runtime)? {crate::retrieval_products::retain(&request,&rows,runtime).await?;}}
+        if !reused
+            && let Some((request, _hold)) =
+                crate::retrieval_products::request(&data, output, domain, runtime)?
+        {
+            crate::retrieval_products::retain(&request, &rows, runtime).await?;
+        }
         Ok((data, rows))
     }
 }

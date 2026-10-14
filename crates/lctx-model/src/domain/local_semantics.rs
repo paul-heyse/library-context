@@ -1668,10 +1668,10 @@ fn copy_local_rows<R: Record, I: Iterator<Item = [u8; 16]>>(
         input.type_id() == std::any::TypeId::of::<R>() && input.name() == R::NAME
     }) {
         normalized::visit_ordered_port_ids::<R, I>(table, keys, &mut |id| {
-            if target.get(id).is_none() {
-                if let Some(row) = source.get(id) {
-                    target.insert_borrowed(row)?;
-                }
+            if target.get(id).is_none()
+                && let Some(row) = source.get(id)
+            {
+                target.insert_borrowed(row)?;
             }
             Ok(())
         })?;

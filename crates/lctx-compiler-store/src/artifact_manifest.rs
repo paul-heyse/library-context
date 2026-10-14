@@ -62,11 +62,15 @@ fn add_outcome(
 pub(crate) enum SettingsOrigin {
     Acquisition(ContentHash),
 }
-fn settings(workspace: &AdmissionRuntime, origin: SettingsOrigin) -> Result<ContentHash, ModelError> {
+fn settings(
+    workspace: &AdmissionRuntime,
+    origin: SettingsOrigin,
+) -> Result<ContentHash, ModelError> {
     let mut sink = match origin {
         SettingsOrigin::Acquisition(acquisition) => {
-            let mut sink=KeySink::new("graph-compiler-settings/v1");
-            acquisition.encode(&mut sink);sink
+            let mut sink = KeySink::new("graph-compiler-settings/v1");
+            acquisition.encode(&mut sink);
+            sink
         }
     };
     // Model-owned configuration streams only. Endpoint/runtime diagnostics are deliberately absent.
@@ -99,17 +103,6 @@ fn settings(workspace: &AdmissionRuntime, origin: SettingsOrigin) -> Result<Cont
 }
 /// Build the versioned manifest after graph stream admission. Metadata indexes contain only
 /// definitions, scoped obligations and vector digests, never resident graph payloads.
-pub async fn populate(
-    workspace: &Arc<AdmissionRuntime>,
-    frontier: Frontier,
-    profile: Profile,
-    acquisition_config: ContentHash,
-    captures: Vec<EntityId>,
-    originals: Vec<Original>,
-    families: Vec<FamilyContent>,
-) -> Result<(Manifest, charged::StateCharge), ModelError> {
-    populate_with_origin(workspace,frontier,profile,SettingsOrigin::Acquisition(acquisition_config),captures,originals,families).await
-}
 pub(crate) async fn populate_with_origin(
     workspace: &Arc<AdmissionRuntime>,
     frontier: Frontier,
@@ -191,7 +184,11 @@ pub(crate) async fn producer_inventory(
     for contribution in workspace.native().contributions(workspace.budget()).await? {
         let assurance = contribution.assurance.summary()?;
         let contract = match &contribution.assurance {
-            d::producer_assurance::ProducerAssurance::CurrentProviderInterface => contribution.spec.captured_binding.as_ref().map(|binding|binding.contract),
+            d::producer_assurance::ProducerAssurance::CurrentProviderInterface => contribution
+                .spec
+                .captured_binding
+                .as_ref()
+                .map(|binding| binding.contract),
         };
         let spec = contribution.spec;
         let configuration = spec.configuration.ok_or_else(|| {
@@ -251,7 +248,8 @@ async fn semantic_outcomes(
             d::uniform_outcome::CoverageAuthority::Scoped { coverage } => {
                 charge.grow(
                     size_of::<(Id<d::attribution::ProviderCoverage>, OutcomeKey)>()
-                        + producer.len() + 32,
+                        + producer.len()
+                        + 32,
                 )?;
                 if expected.insert(coverage, key).is_some() {
                     return Err(invalid("duplicate native obligation"));
@@ -263,11 +261,20 @@ async fn semantic_outcomes(
                 if evidence.provider.is_some()
                     || evidence.availability != d::admission::Availability::NotRequested
                 {
-                    return Err(invalid("compact native outcome is not uniformly unrequested"));
+                    return Err(invalid(
+                        "compact native outcome is not uniformly unrequested",
+                    ));
                 }
-                add_outcome(&mut outcomes, charge, Outcome {
-                    key, status: OutcomeKind::NotRequested, observed: None, detail: None,
-                })?;
+                add_outcome(
+                    &mut outcomes,
+                    charge,
+                    Outcome {
+                        key,
+                        status: OutcomeKind::NotRequested,
+                        observed: None,
+                        detail: None,
+                    },
+                )?;
             }
         }
     }
@@ -420,15 +427,22 @@ pub(crate) async fn verify_outcomes(
 
 /// Restored descriptors receive the same actual producer, outcome, projection and
 /// embedding inventory checks as populate; serialized source evidence grants none.
-pub(crate) async fn verify_actual(workspace:&AdmissionRuntime,manifest:&Manifest)->Result<(),ModelError>{
-    let mut charge=charged::StateCharge::new(workspace.budget(),"restored complete manifest inventories");
-    if manifest.semantic_contract!=graph::semantic_contract(workspace.model())
-        || producer_inventory(workspace,&mut charge).await?!=manifest.producers
-        || projections(workspace,manifest.frontier,&mut charge).await?!=manifest.projections
-        || embeddings(workspace,manifest.profile,&mut charge).await?!=manifest.embeddings {
-        return Err(ModelError::Conflict("restored actual semantic manifest inventories"));
+pub(crate) async fn verify_actual(
+    workspace: &AdmissionRuntime,
+    manifest: &Manifest,
+) -> Result<(), ModelError> {
+    let mut charge =
+        charged::StateCharge::new(workspace.budget(), "restored complete manifest inventories");
+    if manifest.semantic_contract != graph::semantic_contract(workspace.model())
+        || producer_inventory(workspace, &mut charge).await? != manifest.producers
+        || projections(workspace, manifest.frontier, &mut charge).await? != manifest.projections
+        || embeddings(workspace, manifest.profile, &mut charge).await? != manifest.embeddings
+    {
+        return Err(ModelError::Conflict(
+            "restored actual semantic manifest inventories",
+        ));
     }
-    verify_outcomes(workspace,manifest).await
+    verify_outcomes(workspace, manifest).await
 }
 
 async fn projections(
@@ -602,7 +616,7 @@ async fn embeddings(
     Ok(vectors.into_values().collect())
 }
 
-fn outcome_owner(name:&str)->Option<&'static str>{
- macro_rules! owners {($($owner:ident=>$producer:literal),*$(,)?)=>{match name{$(d::analysis::$owner::AnalysisInvocation::NAME=>Some($producer),)*_=>None}};}
- owners!(local=>"analyze_local",base_evaluation=>"evaluate_base",base_completion=>"complete_base",source_call=>"prepare_source_calls",enriched_execution=>"enrich_execution",model=>"apply_models",summary=>"analyze_summaries",structural=>"analyze_structural",analytic_embedding=>"analytic_embedding",analytic=>"analyze_analytic",catalog_core=>"catalog_core",catalog_evidence=>"catalog_evidence",selection=>"catalog_selection",synthesis=>"synthesis",retrieval=>"retrieval")
+fn outcome_owner(name: &str) -> Option<&'static str> {
+    macro_rules! owners {($($owner:ident=>$producer:literal),*$(,)?)=>{match name{$(d::analysis::$owner::AnalysisInvocation::NAME=>Some($producer),)*_=>None}};}
+    owners!(local=>"analyze_local",base_evaluation=>"evaluate_base",base_completion=>"complete_base",source_call=>"prepare_source_calls",enriched_execution=>"enrich_execution",model=>"apply_models",summary=>"analyze_summaries",structural=>"analyze_structural",analytic_embedding=>"analytic_embedding",analytic=>"analyze_analytic",catalog_core=>"catalog_core",catalog_evidence=>"catalog_evidence",selection=>"catalog_selection",synthesis=>"synthesis",retrieval=>"retrieval")
 }

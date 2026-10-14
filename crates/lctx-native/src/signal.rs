@@ -50,10 +50,10 @@ fn process_stop(observed: u8) {
     // owners. Preserve its original panic after all live callbacks were invoked.
     let mut panic = None;
     for cancel in callbacks {
-        if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cancel())) {
-            if panic.is_none() {
-                panic = Some(payload);
-            }
+        if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cancel()))
+            && panic.is_none()
+        {
+            panic = Some(payload);
         }
     }
     if let Some(payload) = panic {

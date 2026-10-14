@@ -638,19 +638,19 @@ pub async fn read_ranges<Context>(
     let mut blobs = BTreeMap::new();
     let mut wanted = BTreeMap::new();
     for (source, start, length) in requests {
-        if !layouts.contains_key(source) {
+        if let std::collections::btree_map::Entry::Vacant(entry) = layouts.entry(source.clone()) {
             let value = layout(reader, source)
                 .await?
                 .ok_or(ModelError::Conflict("original layout missing"))?;
-            layouts.insert(source.clone(), value);
+            entry.insert(value);
         }
         let layout = &layouts[source];
         validate_layout(reader, layout).await?;
-        if !blobs.contains_key(&layout.blob.id()) {
+        if let std::collections::btree_map::Entry::Vacant(entry) = blobs.entry(layout.blob.id()) {
             if !header(reader, &layout.blob).await? {
                 return Err(ModelError::Conflict("original blob incomplete"));
             }
-            blobs.insert(layout.blob.id(), layout.blob.clone());
+            entry.insert(layout.blob.clone());
         }
         let end = start
             .checked_add(*length as u64)

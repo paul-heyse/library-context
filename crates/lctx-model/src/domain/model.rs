@@ -2,6 +2,13 @@ use super::{ContentHash, Field, KeySink, ModelError, Record};
 use arrow_schema::SchemaRef;
 use std::{any::TypeId, collections::HashSet, sync::Arc};
 
+/// Typed nominal identity and complete content in the supplied row order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowFingerprint {
+    pub nominal: [u8; 16],
+    pub content: ContentHash,
+}
+
 /// Immutable executable declaration metadata is shared by physical bindings and compiled scopes.
 /// Cloning a relation acquires another owner; it never copies field/arm/proof inventories.
 #[derive(Debug, Clone)]
@@ -20,8 +27,9 @@ pub struct Relation {
     validate: fn(&arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError>,
     proofs: fn(&arrow_array::RecordBatch) -> Result<Vec<super::derivation::Proof>, ModelError>,
     hash_rows: fn(&arrow_array::RecordBatch, &mut RelationContent) -> Result<(), ModelError>,
-    row_fingerprints: fn(&arrow_array::RecordBatch)->Result<Vec<([u8;16],ContentHash)>,ModelError>,
-    ordered_canonical: fn(&arrow_array::RecordBatch)->Result<arrow_array::RecordBatch,ModelError>,
+    row_fingerprints: fn(&arrow_array::RecordBatch) -> Result<Vec<RowFingerprint>, ModelError>,
+    ordered_canonical:
+        fn(&arrow_array::RecordBatch) -> Result<arrow_array::RecordBatch, ModelError>,
 }
 impl Relation {
     pub fn of<R: Record>() -> Self {
@@ -115,11 +123,17 @@ impl Relation {
     /// Validate and reencode complete typed rows while preserving their supplied order.
     /// `canonical` separately sorts IDs for canonical relation storage and is not suitable
     /// for enforcing a validator's ordered-input contract.
-    pub fn ordered_canonical(&self,batch:&arrow_array::RecordBatch)->Result<arrow_array::RecordBatch,ModelError>{
+    pub fn ordered_canonical(
+        &self,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<arrow_array::RecordBatch, ModelError> {
         (self.ordered_canonical)(batch)
     }
     /// Full typed nominal/content fingerprints without imposing a second input order.
-    pub fn row_fingerprints(&self,batch:&arrow_array::RecordBatch)->Result<Vec<([u8;16],ContentHash)>,ModelError>{
+    pub fn row_fingerprints(
+        &self,
+        batch: &arrow_array::RecordBatch,
+    ) -> Result<Vec<RowFingerprint>, ModelError> {
         (self.row_fingerprints)(batch)
     }
     pub fn hash_rows(
@@ -315,21 +329,40 @@ pub struct ValidatedModel {
     invariants: Vec<Invariant>,
     publication_checks: Vec<PublicationInvariant>,
     digest: ContentHash,
-    factory_contracts: std::collections::BTreeMap<ValidationIdentity, super::validation_factory::ValidationFactoryContract>,
+    factory_contracts: std::collections::BTreeMap<
+        ValidationIdentity,
+        super::validation_factory::ValidationFactoryContract,
+    >,
 }
 impl ValidatedModel {
     /// Resolve the explicitly referenced canonical domain definitions. No missing premise is omitted.
     pub fn declared(relations: Vec<Relation>) -> Result<Self, ModelError> {
         let definitions = super::validation::definitions().required_for(&relations)?;
-        let mut model=Self::validate(relations, definitions)?;
+        let mut model = Self::validate(relations, definitions)?;
         // This route instantiates only the model-owned canonical factory registry.
         // Custom caller-supplied closures enter through validate() and remain undeclared.
-        let declarations=model.invariants.iter().map(|check|check.identity())
-            .chain(model.publication_checks.iter().map(|check|check.identity())).collect::<Vec<_>>();
-        let implementation=implementation_digest();let vocabulary=model.digest;
+        let declarations = model
+            .invariants
+            .iter()
+            .map(|check| check.identity())
+            .chain(
+                model
+                    .publication_checks
+                    .iter()
+                    .map(|check| check.identity()),
+            )
+            .collect::<Vec<_>>();
+        let implementation = implementation_digest();
+        let vocabulary = model.digest;
         for identity in declarations {
-            model.register_factory(identity,implementation,vec![super::validation_factory::FactoryDependency{
-                name:"model-vocabulary".into(),identity:vocabulary}])?;
+            model.register_factory(
+                identity,
+                implementation,
+                vec![super::validation_factory::FactoryDependency {
+                    name: "model-vocabulary".into(),
+                    identity: vocabulary,
+                }],
+            )?;
         }
         Ok(model)
     }
@@ -594,25 +627,59 @@ impl ValidatedModel {
     /// Explicitly declares executable provenance and every immutable extra capture.
     /// The caller owns the declaration's truth; mutable ambient/process state makes a
     /// factory ineligible for durable premise reuse and must remain unregistered.
-    pub fn register_factory(&mut self,identity:ValidationIdentity,implementation:ContentHash,
-        dependencies:Vec<super::validation_factory::FactoryDependency>)->Result<(),ModelError>{
-        let (definition,inputs)=match identity.kind {
-            ValidationKind::Invariant=>{let check=self.invariant(identity.id)?;
-                if check.identity()!=identity{return Err(ModelError::Conflict("factory invariant revision"));}
-                (check.digest(),&check.inputs)},
-            ValidationKind::Publication=>{let check=self.publication_check(identity.id)?;
-                if check.identity()!=identity{return Err(ModelError::Conflict("factory publication revision"));}
-                (check.digest(),&check.inputs)},
+    pub fn register_factory(
+        &mut self,
+        identity: ValidationIdentity,
+        implementation: ContentHash,
+        dependencies: Vec<super::validation_factory::FactoryDependency>,
+    ) -> Result<(), ModelError> {
+        let (definition, inputs) = match identity.kind {
+            ValidationKind::Invariant => {
+                let check = self.invariant(identity.id)?;
+                if check.identity() != identity {
+                    return Err(ModelError::Conflict("factory invariant revision"));
+                }
+                (check.digest(), &check.inputs)
+            }
+            ValidationKind::Publication => {
+                let check = self.publication_check(identity.id)?;
+                if check.identity() != identity {
+                    return Err(ModelError::Conflict("factory publication revision"));
+                }
+                (check.digest(), &check.inputs)
+            }
         };
-        let inputs=inputs.iter().map(|input|{let mut sink=KeySink::new("validation-factory-input/v1");input.encode_contract(&mut sink);sink.finish()}).collect();
-        let contract=super::validation_factory::ValidationFactoryContract{version:1,definition,implementation,inputs,dependencies};
+        let inputs = inputs
+            .iter()
+            .map(|input| {
+                let mut sink = KeySink::new("validation-factory-input/v1");
+                input.encode_contract(&mut sink);
+                sink.finish()
+            })
+            .collect();
+        let contract = super::validation_factory::ValidationFactoryContract {
+            version: 1,
+            definition,
+            implementation,
+            inputs,
+            dependencies,
+        };
         contract.validate()?;
-        if let Some(existing)=self.factory_contracts.get(&identity) {
-            if existing!=&contract{return Err(ModelError::Conflict("factory executable registration collision"));}
-        } else {self.factory_contracts.insert(identity,contract);}
+        if let Some(existing) = self.factory_contracts.get(&identity) {
+            if existing != &contract {
+                return Err(ModelError::Conflict(
+                    "factory executable registration collision",
+                ));
+            }
+        } else {
+            self.factory_contracts.insert(identity, contract);
+        }
         Ok(())
     }
-    pub fn factory_contract(&self,identity:ValidationIdentity)->Option<&super::validation_factory::ValidationFactoryContract>{
+    pub fn factory_contract(
+        &self,
+        identity: ValidationIdentity,
+    ) -> Option<&super::validation_factory::ValidationFactoryContract> {
         self.factory_contracts.get(&identity)
     }
     /// Relations are canonicalized by name during validation.
@@ -821,11 +888,28 @@ impl RelationContent {
         (self.count, self.sink.finish())
     }
 }
-fn ordered_canonical<R:Record>(batch:&arrow_array::RecordBatch)->Result<arrow_array::RecordBatch,ModelError>{
-    let rows=R::decode(batch)?;for row in &rows{row.validate()?;}R::encode(&rows)
+fn ordered_canonical<R: Record>(
+    batch: &arrow_array::RecordBatch,
+) -> Result<arrow_array::RecordBatch, ModelError> {
+    let rows = R::decode(batch)?;
+    for row in &rows {
+        row.validate()?;
+    }
+    R::encode(&rows)
 }
-fn row_fingerprints<R:Record>(batch:&arrow_array::RecordBatch)->Result<Vec<([u8;16],ContentHash)>,ModelError>{
-    R::decode(batch)?.into_iter().map(|row|{row.validate()?;Ok((*row.id().bytes(),row.content_digest()))}).collect()
+fn row_fingerprints<R: Record>(
+    batch: &arrow_array::RecordBatch,
+) -> Result<Vec<RowFingerprint>, ModelError> {
+    R::decode(batch)?
+        .into_iter()
+        .map(|row| {
+            row.validate()?;
+            Ok(RowFingerprint {
+                nominal: *row.id().bytes(),
+                content: row.content_digest(),
+            })
+        })
+        .collect()
 }
 fn hash_rows<R: Record>(
     batch: &arrow_array::RecordBatch,
@@ -959,7 +1043,12 @@ impl ValidationInput {
 }
 pub trait InvariantCheck: Send {
     /// Lower selected storage admission supplies semantic compact owners explicitly.
-    fn admit_uniform_owner(&mut self, _owner:&super::uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{Ok(())}
+    fn admit_uniform_owner(
+        &mut self,
+        _owner: &super::uniform_outcome::ValidatedUniformOwner,
+    ) -> Result<(), ModelError> {
+        Ok(())
+    }
     fn retrieval_scope(&self) -> Option<super::retrieval::consumption::Scope> {
         None
     }
@@ -1053,7 +1142,12 @@ pub trait PublicationCheck: Send + Sync {
     /// A lower effect owner supplies this only after exact selected native membership admission.
     /// Checks that consume compact outcomes retain it explicitly; it is not reconstructed from
     /// deserialized source metadata or the compact row's own hashes.
-    fn admit_uniform_owner(&mut self, _owner: &super::uniform_outcome::ValidatedUniformOwner) -> Result<(), ModelError> { Ok(()) }
+    fn admit_uniform_owner(
+        &mut self,
+        _owner: &super::uniform_outcome::ValidatedUniformOwner,
+    ) -> Result<(), ModelError> {
+        Ok(())
+    }
     fn visit_input(
         &mut self,
         input: &ValidationInput,
@@ -1117,17 +1211,52 @@ mod relation_metadata_controls {
 mod validation_factory_registration_controls {
     use super::*;
     #[test]
-    fn custom_opaque_factories_are_ineligible_until_explicit_registration_without_changing_semantic_model(){
-        let canonical=crate::domain::model().unwrap();
+    fn custom_opaque_factories_are_ineligible_until_explicit_registration_without_changing_semantic_model()
+     {
+        let canonical = crate::domain::model().unwrap();
         assert!(!canonical.invariants().is_empty());
-        assert!(canonical.invariants().iter().all(|check|canonical.factory_contract(check.identity()).is_some()));
-        let mut custom=ValidatedModel::validate(canonical.relations().to_vec(),canonical.definitions()).unwrap();
-        assert_eq!(canonical.digest(),custom.digest(),"factory provenance remains separate from model compatibility");
-        assert!(custom.invariants().iter().all(|check|custom.factory_contract(check.identity()).is_none()),"same names/definitions cannot silently qualify opaque caller factories");
-        let check=custom.invariants()[0].identity();let implementation=ContentHash::of(b"declared custom executable");
-        custom.register_factory(check,implementation,Vec::new()).unwrap();
-        assert_eq!(custom.factory_contract(check).unwrap().implementation,implementation);
-        custom.register_factory(check,implementation,Vec::new()).unwrap();
-        assert!(custom.register_factory(check,ContentHash::of(b"another factory behind same registry slot"),Vec::new()).is_err(),"a different executable cannot mutate an existing eligible registry slot");
+        assert!(
+            canonical
+                .invariants()
+                .iter()
+                .all(|check| canonical.factory_contract(check.identity()).is_some())
+        );
+        let mut custom =
+            ValidatedModel::validate(canonical.relations().to_vec(), canonical.definitions())
+                .unwrap();
+        assert_eq!(
+            canonical.digest(),
+            custom.digest(),
+            "factory provenance remains separate from model compatibility"
+        );
+        assert!(
+            custom
+                .invariants()
+                .iter()
+                .all(|check| custom.factory_contract(check.identity()).is_none()),
+            "same names/definitions cannot silently qualify opaque caller factories"
+        );
+        let check = custom.invariants()[0].identity();
+        let implementation = ContentHash::of(b"declared custom executable");
+        custom
+            .register_factory(check, implementation, Vec::new())
+            .unwrap();
+        assert_eq!(
+            custom.factory_contract(check).unwrap().implementation,
+            implementation
+        );
+        custom
+            .register_factory(check, implementation, Vec::new())
+            .unwrap();
+        assert!(
+            custom
+                .register_factory(
+                    check,
+                    ContentHash::of(b"another factory behind same registry slot"),
+                    Vec::new()
+                )
+                .is_err(),
+            "a different executable cannot mutate an existing eligible registry slot"
+        );
     }
 }

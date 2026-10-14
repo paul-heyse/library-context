@@ -29,7 +29,9 @@ pub(crate) struct Marker {
     pub manifest: Bytes,
     pub views: Bytes,
 }
-pub(crate) fn decode(row: Marker) -> Result<(SnapshotHandle, Manifest, Vec<CompletedBinding>), ModelError> {
+pub(crate) fn decode(
+    row: Marker,
+) -> Result<(SnapshotHandle, Manifest, Vec<CompletedBinding>), ModelError> {
     let handle: SnapshotHandle =
         serde_json::from_slice(&hex::decode(&row.handle).map_err(ModelError::codec)?)
             .map_err(ModelError::codec)?;
@@ -82,21 +84,39 @@ pub async fn show(reader: &NativeReader) -> Result<SnapshotDetails, ModelError> 
         .collect::<std::collections::BTreeSet<_>>();
     let mut exact = std::collections::BTreeMap::new();
     for logical in logical {
-        let mut vars = Variables::new(); vars.insert("logical", logical);
+        let mut vars = Variables::new();
+        vars.insert("logical", logical);
         let mut rows = reader.stream_prepared(lctx_native::prepared::PreparedQuery::new(vars, vec![], vec!["SELECT descriptor FROM compiler_contribution WITH INDEX logical_contribution WHERE completed=true AND logical=$logical ORDER BY id".into()])?)?;
         let result = async {
             while let Some(value) = rows.next().await? {
-                let lctx_native::surrealdb::types::Value::Object(row) = value else { return Err(ModelError::Schema("inspection contributor object")); };
-                let Some(lctx_native::surrealdb::types::Value::Bytes(bytes)) = row.get("descriptor") else { return Err(ModelError::Schema("inspection contributor descriptor")); };
-                let contribution: CompletedContribution = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+                let lctx_native::surrealdb::types::Value::Object(row) = value else {
+                    return Err(ModelError::Schema("inspection contributor object"));
+                };
+                let Some(lctx_native::surrealdb::types::Value::Bytes(bytes)) =
+                    row.get("descriptor")
+                else {
+                    return Err(ModelError::Schema("inspection contributor descriptor"));
+                };
+                let contribution: CompletedContribution =
+                    serde_json::from_slice(bytes).map_err(ModelError::codec)?;
                 let identity = contribution.identity()?;
-                if let Some(previous) = exact.insert(identity, (bytes.clone(), contribution)) {
-                    if previous.0 != *bytes { return Err(ModelError::Conflict("logical contribution descriptor collision")); }
+                if let Some(previous) = exact.insert(identity, (bytes.clone(), contribution))
+                    && previous.0 != *bytes
+                {
+                    return Err(ModelError::Conflict(
+                        "logical contribution descriptor collision",
+                    ));
                 }
             }
             Ok(())
-        }.await;
-        let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("inspection contributor drainage", rows.drain_transport().await); lctx_model::domain::completion::complete(result, completion)?;
+        }
+        .await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step(
+            "inspection contributor drainage",
+            rows.drain_transport().await,
+        );
+        lctx_model::domain::completion::complete(result, completion)?;
     }
     let contributions = exact
         .into_values()
@@ -172,7 +192,10 @@ pub async fn audit(
     let config = config.clone();
     let handle = handle.clone();
     let native_definitions = native_definitions.to_owned();
-    crate::owned_read::run("publication audit", move |cancel| async move { audit_owned(&config, &handle, &native_definitions, &cancel).await }).await
+    crate::owned_read::run("publication audit", move |cancel| async move {
+        audit_owned(&config, &handle, &native_definitions, &cancel).await
+    })
+    .await
 }
 async fn audit_owned(
     config: &RuntimeConfig,
@@ -180,12 +203,17 @@ async fn audit_owned(
     native_definitions: &str,
     cancel: &crate::owned_read::Cancellation,
 ) -> Result<(), ModelError> {
-    let budget = lctx_model::domain::resources::ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)?;
+    let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+        lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
+    )?;
     let reader = NativeReader::connect(
         &config.endpoint,
         &config.writer_credentials(),
         handle.clone(),
-    ).await?.with_budget(&budget).with_read_cancellation(cancel.flag());
+    )
+    .await?
+    .with_budget(&budget)
+    .with_read_cancellation(cancel.flag());
     let mut pin_guard = reader.protect_terminal_close();
     let mut owner = None;
     let result = async {
@@ -194,13 +222,17 @@ async fn audit_owned(
         if manifest.semantic_contract != semantic_contract(&lctx_model::domain::model()?) {
             return Err(ModelError::Conflict("audit semantic contract"));
         }
-        let completed=lctx_native::completed_state::published_completed_state(&reader,&budget).await?;
+        let completed =
+            lctx_native::completed_state::published_completed_state(&reader, &budget).await?;
         let compiler = lctx_compiler_store::compiler::NativeCompilerStore::publication_owner(
-            reader.shared_client(), config.namespace.clone(), config.database.clone(), bindings.clone(),
+            reader.shared_client(),
+            config.namespace.clone(),
+            config.database.clone(),
+            bindings.clone(),
         )?;
         compiler.set_read_cancellation(cancel.flag())?;
         owner = Some(compiler.clone());
-        compiler.register_published_inventory(&completed,&budget)?;
+        compiler.register_published_inventory(&completed, &budget)?;
         let capture = compiler.capture_audit(&budget).await?;
         cancel.check()?;
         compiler.verify_captured(&capture).await?;
@@ -208,7 +240,8 @@ async fn audit_owned(
         if compiler.completed_state_captured(&capture).await? != manifest.completed_state {
             return Err(ModelError::Conflict("audit exact completed state"));
         }
-        let loader = Loader::for_published(&completed,&budget)?.with_read_cancellation(cancel.flag());
+        let loader =
+            Loader::for_published(&completed, &budget)?.with_read_cancellation(cancel.flag());
         cancel.check()?;
         loader.reconcile(&manifest).await?;
         cancel.check()?;
@@ -218,13 +251,22 @@ async fn audit_owned(
             return Err(ModelError::Conflict("audit pinned realization"));
         }
         Ok(())
-    }.await;
+    }
+    .await;
     let mut completion = if let Some(owner) = owner {
         owner.drain_report().await
     } else {
         lctx_model::domain::completion::Completion::default()
     };
-    if result.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) || completion.local != lctx_model::domain::completion::LocalState::Terminal || completion.remote != lctx_model::domain::completion::RemoteState::Confirmed { reader.retain_unknown(); }
+    if result
+        .as_ref()
+        .err()
+        .is_some_and(|error| !error.permits_storage_cleanup())
+        || completion.local != lctx_model::domain::completion::LocalState::Terminal
+        || completion.remote != lctx_model::domain::completion::RemoteState::Confirmed
+    {
+        reader.retain_unknown();
+    }
     completion.step("audit reader pin release", pin_guard.close(&reader).await);
     lctx_model::domain::completion::complete(result, completion)
 }

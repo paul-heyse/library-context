@@ -471,10 +471,10 @@ fn hydrate_occurrence_nominations<Context>(
                     )
                     .map_err(ModelError::codec)?;
                     union.extend(dependencies.iter().cloned());
-                    if let Some(previous) = window.insert(id, object.clone()) {
-                        if previous != object {
-                            return Err(ModelError::Conflict("occurrence nomination changed"));
-                        }
+                    if let Some(previous) = window.insert(id, object.clone())
+                        && previous != object
+                    {
+                        return Err(ModelError::Conflict("occurrence nomination changed"));
                     }
                 }
                 if examined == 0 {
@@ -652,23 +652,21 @@ fn occurrence_rows<Context>(
                         return Err(ModelError::Schema("selected occurrence object"));
                     };
                     crate::derivation::require_namespace(scoped, namespace)?;
-                    if eligible {
-                        if let Some(selected) = &selected {
-                            let Value::Object(object) = &row else {
-                                return Err(ModelError::Schema("selected occurrence"));
-                            };
-                            let dependencies =
-                                Vec::<RecordId>::from_value(
-                                    object.get("dependencies").cloned().ok_or(
-                                        ModelError::Schema("selected occurrence dependencies"),
-                                    )?,
-                                )
-                                .map_err(ModelError::codec)?;
-                            if dependencies.is_empty()
-                                || !selected.contains_all_with_budget(&dependencies, &budget)?
-                            {
-                                continue;
-                            }
+                    if eligible && let Some(selected) = &selected {
+                        let Value::Object(object) = &row else {
+                            return Err(ModelError::Schema("selected occurrence"));
+                        };
+                        let dependencies = Vec::<RecordId>::from_value(
+                            object
+                                .get("dependencies")
+                                .cloned()
+                                .ok_or(ModelError::Schema("selected occurrence dependencies"))?,
+                        )
+                        .map_err(ModelError::codec)?;
+                        if dependencies.is_empty()
+                            || !selected.contains_all_with_budget(&dependencies, &budget)?
+                        {
+                            continue;
                         }
                     }
                     context_charge.grow(crate::loader::native_bytes(&row).saturating_mul(4))?;
@@ -968,7 +966,7 @@ mod occurrence_budget_tests {
         // The dev dependency owns a separately compiled native crate. Its metadata
         // supplies only exact mappings; this crate independently earns its own
         // capability by auditing the actual persisted closure and memberships.
-        let mut installation_audit =
+        let installation_audit =
             crate::installed_view::InstallationAudit::new(client.clone(), &fixture_budget)
                 .await
                 .unwrap();
@@ -996,7 +994,7 @@ mod occurrence_budget_tests {
                     descriptor,
                     &mappings,
                     &fixture_budget,
-                    &mut installation_audit,
+                    &installation_audit,
                 )
                 .await
                 .unwrap(),

@@ -675,19 +675,18 @@ impl PreparedClosure {
                     if !present.insert(id.clone()) {
                         return Err(ModelError::Conflict("restore duplicate selected payload"));
                     }
-                    if *table == "compiler_record" {
-                        if let Some(Value::Object(body)) = object(&row)?.get("body") {
-                            if let Some(Value::RecordId(source)) = body.get("original") {
-                                hash_record(source, "original")?;
-                                if !demanded.contains(source) {
-                                    selection_charge.try_resize(
-                                        selection_charge
-                                            .size()
-                                            .saturating_add(identity_charge(source)?),
-                                    )?;
-                                    demanded.insert(source.clone());
-                                }
-                            }
+                    if *table == "compiler_record"
+                        && let Some(Value::Object(body)) = object(&row)?.get("body")
+                        && let Some(Value::RecordId(source)) = body.get("original")
+                    {
+                        hash_record(source, "original")?;
+                        if !demanded.contains(source) {
+                            selection_charge.try_resize(
+                                selection_charge
+                                    .size()
+                                    .saturating_add(identity_charge(source)?),
+                            )?;
+                            demanded.insert(source.clone());
                         }
                     }
                 }
@@ -779,10 +778,10 @@ impl PreparedClosure {
                     if matches!(obj.get(source_field), Some(Value::RecordId(source)) if nodes.contains(source))
                     {
                         let mut ids = vec![record_id(&row)?.clone()];
-                        if let Some(Value::RecordId(endpoint)) = obj.get(endpoint_field) {
-                            if !external_only || endpoint.table.as_str() == "external" {
-                                ids.push(endpoint.clone());
-                            }
+                        if let Some(Value::RecordId(endpoint)) = obj.get(endpoint_field)
+                            && (!external_only || endpoint.table.as_str() == "external")
+                        {
+                            ids.push(endpoint.clone());
                         }
                         for id in ids {
                             if !derived_rows.contains(&id) {
@@ -1043,10 +1042,10 @@ fn prepare_originals(
                 .entry(layout.artifact.clone())
                 .or_default()
                 .push(layout.id.clone());
-            if let Some(actual) = required_blobs.insert(layout.blob.id(), layout.blob.clone()) {
-                if actual != layout.blob {
-                    return Err(ModelError::Conflict("restore original blob collision"));
-                }
+            if let Some(actual) = required_blobs.insert(layout.blob.id(), layout.blob.clone())
+                && actual != layout.blob
+            {
+                return Err(ModelError::Conflict("restore original blob collision"));
             }
             originals.insert(layout.id.clone(), original);
             layouts.insert(layout.id.clone(), layout);
@@ -2208,9 +2207,9 @@ mod definition_tests {
                 );
             }
         }
-        for label in 0..2 {
+        for (label, alias) in aliases.iter().enumerate() {
             frame(serde_json::json!({"copy_membership":{"copy":label,"row":member}}));
-            frame(serde_json::json!({"copy_alias":{"copy":label,"row":aliases[label]}}));
+            frame(serde_json::json!({"copy_alias":{"copy":label,"row":alias}}));
         }
         frame(serde_json::json!({"end":{"receipt":receipt}}));
         drop(wire);

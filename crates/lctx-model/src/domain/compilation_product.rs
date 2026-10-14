@@ -6,14 +6,44 @@ use std::collections::BTreeSet;
 pub const PRODUCT_FORMAT: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProductKind { Program, Membership, Topology, PureRows, PureValue }
+pub enum ProductKind {
+    Program,
+    Membership,
+    Topology,
+    PureRows,
+    PureValue,
+}
 impl ProductKind {
-    fn code(self) -> u8 { match self {Self::Program=>0,Self::Membership=>1,Self::Topology=>2,Self::PureRows=>3,Self::PureValue=>4} }
+    fn code(self) -> u8 {
+        match self {
+            Self::Program => 0,
+            Self::Membership => 1,
+            Self::Topology => 2,
+            Self::PureRows => 3,
+            Self::PureValue => 4,
+        }
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DependencyKind { ExactView, CompleteDomain, Topology, PureValue, Provenance, RelationValue }
+pub enum DependencyKind {
+    ExactView,
+    CompleteDomain,
+    Topology,
+    PureValue,
+    Provenance,
+    RelationValue,
+}
 impl DependencyKind {
-    fn code(self)->u8 {match self {Self::ExactView=>0,Self::CompleteDomain=>1,Self::Topology=>2,Self::PureValue=>3,Self::Provenance=>4,Self::RelationValue=>5}}
+    fn code(self) -> u8 {
+        match self {
+            Self::ExactView => 0,
+            Self::CompleteDomain => 1,
+            Self::Topology => 2,
+            Self::PureValue => 3,
+            Self::Provenance => 4,
+            Self::RelationValue => 5,
+        }
+    }
 }
 /// Order is the operation's declared input order; role and prefix distinguish equal views.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,125 +71,357 @@ pub struct ProductRequest {
     pub outputs: BTreeSet<String>,
 }
 impl ProductRequest {
-    pub fn validate(&self)->Result<(),ModelError> {
-        if self.operation.is_empty() || self.profile.is_empty() || self.outputs.iter().any(String::is_empty)
-            || self.dependencies.iter().any(|d|d.role.is_empty()||d.relation.is_empty()||d.prefix.as_ref().is_some_and(String::is_empty)) {
-            return Err(ModelError::Invalid("invalid compiled-product declaration".into()));
+    pub fn validate(&self) -> Result<(), ModelError> {
+        if self.operation.is_empty()
+            || self.profile.is_empty()
+            || self.outputs.iter().any(String::is_empty)
+            || self.dependencies.iter().any(|d| {
+                d.role.is_empty()
+                    || d.relation.is_empty()
+                    || d.prefix.as_ref().is_some_and(String::is_empty)
+            })
+        {
+            return Err(ModelError::Invalid(
+                "invalid compiled-product declaration".into(),
+            ));
         }
-        let mut roles=BTreeSet::new();
-        if self.dependencies.iter().any(|d|!roles.insert((&d.role,&d.relation,&d.prefix))) {
+        let mut roles = BTreeSet::new();
+        if self
+            .dependencies
+            .iter()
+            .any(|d| !roles.insert((&d.role, &d.relation, &d.prefix)))
+        {
             return Err(ModelError::Conflict("compiled-product dependency role"));
         }
         Ok(())
     }
     /// Owned request metadata has a separate lifetime from any encoded envelope buffer.
-    pub fn retained_bytes(&self)->Result<usize,ModelError>{
-        let mut total=size_of::<Self>();
-        let mut add=|bytes:usize|{total=total.checked_add(bytes).ok_or(ModelError::Schema("compiled-product request size overflow"))?;Ok::<_,ModelError>(())};
-        for bytes in [self.operation.capacity(),self.profile.capacity(),self.parameters.capacity(),self.dependencies.capacity().checked_mul(size_of::<DependencyToken>()).ok_or(ModelError::Schema("compiled-product request size overflow"))?]{add(bytes)?;}
-        for dependency in &self.dependencies{for bytes in [dependency.role.capacity(),dependency.relation.capacity(),dependency.prefix.as_ref().map_or(0,String::capacity)]{add(bytes)?;}}
-        for output in &self.outputs{add(output.capacity().checked_add(64).ok_or(ModelError::Schema("compiled-product request size overflow"))?)?;}
+    pub fn retained_bytes(&self) -> Result<usize, ModelError> {
+        let mut total = size_of::<Self>();
+        let mut add = |bytes: usize| {
+            total = total
+                .checked_add(bytes)
+                .ok_or(ModelError::Schema("compiled-product request size overflow"))?;
+            Ok::<_, ModelError>(())
+        };
+        for bytes in [
+            self.operation.capacity(),
+            self.profile.capacity(),
+            self.parameters.capacity(),
+            self.dependencies
+                .capacity()
+                .checked_mul(size_of::<DependencyToken>())
+                .ok_or(ModelError::Schema("compiled-product request size overflow"))?,
+        ] {
+            add(bytes)?;
+        }
+        for dependency in &self.dependencies {
+            for bytes in [
+                dependency.role.capacity(),
+                dependency.relation.capacity(),
+                dependency.prefix.as_ref().map_or(0, String::capacity),
+            ] {
+                add(bytes)?;
+            }
+        }
+        for output in &self.outputs {
+            add(output
+                .capacity()
+                .checked_add(64)
+                .ok_or(ModelError::Schema("compiled-product request size overflow"))?)?;
+        }
         Ok(total)
     }
-    fn encode(&self,sink:&mut KeySink) {
-        sink.part(b"format",&PRODUCT_FORMAT.to_le_bytes());
-        sink.part(b"kind",&[self.kind.code()]);self.operation.encode(sink);
-        self.model.encode(sink);self.implementation.encode(sink);self.policy.encode(sink);
-        self.result_contract.encode(sink);self.configuration.encode(sink);self.profile.encode(sink);
-        sink.part(b"parameters",&self.parameters);
-        sink.part(b"dependency-count",&(self.dependencies.len() as u64).to_le_bytes());
-        for d in &self.dependencies {sink.part(b"dependency-kind",&[d.kind.code()]);d.role.encode(sink);d.relation.encode(sink);d.prefix.encode(sink);d.identity.encode(sink);}
-        sink.part(b"output-count",&(self.outputs.len() as u64).to_le_bytes());
-        for output in &self.outputs {output.encode(sink);}
+    fn encode(&self, sink: &mut KeySink) {
+        sink.part(b"format", &PRODUCT_FORMAT.to_le_bytes());
+        sink.part(b"kind", &[self.kind.code()]);
+        self.operation.encode(sink);
+        self.model.encode(sink);
+        self.implementation.encode(sink);
+        self.policy.encode(sink);
+        self.result_contract.encode(sink);
+        self.configuration.encode(sink);
+        self.profile.encode(sink);
+        sink.part(b"parameters", &self.parameters);
+        sink.part(
+            b"dependency-count",
+            &(self.dependencies.len() as u64).to_le_bytes(),
+        );
+        for d in &self.dependencies {
+            sink.part(b"dependency-kind", &[d.kind.code()]);
+            d.role.encode(sink);
+            d.relation.encode(sink);
+            d.prefix.encode(sink);
+            d.identity.encode(sink);
+        }
+        sink.part(b"output-count", &(self.outputs.len() as u64).to_le_bytes());
+        for output in &self.outputs {
+            output.encode(sink);
+        }
     }
-    pub fn identity(&self)->Result<ContentHash,ModelError> {
-        self.validate()?;let mut sink=KeySink::new("compiled-product-request/v1");self.encode(&mut sink);Ok(sink.finish())
+    pub fn identity(&self) -> Result<ContentHash, ModelError> {
+        self.validate()?;
+        let mut sink = KeySink::new("compiled-product-request/v1");
+        self.encode(&mut sink);
+        Ok(sink.finish())
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProductOutcome { Complete, NotRequested }
+pub enum ProductOutcome {
+    Complete,
+    NotRequested,
+}
 /// The owner supplies canonical typed bytes, not live providers, pointers or verified values.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProductSection {pub name:String,pub rows:u64,pub bytes:Vec<u8>}
+pub struct ProductSection {
+    pub name: String,
+    pub rows: u64,
+    pub bytes: Vec<u8>,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PortableProduct {
-    pub request:ProductRequest,
-    pub outcome:ProductOutcome,
-    pub sections:Vec<ProductSection>,
-
+    pub request: ProductRequest,
+    pub outcome: ProductOutcome,
+    pub sections: Vec<ProductSection>,
 }
 impl PortableProduct {
-    pub fn validate(&self)->Result<(),ModelError> {
+    pub fn validate(&self) -> Result<(), ModelError> {
         self.request.validate()?;
-        if self.sections.iter().map(|s|s.name.clone()).collect::<BTreeSet<_>>()!=self.request.outputs
-            || self.sections.windows(2).any(|w|w[0].name>=w[1].name) {
-            return Err(ModelError::Conflict("compiled-product complete section inventory"));
+        if self
+            .sections
+            .iter()
+            .map(|s| s.name.clone())
+            .collect::<BTreeSet<_>>()
+            != self.request.outputs
+            || self.sections.windows(2).any(|w| w[0].name >= w[1].name)
+        {
+            return Err(ModelError::Conflict(
+                "compiled-product complete section inventory",
+            ));
         }
         Ok(())
     }
     /// Value identity excludes request/provenance; only explicitly value-dependent consumers
     /// may use it for propagation cutoff. Ordinary completed views keep their own identities.
-    pub fn value_identity(&self)->Result<ContentHash,ModelError> {
-        self.validate()?;let mut sink=KeySink::new("compiled-product-value/v1");
+    pub fn value_identity(&self) -> Result<ContentHash, ModelError> {
+        self.validate()?;
+        let mut sink = KeySink::new("compiled-product-value/v1");
         self.request.result_contract.encode(&mut sink);
-        sink.part(b"outcome",&[match self.outcome {ProductOutcome::Complete=>0,ProductOutcome::NotRequested=>1}]);
-        sink.part(b"sections",&(self.sections.len() as u64).to_le_bytes());
-        for s in &self.sections {s.name.encode(&mut sink);sink.part(b"rows",&s.rows.to_le_bytes());sink.part(b"body",&s.bytes);}
+        sink.part(
+            b"outcome",
+            &[match self.outcome {
+                ProductOutcome::Complete => 0,
+                ProductOutcome::NotRequested => 1,
+            }],
+        );
+        sink.part(b"sections", &(self.sections.len() as u64).to_le_bytes());
+        for s in &self.sections {
+            s.name.encode(&mut sink);
+            sink.part(b"rows", &s.rows.to_le_bytes());
+            sink.part(b"body", &s.bytes);
+        }
         Ok(sink.finish())
     }
-    pub fn identity(&self)->Result<ContentHash,ModelError> {
-        let mut sink=KeySink::new("compiled-product-entry/v1");self.request.identity()?.encode(&mut sink);self.value_identity()?.encode(&mut sink);Ok(sink.finish())
+    pub fn identity(&self) -> Result<ContentHash, ModelError> {
+        let mut sink = KeySink::new("compiled-product-entry/v1");
+        self.request.identity()?.encode(&mut sink);
+        self.value_identity()?.encode(&mut sink);
+        Ok(sink.finish())
     }
     /// Includes owned containers; transport/native copies require their own reservations.
-    pub fn retained_bytes(&self)->Result<usize,ModelError> {
-        let mut total=self.request.retained_bytes()?.checked_add(size_of::<Self>()-size_of::<ProductRequest>()).and_then(|bytes|bytes.checked_add(self.sections.capacity().checked_mul(size_of::<ProductSection>())?)).ok_or(ModelError::Schema("compiled-product size overflow"))?;
-        for section in &self.sections{total=total.checked_add(section.name.capacity()).and_then(|bytes|bytes.checked_add(section.bytes.capacity())).ok_or(ModelError::Schema("compiled-product size overflow"))?;}
+    pub fn retained_bytes(&self) -> Result<usize, ModelError> {
+        let mut total = self
+            .request
+            .retained_bytes()?
+            .checked_add(size_of::<Self>() - size_of::<ProductRequest>())
+            .and_then(|bytes| {
+                bytes.checked_add(
+                    self.sections
+                        .capacity()
+                        .checked_mul(size_of::<ProductSection>())?,
+                )
+            })
+            .ok_or(ModelError::Schema("compiled-product size overflow"))?;
+        for section in &self.sections {
+            total = total
+                .checked_add(section.name.capacity())
+                .and_then(|bytes| bytes.checked_add(section.bytes.capacity()))
+                .ok_or(ModelError::Schema("compiled-product size overflow"))?;
+        }
         Ok(total)
     }
 }
 
 /// Canonical complete membership, including explicit missing roots and coverage/context token.
 /// The producing owner establishes completeness against its current immutable inputs.
-pub fn domain_identity(program:ContentHash,context:ContentHash,roots:&[(String,[u8;16],u8)],members:&[(String,[u8;16],ContentHash)])->ContentHash {
-    let mut sink=KeySink::new("compiled-selection-domain/v1");program.encode(&mut sink);context.encode(&mut sink);
-    sink.part(b"roots",&(roots.len() as u64).to_le_bytes());
-    for (relation,key,outcome) in roots {relation.encode(&mut sink);sink.part(b"root",key);sink.part(b"outcome",&[*outcome]);}
-    sink.part(b"members",&(members.len() as u64).to_le_bytes());
-    for (relation,key,content) in members {relation.encode(&mut sink);sink.part(b"member",key);content.encode(&mut sink);}sink.finish()
+pub fn domain_identity(
+    program: ContentHash,
+    context: ContentHash,
+    roots: &[(String, [u8; 16], u8)],
+    members: &[(String, [u8; 16], ContentHash)],
+) -> ContentHash {
+    let mut sink = KeySink::new("compiled-selection-domain/v1");
+    program.encode(&mut sink);
+    context.encode(&mut sink);
+    sink.part(b"roots", &(roots.len() as u64).to_le_bytes());
+    for (relation, key, outcome) in roots {
+        relation.encode(&mut sink);
+        sink.part(b"root", key);
+        sink.part(b"outcome", &[*outcome]);
+    }
+    sink.part(b"members", &(members.len() as u64).to_le_bytes());
+    for (relation, key, content) in members {
+        relation.encode(&mut sink);
+        sink.part(b"member", key);
+        content.encode(&mut sink);
+    }
+    sink.finish()
+}
+/// A vertex's kind and nominal identity, including isolated members.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopologyVertexIdentity {
+    pub kind: String,
+    pub key: [u8; 16],
+}
+/// A directed arc retains its own identity independently of its endpoints.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopologyArcIdentity {
+    pub kind: String,
+    pub key: [u8; 16],
+    pub source: [u8; 16],
+    pub target: [u8; 16],
 }
 /// Complete vertices and identity-bearing directed arcs, including isolated vertices and
 /// edges internal to an SCC. The owner supplies canonical order and semantic multiplicity.
-pub fn topology_identity(vertices:&[(String,[u8;16])],arcs:&[(String,[u8;16],[u8;16],[u8;16])])->ContentHash {
-    let mut sink=KeySink::new("compiled-topology/v1");sink.part(b"vertices",&(vertices.len() as u64).to_le_bytes());
-    for (kind,key) in vertices {kind.encode(&mut sink);sink.part(b"vertex",key);}
-    sink.part(b"arcs",&(arcs.len() as u64).to_le_bytes());
-    for (kind,key,source,target) in arcs {kind.encode(&mut sink);sink.part(b"arc",key);sink.part(b"source",source);sink.part(b"target",target);}sink.finish()
+pub fn topology_identity(
+    vertices: &[TopologyVertexIdentity],
+    arcs: &[TopologyArcIdentity],
+) -> ContentHash {
+    let mut sink = KeySink::new("compiled-topology/v1");
+    sink.part(b"vertices", &(vertices.len() as u64).to_le_bytes());
+    for vertex in vertices {
+        vertex.kind.encode(&mut sink);
+        sink.part(b"vertex", &vertex.key);
+    }
+    sink.part(b"arcs", &(arcs.len() as u64).to_le_bytes());
+    for arc in arcs {
+        arc.kind.encode(&mut sink);
+        sink.part(b"arc", &arc.key);
+        sink.part(b"source", &arc.source);
+        sink.part(b"target", &arc.target);
+    }
+    sink.finish()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn request()->ProductRequest {ProductRequest{kind:ProductKind::PureRows,operation:"normalize".into(),model:ContentHash::of(b"m"),implementation:ContentHash::of(b"i"),policy:ContentHash::of(b"p"),result_contract:ContentHash::of(b"r"),configuration:None,profile:"catalog".into(),parameters:vec![],dependencies:vec![DependencyToken{kind:DependencyKind::ExactView,role:"syntax".into(),relation:"modules".into(),prefix:None,identity:ContentHash::of(b"view")}],outputs:BTreeSet::from(["rows".into()])}}
-    #[test]fn roles_and_provenance_are_not_value_equality() {
-        let a=PortableProduct{request:request(),outcome:ProductOutcome::Complete,sections:vec![ProductSection{name:"rows".into(),rows:1,bytes:b"canonical".to_vec()}]};
-        let mut b=a.clone();b.request.dependencies[0].identity=ContentHash::of(b"new-provenance");
-        assert_ne!(a.identity().unwrap(),b.identity().unwrap());assert_eq!(a.value_identity().unwrap(),b.value_identity().unwrap());
-        b.request.dependencies[0].prefix=Some("normalized".into());assert_ne!(a.request.identity().unwrap(),b.request.identity().unwrap());
-        b.request.dependencies.push(b.request.dependencies[0].clone());assert!(b.validate().is_err());
+    fn request() -> ProductRequest {
+        ProductRequest {
+            kind: ProductKind::PureRows,
+            operation: "normalize".into(),
+            model: ContentHash::of(b"m"),
+            implementation: ContentHash::of(b"i"),
+            policy: ContentHash::of(b"p"),
+            result_contract: ContentHash::of(b"r"),
+            configuration: None,
+            profile: "catalog".into(),
+            parameters: vec![],
+            dependencies: vec![DependencyToken {
+                kind: DependencyKind::ExactView,
+                role: "syntax".into(),
+                relation: "modules".into(),
+                prefix: None,
+                identity: ContentHash::of(b"view"),
+            }],
+            outputs: BTreeSet::from(["rows".into()]),
+        }
     }
-    #[test]fn internal_scc_edges_parallel_arcs_and_isolates_change_topology() {
-        let vertices=vec![("node".into(),[1;16]),("node".into(),[2;16]),("node".into(),[3;16])];
-        let arcs=vec![("edge".into(),[4;16],[1;16],[2;16]),("edge".into(),[5;16],[2;16],[1;16])];
-        let full=topology_identity(&vertices,&arcs);assert_ne!(full,topology_identity(&vertices[..2],&arcs));assert_ne!(full,topology_identity(&vertices,&arcs[..1]));
-        let mut parallel=arcs.clone();parallel.push(("edge".into(),[6;16],[1;16],[2;16]));assert_ne!(full,topology_identity(&vertices,&parallel));
+    #[test]
+    fn roles_and_provenance_are_not_value_equality() {
+        let a = PortableProduct {
+            request: request(),
+            outcome: ProductOutcome::Complete,
+            sections: vec![ProductSection {
+                name: "rows".into(),
+                rows: 1,
+                bytes: b"canonical".to_vec(),
+            }],
+        };
+        let mut b = a.clone();
+        b.request.dependencies[0].identity = ContentHash::of(b"new-provenance");
+        assert_ne!(a.identity().unwrap(), b.identity().unwrap());
+        assert_eq!(a.value_identity().unwrap(), b.value_identity().unwrap());
+        b.request.dependencies[0].prefix = Some("normalized".into());
+        assert_ne!(a.request.identity().unwrap(), b.request.identity().unwrap());
+        b.request
+            .dependencies
+            .push(b.request.dependencies[0].clone());
+        assert!(b.validate().is_err());
     }
-    #[test]fn negative_empty_domain_and_inventory_are_explicit() {
-        let p=ContentHash::of(b"program");let c=ContentHash::of(b"coverage");let root=vec![("callable".into(),[1;16],0)];
-        assert_ne!(domain_identity(p,c,&root,&[]),domain_identity(p,c,&[],&[]));
-        assert_ne!(domain_identity(p,c,&root,&[]),domain_identity(p,c,&root,&[("callable".into(),[1;16],c)]));
-        let invalid=PortableProduct{request:request(),outcome:ProductOutcome::Complete,sections:vec![]};assert!(invalid.validate().is_err());
+    #[test]
+    fn internal_scc_edges_parallel_arcs_and_isolates_change_topology() {
+        let vertices = vec![
+            TopologyVertexIdentity {
+                kind: "node".into(),
+                key: [1; 16],
+            },
+            TopologyVertexIdentity {
+                kind: "node".into(),
+                key: [2; 16],
+            },
+            TopologyVertexIdentity {
+                kind: "node".into(),
+                key: [3; 16],
+            },
+        ];
+        let arcs = vec![
+            TopologyArcIdentity {
+                kind: "edge".into(),
+                key: [4; 16],
+                source: [1; 16],
+                target: [2; 16],
+            },
+            TopologyArcIdentity {
+                kind: "edge".into(),
+                key: [5; 16],
+                source: [2; 16],
+                target: [1; 16],
+            },
+        ];
+        let full = topology_identity(&vertices, &arcs);
+        assert_ne!(full, topology_identity(&vertices[..2], &arcs));
+        assert_ne!(full, topology_identity(&vertices, &arcs[..1]));
+        let mut parallel = arcs.clone();
+        parallel.push(TopologyArcIdentity {
+            kind: "edge".into(),
+            key: [6; 16],
+            source: [1; 16],
+            target: [2; 16],
+        });
+        assert_ne!(full, topology_identity(&vertices, &parallel));
+    }
+    #[test]
+    fn negative_empty_domain_and_inventory_are_explicit() {
+        let p = ContentHash::of(b"program");
+        let c = ContentHash::of(b"coverage");
+        let root = vec![("callable".into(), [1; 16], 0)];
+        assert_ne!(
+            domain_identity(p, c, &root, &[]),
+            domain_identity(p, c, &[], &[])
+        );
+        assert_ne!(
+            domain_identity(p, c, &root, &[]),
+            domain_identity(p, c, &root, &[("callable".into(), [1; 16], c)])
+        );
+        let invalid = PortableProduct {
+            request: request(),
+            outcome: ProductOutcome::Complete,
+            sections: vec![],
+        };
+        assert!(invalid.validate().is_err());
     }
 }
 
@@ -177,23 +439,70 @@ pub struct RelationValue {
     pub content: ContentHash,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RelationValueOutcome { Complete, Partial, NotRequested }
+pub enum RelationValueOutcome {
+    Complete,
+    Partial,
+    NotRequested,
+}
 impl RelationValue {
     pub fn identity(&self) -> Result<ContentHash, ModelError> {
-        if self.relation.is_empty() {return Err(ModelError::Conflict("relation value has no semantic relation"));}
-        let mut sink=KeySink::new("compiled-relation-value/v1");
-        self.relation.encode(&mut sink); self.contract.encode(&mut sink); self.domain.encode(&mut sink);
-        sink.part(b"outcome", &[match self.outcome {RelationValueOutcome::Complete=>0,RelationValueOutcome::Partial=>1,RelationValueOutcome::NotRequested=>2}]);
-        sink.part(b"rows", &self.rows.to_le_bytes()); self.content.encode(&mut sink); Ok(sink.finish())
+        if self.relation.is_empty() {
+            return Err(ModelError::Conflict(
+                "relation value has no semantic relation",
+            ));
+        }
+        let mut sink = KeySink::new("compiled-relation-value/v1");
+        self.relation.encode(&mut sink);
+        self.contract.encode(&mut sink);
+        self.domain.encode(&mut sink);
+        sink.part(
+            b"outcome",
+            &[match self.outcome {
+                RelationValueOutcome::Complete => 0,
+                RelationValueOutcome::Partial => 1,
+                RelationValueOutcome::NotRequested => 2,
+            }],
+        );
+        sink.part(b"rows", &self.rows.to_le_bytes());
+        self.content.encode(&mut sink);
+        Ok(sink.finish())
     }
     /// Typed rows are already in the owning relation's canonical key order. The token binds
     /// every consumed field and nominal ID, explicit zero rows, domain and completeness.
-    pub fn of_rows<'a,R:super::Record>(domain:ContentHash,outcome:RelationValueOutcome,rows:impl IntoIterator<Item=&'a R>)->Result<Self,ModelError> {
-        let mut sink=KeySink::new("compiled-relation-content/v1"); let mut count=0u64;
-        for row in rows {row.id().encode(&mut sink);row.content_digest().encode(&mut sink);count=count.checked_add(1).ok_or(ModelError::Schema("relation value row count"))?;}
-        Ok(Self{relation:R::NAME.into(),contract:ContentHash::of(R::CONTRACT.as_bytes()),domain,outcome,rows:count,content:sink.finish()})
+    pub fn of_rows<'a, R: super::Record>(
+        domain: ContentHash,
+        outcome: RelationValueOutcome,
+        rows: impl IntoIterator<Item = &'a R>,
+    ) -> Result<Self, ModelError> {
+        let mut sink = KeySink::new("compiled-relation-content/v1");
+        let mut count = 0u64;
+        for row in rows {
+            row.id().encode(&mut sink);
+            row.content_digest().encode(&mut sink);
+            count = count
+                .checked_add(1)
+                .ok_or(ModelError::Schema("relation value row count"))?;
+        }
+        Ok(Self {
+            relation: R::NAME.into(),
+            contract: ContentHash::of(R::CONTRACT.as_bytes()),
+            domain,
+            outcome,
+            rows: count,
+            content: sink.finish(),
+        })
     }
-    pub fn dependency(&self,role:impl Into<String>,prefix:Option<String>)->Result<DependencyToken,ModelError> {
-        Ok(DependencyToken{kind:DependencyKind::RelationValue,role:role.into(),relation:self.relation.clone(),prefix,identity:self.identity()?})
+    pub fn dependency(
+        &self,
+        role: impl Into<String>,
+        prefix: Option<String>,
+    ) -> Result<DependencyToken, ModelError> {
+        Ok(DependencyToken {
+            kind: DependencyKind::RelationValue,
+            role: role.into(),
+            relation: self.relation.clone(),
+            prefix,
+            identity: self.identity()?,
+        })
     }
 }

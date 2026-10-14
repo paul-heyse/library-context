@@ -18,6 +18,10 @@ use std::{
 pub struct ScopedFixture {
     pub reader: NativeReader<()>,
     pub store: Arc<NativeCompilerStore>,
+    #[allow(
+        dead_code,
+        reason = "Retains exact installed-view leases through all scoped fixture consumers"
+    )]
     pub installed: Vec<Arc<lctx_native::installed_view::HeldInstalledView>>,
 }
 impl std::ops::Deref for ScopedFixture {

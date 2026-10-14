@@ -1,14 +1,44 @@
 //! Compiler typed reads over the shared receiver selector.
 use crate::workspace::CompletedInputs;
-#[cfg(test)]use futures::future::BoxFuture;
-#[cfg(test)]use lctx_model::domain::calls::*;
-use lctx_model::domain::{normalized::receiver::ReceiverData,*};
-use std::{any::TypeId,sync::Arc};
-pub use lctx_compiler_store::normalize::receiver_scope::{DataSelection,ReceiverOutputSelection};
-pub(super) struct ReceiverScopes{inner:lctx_compiler_store::normalize::receiver_scope::ReceiverScopes,#[cfg(test)]inputs:Vec<ValidationInput>}
-impl std::ops::Deref for ReceiverScopes{type Target=lctx_compiler_store::normalize::receiver_scope::ReceiverScopes;fn deref(&self)->&Self::Target{&self.inner}}
-impl ReceiverScopes{
- pub(super) async fn prepare(access:&CompletedInputs,session:&datafusion::prelude::SessionContext,model:&Arc<ValidatedModel>,budget:&resources::ResourceBudget)->Result<Self,ModelError>{let inner=lctx_compiler_store::normalize::receiver_scope::ReceiverScopes::prepare(access,session,model,budget).await?;Ok(Self{#[cfg(test)]inputs:inner.inputs().to_vec(),inner})}
+#[cfg(test)]
+use futures::future::BoxFuture;
+pub use lctx_compiler_store::normalize::receiver_scope::DataSelection;
+#[cfg(test)]
+use lctx_model::domain::calls::*;
+#[cfg(test)]
+use lctx_model::domain::normalized::receiver::ReceiverData;
+use lctx_model::domain::*;
+#[cfg(test)]
+use std::any::TypeId;
+use std::sync::Arc;
+pub(super) struct ReceiverScopes {
+    inner: lctx_compiler_store::normalize::receiver_scope::ReceiverScopes,
+    #[cfg(test)]
+    inputs: Vec<ValidationInput>,
+}
+impl std::ops::Deref for ReceiverScopes {
+    type Target = lctx_compiler_store::normalize::receiver_scope::ReceiverScopes;
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+impl ReceiverScopes {
+    pub(super) async fn prepare(
+        access: &CompletedInputs,
+        session: &datafusion::prelude::SessionContext,
+        model: &Arc<ValidatedModel>,
+        budget: &resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let inner = lctx_compiler_store::normalize::receiver_scope::ReceiverScopes::prepare(
+            access, session, model, budget,
+        )
+        .await?;
+        Ok(Self {
+            #[cfg(test)]
+            inputs: inner.inputs().to_vec(),
+            inner,
+        })
+    }
     #[cfg(test)]
     pub(super) fn data<'a>(
         &'a self,
@@ -23,7 +53,8 @@ impl ReceiverScopes{
                 .iter()
                 .map(|byte| format!("{byte:02x}"))
                 .collect::<String>();
-            let scope = self.inner
+            let scope = self
+                .inner
                 .edges()
                 .grain(root, &format!("id=X'{bytes}'"), budget)
                 .await?;
@@ -67,7 +98,6 @@ fn load_receiver_data<'a>(
         Ok(())
     })
 }
-
 
 #[cfg(test)]
 mod receiver_scope_controls {
@@ -243,4 +273,3 @@ mod receiver_scope_controls {
         ));
     }
 }
-

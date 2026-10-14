@@ -149,16 +149,6 @@ impl UpperStage {
             Self::CatalogFrontier => "assess_catalog_frontier",
         }
     }
-    pub(crate) fn for_outcome_relation(name: &str) -> Option<Self> {
-        macro_rules! owners { ($($owner:ident => $variant:ident),* $(,)?) => {
-            match name { $(analysis::$owner::AnalysisInvocation::NAME => Some(Self::$variant),)* _ => None }
-        }; }
-        owners!(local => Local, base_evaluation => Base, base_completion => Completion,
-            source_call => SourceCalls, enriched_execution => Enriched, model => Models,
-            summary => Summary, structural => Structural, analytic_embedding => Embedding,
-            analytic => Analytic, catalog_core => CatalogCore, catalog_evidence => CatalogEvidence,
-            selection => Selection, synthesis => Synthesis, retrieval => Retrieval)
-    }
     fn phase(self) -> Frontier {
         match self {
             Self::Configuration(_) => Frontier::Analysis,
@@ -184,6 +174,7 @@ impl UpperStage {
             Self::CatalogFrontier => Frontier::Catalog,
         }
     }
+    #[cfg(test)]
     fn boundary(self) -> Option<PublicationBoundary> {
         analysis::owner::AnalysisOwner::resolve(self.name())
             .ok()

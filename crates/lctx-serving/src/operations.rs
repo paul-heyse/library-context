@@ -1,5 +1,5 @@
 //! Native operation orchestration over scoped semantic owners.
-use crate::{candidates, records::wire, service::QueryVector};
+use crate::{candidates, preparation::OperationRead, records::wire, service::QueryVector};
 use lctx_model::domain::{
     resources::ResourceBudget,
     serving::ranking::{self, CandidateFusion, ChannelBinding, RankingPolicy},
@@ -60,18 +60,13 @@ pub(crate) fn hydrate_page<T, U>(
             .collect::<Result<_, _>>()?,
     })
 }
+type KeyedCandidate<'a> = (ContentHash, &'a selection::evaluate::CandidateSelection);
 fn compact_candidates<'a>(
     candidates: impl IntoIterator<Item = &'a selection::evaluate::CandidateSelection>,
     data: &selection::classification::ClassificationData,
     domains: &[LibraryDomainPacket],
     budget: &ResourceBudget,
-) -> Result<
-    (
-        Vec<(ContentHash, &'a selection::evaluate::CandidateSelection)>,
-        charged::StateCharge,
-    ),
-    ModelError,
-> {
+) -> Result<(Vec<KeyedCandidate<'a>>, charged::StateCharge), ModelError> {
     let mut values = Vec::new();
     let mut charge = charged::StateCharge::new(budget, "compact-operation-page");
     for candidate in candidates {
@@ -109,9 +104,8 @@ async fn chosen(
     let members = crate::selection::members(reader, Some(library), selector, b).await?;
     crate::selection::classify_prepared(reader, &members, selection, b, preparation).await
 }
-pub async fn dispatch(
-    reader: &NativeReader,
-    preparation: &crate::preparation::Preparation<'_>,
+pub(crate) async fn dispatch(
+    read: OperationRead<'_, '_>,
     request: &Request,
     channels: &ChannelState,
     vector: Option<&QueryVector>,
@@ -119,6 +113,10 @@ pub async fn dispatch(
     retained: &mut crate::ranked_results::RankedRequest<'_>,
     b: &ResourceBudget,
 ) -> Result<Response, ModelError> {
+    let OperationRead {
+        reader,
+        preparation,
+    } = read;
     let snapshot = reader.handle().clone();
     match request {
         Request::GetCapability(r) => Ok(Response::GetCapability(GetCapabilityResponse {
@@ -231,14 +229,7 @@ pub async fn dispatch(
                 },
                 [member] => OperationResolution::Unique {
                     packet: crate::operation_packet::get(
-                        reader,
-                        preparation,
-                        member,
-                        &domains,
-                        r,
-                        request,
-                        limits,
-                        b,
+                        read, member, &domains, r, request, limits, b,
                     )
                     .await?,
                 },
@@ -270,42 +261,21 @@ pub async fn dispatch(
         Request::BrowseLibrary(r) => browse(reader, preparation, r, request, b)
             .await
             .map(Response::BrowseLibrary),
-        Request::SearchOperations(r) => search_operations(
-            reader,
-            preparation,
-            r,
-            request,
-            channels,
-            vector,
-            retained,
-            b,
-        )
-        .await
-        .map(Response::SearchOperations),
-        Request::SearchEvidence(r) => search_evidence(
-            reader,
-            preparation,
-            r,
-            request,
-            channels,
-            vector,
-            retained,
-            b,
-        )
-        .await
-        .map(Response::SearchEvidence),
-        Request::SearchCapabilities(r) => search_capabilities(
-            reader,
-            preparation,
-            r,
-            request,
-            channels,
-            vector,
-            retained,
-            b,
-        )
-        .await
-        .map(Response::SearchCapabilities),
+        Request::SearchOperations(r) => {
+            search_operations(read, r, request, channels, vector, retained, b)
+                .await
+                .map(Response::SearchOperations)
+        }
+        Request::SearchEvidence(r) => {
+            search_evidence(read, r, request, channels, vector, retained, b)
+                .await
+                .map(Response::SearchEvidence)
+        }
+        Request::SearchCapabilities(r) => {
+            search_capabilities(read, r, request, channels, vector, retained, b)
+                .await
+                .map(Response::SearchCapabilities)
+        }
     }
 }
 #[allow(
@@ -420,8 +390,7 @@ fn fusion(
     .to_vec())
 }
 async fn search_operations(
-    reader: &NativeReader,
-    preparation: &crate::preparation::Preparation<'_>,
+    read: OperationRead<'_, '_>,
     r: &SearchOperationsRequest,
     request: &Request,
     channels: &ChannelState,
@@ -429,6 +398,10 @@ async fn search_operations(
     retained: &mut crate::ranked_results::RankedRequest<'_>,
     b: &ResourceBudget,
 ) -> Result<SearchOperationsResponse, ModelError> {
+    let OperationRead {
+        reader,
+        preparation,
+    } = read;
     let domains =
         crate::library::resolve_prepared(reader, r.library.0.as_ref(), b, preparation).await?;
     let members = crate::selection::members(reader, r.library.0.as_ref(), None, b).await?;
@@ -517,8 +490,7 @@ async fn search_operations(
     })
 }
 async fn search_evidence(
-    reader: &NativeReader,
-    preparation: &crate::preparation::Preparation<'_>,
+    read: OperationRead<'_, '_>,
     r: &SearchEvidenceRequest,
     request: &Request,
     channels: &ChannelState,
@@ -526,6 +498,10 @@ async fn search_evidence(
     retained: &mut crate::ranked_results::RankedRequest<'_>,
     b: &ResourceBudget,
 ) -> Result<SearchEvidenceResponse, ModelError> {
+    let OperationRead {
+        reader,
+        preparation,
+    } = read;
     let domains =
         crate::library::resolve_prepared(reader, r.library.0.as_ref(), b, preparation).await?;
     let families = if r.families.is_empty() {
@@ -594,8 +570,7 @@ async fn search_evidence(
     })
 }
 async fn search_capabilities(
-    reader: &NativeReader,
-    preparation: &crate::preparation::Preparation<'_>,
+    read: OperationRead<'_, '_>,
     r: &SearchCapabilitiesRequest,
     request: &Request,
     channels: &ChannelState,
@@ -603,6 +578,10 @@ async fn search_capabilities(
     retained: &mut crate::ranked_results::RankedRequest<'_>,
     b: &ResourceBudget,
 ) -> Result<SearchCapabilitiesResponse, ModelError> {
+    let OperationRead {
+        reader,
+        preparation,
+    } = read;
     let domains =
         crate::library::resolve_prepared(reader, r.library.0.as_ref(), b, preparation).await?;
     let scores = scores(

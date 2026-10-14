@@ -344,7 +344,11 @@ impl Workspace {
         }
         let runtime = self.admission_engine()?;
         runtime.restore(profile).await?;
-        let (contributions, bindings, _transfer) = runtime.completed_inventory()?;
+        let lctx_compiler_store::admission::CompletedInventory {
+            contributions,
+            bindings,
+            transfer: _transfer,
+        } = runtime.completed_inventory()?;
         let mut owners = BTreeMap::new();
         let mut owner_charge = StateCharge::new(&self.budget, "compiler-completed-owners");
         for contribution in contributions {
@@ -1530,25 +1534,6 @@ struct PreparedTemplatePort {
     reference: datafusion::common::TableReference,
     provider: Arc<dyn datafusion::catalog::TableProvider>,
 }
-// Aliases preserve semantic roles, but identical exact views need only one physical branch.
-// Keep descriptor comparison as well as identity comparison: a collision is not authority.
-fn distinct_reference_views<T>(
-    mut targets: Vec<T>,
-    view: impl Fn(&T) -> &lctx_model::domain::completed::CompletedView,
-) -> Result<Vec<T>, ModelError> {
-    targets.sort_unstable_by_key(|target| view(target).identity);
-    for adjacent in targets.windows(2) {
-        if view(&adjacent[0]).identity == view(&adjacent[1]).identity
-            && view(&adjacent[0]) != view(&adjacent[1])
-        {
-            return Err(ModelError::Conflict(
-                "reference target view descriptor collision",
-            ));
-        }
-    }
-    targets.dedup_by_key(|target| view(target).identity);
-    Ok(targets)
-}
 impl PreparedInputSession {
     fn prepare_template(
         &self,
@@ -1675,36 +1660,6 @@ impl CompletedInputs {
         bindings.sort_by_key(|(_, binding)| binding.role);
         bindings
     }
-    fn validation_source(
-        &self,
-        input: &lctx_model::domain::ValidationInput,
-    ) -> Result<&ResolvedInput, ModelError> {
-        if let Some(source) = self.relations.get(&(input.name(), input.prefix())) {
-            return Ok(source);
-        }
-        if input.prefix().is_some() {
-            return Err(ModelError::Conflict(
-                "checked admission requires a missing input epoch",
-            ));
-        }
-        let mut choices = self
-            .relations
-            .iter()
-            .filter(|((name, _), _)| *name == input.name())
-            .map(|(_, source)| source);
-        let source = choices
-            .next()
-            .ok_or(ModelError::Conflict("checked admission input is absent"))?;
-        if choices.any(|other| {
-            other.resolved != source.resolved || !Arc::ptr_eq(&source.source, &other.source)
-        }) {
-            return Err(ModelError::Conflict(
-                "checked admission input epoch is ambiguous",
-            ));
-        }
-        Ok(source)
-    }
-
     /// Check lifetime and identity of an actual producer's immutable streams. This does not
     /// admit semantic contents: only the model owner's opaque produced value carries authority.
     pub fn require_subset(
@@ -2421,16 +2376,16 @@ pub struct ProducerOutput {
     ingress: Arc<ProducerIngress>,
     failed: AtomicBool,
     product_capture: Mutex<Option<lctx_model::domain::compilation_product::ProductRequest>>,
-    captured_request: std::sync::OnceLock<
-        Result<
-            (
-                lctx_model::domain::producer_contract::request::CapturedRequest,
-                Box<dyn Reservation>,
-            ),
-            Arc<ModelError>,
-        >,
-    >,
+    captured_request: std::sync::OnceLock<Result<ReservedCapturedRequest, Arc<ModelError>>>,
 }
+type ReservedCapturedRequest = (
+    lctx_model::domain::producer_contract::request::CapturedRequest,
+    Box<dyn Reservation>,
+);
+pub(crate) type ReservedProductRequest = (
+    lctx_model::domain::compilation_product::ProductRequest,
+    Box<dyn Reservation>,
+);
 impl ProducerOutput {
     pub(crate) fn implementation_identity(&self) -> ContentHash {
         self.implementation
@@ -3330,69 +3285,6 @@ mod tests {
         assert!(budget.reserved() > 0);
         drop(access);
         assert_eq!(budget.reserved(), 0);
-    }
-    #[test]
-    fn reference_target_branches_share_exact_views_but_retain_distinct_epochs() {
-        use lctx_model::domain::{completed::CompletedView, stages::PublicationBoundary};
-        let first = CompletedView::new(
-            Package::NAME.into(),
-            [ContentHash::of(b"first-completed-owner")].into(),
-            1,
-        )
-        .unwrap();
-        let later = CompletedView::new(
-            Package::NAME.into(),
-            [ContentHash::of(b"later-completed-owner")].into(),
-            1,
-        )
-        .unwrap();
-        let roles = [
-            ((PublicationBoundary::Facts, "facts_port"), &first),
-            ((PublicationBoundary::Dispatch, "dispatch_port"), &first),
-        ];
-        let branches = distinct_reference_views(roles.to_vec(), |entry| entry.1).unwrap();
-        assert_eq!(
-            branches.len(),
-            1,
-            "two requested roles resolving to one actual view emit one target scan"
-        );
-        assert_eq!(
-            roles.len(),
-            2,
-            "physical preparation preserves both semantic roles"
-        );
-        let branches = distinct_reference_views(
-            roles
-                .into_iter()
-                .chain([((PublicationBoundary::CatalogCore, "catalog_port"), &later)])
-                .collect(),
-            |entry| entry.1,
-        )
-        .unwrap();
-        assert_eq!(branches.len(), 2);
-        assert!(
-            branches
-                .iter()
-                .any(|(role, _)| *role == (PublicationBoundary::CatalogCore, "catalog_port")),
-            "a distinct frozen view remains an independent target branch"
-        );
-        let mut collision = first.clone();
-        collision.rows += 1;
-        assert!(matches!(
-            distinct_reference_views(
-                vec![("first", &first), ("collision", &collision)],
-                |entry| entry.1
-            ),
-            Err(ModelError::Conflict(
-                "reference target view descriptor collision"
-            ))
-        ));
-        assert!(
-            distinct_reference_views(Vec::<(&str, &CompletedView)>::new(), |entry| entry.1)
-                .unwrap()
-                .is_empty(),
-            "missing target authority stays missing for the non-null reference refusal"
-        );
     }
     #[tokio::test]
     async fn logical_templates_check_only_actual_captured_ports() {

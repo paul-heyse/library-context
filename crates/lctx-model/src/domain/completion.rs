@@ -105,10 +105,10 @@ impl Completion {
         if let ModelError::SharedCause(error) = error {
             self.observe(error);
         }
-        if let ModelError::Cause(error) = error {
-            if let Some(error) = contextual_model(error.as_ref()) {
-                self.observe(error);
-            }
+        if let ModelError::Cause(error) = error
+            && let Some(error) = contextual_model(error.as_ref())
+        {
+            self.observe(error);
         }
         if let ModelError::Completion(outcome) = error {
             if outcome.completion.local == LocalState::Outstanding {

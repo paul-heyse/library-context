@@ -273,7 +273,7 @@ pub(crate) async fn finish_physical_completion(
     revision: i64,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
-    if expected.row() != &data.value(false)? {
+    if expected.row() != data.value(false)? {
         return Err(ModelError::Conflict(
             "physical completion initial exact envelope",
         ));

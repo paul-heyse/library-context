@@ -371,8 +371,10 @@ pub async fn reconcile_maintenance(
             .query("SELECT VALUE admission_open FROM native_installation:current")
             .await
             .map_err(|error| {
-                let mut terminal = d::completion::Completion::default();
-                terminal.remote = d::completion::RemoteState::Unknown;
+                let terminal = d::completion::Completion {
+                    remote: d::completion::RemoteState::Unknown,
+                    ..Default::default()
+                };
                 d::completion::complete::<()>(Err(reader::sdk_error(error)), terminal).unwrap_err()
             })?
             .check()

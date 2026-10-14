@@ -13,20 +13,19 @@ fn value_object(value: &Value) -> Option<&Object> {
         None
     }
 }
+/// Decoded endpoints and their allocation authority. Retain the reservation through consumption.
+pub struct CanonicalBackingEndpoints {
+    pub endpoints: Vec<Value>,
+    pub original: Option<OriginalBacking>,
+    pub reservation: Box<dyn d::resources::Reservation>,
+}
 /// Validate complete canonical backing bytes and reconstruct their exact endpoint rows.
 /// Keep the returned reservation alive while consuming the decoded endpoints. This
 /// lowers content only; callers independently establish native ownership and guards.
 pub fn canonical_backing_endpoints(
     row: &Value,
     budget: &ResourceBudget,
-) -> Result<
-    (
-        Vec<Value>,
-        Option<OriginalBacking>,
-        Box<dyn d::resources::Reservation>,
-    ),
-    ModelError,
-> {
+) -> Result<CanonicalBackingEndpoints, ModelError> {
     use d::graph::{Assertion, Entity};
     let object = row
         .as_object()
@@ -48,7 +47,11 @@ pub fn canonical_backing_endpoints(
         "compiler_record" => {
             let original = validate_state_row("compiler_record", row)?;
             validate_backing_batch(std::slice::from_ref(row), budget)?;
-            return Ok((vec![], original, decode));
+            return Ok(CanonicalBackingEndpoints {
+                endpoints: vec![],
+                original,
+                reservation: decode,
+            });
         }
         "entity" => {
             let entity: Entity = serde_json::from_slice(canonical).map_err(ModelError::codec)?;
@@ -92,7 +95,11 @@ pub fn canonical_backing_endpoints(
             "installed canonical graph backing projection",
         ));
     }
-    Ok((endpoints, None, decode))
+    Ok(CanonicalBackingEndpoints {
+        endpoints,
+        original: None,
+        reservation: decode,
+    })
 }
 
 pub fn validate_state_row(table: &str, row: &Value) -> Result<Option<OriginalBacking>, ModelError> {
@@ -530,7 +537,7 @@ pub fn validate_backing_batch(rows: &[Value], budget: &ResourceBudget) -> Result
         let mut builder = crate::projected_arrow::ProjectedBuilder::new(
             relation.clone(),
             relation.schema().clone(),
-            &budget,
+            budget,
         )?;
         for row in &rows {
             let Some(Value::Object(body)) = row.get("body") else {

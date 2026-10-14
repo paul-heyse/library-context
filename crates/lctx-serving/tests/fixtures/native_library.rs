@@ -5,7 +5,7 @@ pub fn try_library_fixture_tree(
     tree: Arc<cpg_extract::bundle::CapturedInputs>,
     library: &str,
     budget: &lctx_model::domain::resources::ResourceBudget,
-) -> Result<Arc<cpg_extract::bundle::CapturedInputs>,ModelError> {
+) -> Result<Arc<cpg_extract::bundle::CapturedInputs>, ModelError> {
     use cpg_extract::{
         acquisition::{
             AcquiredInput, Acquisition, InventoryDistribution, InventoryFile, LibraryInventory,
@@ -14,7 +14,13 @@ pub fn try_library_fixture_tree(
         bundle::CapturedInputs,
         capture::CapturedInput,
     };
-    let original = tree.inputs().first().ok_or(ModelError::Conflict("library fixture requires an actual captured input"))?.captured();
+    let original = tree
+        .inputs()
+        .first()
+        .ok_or(ModelError::Conflict(
+            "library fixture requires an actual captured input",
+        ))?
+        .captured();
     let derived = original
         .derivations()
         .iter()
@@ -33,7 +39,7 @@ pub fn try_library_fixture_tree(
         .collect::<Vec<_>>();
     let captured =
         CapturedInput::capture_derived(original.root(), &paths, budget, &documents, derive_blocks)
-            .map_err(|error|ModelError::Cause(Box::new(error)))?;
+            .map_err(|error| ModelError::Cause(Box::new(error)))?;
     let files = paths
         .into_iter()
         .filter_map(|path| {
@@ -75,5 +81,14 @@ pub fn try_library_fixture_tree(
     )))
 }
 
-pub fn library_fixture_tree(tree:Arc<cpg_extract::bundle::CapturedInputs>,library:&str,budget:&resources::ResourceBudget)
-    ->Arc<cpg_extract::bundle::CapturedInputs>{try_library_fixture_tree(tree,library,budget).unwrap()}
+#[allow(
+    dead_code,
+    reason = "Shared fixture module; native_journey uses this infallible wrapper"
+)]
+pub fn library_fixture_tree(
+    tree: Arc<cpg_extract::bundle::CapturedInputs>,
+    library: &str,
+    budget: &resources::ResourceBudget,
+) -> Arc<cpg_extract::bundle::CapturedInputs> {
+    try_library_fixture_tree(tree, library, budget).unwrap()
+}

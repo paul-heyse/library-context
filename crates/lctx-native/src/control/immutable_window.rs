@@ -183,10 +183,11 @@ pub(super) fn plan_bytes(sql: &str, bindings: &Variables) -> Result<usize, Model
         .saturating_add(sql.len().saturating_mul(4))
         .saturating_add(8192))
 }
+pub type ReservedNativeRow = (Value, Option<Box<dyn Reservation>>);
+type NativeRowSource<'a> =
+    Box<dyn Iterator<Item = Result<ReservedNativeRow, ModelError>> + Send + 'a>;
 pub struct ImmutableWindows<'a> {
-    rows: Box<
-        dyn Iterator<Item = Result<(Value, Option<Box<dyn Reservation>>), ModelError>> + Send + 'a,
-    >,
+    rows: NativeRowSource<'a>,
     pending: Option<ImmutableWindow>,
     attempt: Option<ContentHash>,
     contribution: Option<ContentHash>,
@@ -212,9 +213,7 @@ impl<'a> ImmutableWindows<'a> {
     /// Lazy producers reserve their native representation before copying a row. Both
     /// that reservation and the expanded transaction charge survive acknowledgement.
     pub fn from_charged_iter(
-        rows: impl Iterator<Item = Result<(Value, Option<Box<dyn Reservation>>), ModelError>>
-        + Send
-        + 'a,
+        rows: impl Iterator<Item = Result<ReservedNativeRow, ModelError>> + Send + 'a,
         attempt: Option<ContentHash>,
         contribution: Option<ContentHash>,
         owner: Option<RecordId>,
@@ -263,14 +262,13 @@ impl Iterator for ImmutableWindows<'_> {
                     self.budget.as_ref(),
                 )?;
                 unit.charges.extend(input_charge);
-                if let Some(window) = &output {
-                    if window.sql != unit.sql
+                if let Some(window) = &output
+                    && (window.sql != unit.sql
                         || window.rows + unit.rows > crate::loader::NATIVE_WINDOW_ROWS
-                        || window.bytes.saturating_add(unit.bytes) > TRANSFER_BYTES
-                    {
-                        self.pending = Some(unit);
-                        break;
-                    }
+                        || window.bytes.saturating_add(unit.bytes) > TRANSFER_BYTES)
+                {
+                    self.pending = Some(unit);
+                    break;
                 }
                 match &mut output {
                     Some(window) => window.append(unit)?,

@@ -114,10 +114,10 @@ impl AliasTopology {
                 let mut outgoing = self.forward.rows_for(node, budget)?;
                 while let Some(row) = outgoing.next_row()? {
                     check()?;
-                    if let Some(eligible) = &mut eligibility {
-                        if !eligible.contains(id(&row)?)? {
-                            continue;
-                        }
+                    if let Some(eligible) = &mut eligibility
+                        && !eligible.contains(id(&row)?)?
+                    {
+                        continue;
                     }
                     let (source, target) = endpoints(&row)?;
                     if source != node {

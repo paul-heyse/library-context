@@ -512,6 +512,7 @@ impl<'cache> RankedRequest<'cache> {
         })
     }
     /// First-page discovery supplies its order once. Nothing is retained in the map yet.
+    #[cfg(test)]
     pub(crate) fn page<T: Serialize>(
         &mut self,
         values: Vec<(ranking::RankedHit, ContentHash, T)>,

@@ -38,9 +38,13 @@ impl Loader {
         reason = "SDK RecordId includes regex caches; these generated string IDs are never mutated"
     )]
     pub async fn reconcile(&self, manifest: &Manifest) -> Result<(), ModelError> {
-        self.reconcile_owned(manifest,None).await
+        self.reconcile_owned(manifest, None).await
     }
-    pub(crate) async fn reconcile_owned(&self,manifest:&Manifest,inventory:Option<&mut crate::ordered_rows::SortedRows>)->Result<(),ModelError>{
+    pub(crate) async fn reconcile_owned(
+        &self,
+        manifest: &Manifest,
+        inventory: Option<&mut crate::ordered_rows::SortedRows>,
+    ) -> Result<(), ModelError> {
         manifest.validate()?;
         let budget = self.read_budget()?;
         let mut expected = crate::ordered_rows::SortedRows::with_budget(&budget)?;
@@ -49,7 +53,14 @@ impl Loader {
             ("entity", GraphFamily::Entities),
             ("assertion", GraphFamily::Assertions),
         ] {
-            let mut rows = reader.selected_payload_rows(table, "true", Variables::new(), vec![], "anchor,id", None)?;
+            let mut rows = reader.selected_payload_rows(
+                table,
+                "true",
+                Variables::new(),
+                vec![],
+                "anchor,id",
+                None,
+            )?;
             let mut hasher = FamilyHasher::new(family);
             let limits = lctx_model::domain::batching::TransferLimits::default();
             let mut pending = rows.next().await?;
@@ -192,12 +203,15 @@ impl Loader {
             }
         }
         let mut actual = actual_roles(&reader, &budget)?;
-        let mut expected=expected.finish()?;
-        if let Some(inventory)=inventory {
-            while let Some(row)=expected.next_row()? {
-                let Value::Object(object)=&row else{return Err(ModelError::Schema("expected derived role inventory"));};
-                if matches!(object.get("id"),Some(Value::RecordId(id)) if crate::derivation::FAMILIES.contains(&id.table.as_str())){
-                    crate::control::staging::remember_expected_child(inventory,&row)?;
+        let mut expected = expected.finish()?;
+        if let Some(inventory) = inventory {
+            while let Some(row) = expected.next_row()? {
+                let Value::Object(object) = &row else {
+                    return Err(ModelError::Schema("expected derived role inventory"));
+                };
+                if matches!(object.get("id"),Some(Value::RecordId(id)) if crate::derivation::FAMILIES.contains(&id.table.as_str()))
+                {
+                    crate::control::staging::remember_expected_child(inventory, &row)?;
                 }
             }
             expected.rewind()?;
@@ -208,69 +222,140 @@ impl Loader {
         {
             return Err(ModelError::Conflict("native original inventory"));
         }
-        let mut blobs=std::collections::BTreeSet::new();
-        let mut original_chunks=0u64;
+        let mut blobs = std::collections::BTreeSet::new();
+        let mut original_chunks = 0u64;
         for original in &manifest.originals {
             self.check_read_admission()?;
-            let id=RecordId::new("original",original.source.0.hex());
-            let layout=crate::originals::layout(&reader,&id).await?.ok_or(ModelError::Conflict("native original layout"))?;
-            crate::originals::validate_layout(&reader,&layout).await?;
-            if layout.blob.content!=original.content || layout.blob.byte_len!=original.byte_len {return Err(ModelError::Conflict("native original declaration"));}
-            if !crate::originals::header(&reader,&layout.blob).await? {return Err(ModelError::Conflict("native original blob incomplete"));}
+            let id = RecordId::new("original", original.source.0.hex());
+            let layout = crate::originals::layout(&reader, &id)
+                .await?
+                .ok_or(ModelError::Conflict("native original layout"))?;
+            crate::originals::validate_layout(&reader, &layout).await?;
+            if layout.blob.content != original.content || layout.blob.byte_len != original.byte_len
+            {
+                return Err(ModelError::Conflict("native original declaration"));
+            }
+            if !crate::originals::header(&reader, &layout.blob).await? {
+                return Err(ModelError::Conflict("native original blob incomplete"));
+            }
             if blobs.insert(layout.blob.id()) {
                 // Reconciliation independently replays actual bytes. A producer completion
                 // marker never substitutes for this admission boundary.
-                crate::originals::validate_blob(&reader,&layout.blob,&budget).await?;
-                original_chunks=original_chunks.checked_add(layout.blob.piece_count()).ok_or(ModelError::Schema("native original piece inventory"))?;
+                crate::originals::validate_blob(&reader, &layout.blob, &budget).await?;
+                original_chunks = original_chunks
+                    .checked_add(layout.blob.piece_count())
+                    .ok_or(ModelError::Schema("native original piece inventory"))?;
             }
         }
-        if self.view_ids().is_none() &&
-            (table_count(self,"original_blob").await?!=blobs.len() as u64 || table_count(self,"original_chunk").await?!=original_chunks) {
+        if self.view_ids().is_none()
+            && (table_count(self, "original_blob").await? != blobs.len() as u64
+                || table_count(self, "original_chunk").await? != original_chunks)
+        {
             return Err(ModelError::Conflict("native original blob inventory"));
         }
         Ok(())
     }
 }
 /// Actual outgoing rows are nominated by selected sources, never by expected role IDs.
-pub fn actual_roles<Context>(reader: &crate::NativeReader<Context>, budget: &lctx_model::domain::resources::ResourceBudget) -> Result<crate::reader::NativeRows, ModelError> {
-    let namespace=reader.derivation()?;
-    let selection = reader.selection_preparation(); let client = reader.shared_client(); let cancellation = reader.read_cancellation(); let budget = budget.clone();
+pub fn actual_roles<Context>(
+    reader: &crate::NativeReader<Context>,
+    budget: &lctx_model::domain::resources::ResourceBudget,
+) -> Result<crate::reader::NativeRows, ModelError> {
+    let namespace = reader.derivation()?;
+    let selection = reader.selection_preparation();
+    let client = reader.shared_client();
+    let cancellation = reader.read_cancellation();
+    let budget = budget.clone();
     crate::reader::NativeRows::owned(move |sender| async move {
         let selection = selection.await?;
         let mut actual = crate::ordered_rows::SortedRows::with_budget(&budget)?;
         let mut external = crate::ordered_rows::SortedRows::with_budget(&budget)?;
         for table in ["participant", "reference"] {
-            let mut rows = if let Some(selection) = &selection { selection.outgoing(table)? } else {
-                crate::prepared::PreparedQuery::new({let mut vars=Variables::new();vars.insert("lctx_derivation",namespace.hex());vars}, vec![], vec![format!("SELECT * FROM {table} WHERE derivation=$lctx_derivation")])?.stream_cancellable(&client, cancellation.as_ref())?
+            let mut rows = if let Some(selection) = &selection {
+                selection.outgoing(table)?
+            } else {
+                crate::prepared::PreparedQuery::new(
+                    {
+                        let mut vars = Variables::new();
+                        vars.insert("lctx_derivation", namespace.hex());
+                        vars
+                    },
+                    vec![],
+                    vec![format!(
+                        "SELECT * FROM {table} WHERE derivation=$lctx_derivation"
+                    )],
+                )?
+                .stream_cancellable(&client, cancellation.as_ref())?
             };
-            let result = async { while let Some(row) = rows.next().await? {
-                let Value::Object(object) = &row else { return Err(ModelError::Schema("actual native role")); };
-                crate::derivation::require_namespace(object,namespace)?;
-                if let Some(Value::RecordId(out)) = object.get("out") {
-                    if out.table.as_str() == "external" {
-                        let mut pointer = surrealdb::types::Object::new(); pointer.insert("id", out.clone()); external.push(Value::Object(pointer))?;
+            let result = async {
+                while let Some(row) = rows.next().await? {
+                    let Value::Object(object) = &row else {
+                        return Err(ModelError::Schema("actual native role"));
+                    };
+                    crate::derivation::require_namespace(object, namespace)?;
+                    if let Some(Value::RecordId(out)) = object.get("out")
+                        && out.table.as_str() == "external"
+                    {
+                        let mut pointer = surrealdb::types::Object::new();
+                        pointer.insert("id", out.clone());
+                        external.push(Value::Object(pointer))?;
                     }
+                    actual.push(row)?;
                 }
-                actual.push(row)?;
-            } Ok(()) }.await;
-            let mut terminal = lctx_model::domain::completion::Completion::default(); terminal.step("actual role drainage", rows.drain_transport().await);
+                Ok(())
+            }
+            .await;
+            let mut terminal = lctx_model::domain::completion::Completion::default();
+            terminal.step("actual role drainage", rows.drain_transport().await);
             lctx_model::domain::completion::complete(result, terminal)?;
         }
         let mut external = external.finish()?;
         loop {
-            let mut ids = Vec::new(); while ids.len() < 128 { let Some(row) = external.next_row()? else { break; };
-                let Value::Object(row) = row else { return Err(ModelError::Schema("actual external pointer")); };
-                ids.push(RecordId::from_value(row.get("id").cloned().ok_or(ModelError::Schema("actual external id"))?).map_err(ModelError::codec)?);
+            let mut ids = Vec::new();
+            while ids.len() < 128 {
+                let Some(row) = external.next_row()? else {
+                    break;
+                };
+                let Value::Object(row) = row else {
+                    return Err(ModelError::Schema("actual external pointer"));
+                };
+                ids.push(
+                    RecordId::from_value(
+                        row.get("id")
+                            .cloned()
+                            .ok_or(ModelError::Schema("actual external id"))?,
+                    )
+                    .map_err(ModelError::codec)?,
+                );
             }
-            if ids.is_empty() { break; }
-            let mut vars = Variables::new(); vars.insert("ids", ids);
-            let mut rows = crate::prepared::PreparedQuery::new(vars, vec![], vec!["SELECT * FROM $ids".into()])?.stream_cancellable(&client, cancellation.as_ref())?;
-            let result = async { while let Some(row) = rows.next().await? { actual.push(row)?; } Ok(()) }.await;
-            let mut terminal = lctx_model::domain::completion::Completion::default(); terminal.step("actual external drainage", rows.drain_transport().await);
+            if ids.is_empty() {
+                break;
+            }
+            let mut vars = Variables::new();
+            vars.insert("ids", ids);
+            let mut rows = crate::prepared::PreparedQuery::new(
+                vars,
+                vec![],
+                vec!["SELECT * FROM $ids".into()],
+            )?
+            .stream_cancellable(&client, cancellation.as_ref())?;
+            let result = async {
+                while let Some(row) = rows.next().await? {
+                    actual.push(row)?;
+                }
+                Ok(())
+            }
+            .await;
+            let mut terminal = lctx_model::domain::completion::Completion::default();
+            terminal.step("actual external drainage", rows.drain_transport().await);
             lctx_model::domain::completion::complete(result, terminal)?;
         }
         let mut actual = actual.finish()?;
-        while let Some(row) = actual.next_row()? { if sender.send(row).await.is_err() { break; } }
+        while let Some(row) = actual.next_row()? {
+            if sender.send(row).await.is_err() {
+                break;
+            }
+        }
         Ok(())
     })
 }
@@ -304,20 +389,48 @@ impl<Context> crate::NativeReader<Context> {
             let mut found = Vec::new();
             let result = async {
                 while let Some(row) = candidates.next().await? {
-                    let Value::Object(row) = row else { return Err(ModelError::Schema("original candidate object")); };
-                    let node = RecordId::from_value(row.get("id").cloned().ok_or(ModelError::Schema("original candidate identity"))?).map_err(ModelError::codec)?;
-                    if !self.selected_candidate_ids(&[node], &self.resource_budget()?).await?.is_empty() { found.push(RecordId::from_value(row.get("anchor").cloned().ok_or(ModelError::Schema("original candidate anchor"))?).map_err(ModelError::codec)?); }
+                    let Value::Object(row) = row else {
+                        return Err(ModelError::Schema("original candidate object"));
+                    };
+                    let node = RecordId::from_value(
+                        row.get("id")
+                            .cloned()
+                            .ok_or(ModelError::Schema("original candidate identity"))?,
+                    )
+                    .map_err(ModelError::codec)?;
+                    if !self
+                        .selected_candidate_ids(&[node], &self.resource_budget()?)
+                        .await?
+                        .is_empty()
+                    {
+                        found.push(
+                            RecordId::from_value(
+                                row.get("anchor")
+                                    .cloned()
+                                    .ok_or(ModelError::Schema("original candidate anchor"))?,
+                            )
+                            .map_err(ModelError::codec)?,
+                        );
+                    }
                 }
                 Ok(())
-            }.await;
-            let mut completion = lctx_model::domain::completion::Completion::default(); completion.step("original candidate drainage", candidates.drain_transport().await); lctx_model::domain::completion::complete(result, completion)?;
+            }
+            .await;
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step(
+                "original candidate drainage",
+                candidates.drain_transport().await,
+            );
+            lctx_model::domain::completion::complete(result, completion)?;
             if anchors.iter().any(|anchor| !found.contains(anchor)) {
                 return Err(ModelError::Conflict("original source outside exact view"));
             }
         }
-        let requests=ranges.iter().map(|(source,start,len)|
-            (RecordId::new("original",source.0.hex()),*start,*len)).collect::<Vec<_>>();
-        crate::originals::read_ranges(self,&requests,&self.resource_budget()?).await
+        let requests = ranges
+            .iter()
+            .map(|(source, start, len)| (RecordId::new("original", source.0.hex()), *start, *len))
+            .collect::<Vec<_>>();
+        crate::originals::read_ranges(self, &requests, &self.resource_budget()?).await
     }
 
     pub async fn original_bytes(
@@ -379,4 +492,3 @@ pub async fn table_count(loader: &Loader, table: &str) -> Result<u64, ModelError
 struct InventoryCount {
     total: u64,
 }
-

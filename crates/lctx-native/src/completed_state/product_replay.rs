@@ -54,7 +54,7 @@ pub async fn check_retained_product_replay(
     let result=async {
         let mut row=Object::new();row.insert("id",product.clone());row.insert("request",request.hex());
         row.insert("released",false);row.insert("contribution",RecordId::new("compiler_contribution",physical.hex()));
-        if expected.row()!=&Value::Object(row){return Err(ModelError::Conflict("retained product replay exact request/contribution/retention"));}
+        if expected.row()!=Value::Object(row){return Err(ModelError::Conflict("retained product replay exact request/contribution/retention"));}
         crate::control::live_view::transfer_expected(&pin,&expected,budget).await?;
         require_hold(&reader,&RecordId::new("native_attempt",attempt.hex()),&product).await?;
         require_hold(&reader,&product,&RecordId::new("compiler_contribution",physical.hex())).await?;

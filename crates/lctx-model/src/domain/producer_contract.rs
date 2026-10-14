@@ -1,8 +1,13 @@
 //! Producer semantics are independent of executable builds and immutable captured bindings.
-pub mod facts;
 pub mod acquisition;
+pub mod facts;
 pub mod request;
-use super::{ContentHash, Id, Key, KeySink, ModelError, Record, attribution::{AnalysisContext, FactFamily, Provider}, input::InputRevision, stages::{Effect, FamilyCoverage, Profile, RelationUse, Stage}};
+use super::{
+    ContentHash, Id, Key, KeySink, ModelError, Record,
+    attribution::{AnalysisContext, FactFamily, Provider},
+    input::InputRevision,
+    stages::{Effect, FamilyCoverage, Profile, RelationUse, Stage},
+};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -15,8 +20,20 @@ pub enum ConfigurationBinding {
     Fixed(ContentHash),
 }
 impl ConfigurationBinding {
-    fn encode(self, sink:&mut KeySink) {
-        match self { Self::ProducerSettings=>sink.part(b"configuration-binding",b"producer-settings"), Self::CapturedAnalysisContext=>sink.part(b"configuration-binding",b"captured-analysis-context"), Self::CurrentAssemblyContext=>sink.part(b"configuration-binding",b"current-assembly-context"), Self::Fixed(value)=>{sink.part(b"configuration-binding",b"fixed");value.encode(sink);} }
+    fn encode(self, sink: &mut KeySink) {
+        match self {
+            Self::ProducerSettings => sink.part(b"configuration-binding", b"producer-settings"),
+            Self::CapturedAnalysisContext => {
+                sink.part(b"configuration-binding", b"captured-analysis-context")
+            }
+            Self::CurrentAssemblyContext => {
+                sink.part(b"configuration-binding", b"current-assembly-context")
+            }
+            Self::Fixed(value) => {
+                sink.part(b"configuration-binding", b"fixed");
+                value.encode(sink);
+            }
+        }
     }
 }
 #[derive(Debug, Clone)]
@@ -29,9 +46,16 @@ pub struct SupplierRole {
     pub configuration: ConfigurationBinding,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputProfilePolicy { Neutral, Specific }
+pub enum OutputProfilePolicy {
+    Neutral,
+    Specific,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ContextDependencyPolicy { AcquisitionOnly, SemanticContext, ModelSelection }
+pub enum ContextDependencyPolicy {
+    AcquisitionOnly,
+    SemanticContext,
+    ModelSelection,
+}
 
 #[derive(Debug, Clone)]
 pub struct ProducerContract {
@@ -50,82 +74,277 @@ pub struct ProducerContract {
     pub not_requested: Vec<FactFamily>,
 }
 impl ProducerContract {
-    pub fn identity(&self)->ContentHash {
-        let mut sink=KeySink::new("producer-semantic-contract/v1");
-        self.name.to_string().encode(&mut sink);sink.part(b"revision",&self.semantic_revision.to_le_bytes());
-        sink.part(b"effect",self.effect.name().as_bytes());self.configuration.encode(&mut sink);sink.part(b"output-profile-policy",match self.output_profile{OutputProfilePolicy::Neutral=>b"neutral",OutputProfilePolicy::Specific=>b"specific"});
-        sink.part(b"context-dependency-policy",match self.context_dependency{ContextDependencyPolicy::AcquisitionOnly=>b"acquisition-only",ContextDependencyPolicy::SemanticContext=>b"semantic-context",ContextDependencyPolicy::ModelSelection=>b"model-selection"});
-        let mut profiles=self.profiles.clone();profiles.sort();for profile in profiles {profile.name().to_string().encode(&mut sink);}
+    pub fn identity(&self) -> ContentHash {
+        let mut sink = KeySink::new("producer-semantic-contract/v1");
+        self.name.to_string().encode(&mut sink);
+        sink.part(b"revision", &self.semantic_revision.to_le_bytes());
+        sink.part(b"effect", self.effect.name().as_bytes());
+        self.configuration.encode(&mut sink);
+        sink.part(
+            b"output-profile-policy",
+            match self.output_profile {
+                OutputProfilePolicy::Neutral => b"neutral",
+                OutputProfilePolicy::Specific => b"specific",
+            },
+        );
+        sink.part(
+            b"context-dependency-policy",
+            match self.context_dependency {
+                ContextDependencyPolicy::AcquisitionOnly => b"acquisition-only",
+                ContextDependencyPolicy::SemanticContext => b"semantic-context",
+                ContextDependencyPolicy::ModelSelection => b"model-selection",
+            },
+        );
+        let mut profiles = self.profiles.clone();
+        profiles.sort();
+        for profile in profiles {
+            profile.name().to_string().encode(&mut sink);
+        }
         sink.part(b"input-roles", &(self.inputs.len() as u64).to_le_bytes());
         for input in &self.inputs {
             input.name().to_string().encode(&mut sink);
-            input.prefix().map(|prefix|i16::from(prefix.code())).encode(&mut sink);
-            sink.part(b"transport",match input.transport(){super::stages::InputTransport::Handoff=>b"handoff",super::stages::InputTransport::CompletedInput=>b"completed-input"});
-            if let Some(requirement)=input.requirement(){requirement.group.encode(&mut sink);sink.part(b"availability",&[match requirement.policy{super::stages::AvailabilityPolicy::RequireComplete=>0,super::stages::AvailabilityPolicy::ObserveAvailability=>1}]);}
-            let mut validators=input.validators().to_vec();validators.sort();for validator in validators {validator.to_string().encode(&mut sink);}
+            input
+                .prefix()
+                .map(|prefix| i16::from(prefix.code()))
+                .encode(&mut sink);
+            sink.part(
+                b"transport",
+                match input.transport() {
+                    super::stages::InputTransport::Handoff => b"handoff",
+                    super::stages::InputTransport::CompletedInput => b"completed-input",
+                },
+            );
+            if let Some(requirement) = input.requirement() {
+                requirement.group.encode(&mut sink);
+                sink.part(
+                    b"availability",
+                    &[match requirement.policy {
+                        super::stages::AvailabilityPolicy::RequireComplete => 0,
+                        super::stages::AvailabilityPolicy::ObserveAvailability => 1,
+                    }],
+                );
+            }
+            let mut validators = input.validators().to_vec();
+            validators.sort();
+            for validator in validators {
+                validator.to_string().encode(&mut sink);
+            }
         }
-        for (tag,relations) in [(b"output".as_slice(),&self.outputs),(b"contributes".as_slice(),&self.contributes)] {
-            let names=relations.iter().map(|relation|relation.name()).collect::<BTreeSet<_>>();for name in names {sink.part(tag,name.as_bytes());}
+        for (tag, relations) in [
+            (b"output".as_slice(), &self.outputs),
+            (b"contributes".as_slice(), &self.contributes),
+        ] {
+            let names = relations
+                .iter()
+                .map(|relation| relation.name())
+                .collect::<BTreeSet<_>>();
+            for name in names {
+                sink.part(tag, name.as_bytes());
+            }
         }
-        let mut suppliers=self.suppliers.iter().collect::<Vec<_>>();suppliers.sort_by_key(|role|role.name);
+        let mut suppliers = self.suppliers.iter().collect::<Vec<_>>();
+        suppliers.sort_by_key(|role| role.name);
         for role in suppliers {
-            role.name.to_string().encode(&mut sink);role.tool.to_string().encode(&mut sink);role.analyzer_revision.to_string().encode(&mut sink);sink.part(b"supplier-semantic-revision",&role.semantic_revision.to_le_bytes());role.configuration.encode(&mut sink);
-            for family in role.families.iter().copied().collect::<BTreeSet<_>>() {family.encode(&mut sink);}
+            role.name.to_string().encode(&mut sink);
+            role.tool.to_string().encode(&mut sink);
+            role.analyzer_revision.to_string().encode(&mut sink);
+            sink.part(
+                b"supplier-semantic-revision",
+                &role.semantic_revision.to_le_bytes(),
+            );
+            role.configuration.encode(&mut sink);
+            for family in role.families.iter().copied().collect::<BTreeSet<_>>() {
+                family.encode(&mut sink);
+            }
         }
-        for family in self.not_requested.iter().copied().collect::<BTreeSet<_>>() {sink.part(b"not-requested",&[family as u8]);}
+        for family in self.not_requested.iter().copied().collect::<BTreeSet<_>>() {
+            sink.part(b"not-requested", &[family as u8]);
+        }
         sink.finish()
     }
-    pub fn validate(&self)->Result<(),ModelError> {
-        if self.name.is_empty() || self.semantic_revision==0 || self.profiles.is_empty() || self.profiles.iter().copied().collect::<BTreeSet<_>>().len()!=self.profiles.len() || matches!(self.configuration,ConfigurationBinding::CapturedAnalysisContext|ConfigurationBinding::CurrentAssemblyContext) {
-            return Err(ModelError::Invalid("invalid producer semantic contract".into()));
+    pub fn validate(&self) -> Result<(), ModelError> {
+        if self.name.is_empty()
+            || self.semantic_revision == 0
+            || self.profiles.is_empty()
+            || self.profiles.iter().copied().collect::<BTreeSet<_>>().len() != self.profiles.len()
+            || matches!(
+                self.configuration,
+                ConfigurationBinding::CapturedAnalysisContext
+                    | ConfigurationBinding::CurrentAssemblyContext
+            )
+        {
+            return Err(ModelError::Invalid(
+                "invalid producer semantic contract".into(),
+            ));
         }
-        for inventory in [&self.inputs,&self.outputs,&self.contributes] {
-            if inventory.iter().map(|relation|relation.name()).collect::<BTreeSet<_>>().len()!=inventory.len(){return Err(ModelError::Invalid("duplicate producer relation inventory".into()));}
+        for inventory in [&self.inputs, &self.outputs, &self.contributes] {
+            if inventory
+                .iter()
+                .map(|relation| relation.name())
+                .collect::<BTreeSet<_>>()
+                .len()
+                != inventory.len()
+            {
+                return Err(ModelError::Invalid(
+                    "duplicate producer relation inventory".into(),
+                ));
+            }
         }
-        if self.not_requested.iter().copied().collect::<BTreeSet<_>>().len()!=self.not_requested.len(){return Err(ModelError::Invalid("duplicate unrequested reporting inventory".into()));}
-        let mut roles=BTreeSet::new();
+        if self
+            .not_requested
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .len()
+            != self.not_requested.len()
+        {
+            return Err(ModelError::Invalid(
+                "duplicate unrequested reporting inventory".into(),
+            ));
+        }
+        let mut roles = BTreeSet::new();
         for role in &self.suppliers {
-            if role.name.is_empty() || role.tool.is_empty() || role.analyzer_revision.is_empty() || role.semantic_revision==0 || role.families.is_empty() || !roles.insert(role.name) || role.families.iter().copied().collect::<BTreeSet<_>>().len()!=role.families.len() {
+            if role.name.is_empty()
+                || role.tool.is_empty()
+                || role.analyzer_revision.is_empty()
+                || role.semantic_revision == 0
+                || role.families.is_empty()
+                || !roles.insert(role.name)
+                || role.families.iter().copied().collect::<BTreeSet<_>>().len()
+                    != role.families.len()
+            {
                 return Err(ModelError::Invalid("invalid producer supplier role".into()));
             }
         }
         Ok(())
     }
-    pub fn bind(&self,implementation:ContentHash,settings:ContentHash,suppliers:impl IntoIterator<Item=(&'static str,Provider)>)->Stage {
-        let suppliers=suppliers.into_iter().map(|(role,provider)|(role.to_owned(),provider.id())).collect::<BTreeMap<_,_>>();
-        let coverage=self.suppliers.iter().flat_map(|role|role.families.iter().map(|family|FamilyCoverage{family:*family,provider:*suppliers.get(role.name).expect("executable binds every declared role")})).collect();
-        Stage {name:self.name,inputs:self.inputs.clone(),outputs:self.outputs.clone(),contributes:self.contributes.clone(),coverage,profiles:self.profiles.clone(),effect:self.effect,code:implementation,configuration:settings,
-            captured_binding:Some(CapturedProducerBinding{contract:self.identity(),semantic_revision:self.semantic_revision,producer_settings:settings,context_dependency:CapturedContextDependency::ConservativeFullContext,suppliers,sources:vec![]})}
+    pub fn bind(
+        &self,
+        implementation: ContentHash,
+        settings: ContentHash,
+        suppliers: impl IntoIterator<Item = (&'static str, Provider)>,
+    ) -> Stage {
+        let suppliers = suppliers
+            .into_iter()
+            .map(|(role, provider)| (role.to_owned(), provider.id()))
+            .collect::<BTreeMap<_, _>>();
+        let coverage = self
+            .suppliers
+            .iter()
+            .flat_map(|role| {
+                role.families.iter().map(|family| FamilyCoverage {
+                    family: *family,
+                    provider: *suppliers
+                        .get(role.name)
+                        .expect("executable binds every declared role"),
+                })
+            })
+            .collect();
+        Stage {
+            name: self.name,
+            inputs: self.inputs.clone(),
+            outputs: self.outputs.clone(),
+            contributes: self.contributes.clone(),
+            coverage,
+            profiles: self.profiles.clone(),
+            effect: self.effect,
+            code: implementation,
+            configuration: settings,
+            captured_binding: Some(CapturedProducerBinding {
+                contract: self.identity(),
+                semantic_revision: self.semantic_revision,
+                producer_settings: settings,
+                context_dependency: CapturedContextDependency::ConservativeFullContext,
+                suppliers,
+                sources: vec![],
+            }),
+        }
     }
     /// Full semantic-context dependencies are profile specific.
-    pub fn validate_context_dependency(&self,binding:&CapturedProducerBinding,profile:super::completed::OutputProfile)->Result<(),ModelError> {
+    pub fn validate_context_dependency(
+        &self,
+        binding: &CapturedProducerBinding,
+        profile: super::completed::OutputProfile,
+    ) -> Result<(), ModelError> {
         use super::completed::OutputProfile;
         binding.validate()?;
-        if matches!(binding.context_dependency,CapturedContextDependency::ConservativeFullContext) {
-            return if matches!(profile,OutputProfile::Specific(_)){Ok(())}else{Err(ModelError::Conflict("conservative context is profile specific"))};
+        if matches!(
+            binding.context_dependency,
+            CapturedContextDependency::ConservativeFullContext
+        ) {
+            return if matches!(profile, OutputProfile::Specific(_)) {
+                Ok(())
+            } else {
+                Err(ModelError::Conflict(
+                    "conservative context is profile specific",
+                ))
+            };
         }
-        let valid=match (self.context_dependency,&binding.context_dependency,profile) {
-            (ContextDependencyPolicy::AcquisitionOnly,CapturedContextDependency::AcquisitionOnly,_)=>true,
-            (ContextDependencyPolicy::SemanticContext,CapturedContextDependency::SemanticContext,_)=>true,
-            (ContextDependencyPolicy::ModelSelection,CapturedContextDependency::ModelSelection{catalog,..},OutputProfile::Specific(profile))=>catalog.is_some()==(profile==Profile::Behavioral),
-            _=>false,
+        let valid = match (
+            self.context_dependency,
+            &binding.context_dependency,
+            profile,
+        ) {
+            (
+                ContextDependencyPolicy::AcquisitionOnly,
+                CapturedContextDependency::AcquisitionOnly,
+                _,
+            ) => true,
+            (
+                ContextDependencyPolicy::SemanticContext,
+                CapturedContextDependency::SemanticContext,
+                _,
+            ) => true,
+            (
+                ContextDependencyPolicy::ModelSelection,
+                CapturedContextDependency::ModelSelection { catalog, .. },
+                OutputProfile::Specific(profile),
+            ) => catalog.is_some() == (profile == Profile::Behavioral),
+            _ => false,
         };
-        if !valid{return Err(ModelError::Conflict("producer context dependency policy"));}
-        if profile==OutputProfile::Neutral && self.output_profile!=OutputProfilePolicy::Neutral{return Err(ModelError::Conflict("producer output is profile specific"));}
+        if !valid {
+            return Err(ModelError::Conflict("producer context dependency policy"));
+        }
+        if profile == OutputProfile::Neutral && self.output_profile != OutputProfilePolicy::Neutral
+        {
+            return Err(ModelError::Conflict("producer output is profile specific"));
+        }
         Ok(())
     }
-    pub fn validate_binding(&self,binding:&CapturedProducerBinding,settings:Option<ContentHash>,providers:&[Provider])->Result<(),ModelError> {
-        self.validate()?;binding.validate()?;
-        if binding.contract!=self.identity() || binding.semantic_revision!=self.semantic_revision || settings!=Some(binding.producer_settings) || matches!(self.configuration,ConfigurationBinding::Fixed(value) if value!=binding.producer_settings)
-            || binding.suppliers.keys().map(String::as_str).collect::<BTreeSet<_>>()!=self.suppliers.iter().map(|role|role.name).collect() {
+    pub fn validate_binding(
+        &self,
+        binding: &CapturedProducerBinding,
+        settings: Option<ContentHash>,
+        providers: &[Provider],
+    ) -> Result<(), ModelError> {
+        self.validate()?;
+        binding.validate()?;
+        if binding.contract != self.identity()
+            || binding.semantic_revision != self.semantic_revision
+            || settings != Some(binding.producer_settings)
+            || matches!(self.configuration,ConfigurationBinding::Fixed(value) if value!=binding.producer_settings)
+            || binding
+                .suppliers
+                .keys()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>()
+                != self.suppliers.iter().map(|role| role.name).collect()
+        {
             return Err(ModelError::Conflict("captured producer semantic binding"));
         }
         for role in &self.suppliers {
-            let id=binding.suppliers[role.name];
-            let mut matches=providers.iter().filter(|provider|provider.id()==id);
-            let provider=matches.next().ok_or(ModelError::Conflict("missing captured supplier"))?;
-            if matches.next().is_some() || provider.tool!=role.tool || provider.revision!=role.analyzer_revision {
-                return Err(ModelError::Conflict("captured supplier role or analyzer revision"));
+            let id = binding.suppliers[role.name];
+            let mut matches = providers.iter().filter(|provider| provider.id() == id);
+            let provider = matches
+                .next()
+                .ok_or(ModelError::Conflict("missing captured supplier"))?;
+            if matches.next().is_some()
+                || provider.tool != role.tool
+                || provider.revision != role.analyzer_revision
+            {
+                return Err(ModelError::Conflict(
+                    "captured supplier role or analyzer revision",
+                ));
             }
         }
         Ok(())
@@ -134,24 +353,38 @@ impl ProducerContract {
 
 /// Captured dependencies distinguish acquisition, semantic and full-context premises.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CapturedContextDependency {
     AcquisitionOnly,
     SemanticContext,
-    ModelSelection { catalog:Option<ContentHash>, requirements:Vec<Option<ContentHash>> },
+    ModelSelection {
+        catalog: Option<ContentHash>,
+        requirements: Vec<Option<ContentHash>>,
+    },
     ConservativeFullContext,
 }
 impl CapturedContextDependency {
-    fn encode(&self,sink:&mut KeySink) {
+    fn encode(&self, sink: &mut KeySink) {
         match self {
-            Self::AcquisitionOnly=>sink.part(b"context-dependency",b"acquisition-only"),
-            Self::SemanticContext=>sink.part(b"context-dependency",b"semantic-context"),
-            Self::ModelSelection{catalog,requirements}=>{
-                sink.part(b"context-dependency",b"model-selection");catalog.encode(sink);
-                sink.part(b"requirement-count",&(requirements.len() as u64).to_le_bytes());
-                for requirement in requirements {requirement.encode(sink);}
+            Self::AcquisitionOnly => sink.part(b"context-dependency", b"acquisition-only"),
+            Self::SemanticContext => sink.part(b"context-dependency", b"semantic-context"),
+            Self::ModelSelection {
+                catalog,
+                requirements,
+            } => {
+                sink.part(b"context-dependency", b"model-selection");
+                catalog.encode(sink);
+                sink.part(
+                    b"requirement-count",
+                    &(requirements.len() as u64).to_le_bytes(),
+                );
+                for requirement in requirements {
+                    requirement.encode(sink);
+                }
             }
-            Self::ConservativeFullContext=>sink.part(b"context-dependency",b"conservative-full-context"),
+            Self::ConservativeFullContext => {
+                sink.part(b"context-dependency", b"conservative-full-context")
+            }
         }
     }
 }
@@ -159,58 +392,133 @@ impl CapturedContextDependency {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapturedSourceBinding {
-    pub input:Id<InputRevision>,
-    #[serde(deserialize_with="required_optional")]
-    pub context:Option<Id<AnalysisContext>>,
-    #[serde(deserialize_with="required_optional")]
-    pub configuration:Option<ContentHash>,
-    #[serde(with="acquisition::shared")]
+    pub input: Id<InputRevision>,
+    #[serde(deserialize_with = "required_optional")]
+    pub context: Option<Id<AnalysisContext>>,
+    #[serde(deserialize_with = "required_optional")]
+    pub configuration: Option<ContentHash>,
+    #[serde(with = "acquisition::shared")]
     pub acquisition: std::sync::Arc<acquisition::CapturedAcquisition>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapturedProducerBinding {
-    pub contract:ContentHash,
-    pub semantic_revision:u32,
-    pub producer_settings:ContentHash,
-    pub context_dependency:CapturedContextDependency,
-    pub suppliers:BTreeMap<String,Id<Provider>>,
-    pub sources:Vec<CapturedSourceBinding>,
+    pub contract: ContentHash,
+    pub semantic_revision: u32,
+    pub producer_settings: ContentHash,
+    pub context_dependency: CapturedContextDependency,
+    pub suppliers: BTreeMap<String, Id<Provider>>,
+    pub sources: Vec<CapturedSourceBinding>,
 }
 impl CapturedProducerBinding {
-    pub fn validate(&self)->Result<(),ModelError> {
-        if self.semantic_revision==0 || self.suppliers.keys().any(String::is_empty) || self.suppliers.values().copied().collect::<BTreeSet<_>>().len()!=self.suppliers.len() {
+    pub fn validate(&self) -> Result<(), ModelError> {
+        if self.semantic_revision == 0
+            || self.suppliers.keys().any(String::is_empty)
+            || self
+                .suppliers
+                .values()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .len()
+                != self.suppliers.len()
+        {
             return Err(ModelError::Conflict("captured producer binding shape"));
         }
-        if let CapturedContextDependency::ModelSelection{catalog,requirements}=&self.context_dependency {
-            if requirements.len()!=self.sources.len() || requirements.iter().any(|value|value.is_some()!=catalog.is_some()) {return Err(ModelError::Conflict("captured model-selection inventory"));}
+        if let CapturedContextDependency::ModelSelection {
+            catalog,
+            requirements,
+        } = &self.context_dependency
+            && (requirements.len() != self.sources.len()
+                || requirements
+                    .iter()
+                    .any(|value| value.is_some() != catalog.is_some()))
+        {
+            return Err(ModelError::Conflict("captured model-selection inventory"));
         }
         for source in &self.sources {
-            if source.context.is_some()!=source.configuration.is_some() || source.context.is_none()!=matches!(self.context_dependency,CapturedContextDependency::AcquisitionOnly) {return Err(ModelError::Conflict("captured semantic context pair"));}
-            source.acquisition.validate()?; if source.input!=source.acquisition.revision.id(){return Err(ModelError::Conflict("captured source acquisition input"));}}
+            if source.context.is_some() != source.configuration.is_some()
+                || source.context.is_none()
+                    != matches!(
+                        self.context_dependency,
+                        CapturedContextDependency::AcquisitionOnly
+                    )
+            {
+                return Err(ModelError::Conflict("captured semantic context pair"));
+            }
+            source.acquisition.validate()?;
+            if source.input != source.acquisition.revision.id() {
+                return Err(ModelError::Conflict("captured source acquisition input"));
+            }
+        }
         Ok(())
     }
-    pub fn identity(&self)->Result<ContentHash,ModelError> {
-        self.validate()?;let mut sink=KeySink::new("captured-producer-binding/v2");
-        self.contract.encode(&mut sink);sink.part(b"revision",&self.semantic_revision.to_le_bytes());self.producer_settings.encode(&mut sink);self.context_dependency.encode(&mut sink);
-        for (role,provider) in &self.suppliers {role.encode(&mut sink);provider.encode(&mut sink);}
-        for source in &self.sources {source.input.encode(&mut sink);source.context.encode(&mut sink);source.configuration.encode(&mut sink);source.acquisition.identity()?.encode(&mut sink);}
+    pub fn identity(&self) -> Result<ContentHash, ModelError> {
+        self.validate()?;
+        let mut sink = KeySink::new("captured-producer-binding/v2");
+        self.contract.encode(&mut sink);
+        sink.part(b"revision", &self.semantic_revision.to_le_bytes());
+        self.producer_settings.encode(&mut sink);
+        self.context_dependency.encode(&mut sink);
+        for (role, provider) in &self.suppliers {
+            role.encode(&mut sink);
+            provider.encode(&mut sink);
+        }
+        for source in &self.sources {
+            source.input.encode(&mut sink);
+            source.context.encode(&mut sink);
+            source.configuration.encode(&mut sink);
+            source.acquisition.identity()?.encode(&mut sink);
+        }
         Ok(sink.finish())
     }
-    pub fn heap_bytes(&self)->usize {
-        (match &self.context_dependency {CapturedContextDependency::ModelSelection{requirements,..}=>requirements.capacity()*std::mem::size_of::<Option<ContentHash>>(),_=>0})+self.suppliers.keys().map(|role|role.len()+std::mem::size_of::<(String,Id<Provider>)>()+32).sum::<usize>()+self.sources.capacity()*std::mem::size_of::<CapturedSourceBinding>()+self.sources.iter().map(|source|source.acquisition.heap_bytes()).sum::<usize>()
+    pub fn heap_bytes(&self) -> usize {
+        (match &self.context_dependency {
+            CapturedContextDependency::ModelSelection { requirements, .. } => {
+                requirements.capacity() * std::mem::size_of::<Option<ContentHash>>()
+            }
+            _ => 0,
+        }) + self
+            .suppliers
+            .keys()
+            .map(|role| role.len() + std::mem::size_of::<(String, Id<Provider>)>() + 32)
+            .sum::<usize>()
+            + self.sources.capacity() * std::mem::size_of::<CapturedSourceBinding>()
+            + self
+                .sources
+                .iter()
+                .map(|source| source.acquisition.heap_bytes())
+                .sum::<usize>()
     }
 }
 /// An optional field is still required on the wire: explicit null denotes a non-facts producer.
-pub fn required_optional<'de,D,T>(deserializer:D)->Result<Option<T>,D::Error> where D:serde::Deserializer<'de>,T:Deserialize<'de> {Option::<T>::deserialize(deserializer)}
+pub fn required_optional<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
 
 /// Select a declared profile binding; ContributionSpec independently validates neutral authority.
-pub fn output_profile(name: &str, binding: Option<&CapturedProducerBinding>, attempt: Profile) -> super::completed::OutputProfile {
+pub fn output_profile(
+    name: &str,
+    binding: Option<&CapturedProducerBinding>,
+    attempt: Profile,
+) -> super::completed::OutputProfile {
     use super::completed::OutputProfile;
     if let Some(binding) = binding
-        && !matches!(binding.context_dependency, CapturedContextDependency::ConservativeFullContext)
-        && facts::facts().iter().any(|contract| contract.name == name
-            && contract.identity() == binding.contract && contract.output_profile == OutputProfilePolicy::Neutral) {
+        && !matches!(
+            binding.context_dependency,
+            CapturedContextDependency::ConservativeFullContext
+        )
+        && facts::facts().iter().any(|contract| {
+            contract.name == name
+                && contract.identity() == binding.contract
+                && contract.output_profile == OutputProfilePolicy::Neutral
+        })
+    {
         OutputProfile::Neutral
-    } else { OutputProfile::Specific(attempt) }
+    } else {
+        OutputProfile::Specific(attempt)
+    }
 }

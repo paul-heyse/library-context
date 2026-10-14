@@ -123,6 +123,14 @@ fn seed_grant(view: ContentHash, node: &RecordId) -> Value {
     row.insert("node", node.clone());
     Value::Object(row)
 }
+pub struct SelectedPayloadRead<'a> {
+    pub table: &'a str,
+    pub predicate: &'a str,
+    pub bindings: Variables,
+    pub preparation: Vec<String>,
+    pub order: &'a str,
+    pub limit: Option<usize>,
+}
 #[derive(Clone)]
 pub struct SelectedPayloads {
     exact: Option<Arc<CanonicalSelection>>,
@@ -870,7 +878,7 @@ impl SelectedPayloads {
                 "canonical selection requires protected exact installed views",
             ));
         }
-        let mut nodes = SortedRows::with_budget(&budget)?;
+        let mut nodes = SortedRows::with_budget(budget)?;
         let mut has_entities = false;
         for roots in roots.chunks(WINDOW) {
             let mut charge = StateCharge::new(budget, "selected-root-window");
@@ -993,25 +1001,30 @@ impl SelectedPayloads {
         limit: Option<usize>,
     ) -> Result<NativeRows, ModelError> {
         self.rows_with_budget(
+            SelectedPayloadRead {
+                table,
+                predicate,
+                bindings,
+                preparation,
+                order,
+                limit,
+            },
+            &self.budget,
+        )
+    }
+    pub fn rows_with_budget(
+        &self,
+        demand: SelectedPayloadRead<'_>,
+        budget: &ResourceBudget,
+    ) -> Result<NativeRows, ModelError> {
+        let SelectedPayloadRead {
             table,
             predicate,
             bindings,
             preparation,
             order,
             limit,
-            &self.budget,
-        )
-    }
-    pub fn rows_with_budget(
-        &self,
-        table: &str,
-        predicate: &str,
-        bindings: Variables,
-        preparation: Vec<String>,
-        order: &str,
-        limit: Option<usize>,
-        budget: &ResourceBudget,
-    ) -> Result<NativeRows, ModelError> {
+        } = demand;
         if !matches!(table, "entity" | "assertion" | "compiler_record") {
             return Err(ModelError::Schema("selected payload table"));
         }
@@ -2232,6 +2245,375 @@ impl SelectedPayloads {
     }
 }
 
+fn selected_references(
+    inventory: &crate::completed_state::InstalledViewInventory,
+    requested: &[ContentHash],
+    budget: &ResourceBudget,
+) -> Result<(Vec<crate::completed_state::InstalledViewRef>, StateCharge), ModelError> {
+    if requested.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(ModelError::Conflict(
+            "published exact requested view order/duplicate",
+        ));
+    }
+    let mut charge = StateCharge::new(budget, "published exact selected view references");
+    charge.grow(
+        requested
+            .len()
+            .saturating_mul(std::mem::size_of::<crate::completed_state::InstalledViewRef>()),
+    )?;
+    let mut references = Vec::with_capacity(requested.len());
+    for view in requested {
+        let reference = inventory.view(*view)?;
+        charge.grow(
+            serde_json::to_vec(reference)
+                .map_err(ModelError::codec)?
+                .len()
+                .saturating_mul(8)
+                .saturating_add(1024),
+        )?;
+        references.push(reference.clone());
+    }
+    Ok((references, charge))
+}
+async fn snapshot_row(
+    source: &SelectionSource,
+    id: RecordId,
+    expected: &Value,
+) -> Result<(), ModelError> {
+    let mut vars = Variables::new();
+    vars.insert("record", id);
+    let mut found = false;
+    consume(source, "SELECT * FROM $record".into(), vars, |row| {
+        if found || row != expected {
+            return Err(ModelError::Conflict(
+                "published transaction exact witness bytes",
+            ));
+        }
+        found = true;
+        Ok(())
+    })
+    .await?;
+    if !found {
+        return Err(ModelError::Conflict(
+            "published transaction witness missing",
+        ));
+    }
+    Ok(())
+}
+async fn snapshot_incarnation(
+    source: &SelectionSource,
+    id: &RecordId,
+    incarnation: i64,
+) -> Result<(), ModelError> {
+    let mut vars = Variables::new();
+    vars.insert(
+        "guard",
+        crate::control::guard_id(&Value::RecordId(id.clone()))?,
+    );
+    let mut found = false;
+    consume(
+        source,
+        "SELECT phase,incarnation FROM $guard".into(),
+        vars,
+        |row| {
+            if found
+                || row.as_object().and_then(|row| row.get("phase"))
+                    != Some(&Value::String("active".into()))
+                || row.as_object().and_then(|row| row.get("incarnation"))
+                    != Some(&incarnation.into_value())
+            {
+                return Err(ModelError::Conflict(
+                    "published transaction exact witness incarnation",
+                ));
+            }
+            found = true;
+            Ok(())
+        },
+    )
+    .await?;
+    if !found {
+        return Err(ModelError::Conflict(
+            "published transaction witness guard missing",
+        ));
+    }
+    Ok(())
+}
+async fn snapshot_holds(
+    source: &SelectionSource,
+    pairs: &[(RecordId, RecordId)],
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    for pairs in pairs.chunks(WINDOW) {
+        let mut charge = StateCharge::new(budget, "snapshot exact hold correspondence");
+        let mut expected = BTreeMap::new();
+        for (owner, object) in pairs {
+            charge.grow(
+                node_bytes(owner)
+                    .saturating_add(node_bytes(object))
+                    .saturating_mul(6)
+                    .saturating_add(512),
+            )?;
+            expected.insert(
+                crate::control::hold_record_id(owner, object)?,
+                (owner, object),
+            );
+        }
+        let mut vars = Variables::new();
+        vars.insert("holds", expected.keys().cloned().collect::<Vec<_>>());
+        let mut seen = BTreeSet::new();
+        consume(source, "SELECT * FROM $holds".into(), vars, |row| {
+            let address = id(&row)?;
+            let Some((owner, object)) = expected.get(&address) else {
+                return Err(ModelError::Conflict(
+                    "snapshot foreign or noncanonical hold",
+                ));
+            };
+            let fields = row
+                .as_object()
+                .ok_or(ModelError::Schema("snapshot hold object"))?;
+            if !seen.insert(address)
+                || fields.len() != 3
+                || fields.get("owner") != Some(&Value::RecordId((*owner).clone()))
+                || fields.get("object") != Some(&Value::RecordId((*object).clone()))
+            {
+                return Err(ModelError::Conflict(
+                    "snapshot hold duplicate or mismatched incidence",
+                ));
+            }
+            Ok(())
+        })
+        .await?;
+        if seen.len() != expected.len() {
+            return Err(ModelError::Conflict("snapshot required hold missing"));
+        }
+    }
+    Ok(())
+}
+async fn snapshot_hold(
+    source: &SelectionSource,
+    owner: &RecordId,
+    object: &RecordId,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    snapshot_holds(source, &[(owner.clone(), object.clone())], budget).await
+}
+async fn check_publication_snapshot(
+    source: &SelectionSource,
+    completed: &crate::completed_state::PublishedCompletedState,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let marker = completed.marker();
+    let data = completed.completion();
+    let identity = data.identity()?;
+    let Some(Value::RecordId(publication)) = marker.get("id") else {
+        return Err(ModelError::Schema("published transaction marker id"));
+    };
+    snapshot_row(source, publication.clone(), &Value::Object(marker.clone())).await?;
+    snapshot_row(source, data.record()?, &data.value(true)?).await?;
+    snapshot_incarnation(source, &data.record()?, completed.incarnation()).await?;
+    let admission = completed.admission();
+    snapshot_row(source, admission.record()?, &admission.value()?).await?;
+    snapshot_incarnation(
+        source,
+        &admission.record()?,
+        completed.admission_incarnation(),
+    )
+    .await?;
+    snapshot_hold(source, &admission.record()?, &data.record()?, budget).await?;
+    let Some(Value::RecordId(root)) = marker.get("staging_root") else {
+        return Err(ModelError::Schema("published transaction root"));
+    };
+    let Some(Value::Number(surrealdb::types::Number::Int(root_inc))) =
+        marker.get("staging_incarnation")
+    else {
+        return Err(ModelError::Schema("published transaction root incarnation"));
+    };
+    snapshot_incarnation(source, root, *root_inc).await?;
+    snapshot_hold(source, publication, root, budget).await?;
+    snapshot_hold(source, root, &data.record()?, budget).await?;
+    snapshot_hold(source, root, &admission.record()?, budget).await?;
+    let mut vars = Variables::new();
+    vars.insert("generation", data.generation.hex());
+    vars.insert("epoch", data.validity_epoch);
+    let mut found = false;
+    consume(source,"SELECT id FROM native_installation:current WHERE generation=$generation AND validity_epoch=$epoch".into(),vars,|_|{if found{return Err(ModelError::Conflict("snapshot installation duplicate"));}found=true;Ok(())}).await?;
+    if !found {
+        return Err(ModelError::Conflict(
+            "published transaction current validity epoch",
+        ));
+    }
+    let mut hasher = crate::completed_state::RealizationHasher::default();
+    let mut seen = 0usize;
+    let mut vars = Variables::new();
+    vars.insert("completion", data.record()?);
+    consume(source,"SELECT * FROM native_completed_view WITH INDEX completion_view WHERE completion=$completion ORDER BY logical_view,id".into(),vars,|row|{
+        let reference=crate::completed_state::InstalledViewRef::from_row(&row,identity)?;hasher.row(&reference)?;
+        if completed.inventory().references().get(seen)!=Some(&reference){return Err(ModelError::Conflict("published transaction exact complete inventory"));}seen+=1;Ok(())
+    }).await?;
+    if seen != completed.inventory().references().len()
+        || hasher.finish() != data.realization_inventory
+    {
+        return Err(ModelError::Conflict(
+            "published transaction inventory actual EOF",
+        ));
+    }
+    let mut contributor_hasher = crate::completed_state::ContributorHasher::default();
+    let mut copy_count = 0usize;
+    let mut vars = Variables::new();
+    vars.insert("completion", data.record()?);
+    consume(source,"SELECT * FROM native_completed_contributor WITH INDEX completion_contributor WHERE completion=$completion ORDER BY physical,id".into(),vars,|row|{
+        let copy=crate::completed_state::ContributorCopy::from_row(&row,identity)?;
+        if completed.inventory().copies().get(&copy.physical)!=Some(&copy){return Err(ModelError::Conflict("snapshot compound contributor full inventory"));}
+        contributor_hasher.row(&copy)?;copy_count+=1;Ok(())
+    }).await?;
+    if copy_count != completed.inventory().copies().len()
+        || contributor_hasher.finish() != data.contributor_inventory
+    {
+        return Err(ModelError::Conflict(
+            "snapshot compound contributor EOF/digest",
+        ));
+    }
+    let mut hold_charge = StateCharge::new(budget, "snapshot compound exact hold premises");
+    let mut pairs = Vec::new();
+    for reference in completed.inventory().references() {
+        let child = reference.record(identity);
+        hold_charge.grow(node_bytes(&child).saturating_mul(4).saturating_add(512))?;
+        pairs.push((data.record()?, child));
+    }
+    hold_charge.grow(
+        completed
+            .inventory()
+            .copies()
+            .len()
+            .saturating_mul(std::mem::size_of::<&crate::completed_state::ContributorCopy>()),
+    )?;
+    let physical = completed.inventory().copies().values().collect::<Vec<_>>();
+    for copies in physical.chunks(WINDOW) {
+        let mut observed = BTreeMap::new();
+        let mut guards = BTreeMap::new();
+        let mut charge = StateCharge::new(budget, "snapshot contributor physical correspondence");
+        for copy in copies {
+            let owner = RecordId::new("compiler_contribution", copy.physical.hex());
+            charge.grow(node_bytes(&owner).saturating_mul(10).saturating_add(1024))?;
+            observed.insert(owner.clone(), *copy);
+            guards.insert(
+                crate::control::guard_id(&Value::RecordId(owner.clone()))?,
+                copy.incarnation,
+            );
+            hold_charge.grow(node_bytes(&owner).saturating_mul(8).saturating_add(1024))?;
+            pairs.push((data.record()?, copy.record(identity)));
+            pairs.push((data.record()?, owner));
+        }
+        let mut vars = Variables::new();
+        vars.insert("contributors", observed.keys().cloned().collect::<Vec<_>>());
+        let mut seen = BTreeSet::new();
+        consume(source, "SELECT * FROM $contributors".into(), vars, |row| {
+            let owner = id(&row)?;
+            let copy = observed
+                .get(&owner)
+                .ok_or(ModelError::Conflict("snapshot foreign contributor"))?;
+            if !seen.insert(owner) {
+                return Err(ModelError::Conflict("snapshot duplicate contributor"));
+            }
+            let _scratch = budget.reserve(
+                "snapshot selected contributor decode",
+                crate::loader::native_bytes(&row)
+                    .saturating_mul(32)
+                    .saturating_add(65536),
+            )?;
+            crate::completed_rows::validate_state_row("compiler_contribution", &row)?;
+            if crate::installed_view::audit::descriptor::<
+                lctx_model::domain::completed::CompletedContribution,
+            >(&row)?
+                != copy.descriptor
+            {
+                return Err(ModelError::Conflict(
+                    "snapshot selected contributor full descriptor",
+                ));
+            }
+            Ok(())
+        })
+        .await?;
+        if seen.len() != observed.len() {
+            return Err(ModelError::Conflict("snapshot contributor missing"));
+        }
+        let mut vars = Variables::new();
+        vars.insert("guards", guards.keys().cloned().collect::<Vec<_>>());
+        let mut seen = BTreeSet::new();
+        consume(
+            source,
+            "SELECT id,phase,incarnation FROM $guards".into(),
+            vars,
+            |row| {
+                let guard = id(&row)?;
+                let expected = guards
+                    .get(&guard)
+                    .ok_or(ModelError::Conflict("snapshot foreign contributor guard"))?;
+                let fields = row
+                    .as_object()
+                    .ok_or(ModelError::Schema("snapshot guard object"))?;
+                if !seen.insert(guard)
+                    || fields.get("phase") != Some(&Value::String("active".into()))
+                    || fields.get("incarnation") != Some(&(*expected).into_value())
+                {
+                    return Err(ModelError::Conflict(
+                        "snapshot contributor guard duplicate/inactive/incarnation",
+                    ));
+                }
+                Ok(())
+            },
+        )
+        .await?;
+        if seen.len() != guards.len() {
+            return Err(ModelError::Conflict("snapshot contributor guard missing"));
+        }
+    }
+    snapshot_holds(source, &pairs, budget).await?;
+    let mut bindings = Vec::new();
+    let mut vars = Variables::new();
+    vars.insert("completion", data.record()?);
+    let mut charge = StateCharge::new(budget, "snapshot exact canonical binding inventory");
+    consume(source,"SELECT object AS id FROM native_hold WITH INDEX owner_holds WHERE owner=$completion AND record::table(object)='compiler_binding_descriptor' ORDER BY object".into(),vars,|row|{
+        let address=id(&row)?;charge.grow(node_bytes(&address).saturating_mul(2).saturating_add(128))?;bindings.push(address);Ok(())
+    }).await?;
+    if bindings.len() != completed.inventory().bindings().len() {
+        return Err(ModelError::Conflict("snapshot complete binding hold EOF"));
+    }
+    for binding in completed.inventory().bindings() {
+        let id = crate::binding_descriptor::record(binding)?;
+        if !bindings.contains(&id) {
+            return Err(ModelError::Conflict(
+                "snapshot missing canonical binding hold",
+            ));
+        }
+        snapshot_row(
+            source,
+            id.clone(),
+            &crate::binding_descriptor::value(binding)?,
+        )
+        .await?;
+        snapshot_incarnation(
+            source,
+            &id,
+            completed
+                .inventory()
+                .binding_incarnation(binding.descriptor_identity()?)?,
+        )
+        .await?;
+        snapshot_hold(
+            source,
+            &id,
+            &RecordId::new("compiler_view", binding.view.identity.hex()),
+            budget,
+        )
+        .await?;
+    }
+    // The marker comparison is repeated under the same snapshot; external capability
+    // liveness is checked again before any prepared selection escapes this constructor.
+    snapshot_row(source, publication.clone(), &Value::Object(marker.clone())).await?;
+    completed.retained_reader().ensure_scope_live()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2442,7 +2824,7 @@ mod tests {
                             && nodes.as_ref().is_none_or(|nodes| nodes.contains(node))
                             && vars
                                 .get("relation")
-                                .is_none_or(|value| value == &Value::String(relation.into()))
+                                .is_none_or(|value| value == Value::String(relation.into()))
                             && keys
                                 .as_ref()
                                 .is_none_or(|keys| keys.iter().any(|candidate| candidate == key))
@@ -3349,9 +3731,9 @@ mod tests {
                             } else {
                                 true
                             };
-                            let relation_matches = vars.get("relation").is_none_or(|value| {
-                                value == &Value::String(source_relation.into())
-                            });
+                            let relation_matches = vars
+                                .get("relation")
+                                .is_none_or(|value| value == Value::String(source_relation.into()));
                             if admitted && hit && relation_matches {
                                 vec![test_membership(
                                     view,
@@ -3849,373 +4231,4 @@ mod tests {
             assert_eq!(budget.reserved(), 0);
         }
     }
-}
-
-fn selected_references(
-    inventory: &crate::completed_state::InstalledViewInventory,
-    requested: &[ContentHash],
-    budget: &ResourceBudget,
-) -> Result<(Vec<crate::completed_state::InstalledViewRef>, StateCharge), ModelError> {
-    if requested.windows(2).any(|pair| pair[0] >= pair[1]) {
-        return Err(ModelError::Conflict(
-            "published exact requested view order/duplicate",
-        ));
-    }
-    let mut charge = StateCharge::new(budget, "published exact selected view references");
-    charge.grow(
-        requested
-            .len()
-            .saturating_mul(std::mem::size_of::<crate::completed_state::InstalledViewRef>()),
-    )?;
-    let mut references = Vec::with_capacity(requested.len());
-    for view in requested {
-        let reference = inventory.view(*view)?;
-        charge.grow(
-            serde_json::to_vec(reference)
-                .map_err(ModelError::codec)?
-                .len()
-                .saturating_mul(8)
-                .saturating_add(1024),
-        )?;
-        references.push(reference.clone());
-    }
-    Ok((references, charge))
-}
-async fn snapshot_row(
-    source: &SelectionSource,
-    id: RecordId,
-    expected: &Value,
-) -> Result<(), ModelError> {
-    let mut vars = Variables::new();
-    vars.insert("record", id);
-    let mut found = false;
-    consume(source, "SELECT * FROM $record".into(), vars, |row| {
-        if found || &row != expected {
-            return Err(ModelError::Conflict(
-                "published transaction exact witness bytes",
-            ));
-        }
-        found = true;
-        Ok(())
-    })
-    .await?;
-    if !found {
-        return Err(ModelError::Conflict(
-            "published transaction witness missing",
-        ));
-    }
-    Ok(())
-}
-async fn snapshot_incarnation(
-    source: &SelectionSource,
-    id: &RecordId,
-    incarnation: i64,
-) -> Result<(), ModelError> {
-    let mut vars = Variables::new();
-    vars.insert(
-        "guard",
-        crate::control::guard_id(&Value::RecordId(id.clone()))?,
-    );
-    let mut found = false;
-    consume(
-        source,
-        "SELECT phase,incarnation FROM $guard".into(),
-        vars,
-        |row| {
-            if found
-                || row.as_object().and_then(|row| row.get("phase"))
-                    != Some(&Value::String("active".into()))
-                || row.as_object().and_then(|row| row.get("incarnation"))
-                    != Some(&incarnation.into_value())
-            {
-                return Err(ModelError::Conflict(
-                    "published transaction exact witness incarnation",
-                ));
-            }
-            found = true;
-            Ok(())
-        },
-    )
-    .await?;
-    if !found {
-        return Err(ModelError::Conflict(
-            "published transaction witness guard missing",
-        ));
-    }
-    Ok(())
-}
-async fn snapshot_holds(
-    source: &SelectionSource,
-    pairs: &[(RecordId, RecordId)],
-    budget: &ResourceBudget,
-) -> Result<(), ModelError> {
-    for pairs in pairs.chunks(WINDOW) {
-        let mut charge = StateCharge::new(budget, "snapshot exact hold correspondence");
-        let mut expected = BTreeMap::new();
-        for (owner, object) in pairs {
-            charge.grow(
-                node_bytes(owner)
-                    .saturating_add(node_bytes(object))
-                    .saturating_mul(6)
-                    .saturating_add(512),
-            )?;
-            expected.insert(
-                crate::control::hold_record_id(owner, object)?,
-                (owner, object),
-            );
-        }
-        let mut vars = Variables::new();
-        vars.insert("holds", expected.keys().cloned().collect::<Vec<_>>());
-        let mut seen = BTreeSet::new();
-        consume(source, "SELECT * FROM $holds".into(), vars, |row| {
-            let address = id(&row)?;
-            let Some((owner, object)) = expected.get(&address) else {
-                return Err(ModelError::Conflict(
-                    "snapshot foreign or noncanonical hold",
-                ));
-            };
-            let fields = row
-                .as_object()
-                .ok_or(ModelError::Schema("snapshot hold object"))?;
-            if !seen.insert(address)
-                || fields.len() != 3
-                || fields.get("owner") != Some(&Value::RecordId((*owner).clone()))
-                || fields.get("object") != Some(&Value::RecordId((*object).clone()))
-            {
-                return Err(ModelError::Conflict(
-                    "snapshot hold duplicate or mismatched incidence",
-                ));
-            }
-            Ok(())
-        })
-        .await?;
-        if seen.len() != expected.len() {
-            return Err(ModelError::Conflict("snapshot required hold missing"));
-        }
-    }
-    Ok(())
-}
-async fn snapshot_hold(
-    source: &SelectionSource,
-    owner: &RecordId,
-    object: &RecordId,
-    budget: &ResourceBudget,
-) -> Result<(), ModelError> {
-    snapshot_holds(source, &[(owner.clone(), object.clone())], budget).await
-}
-async fn check_publication_snapshot(
-    source: &SelectionSource,
-    completed: &crate::completed_state::PublishedCompletedState,
-    budget: &ResourceBudget,
-) -> Result<(), ModelError> {
-    let marker = completed.marker();
-    let data = completed.completion();
-    let identity = data.identity()?;
-    let Some(Value::RecordId(publication)) = marker.get("id") else {
-        return Err(ModelError::Schema("published transaction marker id"));
-    };
-    snapshot_row(source, publication.clone(), &Value::Object(marker.clone())).await?;
-    snapshot_row(source, data.record()?, &data.value(true)?).await?;
-    snapshot_incarnation(source, &data.record()?, completed.incarnation()).await?;
-    let admission = completed.admission();
-    snapshot_row(source, admission.record()?, &admission.value()?).await?;
-    snapshot_incarnation(
-        source,
-        &admission.record()?,
-        completed.admission_incarnation(),
-    )
-    .await?;
-    snapshot_hold(source, &admission.record()?, &data.record()?, budget).await?;
-    let Some(Value::RecordId(root)) = marker.get("staging_root") else {
-        return Err(ModelError::Schema("published transaction root"));
-    };
-    let Some(Value::Number(surrealdb::types::Number::Int(root_inc))) =
-        marker.get("staging_incarnation")
-    else {
-        return Err(ModelError::Schema("published transaction root incarnation"));
-    };
-    snapshot_incarnation(source, root, *root_inc).await?;
-    snapshot_hold(source, publication, root, budget).await?;
-    snapshot_hold(source, root, &data.record()?, budget).await?;
-    snapshot_hold(source, root, &admission.record()?, budget).await?;
-    let mut vars = Variables::new();
-    vars.insert("generation", data.generation.hex());
-    vars.insert("epoch", data.validity_epoch);
-    let mut found = false;
-    consume(source,"SELECT id FROM native_installation:current WHERE generation=$generation AND validity_epoch=$epoch".into(),vars,|_|{if found{return Err(ModelError::Conflict("snapshot installation duplicate"));}found=true;Ok(())}).await?;
-    if !found {
-        return Err(ModelError::Conflict(
-            "published transaction current validity epoch",
-        ));
-    }
-    let mut hasher = crate::completed_state::RealizationHasher::default();
-    let mut seen = 0usize;
-    let mut vars = Variables::new();
-    vars.insert("completion", data.record()?);
-    consume(source,"SELECT * FROM native_completed_view WITH INDEX completion_view WHERE completion=$completion ORDER BY logical_view,id".into(),vars,|row|{
-        let reference=crate::completed_state::InstalledViewRef::from_row(&row,identity)?;hasher.row(&reference)?;
-        if completed.inventory().references().get(seen)!=Some(&reference){return Err(ModelError::Conflict("published transaction exact complete inventory"));}seen+=1;Ok(())
-    }).await?;
-    if seen != completed.inventory().references().len()
-        || hasher.finish() != data.realization_inventory
-    {
-        return Err(ModelError::Conflict(
-            "published transaction inventory actual EOF",
-        ));
-    }
-    let mut contributor_hasher = crate::completed_state::ContributorHasher::default();
-    let mut copy_count = 0usize;
-    let mut vars = Variables::new();
-    vars.insert("completion", data.record()?);
-    consume(source,"SELECT * FROM native_completed_contributor WITH INDEX completion_contributor WHERE completion=$completion ORDER BY physical,id".into(),vars,|row|{
-        let copy=crate::completed_state::ContributorCopy::from_row(&row,identity)?;
-        if completed.inventory().copies().get(&copy.physical)!=Some(&copy){return Err(ModelError::Conflict("snapshot compound contributor full inventory"));}
-        contributor_hasher.row(&copy)?;copy_count+=1;Ok(())
-    }).await?;
-    if copy_count != completed.inventory().copies().len()
-        || contributor_hasher.finish() != data.contributor_inventory
-    {
-        return Err(ModelError::Conflict(
-            "snapshot compound contributor EOF/digest",
-        ));
-    }
-    let mut hold_charge = StateCharge::new(budget, "snapshot compound exact hold premises");
-    let mut pairs = Vec::new();
-    for reference in completed.inventory().references() {
-        let child = reference.record(identity);
-        hold_charge.grow(node_bytes(&child).saturating_mul(4).saturating_add(512))?;
-        pairs.push((data.record()?, child));
-    }
-    hold_charge.grow(
-        completed
-            .inventory()
-            .copies()
-            .len()
-            .saturating_mul(std::mem::size_of::<&crate::completed_state::ContributorCopy>()),
-    )?;
-    let physical = completed.inventory().copies().values().collect::<Vec<_>>();
-    for copies in physical.chunks(WINDOW) {
-        let mut observed = BTreeMap::new();
-        let mut guards = BTreeMap::new();
-        let mut charge = StateCharge::new(budget, "snapshot contributor physical correspondence");
-        for copy in copies {
-            let owner = RecordId::new("compiler_contribution", copy.physical.hex());
-            charge.grow(node_bytes(&owner).saturating_mul(10).saturating_add(1024))?;
-            observed.insert(owner.clone(), *copy);
-            guards.insert(
-                crate::control::guard_id(&Value::RecordId(owner.clone()))?,
-                copy.incarnation,
-            );
-            hold_charge.grow(node_bytes(&owner).saturating_mul(8).saturating_add(1024))?;
-            pairs.push((data.record()?, copy.record(identity)));
-            pairs.push((data.record()?, owner));
-        }
-        let mut vars = Variables::new();
-        vars.insert("contributors", observed.keys().cloned().collect::<Vec<_>>());
-        let mut seen = BTreeSet::new();
-        consume(source, "SELECT * FROM $contributors".into(), vars, |row| {
-            let owner = id(&row)?;
-            let copy = observed
-                .get(&owner)
-                .ok_or(ModelError::Conflict("snapshot foreign contributor"))?;
-            if !seen.insert(owner) {
-                return Err(ModelError::Conflict("snapshot duplicate contributor"));
-            }
-            let _scratch = budget.reserve(
-                "snapshot selected contributor decode",
-                crate::loader::native_bytes(&row)
-                    .saturating_mul(32)
-                    .saturating_add(65536),
-            )?;
-            crate::completed_rows::validate_state_row("compiler_contribution", &row)?;
-            if crate::installed_view::audit::descriptor::<
-                lctx_model::domain::completed::CompletedContribution,
-            >(&row)?
-                != copy.descriptor
-            {
-                return Err(ModelError::Conflict(
-                    "snapshot selected contributor full descriptor",
-                ));
-            }
-            Ok(())
-        })
-        .await?;
-        if seen.len() != observed.len() {
-            return Err(ModelError::Conflict("snapshot contributor missing"));
-        }
-        let mut vars = Variables::new();
-        vars.insert("guards", guards.keys().cloned().collect::<Vec<_>>());
-        let mut seen = BTreeSet::new();
-        consume(
-            source,
-            "SELECT id,phase,incarnation FROM $guards".into(),
-            vars,
-            |row| {
-                let guard = id(&row)?;
-                let expected = guards
-                    .get(&guard)
-                    .ok_or(ModelError::Conflict("snapshot foreign contributor guard"))?;
-                let fields = row
-                    .as_object()
-                    .ok_or(ModelError::Schema("snapshot guard object"))?;
-                if !seen.insert(guard)
-                    || fields.get("phase") != Some(&Value::String("active".into()))
-                    || fields.get("incarnation") != Some(&(*expected).into_value())
-                {
-                    return Err(ModelError::Conflict(
-                        "snapshot contributor guard duplicate/inactive/incarnation",
-                    ));
-                }
-                Ok(())
-            },
-        )
-        .await?;
-        if seen.len() != guards.len() {
-            return Err(ModelError::Conflict("snapshot contributor guard missing"));
-        }
-    }
-    snapshot_holds(source, &pairs, budget).await?;
-    let mut bindings = Vec::new();
-    let mut vars = Variables::new();
-    vars.insert("completion", data.record()?);
-    let mut charge = StateCharge::new(budget, "snapshot exact canonical binding inventory");
-    consume(source,"SELECT object AS id FROM native_hold WITH INDEX owner_holds WHERE owner=$completion AND record::table(object)='compiler_binding_descriptor' ORDER BY object".into(),vars,|row|{
-        let address=id(&row)?;charge.grow(node_bytes(&address).saturating_mul(2).saturating_add(128))?;bindings.push(address);Ok(())
-    }).await?;
-    if bindings.len() != completed.inventory().bindings().len() {
-        return Err(ModelError::Conflict("snapshot complete binding hold EOF"));
-    }
-    for binding in completed.inventory().bindings() {
-        let id = crate::binding_descriptor::record(binding)?;
-        if !bindings.contains(&id) {
-            return Err(ModelError::Conflict(
-                "snapshot missing canonical binding hold",
-            ));
-        }
-        snapshot_row(
-            source,
-            id.clone(),
-            &crate::binding_descriptor::value(binding)?,
-        )
-        .await?;
-        snapshot_incarnation(
-            source,
-            &id,
-            completed
-                .inventory()
-                .binding_incarnation(binding.descriptor_identity()?)?,
-        )
-        .await?;
-        snapshot_hold(
-            source,
-            &id,
-            &RecordId::new("compiler_view", binding.view.identity.hex()),
-            budget,
-        )
-        .await?;
-    }
-    // The marker comparison is repeated under the same snapshot; external capability
-    // liveness is checked again before any prepared selection escapes this constructor.
-    snapshot_row(source, publication.clone(), &Value::Object(marker.clone())).await?;
-    completed.retained_reader().ensure_scope_live()
 }

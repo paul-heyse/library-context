@@ -6,10 +6,17 @@ use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum DefinitionKey {
-    Table(String), Field(String, String), Index(String, String), Analyzer(String), Function(String),
+    Table(String),
+    Field(String, String),
+    Index(String, String),
+    Analyzer(String),
+    Function(String),
 }
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Group { Database, Table(String) }
+enum Group {
+    Database,
+    Table(String),
+}
 impl DefinitionKey {
     fn group(&self) -> Group {
         match self {
@@ -18,54 +25,103 @@ impl DefinitionKey {
         }
     }
 }
-struct Declaration { key: DefinitionKey, sql: String, index: Option<InstallationIndex> }
-fn prepare(sql: &str) -> Result<Vec<Declaration>, ModelError> {
-    surrealdb_syn::parse(sql).map_err(ModelError::codec)?.expressions.into_iter().map(|mut expression| {
-        let TopLevelExpr::Expr(Expr::Define(definition)) = &mut expression else {
-            return Err(ModelError::Schema("installation declaration grammar"));
-        };
-        let (key, index) = match definition.as_mut() {
-            DefineStatement::Table(value) => (DefinitionKey::Table(value.name.to_sql()), None),
-            DefineStatement::Field(value) => (DefinitionKey::Field(value.what.to_sql(), value.name.to_sql()), None),
-            DefineStatement::Index(value) => {
-                value.concurrently = false;
-                let key = DefinitionKey::Index(value.what.to_sql(), value.name.to_sql());
-                let mut execution = value.clone(); execution.concurrently = true;
-                let label = format!("{} ON {}", value.name.to_sql(), value.what.to_sql());
-                (key, Some(InstallationIndex { execution: execution.to_sql(), information: format!("INFO FOR INDEX {label}"), label }))
-            }
-            DefineStatement::Analyzer(value) => (DefinitionKey::Analyzer(value.name.to_sql()), None),
-            DefineStatement::Function(value) => (DefinitionKey::Function(value.name.to_string()), None),
-            _ => return Err(ModelError::Schema("installation declaration grammar")),
-        };
-        Ok(Declaration { key, sql: expression.to_sql(), index })
-    }).collect()
+struct Declaration {
+    key: DefinitionKey,
+    sql: String,
+    index: Option<InstallationIndex>,
 }
-fn missing<'a>(actual: &BTreeMap<DefinitionKey, String>, desired: &'a [Declaration]) -> Result<Vec<&'a Declaration>, ModelError> {
+fn prepare(sql: &str) -> Result<Vec<Declaration>, ModelError> {
+    surrealdb_syn::parse(sql)
+        .map_err(ModelError::codec)?
+        .expressions
+        .into_iter()
+        .map(|mut expression| {
+            let TopLevelExpr::Expr(Expr::Define(definition)) = &mut expression else {
+                return Err(ModelError::Schema("installation declaration grammar"));
+            };
+            let (key, index) = match definition.as_mut() {
+                DefineStatement::Table(value) => (DefinitionKey::Table(value.name.to_sql()), None),
+                DefineStatement::Field(value) => (
+                    DefinitionKey::Field(value.what.to_sql(), value.name.to_sql()),
+                    None,
+                ),
+                DefineStatement::Index(value) => {
+                    value.concurrently = false;
+                    let key = DefinitionKey::Index(value.what.to_sql(), value.name.to_sql());
+                    let mut execution = value.clone();
+                    execution.concurrently = true;
+                    let label = format!("{} ON {}", value.name.to_sql(), value.what.to_sql());
+                    (
+                        key,
+                        Some(InstallationIndex {
+                            execution: execution.to_sql(),
+                            information: format!("INFO FOR INDEX {label}"),
+                            label,
+                        }),
+                    )
+                }
+                DefineStatement::Analyzer(value) => {
+                    (DefinitionKey::Analyzer(value.name.to_sql()), None)
+                }
+                DefineStatement::Function(value) => {
+                    (DefinitionKey::Function(value.name.to_string()), None)
+                }
+                _ => return Err(ModelError::Schema("installation declaration grammar")),
+            };
+            Ok(Declaration {
+                key,
+                sql: expression.to_sql(),
+                index,
+            })
+        })
+        .collect()
+}
+fn missing<'a>(
+    actual: &BTreeMap<DefinitionKey, String>,
+    desired: &'a [Declaration],
+) -> Result<Vec<&'a Declaration>, ModelError> {
     let mut result = Vec::new();
     let mut names = BTreeMap::new();
     for declaration in desired {
-        if names.insert(&declaration.key, &declaration.sql).is_some_and(|old| old != &declaration.sql) {
-            return Err(ModelError::Conflict("conflicting desired installation declarations"));
+        if names
+            .insert(&declaration.key, &declaration.sql)
+            .is_some_and(|old| old != &declaration.sql)
+        {
+            return Err(ModelError::Conflict(
+                "conflicting desired installation declarations",
+            ));
         }
         match actual.get(&declaration.key) {
-            Some(value) if value != &declaration.sql => return Err(ModelError::Conflict("installed named declaration meaning")),
-            Some(_) => {},
+            Some(value) if value != &declaration.sql => {
+                return Err(ModelError::Conflict("installed named declaration meaning"));
+            }
+            Some(_) => {}
             None => result.push(declaration),
         }
     }
     Ok(result)
 }
-const LEGACY_VECTOR_NEIGHBOR: &str = "DEFINE INDEX neighbor ON vector FIELDS embedding HNSW DIMENSION 1024 DIST COSINE TYPE F32;";
-fn obsolete_vector_neighbor(actual: &BTreeMap<DefinitionKey, String>, blueprint: &str) -> Result<bool, ModelError> {
-    let legacy = prepare(LEGACY_VECTOR_NEIGHBOR)?.pop().ok_or(ModelError::Schema("legacy vector index declaration"))?;
-    if prepare(blueprint)?.iter().any(|declaration| declaration.key == legacy.key) {
+const LEGACY_VECTOR_NEIGHBOR: &str =
+    "DEFINE INDEX neighbor ON vector FIELDS embedding HNSW DIMENSION 1024 DIST COSINE TYPE F32;";
+fn obsolete_vector_neighbor(
+    actual: &BTreeMap<DefinitionKey, String>,
+    blueprint: &str,
+) -> Result<bool, ModelError> {
+    let legacy = prepare(LEGACY_VECTOR_NEIGHBOR)?
+        .pop()
+        .ok_or(ModelError::Schema("legacy vector index declaration"))?;
+    if prepare(blueprint)?
+        .iter()
+        .any(|declaration| declaration.key == legacy.key)
+    {
         return Ok(false);
     }
     match actual.get(&legacy.key) {
         None => Ok(false),
         Some(sql) if *sql == legacy.sql => Ok(true),
-        Some(_) => Err(ModelError::Conflict("obsolete vector index has unexpected named meaning")),
+        Some(_) => Err(ModelError::Conflict(
+            "obsolete vector index has unexpected named meaning",
+        )),
     }
 }
 /// A checked catalog belongs to one retained native session and excluded installation.
@@ -76,11 +132,19 @@ pub struct InstallationCatalog {
 }
 impl InstallationCatalog {
     /// Comparison metadata from this operation's actual capture, never an admission grant.
-    pub fn definitions(&self) -> BTreeSet<String> { self.actual.values().cloned().collect() }
-    pub(crate) fn has_table(&self, name: &str) -> bool { self.actual.contains_key(&DefinitionKey::Table(name.to_owned())) }
+    pub fn definitions(&self) -> BTreeSet<String> {
+        self.actual.values().cloned().collect()
+    }
+    #[cfg(test)]
+    pub(crate) fn has_table(&self, name: &str) -> bool {
+        self.actual
+            .contains_key(&DefinitionKey::Table(name.to_owned()))
+    }
     pub fn check(&self, schema: &str) -> Result<(), ModelError> {
         if !missing(&self.actual, &prepare(schema)?)?.is_empty() {
-            return Err(ModelError::Conflict("required actual installation declarations"));
+            return Err(ModelError::Conflict(
+                "required actual installation declarations",
+            ));
         }
         Ok(())
     }
@@ -88,44 +152,87 @@ impl InstallationCatalog {
     /// A current blueprint that still requires the index never retires it. Once
     /// its numerical consumers migrate, remove precisely the known old index;
     /// a same-name index with different meaning must be investigated first.
-    pub(crate) async fn retire_unneeded_vector_neighbor(&mut self, blueprint: &str) -> Result<(), ModelError> {
-        if !obsolete_vector_neighbor(&self.actual, blueprint)? { return Ok(()); }
-        let result = self.client.query("REMOVE INDEX IF EXISTS neighbor ON vector;").await
-            .and_then(|response| response.check()).map(|_| ()).map_err(write_failure);
+    pub(crate) async fn retire_unneeded_vector_neighbor(
+        &mut self,
+        blueprint: &str,
+    ) -> Result<(), ModelError> {
+        if !obsolete_vector_neighbor(&self.actual, blueprint)? {
+            return Ok(());
+        }
+        let result = self
+            .client
+            .query("REMOVE INDEX IF EXISTS neighbor ON vector;")
+            .await
+            .and_then(|response| response.check())
+            .map(|_| ())
+            .map_err(write_failure);
         let mut completion = lctx_model::domain::completion::Completion::default();
-        let refreshed = self.refresh(&BTreeSet::from([Group::Table("vector".into())])).await;
+        let refreshed = self
+            .refresh(&BTreeSet::from([Group::Table("vector".into())]))
+            .await;
         let reconciled = refreshed.is_ok()
-            && !self.actual.contains_key(&DefinitionKey::Index("vector".into(), "neighbor".into()));
-        completion.step("obsolete vector index independent catalog readback", refreshed);
-        if reconciled { completion.committed("obsolete vector index retired", "neighbor ON vector"); }
+            && !self
+                .actual
+                .contains_key(&DefinitionKey::Index("vector".into(), "neighbor".into()));
+        completion.step(
+            "obsolete vector index independent catalog readback",
+            refreshed,
+        );
+        if reconciled {
+            completion.committed("obsolete vector index retired", "neighbor ON vector");
+        }
         match result {
             Ok(()) if reconciled => lctx_model::domain::completion::complete(Ok(()), completion),
             Err(_) if reconciled => lctx_model::domain::completion::complete(Ok(()), completion),
             Err(error) => lctx_model::domain::completion::complete(Err(error), completion),
-            Ok(()) => lctx_model::domain::completion::complete(Err(ModelError::Conflict("obsolete vector index remains installed")), completion),
+            Ok(()) => lctx_model::domain::completion::complete(
+                Err(ModelError::Conflict(
+                    "obsolete vector index remains installed",
+                )),
+                completion,
+            ),
         }
     }
     async fn info(&self, sql: String) -> Result<Object, ModelError> {
-        let mut response = self.client.query(sql).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+        let mut response = self
+            .client
+            .query(sql)
+            .await
+            .map_err(ModelError::codec)?
+            .check()
+            .map_err(ModelError::codec)?;
         let value: Value = response.take(0).map_err(ModelError::codec)?;
-        let Value::Object(object) = value else { return Err(ModelError::Schema("installation definition inventory")); };
+        let Value::Object(object) = value else {
+            return Err(ModelError::Schema("installation definition inventory"));
+        };
         Ok(object)
     }
     fn ingest(&mut self, object: &Object, groups: &[&str]) -> Result<(), ModelError> {
         for group in groups {
-            let Some(Value::Object(definitions)) = object.get(*group) else { return Err(ModelError::Schema("installation definition group")); };
+            let Some(Value::Object(definitions)) = object.get(*group) else {
+                return Err(ModelError::Schema("installation definition group"));
+            };
             for value in definitions.values() {
-                let Value::String(sql) = value else { return Err(ModelError::Schema("installation definition text")); };
-                for declaration in prepare(sql)? { self.actual.insert(declaration.key, declaration.sql); }
+                let Value::String(sql) = value else {
+                    return Err(ModelError::Schema("installation definition text"));
+                };
+                for declaration in prepare(sql)? {
+                    self.actual.insert(declaration.key, declaration.sql);
+                }
             }
         }
         Ok(())
     }
     pub(super) async fn capture(client: Arc<Surreal<Client>>) -> Result<Self, ModelError> {
-        let mut result = Self { client, actual: BTreeMap::new() };
+        let mut result = Self {
+            client,
+            actual: BTreeMap::new(),
+        };
         let db = result.info("INFO FOR DB".into()).await?;
         result.ingest(&db, &["functions", "analyzers", "tables"])?;
-        let Some(Value::Object(tables)) = db.get("tables") else { return Err(ModelError::Schema("installation table inventory")); };
+        let Some(Value::Object(tables)) = db.get("tables") else {
+            return Err(ModelError::Schema("installation table inventory"));
+        };
         for name in tables.keys() {
             let escaped = name.replace('`', "\\`");
             let table = result.info(format!("INFO FOR TABLE `{escaped}`")).await?;
@@ -147,18 +254,26 @@ impl InstallationCatalog {
     }
     pub async fn install(&mut self, blueprint: &str) -> Result<(), ModelError> {
         let physical = physical_native_definitions(blueprint)?;
-        self.apply(&crate::schema::canonical_schema(), "canonical schema").await?;
+        self.apply(&crate::schema::canonical_schema(), "canonical schema")
+            .await?;
         self.apply(&physical, "native physical definitions").await
     }
     /// Apply missing declarations only. A conflicting existing name refuses before effects.
     /// This method never silently replaces pinned meaning during ordinary installation.
     pub async fn apply(&mut self, schema: &str, phase: &str) -> Result<(), ModelError> {
-        self.apply_observed(schema, phase, std::future::ready, Ok).await
+        self.apply_observed(schema, phase, std::future::ready, Ok)
+            .await
     }
     // Private observations surround real checked DDL and real readiness reads. Controls can
     // discard a local acknowledgement or supply one pending observation without replacing
     // the production installation/reconciliation algorithm or introducing a global policy.
-    async fn apply_observed<C, F, R>(&mut self, schema: &str, phase: &str, mut completion: C, mut readiness: R) -> Result<(), ModelError>
+    async fn apply_observed<C, F, R>(
+        &mut self,
+        schema: &str,
+        phase: &str,
+        mut completion: C,
+        mut readiness: R,
+    ) -> Result<(), ModelError>
     where
         C: FnMut(Result<(), ModelError>) -> F,
         F: std::future::Future<Output = Result<(), ModelError>>,
@@ -168,39 +283,91 @@ impl InstallationCatalog {
         let missing = missing(&self.actual, &declarations)?;
         let mut affected = BTreeSet::new();
         for (window, chunk) in missing.chunks(32).enumerate() {
-            let groups = chunk.iter().map(|item| item.key.group()).collect::<BTreeSet<_>>();
+            let groups = chunk
+                .iter()
+                .map(|item| item.key.group())
+                .collect::<BTreeSet<_>>();
             affected.extend(groups.iter().cloned());
-            let sql = chunk.iter().map(|item| item.index.as_ref().map_or(item.sql.as_str(), |index| index.execution.as_str())).collect::<Vec<_>>().join(";") + ";";
-            let result = self.client.query(sql).await.and_then(|response| response.check()).map(|_| ()).map_err(write_failure);
+            let sql = chunk
+                .iter()
+                .map(|item| {
+                    item.index
+                        .as_ref()
+                        .map_or(item.sql.as_str(), |index| index.execution.as_str())
+                })
+                .collect::<Vec<_>>()
+                .join(";")
+                + ";";
+            let result = self
+                .client
+                .query(sql)
+                .await
+                .and_then(|response| response.check())
+                .map(|_| ())
+                .map_err(write_failure);
             let result = completion(result).await;
             if let Err(error) = result {
-                let primary = installation_failure(format!("{phase} declaration window {}", window + 1), error);
+                let primary = installation_failure(
+                    format!("{phase} declaration window {}", window + 1),
+                    error,
+                );
                 // A lost acknowledgement is resolved against precisely the affected catalog
                 // groups. Partial or differing application remains a failure, never replay.
                 let mut completion = lctx_model::domain::completion::Completion::default();
                 let refreshed = self.refresh(&groups).await;
-                let reconciled = refreshed.is_ok() && chunk.iter().all(|item| self.actual.get(&item.key) == Some(&item.sql));
-                completion.step("targeted declaration acknowledgement reconciliation", refreshed);
-                if !reconciled { return lctx_model::domain::completion::complete(Err(primary), completion); }
+                let reconciled = refreshed.is_ok()
+                    && chunk
+                        .iter()
+                        .all(|item| self.actual.get(&item.key) == Some(&item.sql));
+                completion.step(
+                    "targeted declaration acknowledgement reconciliation",
+                    refreshed,
+                );
+                if !reconciled {
+                    return lctx_model::domain::completion::complete(Err(primary), completion);
+                }
             } else {
-                for item in chunk { self.actual.insert(item.key.clone(), item.sql.clone()); }
+                for item in chunk {
+                    self.actual.insert(item.key.clone(), item.sql.clone());
+                }
             }
         }
         self.refresh(&affected).await?;
-        if declarations.iter().any(|item| self.actual.get(&item.key) != Some(&item.sql)) {
-            return Err(installation_failure(format!("{phase} declaration readback"), ModelError::Conflict("installed native declaration readback")));
+        if declarations
+            .iter()
+            .any(|item| self.actual.get(&item.key) != Some(&item.sql))
+        {
+            return Err(installation_failure(
+                format!("{phase} declaration readback"),
+                ModelError::Conflict("installed native declaration readback"),
+            ));
         }
-        let mut pending = declarations.into_iter().filter_map(|item| item.index).collect::<Vec<_>>();
+        let mut pending = declarations
+            .into_iter()
+            .filter_map(|item| item.index)
+            .collect::<Vec<_>>();
         while !pending.is_empty() {
             let mut remaining = Vec::new();
             for index in pending {
-                let mut response = self.client.query(index.information.clone()).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                let mut response = self
+                    .client
+                    .query(index.information.clone())
+                    .await
+                    .map_err(ModelError::codec)?
+                    .check()
+                    .map_err(ModelError::codec)?;
                 let value: Value = response.take(0).map_err(ModelError::codec)?;
                 let value = readiness(value)?;
-                if !installation_index_ready(&value).map_err(|error| installation_failure(format!("{phase} index {} readiness", index.label), error))? { remaining.push(index); }
+                if !installation_index_ready(&value).map_err(|error| {
+                    installation_failure(format!("{phase} index {} readiness", index.label), error)
+                })? {
+                    remaining.push(index);
+                }
             }
             pending = remaining;
-            if !pending.is_empty() { tokio::time::sleep(std::time::Duration::from_millis(100)).await; }
+            if !pending.is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
         }
         Ok(())
     }
@@ -212,19 +379,31 @@ mod tests {
     #[test]
     fn obsolete_vector_index_requires_exact_old_meaning_and_no_current_consumer() {
         let old = prepare(LEGACY_VECTOR_NEIGHBOR).unwrap();
-        let actual = old.into_iter().map(|declaration| (declaration.key, declaration.sql)).collect();
+        let actual = old
+            .into_iter()
+            .map(|declaration| (declaration.key, declaration.sql))
+            .collect();
         assert!(!obsolete_vector_neighbor(&actual, LEGACY_VECTOR_NEIGHBOR).unwrap());
         assert!(obsolete_vector_neighbor(&actual, "DEFINE TABLE vector SCHEMAFULL;").unwrap());
-        assert!(!obsolete_vector_neighbor(&BTreeMap::new(), "DEFINE TABLE vector SCHEMAFULL;").unwrap());
-        let other = prepare("DEFINE INDEX neighbor ON vector FIELDS embedding;").unwrap()
-            .into_iter().map(|declaration| (declaration.key, declaration.sql)).collect();
+        assert!(
+            !obsolete_vector_neighbor(&BTreeMap::new(), "DEFINE TABLE vector SCHEMAFULL;").unwrap()
+        );
+        let other = prepare("DEFINE INDEX neighbor ON vector FIELDS embedding;")
+            .unwrap()
+            .into_iter()
+            .map(|declaration| (declaration.key, declaration.sql))
+            .collect();
         assert!(obsolete_vector_neighbor(&other, "DEFINE TABLE vector SCHEMAFULL;").is_err());
     }
     #[test]
     fn operation_catalog_refuses_named_drift_before_missing_effects() {
         let original = prepare("DEFINE TABLE t SCHEMAFULL; DEFINE FIELD x ON t TYPE int;").unwrap();
-        let actual = original.into_iter().map(|item| (item.key, item.sql)).collect();
-        let desired = prepare("DEFINE FIELD new ON t TYPE string; DEFINE FIELD x ON t TYPE string;").unwrap();
+        let actual = original
+            .into_iter()
+            .map(|item| (item.key, item.sql))
+            .collect();
+        let desired =
+            prepare("DEFINE FIELD new ON t TYPE string; DEFINE FIELD x ON t TYPE string;").unwrap();
         assert!(missing(&actual, &desired).is_err());
         let equal = prepare("DEFINE TABLE t SCHEMAFULL; DEFINE FIELD x ON t TYPE int;").unwrap();
         assert!(missing(&actual, &equal).unwrap().is_empty());
@@ -238,8 +417,13 @@ mod tests {
         assert!(!original[2].sql.contains("CONCURRENTLY"));
         assert_eq!(original[2].key.group(), Group::Table("a".into()));
     }
-    async fn failed_targeted_refresh_retains_discarded_acknowledgement(config: &crate::RuntimeConfig) -> Result<(), ModelError> {
-        let table = format!("catalog_control_{}", crate::control::fresh_identity("catalog-refresh-failure-control")?.hex());
+    async fn failed_targeted_refresh_retains_discarded_acknowledgement(
+        config: &crate::RuntimeConfig,
+    ) -> Result<(), ModelError> {
+        let table = format!(
+            "catalog_control_{}",
+            crate::control::fresh_identity("catalog-refresh-failure-control")?.hex()
+        );
         // This session alone loses authentication. Cleanup obtains another canonical
         // maintenance session; the surrounding control's client remains authenticated.
         let client = crate::installation::check_installation(config).await?;
@@ -272,17 +456,33 @@ mod tests {
             }
         }.await;
         let mut completion = lctx_model::domain::completion::Completion::default();
-        completion.step("catalog refresh failure session invalidation", client.invalidate().await.map_err(ModelError::codec));
-        completion.step("catalog refresh failure nonce-owned table cleanup", async {
-            let cleanup_client = crate::installation::check_installation(config).await?;
-            let cleanup = async {
-                cleanup_client.query(format!("REMOVE TABLE IF EXISTS {table};")).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
-                Ok(())
-            }.await;
-            let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.step("catalog refresh cleanup session invalidation", cleanup_client.invalidate().await.map_err(ModelError::codec));
-            lctx_model::domain::completion::complete(cleanup, completion)
-        }.await);
+        completion.step(
+            "catalog refresh failure session invalidation",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
+        completion.step(
+            "catalog refresh failure nonce-owned table cleanup",
+            async {
+                let cleanup_client = crate::installation::check_installation(config).await?;
+                let cleanup = async {
+                    cleanup_client
+                        .query(format!("REMOVE TABLE IF EXISTS {table};"))
+                        .await
+                        .map_err(ModelError::codec)?
+                        .check()
+                        .map_err(ModelError::codec)?;
+                    Ok(())
+                }
+                .await;
+                let mut completion = lctx_model::domain::completion::Completion::default();
+                completion.step(
+                    "catalog refresh cleanup session invalidation",
+                    cleanup_client.invalidate().await.map_err(ModelError::codec),
+                );
+                lctx_model::domain::completion::complete(cleanup, completion)
+            }
+            .await,
+        );
         lctx_model::domain::completion::complete(result, completion)
     }
     #[tokio::test(flavor = "multi_thread")]
@@ -293,8 +493,15 @@ mod tests {
         let config = crate::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
         assert_eq!(config.authentication, crate::AuthenticationScope::Root);
         assert_eq!(config.database.as_str(), "validation");
-        let table = format!("catalog_control_{}", crate::control::fresh_identity("catalog-completion-control").unwrap().hex());
-        let client = crate::installation::check_installation(&config).await.unwrap();
+        let table = format!(
+            "catalog_control_{}",
+            crate::control::fresh_identity("catalog-completion-control")
+                .unwrap()
+                .hex()
+        );
+        let client = crate::installation::check_installation(&config)
+            .await
+            .unwrap();
         let result = async {
             let mut response = client.query("SELECT VALUE admission_open FROM ONLY native_installation:current")
                 .await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
@@ -421,10 +628,23 @@ mod tests {
             Ok::<(), ModelError>(())
         }.await;
         let mut completion = lctx_model::domain::completion::Completion::default();
-        completion.step("catalog control nonce-owned table cleanup", async {
-            client.query(format!("REMOVE TABLE IF EXISTS {table};")).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;Ok(())
-        }.await);
-        completion.step("catalog control session invalidation", client.invalidate().await.map_err(ModelError::codec));
+        completion.step(
+            "catalog control nonce-owned table cleanup",
+            async {
+                client
+                    .query(format!("REMOVE TABLE IF EXISTS {table};"))
+                    .await
+                    .map_err(ModelError::codec)?
+                    .check()
+                    .map_err(ModelError::codec)?;
+                Ok(())
+            }
+            .await,
+        );
+        completion.step(
+            "catalog control session invalidation",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
         lctx_model::domain::completion::complete(result, completion).unwrap();
     }
 }

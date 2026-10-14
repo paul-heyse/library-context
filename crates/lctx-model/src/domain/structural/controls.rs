@@ -261,7 +261,12 @@ fn flow(
     out: &mut Output,
     budget: &resources::ResourceBudget,
 ) -> Result<bool, ModelError> {
-    let FlowInputs { d, h, base, prepared } = flow_inputs;
+    let FlowInputs {
+        d,
+        h,
+        base,
+        prepared,
+    } = flow_inputs;
     let attempt = need(&h.attempts, binding.attempt)?;
     let alt = need(&base.events.alternatives, attempt.alternative)?;
     let Some(callee) = alt.entity else {
@@ -332,12 +337,22 @@ fn flow(
     Ok(true)
 }
 /// Only exact Local identity contributions and the canonical effective binder permit following.
-pub fn produce(d: &Data, base: &build::Data, frame: &StructuralFrame, invocation: &owner::Invocation,
-    settings: &AnalyticsConfiguration, out: &mut Output, budget: &resources::ResourceBudget)
-    -> Result<(), ModelError> {
+pub fn produce(
+    d: &Data,
+    base: &build::Data,
+    frame: &StructuralFrame,
+    invocation: &owner::Invocation,
+    settings: &AnalyticsConfiguration,
+    out: &mut Output,
+    budget: &resources::ResourceBudget,
+) -> Result<(), ModelError> {
     let prepared = handoffs::Conditions::new(&base.handoffs, budget)?;
     produce_prepared(d, base, frame, invocation, settings, out, &prepared, budget)
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Independent structural input owners and borrowed conditions retain separate contracts"
+)]
 pub(super) fn produce_prepared(
     d: &Data,
     base: &build::Data,
@@ -384,7 +399,12 @@ pub(super) fn produce_prepared(
                 continue;
             }
             flow(
-                FlowInputs { d, h, base, prepared },
+                FlowInputs {
+                    d,
+                    h,
+                    base,
+                    prepared,
+                },
                 frame,
                 binding,
                 proof,
@@ -395,8 +415,13 @@ pub(super) fn produce_prepared(
         }
         if bound
             && argument.syntax_kind == SyntaxKind::ExprName
-            && let Some((_, alias)) =
-                handoffs::named_definition_prepared(h, argument, invocation.context, &prepared.entry, budget)?
+            && let Some((_, alias)) = handoffs::named_definition_prepared(
+                h,
+                argument,
+                invocation.context,
+                &prepared.entry,
+                budget,
+            )?
             && let handoffs::ValueSource::Named { definition, .. } = &alias
         {
             for proof in d.contributions.iter() {
@@ -408,7 +433,12 @@ pub(super) fn produce_prepared(
                 {
                     out.handoff_values.insert(alias.clone())?;
                     flow(
-                        FlowInputs { d, h, base, prepared },
+                        FlowInputs {
+                            d,
+                            h,
+                            base,
+                            prepared,
+                        },
                         frame,
                         binding,
                         proof,
@@ -516,7 +546,16 @@ pub(super) fn produce_prepared(
         }
     }
     unmapped(d, base, frame, invocation, out)?;
-    traverse(d, base, frame, invocation.context, settings, out, prepared, budget)
+    traverse(
+        d,
+        base,
+        frame,
+        invocation.context,
+        settings,
+        out,
+        prepared,
+        budget,
+    )
 }
 struct State {
     target: Id<EntityRef>,
@@ -529,6 +568,10 @@ impl HeapSize for State {
         self.path.heap_bytes()
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Independent structural input owners and borrowed conditions retain separate contracts"
+)]
 fn traverse(
     d: &Data,
     base: &build::Data,
@@ -766,8 +809,9 @@ fn raises(
                     if (q.context, q.scope) != (entry.context, lq.scope) {
                         continue;
                     }
-                    let condition =
-                        prepared.entry.diagram(need(&h.entry.conditions, q.condition)?)?;
+                    let condition = prepared
+                        .entry
+                        .diagram(need(&h.entry.conditions, q.condition)?)?;
                     if condition.is_false() {
                         continue;
                     }
@@ -839,7 +883,9 @@ fn alias_covers(
         return Ok(false);
     }
     let read = handoffs::named_condition_prepared(h, alias, &prepared.entry, budget)?;
-    let local = prepared.local.diagram(need(&h.local.conditions, local.condition)?)?;
+    let local = prepared
+        .local
+        .diagram(need(&h.local.conditions, local.condition)?)?;
     let covered = read
         .admitted_binary(&local, BooleanOperation::Conjunction, budget)
         .map_err(|e| match e {

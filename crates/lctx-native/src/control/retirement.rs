@@ -285,7 +285,14 @@ pub async fn retire_reachable(
     roots: Vec<RecordId>,
     limit: usize,
 ) -> Result<RetirementProgress, ModelError> {
-    retire_roots_for_owner(client, EffectOwner::Installation, roots, limit, true, true).await
+    retire_roots_for_owner(
+        client,
+        EffectOwner::Installation,
+        roots,
+        limit,
+        RetirementMode::Advance,
+    )
+    .await
 }
 /// The caller durably records this identity before the first effect. It is an address,
 /// not authority: native generation, era and the exact canonical root set are checked
@@ -304,8 +311,7 @@ pub async fn retire_reachable_named(
         Some(expected_generation),
         roots,
         limit,
-        true,
-        true,
+        RetirementMode::Advance,
     )
     .await
 }
@@ -325,18 +331,20 @@ pub(super) async fn retire_terminal_roots(
         EffectOwner::TerminalAttempt(owner),
         roots,
         limit,
-        false,
-        false,
+        RetirementMode::RegisterTerminal,
     )
     .await
+}
+enum RetirementMode {
+    Advance,
+    RegisterTerminal,
 }
 async fn retire_roots_for_owner(
     client: &Surreal<Client>,
     owner: EffectOwner,
     roots: Vec<RecordId>,
     limit: usize,
-    require_admission: bool,
-    advance: bool,
+    mode: RetirementMode,
 ) -> Result<RetirementProgress, ModelError> {
     retire_named_for_owner(
         client,
@@ -345,8 +353,7 @@ async fn retire_roots_for_owner(
         None,
         roots,
         limit,
-        require_admission,
-        advance,
+        mode,
     )
     .await
 }
@@ -357,8 +364,7 @@ async fn retire_named_for_owner(
     expected_generation: Option<ContentHash>,
     mut roots: Vec<RecordId>,
     limit: usize,
-    require_admission: bool,
-    advance: bool,
+    mode: RetirementMode,
 ) -> Result<RetirementProgress, ModelError> {
     if limit == 0 {
         return Err(ModelError::Invalid(
@@ -383,14 +389,14 @@ async fn retire_named_for_owner(
     bindings.insert("issuance", issuance.era);
     bindings.insert("issuance_generation", issuance.generation.hex());
     bindings.insert("root_count", roots.len());
-    bindings.insert("require_admission", require_admission);
+    bindings.insert("require_admission", matches!(mode, RetirementMode::Advance));
     effect_for_owner(client,owner,"IF $__generation!=$issuance_generation OR $__era!=$issuance OR ($require_admission AND !$__admission.admission_open) { THROW 'native retirement issuance changed'; }; fn::native_touch($job); LET $prior=SELECT * FROM ONLY $job FOR UPDATE; IF $prior=NONE { CREATE $job SET generation=$__generation,era=$__era,epoch=$__epoch,root_digest=$root_digest,lineage=$job,state='registering',root_count=$root_count,roots_registered=0,examined=0,retired=0,revision=0 RETURN NONE; } ELSE IF $prior.generation!=$__generation OR $prior.era!=$__era OR $prior.epoch<=0 OR $prior.root_digest!=$root_digest OR $prior.root_count!=$root_count OR $prior.lineage!=$job OR $prior.successor!=NONE OR $prior.state NOT IN ['registering','open','done'] { THROW 'native retirement exact invocation changed'; };",bindings).await.map_err(|error|authorization::lifecycle_error("retirement invocation",identity,issuance,error))?;
     let result = async {
         if record(client, &job).await?.get("state") == Some(&Value::String("done".into())) {
             return progress(client, identity).await;
         }
         register_retirement_roots(client, identity, roots).await?;
-        if advance {
+        if matches!(mode, RetirementMode::Advance) {
             resume_retirement(client, identity, limit).await
         } else {
             progress(client, identity).await

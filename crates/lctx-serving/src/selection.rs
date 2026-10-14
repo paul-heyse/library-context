@@ -2,7 +2,7 @@
 use lctx_model::domain::{
     self, HeapSize, Id, ModelError, Record, ValidationInput, catalog,
     charged::{ChargedSet, ChargedVec, StateCharge},
-    resources::ResourceBudget,
+    resources::{Reservation, ResourceBudget},
     selection,
     serving::*,
 };
@@ -100,16 +100,34 @@ pub struct MemberSelection {
 /// The shared interpretation retains its viewer/pin lease through every request borrow.
 pub struct PreparedSelection(PreparedSelectionOwner);
 enum PreparedSelectionOwner {
-    Fresh(selection::evaluate::Prepared),
+    Fresh {
+        value: Box<selection::evaluate::Prepared>,
+        _allocation: Box<dyn Reservation>,
+    },
     Cached(crate::preparation::PreparedClassification),
 }
 impl std::ops::Deref for PreparedSelection {
     type Target = selection::evaluate::Prepared;
     fn deref(&self) -> &Self::Target {
         match &self.0 {
-            PreparedSelectionOwner::Fresh(value) => value,
+            PreparedSelectionOwner::Fresh { value, .. } => value,
             PreparedSelectionOwner::Cached(value) => value,
         }
+    }
+}
+impl PreparedSelection {
+    fn fresh(
+        value: selection::evaluate::Prepared,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let allocation = budget.reserve(
+            "native-fresh-selection",
+            size_of::<selection::evaluate::Prepared>(),
+        )?;
+        Ok(Self(PreparedSelectionOwner::Fresh {
+            value: Box::new(value),
+            _allocation: allocation,
+        }))
     }
 }
 pub(crate) fn interpret(
@@ -173,7 +191,7 @@ async fn classify_inner(
     } else {
         let fresh = crate::scope::hydrate(reader, request.take_roots(), &inputs, budget).await?;
         request.release_roots();
-        PreparedSelection(PreparedSelectionOwner::Fresh(interpret(&fresh, budget)?))
+        PreparedSelection::fresh(interpret(&fresh, budget)?, budget)?
     };
     let mut selected = prepared.select(selection, budget)?;
     selected
@@ -349,7 +367,7 @@ async fn collect_library_candidates<Context>(
                                 "scope",
                                 format!(
                                     "catalog_members|input|{}",
-                                    lctx_native::prepared::scope_string(&input)
+                                    lctx_native::prepared::scope_string(input)
                                 ),
                             );
                             let mut rows = discovery_rows(
@@ -465,6 +483,44 @@ pub fn member_candidates_sql() -> &'static str {
 #[cfg(test)]
 mod retained_member_tests {
     use super::*;
+    fn empty_prepared(budget: &ResourceBudget) -> selection::evaluate::Prepared {
+        selection::evaluate::Prepared::from_local_rows(
+            selection::classification::ClassificationData::new(budget),
+            selection::build::Output::new(budget),
+            budget,
+        )
+        .unwrap()
+    }
+    #[test]
+    fn fresh_selection_reserves_before_boxing_and_releases_with_its_owner() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let value = empty_prepared(&budget);
+        let bytes = size_of::<selection::evaluate::Prepared>();
+        let retained = budget.reserved();
+        let selected = PreparedSelection::fresh(value, &budget).unwrap();
+        assert_eq!(budget.reserved(), retained + bytes);
+        assert!(selected.data().source.catalog.members.is_empty());
+        drop(selected);
+        assert_eq!(budget.reserved(), 0);
+
+        let value = empty_prepared(&budget);
+        let occupied = budget
+            .reserve(
+                "competing-request-work",
+                budget.limit() - budget.reserved() - bytes + 1,
+            )
+            .unwrap();
+        assert!(matches!(
+            PreparedSelection::fresh(value, &budget),
+            Err(ModelError::Resource {
+                owner: "native-fresh-selection",
+                ..
+            })
+        ));
+        assert_eq!(budget.reserved(), occupied.size());
+        drop(occupied);
+        assert_eq!(budget.reserved(), 0);
+    }
     fn id<R: Record>(byte: u8) -> Id<R> {
         serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
     }

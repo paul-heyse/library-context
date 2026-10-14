@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     installed_view::{self, ContributorRealization, InstalledViewCompletion},
-    ordered_rows::{PreparedRows, SortedRows},
+    ordered_rows::PreparedRows,
 };
 use d::{
     charged::StateCharge,
@@ -161,10 +161,9 @@ pub async fn complete_frozen_content(
     selections: &[ViewSelection],
     budget: &ResourceBudget,
 ) -> Result<NativeCompletedState, ModelError> {
-    let mut audit = installed_view::InstallationAudit::new(client.clone(), budget).await?;
+    let audit = installed_view::InstallationAudit::new(client.clone(), budget).await?;
     let result =
-        complete_frozen_content_scoped(client, fence, bindings, selections, budget, &mut audit)
-            .await;
+        complete_frozen_content_scoped(client, fence, bindings, selections, budget, &audit).await;
     let mut terminal = Completion::default();
     terminal.step("frozen boundary owned audit close", audit.close().await);
     complete(result, terminal)
@@ -196,9 +195,9 @@ pub async fn complete_retained_content(
     selections: &[ViewSelection],
     budget: &ResourceBudget,
 ) -> Result<NativeRetainedState, ModelError> {
-    let mut audit = installed_view::InstallationAudit::new(client.clone(), budget).await?;
+    let audit = installed_view::InstallationAudit::new(client.clone(), budget).await?;
     let result =
-        complete_retained_content_scoped(client, attempt, bindings, selections, budget, &mut audit)
+        complete_retained_content_scoped(client, attempt, bindings, selections, budget, &audit)
             .await;
     let mut terminal = Completion::default();
     terminal.step("retained boundary owned audit close", audit.close().await);
@@ -248,7 +247,7 @@ pub async fn complete_retained_content_scoped(
                         "retained boundary disappeared before pin transfer",
                     ))?;
             if expected.incarnation() != inner.incarnation()
-                || expected.row() != &inner.completion.value(true)?
+                || expected.row() != inner.completion.value(true)?
             {
                 return Err(ModelError::Conflict(
                     "retained boundary changed before pin transfer",
@@ -470,7 +469,7 @@ async fn complete_boundary_content(
             crate::control::inspect_expected_read(&reader, data.record()?, budget).await?;
         if let Some(existing) = existing
             .as_ref()
-            .filter(|expected| expected.row() == &data.value(true).unwrap_or(Value::None))
+            .filter(|expected| expected.row() == data.value(true).unwrap_or(Value::None))
         {
             let inventory = {
                 let phase = crate::phase::Phase::begin("native_compound_inventory_receiving");

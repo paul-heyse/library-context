@@ -2,13 +2,8 @@
 
 use datafusion::prelude::SessionContext;
 use futures::TryStreamExt;
-use lctx_model::domain::{
-    analysis::sources::CompletedInput, charged, resources::ResourceBudget, *,
-};
-use std::{
-    any::TypeId,
-    collections::{BTreeMap, BTreeSet},
-};
+use lctx_model::domain::{charged, resources::ResourceBudget, *};
+use std::collections::{BTreeMap, BTreeSet};
 
 pub fn identifier(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
@@ -2330,7 +2325,7 @@ mod nominal_closure_controls {
             native_domain(
                 &config,
                 &packages,
-                &[unrelated_changed.clone()],
+                std::slice::from_ref(&unrelated_changed),
                 selected.id()
             )
             .await,
@@ -2338,8 +2333,8 @@ mod nominal_closure_controls {
         );
         let absent = native_domain(
             &config,
-            &[unrelated.clone()],
-            &[unrelated_changed.clone()],
+            std::slice::from_ref(&unrelated),
+            std::slice::from_ref(&unrelated_changed),
             selected.id(),
         )
         .await;

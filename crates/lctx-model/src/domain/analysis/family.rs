@@ -125,7 +125,12 @@ macro_rules! analysis_family {
             }
             #[allow(unused_variables,clippy::ptr_arg,reason="Owners without predecessors instantiate an empty repetition")]
             fn predecessor_invocation_inputs(inputs:&mut Vec<ValidationInput>) {$(inputs.push(ValidationInput::of::<super::$predecessor::AnalysisInvocation>(&["id"]));)*}
-            fn allows_uniform_predecessor(kind:crate::domain::analysis::owner::AnalysisOwner)->bool{false $(||Some(kind)==crate::domain::analysis::owner::AnalysisOwner::for_family(stringify!($predecessor)))*}
+            fn allows_uniform_predecessor(kind:crate::domain::analysis::owner::AnalysisOwner)->bool{
+                let predecessors: &[Option<crate::domain::analysis::owner::AnalysisOwner>] = &[
+                    $(crate::domain::analysis::owner::AnalysisOwner::for_family(stringify!($predecessor)),)*
+                ];
+                predecessors.iter().any(|predecessor| *predecessor == Some(kind))
+            }
             #[allow(unused_variables,reason="Owners without predecessors instantiate an empty repetition")]
             fn visit_predecessor_invocation(relation:&str,batch:&arrow_array::RecordBatch,frames:&mut charged::ChargedMap<derivation::RowRef,(Id<InputRevision>,Id<AnalysisContext>)>,charge:&mut charged::StateCharge)->Result<bool,ModelError> {$(if relation==super::$predecessor::AnalysisInvocation::NAME {for row in super::$predecessor::AnalysisInvocation::decode(batch)? {frames.insert(charge,derivation::RowRef::of(row.id()),(row.input,row.context))?;}return Ok(true);})* Ok(false)}
             #[allow(unused_variables,clippy::ptr_arg,reason="Owners without predecessors instantiate an empty repetition")]

@@ -205,6 +205,18 @@ impl Drop for InstalledReaderSetup {
         }
     }
 }
+type DrainCompletion =
+    futures::future::Shared<futures::future::BoxFuture<'static, Result<(), Arc<ModelError>>>>;
+struct SelectionPreparation {
+    budget: lctx_model::domain::resources::ResourceBudget,
+    derivation: Option<lctx_model::domain::ContentHash>,
+    pending: futures::future::Shared<
+        futures::future::BoxFuture<
+            'static,
+            Result<crate::selection::SelectedPayloads, Arc<ModelError>>,
+        >,
+    >,
+}
 struct ReaderScope {
     publication: Option<SnapshotHandle>,
     exact: Option<Arc<ExactViewSelection>>,
@@ -213,18 +225,7 @@ struct ReaderScope {
     _pin: Option<Arc<crate::control::ReaderPin>>,
     release_pin_on_close: bool,
     borrowed: Option<Arc<BorrowedInstalledGuard>>,
-    selection: std::sync::Mutex<
-        Option<(
-            lctx_model::domain::resources::ResourceBudget,
-            Option<lctx_model::domain::ContentHash>,
-            futures::future::Shared<
-                futures::future::BoxFuture<
-                    'static,
-                    Result<crate::selection::SelectedPayloads, Arc<ModelError>>,
-                >,
-            >,
-        )>,
-    >,
+    selection: std::sync::Mutex<Option<SelectionPreparation>>,
 }
 impl ReaderScope {
     fn retain_unknown(&self) {
@@ -263,9 +264,7 @@ struct QueryOperations {
     owns_session: bool,
     session_closed: bool,
     active: usize,
-    drains: Vec<
-        futures::future::Shared<futures::future::BoxFuture<'static, Result<(), Arc<ModelError>>>>,
-    >,
+    drains: Vec<DrainCompletion>,
     closed: bool,
     // Abandoned delivery has a reader-owned terminal receipt, rather than a log-only result.
     abandoned: Vec<Result<(), Arc<ModelError>>>,
@@ -304,10 +303,9 @@ impl QueryLease {
         if outcome
             .as_ref()
             .is_err_and(|error| !error.permits_storage_cleanup())
+            && let Some(scope) = &self.scope
         {
-            if let Some(scope) = &self.scope {
-                scope.retain_unknown();
-            }
+            scope.retain_unknown();
         }
         if let Ok(mut state) = self.operations.lock() {
             if abandoned
@@ -617,20 +615,18 @@ impl AcceptedValue {
     async fn drain(&mut self, flag: Option<Arc<std::sync::atomic::AtomicBool>>) {
         let mut cancelled = false;
         while let Some(item) = self.stream.next().await {
-            if !cancelled {
-                if let Err(error) = crate::prepared::check_read_cancellation(flag.as_ref()) {
-                    self.fail(error);
-                    cancelled = true;
-                }
+            if !cancelled
+                && let Err(error) = crate::prepared::check_read_cancellation(flag.as_ref())
+            {
+                self.fail(error);
+                cancelled = true;
             }
             if let Err(error) = self.ingest(item) {
                 self.fail(error);
             }
         }
-        if !cancelled {
-            if let Err(error) = crate::prepared::check_read_cancellation(flag.as_ref()) {
-                self.fail(error);
-            }
+        if !cancelled && let Err(error) = crate::prepared::check_read_cancellation(flag.as_ref()) {
+            self.fail(error);
         }
         self.exhausted = true;
         if self.ended != self.statements {
@@ -1259,10 +1255,9 @@ impl<Context> NativeReader<Context> {
             }
             if scope.release_pin_on_close
                 && let Some(pin) = &scope._pin
+                && let Err(error) = pin.release().await
             {
-                if let Err(error) = pin.release().await {
-                    return lctx_model::domain::completion::complete(Err(error), completion);
-                }
+                return lctx_model::domain::completion::complete(Err(error), completion);
             }
             match scope.selection.lock() {
                 Ok(mut selection) => {
@@ -1400,13 +1395,13 @@ impl<Context> NativeReader<Context> {
                     .selection
                     .lock()
                     .map_err(|_| ModelError::Conflict("reader selection owner"))?;
-                if let Some((owner, namespace, pending)) = selection.as_ref() {
-                    if !owner.shares_pool(&budget) || *namespace != derivation {
+                if let Some(prepared) = selection.as_ref() {
+                    if !prepared.budget.shares_pool(&budget) || prepared.derivation != derivation {
                         return Err(ModelError::Conflict(
                             "foreign native selection budget or derivation",
                         ));
                     }
-                    pending.clone()
+                    prepared.pending.clone()
                 } else {
                     let retained_scope = scope.clone();
                     let preparation_cancellation = cancellation.clone();
@@ -1500,7 +1495,11 @@ impl<Context> NativeReader<Context> {
                     }
                     .boxed()
                     .shared();
-                    *selection = Some((budget, derivation, pending.clone()));
+                    *selection = Some(SelectionPreparation {
+                        budget,
+                        derivation,
+                        pending: pending.clone(),
+                    });
                     pending
                 }
             };
@@ -1549,12 +1548,14 @@ impl<Context> NativeReader<Context> {
                 return Ok(());
             }
             let mut rows = selection.rows_with_budget(
-                &table,
-                &predicate,
-                bindings,
-                preparation,
-                &order,
-                limit,
+                crate::selection::SelectedPayloadRead {
+                    table: &table,
+                    predicate: &predicate,
+                    bindings,
+                    preparation,
+                    order: &order,
+                    limit,
+                },
                 &budget,
             )?;
             let result = async { loop {
@@ -1708,8 +1709,8 @@ impl<Context> NativeReader<Context> {
                 .lock()
                 .map_err(|_| ModelError::Conflict("reader selection owner"))?
                 .take();
-            if let Some((_, _, pending)) = pending {
-                pending.await.map_err(ModelError::SharedCause)?;
+            if let Some(prepared) = pending {
+                prepared.pending.await.map_err(ModelError::SharedCause)?;
             }
         }
         Ok(())
@@ -2789,7 +2790,7 @@ impl NativeReader<()> {
             pin.protect(data.record()?).await?;pin.protect(completed.admission_record().clone()).await?;
             let actual=crate::control::inspect_expected_read(&reader,data.record()?,budget).await?
                 .ok_or(ModelError::Conflict("completed reader protected completion missing"))?;
-            if actual.incarnation()!=completed.incarnation() || actual.row()!=&data.value(true)? {
+            if actual.incarnation()!=completed.incarnation() || actual.row()!=data.value(true)? {
                 return Err(ModelError::Conflict("completed reader completion ABA/bytes"));
             }
             let admission=crate::control::inspect_expected_read(&reader,completed.admission_record().clone(),budget).await?
@@ -2819,7 +2820,7 @@ impl NativeReader<()> {
                 for child in children {
                     let row=observed.take_required(child)?;
                     let reference=references.iter().find(|reference|&reference.record(identity)==child).ok_or(ModelError::Conflict("completed reader child correspondence"))?;
-                    if row.row()!=&reference.value(identity)? {return Err(ModelError::Conflict("completed reader exact selector full bytes"));}
+                    if row.row()!=reference.value(identity)? {return Err(ModelError::Conflict("completed reader exact selector full bytes"));}
                 }
                 observed.finish()?;
             }
@@ -2835,7 +2836,7 @@ impl NativeReader<()> {
                         return Err(ModelError::Conflict("completed reader contributor full descriptor/incarnation"));
                     }
                     let copy_id=copy.record(identity);let copy_row=copy_rows.take_required(&copy_id)?;
-                    if copy_row.row()!=&copy.value(identity)? {return Err(ModelError::Conflict("completed reader contributor exact compound copy"));}
+                    if copy_row.row()!=copy.value(identity)? {return Err(ModelError::Conflict("completed reader contributor exact compound copy"));}
                     pairs.insert((data.record()?,owner.clone()));pairs.insert((data.record()?,copy_id));
                 }
                 observed.finish()?;copy_rows.finish()?;
@@ -3021,9 +3022,7 @@ pub struct NativeRows {
     drain_errors: Vec<Arc<ModelError>>,
     drain_row_order_error: bool,
     row_bytes: usize,
-    owned_result: Option<
-        futures::future::Shared<futures::future::BoxFuture<'static, Result<(), Arc<ModelError>>>>,
-    >,
+    owned_result: Option<DrainCompletion>,
 }
 impl NativeRows {
     /// The driver owns all native preparation through its checked terminal. Receiver loss
@@ -3173,10 +3172,10 @@ impl NativeRows {
                 )));
             }
         }
-        if self.ended != self.statements {
-            if let Some(scope) = &self.scope {
-                scope.retain_unknown();
-            }
+        if self.ended != self.statements
+            && let Some(scope) = &self.scope
+        {
+            scope.retain_unknown();
         }
         if let Some(result) = self.owned_result.as_ref().cloned() {
             let result = result.await;
@@ -3200,10 +3199,10 @@ impl NativeRows {
                 Err(ModelError::SharedCause(error.clone())),
             );
         }
-        if completion.remote == lctx_model::domain::completion::RemoteState::Unknown {
-            if let Some(scope) = &self.scope {
-                scope.retain_unknown();
-            }
+        if completion.remote == lctx_model::domain::completion::RemoteState::Unknown
+            && let Some(scope) = &self.scope
+        {
+            scope.retain_unknown();
         }
         self.scope.take();
         lctx_model::domain::completion::complete(Ok(()), completion)
@@ -3215,17 +3214,17 @@ impl NativeRows {
         // Physical EOF removes the stream scope, so retain this small source guard
         // across the await and through delivery of either a row or complete EOF.
         let borrowed = self.scope.as_ref().and_then(|scope| scope.borrowed.clone());
-        if let Some(borrowed) = &borrowed {
-            if let Err(error) = borrowed.ensure_live() {
-                return Err(self.remember_failure(error));
-            }
+        if let Some(borrowed) = &borrowed
+            && let Err(error) = borrowed.ensure_live()
+        {
+            return Err(self.remember_failure(error));
         }
         match self.read_next().await {
             Ok(row) => {
-                if let Some(borrowed) = &borrowed {
-                    if let Err(error) = borrowed.ensure_live() {
-                        return Err(self.remember_failure(error));
-                    }
+                if let Some(borrowed) = &borrowed
+                    && let Err(error) = borrowed.ensure_live()
+                {
+                    return Err(self.remember_failure(error));
                 }
                 Ok(row)
             }
@@ -3284,10 +3283,10 @@ impl NativeRows {
             let result = result.await;
             self.owned_result.take();
             if let Err(error) = result {
-                if !error.permits_storage_cleanup() {
-                    if let Some(scope) = &self.scope {
-                        scope.retain_unknown();
-                    }
+                if !error.permits_storage_cleanup()
+                    && let Some(scope) = &self.scope
+                {
+                    scope.retain_unknown();
                 }
                 return Err(ModelError::SharedCause(error));
             }
@@ -3311,7 +3310,7 @@ impl Drop for NativeRows {
             return;
         }
         if self.exhausted && self.owned_result.is_none() {
-            if self.ended != self.statements
+            if (self.ended != self.statements
                 || self
                     .failure
                     .as_ref()
@@ -3319,11 +3318,10 @@ impl Drop for NativeRows {
                 || self
                     .drain_errors
                     .iter()
-                    .any(|error| !error.permits_storage_cleanup())
+                    .any(|error| !error.permits_storage_cleanup()))
+                && let Some(scope) = &scope
             {
-                if let Some(scope) = &scope {
-                    scope.retain_unknown();
-                }
+                scope.retain_unknown();
             }
             return;
         }
@@ -3655,8 +3653,10 @@ mod streaming_tests {
         assert!(confirmed.permits_cleanup(&ModelError::Conflict("confirmed semantic refusal")));
         drop(confirmed);
         assert_eq!(Arc::strong_count(&confirmed_client), 1);
-        let mut invalidation = lctx_model::domain::completion::Completion::default();
-        invalidation.remote = lctx_model::domain::completion::RemoteState::Unknown;
+        let mut invalidation = lctx_model::domain::completion::Completion {
+            remote: lctx_model::domain::completion::RemoteState::Unknown,
+            ..Default::default()
+        };
         invalidation.step(
             "session invalidation",
             Err(sdk_error(surrealdb::Error::internal(

@@ -9,7 +9,6 @@
 //! plus every analyzer-readable file it can import. A `RECORD` is verification evidence, not
 //! analyzer input: its console-script lines carry the environment's location, so its in-site
 //! entries are digested into the distribution's verification and its bytes are not captured.
-use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use crate::{
     ExtractError,
@@ -18,6 +17,7 @@ use crate::{
     library::{self, fail},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use lctx_model::domain::producer_contract::ProducerContract;
 use lctx_model::domain::{
     ContentHash, KeySink, ModelError, Record,
     artifact::ArtifactChunk,
@@ -456,10 +456,13 @@ impl AcquiredInput {
         )
     }
     /// Explicitly selected negative premises, checked against the complete frozen manifest.
-    pub fn with_selected_absent(mut self, paths: impl IntoIterator<Item=String>) -> Result<Self, ModelError> {
+    pub fn with_selected_absent(
+        mut self,
+        paths: impl IntoIterator<Item = String>,
+    ) -> Result<Self, ModelError> {
         for path in paths {
             validate_path(&path)?;
-            if self.captured.artifacts().iter().any(|a|a.path==path) {
+            if self.captured.artifacts().iter().any(|a| a.path == path) {
                 return Err(ModelError::Conflict("selected absent artifact is captured"));
             }
             self.selected_absent.insert(path);
@@ -467,58 +470,160 @@ impl AcquiredInput {
         Ok(self)
     }
     /// The same typed inventory feeds request identity and acquisition emission.
-    pub fn descriptor(&self, library: Option<&AcquiredInput>) -> Result<lctx_model::domain::producer_contract::acquisition::CapturedAcquisition, ModelError> {
+    pub fn descriptor(
+        &self,
+        library: Option<&AcquiredInput>,
+    ) -> Result<lctx_model::domain::producer_contract::acquisition::CapturedAcquisition, ModelError>
+    {
         use lctx_model::domain::producer_contract::acquisition::CapturedAcquisition;
-        let revision=self.captured.revision();
-        let mut descriptor=CapturedAcquisition::tree(revision.clone(), String::new());
-        descriptor.origin=self.origin();
-        descriptor.selected_absent=self.selected_absent.clone();
-        descriptor.artifacts=self.captured.artifacts().to_vec();
-        descriptor.uses=self.uses();
-        let acquisition=InputAcquisition {input:revision.id(),origin:descriptor.origin.id()};
-        let artifacts=self.captured.artifacts().iter().map(|a|(a.path.as_str(),a)).collect::<BTreeMap<_,_>>();
+        let revision = self.captured.revision();
+        let mut descriptor = CapturedAcquisition::tree(revision.clone(), String::new());
+        descriptor.origin = self.origin();
+        descriptor.selected_absent = self.selected_absent.clone();
+        descriptor.artifacts = self.captured.artifacts().to_vec();
+        descriptor.uses = self.uses();
+        let acquisition = InputAcquisition {
+            input: revision.id(),
+            origin: descriptor.origin.id(),
+        };
+        let artifacts = self
+            .captured
+            .artifacts()
+            .iter()
+            .map(|a| (a.path.as_str(), a))
+            .collect::<BTreeMap<_, _>>();
         for derivation in self.captured.derivations() {
-            let artifact=artifacts.get(derivation.path()).ok_or(ModelError::Conflict("derived artifact absent"))?.id();
+            let artifact = artifacts
+                .get(derivation.path())
+                .ok_or(ModelError::Conflict("derived artifact absent"))?
+                .id();
             descriptor.derivations.push(match derivation {
-                crate::capture::Derivation::PythonCodeBlock {document,ordinal,fence,..} => DerivedArtifact::PythonCodeBlock {
-                    artifact,document:artifacts.get(document.as_str()).ok_or(ModelError::Conflict("derivation document absent"))?.id(),
-                    ordinal:*ordinal,fence_start:fence.0,fence_end:fence.1},
-                crate::capture::Derivation::TaskReceipt {..} => DerivedArtifact::TaskReceipt {artifact,input:revision.id()},
+                crate::capture::Derivation::PythonCodeBlock {
+                    document,
+                    ordinal,
+                    fence,
+                    ..
+                } => DerivedArtifact::PythonCodeBlock {
+                    artifact,
+                    document: artifacts
+                        .get(document.as_str())
+                        .ok_or(ModelError::Conflict("derivation document absent"))?
+                        .id(),
+                    ordinal: *ordinal,
+                    fence_start: fence.0,
+                    fence_end: fence.1,
+                },
+                crate::capture::Derivation::TaskReceipt { .. } => DerivedArtifact::TaskReceipt {
+                    artifact,
+                    input: revision.id(),
+                },
             });
         }
-        let mut unowned=|artifact:&SourceArtifact|descriptor.unowned.push(UnownedArtifact {artifact:artifact.id(),acquisition:acquisition.id()});
+        let mut unowned = |artifact: &SourceArtifact| {
+            descriptor.unowned.push(UnownedArtifact {
+                artifact: artifact.id(),
+                acquisition: acquisition.id(),
+            })
+        };
         match &self.acquisition {
             Acquisition::Installed(installed) => {
-                descriptor.configuration=Some(installed.configuration);
-                descriptor.interpreter=Some((installed.python_version.clone(),installed.platform.clone()));
-                let mut verifications=BTreeMap::new();
+                descriptor.configuration = Some(installed.configuration);
+                descriptor.interpreter =
+                    Some((installed.python_version.clone(), installed.platform.clone()));
+                let mut verifications = BTreeMap::new();
                 for dist in &installed.distributions {
-                    let package=Package {name:dist.name.clone()};
-                    let release=Release {package:package.id(),version:dist.version.clone()};
-                    let mut hashes=dist.artifact_sha256.clone();hashes.sort();hashes.dedup();
-                    let verification=DistributionVerification {acquisition:acquisition.id(),release:release.id(),record_digest:dist.record_digest,artifact_sha256:hashes};
-                    descriptor.distributions.push(InputDistribution {input:revision.id(),release:release.id(),role:if dist.first_party {DistributionRole::FirstParty}else{DistributionRole::Dependency}});
-                    if dist.first_party {descriptor.fingerprints.push(EnvironmentFingerprint {acquisition:acquisition.id(),release:release.id(),lock_digest:installed.lock_digest,environment_digest:revision.manifest,python_version:installed.python_version.clone(),platform:installed.platform.clone()});}
-                    verifications.insert(dist.name.as_str(),verification.id());
-                    descriptor.packages.push(package);descriptor.releases.push(release);descriptor.verifications.push(verification);
+                    let package = Package {
+                        name: dist.name.clone(),
+                    };
+                    let release = Release {
+                        package: package.id(),
+                        version: dist.version.clone(),
+                    };
+                    let mut hashes = dist.artifact_sha256.clone();
+                    hashes.sort();
+                    hashes.dedup();
+                    let verification = DistributionVerification {
+                        acquisition: acquisition.id(),
+                        release: release.id(),
+                        record_digest: dist.record_digest,
+                        artifact_sha256: hashes,
+                    };
+                    descriptor.distributions.push(InputDistribution {
+                        input: revision.id(),
+                        release: release.id(),
+                        role: if dist.first_party {
+                            DistributionRole::FirstParty
+                        } else {
+                            DistributionRole::Dependency
+                        },
+                    });
+                    if dist.first_party {
+                        descriptor.fingerprints.push(EnvironmentFingerprint {
+                            acquisition: acquisition.id(),
+                            release: release.id(),
+                            lock_digest: installed.lock_digest,
+                            environment_digest: revision.manifest,
+                            python_version: installed.python_version.clone(),
+                            platform: installed.platform.clone(),
+                        });
+                    }
+                    verifications.insert(dist.name.as_str(), verification.id());
+                    descriptor.packages.push(package);
+                    descriptor.releases.push(release);
+                    descriptor.verifications.push(verification);
                 }
                 for file in &installed.files {
-                    let artifact=artifacts.get(file.path.as_str()).ok_or(ModelError::Conflict("inventory file not captured"))?;
-                    if let Some(hash)=&file.record_sha256 {descriptor.record_sha256.insert(file.path.clone(),hash.clone());}
-                    if file.owners.is_empty(){unowned(artifact);}
-                    for owner in &file.owners {descriptor.ownership.push(ArtifactOwnership {artifact:artifact.id(),distribution:*verifications.get(owner.as_str()).ok_or(ModelError::Conflict("inventory file owner absent"))?});}
+                    let artifact = artifacts
+                        .get(file.path.as_str())
+                        .ok_or(ModelError::Conflict("inventory file not captured"))?;
+                    if let Some(hash) = &file.record_sha256 {
+                        descriptor
+                            .record_sha256
+                            .insert(file.path.clone(), hash.clone());
+                    }
+                    if file.owners.is_empty() {
+                        unowned(artifact);
+                    }
+                    for owner in &file.owners {
+                        descriptor.ownership.push(ArtifactOwnership {
+                            artifact: artifact.id(),
+                            distribution: *verifications
+                                .get(owner.as_str())
+                                .ok_or(ModelError::Conflict("inventory file owner absent"))?,
+                        });
+                    }
                 }
             }
-            Acquisition::Corpus {..} => {
-                let library=library.ok_or(ModelError::Conflict("captured corpus library absent"))?;
-                descriptor.library=Some((library.captured.revision().id(),library.origin().id()));
-                for artifact in self.captured.artifacts().iter().filter(|a|!self.captured.derivations().iter().any(|d|d.path()==a.path)){unowned(artifact);}
+            Acquisition::Corpus { .. } => {
+                let library =
+                    library.ok_or(ModelError::Conflict("captured corpus library absent"))?;
+                descriptor.library =
+                    Some((library.captured.revision().id(), library.origin().id()));
+                for artifact in self.captured.artifacts().iter().filter(|a| {
+                    !self
+                        .captured
+                        .derivations()
+                        .iter()
+                        .any(|d| d.path() == a.path)
+                }) {
+                    unowned(artifact);
+                }
             }
-            Acquisition::Tree {..} => {
-                for artifact in self.captured.artifacts().iter().filter(|a|!self.captured.derivations().iter().any(|d|d.path()==a.path)){unowned(artifact);}
+            Acquisition::Tree { .. } => {
+                for artifact in self.captured.artifacts().iter().filter(|a| {
+                    !self
+                        .captured
+                        .derivations()
+                        .iter()
+                        .any(|d| d.path() == a.path)
+                }) {
+                    unowned(artifact);
+                }
             }
         }
-        descriptor.canonicalize();descriptor.validate()?;Ok(descriptor)
+        descriptor.canonicalize();
+        descriptor.validate()?;
+        Ok(descriptor)
     }
     pub fn captured(&self) -> &CapturedInput {
         &self.captured
@@ -592,7 +697,10 @@ impl AcquiredInput {
                 repository, commit, ..
             } => InputOrigin::Corpus {
                 repository: repository.clone(),
-                revision: format!("base:{commit};captured:{}", self.captured.revision().manifest.hex()),
+                revision: format!(
+                    "base:{commit};captured:{}",
+                    self.captured.revision().manifest.hex()
+                ),
             },
             Acquisition::Tree { label } => InputOrigin::Tree {
                 label: label.clone(),
@@ -621,21 +729,38 @@ pub fn capture_receipts(
     }
     let library = &inventory.library;
     let paths: Vec<String> = library.files.iter().map(|file| file.path.clone()).collect();
-    let index_bytes = library.files.len().checked_mul(128).ok_or(CaptureError::Model(ModelError::Schema("RECORD verification index overflow")))?;
-    let _record_index = budget.reserve("captured-record-verification-index", index_bytes).map_err(CaptureError::from)?;
-    let files: BTreeMap<_,_> = library.files.iter().map(|file|(file.path.as_str(),file)).collect();
-    let captured = CapturedInput::capture_verified(&library.site_packages, &paths, budget, |path, sha256| {
-        let file = files.get(path).ok_or(ModelError::Schema("missing captured RECORD declaration"))?;
-        if let Some(expected) = &file.record_sha256 {
-            if URL_SAFE_NO_PAD.encode(sha256) != *expected {
+    let index_bytes = library
+        .files
+        .len()
+        .checked_mul(128)
+        .ok_or(CaptureError::Model(ModelError::Schema(
+            "RECORD verification index overflow",
+        )))?;
+    let _record_index = budget
+        .reserve("captured-record-verification-index", index_bytes)
+        .map_err(CaptureError::from)?;
+    let files: BTreeMap<_, _> = library
+        .files
+        .iter()
+        .map(|file| (file.path.as_str(), file))
+        .collect();
+    let captured =
+        CapturedInput::capture_verified(&library.site_packages, &paths, budget, |path, sha256| {
+            let file = files
+                .get(path)
+                .ok_or(ModelError::Schema("missing captured RECORD declaration"))?;
+            if let Some(expected) = &file.record_sha256
+                && URL_SAFE_NO_PAD.encode(sha256) != *expected
+            {
                 return Err(CaptureError::Model(ModelError::Invalid(format!(
                     "{}: {} does not match its RECORD sha256; run `lctx acquire {} --reinstall`",
-                    file.owners.join(", "), file.path, library.name,
+                    file.owners.join(", "),
+                    file.path,
+                    library.name,
                 ))));
             }
-        }
-        Ok(())
-    })?;
+            Ok(())
+        })?;
     let mut inputs = vec![AcquiredInput::new(
         captured,
         Acquisition::Installed(library.clone()),
@@ -710,11 +835,17 @@ fn capture_error(error: CaptureError) -> ModelError {
         other => ModelError::Invalid(other.to_string()),
     }
 }
-pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::acquisition() }
+pub fn contract() -> ProducerContract {
+    lctx_model::domain::producer_contract::facts::acquisition()
+}
 impl Declared for Acquire {
     fn declaration(&self, _: Profile) -> Stage {
         let provider = acquisition_provider();
-        contract().bind(provider.build_digest, self.configuration, [("acquisition", provider)])
+        contract().bind(
+            provider.build_digest,
+            self.configuration,
+            [("acquisition", provider)],
+        )
     }
 }
 impl<S: ProviderSink + 'static> ProviderStage<S> for Acquire {
@@ -737,22 +868,52 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for Acquire {
         let captured = context.captured();
         // Physical sink acknowledgements for every source header precede chunk emission.
         // Other typed ingress remains order-independent through the private spool fallback.
-        context.emit_rows(captured.inputs().iter().flat_map(|input|input.captured().artifacts().iter().cloned()))?;
+        context.emit_rows(
+            captured
+                .inputs()
+                .iter()
+                .flat_map(|input| input.captured().artifacts().iter().cloned()),
+        )?;
         for input in captured.inputs() {
             let frozen = input.captured();
-            let library=match input.acquisition() {
-                Acquisition::Corpus {library,..} => Some(captured.inputs().get(*library).ok_or(ModelError::Conflict("captured corpus library absent"))?),
+            let library = match input.acquisition() {
+                Acquisition::Corpus { library, .. } => Some(
+                    captured
+                        .inputs()
+                        .get(*library)
+                        .ok_or(ModelError::Conflict("captured corpus library absent"))?,
+                ),
                 _ => None,
             };
-            let descriptor=input.descriptor(library)?;
+            let descriptor = input.descriptor(library)?;
             context.emit(descriptor.revision.clone())?;
             context.emit(descriptor.origin.clone())?;
-            context.emit(InputAcquisition {input:descriptor.revision.id(),origin:descriptor.origin.id()})?;
-            if let Some((library,_))=descriptor.library {context.emit(CorpusLibrary {corpus:descriptor.revision.id(),library})?;}
+            context.emit(InputAcquisition {
+                input: descriptor.revision.id(),
+                origin: descriptor.origin.id(),
+            })?;
+            if let Some((library, _)) = descriptor.library {
+                context.emit(CorpusLibrary {
+                    corpus: descriptor.revision.id(),
+                    library,
+                })?;
+            }
             macro_rules! emit {($($field:ident),*)=>{$(for row in descriptor.$field {context.emit(row)?;})*};}
-            emit!(packages,releases,distributions,verifications,fingerprints,ownership,unowned,derivations,uses);
+            emit!(
+                packages,
+                releases,
+                distributions,
+                verifications,
+                fingerprints,
+                ownership,
+                unowned,
+                derivations,
+                uses
+            );
             for index in 0..frozen.artifacts().len() {
-                frozen.emit_chunks(index,|chunk|context.emit(chunk.clone())).map_err(capture_error)?;
+                frozen
+                    .emit_chunks(index, |chunk| context.emit(chunk.clone()))
+                    .map_err(capture_error)?;
             }
         }
         Ok(ProviderOutcome::Complete)

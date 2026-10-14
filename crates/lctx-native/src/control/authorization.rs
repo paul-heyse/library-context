@@ -541,12 +541,12 @@ pub(super) async fn execute_prepared_owner_effect(
     } else {
         None
     };
-    if let Some(disposition) = disposition {
-        if let Err(error) = super::receipts::observed(request, disposition) {
-            let mut terminal = lctx_model::domain::completion::Completion::default();
-            terminal.step("native original-request receipt", Err(error));
-            return lctx_model::domain::completion::complete(result, terminal);
-        }
+    if let Some(disposition) = disposition
+        && let Err(error) = super::receipts::observed(request, disposition)
+    {
+        let mut terminal = lctx_model::domain::completion::Completion::default();
+        terminal.step("native original-request receipt", Err(error));
+        return lctx_model::domain::completion::complete(result, terminal);
     }
     result
 }
@@ -593,7 +593,7 @@ async fn execute_recorded(
     if matches!(&replay, None | Some(Ok((EffectDisposition::Pending, _))))
         && ["guards", "hold_guards", "__write_guards"]
             .iter()
-            .any(|key| payload.bindings.get(*key).is_some())
+            .any(|key| payload.bindings.get(key).is_some())
         && payload.bindings.get("__object_expectations").is_none()
     {
         return Err(request.error(ModelError::Conflict(
@@ -621,12 +621,12 @@ async fn execute_recorded(
     } else {
         None
     };
-    if let Some(disposition) = disposition {
-        if let Err(error) = super::receipts::observed(request, disposition) {
-            let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.step("native original-request receipt", Err(error));
-            return lctx_model::domain::completion::complete(result, completion);
-        }
+    if let Some(disposition) = disposition
+        && let Err(error) = super::receipts::observed(request, disposition)
+    {
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step("native original-request receipt", Err(error));
+        return lctx_model::domain::completion::complete(result, completion);
     }
     result
 }

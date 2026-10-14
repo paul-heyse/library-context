@@ -658,6 +658,30 @@ pub(super) async fn lookup_window(
     align_entries(requests.len(), positions, entries)
 }
 
+fn align_entries<T>(
+    count: usize,
+    positions: Vec<usize>,
+    entries: Vec<Option<T>>,
+) -> Result<Vec<Option<T>>, ModelError> {
+    if entries.len() != positions.len()
+        || positions.iter().any(|index| *index >= count)
+        || positions
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            != positions.len()
+    {
+        return Err(ModelError::Conflict("product lookup window cardinality"));
+    }
+    let mut aligned = std::iter::repeat_with(|| None)
+        .take(count)
+        .collect::<Vec<_>>();
+    for (index, entry) in positions.into_iter().zip(entries) {
+        aligned[index] = entry;
+    }
+    Ok(aligned)
+}
+
 #[cfg(test)]
 mod window_controls {
     use super::*;
@@ -733,28 +757,4 @@ mod window_controls {
         assert_eq!(budget.reserved(), 0);
         let _output = budget.reserve("ordinary effectful output", 70).unwrap();
     }
-}
-
-fn align_entries<T>(
-    count: usize,
-    positions: Vec<usize>,
-    entries: Vec<Option<T>>,
-) -> Result<Vec<Option<T>>, ModelError> {
-    if entries.len() != positions.len()
-        || positions.iter().any(|index| *index >= count)
-        || positions
-            .iter()
-            .collect::<std::collections::BTreeSet<_>>()
-            .len()
-            != positions.len()
-    {
-        return Err(ModelError::Conflict("product lookup window cardinality"));
-    }
-    let mut aligned = std::iter::repeat_with(|| None)
-        .take(count)
-        .collect::<Vec<_>>();
-    for (index, entry) in positions.into_iter().zip(entries) {
-        aligned[index] = entry;
-    }
-    Ok(aligned)
 }

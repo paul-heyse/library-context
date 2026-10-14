@@ -7,10 +7,7 @@ use lctx_model::domain::{
     compilation_product::DependencyKind,
     producer_contract::request::{Candidate, CapturedRequest, Eligibility},
 };
-use lctx_native::{
-    control::HeldTerminalProduct,
-    surrealdb::{Surreal, engine::remote::grpc::Client},
-};
+use lctx_native::control::HeldTerminalProduct;
 
 pub(crate) struct CandidateAdmission {
     descriptor: ContentHash,
@@ -304,9 +301,7 @@ fn admit_acquisition_declaration(
 }
 
 pub(crate) fn admit<'a>(
-    client: Arc<Surreal<Client>>,
-    namespace: lctx_model::domain::serving::Name,
-    database: lctx_model::domain::serving::Name,
+    origin: Arc<NativeCompilerStore>,
     owner: Arc<HeldTerminalProduct>,
     request: &'a CapturedRequest,
     model: Arc<ValidatedModel>,
@@ -348,8 +343,7 @@ pub(crate) fn admit<'a>(
                 "candidate current typed result contract",
             ));
         }
-        let native =
-            NativeCompilerStore::terminal_read_owner(client, namespace, database, &owner, budget)?;
+        let native = origin.read_terminal_product(&owner, budget)?;
         let runtime = AdmissionRuntime::with_budget(
             model.clone(),
             AdmissionOptions {
@@ -491,7 +485,7 @@ pub(crate) fn admit<'a>(
                 admit_supplier_product(&runtime, descriptor, contract, profile, &mut charge)
                     .await?;
             }
-            let mut inputs = runtime.selected(profile, selections)?;
+            let mut inputs = runtime.selected(selections)?;
             inputs.companions = companions;
             runtime
                 .validate_normalization_declarations(profile, &runtime.completed_relations()?)
@@ -519,10 +513,10 @@ pub(crate) fn admit<'a>(
         .await;
         let terminal = runtime.drain_report().await;
         let result = lctx_model::domain::completion::complete(result, terminal);
-        if let Err(error) = &result {
-            if !error.permits_storage_cleanup() {
-                owner.retain_unknown();
-            }
+        if let Err(error) = &result
+            && !error.permits_storage_cleanup()
+        {
+            owner.retain_unknown();
         }
         result
     })
@@ -736,6 +730,7 @@ async fn admit_supplier_product(
 mod controls {
     use super::*;
     use lctx_model::domain::input::{Package, Release};
+    use lctx_native::surrealdb::Surreal;
     fn companion<R: Record>(rows: &[R]) -> CompanionTable {
         let mut sink = KeySink::new("companion-reference-control");
         sink.part(b"relation", R::NAME.as_bytes());
@@ -793,7 +788,6 @@ mod controls {
         };
         let mut inputs = ValidationInputs {
             relations: BTreeMap::new(),
-            profile: Profile::Catalog,
             companions: BTreeMap::from([
                 (Package::NAME, companion::<Package>(&[])),
                 (Release::NAME, companion(std::slice::from_ref(&release))),

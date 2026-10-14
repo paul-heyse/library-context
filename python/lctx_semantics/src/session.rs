@@ -1,10 +1,14 @@
 //! Read-only domain session. Retained preparation and owned asynchronous native
 //! execution share one Rust admission lifetime; Python never owns native finality.
 use lctx_model::domain::ModelError;
-use lctx_serving::{NativeService, TransportRequest};
 use lctx_native::{NativeReader, config::ViewerConfig, control::RetryCancellation};
+use lctx_serving::{NativeService, TransportRequest};
 use pyo3::prelude::*;
-use std::{collections::BTreeMap, future::IntoFuture, sync::{Arc, Mutex}};
+use std::{
+    collections::BTreeMap,
+    future::IntoFuture,
+    sync::{Arc, Mutex},
+};
 
 struct State {
     service: Option<Arc<NativeService>>,
@@ -45,8 +49,14 @@ impl NativeSession {
             // The bridge owns this process runtime; requests and close tasks can
             // finish even after their Python delivery future has disappeared.
             let runtime = pyo3_async_runtimes::tokio::get_runtime();
-            let state = Arc::new(Mutex::new(State { service: None, active: BTreeMap::new(), deliveries: BTreeMap::new(),
-                sequence: 0, closing: false, closed: None }));
+            let state = Arc::new(Mutex::new(State {
+                service: None,
+                active: BTreeMap::new(),
+                deliveries: BTreeMap::new(),
+                sequence: 0,
+                closing: false,
+                closed: None,
+            }));
             let cancellation = RetryCancellation::default();
             let (closing, retry) = (state.clone(), cancellation.clone());
             let signal = {
@@ -55,17 +65,23 @@ impl NativeSession {
                     retry.cancel();
                     if let Ok(mut state) = closing.lock() {
                         state.closing = true;
-                        for token in state.active.values() { token.cancel(); }
+                        for token in state.active.values() {
+                            token.cancel();
+                        }
                     }
-                }).map_err(crate::model_error)?
+                })
+                .map_err(crate::model_error)?
             };
             if cancellation.stopped() {
-                runtime.block_on(signal.complete(&Default::default())).map_err(crate::model_error)?;
+                runtime
+                    .block_on(signal.complete(&Default::default()))
+                    .map_err(crate::model_error)?;
                 return Err(crate::unavailable());
             }
-            let opened = runtime.block_on(lctx_native::control::with_retry_cancellation(cancellation,
-                NativeReader::connect(&config.endpoint, &config.credentials(),
-                    selected)));
+            let opened = runtime.block_on(lctx_native::control::with_retry_cancellation(
+                cancellation,
+                NativeReader::connect(&config.endpoint, &config.credentials(), selected),
+            ));
             let reader = match opened {
                 Ok(reader) => reader,
                 Err(error) => {
@@ -74,75 +90,138 @@ impl NativeSession {
                     completion.step("native session setup", Err(ModelError::SharedCause(error)));
                     let observation = runtime.block_on(signal.complete(&completion));
                     completion.step("native signal receipt", observation);
-                    let failure = lctx_model::domain::completion::complete::<()>(Ok(()), completion).unwrap_err();
+                    let failure =
+                        lctx_model::domain::completion::complete::<()>(Ok(()), completion)
+                            .unwrap_err();
                     return Err(crate::model_error(failure));
                 }
             };
             let mut finalization = reader.protect_terminal_close();
-            let service = match NativeService::new(reader.clone(),
-                config.serving_limits.clone().unwrap_or_default()) {
+            let service = match NativeService::new(
+                reader.clone(),
+                config.serving_limits.clone().unwrap_or_default(),
+            ) {
                 Ok(service) => Arc::new(service),
                 Err(error) => {
                     let mut completion = lctx_model::domain::completion::Completion::default();
-                    completion.step("native session setup reader close", runtime.block_on(finalization.close(&reader)));
-                    completion.step("native session setup client invalidation", runtime.block_on(reader.client().invalidate().into_future()).map_err(ModelError::codec));
+                    completion.step(
+                        "native session setup reader close",
+                        runtime.block_on(finalization.close(&reader)),
+                    );
+                    completion.step(
+                        "native session setup client invalidation",
+                        runtime
+                            .block_on(reader.client().invalidate().into_future())
+                            .map_err(ModelError::codec),
+                    );
                     let observation = runtime.block_on(signal.complete(&completion));
                     completion.step("native signal receipt", observation);
-                    let failure = lctx_model::domain::completion::complete::<()>(Err(error), completion).unwrap_err();
+                    let failure =
+                        lctx_model::domain::completion::complete::<()>(Err(error), completion)
+                            .unwrap_err();
                     return Err(crate::model_error(failure));
                 }
             };
             state.lock().map_err(|_| crate::unavailable())?.service = Some(service);
-            Ok(Self { shared: Arc::new(Shared { state,
-                drained: tokio::sync::Notify::new(), reader, signal, finalization: Mutex::new(Some(finalization)),
-            }) })
+            Ok(Self {
+                shared: Arc::new(Shared {
+                    state,
+                    drained: tokio::sync::Notify::new(),
+                    reader,
+                    signal,
+                    finalization: Mutex::new(Some(finalization)),
+                }),
+            })
         })
     }
     fn admit(&self, tool: String, request_json: String) -> PyResult<NativeRequest> {
         let mut state = self.shared.state.lock().map_err(|_| crate::unavailable())?;
-        if state.closing { return Err(crate::unavailable()); }
-        let service = state.service.as_ref().ok_or_else(crate::unavailable)?.clone();
-        let bytes = size_of::<NativeRequest>().saturating_add(size_of::<Active>())
+        if state.closing {
+            return Err(crate::unavailable());
+        }
+        let service = state
+            .service
+            .as_ref()
+            .ok_or_else(crate::unavailable)?
+            .clone();
+        let bytes = size_of::<NativeRequest>()
+            .saturating_add(size_of::<Active>())
             .saturating_add(size_of::<(u64, RetryCancellation)>())
             .saturating_add(size_of::<(u64, Delivery)>())
             .saturating_add(size_of::<DeliveryCallback>())
-            .saturating_add(size_of::<ModelError>() + size_of::<lctx_model::domain::serving::WireError>())
-            .saturating_add(tool.capacity()).saturating_add(request_json.capacity());
+            .saturating_add(
+                size_of::<ModelError>() + size_of::<lctx_model::domain::serving::WireError>(),
+            )
+            .saturating_add(tool.capacity())
+            .saturating_add(request_json.capacity());
         let transport = service.admit_transport(bytes).map_err(crate::model_error)?;
         let cancellation = RetryCancellation::default();
         let identity = state.sequence;
-        state.sequence = state.sequence.checked_add(1).ok_or_else(crate::unavailable)?;
+        state.sequence = state
+            .sequence
+            .checked_add(1)
+            .ok_or_else(crate::unavailable)?;
         state.active.insert(identity, cancellation.clone());
         Ok(NativeRequest {
             shared: self.shared.clone(),
-            active: Mutex::new(Some(Active { shared: self.shared.clone(),
-                service: Some(service), transport: Some(transport), executing: false, completed: false, delivery: false, identity })),
-            cancellation, wire: Mutex::new(Some((tool, request_json))),
+            active: Mutex::new(Some(Active {
+                shared: self.shared.clone(),
+                service: Some(service),
+                transport: Some(transport),
+                executing: false,
+                completed: false,
+                delivery: false,
+                identity,
+            })),
+            cancellation,
+            wire: Mutex::new(Some((tool, request_json))),
         })
     }
     #[pyo3(signature=(tool,request_json,query_vector_json=None,remaining_deadline_ms=None))]
-    fn execute(&self, py: Python<'_>, tool: String, request_json: String,
-        query_vector_json: Option<String>, remaining_deadline_ms: Option<u64>,
+    fn execute(
+        &self,
+        py: Python<'_>,
+        tool: String,
+        request_json: String,
+        query_vector_json: Option<String>,
+        remaining_deadline_ms: Option<u64>,
     ) -> PyResult<Py<pyo3::types::PyString>> {
         let request = self.admit(tool, request_json)?;
         request.retain(query_vector_json.as_ref().map_or(0, String::capacity))?;
         let (active, tool, raw) = request.take()?;
         let cancellation = request.cancellation.clone();
-        py.detach(move || pyo3_async_runtimes::tokio::get_runtime().block_on(
-            execute_owned(active, tool, raw, query_vector_json,
-                remaining_deadline_ms, cancellation)))
+        py.detach(move || {
+            pyo3_async_runtimes::tokio::get_runtime().block_on(execute_owned(
+                active,
+                tool,
+                raw,
+                query_vector_json,
+                remaining_deadline_ms,
+                cancellation,
+            ))
+        })
     }
     #[pyo3(signature=(tool,request_json,query_vector_json=None,remaining_deadline_ms=None))]
-    fn execute_async<'py>(&self, py: Python<'py>, tool: String, request_json: String,
-        query_vector_json: Option<String>, remaining_deadline_ms: Option<u64>,
+    fn execute_async<'py>(
+        &self,
+        py: Python<'py>,
+        tool: String,
+        request_json: String,
+        query_vector_json: Option<String>,
+        remaining_deadline_ms: Option<u64>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        self.admit(tool, request_json)?.execute_async(py, query_vector_json, remaining_deadline_ms)
+        self.admit(tool, request_json)?
+            .execute_async(py, query_vector_json, remaining_deadline_ms)
     }
     fn handle_json(&self) -> PyResult<String> {
         serde_json::to_string(self.shared.reader.handle()).map_err(|_| crate::unavailable())
     }
     fn stop_accepting(&self) -> PyResult<()> {
-        self.shared.state.lock().map_err(|_| crate::unavailable())?.closing = true;
+        self.shared
+            .state
+            .lock()
+            .map_err(|_| crate::unavailable())?
+            .closing = true;
         Ok(())
     }
     /// Drain all accepted preparation and actual Rust execution, then release the
@@ -154,9 +233,12 @@ impl NativeSession {
     fn close_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         self.stop_accepting()?;
         let shared = self.shared.clone();
-        let owner = pyo3_async_runtimes::tokio::get_runtime().spawn(async move { shared.close().await });
+        let owner =
+            pyo3_async_runtimes::tokio::get_runtime().spawn(async move { shared.close().await });
         pyo3_async_runtimes::tokio::future_into_py(py, async move {
-            owner.await.map_err(|_| crate::unavailable())?
+            owner
+                .await
+                .map_err(|_| crate::unavailable())?
                 .map_err(|_| crate::unavailable())
         })
     }
@@ -165,13 +247,22 @@ impl NativeSession {
 impl NativeRequest {
     fn retain(&self, bytes: usize) -> PyResult<()> {
         let active = self.active.lock().map_err(|_| crate::unavailable())?;
-        active.as_ref().ok_or_else(crate::unavailable)?.transport.as_ref()
-            .ok_or_else(crate::unavailable)?.retain(bytes)
+        active
+            .as_ref()
+            .ok_or_else(crate::unavailable)?
+            .transport
+            .as_ref()
+            .ok_or_else(crate::unavailable)?
+            .retain(bytes)
             .map_err(crate::model_error)
     }
-    fn cancel(&self) { self.cancellation.cancel(); }
+    fn cancel(&self) {
+        self.cancellation.cancel();
+    }
     fn check(&self) -> PyResult<()> {
-        if self.cancellation.stopped() { return Err(crate::unavailable()); }
+        if self.cancellation.stopped() {
+            return Err(crate::unavailable());
+        }
         Ok(())
     }
     fn release(&self) -> PyResult<()> {
@@ -180,41 +271,72 @@ impl NativeRequest {
         Ok(())
     }
     #[pyo3(signature=(query_vector_json=None,remaining_deadline_ms=None))]
-    fn execute_async<'py>(&self, py: Python<'py>, query_vector_json: Option<String>,
+    fn execute_async<'py>(
+        &self,
+        py: Python<'py>,
+        query_vector_json: Option<String>,
         remaining_deadline_ms: Option<u64>,
     ) -> PyResult<Bound<'py, PyAny>> {
         self.check()?;
         self.retain(query_vector_json.as_ref().map_or(0, String::capacity))?;
         let (active, tool, raw) = self.take()?;
         let identity = active.identity;
-        self.shared.state.lock().map_err(|_| crate::unavailable())?.deliveries.insert(identity, Delivery::default());
+        self.shared
+            .state
+            .lock()
+            .map_err(|_| crate::unavailable())?
+            .deliveries
+            .insert(identity, Delivery::default());
         let mut active = active;
         active.delivery = true;
         let cancellation = self.cancellation.clone();
         // Register the actual execution owner before constructing delivery. The
         // bridge may be cancelled, but close still waits for this Active guard.
         let owner = pyo3_async_runtimes::tokio::get_runtime().spawn(execute_owned(
-            active, tool, raw, query_vector_json, remaining_deadline_ms, cancellation));
+            active,
+            tool,
+            raw,
+            query_vector_json,
+            remaining_deadline_ms,
+            cancellation,
+        ));
         let future = match pyo3_async_runtimes::tokio::future_into_py(py, async move {
             owner.await.map_err(|_| crate::unavailable())?
         }) {
             Ok(future) => future,
-            Err(error) => { self.shared.acknowledge(identity, DeliveryState::Abandoned); return Err(error); }
+            Err(error) => {
+                self.shared.acknowledge(identity, DeliveryState::Abandoned);
+                return Err(error);
+            }
         };
-        let callback = Py::new(py, DeliveryCallback { shared: self.shared.clone(), identity,
-            called: std::sync::atomic::AtomicBool::new(false) })?;
+        let callback = Py::new(
+            py,
+            DeliveryCallback {
+                shared: self.shared.clone(),
+                identity,
+                called: std::sync::atomic::AtomicBool::new(false),
+            },
+        )?;
         future.call_method1("add_done_callback", (callback,))?;
         Ok(future)
     }
 }
 impl NativeRequest {
     fn take(&self) -> PyResult<(Active, String, String)> {
-        if self.shared.state.lock().map_err(|_| crate::unavailable())?.closing {
+        if self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| crate::unavailable())?
+            .closing
+        {
             return Err(crate::unavailable());
         }
         let mut active = self.active.lock().map_err(|_| crate::unavailable())?;
         let mut wire = self.wire.lock().map_err(|_| crate::unavailable())?;
-        if active.is_none() || wire.is_none() { return Err(crate::unavailable()); }
+        if active.is_none() || wire.is_none() {
+            return Err(crate::unavailable());
+        }
         let (tool, raw) = wire.take().ok_or_else(crate::unavailable)?;
         Ok((active.take().ok_or_else(crate::unavailable)?, tool, raw))
     }
@@ -222,43 +344,90 @@ impl NativeRequest {
 impl Drop for NativeRequest {
     fn drop(&mut self) {
         // Free retained input bytes before releasing their admission/charge.
-        self.wire.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
-        self.active.get_mut().unwrap_or_else(|poisoned| poisoned.into_inner()).take();
+        self.wire
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
+        self.active
+            .get_mut()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take();
     }
 }
-async fn execute_owned(mut active: Active, tool: String, raw: String,
-    vector_json: Option<String>, remaining: Option<u64>, cancellation: RetryCancellation,
+async fn execute_owned(
+    mut active: Active,
+    tool: String,
+    raw: String,
+    vector_json: Option<String>,
+    remaining: Option<u64>,
+    cancellation: RetryCancellation,
 ) -> PyResult<Py<pyo3::types::PyString>> {
     active.executing = true;
     let outcome = {
-    let execution = async {
-    if cancellation.stopped() { return Err(TaskFailure::unavailable()); }
-    let service = active.service.as_ref().ok_or_else(TaskFailure::unavailable)?;
-    let unavailable = vector_json.as_deref() == Some("unavailable");
-    let vector = if unavailable { None } else {
-        vector_json.map(|raw| serde_json::from_str(&raw)).transpose().map_err(|error| {
-            let retained = size_of::<serde_json::Error>() + error.to_string().len();
-            TaskFailure { public: crate::public_error(lctx_model::domain::serving::PublicFailure::new(
-                lctx_model::domain::serving::FailureKind::Incompatible)),
-                cause: ModelError::Cause(Box::new(error)), retained }
-        })?
-    };
-    let transport = active.transport.as_ref().ok_or_else(TaskFailure::unavailable)?;
-    let encoded = service.execute_admitted_encoded_for(transport, cancellation, &tool, &raw, vector, unavailable,
-        remaining.unwrap_or(service.request_deadline_ms())).await.map_err(TaskFailure::wire)?;
-    // Preserve the final-byte reservation through Python's transport copy.
-    let result = Python::attach(|py| pyo3::types::PyString::new(py, encoded.as_str()).unbind());
-    drop(encoded);
-    Ok(result)
-    };
-    tokio::pin!(execution);
-    // Preserve the original panic payload before Active publishes drainage. A
-    // cancelled Python bridge owns neither this polling future nor its result.
-    std::future::poll_fn(|cx| match std::panic::catch_unwind(
-        std::panic::AssertUnwindSafe(|| execution.as_mut().poll(cx))) {
-        Ok(poll) => poll,
-        Err(payload) => std::task::Poll::Ready(Err(TaskFailure::panic(payload))),
-    }).await
+        let execution = async {
+            if cancellation.stopped() {
+                return Err(TaskFailure::unavailable());
+            }
+            let service = active
+                .service
+                .as_ref()
+                .ok_or_else(TaskFailure::unavailable)?;
+            let unavailable = vector_json.as_deref() == Some("unavailable");
+            let vector = if unavailable {
+                None
+            } else {
+                vector_json
+                    .map(|raw| serde_json::from_str(&raw))
+                    .transpose()
+                    .map_err(|error| {
+                        let retained = size_of::<serde_json::Error>() + error.to_string().len();
+                        TaskFailure {
+                            public: crate::public_error(
+                                lctx_model::domain::serving::PublicFailure::new(
+                                    lctx_model::domain::serving::FailureKind::Incompatible,
+                                ),
+                            ),
+                            cause: ModelError::Cause(Box::new(error)),
+                            retained,
+                        }
+                    })?
+            };
+            let transport = active
+                .transport
+                .as_ref()
+                .ok_or_else(TaskFailure::unavailable)?;
+            let encoded = service
+                .execute_admitted_encoded_for(
+                    transport,
+                    cancellation,
+                    lctx_serving::ToolInput {
+                        tool: &tool,
+                        raw: &raw,
+                    },
+                    vector,
+                    unavailable,
+                    remaining.unwrap_or(service.request_deadline_ms()),
+                )
+                .await
+                .map_err(TaskFailure::wire)?;
+            // Preserve the final-byte reservation through Python's transport copy.
+            let result =
+                Python::attach(|py| pyo3::types::PyString::new(py, encoded.as_str()).unbind());
+            drop(encoded);
+            Ok(result)
+        };
+        tokio::pin!(execution);
+        // Preserve the original panic payload before Active publishes drainage. A
+        // cancelled Python bridge owns neither this polling future nor its result.
+        std::future::poll_fn(|cx| {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                execution.as_mut().poll(cx)
+            })) {
+                Ok(poll) => poll,
+                Err(payload) => std::task::Poll::Ready(Err(TaskFailure::panic(payload))),
+            }
+        })
+        .await
     };
     let outcome = active.publish(outcome);
     active.completed = true;
@@ -267,13 +436,15 @@ async fn execute_owned(mut active: Active, tool: String, raw: String,
 impl Shared {
     fn acknowledge(&self, identity: u64, state: DeliveryState) {
         if let Ok(mut owner) = self.state.lock() {
-            if state == DeliveryState::Abandoned {
-                if let Some(token) = owner.active.get(&identity) { token.cancel(); }
+            if state == DeliveryState::Abandoned
+                && let Some(token) = owner.active.get(&identity)
+            {
+                token.cancel();
             }
-            if let Some(delivery) = owner.deliveries.get_mut(&identity) {
-                if delivery.acknowledge(state) {
-                    owner.deliveries.remove(&identity);
-                }
+            if let Some(delivery) = owner.deliveries.get_mut(&identity)
+                && delivery.acknowledge(state)
+            {
+                owner.deliveries.remove(&identity);
             }
         }
     }
@@ -283,41 +454,76 @@ impl Shared {
             tokio::pin!(changed);
             changed.as_mut().enable();
             {
-                let mut state = self.state.lock().map_err(|_| Arc::new(ModelError::Conflict("native session owner")))?;
+                let mut state = self
+                    .state
+                    .lock()
+                    .map_err(|_| Arc::new(ModelError::Conflict("native session owner")))?;
                 state.closing = true;
-                if let Some(result) = &state.closed { return result.clone(); }
-                for token in state.active.values() { token.cancel(); }
-                if state.active.is_empty() {
-                    if let Some(service) = state.service.take() {
-                        break (service, std::mem::take(&mut state.deliveries));
-                    }
+                if let Some(result) = &state.closed {
+                    return result.clone();
+                }
+                for token in state.active.values() {
+                    token.cancel();
+                }
+                if state.active.is_empty()
+                    && let Some(service) = state.service.take()
+                {
+                    break (service, std::mem::take(&mut state.deliveries));
                 }
             }
             changed.await;
         };
-        let mut finalizer = CloseFinalizer { shared: self.clone(), complete: false };
+        let mut finalizer = CloseFinalizer {
+            shared: self.clone(),
+            complete: false,
+        };
         let mut completion = lctx_model::domain::completion::Completion::default();
         for (_, delivery) in deliveries {
             delivery.finish(&mut completion);
         }
         service.close().await;
         drop(service);
-        let guard = self.finalization.lock().map_err(|_| Arc::new(ModelError::Conflict("native reader finalization")))?.take();
+        let guard = self
+            .finalization
+            .lock()
+            .map_err(|_| Arc::new(ModelError::Conflict("native reader finalization")))?
+            .take();
         match guard {
-            Some(mut guard) => completion.step("native session reader close", guard.close(&self.reader).await),
-            None => completion.step("native session reader close", Err(ModelError::Conflict("native reader finalization owner lost"))),
+            Some(mut guard) => completion.step(
+                "native session reader close",
+                guard.close(&self.reader).await,
+            ),
+            None => completion.step(
+                "native session reader close",
+                Err(ModelError::Conflict(
+                    "native reader finalization owner lost",
+                )),
+            ),
         }
-        completion.step("native session client invalidation", self.reader.client().invalidate().await.map_err(ModelError::codec));
+        completion.step(
+            "native session client invalidation",
+            self.reader
+                .client()
+                .invalidate()
+                .await
+                .map_err(ModelError::codec),
+        );
         let observation = self.signal.complete(&completion).await;
         completion.step("native signal receipt", observation);
         let result = lctx_model::domain::completion::complete(Ok(()), completion).map_err(Arc::new);
-        self.state.lock().map_err(|_| Arc::new(ModelError::Conflict("native session owner")))?.closed = Some(result.clone());
+        self.state
+            .lock()
+            .map_err(|_| Arc::new(ModelError::Conflict("native session owner")))?
+            .closed = Some(result.clone());
         finalizer.complete = true;
         self.drained.notify_waiters();
         result
     }
 }
-struct CloseFinalizer { shared: Arc<Shared>, complete: bool }
+struct CloseFinalizer {
+    shared: Arc<Shared>,
+    complete: bool,
+}
 impl Drop for CloseFinalizer {
     fn drop(&mut self) {
         if !self.complete {
@@ -342,17 +548,21 @@ struct Active {
     identity: u64,
 }
 impl Active {
-    fn publish(&mut self, outcome: Result<Py<pyo3::types::PyString>, TaskFailure>) -> PyResult<Py<pyo3::types::PyString>> {
+    fn publish(
+        &mut self,
+        outcome: Result<Py<pyo3::types::PyString>, TaskFailure>,
+    ) -> PyResult<Py<pyo3::types::PyString>> {
         let (outcome, failure) = match outcome {
             Ok(value) => (Ok(value), None),
             Err(failure) => {
                 let mut cause = failure.cause;
-                if let Some(transport) = &self.transport {
-                    if let Err(refusal) = transport.retain(failure.retained) {
-                        let mut completion = lctx_model::domain::completion::Completion::default();
-                        completion.step("native terminal error reservation", Err(refusal));
-                        cause = lctx_model::domain::completion::complete::<()>(Err(cause), completion).unwrap_err();
-                    }
+                if let Some(transport) = &self.transport
+                    && let Err(refusal) = transport.retain(failure.retained)
+                {
+                    let mut completion = lctx_model::domain::completion::Completion::default();
+                    completion.step("native terminal error reservation", Err(refusal));
+                    cause = lctx_model::domain::completion::complete::<()>(Err(cause), completion)
+                        .unwrap_err();
                 }
                 (Err(failure.public), Some(Arc::new(cause)))
             }
@@ -361,9 +571,13 @@ impl Active {
             match self.shared.state.lock() {
                 Ok(mut state) => {
                     if let Some(delivery) = state.deliveries.get_mut(&self.identity) {
-                        if delivery.publish(failure, self.transport.take()) { state.deliveries.remove(&self.identity); }
-                    } else { self.shared.reader.retain_unknown(); }
-                },
+                        if delivery.publish(failure, self.transport.take()) {
+                            state.deliveries.remove(&self.identity);
+                        }
+                    } else {
+                        self.shared.reader.retain_unknown();
+                    }
+                }
                 Err(_) => self.shared.reader.retain_unknown(),
             }
         }
@@ -371,7 +585,12 @@ impl Active {
     }
 }
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-enum DeliveryState { #[default] Pending, Healthy, Abandoned }
+enum DeliveryState {
+    #[default]
+    Pending,
+    Healthy,
+    Abandoned,
+}
 #[derive(Default)]
 struct Delivery {
     state: DeliveryState,
@@ -384,7 +603,11 @@ impl Delivery {
         self.state = state;
         state == DeliveryState::Healthy && self.terminal
     }
-    fn publish(&mut self, failure: Option<Arc<ModelError>>, transport: Option<TransportRequest>) -> bool {
+    fn publish(
+        &mut self,
+        failure: Option<Arc<ModelError>>,
+        transport: Option<TransportRequest>,
+    ) -> bool {
         self.failure = failure;
         self.transport = transport;
         self.terminal = true;
@@ -392,11 +615,14 @@ impl Delivery {
     }
     fn finish(self, completion: &mut lctx_model::domain::completion::Completion) {
         if let Some(error) = self.failure {
-            completion.step(match self.state {
-                DeliveryState::Pending => "native pending delivery failed",
-                DeliveryState::Abandoned => "native abandoned delivery failed",
-                DeliveryState::Healthy => "native healthy delivery failed",
-            }, Err(ModelError::SharedCause(error)));
+            completion.step(
+                match self.state {
+                    DeliveryState::Pending => "native pending delivery failed",
+                    DeliveryState::Abandoned => "native abandoned delivery failed",
+                    DeliveryState::Healthy => "native healthy delivery failed",
+                },
+                Err(ModelError::SharedCause(error)),
+            );
         }
         // The request lease and charged result metadata survive task completion
         // and are released before service preparation drainage at owner close.
@@ -405,39 +631,62 @@ impl Delivery {
 }
 #[pyclass(frozen)]
 struct DeliveryCallback {
-    shared: Arc<Shared>, identity: u64, called: std::sync::atomic::AtomicBool,
+    shared: Arc<Shared>,
+    identity: u64,
+    called: std::sync::atomic::AtomicBool,
 }
 #[pymethods]
 impl DeliveryCallback {
     fn __call__(&self, future: &Bound<'_, PyAny>) -> PyResult<()> {
         let cancelled: bool = future.call_method0("cancelled")?.extract()?;
-        self.shared.acknowledge(self.identity,
-            if cancelled { DeliveryState::Abandoned } else { DeliveryState::Healthy });
-        self.called.store(true, std::sync::atomic::Ordering::Release);
+        self.shared.acknowledge(
+            self.identity,
+            if cancelled {
+                DeliveryState::Abandoned
+            } else {
+                DeliveryState::Healthy
+            },
+        );
+        self.called
+            .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
     }
 }
 impl Drop for DeliveryCallback {
     fn drop(&mut self) {
         if !self.called.load(std::sync::atomic::Ordering::Acquire) {
-            self.shared.acknowledge(self.identity, DeliveryState::Abandoned);
+            self.shared
+                .acknowledge(self.identity, DeliveryState::Abandoned);
         }
     }
 }
-struct TaskFailure { public: PyErr, cause: ModelError, retained: usize }
+struct TaskFailure {
+    public: PyErr,
+    cause: ModelError,
+    retained: usize,
+}
 impl TaskFailure {
     fn unavailable() -> Self {
-        Self { public: crate::unavailable(), cause: ModelError::Serving(
-            lctx_model::domain::serving::FailureKind::Unavailable), retained: 0 }
+        Self {
+            public: crate::unavailable(),
+            cause: ModelError::Serving(lctx_model::domain::serving::FailureKind::Unavailable),
+            retained: 0,
+        }
     }
     fn wire(error: lctx_model::domain::serving::WireError) -> Self {
         use lctx_model::domain::serving::WireError;
         let retained = match &error {
-            WireError::Invalid(text) | WireError::ResourceRefused(text) | WireError::UnknownTool(text)
-                | WireError::Continuation(text) => text.capacity(),
+            WireError::Invalid(text)
+            | WireError::ResourceRefused(text)
+            | WireError::UnknownTool(text)
+            | WireError::Continuation(text) => text.capacity(),
             WireError::Failure(_) => 0,
         };
-        Self { public: crate::public_error(error.public_failure()), cause: ModelError::Cause(Box::new(error)), retained }
+        Self {
+            public: crate::public_error(error.public_failure()),
+            cause: ModelError::Cause(Box::new(error)),
+            retained,
+        }
     }
     fn panic(payload: Box<dyn std::any::Any + Send>) -> Self {
         let retained = std::mem::size_of_val(payload.as_ref())
@@ -446,9 +695,15 @@ impl TaskFailure {
         let mut completion = lctx_model::domain::completion::Completion::default();
         completion.remote = lctx_model::domain::completion::RemoteState::Unknown;
         let cause = ModelError::Cause(Box::new(lctx_model::domain::completion::ThreadPanic::new(
-            "native accepted execution", payload)));
-        Self { public: crate::unavailable(), retained,
-            cause: lctx_model::domain::completion::complete::<()>(Err(cause), completion).unwrap_err() }
+            "native accepted execution",
+            payload,
+        )));
+        Self {
+            public: crate::unavailable(),
+            retained,
+            cause: lctx_model::domain::completion::complete::<()>(Err(cause), completion)
+                .unwrap_err(),
+        }
     }
 }
 impl Drop for Active {
@@ -481,26 +736,57 @@ mod delivery_tests {
             let first = Arc::new(Barrier::new(2));
             let second = Arc::new(Barrier::new(2));
             std::thread::scope(|scope| {
-                let (worker_delivery, worker_error, worker_first, worker_second) =
-                    (delivery.clone(), original.clone(), first.clone(), second.clone());
+                let (worker_delivery, worker_error, worker_first, worker_second) = (
+                    delivery.clone(),
+                    original.clone(),
+                    first.clone(),
+                    second.clone(),
+                );
                 scope.spawn(move || {
-                    if !error_first { worker_first.wait(); }
-                    assert!(!worker_delivery.lock().unwrap().publish(Some(worker_error), None));
-                    if error_first { worker_first.wait(); }
+                    if !error_first {
+                        worker_first.wait();
+                    }
+                    assert!(
+                        !worker_delivery
+                            .lock()
+                            .unwrap()
+                            .publish(Some(worker_error), None)
+                    );
+                    if error_first {
+                        worker_first.wait();
+                    }
                     worker_second.wait();
                 });
-                if error_first { first.wait(); }
-                assert!(!delivery.lock().unwrap().acknowledge(DeliveryState::Abandoned));
-                if !error_first { first.wait(); }
+                if error_first {
+                    first.wait();
+                }
+                assert!(
+                    !delivery
+                        .lock()
+                        .unwrap()
+                        .acknowledge(DeliveryState::Abandoned)
+                );
+                if !error_first {
+                    first.wait();
+                }
                 second.wait();
             });
-            let delivery = Arc::try_unwrap(delivery).ok().unwrap().into_inner().unwrap();
+            let delivery = Arc::try_unwrap(delivery)
+                .ok()
+                .unwrap()
+                .into_inner()
+                .unwrap();
             assert!(delivery.terminal);
             assert!(Arc::ptr_eq(delivery.failure.as_ref().unwrap(), &original));
             let mut completion = lctx_model::domain::completion::Completion::default();
             delivery.finish(&mut completion);
-            assert_eq!(completion.failures[0].step, "native abandoned delivery failed");
-            assert!(matches!(&completion.failures[0].error, ModelError::SharedCause(error) if Arc::ptr_eq(error, &original)));
+            assert_eq!(
+                completion.failures[0].step,
+                "native abandoned delivery failed"
+            );
+            assert!(
+                matches!(&completion.failures[0].error, ModelError::SharedCause(error) if Arc::ptr_eq(error, &original))
+            );
         }
     }
     #[test]
@@ -520,7 +806,12 @@ mod delivery_tests {
         delivery.publish(Some(original.clone()), None);
         let mut completion = lctx_model::domain::completion::Completion::default();
         delivery.finish(&mut completion);
-        assert_eq!(completion.failures[0].step, "native pending delivery failed");
-        assert!(matches!(&completion.failures[0].error, ModelError::SharedCause(error) if Arc::ptr_eq(error, &original)));
+        assert_eq!(
+            completion.failures[0].step,
+            "native pending delivery failed"
+        );
+        assert!(
+            matches!(&completion.failures[0].error, ModelError::SharedCause(error) if Arc::ptr_eq(error, &original))
+        );
     }
 }

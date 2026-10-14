@@ -84,8 +84,9 @@ pub use finite::FiniteF64;
 pub use identity::{ArmId, ContentHash, ContentHasher, EvidenceBytes, Id, Key, KeySink, Utf8Text};
 pub use model::{
     Invariant, InvariantCheck, InvariantPurpose, PublicationCheck, PublicationInvariant, Relation,
-    RelationContent, SEMANTIC_POLICY_REVISION, ValidatedModel, ValidationDefinitions,
-    ValidationIdentity, ValidationInput, ValidationKind, implementation_digest,
+    RelationContent, RowFingerprint, SEMANTIC_POLICY_REVISION, ValidatedModel,
+    ValidationDefinitions, ValidationIdentity, ValidationInput, ValidationKind,
+    implementation_digest,
 };
 pub use record::{
     Arm, ArmField, Batch, CheckedCanonicalBatch, Codebook, Field, FieldValue, FlatValue, HeapSize,

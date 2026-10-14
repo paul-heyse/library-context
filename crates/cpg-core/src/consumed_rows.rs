@@ -1,14 +1,10 @@
 //! Explicit completed-input dispatch for pure kernels. There are no persisted grants or epochs.
 use crate::workspace::CompletedInputs;
 use datafusion::prelude::SessionContext;
-use futures::TryStreamExt;
 use lctx_model::domain::{
     analysis::sources::CompletedInput, charged, resources::ResourceBudget, *,
 };
-use std::{
-    any::TypeId,
-    collections::{BTreeMap, BTreeSet},
-};
+use std::{any::TypeId, collections::BTreeSet};
 /// Expected coverage needs artifact identity, input ownership and the model's bounded
 /// classifier property. Ordinary selected algorithm reads still receive canonical rows.
 pub(crate) async fn stream_artifact_admission(
@@ -261,16 +257,35 @@ fn stream_batches_prepared<'a>(
                 format!(" ORDER BY {order}")
             }
         );
-        let mut selected = match inputs {
+        let selected = match inputs {
             Some(inputs) => inputs.query_template(session, declaration, &sql).await?,
             None => crate::sql::query(session, &sql)
                 .await
                 .map_err(crate::sql::model_error)?,
         };
-        lctx_compiler_store::consumed_rows::stream_planned(selected,predicate,consume).await?;
+        lctx_compiler_store::consumed_rows::stream_planned(selected, predicate, consume).await?;
         Ok(())
     })
 }
+
+#[cfg(test)]
+pub(crate) fn assert_decoder_reachability(
+    declarations: Vec<ValidationInput>,
+    decoders: &BTreeSet<TypeId>,
+) {
+    let missing: Vec<_> = declarations
+        .iter()
+        .filter(|input| !decoders.contains(&input.type_id()))
+        .map(ValidationInput::name)
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "completed kernel input lacks typed decoder: {missing:?}"
+    );
+}
+
+pub use lctx_compiler_store::consumed_rows::*;
+
 #[cfg(test)]
 mod checked_stream_controls {
     use super::*;
@@ -337,21 +352,3 @@ mod checked_stream_controls {
         assert!(!visited);
     }
 }
-
-#[cfg(test)]
-pub(crate) fn assert_decoder_reachability(
-    declarations: Vec<ValidationInput>,
-    decoders: &BTreeSet<TypeId>,
-) {
-    let missing: Vec<_> = declarations
-        .iter()
-        .filter(|input| !decoders.contains(&input.type_id()))
-        .map(ValidationInput::name)
-        .collect();
-    assert!(
-        missing.is_empty(),
-        "completed kernel input lacks typed decoder: {missing:?}"
-    );
-}
-
-pub use lctx_compiler_store::consumed_rows::*;

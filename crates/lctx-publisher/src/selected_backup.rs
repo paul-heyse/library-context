@@ -26,9 +26,13 @@ use std::{
     sync::Arc,
 };
 
-struct Snapshot<'a> {
-    transaction: &'a Arc<Transaction<Client>>,
-    cancel: &'a crate::owned_read::Cancellation,
+pub(crate) struct Snapshot<'a> {
+    pub(crate) transaction: &'a Arc<Transaction<Client>>,
+    pub(crate) cancel: &'a crate::owned_read::Cancellation,
+}
+pub(crate) struct BackupSpools<'a> {
+    pub(crate) claims: &'a Path,
+    pub(crate) completed_state: &'a Path,
 }
 async fn read(
     transaction: &Snapshot<'_>,
@@ -176,15 +180,13 @@ async fn write_stream(
 /// Write one coherent provisional data dump. The caller drains/cancels this same transaction
 /// before any file publication and retains the exact pin through cancellation acknowledgement.
 pub(crate) async fn export(
-    transaction: &Arc<Transaction<Client>>,
+    transaction: &Snapshot<'_>,
     completed: &lctx_native::completed_state::PublishedCompletedState,
     version: &str,
     handle: &SnapshotHandle,
     native_definitions: &str,
-    output: &Path,
-    state_output: &Path,
+    spools: BackupSpools<'_>,
     budget: &ResourceBudget,
-    cancel: &crate::owned_read::Cancellation,
 ) -> Result<
     (
         ContentHash,
@@ -192,12 +194,8 @@ pub(crate) async fn export(
     ),
     ModelError,
 > {
+    let cancel = transaction.cancel;
     cancel.check()?;
-    let snapshot = Snapshot {
-        transaction,
-        cancel,
-    };
-    let transaction = &snapshot;
     let publication = one(
         transaction,
         "SELECT * FROM $publication".into(),
@@ -238,7 +236,7 @@ pub(crate) async fn export(
         std::fs::OpenOptions::new()
             .write(true)
             .truncate(true)
-            .open(output)
+            .open(spools.claims)
             .map_err(ModelError::codec)?,
     );
     writeln!(writer, "OPTION IMPORT;").map_err(ModelError::codec)?;
@@ -323,8 +321,10 @@ pub(crate) async fn export(
                 ))?)
             .clone();
             for input in &descriptor.spec.inputs {
-                if !inputs.contains_key(&input.view()) {
-                    inputs.insert(input.view(), view(transaction, input.view()).await?.1);
+                if let std::collections::btree_map::Entry::Vacant(entry) =
+                    inputs.entry(input.view())
+                {
+                    entry.insert(view(transaction, input.view()).await?.1);
                 }
             }
             contributors.push(descriptor);
@@ -447,21 +447,19 @@ pub(crate) async fn export(
                     let result = async {
                         while let Some(row) = rows.next().await? {
                             cancel.check()?;
-                            if family == RecoveryFamily::TypedBacking {
-                                if let Some(Value::Object(body)) = object(&row)?.get("body") {
-                                    if let Some(Value::RecordId(source)) = body.get("original") {
-                                        if source.table.as_str() != "original" {
-                                            return Err(ModelError::Schema(
-                                                "snapshot original backing source",
-                                            ));
-                                        }
-                                        if !originals.contains(source) {
-                                            descriptor_charge.try_resize(
-                                                descriptor_charge.size().saturating_add(512),
-                                            )?;
-                                            originals.insert(source.clone());
-                                        }
-                                    }
+                            if family == RecoveryFamily::TypedBacking
+                                && let Some(Value::Object(body)) = object(&row)?.get("body")
+                                && let Some(Value::RecordId(source)) = body.get("original")
+                            {
+                                if source.table.as_str() != "original" {
+                                    return Err(ModelError::Schema(
+                                        "snapshot original backing source",
+                                    ));
+                                }
+                                if !originals.contains(source) {
+                                    descriptor_charge
+                                        .try_resize(descriptor_charge.size().saturating_add(512))?;
+                                    originals.insert(source.clone());
                                 }
                             }
                             write_state_row(
@@ -627,7 +625,7 @@ pub(crate) async fn export(
         .try_into()
         .map_err(|_| ModelError::Schema("snapshot six completed families"))?;
     let receipt = lctx_native::completed_transport::write_transport(
-        state_output,
+        spools.completed_state,
         &transport,
         &state,
         budget,

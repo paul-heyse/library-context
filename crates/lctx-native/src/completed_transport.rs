@@ -83,18 +83,16 @@ struct SelectedCopyRequest {
     incarnation: i64,
     logical: ContentHash,
 }
+struct SelectedRequests {
+    copies: Vec<SelectedCopyRequest>,
+    labels: BTreeMap<ContentHash, CopyLabel>,
+    dependency_views: Vec<ContentHash>,
+    charge: StateCharge,
+}
 fn selected_requests(
     roots: &[(CompletedView, Vec<ContributorRealization>)],
     budget: &d::resources::ResourceBudget,
-) -> Result<
-    (
-        Vec<SelectedCopyRequest>,
-        BTreeMap<ContentHash, CopyLabel>,
-        Vec<ContentHash>,
-        StateCharge,
-    ),
-    ModelError,
-> {
+) -> Result<SelectedRequests, ModelError> {
     let mut copies: Vec<SelectedCopyRequest> = Vec::new();
     let mut labels: BTreeMap<ContentHash, CopyLabel> = BTreeMap::new();
     let mut views = std::collections::BTreeSet::new();
@@ -133,7 +131,12 @@ fn selected_requests(
             .len()
             .saturating_mul(std::mem::size_of::<ContentHash>()),
     )?;
-    Ok((copies, labels, views.into_iter().collect(), charge))
+    Ok(SelectedRequests {
+        copies,
+        labels,
+        dependency_views: views.into_iter().collect(),
+        charge,
+    })
 }
 async fn prepare_transport_copy(
     reader: &NativeReader<()>,
@@ -210,7 +213,12 @@ async fn selected_inventory(
 ) -> Result<SelectionInventory, ModelError> {
     let audit = InstallationAudit::new(reader.shared_client(), budget).await?;
     let result = async {
-        let (requests, labels, views, _requests) = selected_requests(roots, budget)?;
+        let SelectedRequests {
+            copies: requests,
+            labels,
+            dependency_views: views,
+            charge: _requests,
+        } = selected_requests(roots, budget)?;
         let mut result = SelectionInventory {
             roots: vec![],
             copies: vec![],
@@ -628,7 +636,7 @@ pub async fn eligibility_published(
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 enum TransportFrame {
     Header {
-        envelope: CompletedTransportEnvelope,
+        envelope: Box<CompletedTransportEnvelope>,
     },
     Row {
         table: String,
@@ -1097,7 +1105,7 @@ pub fn read_transport(
         }
     }
     Ok(DecodedTransport {
-        envelope,
+        envelope: *envelope,
         families,
         copies,
         _charge: charge,
@@ -1215,7 +1223,12 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-        let (copies, labels, views, charge) = selected_requests(&roots, &budget).unwrap();
+        let SelectedRequests {
+            copies,
+            labels,
+            dependency_views: views,
+            charge,
+        } = selected_requests(&roots, &budget).unwrap();
         assert!(charge.reserved() > 0);
         assert_eq!(
             copies.iter().map(|copy| copy.physical).collect::<Vec<_>>(),
@@ -1225,7 +1238,7 @@ mod tests {
         assert_eq!(labels[&ContentHash([1; 32])], 1);
         assert!(views.is_empty());
         roots[1].1[0].physical = roots[0].1[0].physical;
-        let (copies, labels, _, _) = selected_requests(&roots, &budget).unwrap();
+        let SelectedRequests { copies, labels, .. } = selected_requests(&roots, &budget).unwrap();
         assert_eq!(copies.len(), 1);
         assert_eq!(labels[&ContentHash([9; 32])], 0);
         roots[1].1[0].incarnation += 1;
@@ -1251,7 +1264,11 @@ mod tests {
             incarnation: 2,
         };
         let roots = vec![(root, vec![mapping.clone(), mapping])];
-        let (copies, _, views, _) = selected_requests(&roots, &budget).unwrap();
+        let SelectedRequests {
+            copies,
+            dependency_views: views,
+            ..
+        } = selected_requests(&roots, &budget).unwrap();
         assert_eq!(copies.len(), 1);
         assert_eq!(views, vec![dependency]);
     }

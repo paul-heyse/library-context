@@ -144,12 +144,14 @@ async fn restored_derived_excess_is_refused(
         .expect("exact publication selection");
     let mut source_rows = selected
         .rows_with_budget(
-            "entity",
-            "semantic_type='source_artifacts'",
-            Variables::new(),
-            vec![],
-            "id",
-            Some(1),
+            lctx_native::selection::SelectedPayloadRead {
+                table: "entity",
+                predicate: "semantic_type='source_artifacts'",
+                bindings: Variables::new(),
+                preparation: vec![],
+                order: "id",
+                limit: Some(1),
+            },
             &native_read_budget,
         )
         .unwrap();
@@ -397,7 +399,7 @@ async fn publication_control() {
             .unwrap(),
         );
         let inspector = inspector_owner.as_ref().unwrap();
-        let details = lctx_publisher::inspection::show(&inspector).await.unwrap();
+        let details = lctx_publisher::inspection::show(inspector).await.unwrap();
         assert_eq!(
             details.manifest.completed_state,
             verified.manifest().completed_state
@@ -442,12 +444,14 @@ async fn publication_control() {
             .expect("exact publication selection");
         let mut selected_rows = selected
             .rows_with_budget(
-                "entity",
-                "true",
-                surrealdb_vars(),
-                vec![],
-                "id",
-                Some(1),
+                lctx_native::selection::SelectedPayloadRead {
+                    table: "entity",
+                    predicate: "true",
+                    bindings: surrealdb_vars(),
+                    preparation: vec![],
+                    order: "id",
+                    limit: Some(1),
+                },
                 workspace.budget(),
             )
             .unwrap();
@@ -1129,7 +1133,7 @@ async fn advance_source_cleanup<Context>(
     budget: &resources::ResourceBudget,
     publication: lctx_model::domain::completed::RetirementProgress,
 ) -> Result<(), ModelError> {
-    use lctx_native::surrealdb::types::{Number, Object, RecordId, RecordIdKey, Value, Variables};
+    use lctx_native::surrealdb::types::{Number, Object, RecordIdKey, Value, Variables};
     let evidence = &fixture.source_cleanup;
     let integer = |row: &Object, field: &str| -> Result<i64, ModelError> {
         match row.get(field) {
@@ -1942,12 +1946,11 @@ async fn backup_omissions_and_concurrent_warm_restores_preserve_fresh_ownership(
         let source_ownership = publication_ownership(viewer, &budget).await.unwrap();
         config.select(&handle).unwrap();
         let backup = fixture.scratch.path().join("snapshot.surql");
-        let backup_receipt =
-            lctx_publisher::backup::backup(&config, &handle, &backup, &definitions)
-                .await
-                .unwrap();
+        let backup_receipt = lctx_publisher::backup::backup(config, &handle, &backup, &definitions)
+            .await
+            .unwrap();
         assert!(
-            lctx_publisher::backup::backup(&config, &handle, &backup, &definitions)
+            lctx_publisher::backup::backup(config, &handle, &backup, &definitions)
                 .await
                 .is_err()
         );
@@ -1959,14 +1962,12 @@ async fn backup_omissions_and_concurrent_warm_restores_preserve_fresh_ownership(
         while let Some(item) = dump.next().unwrap() {
             if let backup_decode::Item::Rows(rows) = item {
                 for row in rows {
-                    if let lctx_native::surrealdb::types::Value::Object(object) = row {
-                        if let Some(lctx_native::surrealdb::types::Value::RecordId(id)) =
+                    if let lctx_native::surrealdb::types::Value::Object(object) = row
+                        && let Some(lctx_native::surrealdb::types::Value::RecordId(id)) =
                             object.get("id")
-                        {
-                            if id.table.as_str() == "publication" {
-                                exported_publications.push(id.clone());
-                            }
-                        }
+                        && id.table.as_str() == "publication"
+                    {
+                        exported_publications.push(id.clone());
                     }
                 }
             }
@@ -1979,7 +1980,7 @@ async fn backup_omissions_and_concurrent_warm_restores_preserve_fresh_ownership(
             )]
         );
         omitted_backup_payloads_are_refused(
-            &config,
+            config,
             &handle,
             &backup,
             &definitions,
@@ -1996,14 +1997,14 @@ async fn backup_omissions_and_concurrent_warm_restores_preserve_fresh_ownership(
             .unwrap();
         let (first, second) = tokio::join!(
             lctx_publisher::backup::restore_publication(
-                &config,
+                config,
                 &backup,
                 handle.publication,
                 &definitions,
                 &backup_receipt,
             ),
             lctx_publisher::backup::restore_publication(
-                &config,
+                config,
                 &backup,
                 handle.publication,
                 &definitions,
@@ -2021,8 +2022,8 @@ async fn backup_omissions_and_concurrent_warm_restores_preserve_fresh_ownership(
             "concurrent equal restores converge on one handle"
         );
         let (first_audit, second_audit) = tokio::join!(
-            lctx_publisher::inspection::audit(&config, &restored, &definitions),
-            lctx_publisher::inspection::audit(&config, &concurrent, &definitions),
+            lctx_publisher::inspection::audit(config, &restored, &definitions),
+            lctx_publisher::inspection::audit(config, &concurrent, &definitions),
         );
         first_audit.unwrap();
         second_audit.unwrap();
@@ -2232,7 +2233,7 @@ async fn actual_installed_analyzer_drift_is_refused() {
             .unwrap()
             .check()
             .unwrap();
-        let refused = lctx_publisher::inspection::audit(&config, &handle, &definitions).await;
+        let refused = lctx_publisher::inspection::audit(config, &handle, &definitions).await;
         let analyzer = definitions
             .lines()
             .find(|line| line.starts_with("DEFINE ANALYZER lctx_discovery "))
@@ -2241,7 +2242,7 @@ async fn actual_installed_analyzer_drift_is_refused() {
         admin.query(analyzer).await.unwrap().check().unwrap();
         admin.invalidate().await.unwrap();
         assert!(refused.is_err(), "actual analyzer drift must be refused");
-        lctx_publisher::inspection::audit(&config, &handle, &definitions)
+        lctx_publisher::inspection::audit(config, &handle, &definitions)
             .await
             .unwrap();
     })

@@ -22,10 +22,10 @@ fn installation_definitions(sql: &str) -> Result<Vec<String>, ModelError> {
         .into_iter()
         .map(|mut statement| {
             // CONCURRENTLY controls execution, not the persisted index definition.
-            if let TopLevelExpr::Expr(Expr::Define(definition)) = &mut statement {
-                if let DefineStatement::Index(index) = definition.as_mut() {
-                    index.concurrently = false;
-                }
+            if let TopLevelExpr::Expr(Expr::Define(definition)) = &mut statement
+                && let DefineStatement::Index(index) = definition.as_mut()
+            {
+                index.concurrently = false;
             }
             match &statement {
                 TopLevelExpr::Expr(Expr::Define(definition))
