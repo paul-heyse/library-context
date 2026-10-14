@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "python/lctx_semantics", "tools/lctx-surreal-dev"]
-exclude = ["third_party/allocative", "third_party/surrealdb", "third_party/surrealdb-rpc", "third_party/surrealkit"]
+exclude = ["third_party/allocative", "third_party/surrealdb", "third_party/surrealdb-rpc", "third_party/surrealkit", "third_party/manyhow"]
 
 [workspace.package]
 version = "0.1.0"
@@ -181,8 +181,9 @@ incremental = false
 [profile.release.build-override]
 opt-level = 2
 
-# Backport the upstream never-type fix without upgrading Pyrefly's dependency graph (ADR-0136).
+# Narrow source fixes preserve the pinned dependency families; vendored notes own their scope.
 [patch.crates-io]
+manyhow = { path = "third_party/manyhow" }
 surrealkit = { path = "third_party/surrealkit" }
 allocative = { path = "third_party/allocative" }
 surrealdb = { path = "third_party/surrealdb" }

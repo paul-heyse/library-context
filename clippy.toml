@@ -1,0 +1,4 @@
+# surrealdb-types 3.3.0: Regex Eq/Ord/Hash use its immutable pattern.
+# The interior mutex only caches execution state. Recheck on SDK/regex upgrades.
+# Preserve Clippy's default Bytes exception; other mutable keys remain linted.
+ignore-interior-mutability = ["bytes::Bytes", "surrealdb_types::Regex"]
