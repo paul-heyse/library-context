@@ -461,6 +461,25 @@ def inspect_campaign(
                     "AND node=entity:diagnostic EXPLAIN",
                     cfg=cfg,
                 )[0]["result"],
+                "retirement_schema": service.sql(
+                    installation, "INFO FOR TABLE native_retirement_item", cfg=cfg
+                )[0]["result"],
+                "retirement_pending_plan": service.sql(
+                    installation,
+                    "SELECT id,job,object,incarnation,state,successor "
+                    "FROM native_retirement_item WITH INDEX retirement_queue_v4 "
+                    "WHERE job=native_retirement:diagnostic AND state='pending' "
+                    "ORDER BY id LIMIT 128 EXPLAIN",
+                    cfg=cfg,
+                )[0]["result"],
+                "retirement_retiring_plan": service.sql(
+                    installation,
+                    "SELECT id,job,object,incarnation,state,successor "
+                    "FROM native_retirement_item WITH INDEX retirement_queue_v4 "
+                    "WHERE job=native_retirement:diagnostic AND state='retiring' "
+                    "ORDER BY id LIMIT 128 EXPLAIN",
+                    cfg=cfg,
+                )[0]["result"],
             }
     return result
 

@@ -12,6 +12,9 @@ use lctx_model::domain::{
 };
 use lctx_native::{Loader, NativeReader, RuntimeConfig, phase::Phase};
 use std::sync::Arc;
+#[cfg(test)]
+#[path = "../tests/fixtures/publication_expectations.rs"]
+mod expectations_controls;
 
 /// Only semantic admission owners can enter the private publication workflow.
 pub(crate) enum Admission<'a> {
@@ -72,6 +75,7 @@ pub(crate) struct Publication<'a> {
     eligibility: EligibilityIdentity,
     incoming: Option<lctx_native::completed_state::HeldFrozenCompletedState>,
     session: lctx_native::reader::SessionFinalizationGuard,
+    search: Option<lctx_native::derived_search::PreparedSearch>,
 }
 impl<'a> Publication<'a> {
     pub(crate) async fn new(
@@ -177,6 +181,7 @@ impl<'a> Publication<'a> {
                 incoming,
                 definition_epoch: crate::definitions::epoch_identity(definitions),
                 session: session.take().expect("publication session owner"),
+                search: None,
             })
         }
         .await;
@@ -268,13 +273,17 @@ impl<'a> Publication<'a> {
         result
     }
 
-    pub(crate) async fn materialize_search(&self) -> Result<(), ModelError> {
+    pub(crate) async fn materialize_search(&mut self) -> Result<(), ModelError> {
+        if self.search.is_some() || self.is_unchanged() {
+            return Err(ModelError::Conflict("publication search already prepared or unchanged"));
+        }
         let lease = self.store().begin_derived_operation("publication search")?;
         let phase = Phase::begin("publication_search");
-        let result = lctx_native::derived_search::materialize_search(&self.loader).await;
+        let result = lctx_native::derived_search::materialize_search_prepared(&self.loader).await;
         let result = lease.finish_with(result);
         phase.finish_result(&result);
-        result
+        self.search = Some(result?);
+        Ok(())
     }
 
     /// Close and drain every ordinary operation, then retain the one private seal's terminality.
@@ -295,6 +304,11 @@ impl<'a> Publication<'a> {
         let lease = self.store().begin_finalization().await?;
         let phase = Phase::begin("publication_seal");
         let result = async {
+            // Analyzer observations and lowered vectors remain usable only under
+            // the actual immutable executable/physical definitions verified at setup.
+            if crate::definitions::verify_epoch(&self.loader, definitions).await? != self.loader.derivation()? {
+                return Err(ModelError::Conflict("publication actual definition context changed"));
+            }
             if let Some(incoming) = &self.incoming {
                 let actual = lctx_native::completed_transport::eligibility_frozen(
                     self.loader.shared_client(),
@@ -344,12 +358,13 @@ impl<'a> Publication<'a> {
                     .staging()
                     .ok_or(ModelError::Conflict("publication staging owner missing"))?;
                 staging
-                    .publish(
+                    .publish_prepared(
                         &self.loader,
                         &expected,
                         manifest,
                         &self.bindings,
                         self.admission.budget(),
+                        self.search.as_ref().ok_or(ModelError::Conflict("publication retained search expectations missing"))?,
                     )
                     .await?
                     .handle

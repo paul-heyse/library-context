@@ -278,7 +278,15 @@ contribution/binding/cleanup and successor incidence partners write the collecto
 guard. Current global coordination remains until the complete migration and race controls pass;
 finite engine conflict evidence does not establish protocol acceptance.
 
-> Decision: ADR-0155
+**Implemented source / native acceptance pending,2026-10-14 (ADR-0170).** Retirement resume discovers
+bounded pending/retiring pages from the head and uses a separate retained cursor. Candidates are
+freshly checked, nominations invalidate buffered hints, and insufficient effect allowance stops
+progress without a busy loop. Final completion still requires the guarded fresh empty proof.
+Exact invocation lineage is prepared from the validated current job and compared inside every
+nomination effect; maintenance successors retain that lineage. No missing-lineage compatibility
+fallback or cached effect authority is introduced. Root fencing and all incarnation/hold checks remain.
+
+> Decision: ADR-0155, ADR-0170
 
 **Accepted target / source integration in progress, 2026-10-11.** Mutable relation/boundary
 attempt slots and immutable complete binding descriptors have different identities. The latter binds
@@ -342,7 +350,7 @@ assets; recovery metadata is not authority to restore live clients or execute im
 
 > Decision: ADR-0145, ADR-0088, ADR-0126, ADR-0165, ADR-0166
 
-**Accepted target,2026-10-14 (ADR-0168); CN01/CN02 implementation pending.** Same-operation
+**Implemented source / functional acceptance pending,2026-10-14 (ADR-0168).** Same-operation
 reuse retains successful terminal individual checks under complete ordered roles, exact views,
 requested/resolved epochs, model/profile/definition/factory/NotRequested/companion premises and
 actual protected operation/resource ownership. Memo digests are not executed evidence. New or changed
@@ -350,6 +358,12 @@ applicability is freshly checked; physical freeze, graph/frontier/original inven
 finality remain independently established. Search and lexical expected runs can remain privately
 charged and rewindable through finalization, which still compares fresh actual rows to complete EOF.
 Cold/import/foreign operations derive their necessary validity and expectations independently.
+Scoped reuse defaults to refusing compact-owner dependencies unless the model explicitly declares
+independence. Successful final artifacts retain charged proof borrowers; operation drainage closes
+the memo without forming a strong execution-owner cycle. Retained search belongs to the actual Loader,
+and the direct native retained route verifies actual analyzer metadata. Expected backing is reserved
+before admitting an actual comparison stream and survives its authenticated drainage. These source
+mechanisms have independent scoped review acceptance; the coordinator owns uncompleted runtime checks.
 
 > Decision: ADR-0168
 

@@ -199,6 +199,172 @@ In particular S04/F01 overlaps N10/F05 without importing all of N10's migration 
 
 ## 6. Sole disposition and execution checkpoint
 
+**Remaining-scope execution authorized2026-10-14.** CN01/CN02, CN03/D10–D12, affected CO01,
+current native/compiler/analysis acceptance, CX01–CX04 are authorized together. The operator selected
+an explicitly registered wholly owned current-schema campaign, leaving the shared installed service
+and its two protected Unknown attachments untouched. The fixture journey keeps900s; the complete
+pinned FastMCP journey has3600s outer execution allowance excluding builds. Internal assertions,
+resource/effect limits and normal parallelism remain. Campaign disposal follows authenticated current
+participant/executor drainage and exact shutdown; old stable receipts cannot settle by association.
+CN01/CN02 and D11/D12 retirement implementation are source-integrated and independently
+source-accepted. Runtime acceptance and CX01–CX04 completion remain open as detailed below.
+
+### Remaining-scope source delivery and resource checkpoint,2026-10-14
+
+Baseline `e54f03cd701af8381a2b927975449ad56dc4def0`; current changes implement CN01/CN02 and
+ADR-0170's D11/D12. The [independent integrated source assessment](../design_review/reviews/design_review_catalog-creation-completion-integrated_2026-10-14.md)
+is **Accept scoped / Implemented, source-inspected**. Separate implementation reviews accepted
+scoped validity, final repaired publication expectations and retirement. No new material design
+finding remains in that bounded source assessment; runtime behavior is not established by it.
+
+CN01 records only actually successful scoped kernels or complete-empty applicability EOF. Its
+premises include full ordered roles, model/profile/factory/definition/descriptor/requestedness,
+exact sources and actual operation/native/resource owners. Pending successes commit after the
+whole prefix; failure/drop invalidates reuse. Compact-owner independence defaults false, with six
+model-owned no-op opt-ins. Final artifact retains charged borrowers. Final freeze compares full
+selector mappings and freshly revalidates the original live protected cap; cold/foreign/changed
+operations execute independently. Weak operation links prevent a memo/owner retention cycle, and
+drainage closes scoped reuse between native-call and store drainage.
+
+CN02 retains seven search/four lexical expected families under the actual Loader nonce, protected
+source/staging/client/pool/realization/scope and existing spill owner. Fresh full actual EOF/drainage,
+root inventory and final guarded CAS remain. Cold reconciliation reconstructs independently.
+Two independent-review issues were repaired: actual analyzer metadata is now checked on the public
+native retained route as well as the publisher's full definition verification; expected carrier
+reservation now precedes actual stream admission and its backing survives drainage even after
+receiver/last-owner drop. Source acceptance does not establish actual INFO response compatibility
+or cancellation/native mutation execution. Supported foreign/test materialization remains a current
+consumer, not an obsolete compatibility path.
+
+D10 keeps latest-only composed alias preparation: inspected consumers do not establish useful
+alternating A→B→A demand, and contributor runs already persist. Revisit an actual repeated-set
+consumer with complete context/owner identity and useful charged lifetime. D11 selects bounded
+pending/retiring head pages with fresh candidate checks, nomination invalidation, separate retained
+cursor and a stop before unaffordable edge progress. D12 prepares required validated invocation
+lineage once and checks it inside every existing guarded page effect. No schema migration, fallback
+lineage, queue authority, root-fence narrowing or job cap. Paging changes discovery; per-candidate
+refetch remains, so no lower total query count or speed claim is established.
+
+Affected CO01 adds fixed read-only retirement table/index-plan observations through existing
+campaign diagnostics. No arbitrary query route, ANALYZE or new lifecycle owner is introduced.
+Three host inspection/observation controls passed; actual native plan/index inspection remains open.
+New ignored publication mutation controls authenticate the exact owned lifecycle campaign and live
+maintenance lease through the existing service owner; `validation` is permitted only on that proved
+target. Run analyzer mutation exclusively, separate from other native tests.
+
+| Command / receipt | Outcome and boundary |
+|---|---|
+| `just run --background --label catalog-native-initial-check -- cargo check --release --locked -p lctx-native -p lctx-publisher --tests` → `20261014T164033.861Z-ff92dc` | failed101 on two new compiler-store API mistakes; repaired. Cleanup confirmed |
+| `just run --background --label catalog-remaining-source-check -- cargo check --release --locked --tests -p lctx-model -p lctx-native -p lctx-compiler-store -p cpg-core -p lctx-publisher -p lctx-serving -p lctx -p lctx-semantics` → `20261014T164847.319Z-d5f306` | failed101: private integration helper, cross-crate test expectation type and missing execution-owner memo field; repaired. Cleanup confirmed |
+| Same aggregate under `catalog-remaining-source-repair` → `20261014T165903.624Z-16c10d` | failed101: new Summary fixture wrapped an already Arc-owned Workspace again; repaired. Cleanup confirmed |
+| Same aggregate under `catalog-remaining-final-metadata-check` → `20261014T171305.949Z-fc6a32` | **passed**, current affected production/tests plus serving/CLI/Python bridge metadata. Cleanup confirmed17:13:07UTC/no survivors. No code-generation/runtime qualification |
+| `just run --background --label catalog-operations-inspection-controls -- uv run --no-sync pytest tests/scripts/test_surrealdb_development.py -q -k 'inspect or observation'` → `20261014T164733.307Z-714efd` | failed1: three setup errors because `/tmp/pytest-of-paul` belongs to UID0. No assertion failure; foreign tmp preserved. Cleanup confirmed |
+| `just run --background --label catalog-operations-inspection-repair -- bash -c 'exec uv run --no-sync pytest tests/scripts/test_surrealdb_development.py -q -k "inspect or observation" --basetemp "$LCTX_RUN_DIR/pytest"'` → `20261014T164934.712Z-6c9f21` | **passed3** host controls using run-owned temporary output; cleanup confirmed. Does not qualify actual native inspection |
+| `just run --background --label catalog-remaining-pure-controls -- env INSTA_UPDATE=no cargo nextest run --release --locked --no-fail-fast --no-tests=fail -p lctx-native -p lctx-compiler-store --lib -E 'test(prepared_expectation_tests::) \| test(invocation_lineage_is_required_and_nominal) \| test(scoped_premises_bind_) \| test(failed_or_dropped_scoped_) \| test(normalized_uniform_independence_)'` → `20261014T170135.385Z-a0fc21` | **failed prerequisite code generation: ENOSPC**, rustc ICE. No tests ran. Coordinator cancelled remaining compiler children; terminal SIGTERM, cleanup confirmed17:04:07UTC/no survivors |
+| `just run --background --label catalog-remaining-current-build -- cargo build --release --locked -p lctx -p lctx-surreal-dev` → `20261014T170135.724Z-529489` | cancelled while waiting/building after disk exhaustion; not a build pass. Cleanup confirmed17:03:58UTC/no survivors |
+
+All eight receipt/log pairs retain consumer `citation:catalog-creation-completion`, requirement
+`cited-report`. The rustc report is retained under the failed pure-control run at
+`rustc-ice-2026-10-14T17_01_37-1685942.txt`, managed child `54717760-9247-44aa-aecc-fda3a4adfe11`.
+Original failures/cancellations remain unchanged; later metadata success does not qualify their tests.
+No warm cache, other repository output, service or protected historical evidence was removed.
+
+**Resumed execution,2026-10-14.** Space recovery permitted code generation again. Strict scoped
+Clippy `20261014T171710.796Z-6ed4ea` failed on one new type-complexity diagnostic; a local semantic
+evidence alias repaired it. Same strict command under `catalog-remaining-clippy-repair`,
+`20261014T172157.609Z-4df80c`, passed without warnings. Build retry `20261014T171730.809Z-b94680`
+passed with a CLI future-incompatible Send-proof-depth warning. Independent source advice found
+no strong ownership cycle; CN01's two identity-only links now use erased weak allocation identity,
+preserving actual native/calls correspondence without exposing concrete owner graphs to downstream
+auto-trait proofs. `cargo build --release --locked -p lctx -p lctx-surreal-dev` under
+`catalog-remaining-build-owner-identity`, `20261014T172750.455Z-5a163f`, passed without warnings.
+These passes predate the final indexed retirement correction below; new affected reruns are underway.
+The new pure selection `20261014T171731.297Z-92aede` passed10; current helper/owner changes receive
+their own final pure selection, not a retroactive promotion of that receipt.
+
+The approved lifecycle campaign installed through the existing owner in
+`20261014T172938.577Z-a81f1f`: installation `05ebac50-115e-450b-abca-58f270f1c3da`, generation
+`382e42f9178de386537dcfc6957e55a84df2a4ac4221ccd711e022b53f733880`, configuration
+`/home/paul/.local/state/library-context-catalog-creation-completion-20261014-58b39e63/installation.json`,
+purpose `surrealdb-lifecycle`, exact patched server `405f6c02…`, current schema8. Its immutable
+installer was copied from the successful code-generation retry before the private weak-identity
+representation repair; definitions/protocol are unchanged. Current-source product execution uses
+the final rebuilt CLI. No shared/operator service was queried or changed.
+
+`catalog-creation-retirement-inspection`/`20261014T173050.918Z-9692d8` failed2 because the root used
+the nonexistent `just service dev` spelling; no effect ran. Corrected `just surreal-dev inspect
+--installation 05ebac50-115e-450b-abca-58f270f1c3da --indexes`, with this campaign selection, passed
+in `20261014T173116.127Z-16b979`. Actual EXPLAIN exposed `completion-integrated#F01`: combined
+pending/retiring discovery uses job-only index access, a state filter and SortTopKByKey. Its progress
+query shared the same predicate/order manifestation (inferred, different projection not separately
+probed). `20261014T173432.720Z-617508` demonstrated exact-state equality scans with `[job,state]`,
+Forward and limit128, without Filter/Sort. Discovery and progress now share `PENDING_HEAD_SQL` and
+bounded merge; each state supplies full k, duplicate IDs require equal immutable job/object/incarnation,
+and returned native row/byte bounds remain. Fresh refetch, fences, nomination invalidation, retained
+cursor and final transactional empty proof are unchanged. Independent rereview accepts the source/
+planner correction. New combined-head/unsplit-limit/changed-duplicate controls and current native
+lower-child/allowance rerun retain runtime closure. Diagnostics now expose only the current two
+exact-state plans; the superseded comparison query survives in its cited receipt, not runtime code.
+
+Actual native selection `20261014T173116.564Z-0f3e99` ran6:5 passed,1 failed at final scoped freeze
+with `frozen native completed owner handoff`. The test had installed in-memory inventory but omitted
+actual persisted native bindings. Its repaired setup now calls native.bind for every exact selected
+binding before early validation; production guards and all counter/applicability assertions remain.
+The original run remains failed100 and attachment `f9411007-aedd-41c3-a860-06a993924000` retains
+native Unknown despite confirmed child cleanup. This new campaign's obligations require its own
+supported reconciliation or authenticated whole-target disposal; old shared Unknowns are unrelated.
+Do not start exclusive maintenance or dispose while other campaign participants remain live.
+Five body passes include protected-source real inventory/changed mapping/close, blob peer-hold/close,
+negative scoped reuse and initial retirement controls. The final indexed retirement needs current
+source execution. `20261014T173117.000Z-198e69` passed the actual extended receiving control and
+enclosing fixture with cleanup confirmed. Native/cold/compiler/Summary controls are still in progress;
+the 900s fixture, 3600s pilot, publication/analyzer maintenance and successor control remain later work.
+
+Resumed commands retain the same citation consumer and original outcome/cleanup distinction.
+Current final pure/build/strict Clippy runs are `20261014T174236.392Z-acccd5`,
+`20261014T174236.743Z-d12b8a`, `20261014T174237.109Z-855da6`. Cold `e0bc90`, compiler `07ad54`,
+inherited-field `0596f5` and actual Summary/availability `250b19` are active; none is yet a pass.
+
+**Resource event:** code generation exhausted `/home/paul` before any new Rust control ran.
+Observed17:13UTC availability was591MiB. Space recovered to20GiB17:17UTC and39GiB17:20UTC,
+so current build/pure controls and metadata-only strict scoped Clippy resumed. Their outcomes are
+pending; no service/campaign/native query has yet launched. Original ENOSPC/cancellation receipts
+remain unchanged. The approved independent campaign avoids the earlier
+shared missing-table prerequisite without repairing that target or settling either protected Unknown.
+
+**Remaining execution, in order once disk is usable:**
+
+1. Rebuild current CLI/development tool and run the selected new pure controls. Run scoped strict
+   all-target keep-going Clippy on touched owners; repair affected diagnostics including warnings.
+2. Install the approved unique current-schema lifecycle campaign using existing service/run/storage
+   owners and exact retained patched3.3.0 generation `405f6c02…`; register its target/consumer before
+   launch. Use campaign-selected fixtures, never shared/operator/root-private crossover.
+3. Complete CC01 native exact selection/ingress and inherited-field controls; actual admitted Summary
+   finite known answers; actual scoped validity through freeze/new applicability/changed/failure/
+   cancellation/closed-owner refusal; actual protected-source first-miss/close, changed mappings/pool,
+   missing child/hold inventory and fresh receiving. Run current cold dual-owner restore with strict
+   source absence. Pure premise comparisons do not establish these native properties.
+4. Run retirement lower-child/unaffordable-edge and foreign-lineage/stale-child atomic rollback
+   controls, then existing owned successor maintenance control. Complete retained search/lexical row
+   mutations and separate exclusive actual-analyzer mutation. Use existing maintenance ownership;
+   no parallel analyzer drift. Inspect actual retirement index plan through the diagnostic owner.
+5. Run required availability control and `current_catalog_analysis_links_public_native_operations_and_original_evidence`
+   with900s; then full pinned FastMCP Catalog admission/unselected publication and independently
+   source-grounded native browse/get/search/compare/original evidence with3600s excluding builds.
+   Embeddings and submitted MCP runtime remain excluded. New fixture controls and fresh independent
+   admission are not interchangeable; inventory EOF-to-CAS mutation is not claimed tested here.
+6. Inventory only useful current project views under their actual owners, quiesce and migrate or
+   regenerate; remove obsolete owned compatibility/runtime state. Drain/dispose the exact campaign
+   through existing authenticated owners and retain its receipts. CX03 cannot be inferred from code
+   changes or another target's prior disposal. Then reconcile older plans precisely at their owners
+   for CX04, preserving SA-F02/BC3/SM8 and original Unknowns. No older queue resumes beforehand.
+
+No worktree was created. Delegated source tasks and pre-resumption commands are drained;
+the resumed command handles above retain live ownership until their receipts settle. No dependency,
+lockfile, schema/transport format, environment sync, benchmark, operator adoption or broad quality
+campaign was introduced. Scope-end documentation/format receipts below are distinct from native acceptance.
+
+
 **2026-10-14: CA01–CA03 source delivery and focused closeout.** Charged scoped correspondence now
 serves C0/public paths, C1, Structural and requested analytic attributes. Deterministic public-path
 consumption and FIFO/predecessor control arenas retain flat output while releasing class/root scratch
@@ -211,7 +377,7 @@ Native cached composition and enclosing Catalog acceptance remain unverified; no
 
 CC00/compiler delivery and its exact native blocks remain as recorded below. D01/D02/D04/D07/D08/D09/
 D13 stay settled; root fencing, separate contexts/capture checks and flat published witnesses remain.
-RC03 is unused. CN01/CN02 remain accepted interfaces pending implementation. CN01–CN03, CO01 and
+RC03 is unused. CN01/CN02 are now source-integrated as recorded above; their functional acceptance remains open. CN01–CN03, CO01 and
 CX01–CX04 remain scheduled; no real-library journey, regeneration, adoption or older-plan handback ran.
 
 The publication-only baseline `c9b7cd31` retains its537-reference check and14 pre-existing ADR
@@ -343,10 +509,11 @@ without another mutable findings/receipt ledger.
 |---|---|---|
 | creation#F01 | Closed source/pure-focused2026-10-14, CA01; preserve | One keyed preparation per actual grain; independent ambiguity/default/context/alias evidence |
 | creation#F02 | CC00 accepted; CC01 source-integrated/pure-focused2026-10-14, native blocked | Genuine ready overlap with exact inputs, complete assembly, deterministic results and failure drainage |
-| creation#F03 | CC00 interface accepted ADR-0168; CN01/CN02 implementation remains Proposed | Private terminal executed evidence, changed-premise refusal, fresh native/search comparison and cold independence |
+| creation#F03 | CN01/CN02 source-integrated / independently source-accepted2026-10-14; metadata passed `fc6a32`, functional acceptance blocked on disk | Private terminal executed evidence, changed-premise refusal, fresh native/search comparison and cold independence |
 | creation#F04 | Closed source/focused cancellation2026-10-14 (`e44254`); no hard active-callback latency claim | Queued native cancellation, interrupted-run refusal, joined workers and settled ingress |
 | creation#F05 | Closed source/pure-focused2026-10-14 (`a4428f`); Behavioral only | Cross-module semantics, incremental emission and sink-refusal stop |
 | creation#F06 | Closed internal source/pure-focused2026-10-14, CA02; flat published witnesses preserved | Scratch charge released with allocations; canonical bounded control witnesses and live output charging |
+| completion-integrated#F01 | Discovery and progress source/planner correction accepted2026-10-14; current native runtime closure pending, CN03/CO01 | Shared bounded exact-state indexed heads, immutable duplicate agreement, actual lower-child/allowance progress; `16b979`, `617508` |
 | catalog#F01 | Source-integrated/source-reviewed; native/composition acceptance open, CN03/CX01 | Fewer demanded independent boundaries, reusable exact union; actual current native/Catalog composition |
 | catalog-integrated#F01 | Closed source/pure-focused2026-10-14 (`33fafd`); preserve | Relation-selective canonical runs, unchanged v4 union, overlap/empty/spill/lifetime; enclosing acceptance separate |
 | catalog-integrated#F02 | Closed source/focused native/cold2026-10-14; preserve | Bounded receiving/post-ack incidence; `e511d5`, `1b83ef`, `1586b7`; earlier than final F03 |
@@ -439,8 +606,8 @@ qualification and operator activation remain not_run and are not silently added 
 | LO00–LO02 | Operations diagnostics/taxonomy/provenance and all C01–C11 routes |
 | LD00–LD04 | Exact beta.1 development-only integration, generated authority, owned campaigns, independent outcomes and exact running provenance |
 
-**Next executable work:** resolve stable validation schema/native-owner prerequisites through the
-service/lifecycle owner, then rerun blocked exact-selection/ingress and inherited-field controls.
-CA01–CA03 source/pure scope is delivered; independent CN01/CN02 remain ready against accepted CC00 contracts. CN03 preserves required
-current-source receiving/cold/native acceptance. CX04's substantive older-plan reconciliation has
-not occurred; the900s fixture and pinned FastMCP exit remain later CX01/CX02 work.
+**Next executable work:** resolve disk availability, then follow the remaining-scope sequence above
+on the approved separately owned campaign. Stable validation schema/native-owner repair remains
+with its owner and its original protections. CA01–CA03 and CN01/CN02 source are delivered;
+CN03/current compiler/analysis/receiving/cold acceptance, CX01's900s fixture, CX02's3600s pinned
+FastMCP, CX03 regeneration and CX04 substantive handback remain open.

@@ -1,6 +1,6 @@
 # Catalog creation: native validity, completion and transport
 
-**Proposed target refinements / inherited source foundations, 2026-10-14.** Companion to the
+**Source-integrated refinements / functional acceptance pending, 2026-10-14.** Companion to the
 [coordinator](catalog-creation-plan_2026-10-14.md), whose §6 alone owns dispositions and receipts.
 Develops creation F03, D02/D10–D12 and the remaining CP00–CP04/CU01–CU03 native obligations. New
 same-operation semantic/search reuse is distinct from existing integrated F03 source inventory reuse.
@@ -231,6 +231,17 @@ CN03 preserves that decision while completing D10–D12 and its independent nati
 | D10 — alternating alias sets | Establish actual A→B→A demand. Compare current one-entry composition with charged exact-set operation-local retention; retain complete set/context/incarnation and per-selector composed reachability. Contributor runs already persist | Keep latest-only cache without repeated demand or where extra state costs more. No subset/digest-only hit or global proof cache |
 | D11 — retirement queue discovery | Compare bounded paged discovery with single-item requests. Preserve pending-before-retained priority, new nominations, refetch/claim, current incarnation, effect accounting and guarded final empty proof | Keep current discovery if paging does not simplify complete progress. An empty discovered page is not retirement completion |
 | D12 — lineage per hold page | Inspect creation and every recovery/resume path for stable exact invocation lineage; pass it under the existing owned operation only if each effect still fences current job/context/incarnation/outcomes | Keep fresh observation when stability/exclusion is not established. Cached lineage cannot grant another invocation's authority |
+
+**D10–D12 execution choices,2026-10-14.** D10 retains latest-only composed alias preparation:
+the current route already retains contributor runs, and inspected call sites do not establish a
+useful alternating exact-set consumer. Reopen for that named same-audit demand rather than retaining
+additional compound state speculatively. D11/D12 select ADR-0170: bounded pending/retiring head pages,
+a separate retained singleton cursor, fresh candidate checks and hint invalidation after nominations;
+stop when remaining effect allowance cannot advance the head. This improves the old shared cursor's
+delayed pending priority; it does not promise atomic exclusion of concurrent nominations. Read exact
+required lineage once after current-job validation/recovery, bind it into the payload and compare it
+against the current transactional owner in every page effect. Preserve all child/hold/incarnation,
+root fencing, effect accounting and guarded final-empty proof. No schema or legacy-reader change.
 
 Selected D02 changes need their own confirmed concrete rule impacts and independent protocol
 assessment before implementation; RC01/RC02 do not authorize arbitrary fence narrowing. D10–D12 can

@@ -3,6 +3,7 @@ mod uniform;
 pub use uniform::AdmittedUniformOwners;
 pub(crate) mod candidate;
 mod durable;
+pub(crate) mod scoped;
 mod normalization_declarations;
 use crate::compiler::NativeCompilerStore;
 use arrow_array::RecordBatch;
@@ -164,26 +165,27 @@ pub(crate) struct CheckedSemanticScope {
     profile: Profile,
     bindings: ContentHash,
     _charge: StateCharge,
+    // Actual private checks and their charged native backing survive the assembly borrower.
+    scoped: Vec<Arc<scoped::ExecutedScopedCheck>>,
 }
+type SemanticEvidence = (
+    Vec<lctx_model::domain::artifact_admission::ValidationExecution>,
+    StateCharge,
+    Vec<Arc<scoped::ExecutedScopedCheck>>,
+);
 impl CheckedSemanticScope {
     pub(crate) fn into_evidence(
         self,
         model: ContentHash,
         profile: Profile,
         bindings: ContentHash,
-    ) -> Result<
-        (
-            Vec<lctx_model::domain::artifact_admission::ValidationExecution>,
-            StateCharge,
-        ),
-        ModelError,
-    > {
+    ) -> Result<SemanticEvidence, ModelError> {
         if self.model != model || self.profile != profile || self.bindings != bindings {
             return Err(ModelError::Conflict(
                 "executed semantic scope differs from artifact",
             ));
         }
-        Ok((self.invariants, self._charge))
+        Ok((self.invariants, self._charge, self.scoped))
     }
 }
 pub(crate) struct CheckedFrontier {
@@ -229,6 +231,7 @@ pub struct CompletedInventory {
 }
 /// Share compact premises across compiler validation calls without sharing mutable provider state.
 pub struct AdmissionMemo {
+    scoped: scoped::ScopedChecks,
     checked: Mutex<(BTreeSet<ContentHash>, StateCharge)>,
     facts: Mutex<Option<(FactsAvailabilityKey, Arc<AdmittedFacts>)>>,
     uniform: Mutex<Option<CachedUniformOwners>>,
@@ -236,6 +239,7 @@ pub struct AdmissionMemo {
 impl AdmissionMemo {
     pub fn new(budget: &ResourceBudget) -> Arc<Self> {
         Arc::new(Self {
+            scoped: scoped::ScopedChecks::new(budget),
             checked: Mutex::new((
                 BTreeSet::new(),
                 StateCharge::new(budget, "compiler-validity-premises"),
@@ -244,6 +248,12 @@ impl AdmissionMemo {
             uniform: Mutex::default(),
         })
     }
+    /// Drainage ends operation-local reuse. Actual artifact borrowers retain their
+    /// individual charged checks independently until their final use.
+    pub fn close_scoped(&self) -> Result<(), ModelError> {
+        self.scoped.close()
+    }
+
 }
 /// Shared execution finality retained independently from a producer's read catalog.
 pub trait ExecutionOwner: Send + Sync {
@@ -675,6 +685,7 @@ impl AdmissionRuntime {
         }
         let mut completion = lctx_model::domain::completion::Completion::default();
         completion.step("native calls drain", self.native_calls.drain().await);
+        completion.step("private scoped check release", self.memo.close_scoped());
         completion.step(
             "native store drain",
             lctx_model::domain::completion::complete(Ok(()), self.native.drain_report().await),
@@ -1184,6 +1195,8 @@ impl AdmissionRuntime {
                     "diagnostic replay cannot earn artifact admission",
                 ));
             }
+            let mut scoped_attempt = self.memo.scoped.attempt();
+            let mut scoped_borrowers = Vec::new();
             let mut evidence = Vec::new();
             let mut evidence_charge =
                 StateCharge::new(self.budget(), "executed applicable validation evidence");
@@ -1265,6 +1278,12 @@ impl AdmissionRuntime {
                                 ),
                             )
                             .map_err(ModelError::codec)?;
+                        if !std::ptr::eq(session, reference_session) {
+                            reference_session.register_batch(
+                                relation.name(),
+                                RecordBatch::new_empty(self.model.relation(relation.name()).ok_or(ModelError::Schema(relation.name()))?.schema().clone()),
+                            ).map_err(ModelError::codec)?;
+                        }
                         unrequested.insert(relation.name());
                     }
                 }
@@ -1291,6 +1310,9 @@ impl AdmissionRuntime {
                     .invariants_for_scope_with_premises(&names, &unrequested)?
             };
             let uniform = self.uniform_owners_async(profile).await?;
+            let scoped_inventory = if admission && reference_owner.is_some() {
+                Some(self.scoped_inventory()?)
+            } else { None };
             for invariant in checks {
                 tracing::info!(target:"lctx_phase", invariant=invariant.name, "semantic check selected");
                 let premise = if inputs.companions.is_empty() {
@@ -1298,25 +1320,56 @@ impl AdmissionRuntime {
                 } else {
                     None
                 };
-                if !earn
-                    && let Some(premise) = premise
-                    && self
-                        .memo
-                        .checked
-                        .lock()
-                        .map_err(|_| poisoned())?
-                        .0
-                        .contains(&premise)
-                {
-                    continue;
-                }
                 let mut check = (invariant.create)(self.budget());
                 for owner in uniform.owners() {
                     check.admit_uniform_owner(owner)?;
                 }
+                let is_scoped = check.execution_scope().is_some()
+                    || check.normalization_scope().is_some()
+                    || check.projection_scope().is_some()
+                    || check.retrieval_scope().is_some()
+                    || check.aspect_scope().is_some()
+                    || check.inventory_scope().is_some()
+                    || check.support_scope().is_some();
+                // An external planner is not native execution authority. Scoped kernels use
+                // the exact provider snapshot already qualified for reference validation.
+                let session = if is_scoped && reference_owner.is_some() {
+                    reference_session
+                } else {
+                    session
+                };
+                if !is_scoped && !earn
+                    && let Some(premise) = premise
+                    && self.memo.checked.lock().map_err(|_| poisoned())?.0.contains(&premise)
+                {
+                    continue;
+                }
+                let scoped = if is_scoped && let Some(inventory) = &scoped_inventory {
+                    self.scoped_premise(&invariant, &inputs, &unrequested, profile,
+                        check.scoped_uniform_independent(), uniform.owners().is_empty(), inventory).await?
+                } else {
+                    None
+                };
+                if let Some(prepared) = &scoped
+                    && let Some(executed) = self.reuse_scoped(prepared).await?
+                {
+                    if earn {
+                        evidence.push(self.execution_evidence(
+                            &invariant,
+                            executed.execution(),
+                            &inputs,
+                            &unrequested,
+                            &mut evidence_charge,
+                        )?);
+                        scoped_borrowers.push(executed);
+                    }
+                    continue;
+                }
                 let execution_scope = check.execution_scope();
                 if let Some(scope) = &execution_scope {
-                    let alias = if let Some(inputs) = selected {
+                    let alias = if unrequested.contains(scope.root.name()) {
+                        scope.root.name().to_owned()
+                    } else if let Some(inputs) = selected {
                         inputs.validation_table(&scope.root)?
                     } else {
                         Self::validation_table(&scope.root, &frozen_tables)?.to_owned()
@@ -1345,6 +1398,12 @@ impl AdmissionRuntime {
                                 &unrequested,
                                 &mut evidence_charge,
                             )?);
+                        }
+                        if let Some(prepared) = scoped {
+                            self.native.check()?;
+                            let executed = prepared.finish(Execution::EmptyDomain, &self.cancellation)?;
+                            scoped_attempt.retain(executed.clone())?;
+                            if earn { scoped_borrowers.push(executed); }
                         }
                         self.remember_premise(premise)?;
                         continue;
@@ -1402,7 +1461,13 @@ impl AdmissionRuntime {
                                     &mut evidence_charge,
                                 )?);
                             }
-                            self.remember_premise(premise)?;
+                            if let Some(prepared) = scoped {
+                            self.native.check()?;
+                            let executed = prepared.finish(Execution::EmptyDomain, &self.cancellation)?;
+                            scoped_attempt.retain(executed.clone())?;
+                            if earn { scoped_borrowers.push(executed); }
+                        }
+                        self.remember_premise(premise)?;
                             continue;
                         }
                     }
@@ -1456,7 +1521,13 @@ impl AdmissionRuntime {
                             &mut evidence_charge,
                         )?);
                     }
-                    self.remember_premise(premise)?;
+                    if let Some(prepared) = scoped {
+                            self.native.check()?;
+                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                            scoped_attempt.retain(executed.clone())?;
+                            if earn { scoped_borrowers.push(executed); }
+                        }
+                        self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = projection_scope {
@@ -1497,7 +1568,13 @@ impl AdmissionRuntime {
                             &mut evidence_charge,
                         )?);
                     }
-                    self.remember_premise(premise)?;
+                    if let Some(prepared) = scoped {
+                            self.native.check()?;
+                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                            scoped_attempt.retain(executed.clone())?;
+                            if earn { scoped_borrowers.push(executed); }
+                        }
+                        self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = normalization_scope {
@@ -1576,7 +1653,13 @@ impl AdmissionRuntime {
                             &mut evidence_charge,
                         )?);
                     }
-                    self.remember_premise(premise)?;
+                    if let Some(prepared) = scoped {
+                            self.native.check()?;
+                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                            scoped_attempt.retain(executed.clone())?;
+                            if earn { scoped_borrowers.push(executed); }
+                        }
+                        self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = execution_scope {
@@ -1618,7 +1701,13 @@ impl AdmissionRuntime {
                             &mut evidence_charge,
                         )?);
                     }
-                    self.remember_premise(premise)?;
+                    if let Some(prepared) = scoped {
+                            self.native.check()?;
+                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                            scoped_attempt.retain(executed.clone())?;
+                            if earn { scoped_borrowers.push(executed); }
+                        }
+                        self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = check.aspect_scope() {
@@ -1660,7 +1749,13 @@ impl AdmissionRuntime {
                             &mut evidence_charge,
                         )?);
                     }
-                    self.remember_premise(premise)?;
+                    if let Some(prepared) = scoped {
+                            self.native.check()?;
+                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                            scoped_attempt.retain(executed.clone())?;
+                            if earn { scoped_borrowers.push(executed); }
+                        }
+                        self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = check.inventory_scope() {
@@ -1701,7 +1796,13 @@ impl AdmissionRuntime {
                             &mut evidence_charge,
                         )?);
                     }
-                    self.remember_premise(premise)?;
+                    if let Some(prepared) = scoped {
+                            self.native.check()?;
+                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                            scoped_attempt.retain(executed.clone())?;
+                            if earn { scoped_borrowers.push(executed); }
+                        }
+                        self.remember_premise(premise)?;
                     continue;
                 }
                 if let Some(scope) = check.support_scope() {
@@ -1743,7 +1844,13 @@ impl AdmissionRuntime {
                             &mut evidence_charge,
                         )?);
                     }
-                    self.remember_premise(premise)?;
+                    if let Some(prepared) = scoped {
+                            self.native.check()?;
+                            let executed = prepared.finish(Execution::Scoped, &self.cancellation)?;
+                            scoped_attempt.retain(executed.clone())?;
+                            if earn { scoped_borrowers.push(executed); }
+                        }
+                        self.remember_premise(premise)?;
                     continue;
                 }
                 if external.is_none()
@@ -1826,6 +1933,7 @@ impl AdmissionRuntime {
                 }
                 self.remember_premise(premise)?;
             }
+            self.cancellation.check()?;
             let identity = self.identity()?;
             let evidence = if earn {
                 Some(CheckedSemanticScope {
@@ -1836,10 +1944,14 @@ impl AdmissionRuntime {
                         &self.bindings()?,
                     )?,
                     _charge: evidence_charge,
+                    scoped: scoped_borrowers,
                 })
             } else {
                 None
             };
+            self.native.check()?;
+            self.cancellation.check()?;
+            scoped_attempt.commit()?;
             Ok(ScopeValidation { identity, evidence })
         })
     }

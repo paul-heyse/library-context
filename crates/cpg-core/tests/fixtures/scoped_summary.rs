@@ -57,7 +57,7 @@ async fn actual_summary_matches_complete_finite_whole_operation() {
         crate::native_fixture::store(),
     )
     .unwrap();
-    let captured = runtime::capture("scoped_source_execution", profile, workspace.budget());
+    let captured = runtime::capture("scoped_summary_preparation", profile, workspace.budget());
     let configuration = ContentHash::of(b"scoped-summary-oracle");
     let prepared = PreparedCompilation::new(
         admission::Frontier::Analysis,
@@ -82,6 +82,7 @@ async fn actual_summary_matches_complete_finite_whole_operation() {
     )
     .await
     .unwrap();
+    workspace.admit_semantics(profile).await.unwrap();
     let completed = workspace.completed_relations().unwrap();
     let actual = workspace
         .inputs(
@@ -217,4 +218,8 @@ async fn actual_summary_matches_complete_finite_whole_operation() {
         !expected.origins.is_empty() && !expected.alternatives.is_empty(),
         "fixture must publish actual finite Summary proofs"
     );
+    crate::summary_publication::assert_repeated_prepared_call_pairs(&runtime::Fixture {
+        workspace: workspace.clone(),
+        session,
+    }).await;
 }

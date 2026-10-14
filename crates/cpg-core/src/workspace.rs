@@ -46,6 +46,7 @@ struct WorkspaceExecutionOwner {
     provider_drains: Arc<Mutex<Vec<ProviderDrain>>>,
     product_cache: Arc<Mutex<Option<Arc<lctx_compiler_store::NativeProductCache>>>>,
     signal: Arc<lctx_native::signal::SignalRegistration>,
+    admission_memo: Arc<lctx_compiler_store::admission::AdmissionMemo>,
 }
 #[derive(PartialEq, Eq)]
 struct CompilationCompletion {
@@ -134,6 +135,7 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
             }
             completion.step("provider bridge drain", self.bridge.drain().await);
             completion.step("native calls drain", self.native_calls.drain().await);
+            completion.step("private scoped check release", self.admission_memo.close_scoped());
             completion.step(
                 "native store drain",
                 lctx_model::domain::completion::complete(Ok(()), self.native.drain_report().await),
@@ -241,6 +243,7 @@ impl Workspace {
             provider_drains: provider_drains.clone(),
             product_cache: product_cache.clone(),
             signal: signal.clone(),
+            admission_memo: admission_memo.clone(),
         });
         Ok(Arc::new(Self {
             files,

@@ -1286,7 +1286,7 @@ pub(crate) async fn restore(
                 runtime = Some(owner.clone());
                 let admitted =
                     reconstruct(&dump, &owner, &prepared, &budget, &state, &expected.state).await?;
-                let publication =
+                let mut publication =
                     Publication::new(Admission::Restored(&admitted), config, definitions).await?;
                 let result = async {
                     publication.materialize_references().await?;

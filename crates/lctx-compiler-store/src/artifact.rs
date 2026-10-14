@@ -1488,6 +1488,7 @@ pub(crate) struct ArtifactAdmission {
     model: Arc<lctx_model::domain::ValidatedModel>,
     evidence: lctx_model::domain::artifact_admission::ArtifactAdmissionEvidence,
     _charges: Vec<StateCharge>,
+    _scoped: Vec<Arc<crate::admission::scoped::ExecutedScopedCheck>>,
 }
 impl ArtifactAdmission {
     pub(crate) fn physical(&self) -> &lctx_native::completed_state::NativeCompletedState {
@@ -1634,7 +1635,7 @@ async fn assemble_admission(
             "complete artifact facts/graph/manifest gates disagree",
         ));
     }
-    let (invariants, semantic_charge) =
+    let (invariants, semantic_charge, scoped) =
         semantic.into_evidence(runtime.model().digest(), manifest.profile, binding_identity)?;
     let (frontier, frontier_charge) = frontier.into_evidence(
         runtime.model().digest(),
@@ -1670,6 +1671,7 @@ async fn assemble_admission(
         model: runtime.model().clone(),
         evidence,
         _charges: vec![semantic_charge, frontier_charge, graph._charge, charge],
+        _scoped: scoped,
     })
 }
 /// This constructor executes all canonical entities/assertions and derivations to EOF.

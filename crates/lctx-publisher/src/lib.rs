@@ -72,7 +72,7 @@ pub async fn publish(
     native_definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
     let native = export.native();
-    let publication =
+    let mut publication =
         match Publication::new(Admission::Export(export), config, native_definitions).await {
             Ok(publication) => publication,
             Err(error) => {
@@ -108,7 +108,7 @@ pub async fn seal_completed(
     native_definitions: &str,
 ) -> Result<SnapshotHandle, ModelError> {
     let native = artifact.native();
-    let publication =
+    let mut publication =
         match Publication::new(Admission::Completed(artifact), config, native_definitions).await {
             Ok(publication) => publication,
             Err(error) => {

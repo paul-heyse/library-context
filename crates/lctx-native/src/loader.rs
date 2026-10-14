@@ -120,6 +120,8 @@ pub(crate) fn physical_native_definitions(blueprint: &str) -> Result<String, Mod
 }
 
 pub struct Loader {
+    // Nominal identity survives moves, but is never reconstructed from metadata.
+    search_owner: Arc<()>,
     client: Arc<Surreal<Client>>,
     views: Option<Vec<ContentHash>>,
     attempt: Option<ContentHash>,
@@ -171,6 +173,7 @@ pub fn assertion_payload_id(row: &Assertion) -> Result<RecordId, ModelError> {
 impl Loader {
     pub fn new(client: Arc<Surreal<Client>>) -> Self {
         Self {
+            search_owner: Arc::new(()),
             client,
             views: None,
             attempt: None,
@@ -184,6 +187,7 @@ impl Loader {
     }
     pub fn for_views(client: Arc<Surreal<Client>>, views: Vec<ContentHash>) -> Self {
         Self {
+            search_owner: Arc::new(()),
             client,
             views: Some(views),
             attempt: None,
@@ -219,6 +223,7 @@ impl Loader {
             .map(|binding| binding.view.identity)
             .collect();
         Ok(Self {
+            search_owner: Arc::new(()),
             client: reader.shared_client(),
             views: Some(views),
             attempt: None,
@@ -240,6 +245,7 @@ impl Loader {
         views.sort_unstable();
         views.dedup();
         Self {
+            search_owner: Arc::new(()),
             client,
             views: Some(views),
             attempt: Some(attempt),
@@ -395,6 +401,9 @@ impl Loader {
     }
     pub fn shared_client(&self) -> Arc<Surreal<Client>> {
         self.client.clone()
+    }
+    pub(crate) fn search_owner(&self) -> &Arc<()> {
+        &self.search_owner
     }
     pub async fn install(&self, native_definitions: &str) -> Result<(), ModelError> {
         self.installation_catalog()

@@ -1252,6 +1252,9 @@ struct CallableCheck {
     budget: ResourceBudget,
 }
 impl InvariantCheck for CallableCheck {
+    fn scoped_uniform_independent(&self) -> bool {
+        true
+    }
     fn normalization_scope(&self) -> Option<super::admission::Scope> {
         self.admission.then_some(super::admission::Scope::Callables)
     }

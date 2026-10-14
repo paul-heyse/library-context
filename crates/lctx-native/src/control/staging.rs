@@ -290,6 +290,30 @@ impl DerivedStaging {
         views: &[lctx_model::domain::completed::CompletedBinding],
         budget: &ResourceBudget,
     ) -> Result<PublishedMarker, ModelError> {
+        self.publish_inner(loader, handle, manifest, views, budget, None).await
+    }
+    /// Same-operation expectations are accepted only from the actual protected
+    /// Loader that materialized them. All final actual/inventory/CAS checks remain.
+    pub async fn publish_prepared(
+        &self,
+        loader: &crate::Loader,
+        handle: &lctx_model::domain::serving::SnapshotHandle,
+        manifest: &lctx_model::domain::graph::Manifest,
+        views: &[lctx_model::domain::completed::CompletedBinding],
+        budget: &ResourceBudget,
+        search: &crate::derived_search::PreparedSearch,
+    ) -> Result<PublishedMarker, ModelError> {
+        self.publish_inner(loader, handle, manifest, views, budget, Some(search)).await
+    }
+    async fn publish_inner(
+        &self,
+        loader: &crate::Loader,
+        handle: &lctx_model::domain::serving::SnapshotHandle,
+        manifest: &lctx_model::domain::graph::Manifest,
+        views: &[lctx_model::domain::completed::CompletedBinding],
+        budget: &ResourceBudget,
+        search: Option<&crate::derived_search::PreparedSearch>,
+    ) -> Result<PublishedMarker, ModelError> {
         let data = self.completed();
         handle.validate_identity()?;
         manifest.validate()?;
@@ -332,7 +356,11 @@ impl DerivedStaging {
         loader
             .reconcile_owned(manifest, Some(&mut expected))
             .await?;
-        crate::derived_search::reconcile_search_owned(loader, Some(&mut expected)).await?;
+        if let Some(search) = search {
+            search.reconcile_owned(loader, Some(&mut expected)).await?;
+        } else {
+            crate::derived_search::reconcile_search_owned(loader, Some(&mut expected)).await?;
+        }
         for id in [data.record()?, self.completed.admission_record().clone()] {
             let mut row = Object::new();
             row.insert("id", id);

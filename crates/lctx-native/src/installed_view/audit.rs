@@ -3025,6 +3025,7 @@ mod tests {
         let peer = crate::control::ReaderPin::acquire(client.clone(), &[])
             .await
             .unwrap();
+        let closing_audit = InstallationAudit::new(client.clone(), &budget).await.unwrap();
         let result = std::panic::AssertUnwindSafe(async {
             let sources = Relation::of::<SourceArtifact>();
             let chunks = Relation::of::<ArtifactChunk>();
@@ -3127,12 +3128,43 @@ mod tests {
                 (1, 1),
                 "equal replay neither invalidates immutable bytes nor repeats the whole audit"
             );
+            let source = closing_audit.protected_source(&client, &budget).await.unwrap();
+            let mut scope = source.inspection_scope(&reader, &budget).unwrap();
+            let inspected = inspect_closure_scoped(
+                &reader, view, &mappings, &budget, &closing_audit, &mut scope,
+            ).await.unwrap();
+            let barrier = BlobObservationBarrier {
+                observed: std::sync::Arc::new(tokio::sync::Barrier::new(2)),
+                resume: std::sync::Arc::new(tokio::sync::Barrier::new(2)),
+            };
+            let close = async {
+                barrier.observed.wait().await;
+                let closing = closing_audit.close();
+                tokio::pin!(closing);
+                assert!(futures::poll!(closing.as_mut()).is_pending(),
+                    "source close must drain the accepted native first-miss blob worker");
+                closing_audit.pin.ensure_live().unwrap();
+                assert!(closing_audit.protected_source(&client, &budget).await.is_err(),
+                    "closing immediately refuses new source borrowers while its actual read drains");
+                barrier.resume.wait().await;
+                closing.await.unwrap();
+            };
+            let (read, ()) = tokio::join!(
+                BLOB_OBSERVATION_BARRIER.scope(barrier.clone(),
+                    assure_boundary_closure(&reader, &inspected, &budget, &closing_audit, &mut scope)),
+                close,
+            );
+            assert!(read.is_err(), "source closure cannot publish a reusable boundary from an in-flight read");
+            assert!(closing_audit.work.workers.lock().unwrap().is_empty());
+            assert!(closing_audit.work.draining.lock().await.workers.is_empty());
+            assert!(source.inspection_scope(&reader, &budget).is_err());
         })
         .catch_unwind()
         .await;
         let mut cleanup = d::completion::Completion::default();
         cleanup.step("peer blob reader close", reader.close().await);
         cleanup.step("peer blob audit pin close", audit.close().await);
+        cleanup.step("closing blob audit pin close", closing_audit.close().await);
         cleanup.step("peer blob other pin close", peer.release().await);
         cleanup.step("peer blob attempt cleanup", store.abandon().await);
         cleanup.step(
@@ -3144,6 +3176,127 @@ mod tests {
             if let Err(error) = cleaned {
                 eprintln!("peer blob cleanup: {error:?}");
             }
+            std::panic::resume_unwind(panic);
+        }
+        cleaned.unwrap();
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn protected_source_real_inventory_reuses_exact_observations_and_refuses_changed_mapping_and_close() {
+        use futures::FutureExt;
+        use lctx_compiler_store::compiler::NativeCompilerStore;
+        let config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
+        )).unwrap();
+        let store = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts).await.unwrap();
+        let client = lctx_compiler_store::reader::connect(
+            &config.endpoint, &config.writer_credentials(), store.namespace().as_str(), store.database().as_str(),
+        ).await.unwrap();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let reader = NativeReader::private(client.clone()).with_budget(&budget);
+        let audit = InstallationAudit::new(client.clone(), &budget).await.unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let relation = Relation::of::<Package>();
+            let mut specification = contribution("protected-source-inventory", vec![]).spec;
+            specification.outputs = [relation.name().into()].into();
+            let producer = store.begin_contribution(specification).await.unwrap();
+            let row = Package { name: format!("protected-source-{}", store.attempt().hex()) };
+            store.write_batch(&producer, &relation, &Package::encode(&[row]).unwrap(), &budget).await.unwrap();
+            let views = store.complete_contribution(producer, d::stages::ProviderOutcome::Complete,
+                std::slice::from_ref(&relation), &BTreeMap::new(), &budget).await.unwrap();
+            let view = &views[relation.name()];
+            let held = store.installed_view(view, &budget).await.unwrap();
+            let mappings: Vec<ContributorRealization> = serde_json::from_value(
+                serde_json::to_value(&held.completion().mappings).unwrap(),
+            ).unwrap();
+            // Obtain the opaque source through its real context/pin acquisition, never
+            // by constructing a nominal source wrapper or populating its registry.
+            let source = audit.protected_source(&client, &budget).await.unwrap();
+            let mut first = source.inspection_scope(&reader, &budget).unwrap();
+            let closure = inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut first).await.unwrap();
+            let aliases = assure_boundary_closure(&reader, &closure, &budget, &audit, &mut first).await.unwrap();
+            let roots = logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &audit).await.unwrap();
+            let next = audit.work.next.load(std::sync::atomic::Ordering::Relaxed);
+            let cold = inspect_closure(&reader, view, &mappings, &budget).await.unwrap();
+            let cold_aliases = audit_aliases(&reader, &cold, &budget).await.unwrap();
+            assert_eq!(roots, logical_roots(&reader, &cold, &[], &cold_aliases, &budget).await.unwrap());
+            let mut repeated = source.inspection_scope(&reader, &budget).unwrap();
+            let again = inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut repeated).await.unwrap();
+            assure_boundary_closure(&reader, &again, &budget, &audit, &mut repeated).await.unwrap();
+            for mapping in &mappings {
+                assert!(std::sync::Arc::ptr_eq(first.expected_copy(&mapping.physical).unwrap(),
+                    repeated.expected_copy(&mapping.physical).unwrap()),
+                    "the exact native physical observation is shared by its actual source owner");
+            }
+            assert_eq!(audit.work.next.load(std::sync::atomic::Ordering::Relaxed), next,
+                "a repeated exact selection adds no first-miss worker");
+            assert_eq!(audit.observations(), (1, 0));
+
+            let mut changed = mappings.clone();
+            changed[0].incarnation += 1;
+            let mut changed_scope = source.inspection_scope(&reader, &budget).unwrap();
+            assert!(inspect_closure_scoped(&reader, view, &changed, &budget, &audit, &mut changed_scope).await.is_err(),
+                "same logical descriptor cannot authorize a changed selected physical incarnation");
+            let foreign_budget = ResourceBudget::fixed(256 << 20).unwrap();
+            assert!(audit.protected_source(&client, &foreign_budget).await.is_err());
+            audit.close().await.unwrap();
+            assert!(audit.protected_source(&client, &budget).await.is_err());
+            assert!(inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut repeated).await.is_err(),
+                "already prepared selectors cannot bypass actual source closure");
+
+            store.bind(d::completed::CompletedBinding {
+                boundary: None,
+                source: SourceSnapshot::of_completed_view(&relation,
+                    closure.logical.contributions()[&mappings[0].logical].spec.model, view).unwrap(),
+                view: view.clone(),
+                configuration: None,
+            }).await.unwrap();
+            store.freeze_content(&budget).await.unwrap();
+            let physical = store.complete_physical_content(&budget).await.unwrap();
+            // The compiler-store dev dependency links a second crate instance in
+            // unit builds. Convert only expected completion data, never its owner.
+            let completion: crate::completed_state::FrozenCompletion = serde_json::from_value(
+                serde_json::to_value(physical.completion()).unwrap(),
+            ).unwrap();
+            crate::completed_state::inspect_inventory(&reader, &completion, &budget).await.unwrap();
+            let parent = completion.record().unwrap();
+            for table in ["native_completed_contributor", "native_completed_view"] {
+                let mut variables = Variables::new();
+                variables.insert("parent", parent.clone());
+                let children: Vec<Value> = reader.query_native(
+                    &format!("SELECT * FROM {table} WHERE completion=$parent ORDER BY id"), variables,
+                ).await.unwrap();
+                assert_eq!(children.len(), 1, "fixture has one independently checked {table} child");
+                let id = RecordId::from_value(children[0].as_object().unwrap().get("id").unwrap().clone()).unwrap();
+                let hold = crate::control::hold_record_id(&parent, &id).unwrap();
+                for (kind, target) in [("guarded inventory child", id), ("exact parent hold", hold)] {
+                    let mut variables = Variables::new();
+                    variables.insert("id", target);
+                    let rows: Vec<Value> = reader.query_native("SELECT * FROM $id", variables.clone()).await.unwrap();
+                    assert_eq!(rows.len(), 1);
+                    client.query("DELETE $id RETURN NONE").bind(variables.clone()).await.unwrap().check().unwrap();
+                    let received = crate::completed_state::hold_physical_state_for_attempt(
+                        client.clone(), store.attempt(), &budget,
+                    ).await;
+                    variables.insert("row", rows[0].clone());
+                    client.query("UPSERT $id CONTENT $row RETURN NONE").bind(variables).await.unwrap().check().unwrap();
+                    assert!(received.is_err(), "complete actual {table} inventory refuses a missing {kind}");
+                }
+            }
+            // A successful fresh physical receiver reaches its final exact owner CAS;
+            // it earns no semantic admission from the data/descriptor inspected here.
+            let received = crate::completed_state::hold_physical_state_for_attempt(
+                client.clone(), store.attempt(), &budget,
+            ).await.unwrap();
+            assert_eq!(received.completion(), &completion);
+        }).catch_unwind().await;
+        let mut cleanup = d::completion::Completion::default();
+        cleanup.step("protected source inventory reader close", reader.close().await);
+        cleanup.step("protected source inventory pin close", audit.close().await);
+        cleanup.step("protected source inventory attempt cleanup", store.abandon().await);
+        cleanup.step("protected source inventory observer invalidation", client.invalidate().await.map_err(ModelError::codec));
+        let cleaned = d::completion::complete(Ok(()), cleanup);
+        if let Err(panic) = result {
+            if let Err(error) = cleaned { eprintln!("protected source inventory cleanup: {error:?}"); }
             std::panic::resume_unwind(panic);
         }
         cleaned.unwrap();

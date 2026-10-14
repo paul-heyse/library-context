@@ -1603,6 +1603,9 @@ impl OrderedRows {
     pub fn into_prepared(self) -> PreparedRows {
         PreparedRows(self.0.run.clone())
     }
+    pub(crate) fn prepared(&self) -> PreparedRows {
+        PreparedRows(self.0.run.clone())
+    }
     pub fn rewind(&mut self) -> Result<(), ModelError> {
         self.0.rewind()
     }

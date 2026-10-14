@@ -349,3 +349,65 @@ async fn assert_conditional_atom_summary(
 async fn capture_timing_stable_entries_reach_actual_finite_summaries() {
     run_fixture(Profile::Behavioral, "stable_capture_shapes").await;
 }
+
+// This oracle comes from the fixture's two explicit return statements. Comparing two
+// invocations of produce alone would preserve a shared port/guard caching defect.
+pub(crate) async fn assert_repeated_prepared_call_pairs(fixture: &catalog_runtime::Fixture) {
+    use std::collections::BTreeSet;
+    let source = std::fs::read_to_string(
+        catalog_runtime::root("scoped_summary_preparation").join("cases.py"),
+    ).unwrap();
+    let function = source.find("def guarded_pair_relay(").unwrap();
+    let value = (function + source[function..].find("value").unwrap()) as i64;
+    let other = (function + source[function..].find("other").unwrap()) as i64;
+    let call = source.find("fresh(value, other, gate)").unwrap() as i64;
+    let attempts: Vec<Vec<u8>> = catalog_runtime::query(fixture, format!(
+        "SELECT DISTINCT a.id FROM call_binding_attempts a JOIN normalized_call_events event ON event.id=a.event JOIN occurrence_ownership owner ON owner.id=event.owner JOIN occurrences site ON site.id=owner.occurrence WHERE site.start={call} AND a.outcome=0"
+    )).await;
+    assert_eq!(attempts.len(), 1, "one actual admitted call is repeatedly composed");
+    type PairRow = (Vec<u8>, Vec<u8>, Vec<u8>, i16, Option<Vec<u8>>, Option<i16>);
+    let pairs: Vec<PairRow> =
+        catalog_runtime::query(fixture, format!(
+            "SELECT p.attempt,p.caller,p.callee,p.disposition,p.witness,p.reason FROM summary_pair_outcomes p JOIN call_binding_attempts a ON a.id=p.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrence_ownership owner ON owner.id=event.owner JOIN occurrences site ON site.id=owner.occurrence WHERE site.start={call}"
+        )).await;
+    assert!(pairs.iter().all(|p| p.0 == attempts[0]));
+    assert!(pairs.iter().any(|p| p.3 == 0), "mismatched value ports retain Disjoint outcomes: {pairs:?}");
+    assert!(pairs.iter().any(|p| p.3 == 2), "matching entry ports retain Proven outcomes: {pairs:?}");
+    assert!(pairs.iter().all(|p| matches!(p.3, 0..=2) && p.5.is_none()),
+        "the finite checked call has no refused pair or residual reason: {pairs:?}");
+    for p in &pairs {
+        assert_eq!(p.4.is_some(), p.3 == 2, "only a proven pair carries a finite witness");
+    }
+    assert!(pairs.iter().any(|left| pairs.iter().any(|right|
+        left.1 == right.1 && left.2 != right.2 && left.3 != right.3
+    )), "one caller premise must process distinct callee operands through the same prepared call");
+
+    let witnesses: Vec<(i64, Vec<u8>, i16, Vec<u8>)> = catalog_runtime::query(fixture, format!(
+        "SELECT entry.start,q.condition,node.kind,w.id FROM summary_transfer_witnesses w JOIN call_binding_attempts a ON a.id=w.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrence_ownership owner ON owner.id=event.owner JOIN occurrences site ON site.id=owner.occurrence JOIN summary_transfer_keys k ON k.id=w.transfer JOIN places input ON input.id=k.input JOIN place_roots root ON root.id=input.root JOIN occurrences entry ON entry.id=root.entry_declaration JOIN assertion_qualifications q ON q.id=w.qualification JOIN conditions c ON c.id=q.condition JOIN condition_nodes node ON node.id=c.root WHERE site.start={call} AND root.kind=9"
+    )).await;
+    assert_eq!(witnesses.iter().map(|w| w.0).collect::<BTreeSet<_>>(),
+        BTreeSet::from([value, other]), "only the two explicit data ports transfer; gate is a condition");
+    assert_eq!(witnesses.iter().map(|w| &w.1).collect::<BTreeSet<_>>().len(), 2,
+        "the true and false callee branches keep distinct rebased guards across preparation reuse");
+    assert!(witnesses.iter().all(|w| w.2 == 2), "neither guarded result becomes unconditional: {witnesses:?}");
+    let guards: Vec<(i64, Vec<u8>, i16, i16)> = catalog_runtime::query(fixture, format!(
+        "SELECT DISTINCT entry.start,node.branch_atom,low.kind,high.kind FROM summary_transfer_witnesses w JOIN call_binding_attempts a ON a.id=w.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrence_ownership owner ON owner.id=event.owner JOIN occurrences site ON site.id=owner.occurrence JOIN summary_transfer_keys k ON k.id=w.transfer JOIN places input ON input.id=k.input JOIN place_roots root ON root.id=input.root JOIN occurrences entry ON entry.id=root.entry_declaration JOIN assertion_qualifications q ON q.id=w.qualification JOIN conditions c ON c.id=q.condition JOIN condition_nodes node ON node.id=c.root JOIN condition_nodes low ON low.id=node.branch_low JOIN condition_nodes high ON high.id=node.branch_high WHERE site.start={call} AND root.kind=9"
+    )).await;
+    assert_eq!(guards.iter().map(|g| (g.0,g.2,g.3)).collect::<BTreeSet<_>>(),
+        BTreeSet::from([(value,0,1),(other,1,0)]),
+        "literal finite meaning: flag true carries value; flag false carries other");
+    assert_eq!(guards.iter().map(|g| &g.1).collect::<BTreeSet<_>>().len(), 1,
+        "both branch answers restate the same call's flag evaluation");
+    for w in &witnesses {
+        assert!(pairs.iter().any(|p| p.3 == 2 && p.4.as_ref() == Some(&w.3)),
+            "each independent finite witness retains its attempted-pair evidence");
+    }
+    let residuals: i64 = catalog_runtime::one(fixture, format!(
+        "SELECT count(*) FROM summary_residuals r JOIN normalized_call_events event ON event.id=r.event JOIN occurrence_ownership owner ON owner.id=event.owner JOIN occurrences site ON site.id=owner.occurrence WHERE site.start={call}"
+    )).await;
+    assert_eq!(residuals, 0, "complete finite port coverage does not manufacture exhaustion");
+    let unaccounted: i64 = catalog_runtime::one(fixture,
+        "SELECT count(*) FROM summary_runs r WHERE r.work<=0 OR r.proofs<=0 OR r.residuals<>(SELECT count(*) FROM summary_residuals residual WHERE residual.invocation=r.invocation)"
+    ).await;
+    assert_eq!(unaccounted, 0, "actual Summary work, proofs and residual accounting remain published");
+}

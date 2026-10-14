@@ -1,6 +1,6 @@
 # Catalog creation: finite analyses and graph preparation
 
-**Proposed, 2026-10-14.** Companion to the [coordinator](catalog-creation-plan_2026-10-14.md),
+**Source-integrated / pure-focused acceptance, native composition pending,2026-10-14.** Companion to the [coordinator](catalog-creation-plan_2026-10-14.md),
 whose §6 owns all dispositions and evidence. Develops creation F01/F06 and D03–D06. The target is
 the functional API/evidence product with optional Behavioral/analytic enrichment, not general Python
 semantic completion or an automatic graph-engine replacement.

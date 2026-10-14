@@ -1049,6 +1049,13 @@ pub trait InvariantCheck: Send {
     ) -> Result<(), ModelError> {
         Ok(())
     }
+    /// Model-owned dependency declaration for private scoped reuse. False is
+    /// conservative: when compact owners exist, this check earns fresh execution.
+    /// True declares that admit_uniform_owner has no semantic effect for this
+    /// kernel. This declaration never establishes execution or native authority.
+    fn scoped_uniform_independent(&self) -> bool {
+        false
+    }
     fn retrieval_scope(&self) -> Option<super::retrieval::consumption::Scope> {
         None
     }

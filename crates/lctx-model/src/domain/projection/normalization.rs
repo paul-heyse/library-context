@@ -1148,6 +1148,9 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
+    fn scoped_uniform_independent(&self) -> bool {
+        true
+    }
     fn projection_scope(&self) -> Option<AdmissionScope> {
         Some(if self.snapshots {
             AdmissionScope::Snapshot

@@ -2,7 +2,7 @@
 use crate::surrealdb::types::{Object, RecordId, SurrealValue, Value, Variables};
 use crate::{
     Loader, NativeReader, RecordSelection,
-    ordered_rows::{OrderedRows, SortedRows},
+    ordered_rows::{OrderedRows, PreparedRows, SortedRows},
     prepared::scope_string,
     reader::target_id,
 };
@@ -1196,8 +1196,17 @@ impl Expected {
         Ok(self.ordered[index].as_mut().expect("ordered family"))
     }
     async fn reconcile(&mut self, reader: &NativeReader<()>) -> Result<(), ModelError> {
-        let mut actual = actual_search_rows(reader, &self.budget)?;
+        let budget = self.budget.clone();
+        self.reconcile_actual(|| actual_search_rows(reader, &budget)).await
+    }
+    async fn reconcile_actual(&mut self, actual: impl FnOnce() -> Result<crate::reader::NativeRows, ModelError>) -> Result<(), ModelError> {
+        // Every comparison starts at the complete run, including after construction.
+        // Cursor errors also drain the actual transport before returning.
+        (0..TABLES.len()).try_for_each(|index| self.finish(index).map(drop))?;
+        let runs = self.ordered.iter().map(|rows| rows.as_ref().expect("finished search family").prepared());
+        let mut actual = retain_expected_until_drained(runs, &self.budget, actual)?;
         let result = async {
+            for index in 0..TABLES.len() { self.finish(index)?.rewind()?; }
             let mut indices = (0..TABLES.len()).collect::<Vec<_>>(); indices.sort_by_key(|index| TABLES[*index]);
             for index in indices { while let Some(expected) = self.finish(index)?.next_row()? {
                 let Some(row) = actual.next().await? else {
@@ -1229,6 +1238,49 @@ impl Expected {
         );
         lctx_model::domain::completion::complete(result, completion)
     }
+    fn into_prepared(mut self) -> Result<[PreparedRows; 7], ModelError> {
+        for index in 0..TABLES.len() {
+            self.finish(index)?;
+        }
+        self.ordered.into_iter().map(|rows| {
+            rows.ok_or(ModelError::Schema("prepared search family")).map(OrderedRows::into_prepared)
+        }).collect::<Result<Vec<_>, _>>()?.try_into()
+            .map_err(|_| ModelError::Schema("prepared search family count"))
+    }
+    fn from_prepared(rows: &[PreparedRows; 7], budget: &resources::ResourceBudget) -> Result<Self, ModelError> {
+        Ok(Self {
+            budget: budget.clone(),
+            pending: (0..7).map(|_| None).collect(),
+            ordered: rows.iter().map(|rows| rows.cursor().map(Some)).collect::<Result<_, _>>()?,
+        })
+    }
+}
+/// Receiver cancellation does not release a comparison's expected backing before
+/// its already admitted actual reads reach their independently checked terminal.
+pub(crate) fn retain_expected_until_drained(
+    runs: impl ExactSizeIterator<Item = PreparedRows>,
+    budget: &resources::ResourceBudget,
+    actual: impl FnOnce() -> Result<crate::reader::NativeRows, ModelError>,
+) -> Result<crate::reader::NativeRows, ModelError> {
+    // No actual stream is admitted until its expected carrier is charged and owned.
+    // Refusal is synchronous; there is no cancellation window around a refusal drain.
+    let charge = budget.reserve("search comparison retained expectations", runs.len().saturating_mul(std::mem::size_of::<PreparedRows>()).saturating_add(256))?;
+    let runs = runs.collect::<Vec<_>>();
+    let mut actual = actual()?;
+    crate::reader::NativeRows::owned(move |sender| async move {
+        let result = async {
+            while let Some(row) = actual.next().await? {
+                if sender.send(row).await.is_err() { break; }
+            }
+            Ok(())
+        }.await;
+        let mut terminal = completion::Completion::default();
+        terminal.step("search expectation borrower actual drainage", actual.drain_transport().await);
+        let result = completion::complete(result, terminal);
+        drop(runs);
+        drop(charge);
+        result
+    })
 }
 pub fn actual_search_rows<Context>(
     reader: &NativeReader<Context>,
@@ -2356,6 +2408,88 @@ pub async fn materialize_search(loader: &Loader) -> Result<(), ModelError> {
         crate::lexical_stats::materialize(loader).await,
     )
 }
+/// Opaque, in-process preparation belonging to one actual staging Loader. It is
+/// neither serializable nor constructible from a realization or completed descriptor.
+/// The publisher retains this alongside its admitted input and session through seal.
+pub struct PreparedSearch {
+    owner: std::sync::Arc<()>,
+    client: std::sync::Arc<crate::surrealdb::Surreal<crate::surrealdb::engine::remote::grpc::Client>>,
+    staging: std::sync::Arc<crate::control::staging::DerivedStaging>,
+    source_pin: std::sync::Arc<crate::control::ReaderPin>,
+    source_client: std::sync::Arc<crate::surrealdb::Surreal<crate::surrealdb::engine::remote::grpc::Client>>,
+    budget: resources::ResourceBudget,
+    realization: ContentHash,
+    scope: ContentHash,
+    search: [PreparedRows; 7],
+    lexical: crate::lexical_stats::Expected,
+    _charge: Box<dyn resources::Reservation>,
+}
+impl PreparedSearch {
+    fn check(&self, loader: &Loader) -> Result<(), ModelError> {
+        loader.check_read_admission()?;
+        let reader = loader.reader();
+        reader.ensure_scope_live()?;
+        self.source_pin.ensure_live()?;
+        if !std::sync::Arc::ptr_eq(&self.owner, loader.search_owner())
+            || !std::sync::Arc::ptr_eq(&self.client, &loader.shared_client())
+            || !std::sync::Arc::ptr_eq(&self.source_client, &reader.shared_client())
+            || !reader.scope_pin().is_some_and(|pin| std::sync::Arc::ptr_eq(&self.source_pin, &pin))
+            || !loader.staging().is_some_and(|staging| std::sync::Arc::ptr_eq(staging, &self.staging))
+            || !self.budget.shares_pool(&loader.read_budget()?)
+            || self.realization != loader.derivation()?
+            || self.scope != crate::lexical_stats::scope_identity(&loader.reader())?
+        {
+            return Err(ModelError::Conflict("prepared search protected owner/context changed"));
+        }
+        Ok(())
+    }
+    pub(crate) async fn reconcile_owned(&self, loader: &Loader, mut inventory: Option<&mut SortedRows>) -> Result<(), ModelError> {
+        self.check(loader)?;
+        let mut expected = Expected::from_prepared(&self.search, &self.budget)?;
+        phase("prepared search fresh actual-row reconciliation", expected.reconcile(&reader(loader)?).await)?;
+        if let Some(inventory) = inventory.as_deref_mut() {
+            for prepared in &self.search {
+                let mut rows = prepared.cursor()?;
+                while let Some(row) = rows.next_row()? {
+                    loader.check_read_admission()?;
+                    crate::control::staging::remember_expected_child(inventory, &row)?;
+                }
+            }
+        }
+        phase("prepared lexical fresh actual-row reconciliation", crate::lexical_stats::reconcile_prepared(loader, &self.lexical, inventory).await)?;
+        self.check(loader)
+    }
+}
+
+/// The ordinary publication route retains exactly the lowering that successfully
+/// wrote and compared all eleven families. Cold reconciliation never calls this.
+pub async fn materialize_search_prepared(loader: &Loader) -> Result<PreparedSearch, ModelError> {
+    let staging = loader.staging().ok_or(ModelError::Conflict("prepared search requires actual staging owner"))?.clone();
+    let reader = reader(loader)?;
+    reader.require_installed_scope()?;
+    let source_pin = reader.scope_pin().ok_or(ModelError::Conflict("prepared search requires actual completed reader pin"))?;
+    let budget = loader.read_budget()?;
+    let charge = budget.reserve("publication retained search expectations", std::mem::size_of::<PreparedSearch>())?;
+    let mut expected = Expected::new(&budget)?;
+    phase("derived search canonical lowering", lower(&reader, &mut expected, Some(loader)).await)?;
+    phase("derived search actual-row reconciliation", expected.reconcile(&reader).await)?;
+    let lexical = phase("frozen lexical statistics construction", crate::lexical_stats::materialize_prepared(loader).await)?;
+    let prepared = PreparedSearch {
+        owner: loader.search_owner().clone(),
+        client: loader.shared_client(),
+        staging,
+        source_pin,
+        source_client: reader.shared_client(),
+        budget,
+        realization: loader.derivation()?,
+        scope: crate::lexical_stats::scope_identity(&reader)?,
+        search: expected.into_prepared()?,
+        lexical,
+        _charge: charge,
+    };
+    prepared.check(loader)?;
+    Ok(prepared)
+}
 pub async fn reconcile_search(loader: &Loader) -> Result<(), ModelError> {
     reconcile_search_owned(loader, None).await
 }
@@ -2390,6 +2524,178 @@ pub(crate) async fn reconcile_search_owned(
 }
 fn crate_json<T: serde::Serialize>(value: T) -> Result<Value, ModelError> {
     crate::loader::json_value(serde_json::to_value(value).map_err(ModelError::codec)?)
+}
+#[cfg(test)]
+mod prepared_expectation_tests {
+    use super::*;
+
+    fn row(table: &str, key: &str, text: &str) -> Value {
+        let mut row = Object::new();
+        row.insert("id", RecordId::new(table, key));
+        row.insert("text", text.to_owned());
+        Value::Object(row)
+    }
+    fn input(values: Vec<Value>, late_failure: bool) -> crate::reader::NativeRows {
+        crate::reader::NativeRows::owned(move |sender| async move {
+            for value in values {
+                if sender.send(value).await.is_err() { break; }
+            }
+            if late_failure { return Err(ModelError::Conflict("late actual-search terminal failure")); }
+            Ok(())
+        }).unwrap()
+    }
+    fn prepared(budget: &resources::ResourceBudget) -> [PreparedRows; 7] {
+        let mut expected = Expected::new(budget).unwrap();
+        expected.emit("search_source", row("search_source", "a", "original")).unwrap();
+        expected.emit("search_source", row("search_source", "b", "last")).unwrap();
+        // Materialization has consumed this cursor before the preparation is retained.
+        let cursor = expected.finish(3).unwrap();
+        while cursor.next_row().unwrap().is_some() {}
+        expected.into_prepared().unwrap()
+    }
+    #[tokio::test]
+    async fn retained_search_compares_complete_fresh_cursors_and_refuses_mutations() {
+        let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let runs = prepared(&budget);
+        let original = vec![row("search_source", "a", "original"), row("search_source", "b", "last")];
+        let mut expected = Expected::from_prepared(&runs, &budget).unwrap();
+        for _ in 0..2 {
+            expected.reconcile_actual(|| Ok(input(original.clone(), false))).await.unwrap();
+        }
+        for values in [
+            vec![original[0].clone()],
+            vec![original[0].clone(), original[1].clone(), row("search_source", "c", "extra")],
+            vec![original[0].clone(), original[0].clone(), original[1].clone()],
+            vec![row("search_source", "a", "changed"), original[1].clone()],
+            vec![row("search_source", "foreign", "original"), original[1].clone()],
+        ] {
+            assert!(expected.reconcile_actual(|| Ok(input(values, false))).await.is_err());
+            expected.reconcile_actual(|| Ok(input(original.clone(), false))).await.unwrap();
+        }
+        assert!(expected.reconcile_actual(|| Ok(input(original.clone(), true))).await.is_err());
+        expected.reconcile_actual(|| Ok(input(original, false))).await.unwrap();
+        // Inventory receives independent full runs after every successful/failed comparison.
+        let mut inventory = SortedRows::with_budget(&budget).unwrap();
+        for run in &runs {
+            let mut cursor = run.cursor().unwrap();
+            while let Some(value) = cursor.next_row().unwrap() {
+                crate::control::staging::remember_expected_child(&mut inventory, &value).unwrap();
+            }
+        }
+        let mut inventory = inventory.finish().unwrap();
+        assert!(inventory.next_row().unwrap().is_some());
+        assert!(inventory.next_row().unwrap().is_some());
+        assert!(inventory.next_row().unwrap().is_none());
+        drop(inventory); drop(expected); drop(runs);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn retained_search_waits_for_actual_terminal_after_mismatch() {
+        use futures::FutureExt;
+        let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let runs = prepared(&budget);
+        let mut expected = Expected::from_prepared(&runs, &budget).unwrap();
+        let (release, gate) = tokio::sync::oneshot::channel();
+        let actual = || crate::reader::NativeRows::owned(move |sender| async move {
+            sender.send(row("search_source", "a", "changed")).await.map_err(ModelError::codec)?;
+            gate.await.map_err(ModelError::codec)?;
+            Err(ModelError::Conflict("late failed drainage"))
+        });
+        let mut compared = Box::pin(expected.reconcile_actual(actual));
+        assert!(compared.as_mut().now_or_never().is_none());
+        drop(runs);
+        assert!(budget.reserved() > 0, "last comparison borrower retains prepared backing");
+        release.send(()).unwrap();
+        let error = compared.await.unwrap_err();
+        assert!(error.to_string().contains("late failed drainage"));
+        drop(expected);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn cancelled_comparison_retains_spilled_expectations_through_actual_drainage() {
+        use futures::FutureExt;
+        let budget = resources::ResourceBudget::fixed(64 << 20).unwrap();
+        let mut sort = SortedRows::with_budget(&budget).unwrap();
+        let text = "payload".repeat(8192);
+        for index in 0..32 { sort.push(row("search_source", &format!("{index:03}"), &text)).unwrap(); }
+        let run = sort.finish().unwrap().into_prepared();
+        let (release, gate) = tokio::sync::oneshot::channel();
+        let actual = || crate::reader::NativeRows::owned(move |_sender| async move {
+            gate.await.map_err(ModelError::codec)?;
+            Ok(())
+        });
+        let mut actual = retain_expected_until_drained(std::iter::once(run.clone()), &budget, actual).unwrap();
+        actual.cancel_delivery();
+        drop(run);
+        let mut drain = Box::pin(actual.drain_transport());
+        assert!(drain.as_mut().now_or_never().is_none());
+        assert!(budget.reserved() > 0, "cancelled delivery retains the spilled run and its owner charge");
+        release.send(()).unwrap();
+        drain.await.unwrap();
+        drop(actual);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn exhausted_expectation_borrow_refuses_before_gated_actual_admission() {
+        use futures::FutureExt;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let runs = prepared(&budget);
+        let mut expected = Expected::from_prepared(&runs, &budget).unwrap();
+        let hold = budget.reserve("exhausted comparison admission control", budget.limit() - budget.reserved()).unwrap();
+        let admitted = std::sync::Arc::new(AtomicBool::new(false));
+        let actual_admitted = admitted.clone();
+        let (release, gate) = tokio::sync::oneshot::channel::<()>();
+        let factory = move || {
+            actual_admitted.store(true, Ordering::Release);
+            crate::reader::NativeRows::owned(move |_sender| async move {
+                gate.await.map_err(ModelError::codec)?;
+                Ok(())
+            })
+        };
+        let mut compared = Box::pin(expected.reconcile_actual(factory));
+        let error = compared.as_mut().now_or_never().expect("refusal has no pending actual drain").unwrap_err();
+        assert!(matches!(error.primary(), Some(ModelError::Resource { .. })));
+        drop(compared); drop(expected); drop(runs);
+        assert!(!admitted.load(Ordering::Acquire));
+        assert!(release.is_closed(), "the unadmitted gated factory was dropped, with no detached worker");
+        assert_eq!(budget.reserved(), hold.size());
+        drop(hold);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn dropped_comparison_and_last_owner_retain_backing_until_gated_terminal_with_exhausted_pool() {
+        use futures::FutureExt;
+        let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+        let runs = prepared(&budget);
+        let mut expected = Expected::from_prepared(&runs, &budget).unwrap();
+        let (release, gate) = tokio::sync::oneshot::channel::<()>();
+        let factory = move || crate::reader::NativeRows::owned(move |_sender| async move {
+            gate.await.map_err(ModelError::codec)?;
+            Ok(())
+        });
+        let mut compared = Box::pin(expected.reconcile_actual(factory));
+        assert!(compared.as_mut().now_or_never().is_none());
+        let hold = budget.reserve("exhausted cancelled comparison control", budget.limit() - budget.reserved()).unwrap();
+        drop(compared); drop(expected); drop(runs);
+        assert!(budget.reserved() > hold.size(), "the admitted driver owns backing after cancellation and the last publication owner drops");
+        release.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while budget.reserved() != hold.size() { tokio::task::yield_now().await; }
+        }).await.expect("detached actual drainage releases expected backing");
+        drop(hold);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn loader_nominal_identity_survives_moves_but_never_foreign_construction() {
+        let client = std::sync::Arc::new(crate::surrealdb::Surreal::init());
+        let loader = Loader::for_views(client.clone(), vec![]);
+        let identity = loader.search_owner().clone();
+        let loader = loader.with_derivation(ContentHash::of(b"realization"));
+        assert!(std::sync::Arc::ptr_eq(&identity, loader.search_owner()));
+        let foreign = Loader::for_views(client, vec![]).with_derivation(loader.derivation().unwrap());
+        assert!(!std::sync::Arc::ptr_eq(&identity, foreign.search_owner()));
+    }
 }
 struct Witness<'a> {
     unit: &'a Unit,

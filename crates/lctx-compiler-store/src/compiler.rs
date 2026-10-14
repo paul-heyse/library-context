@@ -1556,6 +1556,19 @@ impl NativeCompilerStore {
             reader
         })
     }
+    /// Revalidate an actual retained scoped-check source after final physical
+    /// completion has replaced the ordinary selector cache. The old pin remains
+    /// the source lifetime; the fresh frozen selector earns independent authority.
+    pub(crate) async fn revalidate_scoped_source(
+        self: &Arc<Self>,
+        held: Arc<lctx_native::installed_view::HeldInstalledView>,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let lease = self.admit(false, "private executed scoped source borrow", true)?;
+        let view = held.completion().view.clone();
+        let result = lease.within(self.borrow_cached_installed_view(held, &view, budget)).await;
+        lease.finish_with(result).map(|_| ())
+    }
     async fn borrow_cached_installed_view(
         self: &Arc<Self>,
         held: Arc<lctx_native::installed_view::HeldInstalledView>,

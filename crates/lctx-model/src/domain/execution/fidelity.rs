@@ -591,6 +591,9 @@ impl InvariantCheck for Check {
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         Check::visit(self, name, batch)
     }
+    fn scoped_uniform_independent(&self) -> bool {
+        true
+    }
     fn execution_scope(&self) -> Option<ExecutionScope> {
         if matches!(self.kind, Kind::EnrichedFrames) {
             None
