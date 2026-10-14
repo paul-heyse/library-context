@@ -394,10 +394,10 @@ async fn complete_boundary_content(
         }
         let mut charge = StateCharge::new(budget, "compound exact selected physical audits");
         charge.grow(selections.len().saturating_mul(8192))?;
-        let mut closures = Vec::with_capacity(selections.len());
+        let mut families = installed_view::audit::LogicalFamilyInputs::new(budget)?;
+        let mut all_views = std::collections::BTreeSet::new();
         let mut references = Vec::with_capacity(selections.len());
         let mut copies = std::collections::BTreeMap::<ContentHash, ContributorCopy>::new();
-        let mut alias_runs = Vec::new();
         let assurance_phase = crate::phase::Phase::begin("native_compound_selection_assurance");
         let mut inspections = inspection.scope(&reader, budget)?;
         inspections
@@ -433,7 +433,13 @@ async fn complete_boundary_content(
                     .iter()
                     .any(|binding| binding.view.identity == selection.view.identity)
             {
-                alias_runs.push(aliases);
+                families.include_closure(&reader, &closure, &aliases, budget, audit)?;
+            }
+            for identity in closure.logical.views().keys() {
+                if !all_views.contains(identity) {
+                    charge.grow(std::mem::size_of::<ContentHash>().saturating_add(32))?;
+                    all_views.insert(*identity);
+                }
             }
             for (physical, expected) in &closure.contributors {
                 let descriptor = closure.descriptor_for_copy(physical)?;
@@ -483,13 +489,11 @@ async fn complete_boundary_content(
                     membership_content,
                 },
             });
-            closures.push(closure);
+            // All per-selector obligations precede this release. The family reducer
+            // owns only unique ingredients, not another transitive root closure.
+            drop(closure);
         }
         assurance_phase.finish(crate::phase::Terminal::Passed);
-        let all_views = closures
-            .iter()
-            .flat_map(|closure| closure.logical.views().keys().copied())
-            .collect::<std::collections::BTreeSet<_>>();
         if !all_views
             .iter()
             .copied()
@@ -499,28 +503,10 @@ async fn complete_boundary_content(
                 "compound inventory must include exact dependency views",
             ));
         }
-        let aliases = PreparedRows::union_prepared(&alias_runs, budget, || Ok(()))?;
-        let semantic_closures = closures
-            .iter()
-            .zip(selections)
-            .filter_map(|(closure, selection)| {
-                (bindings.is_empty()
-                    || bindings
-                        .iter()
-                        .any(|binding| binding.view.identity == selection.view.identity))
-                .then_some(closure)
-            })
-            .collect::<Vec<_>>();
         let family_phase = crate::phase::Phase::begin("native_compound_family_union");
-        let roots = installed_view::audit::logical_roots_many_scoped(
-            &reader,
-            &semantic_closures,
-            bindings,
-            &aliases,
-            budget,
-            audit,
-        )
-        .await;
+        let roots = families
+            .finish_scoped(&reader, bindings, budget, audit)
+            .await;
         family_phase.finish_result(&roots);
         let roots = roots?;
         let mut selector_hasher = RealizationHasher::default();

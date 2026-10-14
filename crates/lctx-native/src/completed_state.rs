@@ -565,6 +565,11 @@ fn installed_ref_requests<'a>(
     let mut requests =
         d::charged::StateCharge::new(budget, "compound selector exact observation requests");
     for reference in references {
+        let _validation = inventory_typed_charge(
+            std::mem::size_of::<InstalledViewRef>()
+                .saturating_add(selector_heap(&reference.selector)),
+            budget,
+        )?;
         reference.validate()?;
         let selector = &reference.selector;
         if selector.parent_completion != completion
@@ -813,11 +818,71 @@ pub struct InstalledViewInventory {
     copies: std::collections::BTreeMap<ContentHash, ContributorCopy>,
     bindings: Vec<d::completed::CompletedBinding>,
     binding_incarnations: std::collections::BTreeMap<ContentHash, i64>,
-    installed:
-        std::collections::BTreeMap<ContentHash, crate::installed_view::InstalledViewCompletion>,
     _charge: d::charged::StateCharge,
 }
 impl InstalledViewInventory {
+    fn new(budget: &d::resources::ResourceBudget) -> Result<Self, ModelError> {
+        let mut charge =
+            d::charged::StateCharge::new(budget, "exact completed installed inventory");
+        charge.grow(std::mem::size_of::<Self>() + 2 * std::mem::size_of::<usize>())?;
+        Ok(Self {
+            references: Vec::new(),
+            copies: std::collections::BTreeMap::new(),
+            bindings: Vec::new(),
+            binding_incarnations: std::collections::BTreeMap::new(),
+            _charge: charge,
+        })
+    }
+    fn retain_reference(&mut self, reference: InstalledViewRef) -> Result<(), ModelError> {
+        let additional = vector_capacity_growth(&self.references);
+        self._charge.grow(
+            additional
+                .saturating_mul(std::mem::size_of::<InstalledViewRef>())
+                .saturating_add(selector_heap(&reference.selector)),
+        )?;
+        self.references.reserve_exact(additional);
+        self.references.push(reference);
+        Ok(())
+    }
+    fn retain_copy(&mut self, copy: ContributorCopy) -> Result<(), ModelError> {
+        if self.copies.contains_key(&copy.physical) {
+            return Err(ModelError::Conflict(
+                "completed duplicate physical copy inventory",
+            ));
+        }
+        self._charge.grow(
+            std::mem::size_of::<(ContentHash, ContributorCopy)>()
+                .saturating_add(32)
+                .saturating_add(crate::installed_view::audit::contribution_heap(
+                    &copy.descriptor,
+                )),
+        )?;
+        self.copies.insert(copy.physical, copy);
+        Ok(())
+    }
+    fn retain_binding(
+        &mut self,
+        binding: d::completed::CompletedBinding,
+        incarnation: i64,
+    ) -> Result<(), ModelError> {
+        let identity = binding.descriptor_identity()?;
+        if self.binding_incarnations.contains_key(&identity) {
+            return Err(ModelError::Conflict(
+                "completed duplicate canonical binding incidence",
+            ));
+        }
+        let additional = vector_capacity_growth(&self.bindings);
+        self._charge.grow(
+            additional
+                .saturating_mul(std::mem::size_of::<d::completed::CompletedBinding>())
+                .saturating_add(binding_heap(&binding))
+                .saturating_add(std::mem::size_of::<(ContentHash, i64)>() + 32),
+        )?;
+        self.bindings.reserve_exact(additional);
+        self.binding_incarnations.insert(identity, incarnation);
+        self.bindings.push(binding);
+        Ok(())
+    }
     pub fn references(&self) -> &[InstalledViewRef] {
         &self.references
     }
@@ -851,10 +916,66 @@ impl InstalledViewInventory {
         &self,
         logical: ContentHash,
     ) -> Result<&crate::installed_view::InstalledViewCompletion, ModelError> {
-        self.installed.get(&logical).ok_or(ModelError::Conflict(
-            "installed view absent from exact completed inventory",
-        ))
+        self.references
+            .binary_search_by_key(&logical, |reference| reference.logical_view)
+            .map(|index| &self.references[index].selector)
+            .map_err(|_| {
+                ModelError::Conflict("installed view absent from exact completed inventory")
+            })
     }
+}
+fn vector_capacity_growth<T>(values: &Vec<T>) -> usize {
+    if values.len() == values.capacity() {
+        values.capacity().max(4)
+    } else {
+        0
+    }
+}
+fn completed_view_heap(view: &d::completed::CompletedView) -> usize {
+    use d::HeapSize;
+    view.relation
+        .heap_bytes()
+        .saturating_add(view.contributions.heap_bytes())
+}
+fn selector_heap(selector: &crate::installed_view::InstalledViewCompletion) -> usize {
+    completed_view_heap(&selector.view).saturating_add(selector.mappings.capacity().saturating_mul(
+        std::mem::size_of::<crate::installed_view::ContributorRealization>(),
+    ))
+}
+fn binding_heap(binding: &d::completed::CompletedBinding) -> usize {
+    use d::HeapSize;
+    binding
+        .boundary
+        .heap_bytes()
+        .saturating_add(binding.source.heap_bytes())
+        .saturating_add(completed_view_heap(&binding.view))
+}
+/// Deserialization, validation, exact-envelope reconstruction and hashing need
+/// scratch while a physical row is live; none of that workspace is retained by
+/// the completed inventory after its typed value has been admitted.
+fn inventory_decode_charge(
+    row: &Value,
+    budget: &d::resources::ResourceBudget,
+) -> Result<Box<dyn d::resources::Reservation>, ModelError> {
+    budget.reserve(
+        "exact completed inventory row decode",
+        crate::loader::native_bytes(row)
+            .saturating_mul(32)
+            .saturating_add(2048),
+    )
+}
+/// Typed validation may clone a view's set/relation; selector addressing also
+/// clones the full mappings, and hashing/serialization may coexist with both.
+/// Keep the established conservative workspace allowance, sized from the typed
+/// containers and scoped to the actual operation rather than retained as data.
+fn inventory_typed_charge(
+    typed_bytes: usize,
+    budget: &d::resources::ResourceBudget,
+) -> Result<Box<dyn d::resources::Reservation>, ModelError> {
+    budget.reserve(
+        "exact completed inventory typed validation",
+        typed_bytes.saturating_mul(32).saturating_add(4096),
+    )
 }
 pub(crate) async fn inspect_inventory(
     reader: &crate::NativeReader<()>,
@@ -862,14 +983,7 @@ pub(crate) async fn inspect_inventory(
     budget: &d::resources::ResourceBudget,
 ) -> Result<std::sync::Arc<InstalledViewInventory>, ModelError> {
     let parent = data.record()?;
-    let mut result = InstalledViewInventory {
-        references: Vec::new(),
-        copies: std::collections::BTreeMap::new(),
-        bindings: Vec::new(),
-        binding_incarnations: std::collections::BTreeMap::new(),
-        installed: std::collections::BTreeMap::new(),
-        _charge: d::charged::StateCharge::new(budget, "exact completed installed inventory"),
-    };
+    let mut result = InstalledViewInventory::new(budget)?;
     let mut variables = surrealdb::types::Variables::new();
     variables.insert("parent", parent.clone());
     let _window = budget.reserve(
@@ -942,17 +1056,23 @@ pub(crate) async fn inspect_inventory(
     let _selected = budget.reserve(
         "compound selected exact physical incidence",
         result
-            .installed
-            .values()
-            .map(|selector| selector.mappings.len())
+            .references
+            .iter()
+            .map(|reference| reference.selector.mappings.len())
             .sum::<usize>()
             .saturating_mul(128)
             .saturating_add(1024),
     )?;
     let selected = result
-        .installed
-        .values()
-        .flat_map(|selector| selector.mappings.iter().map(|mapping| mapping.physical))
+        .references
+        .iter()
+        .flat_map(|reference| {
+            reference
+                .selector
+                .mappings
+                .iter()
+                .map(|mapping| mapping.physical)
+        })
         .collect::<std::collections::BTreeSet<_>>();
     if !selected.iter().eq(result.copies.keys()) {
         return Err(ModelError::Conflict(
@@ -991,12 +1111,39 @@ pub(crate) async fn inspect_inventory(
         bindings.drain_transport().await,
     );
     d::completion::complete(observed, terminal)?;
-    if d::completed::binding_inventory_identity(&result.bindings)? != data.bindings {
+    let binding_identity = {
+        // The model stably orders borrowed pointers, then validates one binding
+        // at a time. Admit its vector plus up to one element-array sort workspace.
+        let largest = result
+            .bindings
+            .iter()
+            .map(|binding| {
+                std::mem::size_of::<d::completed::CompletedBinding>()
+                    .saturating_add(binding_heap(binding))
+            })
+            .max()
+            .unwrap_or(0);
+        let _pointers = budget.reserve(
+            "exact completed binding identity pointers",
+            result
+                .bindings
+                .len()
+                .saturating_mul(std::mem::size_of::<&d::completed::CompletedBinding>())
+                .saturating_mul(2),
+        )?;
+        let _validation = inventory_typed_charge(largest, budget)?;
+        d::completed::binding_inventory_identity(&result.bindings)?
+    };
+    if binding_identity != data.bindings {
         return Err(ModelError::Conflict(
             "completed canonical binding actual EOF/inventory",
         ));
     }
-    result.bindings.sort_by_key(|binding| binding.key());
+    // The identity check already refused duplicate keys; their relative order
+    // needs no stability and in-place sorting needs no second binding array.
+    result
+        .bindings
+        .sort_unstable_by_key(|binding| binding.key());
     audit_parent_holds(reader, data, &result, budget).await?;
     Ok(std::sync::Arc::new(result))
 }
@@ -1109,14 +1256,11 @@ async fn audit_copy_window(
     let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
     for pointer in pointers {
         let child = actual.take_required(&pointer.id)?;
-        inventory._charge.grow(
-            crate::loader::native_bytes(child.row())
-                .saturating_mul(32)
-                .saturating_add(2048),
-        )?;
+        let _child_decode = inventory_decode_charge(child.row(), budget)?;
         let copy = pointer.copy(child.row(), identity)?;
         let physical = RecordId::new("compiler_contribution", copy.physical.hex());
         let expected = actual.take_required(&physical)?;
+        let _physical_decode = inventory_decode_charge(expected.row(), budget)?;
         crate::completed_rows::validate_state_row("compiler_contribution", expected.row())?;
         if expected.incarnation() != copy.incarnation
             || crate::installed_view::audit::descriptor::<d::completed::CompletedContribution>(
@@ -1128,7 +1272,7 @@ async fn audit_copy_window(
             ));
         }
         hasher.row(&copy)?;
-        inventory.copies.insert(copy.physical, copy);
+        inventory.retain_copy(copy)?;
     }
     actual.finish()
 }
@@ -1149,17 +1293,13 @@ async fn audit_selector_window(
     let mut actual = crate::control::inspect_expected_window_read(reader, &ids, budget).await?;
     for pointer in pointers {
         let selector = actual.take_required(&pointer.id)?;
-        inventory._charge.grow(
-            crate::loader::native_bytes(selector.row())
-                .saturating_mul(32)
-                .saturating_add(2048)
-                .saturating_add(2 * std::mem::size_of::<InstalledViewRef>()),
-        )?;
+        let _selector_decode = inventory_decode_charge(selector.row(), budget)?;
         let reference = pointer.selector(selector.row(), identity)?;
         let semantic = actual.take_required(&RecordId::new(
             "compiler_view",
             reference.logical_view.hex(),
         ))?;
+        let _semantic_decode = inventory_decode_charge(semantic.row(), budget)?;
         crate::completed_rows::validate_state_row("compiler_view", semantic.row())?;
         if crate::installed_view::audit::descriptor::<d::completed::CompletedView>(semantic.row())?
             != reference.selector.view
@@ -1170,10 +1310,7 @@ async fn audit_selector_window(
         }
         validate_selector_copies(data, &reference.selector, &inventory.copies)?;
         hasher.row(&reference)?;
-        inventory
-            .installed
-            .insert(reference.logical_view, reference.selector.clone());
-        inventory.references.push(reference);
+        inventory.retain_reference(reference)?;
     }
     actual.finish()
 }
@@ -1187,11 +1324,7 @@ async fn audit_binding_window(
     let mut pairs = Vec::with_capacity(ids.len());
     for id in ids {
         let expected = actual.take_required(id)?;
-        inventory._charge.grow(
-            crate::loader::native_bytes(expected.row())
-                .saturating_mul(32)
-                .saturating_add(2048),
-        )?;
+        let _decode = inventory_decode_charge(expected.row(), budget)?;
         let binding = crate::binding_descriptor::decode(expected.row())?;
         if inventory.installed(binding.view.identity)?.view != binding.view {
             return Err(ModelError::Conflict(
@@ -1202,17 +1335,7 @@ async fn audit_binding_window(
             id.clone(),
             RecordId::new("compiler_view", binding.view.identity.hex()),
         ));
-        let identity = binding.descriptor_identity()?;
-        if inventory
-            .binding_incarnations
-            .insert(identity, expected.incarnation())
-            .is_some()
-        {
-            return Err(ModelError::Conflict(
-                "completed duplicate canonical binding incidence",
-            ));
-        }
-        inventory.bindings.push(binding);
+        inventory.retain_binding(binding, expected.incarnation())?;
     }
     actual.finish()?;
     let mut holds = crate::control::inspect_hold_window_read(reader, &pairs, budget).await?;
@@ -1677,6 +1800,135 @@ mod compound_controls {
         }
     }
     #[test]
+    fn selector_inventory_retains_one_typed_copy_and_releases_decode_work_per_row() {
+        // This is a typed allocation/lookup control, not native receiving authority.
+        // Its inventory crosses two complete 64-selector receiving windows.
+        let budget = d::resources::ResourceBudget::fixed(16 << 20).unwrap();
+        let parent = ContentHash([7; 32]);
+        let logical = (0..128u8)
+            .map(|index| ContentHash([index; 32]))
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut fixtures = (0..129)
+            .map(|index| {
+                let mut reference = selector();
+                reference.selector.view = d::completed::CompletedView::new(
+                    format!("selector_{index:03}"),
+                    logical.clone(),
+                    0,
+                )
+                .unwrap();
+                reference.logical_view = reference.selector.view.identity;
+                reference.selector.parent_completion = parent;
+                reference.selector.mappings = logical
+                    .iter()
+                    .map(|logical| crate::installed_view::ContributorRealization {
+                        view: reference.logical_view,
+                        logical: *logical,
+                        physical: *logical,
+                        incarnation: 1,
+                    })
+                    .collect();
+                reference
+            })
+            .collect::<Vec<_>>();
+        fixtures.sort_by_key(|reference| reference.logical_view);
+        let mut inventory = InstalledViewInventory::new(&budget).unwrap();
+        let base = inventory._charge.reserved();
+        let mut former_workspace = 0usize;
+        let mut hasher = RealizationHasher::default();
+        for fixture in fixtures {
+            let row = fixture.value(parent).unwrap();
+            let before = budget.reserved();
+            {
+                let decode = inventory_decode_charge(&row, &budget).unwrap();
+                former_workspace = former_workspace.saturating_add(decode.size());
+                let reference = InstalledViewRef::from_row(&row, parent).unwrap();
+                hasher.row(&reference).unwrap();
+                inventory.retain_reference(reference).unwrap();
+                assert!(
+                    budget.reserved() > inventory._charge.reserved(),
+                    "decode scratch remains admitted while physical decoding and hashing are live"
+                );
+            }
+            assert!(inventory._charge.reserved() > before);
+            assert_eq!(
+                budget.reserved(),
+                inventory._charge.reserved(),
+                "finished row workspace must not accumulate in retained inventory"
+            );
+        }
+        assert_eq!(hasher.finish().rows, 129);
+        assert!(
+            former_workspace > budget.limit(),
+            "cumulative dead decode work cannot fit this actual typed-state allowance"
+        );
+        let typed = base
+            + inventory.references.capacity() * std::mem::size_of::<InstalledViewRef>()
+            + inventory
+                .references
+                .iter()
+                .map(|reference| selector_heap(&reference.selector))
+                .sum::<usize>();
+        assert_eq!(inventory._charge.reserved(), typed);
+        for reference in &inventory.references {
+            {
+                let _validation = inventory_typed_charge(
+                    std::mem::size_of::<InstalledViewRef>()
+                        .saturating_add(selector_heap(&reference.selector)),
+                    &budget,
+                )
+                .unwrap();
+                let child = reference.record(parent);
+                let projection = parent_hold(
+                    &RecordId::new("native_completed_state", parent.hex()),
+                    child.clone(),
+                )
+                .unwrap();
+                assert_eq!(
+                    projection.as_object().unwrap().get("object"),
+                    Some(&Value::RecordId(child))
+                );
+                assert!(
+                    budget.reserved() > typed,
+                    "post-decode selector addressing and hold projection need their own live workspace"
+                );
+            }
+            assert_eq!(
+                budget.reserved(),
+                typed,
+                "typed validation scratch ends after each actual projection"
+            );
+        }
+        for index in [0, 63, 64, 127, 128] {
+            let expected = &inventory.references[index];
+            let installed = inventory.installed(expected.logical_view).unwrap();
+            assert!(
+                std::ptr::eq(installed, &expected.selector),
+                "lookup borrows the sole canonical selector, including across receiving windows"
+            );
+            assert_eq!(
+                inventory.contributors(expected.logical_view).unwrap(),
+                expected.selector.mappings
+            );
+        }
+        assert!(matches!(
+            inventory.installed(ContentHash([255; 32])),
+            Err(ModelError::Conflict(
+                "installed view absent from exact completed inventory"
+            ))
+        ));
+        let owner = std::sync::Arc::new(inventory);
+        let borrower = owner.clone();
+        drop(owner);
+        assert_eq!(
+            budget.reserved(),
+            typed,
+            "live borrowers retain actual typed allocation ownership"
+        );
+        drop(borrower);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
     fn installed_ref_requests_preserve_each_exact_selector_and_share_only_equal_copy_requirements()
     {
         let budget = d::resources::ResourceBudget::fixed(1 << 20).unwrap();
@@ -1949,6 +2201,11 @@ async fn audit_parent_holds(
         )?)?;
     }
     for reference in &inventory.references {
+        let _validation = inventory_typed_charge(
+            std::mem::size_of::<InstalledViewRef>()
+                .saturating_add(selector_heap(&reference.selector)),
+            budget,
+        )?;
         expected.push(parent_hold(&parent, reference.record(identity))?)?;
         expected.push(parent_hold(
             &parent,
@@ -1956,6 +2213,11 @@ async fn audit_parent_holds(
         )?)?;
     }
     for binding in &inventory.bindings {
+        let _validation = inventory_typed_charge(
+            std::mem::size_of::<d::completed::CompletedBinding>()
+                .saturating_add(binding_heap(binding)),
+            budget,
+        )?;
         expected.push(parent_hold(
             &parent,
             crate::binding_descriptor::record(binding)?,

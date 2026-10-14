@@ -3025,7 +3025,9 @@ mod tests {
         let peer = crate::control::ReaderPin::acquire(client.clone(), &[])
             .await
             .unwrap();
-        let closing_audit = InstallationAudit::new(client.clone(), &budget).await.unwrap();
+        let closing_audit = InstallationAudit::new(client.clone(), &budget)
+            .await
+            .unwrap();
         let result = std::panic::AssertUnwindSafe(async {
             let sources = Relation::of::<SourceArtifact>();
             let chunks = Relation::of::<ArtifactChunk>();
@@ -3128,11 +3130,21 @@ mod tests {
                 (1, 1),
                 "equal replay neither invalidates immutable bytes nor repeats the whole audit"
             );
-            let source = closing_audit.protected_source(&client, &budget).await.unwrap();
+            let source = closing_audit
+                .protected_source(&client, &budget)
+                .await
+                .unwrap();
             let mut scope = source.inspection_scope(&reader, &budget).unwrap();
             let inspected = inspect_closure_scoped(
-                &reader, view, &mappings, &budget, &closing_audit, &mut scope,
-            ).await.unwrap();
+                &reader,
+                view,
+                &mappings,
+                &budget,
+                &closing_audit,
+                &mut scope,
+            )
+            .await
+            .unwrap();
             let barrier = BlobObservationBarrier {
                 observed: std::sync::Arc::new(tokio::sync::Barrier::new(2)),
                 resume: std::sync::Arc::new(tokio::sync::Barrier::new(2)),
@@ -3141,20 +3153,38 @@ mod tests {
                 barrier.observed.wait().await;
                 let closing = closing_audit.close();
                 tokio::pin!(closing);
-                assert!(futures::poll!(closing.as_mut()).is_pending(),
-                    "source close must drain the accepted native first-miss blob worker");
+                assert!(
+                    futures::poll!(closing.as_mut()).is_pending(),
+                    "source close must drain the accepted native first-miss blob worker"
+                );
                 closing_audit.pin.ensure_live().unwrap();
-                assert!(closing_audit.protected_source(&client, &budget).await.is_err(),
-                    "closing immediately refuses new source borrowers while its actual read drains");
+                assert!(
+                    closing_audit
+                        .protected_source(&client, &budget)
+                        .await
+                        .is_err(),
+                    "closing immediately refuses new source borrowers while its actual read drains"
+                );
                 barrier.resume.wait().await;
                 closing.await.unwrap();
             };
             let (read, ()) = tokio::join!(
-                BLOB_OBSERVATION_BARRIER.scope(barrier.clone(),
-                    assure_boundary_closure(&reader, &inspected, &budget, &closing_audit, &mut scope)),
+                BLOB_OBSERVATION_BARRIER.scope(
+                    barrier.clone(),
+                    assure_boundary_closure(
+                        &reader,
+                        &inspected,
+                        &budget,
+                        &closing_audit,
+                        &mut scope
+                    )
+                ),
                 close,
             );
-            assert!(read.is_err(), "source closure cannot publish a reusable boundary from an in-flight read");
+            assert!(
+                read.is_err(),
+                "source closure cannot publish a reusable boundary from an in-flight read"
+            );
             assert!(closing_audit.work.workers.lock().unwrap().is_empty());
             assert!(closing_audit.work.draining.lock().await.workers.is_empty());
             assert!(source.inspection_scope(&reader, &budget).is_err());
@@ -3181,122 +3211,258 @@ mod tests {
         cleaned.unwrap();
     }
     #[tokio::test(flavor = "multi_thread")]
-    async fn protected_source_real_inventory_reuses_exact_observations_and_refuses_changed_mapping_and_close() {
+    async fn protected_source_real_inventory_reuses_exact_observations_and_refuses_changed_mapping_and_close()
+     {
         use futures::FutureExt;
         use lctx_compiler_store::compiler::NativeCompilerStore;
         let config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
-        )).unwrap();
-        let store = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts).await.unwrap();
+        ))
+        .unwrap();
+        let store = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
+            .await
+            .unwrap();
         let client = lctx_compiler_store::reader::connect(
-            &config.endpoint, &config.writer_credentials(), store.namespace().as_str(), store.database().as_str(),
-        ).await.unwrap();
+            &config.endpoint,
+            &config.writer_credentials(),
+            store.namespace().as_str(),
+            store.database().as_str(),
+        )
+        .await
+        .unwrap();
         let budget = ResourceBudget::fixed(256 << 20).unwrap();
         let reader = NativeReader::private(client.clone()).with_budget(&budget);
-        let audit = InstallationAudit::new(client.clone(), &budget).await.unwrap();
+        let audit = InstallationAudit::new(client.clone(), &budget)
+            .await
+            .unwrap();
         let result = std::panic::AssertUnwindSafe(async {
             let relation = Relation::of::<Package>();
             let mut specification = contribution("protected-source-inventory", vec![]).spec;
             specification.outputs = [relation.name().into()].into();
             let producer = store.begin_contribution(specification).await.unwrap();
-            let row = Package { name: format!("protected-source-{}", store.attempt().hex()) };
-            store.write_batch(&producer, &relation, &Package::encode(&[row]).unwrap(), &budget).await.unwrap();
-            let views = store.complete_contribution(producer, d::stages::ProviderOutcome::Complete,
-                std::slice::from_ref(&relation), &BTreeMap::new(), &budget).await.unwrap();
+            let row = Package {
+                name: format!("protected-source-{}", store.attempt().hex()),
+            };
+            store
+                .write_batch(
+                    &producer,
+                    &relation,
+                    &Package::encode(&[row]).unwrap(),
+                    &budget,
+                )
+                .await
+                .unwrap();
+            let views = store
+                .complete_contribution(
+                    producer,
+                    d::stages::ProviderOutcome::Complete,
+                    std::slice::from_ref(&relation),
+                    &BTreeMap::new(),
+                    &budget,
+                )
+                .await
+                .unwrap();
             let view = &views[relation.name()];
             let held = store.installed_view(view, &budget).await.unwrap();
-            let mappings: Vec<ContributorRealization> = serde_json::from_value(
-                serde_json::to_value(&held.completion().mappings).unwrap(),
-            ).unwrap();
+            let mappings: Vec<ContributorRealization> =
+                serde_json::from_value(serde_json::to_value(&held.completion().mappings).unwrap())
+                    .unwrap();
             // Obtain the opaque source through its real context/pin acquisition, never
             // by constructing a nominal source wrapper or populating its registry.
             let source = audit.protected_source(&client, &budget).await.unwrap();
             let mut first = source.inspection_scope(&reader, &budget).unwrap();
-            let closure = inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut first).await.unwrap();
-            let aliases = assure_boundary_closure(&reader, &closure, &budget, &audit, &mut first).await.unwrap();
-            let roots = logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &audit).await.unwrap();
+            let closure =
+                inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut first)
+                    .await
+                    .unwrap();
+            let aliases = assure_boundary_closure(&reader, &closure, &budget, &audit, &mut first)
+                .await
+                .unwrap();
+            let roots = logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &audit)
+                .await
+                .unwrap();
             let next = audit.work.next.load(std::sync::atomic::Ordering::Relaxed);
-            let cold = inspect_closure(&reader, view, &mappings, &budget).await.unwrap();
+            let cold = inspect_closure(&reader, view, &mappings, &budget)
+                .await
+                .unwrap();
             let cold_aliases = audit_aliases(&reader, &cold, &budget).await.unwrap();
-            assert_eq!(roots, logical_roots(&reader, &cold, &[], &cold_aliases, &budget).await.unwrap());
+            assert_eq!(
+                roots,
+                logical_roots(&reader, &cold, &[], &cold_aliases, &budget)
+                    .await
+                    .unwrap()
+            );
             let mut repeated = source.inspection_scope(&reader, &budget).unwrap();
-            let again = inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut repeated).await.unwrap();
-            assure_boundary_closure(&reader, &again, &budget, &audit, &mut repeated).await.unwrap();
+            let again =
+                inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut repeated)
+                    .await
+                    .unwrap();
+            assure_boundary_closure(&reader, &again, &budget, &audit, &mut repeated)
+                .await
+                .unwrap();
             for mapping in &mappings {
-                assert!(std::sync::Arc::ptr_eq(first.expected_copy(&mapping.physical).unwrap(),
-                    repeated.expected_copy(&mapping.physical).unwrap()),
-                    "the exact native physical observation is shared by its actual source owner");
+                assert!(
+                    std::sync::Arc::ptr_eq(
+                        first.expected_copy(&mapping.physical).unwrap(),
+                        repeated.expected_copy(&mapping.physical).unwrap()
+                    ),
+                    "the exact native physical observation is shared by its actual source owner"
+                );
             }
-            assert_eq!(audit.work.next.load(std::sync::atomic::Ordering::Relaxed), next,
-                "a repeated exact selection adds no first-miss worker");
+            assert_eq!(
+                audit.work.next.load(std::sync::atomic::Ordering::Relaxed),
+                next,
+                "a repeated exact selection adds no first-miss worker"
+            );
             assert_eq!(audit.observations(), (1, 0));
 
             let mut changed = mappings.clone();
             changed[0].incarnation += 1;
             let mut changed_scope = source.inspection_scope(&reader, &budget).unwrap();
-            assert!(inspect_closure_scoped(&reader, view, &changed, &budget, &audit, &mut changed_scope).await.is_err(),
-                "same logical descriptor cannot authorize a changed selected physical incarnation");
+            assert!(
+                inspect_closure_scoped(
+                    &reader,
+                    view,
+                    &changed,
+                    &budget,
+                    &audit,
+                    &mut changed_scope
+                )
+                .await
+                .is_err(),
+                "same logical descriptor cannot authorize a changed selected physical incarnation"
+            );
             let foreign_budget = ResourceBudget::fixed(256 << 20).unwrap();
-            assert!(audit.protected_source(&client, &foreign_budget).await.is_err());
+            assert!(
+                audit
+                    .protected_source(&client, &foreign_budget)
+                    .await
+                    .is_err()
+            );
             audit.close().await.unwrap();
             assert!(audit.protected_source(&client, &budget).await.is_err());
-            assert!(inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut repeated).await.is_err(),
-                "already prepared selectors cannot bypass actual source closure");
+            assert!(
+                inspect_closure_scoped(&reader, view, &mappings, &budget, &audit, &mut repeated)
+                    .await
+                    .is_err(),
+                "already prepared selectors cannot bypass actual source closure"
+            );
 
-            store.bind(d::completed::CompletedBinding {
-                boundary: None,
-                source: SourceSnapshot::of_completed_view(&relation,
-                    closure.logical.contributions()[&mappings[0].logical].spec.model, view).unwrap(),
-                view: view.clone(),
-                configuration: None,
-            }).await.unwrap();
+            store
+                .bind(d::completed::CompletedBinding {
+                    boundary: None,
+                    source: SourceSnapshot::of_completed_view(
+                        &relation,
+                        closure.logical.contributions()[&mappings[0].logical]
+                            .spec
+                            .model,
+                        view,
+                    )
+                    .unwrap(),
+                    view: view.clone(),
+                    configuration: None,
+                })
+                .await
+                .unwrap();
             store.freeze_content(&budget).await.unwrap();
             let physical = store.complete_physical_content(&budget).await.unwrap();
             // The compiler-store dev dependency links a second crate instance in
             // unit builds. Convert only expected completion data, never its owner.
-            let completion: crate::completed_state::FrozenCompletion = serde_json::from_value(
-                serde_json::to_value(physical.completion()).unwrap(),
-            ).unwrap();
-            crate::completed_state::inspect_inventory(&reader, &completion, &budget).await.unwrap();
+            let completion: crate::completed_state::FrozenCompletion =
+                serde_json::from_value(serde_json::to_value(physical.completion()).unwrap())
+                    .unwrap();
+            crate::completed_state::inspect_inventory(&reader, &completion, &budget)
+                .await
+                .unwrap();
             let parent = completion.record().unwrap();
             for table in ["native_completed_contributor", "native_completed_view"] {
                 let mut variables = Variables::new();
                 variables.insert("parent", parent.clone());
-                let children: Vec<Value> = reader.query_native(
-                    &format!("SELECT * FROM {table} WHERE completion=$parent ORDER BY id"), variables,
-                ).await.unwrap();
-                assert_eq!(children.len(), 1, "fixture has one independently checked {table} child");
-                let id = RecordId::from_value(children[0].as_object().unwrap().get("id").unwrap().clone()).unwrap();
+                let children: Vec<Value> = reader
+                    .query_native(
+                        &format!("SELECT * FROM {table} WHERE completion=$parent ORDER BY id"),
+                        variables,
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    children.len(),
+                    1,
+                    "fixture has one independently checked {table} child"
+                );
+                let id = RecordId::from_value(
+                    children[0].as_object().unwrap().get("id").unwrap().clone(),
+                )
+                .unwrap();
                 let hold = crate::control::hold_record_id(&parent, &id).unwrap();
-                for (kind, target) in [("guarded inventory child", id), ("exact parent hold", hold)] {
+                for (kind, target) in [("guarded inventory child", id), ("exact parent hold", hold)]
+                {
                     let mut variables = Variables::new();
                     variables.insert("id", target);
-                    let rows: Vec<Value> = reader.query_native("SELECT * FROM $id", variables.clone()).await.unwrap();
+                    let rows: Vec<Value> = reader
+                        .query_native("SELECT * FROM $id", variables.clone())
+                        .await
+                        .unwrap();
                     assert_eq!(rows.len(), 1);
-                    client.query("DELETE $id RETURN NONE").bind(variables.clone()).await.unwrap().check().unwrap();
+                    client
+                        .query("DELETE $id RETURN NONE")
+                        .bind(variables.clone())
+                        .await
+                        .unwrap()
+                        .check()
+                        .unwrap();
                     let received = crate::completed_state::hold_physical_state_for_attempt(
-                        client.clone(), store.attempt(), &budget,
-                    ).await;
+                        client.clone(),
+                        store.attempt(),
+                        &budget,
+                    )
+                    .await;
                     variables.insert("row", rows[0].clone());
-                    client.query("UPSERT $id CONTENT $row RETURN NONE").bind(variables).await.unwrap().check().unwrap();
-                    assert!(received.is_err(), "complete actual {table} inventory refuses a missing {kind}");
+                    client
+                        .query("UPSERT $id CONTENT $row RETURN NONE")
+                        .bind(variables)
+                        .await
+                        .unwrap()
+                        .check()
+                        .unwrap();
+                    assert!(
+                        received.is_err(),
+                        "complete actual {table} inventory refuses a missing {kind}"
+                    );
                 }
             }
             // A successful fresh physical receiver reaches its final exact owner CAS;
             // it earns no semantic admission from the data/descriptor inspected here.
             let received = crate::completed_state::hold_physical_state_for_attempt(
-                client.clone(), store.attempt(), &budget,
-            ).await.unwrap();
+                client.clone(),
+                store.attempt(),
+                &budget,
+            )
+            .await
+            .unwrap();
             assert_eq!(received.completion(), &completion);
-        }).catch_unwind().await;
+        })
+        .catch_unwind()
+        .await;
         let mut cleanup = d::completion::Completion::default();
-        cleanup.step("protected source inventory reader close", reader.close().await);
+        cleanup.step(
+            "protected source inventory reader close",
+            reader.close().await,
+        );
         cleanup.step("protected source inventory pin close", audit.close().await);
-        cleanup.step("protected source inventory attempt cleanup", store.abandon().await);
-        cleanup.step("protected source inventory observer invalidation", client.invalidate().await.map_err(ModelError::codec));
+        cleanup.step(
+            "protected source inventory attempt cleanup",
+            store.abandon().await,
+        );
+        cleanup.step(
+            "protected source inventory observer invalidation",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
         let cleaned = d::completion::complete(Ok(()), cleanup);
         if let Err(panic) = result {
-            if let Err(error) = cleaned { eprintln!("protected source inventory cleanup: {error:?}"); }
+            if let Err(error) = cleaned {
+                eprintln!("protected source inventory cleanup: {error:?}");
+            }
             std::panic::resume_unwind(panic);
         }
         cleaned.unwrap();
@@ -3350,6 +3516,29 @@ mod tests {
             let overlapping = vec![&closure; 17];
             assert_eq!(logical_roots_many_scoped(&reader, &overlapping, &[], &aliases, &budget, &audit).await.unwrap(), cold,
                 "overlapping selectors preserve the independently reconstructed six-family identity");
+            assert_eq!(audit.logical_contribution_observations(), 1);
+            let mut streamed = LogicalFamilyInputs::new(&budget).unwrap();
+            let mut retained = None;
+            for _ in 0..17 {
+                let fresh = inspect_closure_in_audit(&reader, view, &mappings, &budget, &audit).await.unwrap();
+                let before = budget.reserved();
+                let ingredients = streamed.charge.reserved();
+                streamed.include_closure(&reader, &fresh, &aliases, &budget, &audit).unwrap();
+                if retained.is_some() {
+                    assert_eq!(streamed.charge.reserved(), ingredients,
+                        "overlapping roots retain each semantic ingredient once");
+                    assert_eq!(budget.reserved(), before,
+                        "duplicate inclusion borrows the existing payload arenas");
+                }
+                drop(fresh);
+                if let Some(retained) = retained {
+                    assert_eq!(budget.reserved(), retained,
+                        "each independently inspected root releases its closure before the next");
+                } else {
+                    retained = Some(budget.reserved());
+                }
+            }
+            assert_eq!(streamed.finish_scoped(&reader, &[], &budget, &audit).await.unwrap(), cold);
             assert_eq!(audit.logical_contribution_observations(), 1);
             assert_eq!(logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &audit).await.unwrap(), cold);
             assert_eq!(logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &audit).await.unwrap(), cold);
@@ -3436,6 +3625,186 @@ mod tests {
         if let Err(panic) = result {
             if let Err(error) = cleaned {
                 eprintln!("set correspondence cleanup: {error:?}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+        cleaned.unwrap();
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn streamed_family_union_preserves_selector_local_copies_bindings_and_late_refusal() {
+        use lctx_compiler_store::compiler::NativeCompilerStore;
+        use std::sync::Arc;
+        async fn produce(
+            store: &Arc<NativeCompilerStore>,
+            name: &str,
+            inputs: Vec<SourceSnapshot>,
+            budget: &ResourceBudget,
+        ) -> (CompletedView, Vec<ContributorRealization>) {
+            let relation = Relation::of::<Package>();
+            let mut spec = contribution(name, inputs).spec;
+            spec.outputs = [relation.name().into()].into();
+            let producer = store.begin_contribution(spec).await.unwrap();
+            store
+                .write_batch(
+                    &producer,
+                    &relation,
+                    &Package::encode(&[Package { name: name.into() }]).unwrap(),
+                    budget,
+                )
+                .await
+                .unwrap();
+            let views = store
+                .complete_contribution(
+                    producer,
+                    d::stages::ProviderOutcome::Complete,
+                    std::slice::from_ref(&relation),
+                    &BTreeMap::new(),
+                    budget,
+                )
+                .await
+                .unwrap();
+            let view = views[relation.name()].clone();
+            let held = store.installed_view(&view, budget).await.unwrap();
+            let mappings =
+                serde_json::from_value(serde_json::to_value(&held.completion().mappings).unwrap())
+                    .unwrap();
+            (view, mappings)
+        }
+        let config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
+        ))
+        .unwrap();
+        let first = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
+            .await
+            .unwrap();
+        let second = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
+            .await
+            .unwrap();
+        let client = lctx_compiler_store::reader::connect(
+            &config.endpoint,
+            &config.writer_credentials(),
+            first.namespace().as_str(),
+            first.database().as_str(),
+        )
+        .await
+        .unwrap();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let reader = NativeReader::private(client.clone()).with_budget(&budget);
+        let audit = InstallationAudit::new(client.clone(), &budget)
+            .await
+            .unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let (dependency, dependency_mappings) = produce(&first, "shared-family-dependency", vec![], &budget).await;
+            let (other_dependency, other_mappings) = produce(&second, "shared-family-dependency", vec![], &budget).await;
+            assert_eq!(dependency, other_dependency);
+            assert_eq!(dependency_mappings[0].logical, other_mappings[0].logical);
+            assert_ne!(dependency_mappings[0].physical, other_mappings[0].physical,
+                "one logical dependency has two actual physical realizations");
+            let source = SourceSnapshot::of_completed_view(&Relation::of::<Package>(), ContentHash::of(b"model"), &dependency).unwrap();
+            let (a, a_mappings) = produce(&first, "family-root-a", vec![source.clone()], &budget).await;
+            let (b, b_mappings) = produce(&second, "family-root-b", vec![source], &budget).await;
+            assert_ne!(a_mappings.iter().find(|mapping| mapping.view == dependency.identity).unwrap().physical,
+                b_mappings.iter().find(|mapping| mapping.view == dependency.identity).unwrap().physical);
+            let mut closures = Vec::new();
+            let mut alias_runs = Vec::new();
+            for (view, mappings) in [(&a, &a_mappings), (&b, &b_mappings)] {
+                let closure = inspect_closure(&reader, view, mappings, &budget).await.unwrap();
+                audit_memberships_scoped(&reader, &closure, &budget, &audit).await.unwrap();
+                let aliases = audit_aliases_scoped(&reader, &closure, &budget, &audit).await.unwrap();
+                prepare_closure_scoped(&reader, &closure, &budget, &audit).await.unwrap();
+                alias_runs.push(aliases);
+                closures.push(closure);
+            }
+            let aliases = crate::ordered_rows::PreparedRows::union_prepared(&alias_runs, &budget, || Ok(())).unwrap();
+            let cold = logical_roots_many(&reader, &closures, &[], &aliases, &budget).await.unwrap();
+            for order in [[0, 1], [1, 0]] {
+                let mut streamed = LogicalFamilyInputs::new(&budget).unwrap();
+                for index in order {
+                    streamed.include_closure(&reader, &closures[index], &alias_runs[index], &budget, &audit).unwrap();
+                }
+                assert_eq!(streamed.owners.len(), 4, "both physical dependency copies survive normalization");
+                assert_eq!(streamed.views.len(), 3, "shared logical dependency view is unique");
+                assert_eq!(streamed.finish_scoped(&reader, &[], &budget, &audit).await.unwrap(), cold,
+                    "selector decomposition and order preserve independent cold six-family identity");
+            }
+            let binding = d::completed::CompletedBinding {
+                boundary: None,
+                source: SourceSnapshot::of_completed_view(&Relation::of::<Package>(), ContentHash::of(b"model"), &a).unwrap(),
+                view: a.clone(), configuration: None,
+            };
+            let expected = logical_roots(&reader, &closures[0], std::slice::from_ref(&binding), &alias_runs[0], &budget).await.unwrap();
+            // Both roots and the dependency are physically inventoried, but only
+            // the declared root supplies identity-bearing semantic families.
+            let mut selections = vec![
+                crate::completed_state::ViewSelection { view: a.clone(), mappings: a_mappings.clone() },
+                crate::completed_state::ViewSelection { view: b.clone(), mappings: b_mappings.clone() },
+                crate::completed_state::ViewSelection { view: dependency.clone(), mappings: dependency_mappings },
+            ];
+            selections.sort_by_key(|selection| selection.view.identity);
+            let retained = crate::completed_state::complete_retained_content_scoped(client.clone(), first.attempt(),
+                std::slice::from_ref(&binding), &selections, &budget, &audit).await.unwrap();
+            assert_eq!(&retained.completion().roots, &expected);
+            assert_eq!(retained.inventory().references().len(), 3);
+            assert_eq!(retained.inventory().copies().len(), 4);
+            retained.close().await.unwrap();
+            // A late contradictory semantic ingredient cannot yield a prefix root.
+            let mut failed = LogicalFamilyInputs::new(&budget).unwrap();
+            failed.include_closure(&reader, &closures[0], &alias_runs[0], &budget, &audit).unwrap();
+            let id = closures[0].contributors.values().next().unwrap().record().clone();
+            *failed.incarnations.get_mut(&id).unwrap() += 1;
+            assert!(failed.include_closure(&reader, &closures[0], &alias_runs[0], &budget, &audit).is_err());
+            assert!(failed.finish_scoped(&reader, &[], &budget, &audit).await.is_err());
+            let mut failed = LogicalFamilyInputs::new(&budget).unwrap();
+            failed.include_closure(&reader, &closures[0], &alias_runs[0], &budget, &audit).unwrap();
+            failed.owners.get_mut(&id).unwrap().outcome = 2;
+            assert!(failed.include_closure(&reader, &closures[0], &alias_runs[0], &budget, &audit).is_err());
+            assert!(failed.finish_scoped(&reader, &[], &budget, &audit).await.is_err());
+            // An unbound selector is still independently checked before replay or
+            // publication. Restore deliberately changed fixture bytes before asserting.
+            let b_id = RecordId::new("compiler_view", b.identity.hex());
+            let mut inventory_vars = Variables::new();
+            inventory_vars.insert("attempt", RecordId::new("native_attempt", first.attempt().hex()));
+            let before: Vec<Value> = reader.query_native("SELECT object FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt AND record::table(object)='native_completed_state' ORDER BY id", inventory_vars.clone()).await.unwrap();
+            let mut vars = Variables::new(); vars.insert("id", b_id);
+            let rows: Vec<Value> = reader.query_native("SELECT * FROM $id", vars.clone()).await.unwrap();
+            let mut changed = rows[0].clone();
+            let Value::Object(changed_row) = &mut changed else { panic!("native view object"); };
+            changed_row.insert("descriptor", surrealdb::types::Bytes::from(b"invalid late unbound view".to_vec()));
+            vars.insert("row", changed);
+            client.query("UPSERT $id CONTENT $row RETURN NONE").bind(vars.clone()).await.unwrap().check().unwrap();
+            let mut late_binding = binding.clone();
+            late_binding.boundary = Some("late-unbound-refusal".into());
+            let refused = crate::completed_state::complete_retained_content_scoped(client.clone(), first.attempt(),
+                std::slice::from_ref(&late_binding), &selections, &budget, &audit).await;
+            vars.insert("row", rows[0].clone());
+            client.query("UPSERT $id CONTENT $row RETURN NONE").bind(vars).await.unwrap().check().unwrap();
+            let refused = match refused {
+                Err(_) => true,
+                Ok(retained) => { retained.close().await.unwrap(); false }
+            };
+            let after: Vec<Value> = reader.query_native("SELECT object FROM native_hold WITH INDEX owner_holds WHERE owner=$attempt AND record::table(object)='native_completed_state' ORDER BY id", inventory_vars).await.unwrap();
+            assert!(refused, "unbound invalid selector cannot be hidden by semantic root filtering");
+            assert_eq!(after, before, "late selector refusal publishes no prefix boundary");
+        }).catch_unwind().await;
+        let mut cleanup = d::completion::Completion::default();
+        cleanup.step("streamed families reader close", reader.close().await);
+        cleanup.step("streamed families audit close", audit.close().await);
+        cleanup.step(
+            "streamed families first attempt cleanup",
+            first.abandon().await,
+        );
+        cleanup.step(
+            "streamed families second attempt cleanup",
+            second.abandon().await,
+        );
+        cleanup.step(
+            "streamed families observer invalidation",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
+        let cleaned = d::completion::complete(Ok(()), cleanup);
+        if let Err(panic) = result {
+            if let Err(error) = cleaned {
+                eprintln!("streamed families cleanup: {error:?}");
             }
             std::panic::resume_unwind(panic);
         }
@@ -4308,6 +4677,265 @@ pub(crate) async fn logical_roots_many(
     )
     .await
 }
+/// Operation-local semantic union. Each selector is independently assured before
+/// inclusion; only unique physical ingredients survive the selector's closure.
+pub(crate) struct LogicalFamilyInputs {
+    owners: BTreeMap<RecordId, CompletedContribution>,
+    incarnations: BTreeMap<RecordId, i64>,
+    views: BTreeMap<ContentHash, CompletedView>,
+    fragments: [Vec<crate::ordered_rows::PreparedRows>; 6],
+    families: Vec<crate::ordered_rows::SortedRows>,
+    charge: StateCharge,
+    failed: bool,
+}
+impl LogicalFamilyInputs {
+    pub(crate) fn new(budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let mut charge = StateCharge::new(budget, "logical family unique semantic ingredients");
+        charge.grow(
+            std::mem::size_of::<Self>()
+                .saturating_add(6 * std::mem::size_of::<crate::ordered_rows::SortedRows>()),
+        )?;
+        Ok(Self {
+            owners: BTreeMap::new(),
+            incarnations: BTreeMap::new(),
+            views: BTreeMap::new(),
+            fragments: std::array::from_fn(|_| Vec::new()),
+            families: d::recovery_closure::COMPLETED_FAMILIES
+                .map(|_| {
+                    crate::ordered_rows::SortedRows::with_budget_and_row_bytes(
+                        budget,
+                        d::resources::MAX_ROW_BYTES,
+                    )
+                })
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()?,
+            charge,
+            failed: false,
+        })
+    }
+    pub(crate) fn include_closure(
+        &mut self,
+        reader: &NativeReader<()>,
+        closure: &InspectedClosure,
+        aliases: &crate::ordered_rows::PreparedRows,
+        budget: &ResourceBudget,
+        audit: &InstallationAudit,
+    ) -> Result<(), ModelError> {
+        if self.failed {
+            return Err(ModelError::Conflict("failed logical family ingredients"));
+        }
+        let result = self.include_inner(reader, closure, aliases, budget, audit);
+        self.failed = result.is_err();
+        result
+    }
+    fn include_inner(
+        &mut self,
+        reader: &NativeReader<()>,
+        closure: &InspectedClosure,
+        aliases: &crate::ordered_rows::PreparedRows,
+        budget: &ResourceBudget,
+        audit: &InstallationAudit,
+    ) -> Result<(), ModelError> {
+        audit.check(reader, budget)?;
+        if !self
+            .charge
+            .budget()
+            .is_some_and(|owner| owner.shares_pool(budget))
+        {
+            return Err(ModelError::Conflict(
+                "logical family foreign resource owner",
+            ));
+        }
+        for mapping in &closure.mappings {
+            let descriptor = &closure.logical.contributions()[&mapping.logical];
+            let expected = &closure.contributors[&mapping.physical];
+            let id = expected.record();
+            let cached = audit.contributors.get(id).ok_or(ModelError::Conflict(
+                "logical fragment requires complete protected contributor audit",
+            ))?;
+            if cached.incarnation() != expected.incarnation() || cached.row() != expected.row() {
+                return Err(ModelError::Conflict(
+                    "logical fragment exact contributor premise changed",
+                ));
+            }
+            if let Some(previous) = self.owners.get(id) {
+                if previous != descriptor {
+                    return Err(ModelError::Conflict(
+                        "installed normalization physical owner descriptor collision",
+                    ));
+                }
+                if self.incarnations.get(id) != Some(&expected.incarnation()) {
+                    return Err(ModelError::Conflict(
+                        "family exact physical incarnation contradiction",
+                    ));
+                }
+                continue;
+            }
+            let prepared = audit
+                .logical_contributors
+                .get(id)
+                .ok_or(ModelError::Conflict("prepared contributor absent"))?;
+            // Clone the typed descriptor once per physical owner. Prepared payload
+            // arenas remain shared with the protected audit and their live borrowers.
+            self.charge.grow(
+                std::mem::size_of::<(RecordId, CompletedContribution)>()
+                    .saturating_add(std::mem::size_of::<(RecordId, i64)>())
+                    .saturating_add(crate::selection::node_bytes(id).saturating_mul(2))
+                    .saturating_add(contribution_heap(descriptor))
+                    .saturating_add(128),
+            )?;
+            self.owners.insert(id.clone(), descriptor.clone());
+            self.incarnations.insert(id.clone(), expected.incarnation());
+            for (family, fragment) in [
+                (0, &prepared.contribution),
+                (1, &prepared.memberships),
+                (3, &prepared.backing),
+            ] {
+                let handles = &mut self.fragments[family];
+                if handles.len() == handles.capacity() {
+                    let capacity = handles.capacity().saturating_mul(2).max(4);
+                    self.charge.grow(
+                        capacity.saturating_sub(handles.capacity()).saturating_mul(
+                            std::mem::size_of::<crate::ordered_rows::PreparedRows>(),
+                        ),
+                    )?;
+                    handles.reserve_exact(capacity - handles.len());
+                }
+                self.fragments[family].push(fragment.clone());
+            }
+        }
+        for (identity, view) in closure.logical.views() {
+            if let Some(previous) = self.views.get(identity) {
+                if previous != view {
+                    return Err(ModelError::Conflict(
+                        "family exact view descriptor contradiction",
+                    ));
+                }
+            } else {
+                self.charge.grow(
+                    std::mem::size_of::<(ContentHash, CompletedView)>()
+                        .saturating_add(32)
+                        .saturating_add(view.relation.capacity())
+                        .saturating_add(
+                            view.contributions
+                                .len()
+                                .saturating_mul(std::mem::size_of::<ContentHash>() + 32),
+                        ),
+                )?;
+                self.views.insert(*identity, view.clone());
+            }
+        }
+        // Normalize under the exact semantic owners while this independently
+        // assured closure is live; old composed alias runs need not be retained.
+        let mut aliases = aliases.cursor_with_budget(budget)?;
+        while let Some(row) = aliases.next_row()? {
+            self.families[5].push(crate::completed_logical_rows::normalize(
+                "compiler_alias",
+                &row,
+                &self.owners,
+            )?)?;
+        }
+        audit.check(reader, budget)
+    }
+    pub(crate) async fn finish_scoped(
+        mut self,
+        reader: &NativeReader<()>,
+        bindings: &[d::completed::CompletedBinding],
+        budget: &ResourceBudget,
+        audit: &InstallationAudit,
+    ) -> Result<d::completed_identity::CompletedFamilyRoots, ModelError> {
+        if self.failed {
+            return Err(ModelError::Conflict("failed logical family ingredients"));
+        }
+        audit.ensure_context(reader, budget).await?;
+        d::completed::binding_inventory_identity(bindings)?;
+        for view in self.views.values() {
+            push_validated_family_view(&mut self.families[2], view, &self.owners, budget)?;
+        }
+        push_family_bindings(
+            &mut self.families[4],
+            bindings,
+            &self.views,
+            &self.owners,
+            budget,
+        )?;
+        finish_family_roots(
+            self.families,
+            self.fragments,
+            FamilyRootInputs {
+                owners: &self.owners,
+                incarnations: &self.incarnations,
+                views: &self.views,
+                bindings,
+                budget,
+                audit: Some(audit),
+            },
+        )
+        .await
+    }
+}
+
+fn push_validated_family_view(
+    family: &mut crate::ordered_rows::SortedRows,
+    view: &CompletedView,
+    owners: &BTreeMap<RecordId, CompletedContribution>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let _decode = budget.reserve(
+        "logical validated view normalization",
+        view.relation
+            .len()
+            .saturating_mul(6)
+            .saturating_add(view.contributions.len().saturating_mul(512))
+            .saturating_add(65536),
+    )?;
+    let mut row = surrealdb::types::Object::new();
+    row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
+    row.insert(
+        "descriptor",
+        surrealdb::types::Bytes::from(serde_json::to_vec(view).map_err(ModelError::codec)?),
+    );
+    family.push(crate::completed_logical_rows::normalize(
+        "compiler_view",
+        &Value::Object(row),
+        owners,
+    )?)
+}
+fn push_family_bindings(
+    family: &mut crate::ordered_rows::SortedRows,
+    bindings: &[d::completed::CompletedBinding],
+    views: &BTreeMap<ContentHash, CompletedView>,
+    owners: &BTreeMap<RecordId, CompletedContribution>,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    for binding in bindings {
+        if views.get(&binding.view.identity) != Some(&binding.view) {
+            return Err(ModelError::Conflict(
+                "logical binding outside exact dependency closure",
+            ));
+        }
+        let _decode = budget.reserve(
+            "logical binding normalization",
+            serde_json::to_vec(binding)
+                .map_err(ModelError::codec)?
+                .len()
+                .saturating_mul(16)
+                .saturating_add(65536),
+        )?;
+        let mut row = surrealdb::types::Object::new();
+        row.insert(
+            "descriptor",
+            surrealdb::types::Bytes::from(serde_json::to_vec(binding).map_err(ModelError::codec)?),
+        );
+        family.push(crate::completed_logical_rows::normalize(
+            "compiler_binding",
+            &Value::Object(row),
+            owners,
+        )?)?;
+    }
+    Ok(())
+}
+
 async fn logical_roots_many_inner(
     reader: &NativeReader<()>,
     closures: &[&InspectedClosure],
@@ -4318,16 +4946,30 @@ async fn logical_roots_many_inner(
 ) -> Result<d::completed_identity::CompletedFamilyRoots, ModelError> {
     use crate::ordered_rows::SortedRows;
     use d::{
-        completed_identity::CompletedFamilyHasher,
         completion::{Completion, complete},
         recovery_closure::COMPLETED_FAMILIES,
     };
     d::completed::binding_inventory_identity(bindings)?;
     if let Some(audit) = audit {
         audit.ensure_context(reader, budget).await?;
+        let mut inputs = LogicalFamilyInputs::new(budget)?;
+        // The caller supplied one already composed semantic alias union.
+        let empty = crate::ordered_rows::SortedRows::with_budget(budget)?
+            .finish()?
+            .into_prepared();
         for closure in closures {
             prepare_closure_in_context(reader, closure, budget, audit).await?;
+            inputs.include_closure(reader, closure, &empty, budget, audit)?;
         }
+        let mut aliases = aliases.cursor_with_budget(budget)?;
+        while let Some(row) = aliases.next_row()? {
+            inputs.families[5].push(crate::completed_logical_rows::normalize(
+                "compiler_alias",
+                &row,
+                &inputs.owners,
+            )?)?;
+        }
+        return inputs.finish_scoped(reader, bindings, budget, audit).await;
     }
     let mut owner_charge =
         StateCharge::new(budget, "installed logical normalization owner descriptors");
@@ -4381,9 +5023,8 @@ async fn logical_roots_many_inner(
             }
         }
     }
-    let mut fragments: [Vec<crate::ordered_rows::PreparedRows>; 6] =
+    let fragments: [Vec<crate::ordered_rows::PreparedRows>; 6] =
         std::array::from_fn(|_| Vec::new());
-    let mut fragment_charge = StateCharge::new(budget, "logical family prepared run handles");
     let mut families = COMPLETED_FAMILIES
         .map(|_| SortedRows::with_budget_and_row_bytes(budget, d::resources::MAX_ROW_BYTES))
         .into_iter()
@@ -4404,37 +5045,6 @@ async fn logical_roots_many_inner(
                 continue;
             }
             let expected = &closure.contributors[&mapping.physical];
-            if let Some(audit) = audit {
-                audit.check(reader, budget)?;
-                let cached =
-                    audit
-                        .contributors
-                        .get(expected.record())
-                        .ok_or(ModelError::Conflict(
-                            "logical fragment requires complete protected contributor audit",
-                        ))?;
-                if cached.incarnation() != expected.incarnation() || cached.row() != expected.row()
-                {
-                    return Err(ModelError::Conflict(
-                        "logical fragment exact contributor premise changed",
-                    ));
-                }
-                let prepared = audit
-                    .logical_contributors
-                    .get(expected.record())
-                    .ok_or(ModelError::Conflict("prepared contributor absent"))?;
-                for (family, fragment) in [
-                    (0, &prepared.contribution),
-                    (1, &prepared.memberships),
-                    (3, &prepared.backing),
-                ] {
-                    fragment_charge.grow(
-                        std::mem::size_of::<crate::ordered_rows::PreparedRows>().saturating_mul(2),
-                    )?;
-                    fragments[family].push(fragment.clone());
-                }
-                continue;
-            }
             families[0].push(crate::completed_logical_rows::normalize(
                 "compiler_contribution",
                 expected.row(),
@@ -4476,33 +5086,6 @@ async fn logical_roots_many_inner(
     // The exact unique view map above also rejected contradictory descriptors.
     // Normalize each view once before ordering, preserving the same union bytes.
     for view in views.values() {
-        if audit.is_some() {
-            // inspect_closure already independently read and physically decoded
-            // this exact native row, and RecoveryTraversal compared the full
-            // typed descriptor with the requested view. Logical lowering uses
-            // only that descriptor and its derived identity, never native extras.
-            // Admit serialization scratch before constructing its logical row.
-            let _decode = budget.reserve(
-                "logical validated view normalization",
-                view.relation
-                    .len()
-                    .saturating_mul(6)
-                    .saturating_add(view.contributions.len().saturating_mul(512))
-                    .saturating_add(65536),
-            )?;
-            let mut row = surrealdb::types::Object::new();
-            row.insert("id", RecordId::new("compiler_view", view.identity.hex()));
-            row.insert(
-                "descriptor",
-                surrealdb::types::Bytes::from(serde_json::to_vec(view).map_err(ModelError::codec)?),
-            );
-            families[2].push(crate::completed_logical_rows::normalize(
-                "compiler_view",
-                &Value::Object(row),
-                &owners,
-            )?)?;
-            continue;
-        }
         let mut variables = Variables::new();
         variables.insert("view", RecordId::new("compiler_view", view.identity.hex()));
         let _read = budget.reserve("logical declared view read", std::mem::size_of::<Value>())?;
@@ -4543,33 +5126,7 @@ async fn logical_roots_many_inner(
             &owners,
         )?)?;
     }
-    for binding in bindings {
-        if !closures.iter().any(|closure| {
-            closure.logical.views().get(&binding.view.identity) == Some(&binding.view)
-        }) {
-            return Err(ModelError::Conflict(
-                "logical binding outside exact dependency closure",
-            ));
-        }
-        let _decode = budget.reserve(
-            "logical binding normalization",
-            serde_json::to_vec(binding)
-                .map_err(ModelError::codec)?
-                .len()
-                .saturating_mul(16)
-                .saturating_add(65536),
-        )?;
-        let mut row = surrealdb::types::Object::new();
-        row.insert(
-            "descriptor",
-            surrealdb::types::Bytes::from(serde_json::to_vec(binding).map_err(ModelError::codec)?),
-        );
-        families[4].push(crate::completed_logical_rows::normalize(
-            "compiler_binding",
-            &Value::Object(row),
-            &owners,
-        )?)?;
-    }
+    push_family_bindings(&mut families[4], bindings, &views, &owners, budget)?;
     let mut aliases = aliases.cursor_with_budget(budget)?;
     while let Some(row) = aliases.next_row()? {
         families[5].push(crate::completed_logical_rows::normalize(
@@ -4578,14 +5135,63 @@ async fn logical_roots_many_inner(
             &owners,
         )?)?;
     }
+    finish_family_roots(
+        families,
+        fragments,
+        FamilyRootInputs {
+            owners: &owners,
+            incarnations: &incarnations,
+            views: &views,
+            bindings,
+            budget,
+            audit,
+        },
+    )
+    .await
+}
+
+struct FamilyRootInputs<'a> {
+    owners: &'a BTreeMap<RecordId, CompletedContribution>,
+    incarnations: &'a BTreeMap<RecordId, i64>,
+    views: &'a BTreeMap<ContentHash, CompletedView>,
+    bindings: &'a [d::completed::CompletedBinding],
+    budget: &'a ResourceBudget,
+    audit: Option<&'a InstallationAudit>,
+}
+/// One canonical family dependency and fold implementation serves both independent
+/// physical reconstruction and streamed protected semantic ingredients.
+async fn finish_family_roots(
+    families: Vec<crate::ordered_rows::SortedRows>,
+    mut fragments: [Vec<crate::ordered_rows::PreparedRows>; 6],
+    inputs: FamilyRootInputs<'_>,
+) -> Result<d::completed_identity::CompletedFamilyRoots, ModelError> {
+    use d::{completed_identity::CompletedFamilyHasher, recovery_closure::COMPLETED_FAMILIES};
+    let FamilyRootInputs {
+        owners,
+        incarnations,
+        views,
+        bindings,
+        budget,
+        audit,
+    } = inputs;
+    let mut final_handles = StateCharge::new(budget, "logical family final run handles");
     let mut roots = Vec::with_capacity(6);
     for (index, (family, rows)) in COMPLETED_FAMILIES.into_iter().zip(families).enumerate() {
+        if fragments[index].len() == fragments[index].capacity() {
+            let capacity = fragments[index].capacity().saturating_mul(2).max(4);
+            final_handles.grow(
+                capacity
+                    .saturating_sub(fragments[index].capacity())
+                    .saturating_mul(std::mem::size_of::<crate::ordered_rows::PreparedRows>()),
+            )?;
+            fragments[index].reserve_exact(capacity - fragments[index].len());
+        }
         fragments[index].push(rows.finish()?.into_prepared());
         let dependency = family_dependency(
             index,
-            &owners,
-            &incarnations,
-            &views,
+            owners,
+            incarnations,
+            views,
             bindings,
             &fragments[index],
             budget,
