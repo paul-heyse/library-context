@@ -14,8 +14,9 @@ original failed/Unknown outcomes and shared/operator targets stay protected. No 
 
 **Next:** plan execution of ready shared outcome/admission/host-ownership packages and bounded aggregate/assurance/containment investigations.
 Actual contract slices precede affected acceptance; optional tooling conveniences do not block every production control. Older queues stay paused.
-Independent plan review accepted the Proposed contracts; focused1,171-link and36+15-obligation checks passed. Full docs/ADR checks retain existing
-reference/publication defects and pre-commit authorized navigation guards, detailed at coordinator §6. Product builds/tests/probes, service operations,
+Independent plan review accepted the Proposed contracts; focused1,171-link and36+15-obligation checks passed. Integrated at `73a0cdd8`; post-integration
+docs-check/ADR lint fail on14 existing architectural-reference defects; direct publication has22 other stale links, detailed at coordinator §6.
+All subagents are done; scoped turn-end passed. Product builds/tests/probes, service operations,
 embedding/MCP runtime, broad qualification and operator adoption are not_run for this documentation scope.
 
 **Prior SA0–SA9 implemented / focused-Tested; assurance remains paused by operator,2026-10-11.** The [architecture

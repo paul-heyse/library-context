@@ -348,6 +348,18 @@ The focused link result does not establish full publication. These unrelated doc
 remain with the documentation task route, triggered by its next repair/publication work; they do
 not expand the new production scope. Final handoff records the post-integration check boundary.
 
+**Integrated authoring handoff, 2026-10-14:** commit `73a0cdd8` created all four replacements,
+transferred current consumers and deleted the five predecessors on main. Post-integration
+`just adr-lint` and `just docs-check` both failed only on the same 14 existing architectural-reference/
+ADR-0151-owner defects; the HEAD-relative navigation flags are no longer present. Full publication
+remains failed at the separate 22 stale links reported by `just docs`; focused links/coverage and
+independent scoped plan acceptance remain passed at their stated limits. Scoped
+`just turn-end --staged` passed: ADR index ran, build-features/Rust/Python formatting were not
+applicable. All delegated authoring/review tasks are complete on shared main, with no auxiliary
+worktree or merge/removal obligation. No product source, dependency, runtime configuration,
+native target, cited evidence retention or operator state changed. The next action remains
+execution planning for C00/ready P01/P03/T01 and I01–I03, respecting actual prerequisites.
+
 ## 7. Complete predecessor transfer and eventual handback
 
 | Retired package / obligation | Current route |
