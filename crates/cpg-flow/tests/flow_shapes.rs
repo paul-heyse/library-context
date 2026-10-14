@@ -2,6 +2,8 @@
 //! provider; the plan's Stage 2.2): reaching definitions and their conditions, value sources,
 //! statement regions, and the runtime view.
 
+mod common;
+
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -182,7 +184,7 @@ fn flow() -> &'static ModuleFlow {
                 end: start + 12,
             });
         }
-        let mut out = cpg_flow::index(
+        let mut out = common::index(
             &[Input {
                 path: "flowpkg/shapes.py".to_owned(),
                 text: text().to_owned(),
@@ -263,7 +265,7 @@ fn flow_producer_keeps_a_wide_predicate_as_a_structural_graph() {
             .join("../../fixtures/python/flow_shapes/release/flowpkg/wide.py"),
     )
     .unwrap();
-    let flow = cpg_flow::index(
+    let flow = common::index(
         &[Input {
             path: "flowpkg/wide.py".to_owned(),
             text: text.clone(),
@@ -730,7 +732,7 @@ fn false_only_candidates_preserve_unbound_competitors_and_do_not_poison_live_rea
             end: at as u32 + 13,
         });
     }
-    let flow = cpg_flow::index(
+    let flow = common::index(
         &[Input {
             path: "false_candidates.py".into(),
             text: source.into(),
@@ -1007,7 +1009,7 @@ fn all_native_graph_leaves_retain_a_coordinate_or_explicit_unavailability() {
 #[test]
 fn native_guarded_origin_search_keeps_evaluation_occurrences_and_reports_supply() {
     let source = include_str!("../../../fixtures/python/guarded_origin_inventory/cases.py");
-    let flow = cpg_flow::index(
+    let flow = common::index(
         &[Input {
             path: "cases.py".into(),
             text: source.into(),
@@ -1123,7 +1125,7 @@ fn native_candidate_formulas_survive_pruning_and_missing_pep695_attachment() {
         }]),
         ..Default::default()
     };
-    let flow = cpg_flow::index(
+    let flow = common::index(
         &[Input {
             path: "cases.py".into(),
             text: source.into(),

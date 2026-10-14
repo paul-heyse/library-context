@@ -1,6 +1,5 @@
 //! Native ty coordinates become facts only through exact typed attachment. No provider-local
 //! index, predicate key, rendered condition or display-place identity is stored.
-use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use crate::{
     acquisition::Acquisition,
@@ -9,6 +8,8 @@ use crate::{
     typed_syntax::SyntaxLimits,
 };
 use cpg_flow::{ModuleFlow, Span, native};
+use lctx_model::domain::producer_contract::ProducerContract;
+pub use lctx_model::domain::producer_contract::facts::TY_FLOW;
 use lctx_model::domain::{
     assertion::*,
     attribution::*,
@@ -25,7 +26,6 @@ use lctx_model::domain::{
     *,
 };
 use std::collections::{BTreeMap, HashMap};
-pub use lctx_model::domain::producer_contract::facts::TY_FLOW;
 #[derive(Default)]
 pub struct TyFlow {
     pub limits: SyntaxLimits,
@@ -85,11 +85,17 @@ macro_rules! output_types {
         )
     };
 }
-pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::ty_flow() }
+pub fn contract() -> ProducerContract {
+    lctx_model::domain::producer_contract::facts::ty_flow()
+}
 impl Declared for TyFlow {
     fn declaration(&self, _: Profile) -> Stage {
         let provider = provider();
-        contract().bind(provider.build_digest, ContentHash::of(format!("{:?}", self.limits).as_bytes()), [("ty-flow", provider)])
+        contract().bind(
+            provider.build_digest,
+            ContentHash::of(format!("{:?}", self.limits).as_bytes()),
+            [("ty-flow", provider)],
+        )
     }
 }
 fn invalid(message: &str) -> ModelError {
@@ -573,6 +579,7 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for TyFlow {
             let mut admitted = Vec::new();
             let mut charge = StateCharge::new(context.budget(), "ty_flow_source_buffers");
             for artifact in roots {
+                context.check_cancelled()?;
                 let scope = CoverageScope::Artifact {
                     artifact: artifact.id(),
                 };
@@ -619,56 +626,58 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for TyFlow {
                 });
                 admitted.push(artifact);
             }
-            let flows = cpg_flow::index(
+            context.check_cancelled()?;
+            cpg_flow::visit_modules(
                 &native_inputs,
                 &cpg_flow::RuntimeContext {
                     python_version: version,
                     platform: analysis.python_platform.clone(),
                 },
-            );
-            for (artifact, flow) in admitted.into_iter().zip(flows) {
-                let scope = CoverageScope::Artifact {
-                    artifact: artifact.id(),
-                };
-                let mut writer = Writer {
-                    context,
-                    index: &index,
-                    flow: &flow,
-                    artifact,
-                    analysis: &analysis,
-                    scope: &scope,
-                    run: &run,
-                    surface: &surface,
-                    partial: false,
-                    atoms: BTreeMap::new(),
-                    _charge: StateCharge::new(
-                        &charge.budget().unwrap().clone(),
-                        "ty_flow_atom_cache",
-                    ),
-                };
-                if let Some(error) = &flow.error {
-                    writer.boundary(None, ObligationKind::OutsideProviderModel, error)?;
-                } else {
-                    writer.write()?;
-                }
-                let status = if flow.error.is_some() {
-                    CoverageStatus::Failed
-                } else if writer.partial || flow.syntax_errors > 0 {
-                    CoverageStatus::Partial
-                } else {
-                    CoverageStatus::CompleteUnderStatedModel
-                };
-                let reason = if flow.error.is_some() {
-                    Some(ObligationKind::OutsideProviderModel)
-                } else if flow.syntax_errors > 0 {
-                    Some(ObligationKind::SyntaxError)
-                } else if writer.partial {
-                    Some(ObligationKind::OutsideProviderModel)
-                } else {
-                    None
-                };
-                partial |= status != CoverageStatus::CompleteUnderStatedModel;
-                writer.context.contribute(coverage(
+                |input_index, flow| {
+                    context.check_cancelled()?;
+                    let artifact = admitted[input_index];
+                    let scope = CoverageScope::Artifact {
+                        artifact: artifact.id(),
+                    };
+                    let mut writer = Writer {
+                        context,
+                        index: &index,
+                        flow: &flow,
+                        artifact,
+                        analysis: &analysis,
+                        scope: &scope,
+                        run: &run,
+                        surface: &surface,
+                        partial: false,
+                        atoms: BTreeMap::new(),
+                        _charge: StateCharge::new(
+                            &charge.budget().unwrap().clone(),
+                            "ty_flow_atom_cache",
+                        ),
+                    };
+                    if let Some(error) = &flow.error {
+                        writer.boundary(None, ObligationKind::OutsideProviderModel, error)?;
+                    } else {
+                        writer.write()?;
+                    }
+                    let status = if flow.error.is_some() {
+                        CoverageStatus::Failed
+                    } else if writer.partial || flow.syntax_errors > 0 {
+                        CoverageStatus::Partial
+                    } else {
+                        CoverageStatus::CompleteUnderStatedModel
+                    };
+                    let reason = if flow.error.is_some() {
+                        Some(ObligationKind::OutsideProviderModel)
+                    } else if flow.syntax_errors > 0 {
+                        Some(ObligationKind::SyntaxError)
+                    } else if writer.partial {
+                        Some(ObligationKind::OutsideProviderModel)
+                    } else {
+                        None
+                    };
+                    partial |= status != CoverageStatus::CompleteUnderStatedModel;
+                    writer.context.contribute(coverage(
                     &scope,
                     &provider,
                     &analysis,
@@ -682,7 +691,10 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for TyFlow {
                         flow.skips.reaching_ty_false
                     )),
                 ))?;
-            }
+                    writer.context.check_cancelled()?;
+                    Ok::<_, ModelError>(())
+                },
+            )?;
         }
         Ok(if partial {
             ProviderOutcome::Partial

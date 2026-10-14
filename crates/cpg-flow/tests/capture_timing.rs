@@ -1,9 +1,11 @@
 //! Actual public enclosing_snapshot API characterization; no fixtures are executed.
+
+mod common;
 use cpg_flow::{
     CaptureOrigin, Input, RuntimeBindings, RuntimeContext, SnapshotBinding, SnapshotState,
 };
 fn flow(source: &str) -> cpg_flow::ModuleFlow {
-    cpg_flow::index(
+    common::index(
         &[Input {
             path: "capture.py".into(),
             text: source.into(),

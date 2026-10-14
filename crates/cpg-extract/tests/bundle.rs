@@ -13,8 +13,25 @@ struct Recorder {
     finished: Mutex<Vec<ProviderOutcome>>,
     streamed_error: bool,
     drained: Arc<tokio::sync::Notify>,
+    cancelled: std::sync::atomic::AtomicBool,
+    cancellation: tokio::sync::Notify,
 }
 impl ProviderSink for Recorder {
+    fn cancel(&self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.cancellation.notify_one();
+    }
+    fn cancelled(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(async move {
+            loop {
+                if self.cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                    return;
+                }
+                self.cancellation.notified().await;
+            }
+        })
+    }
     fn read<R: Record>(
         &self,
     ) -> Result<Box<dyn Iterator<Item = Result<Batch<R>, ModelError>> + Send>, ModelError> {
@@ -330,6 +347,49 @@ async fn dropping_the_future_drains_native_work_and_refuses_completion() {
     assert_eq!(budget.reserved(), 0);
 }
 
+#[tokio::test]
+async fn explicit_cancellation_signals_native_work_while_future_retains_drainage() {
+    let sink = Arc::new(Recorder::default());
+    let (started, begun) = tokio::sync::oneshot::channel();
+    let (signal, cancelled) = std::sync::mpsc::channel();
+    let mut started = Some(started);
+    let cancelled_sink = sink.clone();
+    let running = run(
+        packages(),
+        sink.clone(),
+        TransferLimits {
+            rows: 1,
+            ..TransferLimits::default()
+        },
+        move |context| {
+            context.declare::<Package>()?;
+            // An accepted batch remains owned even when cancellation interrupts later native work.
+            context.emit(package(0, 1))?;
+            context.emit(package(1, 1))?;
+            let signal = signal.clone();
+            let _registration = context.register_cancellation(move || {
+                let _ = signal.send(());
+            });
+            started.take().unwrap().send(()).unwrap();
+            cancelled.recv().unwrap();
+            assert!(context.check_cancelled().is_err());
+            // Even an ignored cancellation and an explicit Complete cannot acquire finality.
+            Ok(ProviderOutcome::Complete)
+        },
+    );
+    tokio::pin!(running);
+    tokio::select! {
+        result = &mut running => panic!("unexpected completion {result:?}"),
+        result = begun => result.unwrap(),
+    }
+    cancelled_sink.cancel();
+    let (result, budget) = running.await;
+    assert!(result.is_err());
+    assert!(sink.finished.lock().unwrap().is_empty());
+    assert!(!sink.batches.lock().unwrap().is_empty());
+    assert_eq!(budget.reserved(), 0);
+}
+
 #[test]
 fn ambient_analyzer_configuration_is_refused() {
     use cpg_extract::bundle::refuse_ambient;
@@ -397,47 +457,155 @@ fn model_facts_inventory_binds_every_executable_without_analyzer_execution() {
         cpg_extract::deployment::provider(),
     ];
     assert_eq!(contracts.len(), executables.len());
-    assert_eq!(contracts.iter().map(|contract| contract.name).collect::<Vec<_>>(), vec!["acquire", "pyrefly", "ty_flow", "documents", "deployment", "assemble"]);
+    assert_eq!(
+        contracts
+            .iter()
+            .map(|contract| contract.name)
+            .collect::<Vec<_>>(),
+        vec![
+            "acquire",
+            "pyrefly",
+            "ty_flow",
+            "documents",
+            "deployment",
+            "assemble"
+        ]
+    );
     for (contract, executable) in contracts.iter().zip(executables) {
         contract.validate().unwrap();
         let declaration = executable.declaration(Profile::Behavioral);
         assert_eq!(declaration.name, contract.name);
         let binding = declaration.captured_binding.as_ref().unwrap();
         assert_eq!(binding.contract, contract.identity());
-        contract.validate_binding(binding, Some(declaration.configuration), &providers).unwrap();
-        assert_eq!(declaration.outputs.iter().map(|relation|relation.name()).collect::<Vec<_>>(), contract.outputs.iter().map(|relation|relation.name()).collect::<Vec<_>>());
-        assert_eq!(declaration.contributes.iter().map(|relation|relation.name()).collect::<Vec<_>>(), contract.contributes.iter().map(|relation|relation.name()).collect::<Vec<_>>());
+        contract
+            .validate_binding(binding, Some(declaration.configuration), &providers)
+            .unwrap();
+        assert_eq!(
+            declaration
+                .outputs
+                .iter()
+                .map(|relation| relation.name())
+                .collect::<Vec<_>>(),
+            contract
+                .outputs
+                .iter()
+                .map(|relation| relation.name())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            declaration
+                .contributes
+                .iter()
+                .map(|relation| relation.name())
+                .collect::<Vec<_>>(),
+            contract
+                .contributes
+                .iter()
+                .map(|relation| relation.name())
+                .collect::<Vec<_>>()
+        );
     }
 }
 
 #[tokio::test]
 async fn captured_run_closes_before_final_flush_and_outcome_and_remains_poisoned() {
-    use cpg_extract::{acquisition::{AcquiredInput, Acquisition}, capture::CapturedInput, bundle::{CapturedTreeRunGuard, run_provider_guarded}};
-    for fault in ["dependency", "support", "root", "addition", "deletion", "symlink"] {
+    use cpg_extract::{
+        acquisition::{AcquiredInput, Acquisition},
+        bundle::{CapturedTreeRunGuard, run_provider_guarded},
+        capture::CapturedInput,
+    };
+    for fault in [
+        "dependency",
+        "support",
+        "root",
+        "addition",
+        "deletion",
+        "symlink",
+    ] {
         let source = tempfile::tempdir().unwrap();
-        for path in ["main.py", "dependency.py", "support.txt"] { std::fs::write(source.path().join(path), "value = 1").unwrap(); }
+        for path in ["main.py", "dependency.py", "support.txt"] {
+            std::fs::write(source.path().join(path), "value = 1").unwrap();
+        }
         let budget = ResourceBudget::fixed(1 << 30).unwrap();
-        let input = CapturedInput::capture(source.path(), &["main.py".into(), "dependency.py".into(), "support.txt".into()], &budget).unwrap();
+        let input = CapturedInput::capture(
+            source.path(),
+            &[
+                "main.py".into(),
+                "dependency.py".into(),
+                "support.txt".into(),
+            ],
+            &budget,
+        )
+        .unwrap();
         let root = input.root().to_path_buf();
-        let captured = Arc::new(CapturedInputs::new(vec![AcquiredInput::new(input, Acquisition::Tree{label:"closed-provider".into()})], cpg_extract::native_context::NativeContextConfig::committed(Profile::Catalog,&budget).unwrap()));
+        let captured = Arc::new(CapturedInputs::new(
+            vec![AcquiredInput::new(
+                input,
+                Acquisition::Tree {
+                    label: "closed-provider".into(),
+                },
+            )],
+            cpg_extract::native_context::NativeContextConfig::committed(Profile::Catalog, &budget)
+                .unwrap(),
+        ));
         let guard = CapturedTreeRunGuard::open(captured.clone()).unwrap();
         let retained = guard.clone();
         let mutate = root.clone();
         let sink = Arc::new(Recorder::default());
-        let result = run_provider_guarded(Box::new(Provider{stage:packages(),run:Box::new(move |context| {
-            context.declare::<Package>()?;
-            context.emit(package(0,1))?;
-            // This is the provider-return boundary after its native work has joined.
-            let selected = match fault {"dependency"|"deletion"=>Some("dependency.py"),"support"=>Some("support.txt"),"root"=>Some("main.py"),_=>None};
-            if let Some(path)=selected {std::fs::remove_file(mutate.join(path)).map_err(ModelError::codec)?; if fault!="deletion" {std::fs::write(mutate.join(path),"value = 2").map_err(ModelError::codec)?;}}
-            match fault {"addition"=>std::fs::write(mutate.join("injected.py"),"imported = True").map_err(ModelError::codec)?,"symlink"=>{#[cfg(unix)] std::os::unix::fs::symlink("main.py",mutate.join("injected.py")).map_err(ModelError::codec)?;},_=>{}}
-            Ok(ProviderOutcome::Complete)
-        })}),Profile::Catalog,sink.clone(),Arc::new(model().unwrap()),guard,budget.clone(),TransferLimits::default()).await;
-        assert!(result.is_err(),"{fault}");
-        assert!(sink.finished.lock().unwrap().is_empty(),"{fault}: completion preceded closing verification");
-        assert!(sink.batches.lock().unwrap().is_empty(),"{fault}: final flush preceded closing verification");
+        let result = run_provider_guarded(
+            Box::new(Provider {
+                stage: packages(),
+                run: Box::new(move |context| {
+                    context.declare::<Package>()?;
+                    context.emit(package(0, 1))?;
+                    // This is the provider-return boundary after its native work has joined.
+                    let selected = match fault {
+                        "dependency" | "deletion" => Some("dependency.py"),
+                        "support" => Some("support.txt"),
+                        "root" => Some("main.py"),
+                        _ => None,
+                    };
+                    if let Some(path) = selected {
+                        std::fs::remove_file(mutate.join(path)).map_err(ModelError::codec)?;
+                        if fault != "deletion" {
+                            std::fs::write(mutate.join(path), "value = 2")
+                                .map_err(ModelError::codec)?;
+                        }
+                    }
+                    match fault {
+                        "addition" => std::fs::write(mutate.join("injected.py"), "imported = True")
+                            .map_err(ModelError::codec)?,
+                        "symlink" => {
+                            #[cfg(unix)]
+                            std::os::unix::fs::symlink("main.py", mutate.join("injected.py"))
+                                .map_err(ModelError::codec)?;
+                        }
+                        _ => {}
+                    }
+                    Ok(ProviderOutcome::Complete)
+                }),
+            }),
+            Profile::Catalog,
+            sink.clone(),
+            Arc::new(model().unwrap()),
+            guard,
+            budget.clone(),
+            TransferLimits::default(),
+        )
+        .await;
+        assert!(result.is_err(), "{fault}");
+        assert!(
+            sink.finished.lock().unwrap().is_empty(),
+            "{fault}: completion preceded closing verification"
+        );
+        assert!(
+            sink.batches.lock().unwrap().is_empty(),
+            "{fault}: final flush preceded closing verification"
+        );
         // Restoring bytes does not let another provider rehabilitate this failed run.
         assert!(retained.verify_closed().is_err());
-        drop(retained);drop(captured);assert_eq!(budget.reserved(),0);
+        drop(retained);
+        drop(captured);
+        assert_eq!(budget.reserved(), 0);
     }
 }

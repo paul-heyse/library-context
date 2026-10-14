@@ -1446,10 +1446,13 @@ pub fn records<'a>(
     spans: &Spans,
     solutions: Option<&pyrefly::alt::answers::Solutions>,
     budget: &ResourceBudget,
+    cancellation: &crate::bundle::CancellationRegistration,
     module_context: &mut dyn FnMut(
         &Class,
-    )
-        -> Option<pyrefly::report::pysa::context::ModuleAnswersContext>,
+    ) -> Result<
+        Option<pyrefly::report::pysa::context::ModuleAnswersContext>,
+        ModelError,
+    >,
     field_occurrence: &mut dyn FnMut(
         &Class,
         ruff_text_size::TextRange,
@@ -1469,6 +1472,7 @@ pub fn records<'a>(
         },
     };
     use pyrefly_types::function::BodyKind;
+    cancellation.check()?;
     let ctx = &context.answers_context;
     let mut b = Builder {
         context,
@@ -1527,6 +1531,7 @@ pub fn records<'a>(
         }
     }
     for f in get_all_decorated_functions(ctx) {
+        cancellation.check()?;
         let name = spans
             .get(f.undecorated.identifier.range(), SyntaxKind::Identifier)
             .ok();
@@ -1614,6 +1619,7 @@ pub fn records<'a>(
         }
     }
     for (call, arguments) in &syntax.calls {
+        cancellation.check()?;
         if call.in_annotation {
             continue;
         }
@@ -1853,6 +1859,7 @@ pub fn records<'a>(
     let mut nodes: Vec<_> = spans.nodes().collect();
     nodes.sort_by_key(|(id, _)| *id);
     for (node, kind) in nodes {
+        cancellation.check()?;
         if let Some((parent, SyntaxField::Value)) = spans.parent(node) {
             let parent_kind = spans.kind(parent);
             let role = match parent_kind {
@@ -1897,6 +1904,7 @@ pub fn records<'a>(
     }
     if let Some(solutions) = solutions {
         for class in get_all_classes(ctx) {
+            cancellation.check()?;
             let metadata = solutions.get(&KeyClassMetadata(class.index()));
             let native_class = b.class(&class)?;
             let mut native_bindings = ctx.bindings().keys::<KeyClass>().filter_map(|key| match ctx
@@ -2090,7 +2098,7 @@ pub fn records<'a>(
                 let owner = if declaring.module() == &ctx.module_info {
                     Some(ctx.clone())
                 } else {
-                    module_context(declaring)
+                    module_context(declaring)?
                 };
                 if let Some(owner) = owner {
                     owners.push((declaring.clone(), owner));
@@ -2099,6 +2107,7 @@ pub fn records<'a>(
             let synthesized = solutions.get(&KeyClassSynthesizedFields(class.index()));
             let mut seen = BTreeSet::new();
             for (defining, owner) in &owners {
+                cancellation.check()?;
                 let fields = &owner
                     .bindings()
                     .metadata()
@@ -2210,6 +2219,7 @@ pub fn records<'a>(
             let native_class = b.class(&class)?;
             let mut ordinal = 0;
             for (name, total) in names {
+                cancellation.check()?;
                 let pname = ruff_python_ast::name::Name::new(&name);
                 // A method assignment does not redeclare an inherited record field. Walk the
                 // native MRO in order, keeping the declaring class's source as a referent.
@@ -2221,10 +2231,11 @@ pub fn records<'a>(
                 );
                 let mut found = None;
                 for declaring in classes {
+                    cancellation.check()?;
                     let foreign = if declaring.module() == &ctx.module_info {
                         None
                     } else {
-                        module_context(declaring)
+                        module_context(declaring)?
                     };
                     let declaring_ctx = if declaring.module() == &ctx.module_info {
                         ctx
@@ -2347,6 +2358,7 @@ pub fn records<'a>(
             "native class/member metadata and record solutions unavailable".into(),
         )?;
     }
+    cancellation.check()?;
     let protocols = crate::protocol_records::records(
         protocol.0,
         protocol.1,
@@ -2355,10 +2367,12 @@ pub fn records<'a>(
         qualification,
         budget,
         |ty| {
+            cancellation.check()?;
             let built = b.term(ty, 0)?;
             Ok((built.id, built.fidelity()))
         },
     )?;
+    cancellation.check()?;
     for (subject, reason, detail) in &protocols.boundaries {
         b.boundary(*subject, *reason, detail.clone())?;
     }

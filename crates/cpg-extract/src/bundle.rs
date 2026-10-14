@@ -11,10 +11,13 @@ use lctx_model::domain::{
 };
 use std::{
     any::TypeId,
+    collections::BTreeMap,
     ffi::OsString,
+    future::Future,
     panic::AssertUnwindSafe,
+    pin::Pin,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -93,7 +96,10 @@ pub struct CapturedTreeRunGuard {
 }
 impl CapturedTreeRunGuard {
     pub fn open(captured: Arc<CapturedInputs>) -> Result<Self, ModelError> {
-        let guard = Self { captured, poisoned: Arc::new(AtomicBool::new(false)) };
+        let guard = Self {
+            captured,
+            poisoned: Arc::new(AtomicBool::new(false)),
+        };
         guard.verify_closed()?;
         Ok(guard)
     }
@@ -129,6 +135,10 @@ pub trait ProviderSink: Send + Sync + 'static {
     fn finish(&self, outcome: ProviderOutcome) -> Result<(), ModelError>;
     /// Wake blocked read/write methods when the caller abandons the provider.
     fn cancel(&self) {}
+    /// Observe explicit attempt cancellation while retaining the provider future for drainage.
+    fn cancelled(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(std::future::pending())
+    }
     /// Retain the interrupted thread's drainage under the attempt owner when applicable.
     fn drain_provider(
         &self,
@@ -165,6 +175,81 @@ pub trait ProviderStage<S: ProviderSink + 'static>: Declared + Send {
     fn run(&mut self, context: &mut StageContext<S>) -> Result<ProviderOutcome, ModelError>;
 }
 
+/// Cancellation belongs to the whole provider run, including native work between sink calls.
+#[derive(Default)]
+struct ProviderCancellation {
+    cancelled: AtomicBool,
+    registrations: Mutex<CancellationRegistrations>,
+}
+#[derive(Default)]
+struct CancellationRegistrations {
+    next: u64,
+    callbacks: BTreeMap<u64, Box<dyn Fn() + Send + Sync>>,
+}
+impl ProviderCancellation {
+    fn cancel(&self) {
+        let registrations = self
+            .registrations
+            .lock()
+            .expect("provider cancellation ownership");
+        self.cancelled.store(true, Ordering::Release);
+        for callback in registrations.callbacks.values() {
+            callback();
+        }
+    }
+    fn check(&self) -> Result<(), ModelError> {
+        if self.cancelled.load(Ordering::Acquire) {
+            Err(ModelError::Invalid("provider run cancelled".into()))
+        } else {
+            Ok(())
+        }
+    }
+    fn register(
+        self: &Arc<Self>,
+        callback: impl Fn() + Send + Sync + 'static,
+    ) -> CancellationRegistration {
+        let mut registrations = self
+            .registrations
+            .lock()
+            .expect("provider cancellation ownership");
+        let generation = registrations.next;
+        registrations.next = generation
+            .checked_add(1)
+            .expect("provider cancellation generation overflow");
+        if self.cancelled.load(Ordering::Acquire) {
+            callback();
+        }
+        registrations
+            .callbacks
+            .insert(generation, Box::new(callback));
+        CancellationRegistration {
+            owner: self.clone(),
+            generation,
+        }
+    }
+}
+/// A native cancellation callback is retained through every wave and lazy query in its session.
+/// Dropping an old registration removes only that generation, never a later session's handle.
+pub struct CancellationRegistration {
+    owner: Arc<ProviderCancellation>,
+    generation: u64,
+}
+impl CancellationRegistration {
+    pub fn check(&self) -> Result<(), ModelError> {
+        self.owner.check()
+    }
+}
+impl Drop for CancellationRegistration {
+    fn drop(&mut self) {
+        self.owner
+            .registrations
+            .lock()
+            .expect("provider cancellation ownership")
+            .callbacks
+            .remove(&self.generation);
+    }
+}
+
 /// What a running provider may do: emit its declared outputs, contribute declared vocabulary, read
 /// its declared inputs' handoffs, attach to handed-off occurrences, and read the captured inputs.
 /// The first refusal poisons the context, so the attempt fails even if the provider ignores it.
@@ -177,7 +262,7 @@ pub struct StageContext<S: ProviderSink + 'static> {
     captured: Arc<CapturedInputs>,
     captured_run: CapturedTreeRunGuard,
     sink: Arc<S>,
-    cancelled: Arc<AtomicBool>,
+    cancellation: Arc<ProviderCancellation>,
     attacher: Option<Attacher>,
     outputs: Vec<(TypeId, Mode, Box<dyn Flush<S>>)>,
     contributions: Vec<(TypeId, Box<dyn Flush<S>>)>,
@@ -190,6 +275,16 @@ enum Mode {
     Batches,
 }
 impl<S: ProviderSink + 'static> StageContext<S> {
+    /// Native callbacks must only signal cancellation; joining remains the provider's job.
+    pub fn register_cancellation(
+        &self,
+        callback: impl Fn() + Send + Sync + 'static,
+    ) -> CancellationRegistration {
+        self.cancellation.register(callback)
+    }
+    pub fn check_cancelled(&self) -> Result<(), ModelError> {
+        self.cancellation.check()
+    }
     pub fn stage(&self) -> &Stage {
         &self.stage
     }
@@ -255,11 +350,20 @@ impl<S: ProviderSink + 'static> StageContext<S> {
     }
     /// Emit a complete header phase through bounded batches before another relation starts.
     /// This uses the provider's existing model, limits and allocation authority.
-    pub fn emit_rows<R: Record>(&mut self, rows: impl Iterator<Item=R>) -> Result<(),ModelError> {
-        let mut writer=BatchWriter::<R>::new(&self.budget,self.limits)?;
-        let model=self.model.clone();
-        for row in rows {if let Some(batch)=writer.push(&model,row)? {self.emit_batch(batch)?;}}
-        if let Some(batch)=writer.finish(&model)? {self.emit_batch(batch)?;}
+    pub fn emit_rows<R: Record>(
+        &mut self,
+        rows: impl Iterator<Item = R>,
+    ) -> Result<(), ModelError> {
+        let mut writer = BatchWriter::<R>::new(&self.budget, self.limits)?;
+        let model = self.model.clone();
+        for row in rows {
+            if let Some(batch) = writer.push(&model, row)? {
+                self.emit_batch(batch)?;
+            }
+        }
+        if let Some(batch) = writer.finish(&model)? {
+            self.emit_batch(batch)?;
+        }
         Ok(())
     }
     /// Hand one row of shared vocabulary to the relation's writer, a later stage.
@@ -342,7 +446,9 @@ impl<S: ProviderSink + 'static> StageContext<S> {
         &mut self,
         operation: impl FnOnce(&mut Self) -> Result<T, ModelError>,
     ) -> Result<T, ModelError> {
-        if self.failed.load(Ordering::Acquire) || self.cancelled.load(Ordering::Acquire) {
+        if self.failed.load(Ordering::Acquire)
+            || self.cancellation.cancelled.load(Ordering::Acquire)
+        {
             return Err(ModelError::Invalid(format!(
                 "{} refused an earlier operation; the attempt fails",
                 self.stage.name
@@ -381,7 +487,9 @@ impl<S: ProviderSink + 'static> StageContext<S> {
         result: Result<ProviderOutcome, ModelError>,
     ) -> Result<ProviderOutcome, ModelError> {
         let outcome = result?;
-        if self.failed.load(Ordering::Acquire) || self.cancelled.load(Ordering::Acquire) {
+        if self.failed.load(Ordering::Acquire)
+            || self.cancellation.cancelled.load(Ordering::Acquire)
+        {
             return Err(ModelError::Invalid(format!(
                 "{} ignored a refused operation",
                 self.stage.name
@@ -401,7 +509,10 @@ impl<S: ProviderSink + 'static> StageContext<S> {
         self.captured_run.check()?;
         // Native providers have returned after joining all dependency waves. Assembly
         // consumes completed rows only; acquisition checks bytes during artifact emission.
-        if !matches!(self.stage.name, crate::assembly::ASSEMBLE | crate::acquisition::ACQUIRE) {
+        if !matches!(
+            self.stage.name,
+            crate::assembly::ASSEMBLE | crate::acquisition::ACQUIRE
+        ) {
             self.captured_run.verify_closed()?;
         }
         let writers: Vec<_> = std::mem::take(&mut self.contributions)
@@ -414,8 +525,10 @@ impl<S: ProviderSink + 'static> StageContext<S> {
             )
             .collect();
         for writer in writers {
+            self.cancellation.check()?;
             writer.finish(&self.model, self.sink.as_ref())?;
         }
+        self.cancellation.check()?;
         self.sink.finish(outcome)?;
         Ok(outcome)
     }
@@ -442,7 +555,10 @@ pub async fn run_provider<S: ProviderSink>(
 }
 
 /// The compiler shares one opening guard across its ordered facts provider schedule.
-#[allow(clippy::too_many_arguments, reason = "Explicit provider effects and captured run ownership")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Explicit provider effects and captured run ownership"
+)]
 pub async fn run_provider_guarded<S: ProviderSink>(
     provider: Box<dyn ProviderStage<S>>,
     profile: Profile,
@@ -452,20 +568,42 @@ pub async fn run_provider_guarded<S: ProviderSink>(
     budget: ResourceBudget,
     limits: TransferLimits,
 ) -> Result<ProviderOutcome, ModelError> {
-    let stage=crate::contracts::bind_stage(provider.declaration(profile),&captured_run.captured)?;
-    run_provider_bound_guarded(provider,stage,profile,sink,model,captured_run,budget,limits).await
+    let stage =
+        crate::contracts::bind_stage(provider.declaration(profile), &captured_run.captured)?;
+    run_provider_bound_guarded(
+        provider,
+        stage,
+        profile,
+        sink,
+        model,
+        captured_run,
+        budget,
+        limits,
+    )
+    .await
 }
 
 /// Execute the same immutable declaration that owns the completed contribution.
-#[allow(clippy::too_many_arguments,reason="Explicit bound provider effects and capture ownership")]
-pub async fn run_provider_bound_guarded<S:ProviderSink>(
-    mut provider:Box<dyn ProviderStage<S>>,stage:Stage,profile:Profile,sink:Arc<S>,
-    model:Arc<ValidatedModel>,captured_run:CapturedTreeRunGuard,budget:ResourceBudget,limits:TransferLimits,
-)->Result<ProviderOutcome,ModelError>{
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Explicit bound provider effects and capture ownership"
+)]
+pub async fn run_provider_bound_guarded<S: ProviderSink>(
+    mut provider: Box<dyn ProviderStage<S>>,
+    stage: Stage,
+    profile: Profile,
+    sink: Arc<S>,
+    model: Arc<ValidatedModel>,
+    captured_run: CapturedTreeRunGuard,
+    budget: ResourceBudget,
+    limits: TransferLimits,
+) -> Result<ProviderOutcome, ModelError> {
     captured_run.check()?;
-    let declared=provider.declaration(profile);
-    if declared.digest()!=stage.digest() || declared.profiles!=stage.profiles {
-        return Err(ModelError::Conflict("scheduled bound provider declaration differs from executable"));
+    let declared = provider.declaration(profile);
+    if declared.digest() != stage.digest() || declared.profiles != stage.profiles {
+        return Err(ModelError::Conflict(
+            "scheduled bound provider declaration differs from executable",
+        ));
     }
     let captured = captured_run.captured.clone();
     captured.config().check_profile(profile)?;
@@ -478,7 +616,7 @@ pub async fn run_provider_bound_guarded<S:ProviderSink>(
     let name = stage.name;
     let span = tracing::info_span!(target: "lctx_phase", "provider", producer = name);
     let dispatch = tracing::dispatcher::get_default(Clone::clone);
-    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancellation = Arc::new(ProviderCancellation::default());
     let (done, finished) = oneshot::channel();
     let mut context = StageContext {
         stage,
@@ -489,7 +627,7 @@ pub async fn run_provider_bound_guarded<S:ProviderSink>(
         captured,
         captured_run,
         sink: sink.clone(),
-        cancelled: cancelled.clone(),
+        cancellation: cancellation.clone(),
         attacher: None,
         outputs: Vec::new(),
         contributions: Vec::new(),
@@ -514,11 +652,20 @@ pub async fn run_provider_bound_guarded<S:ProviderSink>(
         })
         .map_err(|error| ModelError::infrastructure(Infrastructure::Io, error))?;
     let mut drain = ProviderDrain {
-        cancelled,
+        cancellation,
         thread: Some(thread),
         sink,
     };
-    let result = finished.await.unwrap_or_else(|_| {
+    let mut finished = finished;
+    let finished = tokio::select! {
+        biased;
+        () = drain.sink.cancelled() => {
+            drain.cancellation.cancel();
+            finished.await
+        }
+        result = &mut finished => result,
+    };
+    let result = finished.unwrap_or_else(|_| {
         Err(ModelError::Invalid(format!(
             "the {name} provider ended without a result"
         )))
@@ -535,13 +682,13 @@ pub async fn run_provider_bound_guarded<S:ProviderSink>(
     result
 }
 struct ProviderDrain<S: ProviderSink> {
-    cancelled: Arc<AtomicBool>,
+    cancellation: Arc<ProviderCancellation>,
     thread: Option<std::thread::JoinHandle<()>>,
     sink: Arc<S>,
 }
 impl<S: ProviderSink> Drop for ProviderDrain<S> {
     fn drop(&mut self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancellation.cancel();
         if let Some(thread) = self.thread.take() {
             self.sink.cancel();
             self.sink.drain_provider(thread);
@@ -577,5 +724,128 @@ impl<R: Record, S: ProviderSink> Flush<S> for Writer<R> {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod cancellation_controls {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    #[test]
+    fn registration_and_cancellation_are_synchronized_in_both_orders() {
+        for cancel_first in [false, true] {
+            let owner = Arc::new(ProviderCancellation::default());
+            let calls = Arc::new(AtomicUsize::new(0));
+            if cancel_first {
+                owner.cancel();
+            }
+            let observed = calls.clone();
+            let registration = owner.register(move || {
+                observed.fetch_add(1, Ordering::AcqRel);
+            });
+            if !cancel_first {
+                owner.cancel();
+            }
+            assert_eq!(calls.load(Ordering::Acquire), 1);
+            assert!(registration.check().is_err());
+            drop(registration);
+            assert!(owner.registrations.lock().unwrap().callbacks.is_empty());
+        }
+    }
+
+    #[test]
+    fn old_generation_unregister_keeps_live_peer_and_replacement() {
+        let owner = Arc::new(ProviderCancellation::default());
+        let old_calls = Arc::new(AtomicUsize::new(0));
+        let observed = old_calls.clone();
+        let old = owner.register(move || {
+            observed.fetch_add(1, Ordering::AcqRel);
+        });
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let current = owner.register(move || {
+            observed.fetch_add(1, Ordering::AcqRel);
+        });
+        drop(old);
+        owner.cancel();
+        assert_eq!(old_calls.load(Ordering::Acquire), 0);
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+        assert!(current.check().is_err());
+        drop(current);
+        assert!(owner.registrations.lock().unwrap().callbacks.is_empty());
+    }
+
+    #[test]
+    fn native_dependency_wave_cannot_reuse_cancelled_transaction_as_complete() {
+        std::thread::Builder::new()
+            .stack_size(PROVIDER_STACK_BYTES)
+            .spawn(|| {
+                use pyrefly::state::{require::Require, state::State};
+                use pyrefly_config::{
+                    config::{ConfigFile, ConfigSource},
+                    finder::ConfigFinder,
+                };
+                use pyrefly_python::{
+                    module_path::ModulePath,
+                    sys_info::{PythonPlatform, PythonVersion},
+                };
+                use pyrefly_util::{arc_id::ArcId, thread_pool::ThreadCount};
+                let root = tempfile::tempdir().unwrap();
+                std::fs::write(
+                    root.path().join("main.py"),
+                    "from dependency import Base\nclass Child(Base): pass\n",
+                )
+                .unwrap();
+                std::fs::write(
+                    root.path().join("dependency.py"),
+                    "class Base: value: int = 1\n",
+                )
+                .unwrap();
+                let mut config = ConfigFile {
+                    source: ConfigSource::File(root.path().join("pyrefly.toml")),
+                    search_path_from_args: vec![root.path().to_path_buf()],
+                    disable_search_path_heuristics: true,
+                    disable_project_excludes_heuristics: true,
+                    enable_fallback_search_path: false,
+                    ..ConfigFile::default()
+                };
+                config.python_environment.python_version = Some(PythonVersion::new(3, 14, 7));
+                config.python_environment.python_platform = Some(PythonPlatform::new("linux"));
+                config.python_environment.site_package_path = Some(vec![]);
+                config.interpreters.skip_interpreter_query = true;
+                assert!(config.configure().is_empty());
+                let main = config
+                    .handle_from_module_path(ModulePath::filesystem(root.path().join("main.py")));
+                let dependency = config.handle_from_module_path(ModulePath::filesystem(
+                    root.path().join("dependency.py"),
+                ));
+                let state = State::new(
+                    ConfigFinder::new_constant(ArcId::new(config)),
+                    ThreadCount::Inline,
+                );
+                let mut transaction = state.cancellable_transaction();
+                let handle = transaction.get_cancellation_handle();
+                let owner = Arc::new(ProviderCancellation::default());
+                let registration = owner.register(move || handle.cancel());
+                assert!(
+                    transaction
+                        .run(&[main.clone()], Require::Everything, None)
+                        .is_ok()
+                );
+                assert!(transaction.as_ref().get_answers(&main).is_some());
+                owner.cancel();
+                // A dependency promoted to Everything in the next wave must report native cancellation.
+                assert!(
+                    transaction
+                        .run(&[dependency], Require::Everything, None)
+                        .is_err()
+                );
+                assert!(registration.check().is_err());
+                assert!(transaction.get_cancellation_handle().is_cancelled());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }

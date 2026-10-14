@@ -368,7 +368,9 @@ impl SkipCounts {
 }
 
 /// Rename every `TYPE_CHECKING` name token to [`SENTINEL`] (ADR-0022 §The flow provider).
-/// Tokens come from ruff 0.0.16's lexer over the module, so strings and comments keep their text;
+/// Tokens come from ruff 0.0.16's parser-mediated lexer recovery, so strings and comments keep
+/// their text. Bare lexing differs on malformed interpolations: the parser re-lexes closing quotes
+/// and format conversions. Keep that recovery even though only its tokens are consumed;
 /// names inside f-string replacement fields are names. A module that already uses the sentinel as
 /// a name is refused.
 pub fn rename(text: &str) -> Result<(String, u32), String> {
@@ -400,12 +402,18 @@ pub fn rename(text: &str) -> Result<(String, u32), String> {
     ))
 }
 
-/// Index every module. A module ty cannot index gets an `error` and no facts; the others are
-/// unaffected.
-pub fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<ModuleFlow> {
-    // Document-only inputs have no Python modules or virtual import root.
+/// Visit each module in input order after preparing all admitted virtual files and one Program.
+/// The callback owns each result and finishes before the next module is queried. A module ty
+/// cannot index carries `ModuleFlow::error` without stopping its peers; callback failure stops
+/// immediately and returns the caller's error. `input_index` preserves exact input correspondence,
+/// including failed modules. Empty (including document-only) inventories invoke no callback.
+pub fn visit_modules<E>(
+    inputs: &[Input],
+    context: &RuntimeContext,
+    mut visit: impl FnMut(usize, ModuleFlow) -> Result<(), E>,
+) -> Result<(), E> {
     if inputs.is_empty() {
-        return Vec::new();
+        return Ok(());
     }
     let mut db = FlowDb::new();
     let mut prepared = Vec::with_capacity(inputs.len());
@@ -429,33 +437,29 @@ pub fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<ModuleFlow> {
     let settings = program_settings(&db, context);
     let program = Program::from_settings(&db, &settings);
     // A panic aborts the extraction, as every analyzer's does (ADR-0012 §Panics).
-    inputs
-        .iter()
-        .zip(prepared)
-        .map(|(input, prepared)| {
-            let result = prepared.and_then(|(path, n, hash, byte_len)| {
-                module(&db, program, &path, &input.text, &input.runtime, context)
-                    .map(|flow| (flow, n, hash, byte_len))
-            });
-            match result {
-                Ok((flow, n, hash, byte_len)) => ModuleFlow {
-                    path: input.path.clone(),
-                    renamed: n,
-                    original_content: Some(lctx_model::domain::ContentHash::of(
-                        input.text.as_bytes(),
-                    )),
-                    view_content: Some(hash),
-                    view_byte_len: Some(byte_len),
-                    ..flow
-                },
-                Err(e) => ModuleFlow {
-                    path: input.path.clone(),
-                    error: Some(e),
-                    ..ModuleFlow::default()
-                },
-            }
-        })
-        .collect()
+    for (input_index, (input, prepared)) in inputs.iter().zip(prepared).enumerate() {
+        let result = prepared.and_then(|(path, n, hash, byte_len)| {
+            module(&db, program, &path, &input.text, &input.runtime, context)
+                .map(|flow| (flow, n, hash, byte_len))
+        });
+        let flow = match result {
+            Ok((flow, n, hash, byte_len)) => ModuleFlow {
+                path: input.path.clone(),
+                renamed: n,
+                original_content: Some(lctx_model::domain::ContentHash::of(input.text.as_bytes())),
+                view_content: Some(hash),
+                view_byte_len: Some(byte_len),
+                ..flow
+            },
+            Err(e) => ModuleFlow {
+                path: input.path.clone(),
+                error: Some(e),
+                ..ModuleFlow::default()
+            },
+        };
+        visit(input_index, flow)?;
+    }
+    Ok(())
 }
 
 fn native_place(expr: &Expr, original: &str, depth: usize) -> Option<native::Place> {
@@ -508,6 +512,8 @@ fn module(
     runtime: &RuntimeBindings,
     context: &RuntimeContext,
 ) -> Result<ModuleFlow, String> {
+    #[cfg(test)]
+    settings_tests::record_query(path);
     let file = system_path_to_file(db, path).map_err(|e| e.to_string())?;
     let pf = ProgramFile::new(db, file, program);
     let parsed = parsed_module(db, pf.python_file(db)).load(db);
@@ -1641,11 +1647,29 @@ impl<'ast> SourceOrderVisitor<'ast> for Visitor<'_, '_, '_> {
 #[cfg(test)]
 mod settings_tests {
     use super::{
-        BindingKind, FlowDb, Input, Program, RuntimeBindings, RuntimeContext, index,
-        program_settings,
+        BindingKind, FlowDb, Input, Program, RuntimeBindings, RuntimeContext, program_settings,
+        visit_modules,
     };
     use ruff_db::system::DbWithWritableSystem;
     use ty_module_resolver::{ModuleName, resolve_module_confident};
+
+    thread_local! {
+        static EVENTS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    pub(super) fn record_query(path: &str) {
+        EVENTS.with_borrow_mut(|events| events.push(format!("query:{path}")));
+    }
+
+    fn index(inputs: &[Input], context: &RuntimeContext) -> Vec<super::ModuleFlow> {
+        let mut flows = Vec::new();
+        visit_modules(inputs, context, |_, flow| {
+            flows.push(flow);
+            Ok::<_, std::convert::Infallible>(())
+        })
+        .unwrap();
+        flows
+    }
 
     #[test]
     fn empty_module_inventory_needs_no_virtual_import_root() {
@@ -1654,6 +1678,200 @@ mod settings_tests {
             platform: "linux".to_owned(),
         };
         assert!(index(&[], &context).is_empty());
+    }
+
+    fn context() -> RuntimeContext {
+        RuntimeContext {
+            python_version: (3, 14, 7),
+            platform: "linux".into(),
+        }
+    }
+
+    fn input(path: &str, text: &str) -> Input {
+        Input {
+            path: path.into(),
+            text: text.into(),
+            runtime: RuntimeBindings::default(),
+        }
+    }
+
+    #[test]
+    fn visitor_emits_before_later_queries_and_refusal_stops_them() {
+        let inputs = [
+            input("first.py", "a = 1\nb = a\n"),
+            input("later.py", "c = 2\nd = c\n"),
+        ];
+        EVENTS.with_borrow_mut(Vec::clear);
+        visit_modules(&inputs, &context(), |ix, flow| {
+            assert!(flow.error.is_none());
+            EVENTS.with_borrow_mut(|events| events.push(format!("emit:{ix}")));
+            Ok::<_, &str>(())
+        })
+        .unwrap();
+        EVENTS.with_borrow(|events| {
+            assert_eq!(
+                events,
+                &[
+                    "query:/flow/first.py",
+                    "emit:0",
+                    "query:/flow/later.py",
+                    "emit:1",
+                ]
+            )
+        });
+        for refusal in ["sink refused", "cancelled"] {
+            EVENTS.with_borrow_mut(Vec::clear);
+            let result = visit_modules(&inputs, &context(), |ix, flow| {
+                assert_eq!(ix, 0);
+                assert_eq!(flow.path, "first.py");
+                Err(refusal)
+            });
+            assert_eq!(result, Err(refusal));
+            EVENTS.with_borrow(|events| assert_eq!(events, &["query:/flow/first.py"]));
+        }
+    }
+
+    #[test]
+    fn visitor_preserves_failed_module_correspondence_and_continues() {
+        let inputs = [
+            input("bad.py", "TYPE_CHECKIN_ = 1\n"),
+            input("recovered.py", "x = (\ny = 1\n"),
+            input("good.py", "x = 1\ny = x\n"),
+        ];
+        let flows = index(&inputs, &context());
+        assert_eq!(flows.len(), 3);
+        assert_eq!(flows[0].path, "bad.py");
+        assert!(flows[0].error.as_deref().unwrap().contains("already names"));
+        assert!(flows[0].original_content.is_none());
+        assert_eq!(flows[1].path, "recovered.py");
+        assert!(flows[1].error.is_none());
+        assert!(flows[1].syntax_errors > 0);
+        assert_eq!(flows[2].path, "good.py");
+        assert!(flows[2].error.is_none());
+        assert!(flows[2].uses.iter().any(|u| u.place == "x"));
+        assert_eq!(flows[2].view_content, flows[2].original_content);
+        let result = visit_modules::<()>(&[], &context(), |_, _| panic!("empty inventory queried"));
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn visitor_preserves_cross_module_facts_and_runtime_view_identity() {
+        // The consumer is queried first, while its dependency already exists in the same Program.
+        let inputs = [
+            input("consumer.py", "from helper import VALUE\nresult = VALUE\n"),
+            input(
+                "helper.py",
+                "TYPE_CHECKING = False\nVALUE = TYPE_CHECKING\n",
+            ),
+        ];
+        let flows = index(&inputs, &context());
+        assert!(flows.iter().all(|flow| flow.error.is_none()));
+        assert!(
+            flows[0]
+                .defs
+                .iter()
+                .any(|d| d.kind == BindingKind::FromImport && d.place == "VALUE")
+        );
+        let read = flows[0]
+            .uses
+            .iter()
+            .position(|u| u.place == "VALUE")
+            .unwrap();
+        assert!(
+            flows[0]
+                .reaching
+                .iter()
+                .any(|r| r.use_ix as usize == read && r.def_ix.is_some())
+        );
+        assert!(flows[1].uses.iter().any(|u| u.place == "TYPE_CHECKING"));
+        for (input, flow) in inputs.iter().zip(&flows) {
+            let (view, renamed) = super::rename(&input.text).unwrap();
+            assert_eq!(
+                flow.original_content,
+                Some(lctx_model::domain::ContentHash::of(input.text.as_bytes()))
+            );
+            assert_eq!(
+                flow.view_content,
+                Some(lctx_model::domain::ContentHash::of(view.as_bytes()))
+            );
+            assert_eq!(flow.view_byte_len, Some(input.text.len()));
+            assert_eq!(flow.renamed, renamed);
+        }
+        assert_ne!(flows[1].original_content, flows[1].view_content);
+    }
+
+    fn lexed_tokens(text: &str) -> Vec<ruff_python_ast_ty::token::Token> {
+        use ruff_python_ast_ty::token::Token;
+        let mut lexer =
+            ruff_python_parser_ty::lexer::lex(text, ruff_python_parser_ty::Mode::Module);
+        let mut tokens = Vec::new();
+        loop {
+            let kind = lexer.next_token();
+            if kind.is_eof() {
+                break;
+            }
+            tokens.push(Token::new(
+                kind,
+                lexer.current_range(),
+                lexer.current_flags(),
+            ));
+        }
+        tokens
+    }
+
+    #[test]
+    fn lexer_only_matches_valid_tokens_but_not_malformed_interpolation_recovery() {
+        use ruff_python_ast_ty::PySourceType;
+        let valid = [
+            "TYPE_CHECKING = 1\n",
+            "# TYPE_CHECKING TYPE_CHECKIN_\nx = 'TYPE_CHECKING TYPE_CHECKIN_'\n",
+            "x = f'{TYPE_CHECKING!r:>{TYPE_CHECKING}}'\n",
+            "x = t'{TYPE_CHECKING}'\n",
+            "x = f'{f\"{TYPE_CHECKING}\"}'\n",
+            "\u{feff}α = TYPE_CHECKING\r\nβ = 'TYPE_CHECKING'\r\n",
+            "TYPE_CHECKIN_ = 1\n",
+            "x = f'{TYPE_CHECKIN_}'\n",
+        ];
+        for text in valid {
+            let parsed = ruff_python_parser_ty::parse_unchecked_source(text, PySourceType::Python);
+            assert!(
+                parsed.errors().is_empty(),
+                "{text:?}: {:?}",
+                parsed.errors()
+            );
+            assert_eq!(
+                lexed_tokens(text).as_slice(),
+                parsed.tokens().as_ref(),
+                "{text:?}"
+            );
+        }
+        for (text, expected) in [
+            (
+                "x = f'{TYPE_CHECKING'\nTYPE_CHECKING = 1\n",
+                "x = f'{TYPE_CHECKIN_'\nTYPE_CHECKIN_ = 1\n",
+            ),
+            (
+                "x = t'{TYPE_CHECKING'\nTYPE_CHECKING = 1\n",
+                "x = t'{TYPE_CHECKIN_'\nTYPE_CHECKIN_ = 1\n",
+            ),
+            (
+                "x = f'{TYPE_CHECKING!r'\nTYPE_CHECKING = 1\n",
+                "x = f'{TYPE_CHECKIN_!r'\nTYPE_CHECKIN_ = 1\n",
+            ),
+        ] {
+            let parsed = ruff_python_parser_ty::parse_unchecked_source(text, PySourceType::Python);
+            assert!(!parsed.errors().is_empty());
+            assert_ne!(
+                lexed_tokens(text).as_slice(),
+                parsed.tokens().as_ref(),
+                "{text:?}"
+            );
+            let (renamed, count) = super::rename(text).unwrap();
+            assert_eq!(count, 2, "{text:?}");
+            assert_eq!(renamed.len(), text.len());
+            assert_eq!(renamed, expected);
+        }
+        assert!(super::rename("x = f'{TYPE_CHECKING'\nTYPE_CHECKIN_ = 1\n").is_err());
     }
 
     #[test]

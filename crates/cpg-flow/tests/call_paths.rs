@@ -1,5 +1,7 @@
 //! A value source's call ancestry must retain order and operand roles before summary joins.
 
+mod common;
+
 use std::path::Path;
 
 use cpg_flow::{FlowCallOperandRole, Input, RuntimeBindings, RuntimeContext, Sink};
@@ -11,7 +13,7 @@ fn value_sources_keep_nested_call_order_and_operand_roles() {
             .join("../../fixtures/python/flow_call_paths/paths.py"),
     )
     .unwrap();
-    let mut modules = cpg_flow::index(
+    let mut modules = common::index(
         &[Input {
             path: "paths.py".into(),
             text: text.clone(),

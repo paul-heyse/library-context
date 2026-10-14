@@ -20,7 +20,6 @@
 //! parameter's displayed annotation, and declaration links at exact name spans. Signatures are
 //! complete unless a declaration fails to attach, which is a boundary. Exports stay Partial until
 //! the public names are stated. A computed `__all__` is a subject boundary.
-use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use crate::{
     acquisition::{AcquiredInput, Acquisition},
@@ -32,6 +31,7 @@ use crate::{
     syntax_records::{self, Spans},
     typed_syntax::{self, PYREFLY_REVISION, SyntaxInvocation, SyntaxLimits},
 };
+use lctx_model::domain::producer_contract::ProducerContract;
 use lctx_model::domain::{
     ContentHash, ModelError, Record,
     admission::ArtifactClass,
@@ -55,9 +55,9 @@ use lctx_model::domain::{
 };
 use std::{collections::BTreeMap, path::Path};
 
-pub use lctx_model::domain::producer_contract::facts::PYREFLY;
 /// The families this phase covers.
 pub use lctx_model::domain::producer_contract::facts::FAMILIES;
+pub use lctx_model::domain::producer_contract::facts::PYREFLY;
 
 /// The Pyrefly provider: the pinned fork and the sources that turn its session into facts.
 pub fn pyrefly_provider() -> Provider {
@@ -95,8 +95,28 @@ pub type PysaTap = std::sync::Arc<std::sync::Mutex<BTreeMap<String, serde_json::
 // its inline executor for caller-owned ordered extraction and later lazy queries;
 // the parallel analysis run below joins before those phases inspect its answers.
 fn analysis_pool() -> &'static pyrefly_util::thread_pool::ThreadPool {
-    static POOL: std::sync::OnceLock<pyrefly_util::thread_pool::ThreadPool> = std::sync::OnceLock::new();
-    POOL.get_or_init(|| pyrefly_util::thread_pool::ThreadPool::new(pyrefly_util::thread_pool::ThreadCount::AllThreads))
+    static POOL: std::sync::OnceLock<pyrefly_util::thread_pool::ThreadPool> =
+        std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        pyrefly_util::thread_pool::ThreadPool::new(
+            pyrefly_util::thread_pool::ThreadCount::AllThreads,
+        )
+    })
+}
+fn run_wave(
+    transaction: &mut pyrefly::state::state::CancellableTransaction<'_>,
+    handles: &[pyrefly_build::handle::Handle],
+    cancellation: &bundle::CancellationRegistration,
+) -> Result<(), ModelError> {
+    cancellation.check()?;
+    transaction
+        .run(
+            handles,
+            pyrefly::state::require::Require::Everything,
+            Some(analysis_pool()),
+        )
+        .map_err(|_| invalid("Pyrefly transaction cancelled".into()))?;
+    cancellation.check()
 }
 /// The `pyrefly` stage with its traversal limits.
 pub struct Pyrefly {
@@ -115,11 +135,20 @@ impl Pyrefly {
         }
     }
 }
-pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::pyrefly() }
+pub fn contract() -> ProducerContract {
+    lctx_model::domain::producer_contract::facts::pyrefly()
+}
 impl Declared for Pyrefly {
     fn declaration(&self, _: Profile) -> Stage {
         let provider = pyrefly_provider();
-        contract().bind(provider.build_digest, ContentHash::of(format!("{:?}", self.limits).as_bytes()), [("pyrefly", provider), ("pyrefly-ruff", crate::ruff_context::provider())])
+        contract().bind(
+            provider.build_digest,
+            ContentHash::of(format!("{:?}", self.limits).as_bytes()),
+            [
+                ("pyrefly", provider),
+                ("pyrefly-ruff", crate::ruff_context::provider()),
+            ],
+        )
     }
 }
 
@@ -414,7 +443,7 @@ fn session<S: ProviderSink + 'static>(
     limits: SyntaxLimits,
     tap: Option<&PysaTap>,
 ) -> Result<bool, ModelError> {
-    use pyrefly::state::{require::Require, state::State};
+    use pyrefly::state::state::State;
     use pyrefly_config::{error_kind::ErrorKind, finder::ConfigFinder};
     use pyrefly_python::{
         module_path::ModulePath,
@@ -519,18 +548,24 @@ fn session<S: ProviderSink + 'static>(
         ConfigFinder::new_constant(ArcId::new(cfg)),
         ThreadCount::Inline,
     );
-    let mut transaction = state.new_transaction(Require::Exports, None);
+    let mut cancellable = state.cancellable_transaction();
+    let native_cancel = cancellable.get_cancellation_handle();
+    let cancellation = context.register_cancellation(move || native_cancel.cancel());
+    cancellation.check()?;
     // Pysa numbers modules through a reporter that writes nothing; dependencies are numbered lazily.
-    transaction.set_pysa_reporter(Some(Box::new(pyrefly::report::pysa::PysaReporter {
-        module_ids: pyrefly::report::pysa::module::ModuleIds::new(&handles),
-        pysa_directory: Default::default(),
-        definitions_directory: Default::default(),
-        type_of_expressions_directory: Default::default(),
-        call_graphs_directory: Default::default(),
-        format: pyrefly::report::pysa::PysaFormat::Json,
-        write_files: false,
-    })));
-    transaction.run(&handles, Require::Everything, Some(analysis_pool()));
+    cancellable
+        .as_mut()
+        .set_pysa_reporter(Some(Box::new(pyrefly::report::pysa::PysaReporter {
+            module_ids: pyrefly::report::pysa::module::ModuleIds::new(&handles),
+            pysa_directory: Default::default(),
+            definitions_directory: Default::default(),
+            type_of_expressions_directory: Default::default(),
+            call_graphs_directory: Default::default(),
+            format: pyrefly::report::pysa::PysaFormat::Json,
+            write_files: false,
+        })));
+    run_wave(&mut cancellable, &handles, &cancellation)?;
+    let transaction = cancellable.as_ref();
     let mut frozen = vec![(root, captured.artifacts())];
     if let Some(library) = library {
         frozen.push((library.captured().root(), library.captured().artifacts()));
@@ -543,7 +578,9 @@ fn session<S: ProviderSink + 'static>(
         PythonVersion::new(major, minor, micro),
         PythonPlatform::new(&analysis.python_platform),
     );
-    let outside = outside_names(&transaction, handles.first());
+    cancellation.check()?;
+    let outside = outside_names(transaction, handles.first());
+    cancellation.check()?;
     let mut partial = false;
     // What the public names and dependency context need after every module is stated.
     let mut accesses: Vec<(
@@ -579,6 +616,7 @@ fn session<S: ProviderSink + 'static>(
     };
     let mut inherited_spans = InheritedFieldSpans::new(root, &analyzed, context.budget())?;
     for artifact in roots {
+        cancellation.check()?;
         let scope = CoverageScope::Artifact {
             artifact: artifact.id(),
         };
@@ -634,8 +672,10 @@ fn session<S: ProviderSink + 'static>(
             approximation: Approximation::Exact,
         };
         context.contribute(qualification.clone())?;
+        cancellation.check()?;
         let native_ast = transaction.get_ast(handle);
         let info = transaction.get_module_info(handle);
+        cancellation.check()?;
         let native_available = native_ast.is_some() && info.is_some();
         // Independent syntax remains available when the native typing adapter has no parse.
         // Captured-byte verification in CanonicalSyntax::parse prevents source substitution.
@@ -760,7 +800,9 @@ fn session<S: ProviderSink + 'static>(
             }
             Ok(())
         });
+        cancellation.check()?;
         let errors = transaction.get_errors([handle]).collect_errors();
+        cancellation.check()?;
         write_diagnostics(
             context,
             crate::diagnostic_records::pyrefly_diagnostics!(
@@ -823,8 +865,9 @@ fn session<S: ProviderSink + 'static>(
                     qualification.id(),
                     &contextual.rows,
                 )?;
+                cancellation.check()?;
                 let parameter_answers = crate::parameter_definition_records::records(
-                    &transaction,
+                    transaction,
                     handle,
                     artifact,
                     &text,
@@ -865,7 +908,9 @@ fn session<S: ProviderSink + 'static>(
                 write_records(context, records, &|family, subject| {
                     support(family, subject)
                 })?;
-                let stars = star_imports(&transaction, handle, &module_name, is_package, ast);
+                cancellation.check()?;
+                let stars = star_imports(transaction, handle, &module_name, is_package, ast);
+                cancellation.check()?;
                 let candidate = AssertionQualification {
                     modality: Modality::Candidate,
                     ..qualification.clone()
@@ -923,8 +968,9 @@ fn session<S: ProviderSink + 'static>(
                         spans: &spans,
                         declared: &declared,
                     };
+                    cancellation.check()?;
                     let definitions = definitions(
-                        &transaction,
+                        transaction,
                         handle,
                         &qualification,
                         &mut natives,
@@ -934,6 +980,7 @@ fn session<S: ProviderSink + 'static>(
                         false,
                         context.budget(),
                     )?;
+                    cancellation.check()?;
                     let _class_projection_charge = context.budget().reserve(
                         "native-class-trait-projection",
                         definitions
@@ -952,8 +999,9 @@ fn session<S: ProviderSink + 'static>(
                         &surfaces,
                         &pysa_evidence,
                     )?;
+                    cancellation.check()?;
                     let calls = calls(
-                        &transaction,
+                        transaction,
                         handle,
                         &qualification,
                         provider,
@@ -963,6 +1011,7 @@ fn session<S: ProviderSink + 'static>(
                         &mut natives,
                         context.budget(),
                     )?;
+                    cancellation.check()?;
                     calls_partial = !calls.boundaries.is_empty() || !calls.unattached.is_empty();
                     write_calls(
                         context,
@@ -975,7 +1024,7 @@ fn session<S: ProviderSink + 'static>(
                         &pysa_evidence,
                     )?;
                     let mut types = types(
-                        &transaction,
+                        transaction,
                         handle,
                         &qualification,
                         &analysis,
@@ -985,11 +1034,14 @@ fn session<S: ProviderSink + 'static>(
                         &mut natives,
                         context.budget(),
                         &mut inherited_spans,
+                        selected.config().ruff_settings(),
+                        &cancellation,
                         limits,
                         &ruff_run,
                         &ruff_surface,
                         ast,
                     )?;
+                    cancellation.check()?;
                     types.reconcile_class_traits(&projected_classes)?;
                     unattached.1 += types.class_trait_boundaries.len();
                     types_partial = native_parse_error || !types.boundaries.is_empty();
@@ -1214,7 +1266,9 @@ fn session<S: ProviderSink + 'static>(
             },
         )
         .collect();
-    let public = public_records::public_names(&access, &transaction, &mut natives)?;
+    cancellation.check()?;
+    let public = public_records::public_names(&access, transaction, &mut natives)?;
+    cancellation.check()?;
     drop(access);
     let exports = surfaces[&FactFamily::Exports].id();
     for q in public.qualifications {
@@ -1303,7 +1357,8 @@ fn session<S: ProviderSink + 'static>(
     context.contribute(input_scope.clone())?;
     context.contribute(input_qualification.clone())?;
     for (index, lookup) in imports {
-        let resolution = resolve_import(&transaction, &handles[index], &lookup, &mut natives)?;
+        cancellation.check()?;
+        let resolution = resolve_import(transaction, &handles[index], &lookup, &mut natives)?;
         let row = ModuleResolutionObservation {
             qualification: lookup.qualification,
             module: resolution.module,
@@ -1351,6 +1406,7 @@ fn session<S: ProviderSink + 'static>(
     let mut requested = Vec::new();
     if let Some(requirements) = &requirements {
         for entry in requirements.entries() {
+            cancellation.check()?;
             work.grow(
                 entry
                     .module
@@ -1370,6 +1426,7 @@ fn session<S: ProviderSink + 'static>(
                     )
                     .finding()
             });
+            cancellation.check()?;
             let module = match found {
                 Some(found) => {
                     let module = natives.module(&found.module().to_string(), found.path())?;
@@ -1417,19 +1474,21 @@ fn session<S: ProviderSink + 'static>(
             if dependencies.is_empty() {
                 break;
             }
-            transaction.run(
+            run_wave(
+                &mut cancellable,
                 &dependencies
                     .iter()
                     .map(|(_, h)| h.clone())
                     .collect::<Vec<_>>(),
-                Require::Everything,
-                Some(analysis_pool()),
-            );
+                &cancellation,
+            )?;
+            let transaction = cancellable.as_ref();
             for (module, handle) in dependencies {
+                cancellation.check()?;
                 visited.insert(module);
                 let (keys, names) = &keep[&module];
                 let records = definitions(
-                    &transaction,
+                    transaction,
                     &handle,
                     &input_qualification,
                     &mut natives,
@@ -1439,6 +1498,7 @@ fn session<S: ProviderSink + 'static>(
                     requirements.is_some(),
                     context.budget(),
                 )?;
+                cancellation.check()?;
                 // A class's complete native MRO remains structural evidence. Retain every ancestor
                 // module's class declarations too, each module once in this same dependency pass.
                 if requirements.is_some() {
@@ -1547,6 +1607,7 @@ fn session<S: ProviderSink + 'static>(
         if input_boundaries == (0, 0) { CoverageStatus::CompleteUnderStatedModel } else { partial = true; CoverageStatus::Partial },
         if input_boundaries.1 > 0 { Some(ObligationKind::OutsideProviderModel) } else if input_boundaries.0 > 0 { Some(ObligationKind::AttachmentUnmatched) } else { None },
         Some("supporting definitions referenced by requested roots: imports, re-exports, call targets and nominal type references".into())))?;
+    cancellation.check()?;
     Ok(partial)
 }
 
@@ -2550,25 +2611,92 @@ fn write_calls<S: ProviderSink + 'static>(
     Ok(())
 }
 
+/// Inherited-field attachment only needs exact name ranges, not the full syntax index.
+struct InheritedNameSpans {
+    source: Option<lctx_model::domain::Id<SourceArtifact>>,
+    names: BTreeMap<(i64, i64), Option<lctx_model::domain::Id<Occurrence>>>,
+    charge: lctx_model::domain::charged::StateCharge,
+}
+impl InheritedNameSpans {
+    fn new(budget: &lctx_model::domain::resources::ResourceBudget) -> Self {
+        Self {
+            source: None,
+            names: BTreeMap::new(),
+            charge: lctx_model::domain::charged::StateCharge::new(budget, "inherited_name_spans"),
+        }
+    }
+    fn insert(&mut self, occurrence: &Occurrence) -> Result<(), ModelError> {
+        if self
+            .source
+            .is_some_and(|source| source != occurrence.source)
+        {
+            return Err(invalid("inherited name spans mix captured sources".into()));
+        }
+        self.source = Some(occurrence.source);
+        if occurrence.syntax_kind == SyntaxKind::ExprName {
+            self.charge.grow(128)?;
+            self.names
+                .entry((occurrence.start, occurrence.end))
+                .and_modify(|id| *id = None)
+                .or_insert(Some(occurrence.id()));
+        }
+        Ok(())
+    }
+    fn event(
+        &self,
+        range: ruff_text_size::TextRange,
+    ) -> Option<lctx_model::domain::Id<Occurrence>> {
+        self.names
+            .get(&(
+                i64::from(range.start().to_u32()),
+                i64::from(range.end().to_u32()),
+            ))
+            .copied()
+            .flatten()
+    }
+}
+
 /// Source-only span preparation shared by every root in one joined analyzer session.
 /// Run/qualification receipts are discarded; occurrence IDs retain exact captured source identity.
 struct InheritedFieldSpans<'a> {
     paths: BTreeMap<std::path::PathBuf, &'a SourceArtifact>,
-    cached: BTreeMap<lctx_model::domain::Id<SourceArtifact>, Option<Spans>>,
+    cached: BTreeMap<lctx_model::domain::Id<SourceArtifact>, Option<InheritedNameSpans>>,
     charge: lctx_model::domain::charged::StateCharge,
 }
 impl<'a> InheritedFieldSpans<'a> {
-    fn new(root: &Path, artifacts: &[&'a SourceArtifact], budget: &lctx_model::domain::resources::ResourceBudget) -> Result<Self, ModelError> {
-        let mut state = Self { paths: BTreeMap::new(), cached: BTreeMap::new(), charge: lctx_model::domain::charged::StateCharge::new(budget, "inherited_field_spans") };
+    fn new(
+        root: &Path,
+        artifacts: &[&'a SourceArtifact],
+        budget: &lctx_model::domain::resources::ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let mut state = Self {
+            paths: BTreeMap::new(),
+            cached: BTreeMap::new(),
+            charge: lctx_model::domain::charged::StateCharge::new(budget, "inherited_field_spans"),
+        };
         for artifact in artifacts {
-            state.charge.grow(root.as_os_str().len().checked_add(artifact.path.len()).and_then(|n| n.checked_add(256)).ok_or_else(|| invalid("field span path accounting overflow".into()))?)?;
-            if state.paths.insert(root.join(&artifact.path), *artifact).is_some() {
+            state.charge.grow(
+                root.as_os_str()
+                    .len()
+                    .checked_add(artifact.path.len())
+                    .and_then(|n| n.checked_add(256))
+                    .ok_or_else(|| invalid("field span path accounting overflow".into()))?,
+            )?;
+            if state
+                .paths
+                .insert(root.join(&artifact.path), *artifact)
+                .is_some()
+            {
                 return Err(invalid("ambiguous inherited field artifact path".into()));
             }
         }
         Ok(state)
     }
-    fn prepare(&mut self, artifact: lctx_model::domain::Id<SourceArtifact>, build: impl FnOnce() -> Result<Option<Spans>, ModelError>) -> Result<Option<&Spans>, ModelError> {
+    fn prepare(
+        &mut self,
+        artifact: lctx_model::domain::Id<SourceArtifact>,
+        build: impl FnOnce() -> Result<Option<InheritedNameSpans>, ModelError>,
+    ) -> Result<Option<&InheritedNameSpans>, ModelError> {
         if let std::collections::btree_map::Entry::Vacant(entry) = self.cached.entry(artifact) {
             self.charge.grow(256)?;
             entry.insert(build()?);
@@ -2592,12 +2720,15 @@ fn types(
     natives: &mut Natives,
     budget: &lctx_model::domain::resources::ResourceBudget,
     inherited: &mut InheritedFieldSpans<'_>,
+    settings: &crate::ruff_context::ContextSettings,
+    cancellation: &bundle::CancellationRegistration,
     limits: SyntaxLimits,
     run: &ProviderRun,
     surface: &ProviderSurface,
     ast: &ruff_python_ast_latest::ModModule,
 ) -> Result<crate::type_records::Records, ModelError> {
     use pyrefly::report::pysa::context::{ModuleAnswersContext, ModuleContext, PysaResolver};
+    cancellation.check()?;
     let module_ids = &transaction
         .pysa_reporter()
         .ok_or_else(|| invalid("Pysa reporter absent".into()))?
@@ -2608,25 +2739,35 @@ fn types(
         resolver: &resolver,
     };
     let solutions = transaction.get_solutions(handle);
-    let mut resolve =
-        |natives: &mut Natives, name: pyrefly_python::module_name::ModuleName| match transaction
-            .import_handle(handle, name, None)
-            .finding()
-        {
+    cancellation.check()?;
+    let mut resolve = |natives: &mut Natives, name: pyrefly_python::module_name::ModuleName| {
+        cancellation.check()?;
+        let result = match transaction.import_handle(handle, name, None).finding() {
             Some(found) => natives.module(&found.module().to_string(), found.path()),
             None => natives.unresolved(&name.to_string()),
         };
+        cancellation.check()?;
+        result
+    };
     let mut module_context = |class: &pyrefly_types::class::Class| {
-        let found = transaction
+        cancellation.check()?;
+        let Some(found) = transaction
             .import_handle(handle, class.module().name(), None)
-            .finding()?;
+            .finding()
+        else {
+            return Ok(None);
+        };
         if found.path() != class.module().path() || transaction.get_answers(&found).is_none() {
-            return None;
+            cancellation.check()?;
+            return Ok(None);
         }
-        Some(ModuleAnswersContext::create(found, transaction, module_ids))
+        let result = ModuleAnswersContext::create(found, transaction, module_ids);
+        cancellation.check()?;
+        Ok(Some(result))
     };
     let mut field_occurrence = |class: &pyrefly_types::class::Class,
                                 range: ruff_text_size::TextRange| {
+        cancellation.check()?;
         let found = transaction
             .import_handle(handle, class.module().name(), None)
             .finding();
@@ -2634,25 +2775,46 @@ fn types(
         let Some(artifact) = inherited.paths.get(found.path().as_path()).copied() else {
             return Ok(None);
         };
-        Ok(inherited.prepare(artifact.id(), || {
-            let info = transaction
-                .get_module_info(&found)
-                .ok_or_else(|| invalid("inherited field text unavailable".into()))?;
-            let canonical = crate::ruff_context::CanonicalSyntax::parse(
-                artifact, info.lined_buffer().contents(), context_info,
-                crate::ruff_context::ContextSettings::default(), budget,
-            )?;
-            let mut spans = Spans::new(budget);
-            let invocation = SyntaxInvocation { source: artifact, qualification, run, surface };
-            match typed_syntax::emit(
-                canonical.module(), info.lined_buffer().contents(), invocation, limits,
-                |event| spans.insert(&event.occurrence),
-            ) {
-                Ok(_) => Ok(Some(spans)),
-                Err(typed_syntax::SyntaxError::Refused { .. }) => Ok(None),
-                Err(typed_syntax::SyntaxError::Model(error)) => Err(error),
-            }
-        })?.and_then(|spans| spans.event(range, Some(SyntaxKind::ExprName))))
+        cancellation.check()?;
+        // This root's exact canonical traversal is already live with the selected limits/context.
+        // Reuse it directly; only foreign sources need lazy compact preparation.
+        if spans.source() == Some(artifact.id()) {
+            return Ok(spans.event(range, Some(SyntaxKind::ExprName)));
+        }
+        let result = inherited
+            .prepare(artifact.id(), || {
+                let info = transaction
+                    .get_module_info(&found)
+                    .ok_or_else(|| invalid("inherited field text unavailable".into()))?;
+                let canonical = crate::ruff_context::CanonicalSyntax::parse(
+                    artifact,
+                    info.lined_buffer().contents(),
+                    context_info,
+                    settings.clone(),
+                    budget,
+                )?;
+                let mut spans = InheritedNameSpans::new(budget);
+                let invocation = SyntaxInvocation {
+                    source: artifact,
+                    qualification,
+                    run,
+                    surface,
+                };
+                match typed_syntax::emit(
+                    canonical.module(),
+                    info.lined_buffer().contents(),
+                    invocation,
+                    limits,
+                    |event| spans.insert(&event.occurrence),
+                ) {
+                    Ok(_) => Ok(Some(spans)),
+                    Err(typed_syntax::SyntaxError::Refused { .. }) => Ok(None),
+                    Err(typed_syntax::SyntaxError::Model(error)) => Err(error),
+                }
+            })?
+            .and_then(|spans| spans.event(range));
+        cancellation.check()?;
+        Ok(result)
     };
     crate::type_records::records(
         (transaction, handle, ast),
@@ -2665,6 +2827,7 @@ fn types(
         spans,
         solutions.as_deref(),
         budget,
+        cancellation,
         &mut module_context,
         &mut field_occurrence,
     )
@@ -3012,28 +3175,118 @@ mod inherited_span_controls {
         let first = SourceArtifact::from_bytes(input.id(), "a.py".into(), b"x").unwrap();
         let second = SourceArtifact::from_bytes(input.id(), "b.py".into(), b"x").unwrap();
         let calls = Cell::new(0);
-        let occurrence = Occurrence { source:first.id(), start:0, end:1, syntax_kind:SyntaxKind::ExprName, role:OccurrenceRole::Read, structural_path:vec![0] };
-        let mut cache = InheritedFieldSpans::new(Path::new("/retained"), &[&first, &second], &budget).unwrap();
+        let occurrence = Occurrence {
+            source: first.id(),
+            start: 0,
+            end: 1,
+            syntax_kind: SyntaxKind::ExprName,
+            role: OccurrenceRole::Read,
+            structural_path: vec![0],
+        };
+        let mut cache =
+            InheritedFieldSpans::new(Path::new("/retained"), &[&first, &second], &budget).unwrap();
         assert_eq!(cache.paths[Path::new("/retained/a.py")].id(), first.id());
         for _ in 0..2 {
-            let spans = cache.prepare(first.id(), || { calls.set(calls.get()+1);let mut spans=Spans::new(&budget);spans.insert(&occurrence)?;Ok(Some(spans)) }).unwrap().unwrap();
-            assert_eq!(spans.source(), Some(first.id()));
-            assert_eq!(spans.event(ruff_text_size::TextRange::new(ruff_text_size::TextSize::new(0),ruff_text_size::TextSize::new(1)),Some(SyntaxKind::ExprName)),Some(occurrence.id()));
-            assert!(cache.prepare(second.id(), || {calls.set(calls.get()+1);Ok(None)}).unwrap().is_none());
+            let spans = cache
+                .prepare(first.id(), || {
+                    calls.set(calls.get() + 1);
+                    let mut spans = InheritedNameSpans::new(&budget);
+                    spans.insert(&occurrence)?;
+                    Ok(Some(spans))
+                })
+                .unwrap()
+                .unwrap();
+            assert_eq!(spans.source, Some(first.id()));
+            assert_eq!(
+                spans.event(ruff_text_size::TextRange::new(
+                    ruff_text_size::TextSize::new(0),
+                    ruff_text_size::TextSize::new(1)
+                )),
+                Some(occurrence.id())
+            );
+            assert!(
+                cache
+                    .prepare(second.id(), || {
+                        calls.set(calls.get() + 1);
+                        Ok(None)
+                    })
+                    .unwrap()
+                    .is_none()
+            );
         }
-        assert_eq!(calls.get(),2);
-        assert!(budget.reserved()>0);
-        drop(cache);assert_eq!(budget.reserved(),0);
+        assert_eq!(calls.get(), 2);
+        assert!(budget.reserved() > 0);
+        drop(cache);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn compact_names_preserve_exact_candidate_ambiguity_and_source_identity() {
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
+        let input = lctx_model::domain::input::InputRevision::from_entries(vec![]).unwrap();
+        let source =
+            SourceArtifact::from_bytes(input.id(), "unicode.py".into(), "é = é".as_bytes())
+                .unwrap();
+        let other =
+            SourceArtifact::from_bytes(input.id(), "other.py".into(), "é = é".as_bytes()).unwrap();
+        let name = Occurrence {
+            source: source.id(),
+            start: 5,
+            end: 7,
+            syntax_kind: SyntaxKind::ExprName,
+            role: OccurrenceRole::Read,
+            structural_path: vec![0],
+        };
+        let statement = Occurrence {
+            source: source.id(),
+            start: 5,
+            end: 7,
+            syntax_kind: SyntaxKind::StmtAssign,
+            role: OccurrenceRole::Read,
+            structural_path: vec![1],
+        };
+        let range = ruff_text_size::TextRange::new(
+            ruff_text_size::TextSize::new(5),
+            ruff_text_size::TextSize::new(7),
+        );
+        let mut full = Spans::new(&budget);
+        let mut compact = InheritedNameSpans::new(&budget);
+        for occurrence in [&statement, &name, &name] {
+            full.insert(occurrence).unwrap();
+            compact.insert(occurrence).unwrap();
+            assert_eq!(
+                compact.event(range),
+                full.event(range, Some(SyntaxKind::ExprName))
+            );
+        }
+        assert_eq!(compact.event(range), None);
+        assert_eq!(compact.names.len(), 1);
+        let mut foreign = name.clone();
+        foreign.source = other.id();
+        assert!(compact.insert(&foreign).is_err());
+        drop(compact);
+        drop(full);
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn failed_preparation_does_not_certify_a_cached_absence() {
         let budget = lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap();
         let input = lctx_model::domain::input::InputRevision::from_entries(vec![]).unwrap();
         let artifact = SourceArtifact::from_bytes(input.id(), "a.py".into(), b"x").unwrap();
-        let mut cache = InheritedFieldSpans::new(Path::new("/retained"), &[&artifact], &budget).unwrap();
-        assert!(cache.prepare(artifact.id(), ||Err(invalid("unavailable text".into()))).is_err());
+        let mut cache =
+            InheritedFieldSpans::new(Path::new("/retained"), &[&artifact], &budget).unwrap();
+        assert!(
+            cache
+                .prepare(artifact.id(), || Err(invalid("unavailable text".into())))
+                .is_err()
+        );
         assert!(!cache.cached.contains_key(&artifact.id()));
-        assert!(cache.prepare(artifact.id(), ||Ok(Some(Spans::new(&budget)))).unwrap().is_some());
-        drop(cache);assert_eq!(budget.reserved(),0);
+        assert!(
+            cache
+                .prepare(artifact.id(), || Ok(Some(InheritedNameSpans::new(&budget))))
+                .unwrap()
+                .is_some()
+        );
+        drop(cache);
+        assert_eq!(budget.reserved(), 0);
     }
 }
