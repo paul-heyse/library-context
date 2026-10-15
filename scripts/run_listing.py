@@ -21,7 +21,7 @@ def _decode(value: str) -> dict:
         if not isinstance(result, dict) or result.get("schema") != 1:
             raise ValueError
         return result
-    except (ValueError, TypeError, UnicodeError) as error:
+    except (ValueError, TypeError) as error:
         raise ValueError("invalid run-list cursor") from error
 
 

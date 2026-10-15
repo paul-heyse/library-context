@@ -118,7 +118,7 @@ class NativeReference:
             raise WorkerError("native reference replay failed")
         try:
             observed = json.loads(output)
-        except (ValueError, UnicodeError) as error:
+        except ValueError as error:
             raise WorkerError("native reference response is not JSON") from error
         if (
             not isinstance(observed, dict)

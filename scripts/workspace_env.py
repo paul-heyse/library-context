@@ -39,7 +39,7 @@ import shlex
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Generator, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -319,7 +319,7 @@ def _resource_ownership(
     env: Mapping[str, str] | None = None,
     command: str | None = None,  # accepted for callers; holders are reported from /proc
     report: Report = _stderr,
-) -> Iterator[Ownership]:
+) -> Generator[Ownership]:
     """Hold ``mode`` ownership of the resources ``requirement`` uses, once per command tree.
 
     Resources a live ancestor already holds in the same or a stronger mode are reused, not
@@ -379,7 +379,7 @@ def ownership(
     env: Mapping[str, str] | None = None,
     command: str | None = None,
     report: Report = _stderr,
-) -> Iterator[Ownership]:
+) -> Generator[Ownership]:
     """Storage admission precedes existing environment/extension ownership."""
     import storage_owners
     from storage_lifecycle import admission

@@ -960,7 +960,8 @@ pub(crate) async fn assert_recursive_summary_answers(fixture: &catalog_runtime::
         "converged finite or seedless work must not acquire an exhausted suffix: {exhausted:?}"
     );
 
-    let closures: Vec<(i64, i16, Option<Vec<u8>>, Option<i16>)> = catalog_runtime::query(fixture,
+    type ClosureObservation = (i64, i16, Option<Vec<u8>>, Option<i16>);
+    let closures: Vec<ClosureObservation> = catalog_runtime::query(fixture,
         "SELECT declaration.start,conclusion.verdict,conclusion.proof,conclusion.reason FROM summary_claims claim JOIN summary_obligation_subjects subject ON subject.summaryclaim_transfer=claim.id JOIN summary_behavioral_conclusions conclusion ON conclusion.subject=subject.id JOIN normalized_call_events event ON event.id=claim.callclosure_event JOIN occurrence_ownership site ON site.id=event.owner JOIN entity_refs owner ON owner.id=site.entity JOIN callable_entities callable ON callable.id=owner.callable_callable JOIN occurrences declaration ON declaration.id=callable.source_declaration JOIN places output ON output.id=claim.callclosure_output JOIN place_roots returned ON returned.id=output.root WHERE claim.kind=1 AND returned.kind=2"
     ).await;
     for name in ["relay", "nested"] {

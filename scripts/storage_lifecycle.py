@@ -17,7 +17,7 @@ import stat
 import threading
 import tomllib
 import uuid
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Generator, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -293,7 +293,7 @@ def admission(
     blocking: bool = True,
     state: Path | None = None,
     exclusive_paths: Sequence[Path] = (),
-) -> Iterator[None]:
+) -> Generator[None]:
     """All lexical ancestors participate, including children not yet registered.
 
     Acquire outer-to-inner. Nested ownership reuses descriptors; never upgrade shared
@@ -426,7 +426,7 @@ def observe(record: dict, host: dict | None = None) -> dict:
 
 
 @contextlib.contextmanager
-def owner_guard(record: dict, host: dict) -> Iterator[None]:
+def owner_guard(record: dict, host: dict) -> Generator[None]:
     if record["owner"]["kind"] in {"native", "external"}:
         raise Blocked("no generic native/external retirement")
     import storage_owners
@@ -487,7 +487,7 @@ class Storage:
         ).hexdigest()
 
     @contextlib.contextmanager
-    def metadata(self) -> Iterator[None]:
+    def metadata(self) -> Generator[None]:
         private_directory(self.state)
         fd = os.open(
             self.state / "metadata.lock",
@@ -1381,7 +1381,7 @@ def managed(
     consumer: str,
     requires: str = "immediate-use",
     temporary_days: float | None = None,
-) -> Iterator[str]:
+) -> Generator[str]:
     with admission([path]):
         path.mkdir(parents=True, exist_ok=True)
         yield publish(path, category, owner, consumer, requires, temporary_days, managed=True)

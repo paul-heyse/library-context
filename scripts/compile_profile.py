@@ -331,7 +331,7 @@ def retain_cargo_sessions(
                     continue
                 try:
                     messages.append(json.loads(line))
-                except ValueError, UnicodeDecodeError:
+                except ValueError:
                     if index == len(lines) - 1 and not raw.endswith(b"\n"):
                         dropped_tail_bytes = len(line)
                         break
@@ -967,7 +967,7 @@ def _record_owned(args: argparse.Namespace) -> int:
     try:
         meta["command_identity"] = ProcessIdentity.of(child.pid).to_json()
         write_json_atomic(directory / "record.json", meta)
-    except (OSError, ProcessLookupError) as error:
+    except OSError as error:
         stream_errors.append(f"command identity receipt: {error}")
 
     def forward_stdout():
@@ -995,7 +995,7 @@ def _record_owned(args: argparse.Namespace) -> int:
                     and isinstance(event.get("run_id"), str)
                 ):
                     sessions.append(event["run_id"])
-            except ValueError, UnicodeDecodeError:
+            except ValueError:
                 pass
             try:
                 sys.stdout.buffer.write(line)

@@ -26,7 +26,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1703,7 +1703,7 @@ def mcp_invocation(
 
 
 @contextlib.contextmanager
-def fixture(*, report: Callable[[str], None] = _stderr) -> Iterator[Attachment]:
+def fixture(*, report: Callable[[str], None] = _stderr) -> Generator[Attachment]:
     server = Server.open()
     server.report = report
     attachment = Attachment.create(server)

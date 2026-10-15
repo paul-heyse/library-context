@@ -474,7 +474,7 @@ def _tee_stderr(stream: Any, sidecar: Path, timing: Path, errors: list[str]) -> 
                 try:
                     sys.stderr.buffer.write(data)
                     sys.stderr.buffer.flush()
-                except (OSError, BrokenPipeError) as error:
+                except OSError as error:
                     errors.append(str(error))
                 try:
                     log.write(data)
@@ -701,7 +701,6 @@ def wrapper_main(argv: Sequence[str] | None = None, env: Mapping[str, str] | Non
         print("compile profiling wrapper: original sccache delegate missing", file=sys.stderr)
         return 2
     os.execvpe(delegate, [delegate, *arguments], environment)
-    return 2
 
 
 if __name__ == "__main__":

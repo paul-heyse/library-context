@@ -11,7 +11,7 @@ import fcntl
 import os
 import stat
 import tomllib
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
@@ -175,7 +175,7 @@ def observe(record: dict[str, Any]) -> dict[str, Any]:
 
 
 @contextlib.contextmanager
-def owner_guard(record: dict[str, Any], *, attachment_lease: int | None = None) -> Iterator[None]:
+def owner_guard(record: dict[str, Any], *, attachment_lease: int | None = None) -> Generator[None]:
     """Exclude actual owner writes without waiting; callers reobserve before an effect."""
     kind = (record.get("owner") or {}).get("kind")
     descriptors: list[int] = []

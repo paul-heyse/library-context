@@ -32,7 +32,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any, cast
@@ -2489,7 +2489,7 @@ class CheckedServiceGeneration:
 
 
 @contextlib.contextmanager
-def borrow(installation: Installation) -> Iterator[CheckedServiceGeneration | None]:
+def borrow(installation: Installation) -> Generator[CheckedServiceGeneration | None]:
     root = installation.directory
     if maintenance_owned(installation):
         yield None
@@ -2553,7 +2553,7 @@ def maintenance(
     native_clients: bool = False,
     recovery: Mapping[str, Any] | None = None,
     restart: bool = False,
-) -> Iterator[dict[str, str]]:
+) -> Generator[dict[str, str]]:
     root = installation.directory
     gate = os.open(root / "admission.lock", os.O_RDWR | os.O_CLOEXEC)
     try:

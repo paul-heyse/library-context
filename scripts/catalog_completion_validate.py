@@ -196,7 +196,6 @@ def plan(run: Path) -> list[dict[str, Any]]:
                 "--release",
                 "--locked",
                 "--no-run",
-                "--no-fail-fast",
                 "-p",
                 "cpg-core",
                 "-p",

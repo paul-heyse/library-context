@@ -74,13 +74,11 @@ async fn run_fixture(
         }
     }
     let read_counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_read_observations) AS fixture_column_0,(SELECT count(*) FROM base_formal_read_assessments) AS fixture_column_1,(SELECT count(*) FROM base_attribute_reads) AS fixture_column_2").await;
-    if profile == Profile::Behavioral {
-        if case != "exact_exception_shapes" {
-            assert!(
-                read_counts.0 > 0 && read_counts.1 > 0 && read_counts.2 > 0,
-                "{case}/{profile:?}: read observations, formal assessments and attribute reads are present"
-            );
-        }
+    if profile == Profile::Behavioral && case != "exact_exception_shapes" {
+        assert!(
+            read_counts.0 > 0 && read_counts.1 > 0 && read_counts.2 > 0,
+            "{case}/{profile:?}: read observations, formal assessments and attribute reads are present"
+        );
     }
     if case == "transfer_alternatives" && profile == Profile::Behavioral {
         let native_negative: i64 = catalog_runtime::one(
