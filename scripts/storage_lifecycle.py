@@ -125,7 +125,8 @@ class ReferenceSnapshot(Sequence[tuple[Path, str]]):
         resolved = [absolute(base / name) for base in (source.parent, *self.roots)]
         return tuple(
             (target, frozenset(target.parents))
-            for target in resolved if target != Path(target.anchor)
+            for target in resolved
+            if target != Path(target.anchor)
         )
 
 
@@ -510,7 +511,11 @@ class Storage:
     def validate(self, row: dict) -> None:
         import math
 
-        if not isinstance(row, dict) or row.get("schema") != 1 or row.get("category") not in self.policy["categories"]:
+        if (
+            not isinstance(row, dict)
+            or row.get("schema") != 1
+            or row.get("category") not in self.policy["categories"]
+        ):
             raise Invalid("unknown descriptor schema/category")
         try:
             uuid.UUID(row["id"])
@@ -591,7 +596,12 @@ class Storage:
         if not target.exists():
             return None
         index = read_json(target)
-        if not isinstance(index, dict) or index.get("schema") != 1 or index.get("path") != str(path) or not isinstance(index.get("id"), str):
+        if (
+            not isinstance(index, dict)
+            or index.get("schema") != 1
+            or index.get("path") != str(path)
+            or not isinstance(index.get("id"), str)
+        ):
             raise Invalid("physical path index differs")
         row = self.get(index["id"])
         if row["path"] != str(path):
@@ -958,19 +968,21 @@ class Storage:
                 }
             references = self.prepare_references(references)
             parents = frozenset(path.parents)
-            # These repeated profile components name tooling, not a particular capture.
+            # Repeated owner components name tooling, not a particular capture.
             # IDs, full paths and resolved citations still identify the exact lifetime.
-            basename_alias = len(path.name) >= 12 and not (
-                row["owner"]["kind"] == "profile"
+            owner_kind = row["owner"]["kind"]
+            repeated_component = (
+                owner_kind == "profile"
                 and path.name in {"compile-profile", "compile-profile-reports"}
+            ) or (
+                owner_kind == "run" and path.name in {"verify-evidence", "verify-evidence-receipt"}
             )
+            basename_alias = len(path.name) >= 12 and not repeated_component
             for index, (source, text) in enumerate(references):
                 if text.startswith("__"):
                     reasons.append(f"consumer coverage unavailable: {source}")
                 elif (
-                    row["id"] in text
-                    or str(path) in text
-                    or (basename_alias and path.name in text)
+                    row["id"] in text or str(path) in text or (basename_alias and path.name in text)
                 ):
                     reasons.append(f"current tracked reference: {source}")
                 else:
@@ -1055,10 +1067,12 @@ class Storage:
         if rows is None:
             rows = all_rows
         known_scopes = {Path(row["path"]) for row in all_rows if not row.get("retired_at")}
-        return self.envelope([
-            self.disposition(r, records=all_rows, references=refs, known_scopes=known_scopes)
-            for r in rows
-        ])
+        return self.envelope(
+            [
+                self.disposition(r, records=all_rows, references=refs, known_scopes=known_scopes)
+                for r in rows
+            ]
+        )
 
     def envelope(
         self,

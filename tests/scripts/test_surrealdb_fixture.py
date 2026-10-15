@@ -9,12 +9,23 @@ import sys
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 import surrealdb_fixture as fx
 import surrealdb_service as service
 from harness import group_members
+
+
+def required_record(value: dict[str, Any] | None) -> dict[str, Any]:
+    assert value is not None, "expected owned receipt"
+    return value
+
+
+def required_storage_id(value: str | None) -> str:
+    assert value is not None, "expected enrolled attachment storage owner"
+    return value
 
 
 @pytest.fixture
@@ -174,10 +185,12 @@ def retained_retirement_ready(installed, monkeypatch):
             if key != "LCTX_SURREAL_SERVICE_CONFIG"
         )
         plan = fx.read_json(directory / "retirement-plan.json")
+        assert plan is not None
         assert command[-1] == plan["job"]
         assert command[command.index("retire") + 1] == str(directory / "retirement-handle.json")
         state["calls"].append(command)
         runtime = fx.read_json(directory / "retirement-runtime.json")
+        assert runtime is not None
         assert runtime["selection"] == str(selection)
         if selection.exists():
             assert fx.read_json(selection) == handle
@@ -232,10 +245,12 @@ def test_retained_retirement_rejects_selection_alias_before_any_owner_write(
     aliased.write_bytes(original)
     aliased.chmod(0o600)
     identity = fx.read_json(directory / "identity.json")
+    assert identity is not None
     identity["configuration"].update(
         selection=str(aliased), selection_sha256=service.file_sha256(aliased)
     )
     viewer = fx.read_json(directory / "viewer.json")
+    assert viewer is not None
     viewer["selection"] = str(aliased)
     service.private_json(directory / "viewer.json", viewer)
     identity["configuration"]["sha256"] = service.file_sha256(directory / "viewer.json")
@@ -249,7 +264,7 @@ def test_retained_retirement_rejects_selection_alias_before_any_owner_write(
 
 @pytest.mark.parametrize("failure", ["child", "remaining", "unregistered"])
 def test_retained_retirement_refusal_preserves_plan_and_runtime(retained_retirement_ready, failure):
-    installed, directory, selection, state = retained_retirement_ready
+    installed, directory, _selection, state = retained_retirement_ready
     state.update(
         code=1 if failure == "child" else 0,
         remaining=["pending-exact-child"] if failure == "remaining" else [],
@@ -380,6 +395,7 @@ def test_retained_retirement_signal_joins_child_and_preserves_unknown(
         fx.read_json(path) for path in (installed.directory / "attachments").glob("*/record.json")
     ]
     assert len(records) == 1
+    assert records[0] is not None
     assert records[0]["command_cleanup"]["status"] == "confirmed"
     assert records[0]["command_cleanup"]["survivors"] == []
     assert (
@@ -399,7 +415,7 @@ def test_retained_retirement_completes_only_confirmed_exact_producer_temporary_o
 ):
     from storage_lifecycle import Storage
 
-    installed, directory, selection, state = retained_retirement_ready
+    installed, directory, _selection, _state = retained_retirement_ready
     storage = Storage()
     producer = fx.Attachment.create(installed)
     producer.release()
@@ -421,6 +437,7 @@ def test_retained_retirement_completes_only_confirmed_exact_producer_temporary_o
     unrelated_before = storage.get(unrelated_id)
     retained_before = storage.get(producer_id)["obligations"]["independent-retained-evidence"]
     identity = fx.read_json(directory / "identity.json")
+    assert identity is not None
     identity["producing_run"] = {"attachment": producer.id}
     service.private_json(directory / "identity.json", identity)
     producer_unknown = False
@@ -441,6 +458,7 @@ def test_retained_retirement_completes_only_confirmed_exact_producer_temporary_o
             producer_unknown = True
         if producer_state == "unreleased":
             row = fx.read_json(producer.directory / "record.json")
+            assert row is not None
             service.private_json(producer.directory / "record.json", {**row, "released": False})
         return result
 
@@ -466,7 +484,11 @@ def test_retained_retirement_completes_only_confirmed_exact_producer_temporary_o
 def test_registered_retirement_recovery_class_preserves_unknown_and_terminal_failure():
     import surrealdb_pd02_recovery as recovery
 
-    owner = {"owner": "native publication retirement", "state": "started", "completion": None}
+    owner: dict[str, Any] = {
+        "owner": "native publication retirement",
+        "state": "started",
+        "completion": None,
+    }
     assert "Started native publication retirement" in recovery.native_owner_class(owner)
     completion = {
         "local": "terminal",
@@ -691,15 +713,24 @@ def test_attached_post_spawn_failure_cleans_actual_process(tmp_path, monkeypatch
     from typing import cast
 
     attachment = cast(
-        fx.Attachment, SimpleNamespace(environment=lambda: {}, _write_record=write_record)
+        fx.Attachment,
+        SimpleNamespace(
+            environment=lambda: {},
+            _write_record=write_record,
+            id=str(uuid.uuid4()),
+            server=SimpleNamespace(id="post-spawn-control", kind="control", record={}),
+        ),
     )
     monkeypatch.setattr(fx, "spawn_group", spawn)
     if failure == "identity":
-        monkeypatch.setattr(
-            fx.ProcessIdentity,
-            "of",
-            classmethod(lambda cls, pid=None: (_ for _ in ()).throw(OSError("identity"))),
-        )
+        actual_identity = fx.ProcessIdentity.of
+
+        def fail_spawned_identity(cls, pid=None):
+            if spawned and pid == spawned[0].pid:
+                raise OSError("identity")
+            return actual_identity(pid)
+
+        monkeypatch.setattr(fx.ProcessIdentity, "of", classmethod(fail_spawned_identity))
     with pytest.raises(OSError):
         fx.run_attached(attachment, ["sleep", "120"], cwd=tmp_path)
     assert spawned and group_members(spawned[0].pid) == []
@@ -936,7 +967,7 @@ def test_local_attachment_lifecycle_does_not_retire_native_service(installed):
 
     attachment = fx.Attachment.create(installed)
     assert attachment._storage_id is not None
-    row = Storage().get(attachment._storage_id)
+    row = Storage().get(required_storage_id(attachment._storage_id))
     assert storage_owners.observe(row)["state"] == "active"
     attachment.release()
     row = Storage().get(row["id"])
@@ -987,7 +1018,7 @@ def test_attachment_recovery_completes_declared_local_obligation_after_process_d
 def native_receipt(attachment, *, state="complete", remote="confirmed", failures=None):
     """Protocol fixture only; real native finality requires the Rust producer."""
     record = json.loads((attachment.directory / "record.json").read_text())
-    row = {
+    row: dict[str, Any] = {
         "schema": 1,
         "kind": "native-process-owner",
         "owner": "protocol control",
@@ -1080,6 +1111,7 @@ def pd02_manifest(attachment, *, table=None, sequence=0, policy="signin", sessio
 
     table = table or "pd02_" + "a" * 64
     record = fx.read_json(attachment.directory / "record.json")
+    assert record is not None
     manifest = {
         "schema": 1,
         "kind": "PD02-wire-request",
@@ -1117,6 +1149,7 @@ def pd02_dead_attachment(installed, monkeypatch):
     pd02_manifest(attachment, sequence=3, policy="committed_before_disconnect")
     attachment.release()
     row = fx.read_json(attachment.directory / "record.json")
+    assert row is not None
     row["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999999, "start_ticks": 1}
     fx.write_json_atomic(attachment.directory / "record.json", row)
     monkeypatch.setattr(fx, "_command_observation", lambda row: {"status": "gone"})
@@ -1309,6 +1342,7 @@ def test_pd02_recovery_refuses_live_or_unnamed_owners_before_server_actions(
     other = None
     held = None
     row = fx.read_json(attachment.directory / "record.json")
+    assert row is not None
     if blocker == "live_owner":
         row["owner"] = service.ProcessIdentity.of().to_json()
         fx.write_json_atomic(attachment.directory / "record.json", row)
@@ -1334,7 +1368,9 @@ def test_pd02_recovery_refuses_live_or_unnamed_owners_before_server_actions(
         with pytest.raises(fx.FixtureBlocked):
             recovery.recover(installed.installation, attachment.id)
         assert not commands
-        assert fx.read_json(attachment.directory / "record.json")["released"] is False
+        assert (
+            required_record(fx.read_json(attachment.directory / "record.json"))["released"] is False
+        )
     finally:
         if other:
             other.release()
@@ -1422,6 +1458,7 @@ def test_pd02_host_recovery_preserves_original_unknown_and_independent_receipt(
     assert result["outcome"] == "recovered"
     assert native_path.read_bytes() == original_native
     row = fx.read_json(attachment.directory / "record.json")
+    assert row is not None
     assert row["released"] is True
     assert fx.native_completion(attachment.directory, row)["status"] == "unknown"
     assert not fx.native_protected(
@@ -1431,10 +1468,13 @@ def test_pd02_host_recovery_preserves_original_unknown_and_independent_receipt(
     import storage_owners
     from storage_lifecycle import Storage
 
-    assert storage_owners.observe(Storage().get(attachment._storage_id))["state"] == "released"
-    assert Storage().get(attachment._storage_id)["obligations"][f"attachment:{attachment.id}"][
-        "until"
-    ]
+    assert (
+        storage_owners.observe(Storage().get(required_storage_id(attachment._storage_id)))["state"]
+        == "released"
+    )
+    assert Storage().get(required_storage_id(attachment._storage_id))["obligations"][
+        f"attachment:{attachment.id}"
+    ]["until"]
     assert not (installation.directory / "maintenance.json").exists()
     assert fx.inventory()[0]["native_completion"]["status"] == "unknown"
     assert fx.inventory()[0]["protected"] is False
@@ -1442,7 +1482,10 @@ def test_pd02_host_recovery_preserves_original_unknown_and_independent_receipt(
     native_path.write_bytes(original_native + b" ")
     assert recovery.recovered(attachment.directory, row) is False
     assert service.borrowers(installation)[0]["id"] == attachment.id
-    assert storage_owners.observe(Storage().get(attachment._storage_id))["state"] == "unresolved"
+    assert (
+        storage_owners.observe(Storage().get(required_storage_id(attachment._storage_id)))["state"]
+        == "unresolved"
+    )
 
 
 @pytest.mark.parametrize("phase", ["join", "reconcile", "remove", "drain", "open"])
@@ -1478,10 +1521,12 @@ def test_pd02_interrupted_recovery_preserves_unknown_and_resumes_exact_owner(
         recovery.recover(installation, attachment.id)
     marker_path = installation.directory / "maintenance.json"
     marker = fx.read_json(marker_path)
+    assert marker is not None
     assert marker["attachment"] == attachment.id
     assert marker["operation"] == recovery.OPERATION
     assert native_path.read_bytes() == original
     row = fx.read_json(attachment.directory / "record.json")
+    assert row is not None
     assert fx.native_completion(attachment.directory, row)["status"] == "unknown"
     if phase != "open":
         assert row["released"] is False
@@ -1569,6 +1614,7 @@ def test_pd02_log_preparation_journals_exact_unit_binary_and_rechecks(
             recovery.prepare_logs(installation)
         marker_path = installation.directory / "maintenance.json"
         marker = fx.read_json(marker_path)
+        assert marker is not None
         assert marker["operation"] == "PD02 campaign log preparation"
         assert marker["phase"] in {"drained", "smoke_joining", "smoke_joined"}
         marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999999}
@@ -1592,8 +1638,10 @@ def test_pd02_log_preparation_journals_exact_unit_binary_and_rechecks(
             "open-admission",
         ]
     receipt = fx.read_json(Path(result["receipt"]))
+    assert receipt is not None
     assert "abandoned-request finality not_observed" in receipt["registry_join_evidence"]
     plan = fx.read_json(Path(result["receipt"]).with_name("plan.json"))
+    assert plan is not None
     assert plan["previous_descriptor"]["binary"] == plan["successor_descriptor"]["binary"]
     assert "--log=warn,surrealdb::net=info" in plan["successor_unit"]
     assert unit.read_text() == plan["successor_unit"]
@@ -1614,7 +1662,7 @@ def test_pd02_unchecked_cleanup_terminal_cannot_become_immutable_authority(
         recovery.recover(installed.installation, attachment.id)
     assert not list((attachment.directory / "pd02-host-recovery").glob("removed-*.json"))
     assert native.read_bytes() == original
-    assert fx.read_json(attachment.directory / "record.json")["released"] is False
+    assert required_record(fx.read_json(attachment.directory / "record.json"))["released"] is False
     assert (installed.directory / "maintenance.json").exists()
 
 
@@ -1648,7 +1696,8 @@ def native_join_protocol_fixture(installed, process):
     joined = pd02_join_protocol_fixture(installed, process)
     joined["source_proof"] = recovery.SOURCE_JOIN
     joined["journal"]["entries"][0]["MESSAGE"] = (
-        "SIGTERM received. Waiting for graceful shutdown; another signal closes transport immediately but still waits for query finality."
+        "SIGTERM received. Waiting for graceful shutdown; another signal "
+        "closes transport immediately but still waits for query finality."
     )
     text = json.dumps(joined["journal"]["entries"][0]) + "\n"
     joined["journal"].update(text=text, sha256=recovery.digest_bytes(text.encode()))
@@ -1681,6 +1730,7 @@ def native_mock_recovery_ready(installed, tmp_path, monkeypatch):
     )
     attachment.release()
     row = fx.read_json(attachment.directory / "record.json")
+    assert row is not None
     row["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999999, "start_ticks": 1}
     fx.write_json_atomic(attachment.directory / "record.json", row)
     monkeypatch.setattr(fx, "_command_observation", lambda row: {"status": "gone"})
@@ -1807,19 +1857,24 @@ def test_native_host_recovery_preserves_started_bytes_and_request_unknown(
     assert result["outcome"] == "recovered"
     assert native.read_bytes() == original
     row = fx.read_json(attachment.directory / "record.json")
+    assert row is not None
     assert (
         row["released"] and fx.native_completion(attachment.directory, row)["status"] == "unknown"
     )
     receipt = fx.read_json(Path(row["host_recovery"]["path"]))
+    assert receipt is not None
     assert receipt["original_request_outcomes"].startswith("unknown;")
     assert receipt["tables_removed"] == [] and receipt["reconciliation"] is None
     assert calls == ["close-admission", "close-admission", "drain", "open-admission"]
     assert recovery.native_recovered(attachment.directory, row)
     assert not service.borrowers(installed.installation)
-    assert storage_owners.observe(Storage().get(attachment._storage_id))["state"] == "released"
-    assert Storage().get(attachment._storage_id)["obligations"][f"attachment:{attachment.id}"][
-        "until"
-    ]
+    assert (
+        storage_owners.observe(Storage().get(required_storage_id(attachment._storage_id)))["state"]
+        == "released"
+    )
+    assert Storage().get(required_storage_id(attachment._storage_id))["obligations"][
+        f"attachment:{attachment.id}"
+    ]["until"]
     native.write_bytes(original + b" ")
     assert not recovery.native_recovered(attachment.directory, row)
     assert service.borrowers(installed.installation)[0]["id"] == attachment.id
@@ -1827,6 +1882,7 @@ def test_native_host_recovery_preserves_started_bytes_and_request_unknown(
 
 def failed_wire_owner(path):
     row = fx.read_json(path)
+    assert row is not None
     row.update(
         owner="S09 finite accepted-query wire owner",
         state="complete",
@@ -1843,6 +1899,7 @@ def failed_wire_owner(path):
 
 def terminal_native_sibling(path, registration, owner, failures):
     row = fx.read_json(path)
+    assert row is not None
     row.update(
         owner=owner,
         registration=registration,
@@ -1898,11 +1955,13 @@ def test_native_host_mixed_registered_owners_preserve_all_original_outcomes(
         paths.append(terminal_native_sibling(path, len(paths), owner, []))
     started_cache = terminal_native_sibling(path, len(paths), "native product cache session", [])
     cache_row = fx.read_json(started_cache)
+    assert cache_row is not None
     cache_row.update(state="started", completion=None)
     fx.write_json_atomic(started_cache, cache_row)
     paths.append(started_cache)
     originals = {item.name: item.read_bytes() for item in paths}
     row = fx.read_json(attachment.directory / "record.json")
+    assert row is not None
     assert fx.native_completion(attachment.directory, row)["status"] == "unknown"
     calls = []
     monkeypatch.setattr(service, "_run_installer", lambda inst, path, action: calls.append(action))
@@ -1912,10 +1971,12 @@ def test_native_host_mixed_registered_owners_preserve_all_original_outcomes(
     assert calls == ["close-admission", "close-admission", "drain", "open-admission"]
     assert {item.name: item.read_bytes() for item in paths} == originals
     row = fx.read_json(attachment.directory / "record.json")
+    assert row is not None
     assert (
         row["released"] and fx.native_completion(attachment.directory, row)["status"] == "unknown"
     )
     plan = fx.read_json(attachment.directory / "native-host-recovery" / "plan.json")
+    assert plan is not None
     assert {name: base64.b64decode(raw) for name, raw in plan["native_bytes"].items()} == originals
     classification = plan["named_scope"][attachment.id]["classification"]
     assert "Started native store/workspace" in classification
@@ -1991,6 +2052,7 @@ def test_native_host_refuses_ineligible_terminal_sibling_before_effect(
         ],
     )
     row = fx.read_json(sibling)
+    assert row is not None
     if change == "owner":
         row["owner"] = "arbitrary completed owner"
     elif change == "state":
@@ -2071,10 +2133,12 @@ def test_native_host_recovers_failed_wire_owner_without_rewriting_failure(
     )
     assert path.read_bytes() == original
     row = fx.read_json(attachment.directory / "record.json")
+    assert row is not None
     assert (
         row["released"] and fx.native_completion(attachment.directory, row)["status"] == "unknown"
     )
     plan = fx.read_json(attachment.directory / "native-host-recovery" / "plan.json")
+    assert plan is not None
     import base64
 
     assert base64.b64decode(plan["transferred_maintenance"]["bytes"]) == prior
@@ -2096,6 +2160,7 @@ def test_native_host_refuses_ineligible_failed_wire_owner_before_effect(
     attachment, path, _ = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
     failed_wire_owner(path)
     row = fx.read_json(path)
+    assert row is not None
     if change == "owner":
         row["owner"] = "arbitrary completed owner"
     elif change == "state":
@@ -2217,6 +2282,7 @@ def test_native_host_interruption_retains_unknown_and_resumes_exact_plan(
     assert native.read_bytes() == original
     marker_path = installed.directory / "maintenance.json"
     marker = fx.read_json(marker_path)
+    assert marker is not None
     marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999997, "start_ticks": 1}
     fx.write_json_atomic(marker_path, marker)
     monkeypatch.setattr(recovery, "joined_exit", joined)
@@ -2238,6 +2304,7 @@ def test_native_host_refuses_unbound_owners_or_server_before_effect(
 
     attachment, path, _ = native_mock_recovery_ready(installed, tmp_path, monkeypatch)
     row = fx.read_json(path)
+    assert row is not None
     if change == "owner":
         row["owner"] = "other owner"
     if change == "terminal":
@@ -2277,6 +2344,7 @@ def native_legacy_peer(installed, tmp_path, monkeypatch):
         installed.installation._daemon_identity = daemon
     peer.release()
     row = fx.read_json(peer.directory / "record.json")
+    assert row is not None
     row.pop("native_drain", None)
     row.pop("native_completion", None)
     row.update(
@@ -2318,6 +2386,7 @@ def test_native_joint_recovery_preserves_legacy_local_release_and_native_not_obs
     )
     assert result["outcome"] == "recovered" and native.read_bytes() == original
     row = fx.read_json(peer.directory / "record.json")
+    assert row is not None
     assert row["released_at"] == legacy["released_at"] and row.get("native_drain") is None
     assert fx.native_completion(peer.directory, row)["status"] == "not_observed"
     assert (
@@ -2330,6 +2399,7 @@ def test_native_joint_recovery_preserves_legacy_local_release_and_native_not_obs
         installed.installation
     )
     plan = fx.read_json(primary.directory / "native-host-recovery/plan.json")
+    assert plan is not None
     assert set(plan["named_scope"]) == {peer.id, primary.id}
     assert plan["named_scope"][peer.id]["original_record"] == legacy
     assert "not retrospectively qualified" in plan["named_scope"][peer.id]["classification"]
@@ -2374,6 +2444,7 @@ def test_native_joint_resume_retains_common_scope_after_partial_publication(
     assert native.read_bytes() == original
     marker_path = installed.directory / "maintenance.json"
     marker = fx.read_json(marker_path)
+    assert marker is not None
     marker["owner"] = {**service.ProcessIdentity.of().to_json(), "pid": 99999995, "start_ticks": 1}
     fx.write_json_atomic(marker_path, marker)
     monkeypatch.setattr(recovery, "durable_json", publish)
@@ -2386,7 +2457,8 @@ def test_native_joint_resume_retains_common_scope_after_partial_publication(
     )
     assert (
         native.read_bytes() == original
-        and fx.read_json(peer.directory / "record.json")["released_at"] == legacy["released_at"]
+        and required_record(fx.read_json(peer.directory / "record.json"))["released_at"]
+        == legacy["released_at"]
     )
     assert not marker_path.exists()
 
@@ -2719,7 +2791,7 @@ def test_completed_disposition_authenticates_every_initialization_revision(
     import base64
 
     case = completed_discard
-    revisions = []
+    revisions: list[dict[str, Any]] = []
     predecessor = case.receipt["proofs"]["plan"]
     generation = [5] * 32
     for index in range(2):
@@ -2941,7 +3013,7 @@ def test_current_campaign_disposition_preserves_native_failure_and_releases_host
     assert released["native_completion"] == original["native_completion"]
     assert fx.acknowledge_campaign_discard(attachment.directory, disposal) == released
     assert attachment._storage_id is not None
-    row = Storage().get(attachment._storage_id)
+    row = Storage().get(required_storage_id(attachment._storage_id))
     assert storage_owners.observe(row)["state"] == "released"
     assert row["obligations"][f"attachment:{attachment.id}"]["until"]
 

@@ -437,14 +437,17 @@ def completed_scope_disposition(directory: Path, record: Mapping[str, Any] | Non
         if receipt["local_owner"] != scope_local_owner(directory):
             return False
         scope, original = receipt["scope"], receipt["original_attachment"]
-        hexadecimal = lambda value: (
-            isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
-        )
-        generation = lambda value: (
-            isinstance(value, list)
-            and len(value) == 32
-            and all(type(x) is int and 0 <= x <= 255 for x in value)
-        )
+
+        def hexadecimal(value):
+            return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+        def generation(value):
+            return (
+                isinstance(value, list)
+                and len(value) == 32
+                and all(type(x) is int and 0 <= x <= 255 for x in value)
+            )
+
         databases = scope["databases"]
         if (
             receipt.get("schema") != 1
@@ -1490,7 +1493,7 @@ def retire_serving(name: str) -> dict[str, Any]:
                     with admission([attachment.directory]):
                         output_path = directory / ("retirement-output-" + attachment.id + ".json")
                         command = [
-                            installation.record["installer"],
+                            str(installation.record["installer"]),
                             "snapshot",
                             "--runtime-config",
                             str(runtime_path),
@@ -1499,7 +1502,7 @@ def retire_serving(name: str) -> dict[str, Any]:
                             "--readers-stopped",
                             "--clear-selection",
                             "--job",
-                            plan["job"],
+                            str(plan["job"]),
                         ]
                         durable_json(
                             directory / "retirement-attempt.json",
@@ -1533,6 +1536,10 @@ def retire_serving(name: str) -> dict[str, Any]:
                         finally:
                             attachment.release()
                         row = read_json(attachment.directory / "record.json")
+                        if not isinstance(row, dict):
+                            raise FixtureFailed(
+                                "retirement", "retirement attachment receipt unavailable"
+                            )
                         native = native_completion(attachment.directory, row)
                         if (
                             code
@@ -1715,7 +1722,7 @@ def inventory(env: Mapping[str, str] | None = None) -> list[dict[str, Any]]:
             return []
         raise
     checkout = env.get("LCTX_FIXTURE_CHECKOUT")
-    rows = []
+    rows: list[dict[str, Any]] = []
     for path in sorted((installation.directory / "attachments").glob("*/record.json")):
         row = read_json(path)
         if row is None:
@@ -1772,8 +1779,10 @@ def _recover_local(installation: Installation, directory: Path) -> None:
             raise FixtureFailed(
                 "native",
                 "native completion remains unknown; process cleanup cannot release it; "
-                f"explicit service recovery: just service maintenance --recover-attachment {directory.name} "
-                f"(PD02) or --recover-native-attachment {directory.name} (Started native store/workspace owners)",
+                "explicit service recovery: just service maintenance "
+                f"--recover-attachment {directory.name} "
+                f"(PD02) or --recover-native-attachment {directory.name} "
+                "(Started native store/workspace owners)",
             )
         # Local drainage is separate from native effects. The service manager invokes the
         # native installation drain before disruptive work and before reopening admission.
@@ -1825,12 +1834,13 @@ def _complete_attachment_obligations(
         )
         with guard:
             for consumer, obligation in row["obligations"].items():
-                if obligation.get("temporary_days") is not None:
-                    if not storage_owners.complete(row["id"], consumer, reason=reason):
-                        raise FixtureFailed(
-                            "storage",
-                            "declared attachment obligation completion remains unresolved",
-                        )
+                if obligation.get("temporary_days") is not None and not storage_owners.complete(
+                    row["id"], consumer, reason=reason
+                ):
+                    raise FixtureFailed(
+                        "storage",
+                        "declared attachment obligation completion remains unresolved",
+                    )
 
 
 class _Interrupted(Exception):
@@ -1873,6 +1883,7 @@ def run_attached(
     previous_record = read_json(directory / "record.json") if directory is not None else None
     if (previous_cleanup is not None and previous_cleanup.get("status") != "confirmed") or (
         previous_record
+        and directory is not None
         and (
             _cleanup_pending(previous_record)
             or _native_pending(previous_record, native_completion(directory, previous_record))
@@ -1998,7 +2009,7 @@ def run_attached(
                 attachment._unreaped_child = None
             if server is not None:
                 server._cleanup_protected = guard.cleanup["status"] != "confirmed"
-            updates = {
+            updates: dict[str, Any] = {
                 "command_cleanup": guard.cleanup,
                 "child_exit_code": code if code is not None else guard.returncode,
             }
@@ -2035,7 +2046,8 @@ def run_attached(
             read_json(directory / "record.json"), updates["native_completion"]
         ):
             report(
-                "fixture: native completion unknown; attachment retained independently of child exit"
+                "fixture: native completion unknown; attachment retained "
+                "independently of child exit"
             )
             return code or 1
         assert code is not None

@@ -425,7 +425,9 @@ def inspect_campaign(
             key: installation.record.get("binary", {}).get(key)
             for key in ("version", "sha256", "generation")
         },
-        "server_source": "installation-descriptor; use just service status for current host observation",
+        "server_source": (
+            "installation-descriptor; use just service status for current host observation"
+        ),
         "capabilities": {
             "source": "installation-descriptor",
             "declared": installation.record.get("capabilities"),

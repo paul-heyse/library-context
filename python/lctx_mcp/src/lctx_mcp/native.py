@@ -6,7 +6,7 @@ import asyncio
 import hashlib
 import json
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from lctx_semantics import NativeFailure, NativeSession, wire_decode, wire_failure
 
@@ -23,12 +23,25 @@ def _failure(kind: str) -> NativeFailure:
     return error
 
 
+class RequestOwner(Protocol):
+    def retain(self, size: int) -> None: ...
+    def release(self) -> None: ...
+    def cancel(self) -> None: ...
+    def check(self) -> None: ...
+    async def execute_async(self, vector_json: str | None, remaining_ms: int) -> str: ...
+
+
+class PendingRequest(NamedTuple):
+    owner: RequestOwner
+    delivered: asyncio.Future[bool]
+
+
 class NativeExecutor:
     def __init__(self, session: NativeSession, embedder: Embedder | None = None) -> None:
         self.session = session
         self.embedder = embedder
         self._closed = False
-        self._pending: dict[asyncio.Task[str], object] = {}
+        self._pending: dict[asyncio.Task[str], PendingRequest] = {}
         self._failures: dict[asyncio.Task[str], BaseException] = {}
         self._close_task: asyncio.Task[None] | None = None
 
@@ -49,14 +62,19 @@ class NativeExecutor:
             owner.release()
             raise
         worker = asyncio.create_task(self._execute(owner, tool, request, deadline))
-        self._pending[worker] = owner
-        worker.add_done_callback(self._finished)
+        pending = PendingRequest(owner, asyncio.get_running_loop().create_future())
+        self._pending[worker] = pending
+        worker.add_done_callback(lambda done: self._finished(done, pending))
+        pending.delivered.add_done_callback(lambda _done: self._finished(worker, pending))
+        delivered = False
         try:
             remaining = max(0.0, deadline - asyncio.get_running_loop().time())
             done, _ = await asyncio.wait({worker}, timeout=remaining)
             if not done:
                 raise TimeoutError
-            return worker.result()
+            result = worker.result()
+            delivered = True
+            return result
         except TimeoutError as exc:
             owner.cancel()
             raise _failure("resource_refused") from exc
@@ -66,15 +84,29 @@ class NativeExecutor:
         except BaseException:
             # A delivered error stays with its caller; abandoned worker errors
             # remain owned until close composes them with session/client cleanup.
-            self._failures.pop(worker, None)
+            delivered = True
             raise
+        finally:
+            if not pending.delivered.done():
+                pending.delivered.set_result(delivered)
+            if delivered:
+                self._failures.pop(worker, None)
+            self._finished(worker, pending)
 
-    def _finished(self, worker: asyncio.Task[str]) -> None:
+    def _finished(self, worker: asyncio.Task[str], pending: PendingRequest) -> None:
+        if not worker.done() or not pending.delivered.done():
+            return
         self._pending.pop(worker, None)
+        if not pending.delivered.cancelled() and pending.delivered.result():
+            return
+        if worker in self._failures:
+            return
         if worker.cancelled():
             self._failures[worker] = RuntimeError("native worker ownership was cancelled")
-        elif error := worker.exception():
-            self._failures[worker] = error
+        else:
+            error = worker.exception()
+            if error is not None:
+                self._failures[worker] = error
 
     async def _execute(self, owner, tool: str, request: str, deadline: float) -> str:
         try:
@@ -134,8 +166,8 @@ class NativeExecutor:
         if self._close_task is None:
             self._closed = True
             self.session.stop_accepting()
-            for owner in tuple(self._pending.values()):
-                owner.cancel()
+            for pending in tuple(self._pending.values()):
+                pending.owner.cancel()
             self._close_task = asyncio.create_task(self._drain())
             # Retrieve an abandoned close error; its cached task still returns
             # the identical exception to a later close caller.
@@ -146,16 +178,22 @@ class NativeExecutor:
         self._close_task.result()
 
     async def _drain(self) -> None:
-        await asyncio.gather(*tuple(self._pending), return_exceptions=True)
+        pending = tuple(self._pending.items())
+        await asyncio.gather(*(worker for worker, _ in pending), return_exceptions=True)
+        await asyncio.gather(*(request.delivered for _, request in pending), return_exceptions=True)
+        # Already-complete gather inputs need not yield to queued callbacks.
+        # Settle actual worker and caller ownership before reading the ledger.
+        for worker, request in pending:
+            self._finished(worker, request)
         errors = list(self._failures.values())
         try:
             await self.session.close_async()
-        except Exception as error:
+        except BaseException as error:
             errors.append(error)
         if self.embedder:
             try:
                 await self.embedder.aclose()
-            except Exception as error:
+            except BaseException as error:
                 errors.append(error)
         if errors:
-            raise ExceptionGroup("native request/session/client completion failed", errors)
+            raise BaseExceptionGroup("native request/session/client completion failed", errors)

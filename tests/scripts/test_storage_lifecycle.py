@@ -437,7 +437,8 @@ def test_prepared_reference_matching_preserves_branch_semantics(storage, text, c
     decision = storage.disposition(storage.get(object_id), references=references)
     expected = (
         f"consumer coverage unavailable: {source}"
-        if text.startswith("__") else f"current tracked reference: {source}"
+        if text.startswith("__")
+        else f"current tracked reference: {source}"
     )
     assert decision["reasons"] == ([expected] if cited else [])
     assert decision["disposition"] == (
@@ -450,11 +451,13 @@ def test_prepared_references_preserve_name_matches_reason_order_and_duplicates(s
     object_id = publish(storage, path)
     release(storage, object_id)
     first, second = storage.root / "first.md", storage.root / "second.md"
-    references = storage.prepare_references([
-        (first, path.name),
-        (second, "__missing_participant__"),
-        (first, f"[one]({path}) [two]({path}/output)"),
-    ])
+    references = storage.prepare_references(
+        [
+            (first, path.name),
+            (second, "__missing_participant__"),
+            (first, f"[one]({path}) [two]({path}/output)"),
+        ]
+    )
     decision = storage.disposition(storage.get(object_id), references=references)
     assert decision["reasons"] == [
         f"current tracked reference: {first}",
@@ -477,34 +480,48 @@ def profile_scope(storage, request):
     run = storage.root / "runs/run01"
     run.mkdir(parents=True)
     (run / "owner.lock").touch()
-    write_json_atomic(run / "record.json", {
-        "schema": 2, "id": "run01", "owner": ProcessIdentity.of().to_json(),
-        "child": None, "termination": "completed", "cleanup": {"status": "confirmed"},
-        "ended": lifecycle.now(),
-    })
+    write_json_atomic(
+        run / "record.json",
+        {
+            "schema": 2,
+            "id": "run01",
+            "owner": ProcessIdentity.of().to_json(),
+            "child": None,
+            "termination": "completed",
+            "cleanup": {"status": "confirmed"},
+            "ended": lifecycle.now(),
+        },
+    )
     parent_id = publish(storage, run)
     release(storage, parent_id)
     path = run / component
     path.mkdir()
     (path / "output").write_text("retained profile content")
     object_id = storage.publish(
-        path, category, {"kind": "profile", "path": str(run)}, "control", managed=True,
+        path,
+        category,
+        {"kind": "profile", "path": str(run)},
+        "control",
+        managed=True,
         parent=parent_id,
     )
     release(storage, object_id)
     return storage, object_id, path
 
 
-@pytest.mark.parametrize(("text", "cited"), [
-    ("Run just compile-profile record; inspect compile-profile-reports afterward.", False),
-    ("`just compile-profile record --focus cpg-core`", False),
-    ("Generic component `{component}` is used by the profiler.", False),
-    ("Exact lifetime {id}", True),
-    ("Exact output {path}", True),
-    ("[exact](runs/run01/{component})", True),
-    ("[output](runs/run01/{component}/output)", True),
-    ("[declared run scope](runs/run01)", True),
-])
+@pytest.mark.parametrize(
+    ("text", "cited"),
+    [
+        ("Run just compile-profile record; inspect compile-profile-reports afterward.", False),
+        ("`just compile-profile record --focus cpg-core`", False),
+        ("Generic component `{component}` is used by the profiler.", False),
+        ("Exact lifetime {id}", True),
+        ("Exact output {path}", True),
+        ("[exact](runs/run01/{component})", True),
+        ("[output](runs/run01/{component}/output)", True),
+        ("[declared run scope](runs/run01)", True),
+    ],
+)
 def test_profile_tool_mentions_require_exact_lifetime_citation(profile_scope, text, cited):
     storage, object_id, path = profile_scope
     source = storage.root / "docs/consumer.md"
@@ -531,6 +548,70 @@ def test_profile_unique_basename_and_explicit_hold_remain_protective(profile_sco
     decision = storage.disposition(storage.get(object_id), references=[(source, path.name)])
     assert decision["reasons"] == ["consumer retained-evidence requires raw-replay"]
     assert decision["disposition"] == "retained"
+
+
+@pytest.mark.parametrize("component", ["verify-evidence", "verify-evidence-receipt"])
+def test_run_evidence_components_require_exact_owner_citation(storage, component):
+    from harness import ProcessIdentity, write_json_atomic
+
+    storage.config.write_text(
+        storage.config.read_text() + '\n[categories.run-evidence]\nowner="run"\ngrace_days=0\n'
+    )
+    storage = lifecycle.Storage(root=storage.root, state=storage.state)
+    run = storage.root / "runs/20261015T000000Z-owned-control"
+    run.mkdir(parents=True)
+    (run / "owner.lock").touch()
+    write_json_atomic(
+        run / "record.json",
+        {
+            "schema": 2,
+            "id": run.name,
+            "owner": ProcessIdentity.of().to_json(),
+            "child": None,
+            "termination": "completed",
+            "cleanup": {"status": "confirmed"},
+            "ended": lifecycle.now(),
+        },
+    )
+    parent_id = publish(storage, run)
+    release(storage, parent_id)
+    path = run / component
+    path.mkdir()
+    (path / "output").write_text("owned evidence")
+    object_id = storage.publish(
+        path,
+        "run-evidence",
+        {"kind": "run", "path": str(run)},
+        "control",
+        managed=True,
+        parent=parent_id,
+    )
+    release(storage, object_id)
+    source = storage.root / "docs/consumer.md"
+    for text in (
+        f"The {component} component retains command evidence.",
+        f"[another run](runs/another-run/{component})",
+    ):
+        assert (
+            storage.disposition(storage.get(object_id), references=[(source, text)])["disposition"]
+            == "eligible"
+        )
+    for text in (
+        object_id,
+        str(path),
+        f"[exact](runs/{run.name}/{component})",
+        f"[descendant](runs/{run.name}/{component}/output)",
+        f"[declared owner](runs/{run.name})",
+    ):
+        assert storage.disposition(storage.get(object_id), references=[(source, text)])[
+            "reasons"
+        ] == [f"current tracked reference: {source}"]
+    storage.retain(object_id, "current-consumer", "raw-replay")
+    assert (
+        storage.disposition(storage.get(object_id), references=[(source, component)])["disposition"]
+        == "retained"
+    )
+    assert (path / "output").read_text() == "owned evidence"
 
 
 @pytest.mark.parametrize("component", ["compile-profile", "compile-profile-reports"])

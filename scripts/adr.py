@@ -54,6 +54,7 @@ MUTABLE_WHEN_ACCEPTED = ("status", "superseded-by")
 AMENDMENTS = "## Amendments"
 FILE_RE = re.compile(r"^(\d{4})-[a-z0-9][a-z0-9-]*\.md$")
 HEADING_RE = re.compile(r"^#+\s+§([A-Z]?\d+(?:\.\d+)*)\b", re.M)
+OWNER_REFERENCE_RE = re.compile(r"([a-z0-9]+(?:-[a-z0-9]+)*)\s+§([A-Z]?\d+(?:\.\d+)*)")
 
 
 @dataclass
@@ -91,6 +92,11 @@ def design_reference(ref: str) -> str:
     """
     if len(ref) >= 2 and ref[0] == ref[-1] and ref[0] in {"'", '"'}:
         ref = ref[1:-1]
+    qualified = OWNER_REFERENCE_RE.fullmatch(ref)
+    if qualified:
+        # lint separately checks the declared owner against the actual section
+        # path, so an arbitrary prefix cannot silently supply valid authority.
+        return f"§{qualified[2]}"
     fragment = re.fullmatch(r"section-([a-z]?\d+(?:-\d+)*)", ref)
     if fragment:
         ref = fragment[1].upper().replace("-", ".")
@@ -247,7 +253,8 @@ def render_index(root: Path, adrs: list[Adr]) -> str:
 def lint(root: Path, *, check_git: bool = True) -> list[str]:
     adrs = load_all(root)
     try:
-        ids = design_ids(root)
+        owners = design_sections.resolve(root)
+        ids = set(owners)
     except ValueError as error:
         return [str(error)]
     by_id = {a.id: a for a in adrs}
@@ -277,6 +284,19 @@ def lint(root: Path, *, check_git: bool = True) -> list[str]:
         for ref in a.refs("design"):
             if not ref.startswith("§") or ref[1:] not in ids:
                 err(a, f"design ref {ref} does not resolve to an architectural section owner")
+        raw_design = a.meta.get("design")
+        for raw_ref in raw_design if isinstance(raw_design, list) else [raw_design]:
+            if raw_ref is None:
+                continue
+            qualified = OWNER_REFERENCE_RE.fullmatch(raw_ref.strip("\"'"))
+            if qualified:
+                section = owners.get(qualified[2])
+                if section is not None and section.path.stem != qualified[1]:
+                    err(
+                        a,
+                        f"design ref {raw_ref} names {qualified[1]}, "
+                        f"but §{qualified[2]} belongs to {section.path.stem}",
+                    )
         superseded_by = a.refs("superseded-by")
         if (a.status == "superseded") != bool(superseded_by):
             err(a, "status `superseded` and `superseded-by` must be set together")

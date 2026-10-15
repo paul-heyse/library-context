@@ -8,14 +8,18 @@ import pytest
 import executable_observation as executable
 
 
-def test_each_mutable_completion_hashes_and_later_replacement_preserves_receipt(tmp_path, monkeypatch):
+def test_each_mutable_completion_hashes_and_later_replacement_preserves_receipt(
+    tmp_path, monkeypatch
+):
     path = tmp_path / "cargo-output"
     path.write_bytes(b"first executable")
     original = executable.hashlib.file_digest
     calls = []
+
     def hashed(stream, algorithm):
         calls.append(stream.fileno())
         return original(stream, algorithm)
+
     monkeypatch.setattr(executable.hashlib, "file_digest", hashed)
     first = executable.observe(path)
     again = executable.observe(path)
@@ -37,6 +41,7 @@ def test_completion_refuses_descriptor_or_pathname_races(tmp_path, monkeypatch, 
     path = tmp_path / "output"
     path.write_bytes(b"before")
     original = executable.hashlib.file_digest
+
     def raced(stream, algorithm):
         digest = original(stream, algorithm)
         if race == "replace":
@@ -48,6 +53,7 @@ def test_completion_refuses_descriptor_or_pathname_races(tmp_path, monkeypatch, 
         else:
             path.unlink()
         return digest
+
     monkeypatch.setattr(executable.hashlib, "file_digest", raced)
     observed = executable.observe(path)
     assert observed["sha256"] is None

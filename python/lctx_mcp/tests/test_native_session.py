@@ -302,7 +302,9 @@ async def test_cancellation_retains_worker_admission_until_shutdown_drains():
         async def execute_async(self, vector, remaining_ms):
             assert 0 < remaining_ms <= 30_000
             entered.set()
-            assert await asyncio.to_thread(released.wait, 5), "test did not release its owned thread"
+            assert await asyncio.to_thread(released.wait, 5), (
+                "test did not release its owned thread"
+            )
             return "{}"
 
     class OwnedThread:
@@ -543,8 +545,9 @@ async def test_embedding_waits_leave_unrelated_tool_and_resource_requests_free()
             return "{}"
 
     class Session:
-        closed = False
-        owners = []
+        def __init__(self):
+            self.closed = False
+            self.owners = []
 
         def admit(self, tool, request):
             assert not self.closed
@@ -561,13 +564,23 @@ async def test_embedding_waits_leave_unrelated_tool_and_resource_requests_free()
 
     session = Session()
     executor = NativeExecutor(session, Preparation())
-    searches = [asyncio.create_task(executor.execute("search_operations",
-        {"library": "control", "query": "blocked"})) for _ in range(2)]
+    searches = [
+        asyncio.create_task(
+            executor.execute("search_operations", {"library": "control", "query": "blocked"})
+        )
+        for _ in range(2)
+    ]
     for _ in searches:
         await asyncio.wait_for(entered.get(), 2)
     # Both native tools and capability resources route through this executor.
-    assert await asyncio.wait_for(executor.execute("browse_library", {"library": "control"}), 2) == "{}"
-    assert await asyncio.wait_for(executor.execute("get_capability", {"capability": [0] * 16}), 2) == "{}"
+    assert (
+        await asyncio.wait_for(executor.execute("browse_library", {"library": "control"}), 2)
+        == "{}"
+    )
+    assert (
+        await asyncio.wait_for(executor.execute("get_capability", {"capability": [0] * 16}), 2)
+        == "{}"
+    )
     assert len(executor._pending) == 2
     searches[0].cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -588,20 +601,95 @@ async def test_embedding_waits_leave_unrelated_tool_and_resource_requests_free()
 
 
 @pytest.mark.anyio
-async def test_native_and_http_close_failures_both_survive():
+@pytest.mark.parametrize("failure_type", [RuntimeError, asyncio.CancelledError])
+async def test_native_and_http_close_failures_both_survive(failure_type):
     class Session:
         def stop_accepting(self):
             pass
 
         async def close_async(self):
-            raise RuntimeError("native finality unknown")
+            raise failure_type("native finality unknown")
 
     class Embedder:
+        from lctx_mcp.embedder import FAKE, Spec
+
+        spec = Spec.packaged(FAKE)
+
+        async def embed(self, texts, *, retain=None):
+            raise AssertionError("close-only control must not embed")
+
         async def aclose(self):
             raise ValueError("HTTP close failed")
 
     executor = NativeExecutor(Session(), Embedder())
-    with pytest.raises(ExceptionGroup) as failure:
+    with pytest.raises(BaseExceptionGroup) as failure:
         await executor.close()
+    assert isinstance(failure.value, ExceptionGroup) is (failure_type is RuntimeError)
     assert [str(error) for error in failure.value.exceptions] == [
-        "native finality unknown", "HTTP close failed"]
+        "native finality unknown",
+        "HTTP close failed",
+    ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("abandoned", [False, True])
+async def test_worker_base_exception_delivery_and_session_cleanup(abandoned):
+    entered, released, closed = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    class WorkerFailure(BaseException):
+        pass
+
+    original = WorkerFailure("abandoned worker failed")
+
+    class Request:
+        def retain(self, _bytes):
+            pass
+
+        def check(self):
+            pass
+
+        def cancel(self):
+            pass
+
+        def release(self):
+            pass
+
+        async def execute_async(self, _vector, _remaining_ms):
+            entered.set()
+            await released.wait()
+            raise original
+
+    class Session:
+        def admit(self, _tool, _request):
+            return Request()
+
+        def stop_accepting(self):
+            pass
+
+        async def close_async(self):
+            assert released.is_set()
+            closed.set()
+
+    executor = NativeExecutor(Session())
+    caller = asyncio.create_task(executor.execute("browse_library", {"library": "control"}))
+    await asyncio.wait_for(entered.wait(), 2)
+    if abandoned:
+        caller.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await caller
+    closing = asyncio.create_task(executor.close())
+    released.set()
+    if abandoned:
+        with pytest.raises(BaseExceptionGroup) as failure:
+            await asyncio.wait_for(closing, 2)
+        assert failure.value.exceptions == (original,)
+        with pytest.raises(BaseExceptionGroup) as repeated:
+            await executor.close()
+        assert repeated.value is failure.value
+    else:
+        with pytest.raises(WorkerFailure) as delivered:
+            await caller
+        assert delivered.value is original
+        await asyncio.wait_for(closing, 2)
+        await executor.close()
+    assert closed.is_set()

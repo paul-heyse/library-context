@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -70,9 +71,17 @@ def test_sanitized_observation_keeps_unresolved_transfer_dependencies(tmp_path):
     root = tmp_path / "service"
     root.mkdir(mode=0o700)
     installation = SimpleNamespace(
-        directory=root, id="owned", record={"installer": "/checkout/lctx", "password": "private",
+        directory=root,
+        id="owned",
+        record={
+            "installer": "/checkout/lctx",
+            "password": "private",
             "campaign_regeneration": {"path": "/retired-producer/plan.json", "sha256": "a" * 64},
-            "initialization_revision": {"path": "/retired-producer/revision.json", "sha256": "b" * 64}}
+            "initialization_revision": {
+                "path": "/retired-producer/revision.json",
+                "sha256": "b" * 64,
+            },
+        },
     )
     durable_json(
         root / "installer-transfer.json",
@@ -81,7 +90,9 @@ def test_sanitized_observation_keeps_unresolved_transfer_dependencies(tmp_path):
     row = assets.dependencies(installation)
     assert {item["path"] for item in row["dependencies"]} == {"/checkout/lctx", "/stable/lctx"}
     assert "private" not in json.dumps(row)
-    assert "retired-producer" not in json.dumps(row), "completed producer pointers create no live source dependency"
+    assert "retired-producer" not in json.dumps(row), (
+        "completed producer pointers create no live source dependency"
+    )
     assert not row["stable_installer"]
 
 
@@ -99,14 +110,19 @@ def test_dependency_observation_without_maintenance_preserves_current_installer(
     root = tmp_path / "service"
     root.mkdir()
     selected = assets.tools_root(root) / "lctx" / ("a" * 64) / "lctx"
-    installation = SimpleNamespace(directory=root, id="owned", record={
-        "installer": str(selected), "installer_generation": {"path": str(selected), "sha256": "a" * 64}
-    })
+    installation = SimpleNamespace(
+        directory=root,
+        id="owned",
+        record={
+            "installer": str(selected),
+            "installer_generation": {"path": str(selected), "sha256": "a" * 64},
+        },
+    )
     observed = assets.dependencies(installation)
     assert observed["stable_installer"]
-    assert observed["dependencies"] == [{
-        "path": str(selected), "sha256": "a" * 64, "role": "maintenance-executable"
-    }]
+    assert observed["dependencies"] == [
+        {"path": str(selected), "sha256": "a" * 64, "role": "maintenance-executable"}
+    ]
     (root / "maintenance.json").write_text("{")
     with pytest.raises(json.JSONDecodeError):
         assets.dependencies(installation)
@@ -131,9 +147,11 @@ def test_service_survival_witness_is_complete_nonempty_and_preserves_duplicates(
 def test_service_survival_handle_uses_exact_typed_database_and_generation():
     import qualify_storage_service_survival as survival
 
-    installation = SimpleNamespace(record={"service_generation": [7] * 32})
-    valid = {"database": {"namespace": "library_context", "database": "validation"},
-             "service_generation": "07" * 32}
+    installation = survival.service.Installation(Path("."), {"service_generation": [7] * 32})
+    valid = {
+        "database": {"namespace": "library_context", "database": "validation"},
+        "service_generation": "07" * 32,
+    }
     survival.validation_handle(valid, installation)
     for changed in (
         {**valid, "database": "validation"},
@@ -141,12 +159,15 @@ def test_service_survival_handle_uses_exact_typed_database_and_generation():
         {**valid, "database": {"namespace": "library_context", "database": "main"}},
         {**valid, "service_generation": "08" * 32},
     ):
-        with pytest.raises(survival.service.FixtureBlocked, match="installed validation publication"):
+        with pytest.raises(
+            survival.service.FixtureBlocked, match="installed validation publication"
+        ):
             survival.validation_handle(changed, installation)
 
 
 def test_service_survival_resolution_hold_is_indefinite_and_preserves_existing_retention(tmp_path):
     import qualify_storage_service_survival as survival
+
     from storage_lifecycle import Storage
 
     run = tmp_path / "run"
@@ -154,8 +175,14 @@ def test_service_survival_resolution_hold_is_indefinite_and_preserves_existing_r
     output = run / "sm8-service-survival"
     output.mkdir()
     storage = Storage()
-    ident = storage.publish(run, "run-receipt", {"kind": "run", "path": str(run)},
-                            "run:control", temporary_days=90, managed=True)
+    ident = storage.publish(
+        run,
+        "run-receipt",
+        {"kind": "run", "path": str(run)},
+        "run:control",
+        temporary_days=90,
+        managed=True,
+    )
     hold = survival.retain_checkout_run(run, output)
     obligation = storage.get(ident)["obligations"][hold["consumer"]]
     assert obligation["temporary_days"] is None and obligation["until"] is None
@@ -173,11 +200,25 @@ def test_service_survival_resolution_hold_is_indefinite_and_preserves_existing_r
     assert marker.read_text() == "caller-retained\n"
 
 
-@pytest.mark.parametrize("fault", ["branch-only", "missing-registered", "after-add", "interrupt", "unregistered-path",
-                                  "changed-branch", "cleanup-refused", None])
-def test_survival_partial_creation_reconciles_exact_owner_and_retains_failures(tmp_path, monkeypatch, fault):
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "branch-only",
+        "missing-registered",
+        "after-add",
+        "interrupt",
+        "unregistered-path",
+        "changed-branch",
+        "cleanup-refused",
+        None,
+    ],
+)
+def test_survival_partial_creation_reconciles_exact_owner_and_retains_failures(
+    tmp_path, monkeypatch, fault
+):
     """Controlled local Git/service observations, never an actual survival qualification."""
     import contextlib
+
     import qualify_storage_service_survival as survival
 
     run = tmp_path / "run"
@@ -188,10 +229,14 @@ def test_survival_partial_creation_reconciles_exact_owner_and_retains_failures(t
     attached.write_text("{}")
     runtime = attachment / "compiler-runtime.json"
     cfg = {"database": "validation", "namespace": "library_context"}
-    runtime.write_text(json.dumps({**cfg, "selection": str(attachment / "scratch" / "selected.json")}))
+    runtime.write_text(
+        json.dumps({**cfg, "selection": str(attachment / "scratch" / "selected.json")})
+    )
     monkeypatch.setenv("LCTX_SURREAL_TEST_CONFIG", str(attached))
     monkeypatch.setenv("LCTX_COMPILER_RUNTIME_CONFIG", str(runtime))
-    installation = SimpleNamespace(id="control", record={"service_generation": [7] * 32}, runtime=lambda: cfg)
+    installation = SimpleNamespace(
+        id="control", record={"service_generation": [7] * 32}, runtime=lambda: cfg
+    )
     handle = tmp_path / "handle.json"
     handle.write_text(json.dumps({"database": cfg, "service_generation": "07" * 32}))
     installer = tmp_path / "installer"
@@ -202,15 +247,29 @@ def test_survival_partial_creation_reconciles_exact_owner_and_retains_failures(t
     monkeypatch.setattr(survival.fixture.Server, "open", lambda _id: installation)
     monkeypatch.setattr(survival.fixture, "inspection_scope", lambda *_args: None)
     monkeypatch.setattr(survival.service, "borrow", lambda *_args: contextlib.nullcontext())
-    monkeypatch.setattr(survival, "observe_service", lambda _i: {"installer": {
-        "path": str(installer), "sha256": survival.service.file_sha256(installer)}})
+    monkeypatch.setattr(
+        survival,
+        "observe_service",
+        lambda _i: {
+            "installer": {"path": str(installer), "sha256": survival.service.file_sha256(installer)}
+        },
+    )
     archive = tmp_path / "archive"
     archive.write_bytes(b"controlled-archive")
-    monkeypatch.setattr(survival, "approved_recovery", lambda _i: (archive, {"exact": "controlled"}))
-    monkeypatch.setattr(survival, "publication", lambda *_args, **_kw: {
-        "audit": {"exact": "controlled"}, "details": {}, "rows": [{"id": 1}]})
+    monkeypatch.setattr(
+        survival, "approved_recovery", lambda _i: (archive, {"exact": "controlled"})
+    )
+    monkeypatch.setattr(
+        survival,
+        "publication",
+        lambda *_args, **_kw: {
+            "audit": {"exact": "controlled"},
+            "details": {},
+            "rows": [{"id": 1}],
+        },
+    )
     events = []
-    state = {"branch_tip": None, "registrations": []}
+    state: dict[str, Any] = {"branch_tip": None, "registrations": []}
     commit = "a" * 40
 
     def git(*args, **kwargs):
@@ -219,8 +278,10 @@ def test_survival_partial_creation_reconciles_exact_owner_and_retains_failures(t
         elif args == ("rev-parse", "--path-format=absolute", "--git-common-dir"):
             body = b"/controlled/common.git"
         elif args[:2] == ("worktree", "list"):
-            body = b"".join(b"\0".join((key + " " + value).encode() for key, value in row.items())
-                             + b"\0\0" for row in state["registrations"])
+            body = b"".join(
+                b"\0".join((key + " " + value).encode() for key, value in row.items()) + b"\0\0"
+                for row in state["registrations"]
+            )
         elif args[:3] == ("rev-parse", "--verify", "--quiet"):
             body = (state["branch_tip"] or "").encode()
             return SimpleNamespace(returncode=0 if body else 1, stdout=body)
@@ -243,7 +304,10 @@ def test_survival_partial_creation_reconciles_exact_owner_and_retains_failures(t
         receipt = json.loads((run / "sm8-service-survival" / "receipt.json").read_bytes())
         assert events == ["retained"]
         assert receipt["checkout_creation_started"] and receipt["checkout_intent"]["before"] == {
-            "path_present": False, "branch_tip": None, "registrations": []}
+            "path_present": False,
+            "branch_tip": None,
+            "registrations": [],
+        }
         events.append("create")
         target = kwargs["base"] / name
         state["target"] = target
@@ -251,11 +315,13 @@ def test_survival_partial_creation_reconciles_exact_owner_and_retains_failures(t
         if fault not in ("branch-only", "missing-registered"):
             target.mkdir()
             if fault != "unregistered-path":
-                state["registrations"] = [{"worktree": str(target), "HEAD": commit,
-                                           "branch": "refs/heads/wt/" + name}]
+                state["registrations"] = [
+                    {"worktree": str(target), "HEAD": commit, "branch": "refs/heads/wt/" + name}
+                ]
         if fault == "missing-registered":
-            state["registrations"] = [{"worktree": str(target), "HEAD": commit,
-                                       "branch": "refs/heads/wt/" + name}]
+            state["registrations"] = [
+                {"worktree": str(target), "HEAD": commit, "branch": "refs/heads/wt/" + name}
+            ]
         if fault == "changed-branch":
             state["branch_tip"] = "b" * 40
         if fault == "interrupt":
@@ -265,7 +331,9 @@ def test_survival_partial_creation_reconciles_exact_owner_and_retains_failures(t
         return 0
 
     def remove(name, **kwargs):
-        assert state["target"].exists(), "missing target must never reach generic removal/global prune"
+        assert state["target"].exists(), (
+            "missing target must never reach generic removal/global prune"
+        )
         assert not kwargs.get("force", False)
         assert kwargs["into"] == commit and kwargs["base"] / name == state["target"]
         events.append("remove")
@@ -279,8 +347,20 @@ def test_survival_partial_creation_reconciles_exact_owner_and_retains_failures(t
     monkeypatch.setattr(survival.worktree, "create", create)
     monkeypatch.setattr(survival.worktree, "remove", remove)
     if fault:
-        expected_error = (BaseExceptionGroup if fault in ("branch-only", "missing-registered", "changed-branch", "unregistered-path", "cleanup-refused")
-                          else KeyboardInterrupt if fault == "interrupt" else RuntimeError)
+        expected_error = (
+            BaseExceptionGroup
+            if fault
+            in (
+                "branch-only",
+                "missing-registered",
+                "changed-branch",
+                "unregistered-path",
+                "cleanup-refused",
+            )
+            else KeyboardInterrupt
+            if fault == "interrupt"
+            else RuntimeError
+        )
         with pytest.raises(expected_error):
             survival.qualify(handle, "entity", execute=True)
     else:

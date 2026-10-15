@@ -35,7 +35,7 @@ import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import IO, Any, cast
 
 from harness import ProcessIdentity, hold_lock, lock_held, read_json, write_json_atomic
 from storage_lifecycle import Blocked as StorageBlocked
@@ -796,18 +796,17 @@ def install(
         )
     if server_generation and purpose != LIFECYCLE_PURPOSE:
         raise FixtureBlocked("ownership", "borrowed server generation requires lifecycle purpose")
-    if campaign:
-        if (
-            not env.get("LCTX_SURREAL_SERVICE_CONFIG")
-            or root
-            == state_root(
-                {k: v for k, v in env.items() if k != "LCTX_SURREAL_SERVICE_CONFIG"}
-            ).resolve()
-        ):
-            raise FixtureBlocked(
-                "ownership",
-                "campaign installation requires an explicit separate service configuration",
-            )
+    if campaign and (
+        not env.get("LCTX_SURREAL_SERVICE_CONFIG")
+        or root
+        == state_root(
+            {k: v for k, v in env.items() if k != "LCTX_SURREAL_SERVICE_CONFIG"}
+        ).resolve()
+    ):
+        raise FixtureBlocked(
+            "ownership",
+            "campaign installation requires an explicit separate service configuration",
+        )
     from storage_lifecycle import admission
     from storage_service import tools_root
 
@@ -2417,7 +2416,9 @@ def executable_identity(info: os.stat_result) -> tuple[int, ...]:
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
-_checked_generations = contextvars.ContextVar("checked_service_generations", default=())
+_checked_generations: contextvars.ContextVar[tuple[CheckedServiceGeneration, ...]] = (
+    contextvars.ContextVar("checked_service_generations", default=())
+)
 
 
 def checked_generation(installation: Installation) -> CheckedServiceGeneration | None:
@@ -3040,7 +3041,7 @@ def _backup_shape(installation: Installation) -> tuple[list[str], list[dict]]:
     for asset in external:
         path = Path(asset["path"])
         asset["directories"] = (
-            (["."] + sorted(p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_dir()))
+            ([".", *sorted(p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_dir())])
             if asset["directory"]
             else []
         )
@@ -3087,7 +3088,10 @@ def _backup_service(installation: Installation, archive: Path) -> dict[str, Any]
             )
             with os.fdopen(fd, "wb") as stream:
                 writer = _ArchiveHashWriter(stream)
-                with tarfile.open(fileobj=writer, mode="w|", dereference=True) as tar:
+                # Stream mode consumes the borrowed write adapter without taking stream ownership.
+                with tarfile.open(
+                    fileobj=cast(IO[bytes], writer), mode="w|", dereference=True
+                ) as tar:
                     for name, path in sources.items():
                         inventory[name], copied[name] = _archive_asset(tar, name, path)
                     if (
@@ -3278,7 +3282,7 @@ def _stage_recovery(installation: Installation, archive: Path, stage: Path) -> d
         import surrealdb_server
 
         archived_generation = read_json(stage / "assets/server-generation.json")
-        if archived_generation != generation:
+        if not isinstance(archived_generation, dict) or archived_generation != generation:
             raise FixtureBlocked(
                 "identity", "backup server generation provenance differs from installation"
             )
@@ -3633,7 +3637,10 @@ def _installer_scope_markers(installation: Installation) -> dict:
     for database in DATABASES:
         rows = sql(
             installation,
-            "SELECT generation,schema,schema_version,admission_open FROM native_installation:current;",
+            (
+                "SELECT generation,schema,schema_version,admission_open FROM "
+                "native_installation:current;"
+            ),
             cfg=installation.runtime(database, installer=True),
         )
         values = rows[0].get("result") if len(rows) == 1 else None
@@ -3842,7 +3849,7 @@ def handoff_installer(installation: Installation, source: Path) -> dict:
                 private_directory(root / "installer-handoffs")
                 directory = root / "installer-handoffs" / operation
                 directory.mkdir(parents=True, mode=0o700)
-                plan = {
+                plan: dict[str, Any] = {
                     "schema": 1,
                     "operation": operation,
                     "installation_id": installation.id,
@@ -3873,9 +3880,13 @@ def handoff_installer(installation: Installation, source: Path) -> dict:
                         "journal_sha256": file_sha256(journal),
                     },
                 }
+            assert marker is not None
             marker.update(owner=ProcessIdentity.of().to_json(), token=token)
             durable_json(marker_path, marker)
             marker_bytes = _installer_handoff_bytes(marker_path)
+            handoff_reference = marker["installer_handoff"]
+            if not isinstance(handoff_reference, dict):
+                raise FixtureBlocked("identity", "installer handoff reference is unavailable")
 
             def verify(*, closed: bool | None = None) -> dict:
                 if (
@@ -3885,7 +3896,7 @@ def handoff_installer(installation: Installation, source: Path) -> dict:
                         base64.b64decode(plan["previous_bytes"], validate=True),
                         base64.b64decode(plan["successor_bytes"], validate=True),
                     )
-                    or _installer_handoff_plan(installation, marker["installer_handoff"])[1] != plan
+                    or _installer_handoff_plan(installation, handoff_reference)[1] != plan
                     or file_sha256(_unit_path(installation.unit)) != plan["unit_sha256"]
                     or any(
                         file_sha256(Path(path)) != digest
@@ -4009,7 +4020,11 @@ def _server_handoff_plan(
         ):
             raise FixtureBlocked("identity", "immutable server handoff journal changed")
         plan = read_json(journal)
-        if plan.get("operation") != operation or plan.get("installation_id") != installation.id:
+        if (
+            not isinstance(plan, dict)
+            or plan.get("operation") != operation
+            or plan.get("installation_id") != installation.id
+        ):
             raise FixtureBlocked("identity", "server handoff differs from its installation")
         return journal, plan
     except OSError, TypeError, AttributeError, ValueError:
@@ -4095,7 +4110,10 @@ def _server_scope_markers(
     for db in DATABASES:
         rows = sql(
             installation,
-            "SELECT generation,schema,schema_version,admission_open FROM native_installation:current;",
+            (
+                "SELECT generation,schema,schema_version,admission_open FROM "
+                "native_installation:current;"
+            ),
             cfg=installation.runtime(db, installer=True),
         )
         values = rows[0].get("result") if len(rows) == 1 else None
@@ -4164,6 +4182,7 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
             resumed = bool(marker and marker.get("server_handoff"))
             port = int(installation.endpoint.rsplit(":", 1)[1])
             if resumed:
+                assert marker is not None
                 journal, plan = _server_handoff_plan(installation, marker["server_handoff"])
                 if plan.get("service_generation") != installation.record["service_generation"]:
                     raise FixtureBlocked(
@@ -4193,7 +4212,7 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
                 operation = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
                 directory = installation.directory / "server-handoffs" / operation
                 directory.mkdir(parents=True, mode=0o700)
-                plan = {
+                plan: dict[str, Any] = {
                     "schema": 1,
                     "operation": operation,
                     "installation_id": installation.id,
@@ -4221,6 +4240,7 @@ def handoff_server(installation: Installation, descriptor: Path) -> dict:
                     "journal_sha256": file_sha256(journal),
                     "phase": "prepared",
                 }
+            assert marker is not None
             marker.update(owner=ProcessIdentity.of().to_json(), token=secrets.token_urlsafe(32))
             durable_json(marker_path, marker)
             if installation.record["binary"] not in (
@@ -4328,7 +4348,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="RUN",
-        help="additional exact managed-run quiescence obligation; does not establish target or marker ancestry",
+        help=(
+            "additional exact managed-run quiescence obligation; does not "
+            "establish target or marker ancestry"
+        ),
     )
     commands.add_parser("check", help="read-only compatibility and native readiness")
     commands.add_parser("status", help="read-only ownership, state and maintenance observation")
@@ -4356,19 +4379,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--recover-native-attachment",
         metavar="ID",
         action="append",
-        help="campaign-only Started native owner recovery with source-correlated registered shutdown join",
+        help=(
+            "campaign-only Started native owner recovery with "
+            "source-correlated registered shutdown join"
+        ),
     )
     maintenance_parser.add_argument(
         "--legacy-attachment-run",
         metavar="ID=RUN",
         action="append",
         default=[],
-        help="preserve the explicitly named historical local-release peer's original ended-run evidence",
+        help=(
+            "preserve the explicitly named historical local-release peer's "
+            "original ended-run evidence"
+        ),
     )
     operations.add_argument(
         "--prepare-grpc-recovery",
         action="store_true",
-        help="explicit campaign-only positive shutdown-log preparation; requires resolved borrowers",
+        help=(
+            "explicit campaign-only positive shutdown-log preparation; requires resolved borrowers"
+        ),
     )
     operations.add_argument("--restart", action="store_true")
     operations.add_argument("--check", action="store_true")
@@ -4594,7 +4625,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         ):
                             raise FixtureBlocked(
                                 "maintenance",
-                                "incomplete server handoff requires the exact --server-generation descriptor",
+                                (
+                                    "incomplete server handoff requires the exact "
+                                    "--server-generation "
+                                    "descriptor"
+                                ),
                             )
                         if row and (
                             row.get("installer_handoff")
@@ -4602,7 +4637,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         ):
                             raise FixtureBlocked(
                                 "maintenance",
-                                "incomplete installer handoff requires the exact --handoff-installer candidate",
+                                (
+                                    "incomplete installer handoff requires the exact "
+                                    "--handoff-installer candidate"
+                                ),
                             )
                         if row and ProcessIdentity.from_json(row["owner"]).alive():
                             raise FixtureBlocked("ownership", "maintenance owner is still alive")

@@ -116,6 +116,31 @@ def test_canonical_binding_fragment_preserves_the_stable_owner() -> None:
     assert adr.design_reference("section-B1") == "section-B1"
 
 
+def test_owner_qualified_design_reference_preserves_accepted_bytes_and_checks_actual_owner(
+    root: Path,
+) -> None:
+    path = new(root, "qualified-section", '["identity §4.2"]', decide=False)
+    design = root / "docs/design/DESIGN.md"
+    design.write_text(
+        design.read_text().replace(
+            "### §4.2 Identity\n", "### §4.2 Identity\n<!-- relocated-section -->\n"
+        )
+    )
+    owner = root / "docs/design/sections/identity.md"
+    owner.parent.mkdir()
+    owner.write_text("# §4.2 Identity\n> Decision: ADR-0001\n")
+    raw = path.read_text()
+    run(root, "index")
+    assert adr.lint(root, check_git=False) == []
+    assert adr.parse(path).refs("design") == ["§4.2"]
+    assert adr.section_links(root, adr.parse(path)) == (
+        "[§4.2](../design/sections/identity.md#section-4-2)"
+    )
+    assert path.read_text() == raw
+    adr.set_field(path, "design", '["wrong-owner §4.2"]')
+    assert any("belongs to identity" in problem for problem in adr.lint(root, check_git=False))
+
+
 def test_supersede_links_both_sides(root: Path) -> None:
     new(root, "original")
     assert run(root, "supersede", "ADR-0001", "replacement") == 0

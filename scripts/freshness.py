@@ -109,7 +109,12 @@ class MetadataInputs(dict[Path, bytes]):
         self.symlinks: dict[Path, str] = {}
 
     def __eq__(self, other):
-        return isinstance(other, MetadataInputs) and dict.__eq__(self, other) and self.directories == other.directories and self.symlinks == other.symlinks
+        return (
+            isinstance(other, MetadataInputs)
+            and dict.__eq__(self, other)
+            and self.directories == other.directories
+            and self.symlinks == other.symlinks
+        )
 
     def __ne__(self, other):
         return not self == other
@@ -119,7 +124,9 @@ class UnsupportedShape(ValueError):
     """A conservative capture plus an actual Cargo oracle may qualify this shape."""
 
 
-def metadata_inputs(root: Path, *, source_bodies: bool = False, conservative: bool = False) -> MetadataInputs:
+def metadata_inputs(
+    root: Path, *, source_bodies: bool = False, conservative: bool = False
+) -> MetadataInputs:
     """Capture Cargo's declarations and complete target discovery shape.
 
     Cargo owns target discovery, including arbitrary explicit suffixes and empty glob
@@ -131,8 +138,16 @@ def metadata_inputs(root: Path, *, source_bodies: bool = False, conservative: bo
     excluded = {".git", ".venv", "target", "build", "__pycache__", "node_modules"}
     omitted = set()
     for directory, dirs, files in os.walk(root, followlinks=False):
-        omitted.update(Path(directory) / name for name in dirs if name in excluded and (conservative or Path(directory) == root))
-        dirs[:] = [name for name in dirs if name not in excluded or (not conservative and Path(directory) != root)]
+        omitted.update(
+            Path(directory) / name
+            for name in dirs
+            if name in excluded and (conservative or Path(directory) == root)
+        )
+        dirs[:] = [
+            name
+            for name in dirs
+            if name not in excluded or (not conservative and Path(directory) != root)
+        ]
         inputs.directories.add(Path(directory))
         for name in list(dirs):
             path = Path(directory) / name
@@ -146,7 +161,15 @@ def metadata_inputs(root: Path, *, source_bodies: bool = False, conservative: bo
             if name == ".git" and Path(directory) == root:
                 continue
             path = Path(directory) / name
-            declaration = name in {"Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml", "config", "config.toml", "hakari.toml"}
+            declaration = name in {
+                "Cargo.toml",
+                "Cargo.lock",
+                "rust-toolchain",
+                "rust-toolchain.toml",
+                "config",
+                "config.toml",
+                "hakari.toml",
+            }
             if path.is_symlink():
                 if not conservative:
                     raise UnsupportedShape(f"unsupported symlink input: {path}")
@@ -156,10 +179,26 @@ def metadata_inputs(root: Path, *, source_bodies: bool = False, conservative: bo
                     continue
             if not path.resolve().is_relative_to(root):
                 raise ValueError(f"unsupported escaping input: {path}")
-            inputs[path] = b"" if (path.suffix == ".rs" and not source_bodies) or (conservative and not declaration and path.suffix != ".rs") else path.read_bytes()
-    declarations = {path for path in inputs if path.name in {
-        "Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml", "config", "config.toml", "hakari.toml"
-    }}
+            inputs[path] = (
+                b""
+                if (path.suffix == ".rs" and not source_bodies)
+                or (conservative and not declaration and path.suffix != ".rs")
+                else path.read_bytes()
+            )
+    declarations = {
+        path
+        for path in inputs
+        if path.name
+        in {
+            "Cargo.toml",
+            "Cargo.lock",
+            "rust-toolchain",
+            "rust-toolchain.toml",
+            "config",
+            "config.toml",
+            "hakari.toml",
+        }
+    }
     for path, data in list(inputs.items()):
         if path.name != "Cargo.toml":
             continue
@@ -185,11 +224,22 @@ def metadata_inputs(root: Path, *, source_bodies: bool = False, conservative: bo
             if Path(declaration).is_absolute() or not source.resolve().is_relative_to(root):
                 raise ValueError(f"unsupported escaping path in {path}: {declaration}")
             if any(source == skipped or source.is_relative_to(skipped) for skipped in omitted):
-                raise ValueError(f"declaration enters excluded capture tree in {path}: {declaration}")
+                raise ValueError(
+                    f"declaration enters excluded capture tree in {path}: {declaration}"
+                )
             for match in glob.glob(str(source), recursive=True, include_hidden=True):
-                if any(Path(match).resolve() == skipped or Path(match).resolve().is_relative_to(skipped) for skipped in omitted):
-                    raise ValueError(f"declaration glob enters excluded capture tree in {path}: {declaration}")
-        for package in (manifest.get("package", {}), manifest.get("workspace", {}).get("package", {})):
+                if any(
+                    Path(match).resolve() == skipped
+                    or Path(match).resolve().is_relative_to(skipped)
+                    for skipped in omitted
+                ):
+                    raise ValueError(
+                        f"declaration glob enters excluded capture tree in {path}: {declaration}"
+                    )
+        for package in (
+            manifest.get("package", {}),
+            manifest.get("workspace", {}).get("package", {}),
+        ):
             for key in ("readme", "license-file"):
                 name = package.get(key)
                 if isinstance(name, str):
@@ -238,7 +288,9 @@ def metadata_inputs(root: Path, *, source_bodies: bool = False, conservative: bo
                 raise ValueError(f"unsupported path-dependent Cargo configuration: {path}")
             target = config.get("build", {}).get("target", [])
             targets = [target] if isinstance(target, str) else target
-            if any(value.endswith(".json") or "/" in value or "\\" in value for value in targets) or any(
+            if any(
+                value.endswith(".json") or "/" in value or "\\" in value for value in targets
+            ) or any(
                 isinstance(value, dict) and value.get("relative")
                 for value in config.get("env", {}).values()
             ):
@@ -278,13 +330,24 @@ def hakari(runner: Runner, root: Path = ROOT) -> Freshness:
                 destination = owned / source.relative_to(source.anchor)
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(data)
-            intended_configs = {owned / source.relative_to(source.anchor) for source in captured
-                if source.parent.name == ".cargo" and source.name in {"config", "config.toml"} and source not in home_configs}
+            intended_configs = {
+                owned / source.relative_to(source.anchor)
+                for source in captured
+                if source.parent.name == ".cargo"
+                and source.name in {"config", "config.toml"}
+                and source not in home_configs
+            }
             for parent in [workspace, *workspace.parents]:
                 for name in ("config", "config.toml"):
                     config = parent / ".cargo" / name
-                    if config.exists() and config not in intended_configs and config not in home_configs:
-                        raise ValueError(f"capture inherits additional Cargo configuration: {config}")
+                    if (
+                        config.exists()
+                        and config not in intended_configs
+                        and config not in home_configs
+                    ):
+                        raise ValueError(
+                            f"capture inherits additional Cargo configuration: {config}"
+                        )
             environment = {
                 "CARGO_NET_OFFLINE": "true",
                 "RUSTUP_AUTO_INSTALL": "0",
@@ -296,12 +359,22 @@ def hakari(runner: Runner, root: Path = ROOT) -> Freshness:
             def observe_metadata(cwd):
                 ran = runner(metadata, cwd=cwd, environment=environment)
                 if ran.returncode:
-                    raise ValueError(f"conservative Cargo metadata oracle unavailable (exit {ran.returncode}): {ran.stderr.strip()}")
-                return json.loads(ran.stdout.replace(cwd.as_uri(), "<WORKSPACE_URI>").replace(str(cwd), "<WORKSPACE>"))
+                    raise ValueError(
+                        f"conservative Cargo metadata oracle unavailable (exit {ran.returncode}): "
+                        f"{ran.stderr.strip()}"
+                    )
+                return json.loads(
+                    ran.stdout.replace(cwd.as_uri(), "<WORKSPACE_URI>").replace(
+                        str(cwd), "<WORKSPACE>"
+                    )
+                )
 
             original_metadata = observe_metadata(root) if conservative else None
             if conservative and observe_metadata(workspace) != original_metadata:
-                raise ValueError("conservative capture differs from actual Cargo metadata; unsupported input layout")
+                raise ValueError(
+                    "conservative capture differs from actual Cargo metadata; "
+                    "unsupported input layout"
+                )
             diff = runner(generate, cwd=workspace, environment=environment)
             deps = runner(manage, cwd=workspace, environment=environment)
             metadata_unchanged = not conservative or observe_metadata(root) == original_metadata
@@ -311,7 +384,11 @@ def hakari(runner: Runner, root: Path = ROOT) -> Freshness:
     except (OSError, ValueError, TypeError, KeyError) as error:
         return Freshness("hakari", "not_run", regenerate, f"metadata capture unavailable: {error}")
     try:
-        unchanged = metadata_unchanged and metadata_inputs(root, source_bodies=conservative, conservative=conservative) == captured
+        unchanged = (
+            metadata_unchanged
+            and metadata_inputs(root, source_bodies=conservative, conservative=conservative)
+            == captured
+        )
     except OSError, ValueError, TypeError, KeyError:
         unchanged = False
     if not unchanged:

@@ -27,9 +27,11 @@ MAX_BATCH = 32
 
 def default_worker_path() -> Path:
     """The caller-selected worker, or this checkout's ordinary dev/test artifact."""
-    return Path(os.environ.get(
-        "LCTX_EVAL_WORKER", Path(__file__).resolve().parents[1] / "target/debug/lctx-eval"
-    ))
+    return Path(
+        os.environ.get(
+            "LCTX_EVAL_WORKER", Path(__file__).resolve().parents[1] / "target/debug/lctx-eval"
+        )
+    )
 
 
 class WorkerError(RuntimeError):

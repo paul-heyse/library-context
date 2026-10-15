@@ -11,8 +11,10 @@ from typing import Any
 
 
 def identity(info: os.stat_result) -> dict[str, int]:
-    return {name: getattr(info, "st_" + name) for name in
-            ("dev", "ino", "mode", "size", "mtime_ns", "ctime_ns")}
+    return {
+        name: getattr(info, "st_" + name)
+        for name in ("dev", "ino", "mode", "size", "mtime_ns", "ctime_ns")
+    }
 
 
 def observe(path: Path) -> dict[str, Any]:
@@ -23,11 +25,13 @@ def observe(path: Path) -> dict[str, Any]:
     observation at completion, not proof of executed bytes or a complete source closure.
     """
     row: dict[str, Any] = {
-        "path": str(path), "sha256": None,
+        "path": str(path),
+        "sha256": None,
         "observed_at": datetime.now(UTC).isoformat(timespec="microseconds"),
         "policy": "completion-descriptor-sha256-v1",
         "digest_reuse": "none: mutable output has no immutable producer lease",
-        "executed_bytes": "unknown", "source_closure": "unknown",
+        "executed_bytes": "unknown",
+        "source_closure": "unknown",
     }
     try:
         with path.open("rb") as stream:
@@ -40,11 +44,22 @@ def observe(path: Path) -> dict[str, Any]:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
             after = os.fstat(stream.fileno())
             bound_after = path.stat()
-            row.update(descriptor=identity(before), descriptor_after=identity(after),
-                       pathname_before=identity(bound_before), pathname_after=identity(bound_after))
-            stable = identity(before) == identity(after) == identity(bound_before) == identity(bound_after)
-            row.update(sha256=digest if stable else None,
-                       observation="artifact bytes at completion" if stable else "changed")
+            row.update(
+                descriptor=identity(before),
+                descriptor_after=identity(after),
+                pathname_before=identity(bound_before),
+                pathname_after=identity(bound_after),
+            )
+            stable = (
+                identity(before)
+                == identity(after)
+                == identity(bound_before)
+                == identity(bound_after)
+            )
+            row.update(
+                sha256=digest if stable else None,
+                observation="artifact bytes at completion" if stable else "changed",
+            )
     except OSError as error:
         row.update(observation="unavailable", unavailable=type(error).__name__)
     row["observation_finished_at"] = datetime.now(UTC).isoformat(timespec="microseconds")

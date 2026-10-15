@@ -356,11 +356,14 @@ def test_post_spawn_failure_cleans_actual_group(root, monkeypatch, failure, caps
     monkeypatch.setattr(runs, "spawn_group", spawn)
     monkeypatch.setattr(owner, "write", write)
     if failure == "identity":
-        monkeypatch.setattr(
-            runs.ProcessIdentity,
-            "of",
-            classmethod(lambda cls, pid=None: (_ for _ in ()).throw(OSError("identity"))),
-        )
+        actual_identity = runs.ProcessIdentity.of
+
+        def fail_spawned_identity(cls, pid=None):
+            if spawned and pid == spawned[0].pid:
+                raise OSError("identity")
+            return actual_identity(pid)
+
+        monkeypatch.setattr(runs.ProcessIdentity, "of", classmethod(fail_spawned_identity))
     if failure == "progress":
         monkeypatch.setattr(
             owner, "_fold_progress", lambda: (_ for _ in ()).throw(ValueError("progress"))
@@ -681,6 +684,7 @@ def test_exact_run_recovery_ignores_foreign_corruption_but_global_inventory_refu
     raw = run_dir / "verify-evidence"
     raw.mkdir()
     ident = storage_owners.enroll(raw, "run-log", owner, consumer, temporary_days=30)
+    assert ident is not None
     record = {
         "schema": runs.SCHEMA,
         "id": run_dir.name,
@@ -710,7 +714,9 @@ def test_exact_recovery_preserves_citation_obligations_and_retries_local_release
     run_dir = runs.new_run_dir()
     consumer = f"run:{run_dir.name}"
     storage = Storage()
-    ident = storage.enrolled(run_dir)["id"]
+    enrolled = storage.enrolled(run_dir)
+    assert enrolled is not None
+    ident = enrolled["id"]
     storage.retain(ident, "citation:current", "cited-report")
     __import__("harness").write_json_atomic(
         run_dir / runs.RECORD,

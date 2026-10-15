@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import math
+import operator
+from collections.abc import MutableMapping
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
+from typing import cast
 
 import httpx2
 import numpy as np
@@ -84,15 +87,19 @@ def test_spec_freezes_nested_fields_and_refuses_bypass_construction() -> None:
     spec = Spec.packaged(QWEN)
     expected = embedding_recipe_identities(spec.canonical)
     with pytest.raises(TypeError):
-        spec.fields["model"] = "changed"
+        operator.setitem(cast(MutableMapping[str, object], spec.fields), "model", "changed")
     with pytest.raises(TypeError):
         spec.fields["admission"]["use_activation"] = False
     with pytest.raises(TypeError):
         spec.fields["admission"]["matryoshka_dimensions"][0] = 1
+
+    def assign_attribute(target: object, name: str, value: object) -> None:
+        setattr(target, name, value)
+
     with pytest.raises(FrozenInstanceError):
-        spec.canonical = "{}"
+        assign_attribute(spec, "canonical", "{}")
     with pytest.raises(FrozenInstanceError):
-        spec._identities.encoder = "changed"
+        assign_attribute(spec._identities, "encoder", "changed")
     assert not hasattr(spec, "__dict__")
     with pytest.raises(TypeError, match=r"Spec\.from_json"):
         Spec(spec.canonical, {"model": "inconsistent"})

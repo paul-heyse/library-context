@@ -486,6 +486,7 @@ def test_inspection_preserves_independent_terminal_unknown_and_cleanup_axes(
         "status": "unknown"
     }
     record = runs.load_record(run_path)
+    assert record is not None
     record["owner"]["start_ticks"] += 1
     service.private_json(run_path / runs.RECORD, record)
     assert (
