@@ -1,4 +1,7 @@
 //! Coherent topic controls; common drivers compile once in this target.
+// The pinned compiler needs this compile-time depth for the finite native
+// cursor future graph (rust-lang/rust#159228); keep Send checking intact.
+#![recursion_limit = "256"]
 #[path = "fixtures/catalog_runtime.rs"]
 mod catalog_runtime;
 #[path = "fixtures/native.rs"]

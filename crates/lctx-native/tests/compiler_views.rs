@@ -1,3 +1,6 @@
+// The pinned compiler needs this compile-time depth for the finite native
+// cursor future graph (rust-lang/rust#159228); keep Send checking intact.
+#![recursion_limit = "256"]
 use futures::TryStreamExt;
 use lctx_compiler_store::compiler::{NativeCompilerStore, NativePredicate};
 use lctx_model::domain::{

@@ -10,7 +10,7 @@ use std::{fmt::Debug, sync::Arc};
 fn identifier(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
-async fn rows<R: Record>(
+pub(crate) async fn rows<R: Record>(
     session: &datafusion::prelude::SessionContext,
     table: &str,
     budget: &resources::ResourceBudget,
@@ -46,11 +46,18 @@ async fn compare<R: Record + PartialEq + Debug>(
 #[tokio::test]
 async fn actual_summary_matches_complete_finite_whole_operation() {
     use tracing::instrument::WithSubscriber;
-    actual_summary_control()
+    actual_summary_control("scoped_summary_preparation")
         .with_subscriber(cpg_extract::logging::dispatch())
         .await;
 }
-async fn actual_summary_control() {
+#[tokio::test]
+async fn actual_recursive_summary_preserves_scc_delta_answers_and_exhaustion() {
+    use tracing::instrument::WithSubscriber;
+    actual_summary_control("scoped_recursive_summary")
+        .with_subscriber(cpg_extract::logging::dispatch())
+        .await;
+}
+async fn actual_summary_control(case: &str) {
     let profile = Profile::Behavioral;
     let model = Arc::new(model().unwrap());
     let native = crate::native_fixture::store();
@@ -66,7 +73,7 @@ async fn actual_summary_control() {
     )
     .unwrap();
     workspace_owner = Some(workspace.clone());
-    let captured = runtime::capture("scoped_summary_preparation", profile, workspace.budget());
+    let captured = runtime::capture(case, profile, workspace.budget());
     let configuration = ContentHash::of(b"scoped-summary-oracle");
     let prepared = PreparedCompilation::new(
         admission::Frontier::Analysis,
@@ -202,6 +209,22 @@ async fn actual_summary_control() {
             workspace.budget(),
         )
         .unwrap();
+        if case == "scoped_recursive_summary" {
+            let entities = rows::<normalized::entities::EntityRef>(&session, "entity_refs", workspace.budget()).await;
+            let callables = rows::<normalized::entities::CallableEntity>(&session, "callable_entities", workspace.budget()).await;
+            let occurrences = rows::<source::Occurrence>(&session, "occurrences", workspace.budget()).await;
+            let source = std::fs::read_to_string(runtime::root(case).join("cases.py")).unwrap();
+            for function in ["recurse", "no_base"] {
+                let start = source.find(&format!("def {function}(" )).unwrap() as i64;
+                let entity = entities.iter().find(|entity| {
+                    let normalized::entities::EntityRef::Callable { callable } = entity else { return false; };
+                    let Some(normalized::entities::CallableEntity::Source { declaration, .. }) = callables.get(*callable) else { return false; };
+                    occurrences.get(*declaration).is_some_and(|occurrence| occurrence.start == start)
+                }).unwrap_or_else(|| panic!("source-identified recursive callable missing: {function}"));
+                assert!(graph.arcs().any(|arc| arc.source == entity.id() && arc.target == entity.id()),
+                    "actual hydrated CallableInvocation projection must retain {function}'s self edge");
+            }
+        }
         let mut oracle = produce(
             &data,
             frame,
@@ -225,65 +248,18 @@ async fn actual_summary_control() {
     );
     assert!(
         !expected.origins.is_empty() && !expected.alternatives.is_empty(),
-        "fixture must publish actual finite Summary proofs"
+        "fixture must publish actual finite Summary proofs: Local contributions={}, alternatives={}, invocations={}; Summary origins={}, alternatives={}, witnesses={}, pairs={}, residuals={}",
+        data.local_contributions.len(), data.local_alternatives.len(), data.local_invocations.len(),
+        expected.origins.len(), expected.alternatives.len(), expected.witnesses.len(),
+        expected.pair_outcomes.len(), expected.residuals.len(),
     );
-    crate::summary_publication::assert_repeated_prepared_call_pairs(&runtime::Fixture {
-        workspace: workspace.clone(),
-        session,
-    }).await;
+    let fixture = runtime::Fixture { workspace: workspace.clone(), session };
+    if case == "scoped_recursive_summary" {
+        crate::summary_publication::assert_recursive_summary_answers(&fixture).await;
+    } else {
+        crate::summary_publication::assert_repeated_prepared_call_pairs(&fixture).await;
+    }
+    drop(fixture);
     }).catch_unwind().await;
-    // This control owns the original compiler attempt, including its session.
-    // Drain actual execution before abandoning it and settle the workspace signal
-    // using the combined report, also when compilation or oracle assertions panic.
-    use lctx_model::domain::completion::{self, LocalState, RemoteState, StorageState};
-    let mut finality = match &workspace_owner {
-        Some(workspace) => workspace.drain_owned_report().await,
-        None => completion::Completion::default(),
-    };
-    if finality.local == LocalState::Terminal
-        && finality.remote == RemoteState::Confirmed
-        && finality
-            .failures
-            .iter()
-            .all(|failure| failure.error.permits_storage_cleanup())
-    {
-        let mut source = native.abandon_finality_report().await;
-        if source.local == LocalState::Outstanding {
-            finality.local = LocalState::Outstanding;
-        }
-        if source.remote == RemoteState::Unknown {
-            finality.remote = RemoteState::Unknown;
-        }
-        finality.storage.append(&mut source.storage);
-        finality.committed.append(&mut source.committed);
-        finality.failures.append(&mut source.failures);
-    } else {
-        finality.storage.push(StorageState::Orphan(format!(
-            "native_attempt:{}",
-            native.attempt().hex()
-        )));
-    }
-    if let Some(workspace) = &workspace_owner {
-        let signal = workspace.complete_signal(&finality).await;
-        finality.step("scoped Summary workspace signal", signal);
-    }
-    let mut diagnostics = completion::Completion::default();
-    if let Some(workspace) = &workspace_owner {
-        workspace.append_operation_failures(&mut diagnostics);
-    } else {
-        native.append_operation_failures(&mut diagnostics);
-    }
-    if let Err(panic) = result {
-        if let Err(error) = completion::complete(Ok(()), finality) {
-            eprintln!("scoped Summary finalization after assertion panic: {error:#?}");
-        }
-        if !diagnostics.failures.is_empty() {
-            eprintln!(
-                "scoped Summary operation diagnostics after assertion panic: {diagnostics:#?}"
-            );
-        }
-        std::panic::resume_unwind(panic);
-    }
-    completion::complete(Ok(()), finality).unwrap();
-    completion::complete(Ok(()), diagnostics).unwrap();
+    runtime::complete_workspace(workspace_owner, native, result).await;
 }

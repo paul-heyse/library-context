@@ -1,5 +1,8 @@
 //! Current Catalog compaction through actual producer, compiler, publication and serving gates.
 //! No encoder, selected operator handle, fake provider or serialized semantic grant is used.
+// The pinned compiler needs this compile-time depth for the finite native
+// cursor future graph (rust-lang/rust#159228); keep Send checking intact.
+#![recursion_limit = "256"]
 #[path = "../../cpg-core/tests/fixtures/native.rs"]
 mod native_fixture;
 #[path = "fixtures/native_library.rs"]

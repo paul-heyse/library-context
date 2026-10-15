@@ -4143,6 +4143,7 @@ dependencies = [
  "cpg-core",
  "cpg-extract",
  "datafusion",
+ "futures 0.3.34",
  "hex",
  "lctx-compiler-store",
  "lctx-model",

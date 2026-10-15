@@ -1,5 +1,6 @@
 //! Semantic compiler owners consume completed native and normalized streams.
 use crate::catalog_runtime;
+use futures::FutureExt;
 use lctx_model::domain::{admission::Frontier, stages::Profile, *};
 async fn run(profile: Profile) {
     let root = catalog_runtime::root("local_semantics");
@@ -11,6 +12,11 @@ async fn run(profile: Profile) {
         None,
     )
     .await;
+    let result = std::panic::AssertUnwindSafe(async {
+    if profile == Profile::Catalog {
+        catalog_runtime::assert_compact_owners(&fixture, &[analysis::owner::AnalysisOwner::Local]).await;
+        return;
+    }
     let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM local_flow_contributions) AS fixture_column_0,(SELECT count(*) FROM local_transfer_alternatives) AS fixture_column_1,(SELECT count(*) FROM local_flow_assessments WHERE reason IS NOT NULL) AS fixture_column_2").await;
     if profile == Profile::Behavioral {
         assert!(
@@ -24,31 +30,6 @@ async fn run(profile: Profile) {
         assert!(
             counts.2 > 0,
             "Behavioral local assessments retain explicit reasons"
-        );
-    } else {
-        assert_eq!(counts, (0, 0, 0), "Catalog local semantics are unrequested");
-        let statuses: Vec<i16> =
-            catalog_runtime::query(&fixture, "SELECT status FROM local_analysis_outcomes").await;
-        assert!(
-            !statuses.is_empty(),
-            "Catalog local outcome population is present"
-        );
-        assert!(
-            statuses.iter().all(|s| *s == 3),
-            "Catalog local outcomes are explicitly not requested"
-        );
-        let availabilities: Vec<i16> =
-            catalog_runtime::query(&fixture, "SELECT availability FROM local_analysis_coverage")
-                .await;
-        assert!(
-            !availabilities.is_empty(),
-            "Catalog local coverage population is present"
-        );
-        assert!(
-            availabilities
-                .iter()
-                .all(|s| *s == normalized::coverage::EvidenceAvailability::NotRequested.code()),
-            "Catalog local coverage is explicitly not requested"
         );
     }
     let theory:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM local_type_domains) AS fixture_column_0,(SELECT count(*) FROM local_theory_witnesses) AS fixture_column_1,(SELECT count(*) FROM local_type_class_members) AS fixture_column_2").await;
@@ -89,12 +70,6 @@ async fn run(profile: Profile) {
         }
         let empty_refinements: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM local_atom_restrictions r JOIN local_atom_decisions d ON d.id=r.decision WHERE d.outcome=3").await;
         assert_eq!(empty_refinements, 0, "Never must not certify either branch");
-    } else {
-        assert_eq!(
-            theory,
-            (0, 0, 0),
-            "Catalog retains no local theory semantics"
-        );
     }
     let complete: i64 = catalog_runtime::one(
         &fixture,
@@ -105,6 +80,8 @@ async fn run(profile: Profile) {
         complete, 0,
         "local coverage must not claim complete evidence"
     );
+    }).catch_unwind().await;
+    fixture.complete(result).await;
 }
 #[tokio::test]
 async fn actual_local_transfers_publish_from_native_completed_sources() {

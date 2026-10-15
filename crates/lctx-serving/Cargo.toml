@@ -17,6 +17,7 @@ hex.workspace = true
 moka = { version = "=0.12.16", default-features = false, features = ["future"] }
 
 [dev-dependencies]
+futures.workspace = true
 lctx-compiler-store = { path = "../lctx-compiler-store" }
 tracing.workspace = true
 datafusion.workspace = true
@@ -30,4 +31,4 @@ workspace = true
 
 # Used by the shared catalog_runtime.rs fixture included from cpg-core tests.
 [package.metadata.cargo-shear]
-ignored = ["datafusion"]
+ignored = ["datafusion", "futures"]

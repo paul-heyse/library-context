@@ -1,4 +1,7 @@
 //! Actual compiled finite fixture, independent export verification, native publication and VIEWER.
+// The pinned compiler needs this compile-time depth for the finite native
+// cursor future graph (rust-lang/rust#159228); keep Send checking intact.
+#![recursion_limit = "256"]
 #[path = "../src/backup_import.rs"]
 mod backup_decode;
 #[path = "../../cpg-core/tests/fixtures/native.rs"]

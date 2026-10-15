@@ -1,5 +1,6 @@
 //! Semantic compiler owners consume completed native and normalized streams.
 use crate::catalog_runtime;
+use futures::FutureExt;
 use lctx_model::domain::{admission::Frontier, stages::Profile, *};
 async fn run(profile: Profile) {
     run_fixture(profile, "phase4_summaries").await;
@@ -14,6 +15,11 @@ async fn run_fixture(profile: Profile, case: &str) {
         None,
     )
     .await;
+    let result = std::panic::AssertUnwindSafe(async {
+    if profile == Profile::Catalog {
+        assert_catalog_compact_summary(&fixture).await;
+        return;
+    }
     let runs: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM summary_runs").await;
     assert!(runs > 0);
     let proofs: i64 =
@@ -70,9 +76,6 @@ async fn run_fixture(profile: Profile, case: &str) {
         assert_eq!(readers, 3);
         let conclusions:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM summary_behavioral_conclusions c JOIN summary_obligation_subjects s ON s.id=c.subject JOIN summary_claims q ON q.id=s.summaryclaim_transfer JOIN summary_symbolic_field_alternatives a ON a.id=q.symbolicfieldassociation_alternative WHERE c.verdict=3 AND c.proof IS NULL AND c.qualification=a.reader_qualification AND c.reason=a.reason").await;
         assert_eq!(conclusions, 4);
-    } else if profile == Profile::Catalog {
-        assert_eq!(proofs, 0);
-        assert!(statuses.iter().all(|s| *s == 3));
     }
     if case == "exact_exception_shapes" {
         let results: Vec<(String, Option<i16>)> = catalog_runtime::query(&fixture, "SELECT spelling.spelling,result.exception FROM summary_exception_outcomes result JOIN entity_refs e ON e.id=result.owner JOIN callable_entities c ON c.id=e.callable_callable JOIN declaration_observations d ON d.declaration=c.source_declaration JOIN syntax_observations spelling ON spelling.occurrence=d.name ORDER BY 1").await;
@@ -241,6 +244,8 @@ async fn run_fixture(profile: Profile, case: &str) {
         let forged:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM entry_value_witnesses w JOIN occurrence_ownership owner ON owner.occurrence=w.access WHERE owner.entity<>w.owner").await;
         assert_eq!(forged, 0, "capture never forges a native caller read");
     }
+    }).catch_unwind().await;
+    fixture.complete(result).await;
 }
 #[tokio::test]
 async fn behavioral_summaries_publish_finite_proofs_and_validate() {
@@ -248,7 +253,203 @@ async fn behavioral_summaries_publish_finite_proofs_and_validate() {
 }
 #[tokio::test]
 async fn catalog_summaries_are_explicitly_not_requested() {
-    run(Profile::Catalog).await;
+    // NotRequested is profile-owned; unrelated Behavioral examples add no premise.
+    run_fixture(Profile::Catalog, "scoped_summary_preparation").await;
+}
+
+async fn assert_catalog_compact_summary(fixture: &catalog_runtime::Fixture) {
+    use analysis::owner::AnalysisOwner;
+    use std::collections::BTreeSet;
+    use uniform_outcome::{
+        CoverageAuthority, ScopedUniformOutcome, UniformKind, UniformNotRequested,
+    };
+    catalog_runtime::assert_compact_owners(
+        fixture,
+        &[
+            AnalysisOwner::Local,
+            AnalysisOwner::Base,
+            AnalysisOwner::Completion,
+            AnalysisOwner::SourceCalls,
+            AnalysisOwner::Enriched,
+            AnalysisOwner::Models,
+            AnalysisOwner::Summary,
+            AnalysisOwner::Embedding,
+            AnalysisOwner::Analytic,
+        ],
+    )
+    .await;
+    let workspace = &fixture.workspace;
+    let budget = workspace.budget();
+    let descriptors = crate::scoped_summary::rows::<UniformNotRequested>(
+        &fixture.session,
+        UniformNotRequested::NAME,
+        budget,
+    )
+    .await;
+    let summaries = descriptors
+        .iter()
+        .filter(|row| row.owner == AnalysisOwner::Summary.name())
+        .collect::<Vec<_>>();
+    let runs = crate::scoped_summary::rows::<attribution::ProviderRun>(
+        &fixture.session,
+        attribution::ProviderRun::NAME,
+        budget,
+    )
+    .await;
+    let frames = runs
+        .iter()
+        .map(|run| (run.input, run.context))
+        .collect::<BTreeSet<_>>();
+    assert!(
+        !frames.is_empty(),
+        "the real source fixture must establish actual provider frames"
+    );
+    assert_eq!(
+        summaries.len(),
+        frames.len(),
+        "one compact Summary owner per actual frame"
+    );
+    assert_eq!(
+        summaries
+            .iter()
+            .map(|row| (row.input, row.context))
+            .collect::<BTreeSet<_>>(),
+        frames
+    );
+    let definitions = crate::scoped_summary::rows::<analysis::AnalysisDefinition>(
+        &fixture.session,
+        analysis::AnalysisDefinition::NAME,
+        budget,
+    )
+    .await;
+    let selected = definitions
+        .iter()
+        .filter(|row| row.method == analysis::AnalysisMethod::Summaries)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        selected.len(),
+        1,
+        "one actual selected Summary method definition"
+    );
+    let definition = selected[0].content_digest();
+    let artifacts = crate::scoped_summary::rows::<source::SourceArtifact>(
+        &fixture.session,
+        source::SourceArtifact::NAME,
+        budget,
+    )
+    .await;
+    let uses = crate::scoped_summary::rows::<input::ArtifactUse>(
+        &fixture.session,
+        input::ArtifactUse::NAME,
+        budget,
+    )
+    .await;
+    let completed = workspace.completed_relations().unwrap();
+    let access = workspace
+        .inputs(
+            "catalog-summary-compact",
+            Profile::Catalog,
+            completed.iter().map(|relation| relation.name()),
+        )
+        .unwrap();
+    let sources =
+        analysis::sources::CapturedSources::capture(Profile::Catalog, access.snapshots(), budget)
+            .unwrap();
+    // This consumer obtains actual selected native owner proofs. Descriptor rows
+    // alone cannot establish a compact NotRequested result.
+    let mut coverage = workspace.coverage_admission(&sources).await.unwrap();
+    macro_rules! expected_inputs {($($field:ident:$ty:ty,)*)=>{$(
+        let permit = access.read::<$ty>().unwrap();
+        let mut batches = access.relation::<$ty>().unwrap().batches_async().await.unwrap();
+        while let Some(batch) = batches.next_async().await {
+            coverage.visit(&permit, &batch.unwrap()).unwrap();
+        }
+    )*};}
+    lctx_model::expected_domain_inputs!(expected_inputs);
+    for descriptor in summaries {
+        assert_eq!(descriptor.kind, UniformKind::AnalysisOwner);
+        assert_eq!(descriptor.family, None);
+        let domain = coverage
+            .uniform_analysis(
+                AnalysisOwner::Summary,
+                descriptor.input,
+                descriptor.context,
+                &definitions,
+                budget,
+            )
+            .unwrap()
+            .expect("actual admitted compact Summary owner");
+        assert_eq!(
+            domain.descriptor_row().unwrap(),
+            *descriptor,
+            "the admitted owner retains its exact declaration, ordered sources and selected definitions"
+        );
+        let input_scope = source::CoverageScope::Input {
+            input: descriptor.input,
+        }
+        .id();
+        let mut expected = BTreeSet::from([(input_scope, definition)]);
+        for usage in uses.iter().filter(|usage| usage.input == descriptor.input) {
+            let artifact = artifacts.get(usage.artifact).unwrap();
+            let class = admission::ArtifactClass::PythonSource;
+            if class.requested_by(usage.role)
+                && admission::ArtifactClass::of(&artifact.path) == Some(class)
+            {
+                expected.insert((
+                    source::CoverageScope::Artifact {
+                        artifact: usage.artifact,
+                    }
+                    .id(),
+                    definition,
+                ));
+            }
+        }
+        assert!(
+            expected.len() > 1,
+            "fixture Summary domain includes Python source and input projection scopes"
+        );
+        assert!(!domain.is_explicit_empty());
+        assert_eq!(domain.members().copied().collect::<BTreeSet<_>>(), expected);
+        assert_eq!(descriptor.members, expected.len() as i64);
+        let authority = CoverageAuthority::Uniform {
+            descriptor: descriptor.id(),
+        };
+        assert_eq!(domain.authority(), authority);
+        for (scope, definition) in expected {
+            assert_eq!(
+                domain.scoped(scope, definition),
+                ScopedUniformOutcome::NotRequested(authority)
+            );
+            let evidence = domain.evidence(scope, definition).unwrap();
+            assert_eq!(
+                (
+                    evidence.descriptor(),
+                    evidence.scope(),
+                    evidence.context(),
+                    evidence.family(),
+                    evidence.definition()
+                ),
+                (descriptor.id(), scope, descriptor.context, None, definition)
+            );
+        }
+        let foreign = ContentHash::of(b"unselected-summary-definition");
+        assert_ne!(foreign, definition);
+        assert_eq!(
+            domain.scoped(input_scope, foreign),
+            ScopedUniformOutcome::OutsideDomain,
+            "compact authority does not extend to an unselected method definition"
+        );
+    }
+    macro_rules! ordinary_publication {($($record:ident,)*)=>{$(
+        assert_eq!(workspace.completed::<analysis::summary::$record>().unwrap().rows(), 0,
+            "Catalog compact Summary has no per-method {} rows", <analysis::summary::$record>::NAME);
+    )*};}
+    lctx_model::analysis_publication!(ordinary_publication);
+    macro_rules! requested_outputs {($($field:ident:$ty:ty,)*)=>{$(
+        assert_eq!(workspace.completed::<$ty>().unwrap().rows(), 0,
+            "Catalog Summary request-only output {} is empty", <$ty>::NAME);
+    )*};}
+    lctx_model::summary_outputs!(requested_outputs);
 }
 
 #[tokio::test]
@@ -432,7 +633,7 @@ pub(crate) async fn assert_repeated_prepared_call_pairs(fixture: &catalog_runtim
             .map(|g| (g.0, g.2, g.3))
             .collect::<BTreeSet<_>>(),
         BTreeSet::from([(value, 0, 1), (other, 1, 0)]),
-        "literal finite meaning: flag true carries value; flag false carries other"
+        "literal finite meaning: flag is None carries value; flag is not None carries other"
     );
     assert_eq!(
         guards.iter().map(|g| &g.1).collect::<BTreeSet<_>>().len(),
@@ -458,5 +659,345 @@ pub(crate) async fn assert_repeated_prepared_call_pairs(fixture: &catalog_runtim
     assert_eq!(
         unaccounted, 0,
         "actual Summary work, proofs and residual accounting remain published"
+    );
+    assert_unsupported_truthy_call_pairs(fixture, &source).await;
+}
+
+// The original bare truthiness guard remains an explicit refusal, independently of the
+// supported identity test above. Both source return arms must actually reach composition.
+async fn assert_unsupported_truthy_call_pairs(fixture: &catalog_runtime::Fixture, source: &str) {
+    use std::collections::BTreeSet;
+    let outer = source.find("def unsupported_truthy_pair_relay(").unwrap();
+    let inner = source.find("def truthy_fresh(").unwrap();
+    let parameter =
+        |function: usize, name: &str| (function + source[function..].find(name).unwrap()) as i64;
+    let value = parameter(outer, "value");
+    let other = parameter(outer, "other");
+    let item = parameter(inner, "item");
+    let alternative = parameter(inner, "alternative");
+    let flag = parameter(inner, "flag");
+    let test = (inner + source[inner..].find("if flag:").unwrap() + 3) as i64;
+    let call = source.find("truthy_fresh(value, other, gate)").unwrap() as i64;
+    let unsupported = obligation::ObligationKind::ConditionTransferUnsupported as i16;
+
+    let atoms: Vec<(Vec<u8>, i16, i16, i64)> = catalog_runtime::query(fixture, format!(
+        "SELECT DISTINCT atom.id,predicate.kind,root.kind,formal.start FROM evaluation_atoms atom JOIN predicates predicate ON predicate.id=atom.predicate JOIN occurrences evaluation ON evaluation.id=atom.evaluation JOIN places operand ON operand.id=atom.operand JOIN place_roots root ON root.id=operand.root JOIN occurrences formal ON formal.id=root.formal_declaration JOIN access_paths path ON path.id=operand.path WHERE evaluation.start={test} AND path.first IS NULL AND path.second IS NULL AND NOT path.unknown_suffix"
+    )).await;
+    assert_eq!(
+        atoms.len(),
+        1,
+        "the original source guard retains one actual formal evaluation: {atoms:?}"
+    );
+    assert_eq!(
+        (atoms[0].1, atoms[0].2, atoms[0].3),
+        (4, 0, flag),
+        "bare flag stays Truthy over its whole formal, without relabeling it IsNone"
+    );
+    let attempts: Vec<Vec<u8>> = catalog_runtime::query(fixture, format!(
+        "SELECT DISTINCT a.id FROM call_binding_attempts a JOIN normalized_call_events event ON event.id=a.event JOIN occurrences site ON site.id=event.site JOIN source_call_headers header ON header.attempt=a.id AND header.event=event.id JOIN occurrences declaration ON declaration.id=header.declaration WHERE site.start={call} AND declaration.start={inner} AND a.outcome=0"
+    )).await;
+    assert_eq!(
+        attempts.len(),
+        1,
+        "the unsupported guard still has one admitted fresh source call"
+    );
+    type Pair = (Vec<u8>, i16, Option<Vec<u8>>, Option<i16>);
+    let pairs: Vec<Pair> = catalog_runtime::query(fixture, format!(
+        "SELECT p.attempt,p.disposition,p.witness,p.reason FROM summary_pair_outcomes p JOIN call_binding_attempts a ON a.id=p.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrences site ON site.id=event.site WHERE site.start={call}"
+    )).await;
+    assert!(
+        !pairs.is_empty(),
+        "truthiness refusal must not be satisfied by absent pair work"
+    );
+    assert!(
+        pairs.iter().all(|p| p.0 == attempts[0]
+            && p.2.is_none()
+            && ((p.1 == 0 && p.3.is_none()) || (p.1 == 3 && p.3 == Some(unsupported)))),
+        "truthiness permits only disjoint ports or exact unsupported-guard refusals, never Proven: {pairs:?}"
+    );
+
+    type LocalPair = (i64, i64, i16, Option<Vec<u8>>, Option<i16>, Vec<u8>);
+    let local_pairs: Vec<LocalPair> = catalog_runtime::query(fixture, format!(
+        "SELECT caller_entry.start,callee_entry.start,p.disposition,p.witness,p.reason,node.branch_atom FROM summary_pair_outcomes p JOIN call_binding_attempts a ON a.id=p.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrences site ON site.id=event.site JOIN summary_transfer_premises caller ON caller.id=p.caller AND caller.kind=0 JOIN local_transfer_alternatives caller_alt ON caller_alt.id=caller.local_alternative JOIN local_transfer_keys caller_key ON caller_key.id=caller_alt.transfer JOIN places caller_input ON caller_input.id=caller_key.input JOIN place_roots caller_root ON caller_root.id=caller_input.root JOIN occurrences caller_entry ON caller_entry.id=caller_root.entry_declaration JOIN summary_transfer_premises callee ON callee.id=p.callee AND callee.kind=0 JOIN local_transfer_alternatives callee_alt ON callee_alt.id=callee.local_alternative JOIN local_transfer_keys callee_key ON callee_key.id=callee_alt.transfer JOIN places callee_input ON callee_input.id=callee_key.input JOIN place_roots callee_root ON callee_root.id=callee_input.root JOIN occurrences callee_entry ON callee_entry.id=callee_root.entry_declaration JOIN assertion_qualifications q ON q.id=callee_alt.qualification JOIN conditions condition ON condition.id=q.condition JOIN condition_nodes node ON node.id=condition.root WHERE site.start={call} AND caller_root.kind=9 AND callee_root.kind=9 AND node.kind=2"
+    )).await;
+    for (caller, callee) in [(value, item), (other, alternative)] {
+        assert!(
+            local_pairs.iter().any(|p| p.0 == caller
+                && p.1 == callee
+                && p.2 == 3
+                && p.3.is_none()
+                && p.4 == Some(unsupported)
+                && p.5 == atoms[0].0),
+            "each matching source Entry port must refuse the original Truthy guard: {local_pairs:?}"
+        );
+    }
+    let witnesses: i64 = catalog_runtime::one(fixture, format!(
+        "SELECT count(*) FROM summary_transfer_witnesses w JOIN call_binding_attempts a ON a.id=w.attempt JOIN normalized_call_events event ON event.id=a.event JOIN occurrences site ON site.id=event.site WHERE site.start={call}"
+    )).await;
+    assert_eq!(
+        witnesses, 0,
+        "unsupported truthiness never manufactures a finite transfer witness"
+    );
+    let residuals: Vec<i16> = catalog_runtime::query(fixture, format!(
+        "SELECT r.reason FROM summary_residuals r JOIN normalized_call_events event ON event.id=r.event JOIN occurrences site ON site.id=event.site WHERE site.start={call}"
+    )).await;
+    assert!(
+        !residuals.is_empty() && residuals.iter().all(|reason| *reason == unsupported),
+        "the actual unsupported call retains exact ConditionTransferUnsupported residuals: {residuals:?}"
+    );
+    let residual_ports: Vec<i64> = catalog_runtime::query(fixture, format!(
+        "SELECT DISTINCT entry.start FROM summary_residuals r JOIN normalized_call_events event ON event.id=r.event JOIN occurrences site ON site.id=event.site JOIN places input ON input.id=r.input JOIN place_roots root ON root.id=input.root JOIN occurrences entry ON entry.id=root.entry_declaration WHERE site.start={call} AND root.kind=9"
+    )).await;
+    assert_eq!(
+        residual_ports.into_iter().collect::<BTreeSet<_>>(),
+        BTreeSet::from([value, other]),
+        "both original data ports retain their refusal boundary"
+    );
+}
+
+// Expectations below come from actual fixture source: identity/relay return their one input,
+// recurse has a guarded base return, and no_base has no finite return seed at all.
+// The whole-operation comparison separately checks every emitted record and PairOutcome.
+pub(crate) async fn assert_recursive_summary_answers(fixture: &catalog_runtime::Fixture) {
+    use std::collections::BTreeSet;
+    let text =
+        std::fs::read_to_string(catalog_runtime::root("scoped_recursive_summary").join("cases.py"))
+            .unwrap();
+    let start = |name: &str| text.find(&format!("def {name}(")).unwrap() as i64;
+    let owner_joins = "JOIN entity_refs owner ON owner.id=k.owner JOIN callable_entities callable ON callable.id=owner.callable_callable JOIN occurrences declaration ON declaration.id=callable.source_declaration";
+    // Include the actual roots and empty paths: an entry-to-intermediate or derived field
+    // answer is not a substitute for returning the source's original parameter value.
+    type Transfer = (i64, i64, i16, i16, Vec<u8>);
+    let transfers: Vec<Transfer> = catalog_runtime::query(fixture, format!(
+        "WITH alternatives AS (SELECT transfer,qualification,id FROM local_transfer_alternatives UNION ALL SELECT transfer,qualification,id FROM summary_transfer_alternatives), keys AS (SELECT id,owner,input,output,kind FROM local_transfer_keys UNION ALL SELECT id,owner,input,output,kind FROM summary_transfer_keys) SELECT declaration.start,entry.start,k.kind,node.kind,a.id FROM alternatives a JOIN keys k ON k.id=a.transfer {owner_joins} JOIN places input ON input.id=k.input JOIN place_roots root ON root.id=input.root JOIN occurrences entry ON entry.id=root.entry_declaration JOIN access_paths input_path ON input_path.id=input.path JOIN places output ON output.id=k.output JOIN place_roots returned ON returned.id=output.root JOIN access_paths output_path ON output_path.id=output.path JOIN assertion_qualifications q ON q.id=a.qualification JOIN conditions condition ON condition.id=q.condition JOIN condition_nodes node ON node.id=condition.root WHERE root.kind=9 AND returned.kind=2 AND returned.return_callable=callable.source_declaration AND input_path.first IS NULL AND output_path.first IS NULL AND NOT input_path.unknown_suffix AND NOT output_path.unknown_suffix"
+    )).await;
+    for name in ["identity", "relay", "nested"] {
+        let function = start(name);
+        let parameter = function + text[function as usize..].find("value").unwrap() as i64;
+        let answers = transfers
+            .iter()
+            .filter(|row| row.0 == function)
+            .collect::<Vec<_>>();
+        assert!(
+            !answers.is_empty(),
+            "actual {name} entry-to-return answer absent: {transfers:?}"
+        );
+        assert!(
+            answers
+                .iter()
+                .all(|row| row.1 == parameter && row.2 == 0 && row.3 == 1),
+            "{name} must preserve the original value under true, without invented derived ports: {answers:?}"
+        );
+    }
+    let recursive = transfers
+        .iter()
+        .filter(|row| row.0 == start("recurse"))
+        .collect::<Vec<_>>();
+    assert!(
+        !recursive.is_empty(),
+        "guarded finite base return must survive recursive composition"
+    );
+    assert!(
+        recursive.iter().all(|row| row.2 == 0 && row.3 == 2),
+        "a finite recursive return keeps its condition; it does not prove total termination: {recursive:?}"
+    );
+    assert!(
+        !transfers.iter().any(|row| row.0 == start("no_base")),
+        "seedless recursion must not invent an entry-to-return transfer"
+    );
+    let base_test = start("recurse")
+        + text[start("recurse") as usize..]
+            .find("value is None")
+            .unwrap() as i64;
+    let base_guards: Vec<(i64, i16, i16, i16)> = catalog_runtime::query(fixture, format!(
+        "SELECT evaluation.start,predicate.kind,low.kind,high.kind FROM local_transfer_alternatives a JOIN local_transfer_keys k ON k.id=a.transfer {owner_joins} JOIN places output ON output.id=k.output JOIN place_roots returned ON returned.id=output.root JOIN assertion_qualifications q ON q.id=a.qualification JOIN conditions condition ON condition.id=q.condition JOIN condition_nodes node ON node.id=condition.root JOIN condition_nodes low ON low.id=node.branch_low JOIN condition_nodes high ON high.id=node.branch_high JOIN evaluation_atoms atom ON atom.id=node.branch_atom JOIN predicates predicate ON predicate.id=atom.predicate JOIN occurrences evaluation ON evaluation.id=atom.evaluation WHERE declaration.start={} AND returned.kind=2", start("recurse")
+    )).await;
+    assert!(
+        base_guards.contains(&(base_test, 0, 0, 1)),
+        "the independent base-return guard means exactly the source is-None test being true: {base_guards:?}"
+    );
+    // A composed guard is a distinct evaluation in the declared finite model. Inspect
+    // its actual source/binding mapping and the Proven witness support independently of
+    // the producer/oracle's shared rebasing operation.
+    let recursive_call =
+        text.find("return recurse(value)").unwrap() as i64 + "return ".len() as i64;
+    type GuardMapping = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, bool);
+    let mapped: Vec<GuardMapping> = catalog_runtime::query(fixture, format!(
+        "SELECT bound.id,source.id,w.id,condition.id,(p.kind=9 AND p.boundguard_source=source.id AND sp.kind=0 AND bound.id<>source.id AND bound.evaluation=event.site AND bound.operand=s.actual_place AND bound.context=source.context AND bound.context=event.context) FROM guard_substitutions s JOIN evaluation_atoms bound ON bound.id=s.atom JOIN predicates p ON p.id=bound.predicate JOIN evaluation_atoms source ON source.id=s.source_atom JOIN predicates sp ON sp.id=source.predicate JOIN occurrences source_site ON source_site.id=source.evaluation JOIN normalized_call_events event ON event.id=s.event JOIN occurrences call_site ON call_site.id=event.site JOIN source_call_headers h ON h.event=event.id JOIN summary_transfer_witnesses w ON w.attempt=h.attempt JOIN summary_pair_outcomes pair ON pair.witness=w.id AND pair.disposition=2 JOIN summary_transfer_keys k ON k.id=w.transfer JOIN places output ON output.id=k.output JOIN place_roots returned ON returned.id=output.root JOIN assertion_qualifications q ON q.id=w.qualification JOIN conditions condition ON condition.id=q.condition WHERE h.owner=h.callee AND source_site.start={base_test} AND call_site.start={recursive_call} AND returned.kind=2"
+    )).await;
+    assert!(
+        !mapped.is_empty(),
+        "an actual Proven recursive return must use the bound source guard"
+    );
+    let actual_conditions = crate::scoped_summary::rows::<conditions::Condition>(
+        &fixture.session,
+        "conditions",
+        fixture.workspace.budget(),
+    )
+    .await;
+    let actual_nodes = crate::scoped_summary::rows::<conditions::ConditionNode>(
+        &fixture.session,
+        "condition_nodes",
+        fixture.workspace.budget(),
+    )
+    .await;
+    let nodes = actual_nodes.iter().cloned().collect::<Vec<_>>();
+    for (bound, source, witness, condition, correct_mapping) in &mapped {
+        assert!(
+            *correct_mapping,
+            "recursive BoundGuard must retain its exact source, actual operand and call evaluation: {mapped:?}"
+        );
+        assert_ne!(
+            bound, source,
+            "callee and caller evaluations are not relabelled as the same atom"
+        );
+        let condition = actual_conditions
+            .iter()
+            .find(|row| row.id().bytes().as_slice() == condition)
+            .unwrap();
+        let diagram = conditions::Diagram::from_records(condition, &nodes).unwrap();
+        assert!(
+            diagram
+                .support()
+                .iter()
+                .any(|atom| atom.bytes().as_slice() == bound),
+            "Proven recursive witness {witness:?} must actually depend on its mapped BoundGuard"
+        );
+    }
+    let opaque_start = start("opaque_two");
+    let left = opaque_start + text[opaque_start as usize..].find("left()").unwrap() as i64;
+    let right = opaque_start + text[opaque_start as usize..].find("right()").unwrap() as i64;
+    let opaque_atoms: Vec<(i64, Vec<u8>)> = catalog_runtime::query(fixture, format!(
+        "SELECT test.start,leaf.atom FROM flow_test_leaf_observations leaf JOIN occurrences test ON test.id=leaf.test WHERE test.start IN ({left},{right})"
+    )).await;
+    assert_eq!(
+        opaque_atoms
+            .iter()
+            .map(|row| row.0)
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([left, right])
+    );
+    assert_eq!(
+        opaque_atoms
+            .iter()
+            .map(|row| &row.1)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        2,
+        "the two effectful source predicates remain distinct evaluations before recursive guard rebasing"
+    );
+
+    // Both named recursive callables must inhabit their actual singleton SCC, tied to the
+    // admitted self-call header, rather than merely observing some nonempty SCC elsewhere.
+    let components: Vec<(i64, Vec<u8>, bool, i64)> = catalog_runtime::query(fixture,
+        "SELECT declaration.start,c.id,c.closed,(SELECT count(*) FROM summary_component_members actual WHERE actual.component=c.id) FROM summary_components c JOIN summary_component_members m ON m.component=c.id JOIN entity_refs owner ON owner.id=m.entity JOIN callable_entities callable ON callable.id=owner.callable_callable JOIN occurrences declaration ON declaration.id=callable.source_declaration JOIN source_call_headers header ON header.owner=owner.id AND header.callee=owner.id"
+    ).await;
+    for name in ["recurse", "no_base"] {
+        let ids = components
+            .iter()
+            .filter(|row| row.0 == start(name))
+            .map(|row| &row.1)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            ids.len(),
+            1,
+            "one actual self-call SCC for {name}: {components:?}"
+        );
+        assert!(
+            components
+                .iter()
+                .filter(|row| row.0 == start(name))
+                .all(|row| row.3 == 1),
+            "{name}'s actual SCC has exactly one member: {components:?}"
+        );
+    }
+    assert_eq!(
+        components
+            .iter()
+            .filter(|row| [start("recurse"), start("no_base")].contains(&row.0))
+            .map(|row| &row.1)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        2,
+        "recurse and no_base must occupy distinct SCCs"
+    );
+    assert!(
+        components
+            .iter()
+            .filter(|row| row.0 == start("no_base"))
+            .all(|row| row.2),
+        "the empty finite seedless frontier converges, without inventing a return proof"
+    );
+
+    let exhausted: Vec<(i64, i16)> = catalog_runtime::query(fixture,
+        "SELECT declaration.start,r.reason FROM summary_residuals r JOIN normalized_call_events event ON event.id=r.event JOIN occurrence_ownership site ON site.id=event.owner JOIN entity_refs owner ON owner.id=site.entity JOIN callable_entities callable ON callable.id=owner.callable_callable JOIN occurrences declaration ON declaration.id=callable.source_declaration"
+    ).await;
+    let bounded = |reason: i16| {
+        [
+            obligation::ObligationKind::SummaryDepthLimit as i16,
+            obligation::ObligationKind::SummaryProofLimit as i16,
+            obligation::ObligationKind::SummaryPairWorkLimit as i16,
+        ]
+        .contains(&reason)
+    };
+    for name in ["opaque", "opaque_two"] {
+        assert!(
+            exhausted
+                .iter()
+                .any(|row| row.0 == start(name) && bounded(row.1)),
+            "{name}'s distinct rebased recursive guards must expose their own bounded suffix: {exhausted:?}"
+        );
+    }
+    assert!(
+        !exhausted.iter().any(|row| [
+            start("identity"),
+            start("relay"),
+            start("nested"),
+            start("no_base")
+        ]
+        .contains(&row.0)
+            && bounded(row.1)),
+        "converged finite or seedless work must not acquire an exhausted suffix: {exhausted:?}"
+    );
+
+    let closures: Vec<(i64, i16, Option<Vec<u8>>, Option<i16>)> = catalog_runtime::query(fixture,
+        "SELECT declaration.start,conclusion.verdict,conclusion.proof,conclusion.reason FROM summary_claims claim JOIN summary_obligation_subjects subject ON subject.summaryclaim_transfer=claim.id JOIN summary_behavioral_conclusions conclusion ON conclusion.subject=subject.id JOIN normalized_call_events event ON event.id=claim.callclosure_event JOIN occurrence_ownership site ON site.id=event.owner JOIN entity_refs owner ON owner.id=site.entity JOIN callable_entities callable ON callable.id=owner.callable_callable JOIN occurrences declaration ON declaration.id=callable.source_declaration JOIN places output ON output.id=claim.callclosure_output JOIN place_roots returned ON returned.id=output.root WHERE claim.kind=1 AND returned.kind=2"
+    ).await;
+    for name in ["relay", "nested"] {
+        assert!(
+            closures.iter().any(|row| row.0 == start(name)
+                && row.1 == obligation::Verdict::Established as i16
+                && row.2.is_some()
+                && row.3.is_none()),
+            "{name}'s finite call must earn a complete closure proof: {closures:?}"
+        );
+    }
+    assert!(
+        !closures
+            .iter()
+            .any(|row| row.0 == start("no_base") && row.2.is_some()),
+        "no finite return seed can produce a recursive return closure proof"
+    );
+
+    let bad_pairs: i64 = catalog_runtime::one(fixture,
+        "SELECT count(*) FROM summary_pair_outcomes p LEFT JOIN summary_transfer_witnesses w ON w.id=p.witness WHERE (p.disposition=2 AND (p.witness IS NULL OR w.id IS NULL OR p.reason IS NOT NULL)) OR (p.disposition<>2 AND p.witness IS NOT NULL) OR (p.disposition=3 AND p.reason IS NULL) OR (p.disposition<>3 AND p.reason IS NOT NULL)"
+    ).await;
+    assert_eq!(
+        bad_pairs, 0,
+        "every actual attempted pair retains exact finite proof or refusal accounting"
+    );
+    let recursive_proofs: i64 = catalog_runtime::one(fixture, format!(
+        "SELECT count(*) FROM summary_pair_outcomes pair JOIN source_call_headers header ON header.attempt=pair.attempt JOIN entity_refs owner ON owner.id=header.owner JOIN callable_entities callable ON callable.id=owner.callable_callable JOIN occurrences declaration ON declaration.id=callable.source_declaration WHERE header.owner=header.callee AND declaration.start={} AND pair.disposition=2", start("recurse")
+    )).await;
+    assert!(
+        recursive_proofs > 0,
+        "the guarded base seed must actually compose through the self call"
+    );
+    let unaccounted: i64 = catalog_runtime::one(fixture,
+        "SELECT count(*) FROM summary_runs r WHERE r.components<>(SELECT count(*) FROM summary_components c WHERE c.invocation=r.invocation) OR r.work<=0 OR r.proofs<>((SELECT count(*) FROM summary_transfer_witnesses w WHERE w.invocation=r.invocation)+(SELECT count(*) FROM summary_path_witnesses w WHERE w.invocation=r.invocation)+(SELECT count(*) FROM summary_capture_witnesses w WHERE w.invocation=r.invocation)) OR r.residuals<>(SELECT count(*) FROM summary_residuals residual WHERE residual.invocation=r.invocation)"
+    ).await;
+    assert_eq!(
+        unaccounted, 0,
+        "published SCC, proof and residual totals match actual canonical records exactly"
     );
 }

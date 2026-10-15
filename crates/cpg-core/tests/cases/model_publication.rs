@@ -1,5 +1,6 @@
 //! Semantic compiler owners consume completed native and normalized streams.
 use crate::catalog_runtime;
+use futures::FutureExt;
 use lctx_model::domain::{admission::Frontier, stages::Profile};
 async fn run(profile: Profile) {
     let fixture = catalog_runtime::compile(
@@ -10,6 +11,12 @@ async fn run(profile: Profile) {
         None,
     )
     .await;
+    let result = std::panic::AssertUnwindSafe(async {
+    if profile == Profile::Catalog {
+        catalog_runtime::assert_compact_owners(&fixture,
+            &[lctx_model::domain::analysis::owner::AnalysisOwner::Models]).await;
+        return;
+    }
     let count: i64 = catalog_runtime::one(&fixture, "SELECT count(*) FROM model_runs").await;
     assert!(count > 0);
     let statuses: Vec<i16> =
@@ -53,14 +60,9 @@ async fn run(profile: Profile) {
         assert!(applications > 0);
         assert!(postconditions > 0);
         assert!(statuses.iter().all(|s| *s == 1));
-    } else {
-        assert_eq!(context_transfers, 0);
-        assert_eq!(context_counts, (0, 0, 0, 0));
-        assert_eq!(transfers, 0);
-        assert_eq!(applications, 0);
-        assert_eq!(postconditions, 0);
-        assert!(statuses.iter().all(|s| *s == 3));
     }
+    }).catch_unwind().await;
+    fixture.complete(result).await;
 }
 #[tokio::test]
 async fn behavioral_models_consume_actual_enriched_calls() {
