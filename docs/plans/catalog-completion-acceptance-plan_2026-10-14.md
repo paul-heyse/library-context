@@ -99,6 +99,10 @@ just run --background --label catalog-completion-validation -- \
   uv run --no-sync python scripts/catalog_completion_validate.py
 ```
 
+The compile-only prebuild uses Nextest `--no-run` without execution-only fail-fast flags; actual
+test batches use `--no-fail-fast`. The coordinator records the initial parsing failure and corrected
+prebuild separately. An all-target metadata compile pass does not replace executable test prebuild.
+
 The launcher prints the exact run ID and directory. Inspect that run with `just runs status RUN`
 and `just runs logs RUN --follow`; cancellation uses `just runs cancel RUN`. Return its directory
 for aggregate review after it ends. Results are `build/runs/RUN/summary.json` and `summary.md`. The script retains the run, its aggregate JSON/readable summary,

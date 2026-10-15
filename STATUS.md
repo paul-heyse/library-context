@@ -7,23 +7,22 @@ alone owns dispositions, exact receipts and remaining scope. P01–P06/T01–T04
 eager views, flat codec1/semantic v4, independent receiving admission and ADR-0171/0172 remain current.
 RC03/RC04 were not selected. All source is on main; no auxiliary worktree exists.
 
-**Last verified, 2026-10-15:** 24 focused reference/native/scoped/availability/transport controls passed
-with enclosing fixture and confirmed cleanup (`40db52`), including staged-reference refusal after actual
-producing-owner closure. Current touched-crate tests metadata (`ed1433`), CLI (`ba8ae0`) and selected
-functional code generation (`b01058`) passed without warnings. Five pure recovery controls (`e7fe0b`)
-and 19 pilot-adapter controls (`289543`) retain their earlier bounded passes. The four-control
-Summary/Catalog run stopped: one compact Catalog body passed and three timed out (`cc2fdc`);
-host cleanup is confirmed, with enclosing native uncertainty. Prior failed/Unknown receipts remain unchanged. Stable identity
-and unsupported truthiness now have separate independent proof/refusal assertions. No numerical speed
-claim follows from source-grain or phase-local reuse. Earlier whole-workspace hygiene passed on the
-prior source; final current full compile/keep-going strict Clippy/Python hygiene remain pending.
+**Last verified, 2026-10-15:** operator collection `70aaae` completed with exit1 and confirmed host
+cleanup:12 steps passed,3 failed,17 blocked. CLI and full all-target compile passed; incompatible
+Nextest prebuild flags prevented every native control and pilot from starting. That runner error,
+two Clippy diagnostics and all17 Pyrefly warnings are repaired. Full all-target compile (`8aa19c`), keep-going strict Clippy (`a02da3`), full Ruff/warnings-inclusive
+Pyrefly (`c9ff05`) and25 focused Python controls (`ba0128`) passed. Corrected actual selected test prebuild (`d9437e`) passed with confirmed cleanup; an earlier
+`aws-lc-sys` archive failure (`711662`) remains recorded, with no cache deletion or manual repair. Prior native24 (`40db52`), pure5 (`e7fe0b`) and
+pilot-adapter19 (`289543`) retain their bounded passes. The earlier Summary/Catalog `cc2fdc` supplies
+one body pass, three timeouts and native uncertainty; original failed/Unknown receipts remain unchanged.
 
-**Next:** the operator runs `scripts/catalog_completion_validate.py` through the managed run route
-in the [acceptance plan](docs/plans/catalog-completion-acceptance-plan_2026-10-14.md#operator-validation-script).
-It collects remaining functional controls, exclusive mutations, the retained FastMCP Catalog/private
-reader and final hygiene for aggregate review; V04/V05 closure follows that review. B remains deliberately
-retained for the new Catalog. A5 and prior targets were authenticated/drained/discarded; original failures
-remain unchanged. Extensive environment/tool/configuration/provenance qualification, assembled qualification, embedding inference and submitted MCP runtime are excluded.
+**Next:** the operator reruns the corrected `scripts/catalog_completion_validate.py`;
+the [acceptance plan](docs/plans/catalog-completion-acceptance-plan_2026-10-14.md#operator-validation-script)
+owns invocation and results. Native functional controls, exclusive mutations and the FastMCP
+Catalog/private-reader exit still require aggregate review; final V04/V05 closure remains open.
+B remains deliberately retained; A5 and prior owned targets were authenticated/drained/discarded.
+No native campaign or pilot was launched during this repair. Extensive environment/provenance
+qualification, assembled qualification, embedding inference and submitted MCP runtime are excluded.
 Older queues, shared/operator targets, protected Unknowns, evidence and warm caches remain unchanged.
 
 **Prior SA0–SA9 implemented / focused-Tested; assurance remains paused by operator,2026-10-11.** The [architecture

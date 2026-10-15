@@ -203,6 +203,37 @@ including actual analyzer replacement. Extensive environment/tool/configuration/
 assembled qualification, embedding inference and submitted MCP runtime remain excluded. Existing unchanged
 passes below retain their recorded dates and bounds; older queues remain paused.
 
+**Operator collection and immediate repairs,2026-10-15, source baseline `a293b2f4`:**
+`70aaae` ended05:35:01UTC, exit1, with confirmed direct/delegated host cleanup and no survivors.
+Its aggregate contains12 passed,3 failed and17 blocked steps, with zero native attachments. CLI
+`8c9162`, guard-free readiness `b00134`, full release workspace/all-target compile `00ac04`, Ruff,
+dependencies, docs/ADRs, fixtures/rules and both format checks passed. Prebuild `fd14c1` failed during
+argument parsing: Nextest rejects `--no-run` together with `--no-fail-fast`. Consequently no new
+campaign, native functional control, publication mutation or FastMCP pilot ran. B was not populated.
+This is a runner defect, not evidence about native correctness or catalog performance.
+
+The compile-only command now omits `--no-fail-fast`; actual test executions retain keep-going.
+Clippy `e378b5` found only the nested Behavioral test condition and complex Summary observation tuple;
+the correction collapses the condition and introduces a test-local `ClosureObservation` alias without
+changing assertions. Pyrefly `6dfbe8` reported17 warnings: six redundant exception alternatives,
+one unreachable post-exec return and ten decorated context-manager annotations. Removing the
+redundant alternatives/return and using `Generator` annotations preserves exception, ownership and
+cleanup behavior. No rule, public product API, schema, model or timeout changed.
+
+Current repair verification: full release workspace/all-target compile `8aa19c` and keep-going
+strict Clippy `a02da3` passed with zero diagnostics; full Ruff and `pyrefly check --summary=none --min-severity warn`
+`c9ff05` passed. Focused Python `ba0128` passed25 cases: the existing20 runner controls, actual command
+delegation/jobserver and malformed/truncated-session evidence controls. All enclosing host cleanups
+are confirmed. These support the repair and tooling; they do not establish any pending native exit.
+Corrected actual selected prebuild `711662` reached Cargo but failed on an `aws-lc-sys` archive reported
+truncated. Subsequent complete `ar t` read succeeded (456 members);215GiB was free. No cache deletion or
+manual artifact repair ran. Retry `d9437e` passed selected executable test prebuild with confirmed cleanup and no diagnostics;
+the original failure and its unestablished cause remain preserved. This confirms the corrected
+invocation against actual installed Nextest/Cargo; the printed preview alone never established that.
+Normal turn-end formatting and affected documentation checks accompany the final handoff.
+The corrected script will be returned for another operator-run collection; existing unchanged passes
+retain their scope, and V01–V03 plus final V04/V05 remain open. No separate test-review project is added.
+
 Implemented current support comprises independent finite/recursive Summary answers, explicit native and
 workspace fixture finalization (including construction failure), a deterministic final-parent race and
 the narrow CLI FastMCP adapter. Production corrections group nominal SQL comparisons individually;
@@ -274,8 +305,9 @@ all-nine-owner helper is source-reviewed, compiled by `b01058` and passed at bod
 
 Development dependencies add only exact `blake3==1.0.11` and the existing pinned Futures0.3.34 edge
 for serving's shared external fixture. No dependency version, persisted schema, codebook, selector
-codec or public model contract changed. Guard-free readiness `7d033e` passed before later Rust edits;
-refresh remains pending after native guards drain. Explicit compile-time depth256 in affected test roots
+codec or public model contract changed. Guard-free readiness `b00134` passed in operator collection `70aaae`; subsequent mechanical test/lint
+repairs do not establish any additional native exit. The next collection observes its prerequisites
+through the same existing owner. Explicit compile-time depth256 in affected test roots
 preserves ordinary Send checking and normal runtime/threading. Source and logs support structural
 corrections; they do not establish which factor caused each timeout or a numerical performance benefit.
 
