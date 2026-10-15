@@ -1,7 +1,7 @@
 """Run the remaining Catalog completion scope under existing run and campaign owners.
 
 Preview: uv run --no-sync python scripts/catalog_completion_validate.py --print
-Execute: just run --background --label catalog-completion-validation -- \
+Execute: just run --background --capture-native --label catalog-completion-validation -- \
     uv run --no-sync python scripts/catalog_completion_validate.py
 
 The enclosing run retains summary.json/summary.md and every child receipt/log. Each disposable
@@ -82,6 +82,12 @@ class Batch:
     maintenance: bool = False
 
 
+@dataclass(frozen=True)
+class BatchResult:
+    functional_passed: bool
+    disposed: bool
+
+
 BATCHES = (
     Batch(
         "composition",
@@ -94,12 +100,12 @@ BATCHES = (
     Batch("cold", nextest(["lctx-publisher"], ["--test", "publication"], COLD)),
     Batch(
         "document-lexical",
-        nextest(["lctx-publisher"], ["--test", "publication"], MUTATIONS, ignored=True),
+        nextest(["lctx-publisher"], ["--lib"], MUTATIONS, ignored=True),
         True,
     ),
     Batch(
         "analyzer",
-        nextest(["lctx-publisher"], ["--test", "publication"], ANALYZER, ignored=True),
+        nextest(["lctx-publisher"], ["--lib"], ANALYZER, ignored=True),
         True,
     ),
     Batch("epoch", nextest(["lctx-native"], ["--lib"], EPOCH, ignored=True), True),
@@ -497,19 +503,25 @@ class Validation:
             raise InterruptedError(f"{name} was {step['termination']}")
         return step["outcome"] == "passed"
 
-    def batch(self, batch: Batch, ready: bool) -> bool:
+    def batch(
+        self,
+        batch: Batch,
+        ready: bool,
+        blocked_reason: str = "current CLI, control build and guard-free just ready required",
+    ) -> BatchResult:
         install_name, dispose_name = f"{batch.name}-install", f"{batch.name}-dispose"
         if not ready:
             for name in (install_name, batch.name, dispose_name):
-                self.blocked(name, "current CLI, control build and guard-free just ready required")
-            return False
+                self.blocked(name, blocked_reason)
+            return BatchResult(False, False)
         config = Path(self.row(install_name)["service_config"])
         if config.parent.exists():
             for name in (install_name, batch.name, dispose_name):
                 self.blocked(name, f"campaign path exists; refusing reuse: {config.parent}")
-            return False
+            return BatchResult(False, False)
         participants = []
         passed = False
+        disposed = False
         try:
             installed = self.execute(install_name)
             if participant := self.row(install_name).get("run"):
@@ -539,18 +551,25 @@ class Validation:
                 else:
                     command = ["just", "service", "dispose-campaign", identity]
                     for participant in participants:
-                        command.extend(["--participant-run", participant])
+                        command.extend(["--participant-run", Path(participant).name])
                     disposed = self.execute(dispose_name, command)
-                    passed = passed and disposed
-        return passed
+        return BatchResult(passed, disposed)
 
     def validate(self) -> None:
         built = self.execute("build-cli")
         controls = self.execute("build-controls")
         ready = self.execute("ready")
         prerequisites = built and controls and ready
-        results = [self.batch(batch, prerequisites) for batch in BATCHES]
-        if prerequisites and all(results):
+        native_ready = prerequisites
+        blocked_reason = "current CLI, control build and guard-free just ready required"
+        results = []
+        for batch in BATCHES:
+            result = self.batch(batch, native_ready, blocked_reason)
+            results.append(result)
+            if native_ready and not result.disposed:
+                native_ready = False
+                blocked_reason = f"{batch.name} checked disposal unresolved; native work held"
+        if prerequisites and all(row.functional_passed and row.disposed for row in results):
             retained = read_json(RETAINED) or {}
             if (
                 not isinstance(retained, dict)

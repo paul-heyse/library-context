@@ -15,6 +15,8 @@ import catalog_completion_validate as validation
 
 @pytest.fixture
 def isolated(tmp_path, monkeypatch):
+    # The managed parent protects tmp_path; inert children use their own storage state.
+    monkeypatch.delenv("LCTX_STORAGE_ADMISSION", raising=False)
     monkeypatch.setenv("LCTX_STORAGE_STATE", str(tmp_path / "storage"))
     monkeypatch.setenv("LCTX_RUNS_ROOT", str(tmp_path / "runs"))
     monkeypatch.delenv("LCTX_RUN_DIR", raising=False)
@@ -59,6 +61,23 @@ def test_print_is_read_only_and_contains_exact_remaining_scope(monkeypatch, caps
         "--no-fail-fast" in batch.command and "--no-tests=fail" in batch.command
         for batch in validation.BATCHES
     )
+
+
+@pytest.mark.parametrize(
+    ("name", "selection"),
+    [("document-lexical", validation.MUTATIONS), ("analyzer", validation.ANALYZER)],
+)
+def test_publication_mutations_select_the_ignored_publisher_unit_tests(name, selection):
+    batch = next(batch for batch in validation.BATCHES if batch.name == name)
+    command = batch.command
+    assert command[command.index("-p") + 1] == "lctx-publisher"
+    assert "--lib" in command and "--test" not in command
+    assert command[command.index("--run-ignored") + 1] == "only"
+    assert command[command.index("-E") + 1] == selection
+    assert "--no-tests=fail" in command
+    # Cold restore remains the publication integration target, separately from mutations.
+    cold = next(batch for batch in validation.BATCHES if batch.name == "cold").command
+    assert cold[cold.index("--test") + 1] == "publication" and "--lib" not in cold
 
 
 def test_children_remove_inherited_native_authority_and_preserve_run_and_user_bus():
@@ -153,20 +172,40 @@ def test_failed_logical_batch_still_disposes_exact_target_and_participants(
     monkeypatch,
     install_passed,
 ):
+    import surrealdb_service
+
     called = []
+    participants = []
 
     def execute(name, command=None, **_kwargs):
         called.append((name, command))
-        isolated.row(name).update(
-            run=f"/runs/{name}", log=f"/runs/{name}/output.log", outcome="failed"
+        if name.endswith("-dispose"):
+            assert command is not None
+            selectors = command[5::2]
+            resolved = [validation.runs.resolve(selector) for selector in selectors]
+            assert resolved == participants
+            references = [surrealdb_service._campaign_participant_run(path) for path in resolved]
+            assert [row["run_path"] for row in references] == [str(path) for path in participants]
+            return True
+        path = validation.runs.new_run_dir()
+        owner = validation.runs.Owner(
+            path,
+            [sys.executable, "-c", "raise SystemExit(0)"],
+            label=name,
+            cwd=str(validation.ROOT),
+            mode="foreground",
+            stream=False,
         )
+        assert owner.run() == 0
+        participants.append(path)
+        isolated.row(name).update(run=str(path), log=str(path / "output.log"), outcome="failed")
         if name == "composition-install":
             install_record(Path(isolated.row(name)["service_config"]))
             return install_passed
-        return name.endswith("-dispose")
+        return False
 
     monkeypatch.setattr(isolated, "execute", execute)
-    assert not isolated.batch(validation.BATCHES[0], True)
+    assert isolated.batch(validation.BATCHES[0], True) == validation.BatchResult(False, True)
     name, command = called[-1]
     assert name == "composition-dispose"
     assert command is not None
@@ -176,9 +215,7 @@ def test_failed_logical_batch_still_disposes_exact_target_and_participants(
         "dispose-campaign",
         "80029a30-3dd0-4203-9bb0-9a3c11ebd2d5",
     ]
-    expected = ["--participant-run", "/runs/composition-install"]
-    if install_passed:
-        expected.extend(["--participant-run", "/runs/composition"])
+    expected = [item for path in participants for item in ("--participant-run", path.name)]
     assert command[4:] == expected
     assert validation.RETAINED_ID not in command
 
@@ -187,7 +224,7 @@ def test_existing_campaign_is_never_reused_or_disposed(isolated, monkeypatch):
     config = Path(isolated.row("cold-install")["service_config"])
     config.parent.mkdir(parents=True)
     monkeypatch.setattr(isolated, "execute", lambda *_a, **_k: pytest.fail("must refuse reuse"))
-    assert not isolated.batch(validation.BATCHES[1], True)
+    assert isolated.batch(validation.BATCHES[1], True) == validation.BatchResult(False, False)
     assert isolated.row("cold-dispose")["outcome"] == "blocked"
 
 
@@ -237,7 +274,9 @@ def test_independent_batches_and_quality_continue_but_pilot_is_blocked(isolated,
     monkeypatch.setattr(
         isolated,
         "batch",
-        lambda batch, _ready: called.append(batch.name) or batch.name != "composition",
+        lambda batch, _ready, _reason: (
+            called.append(batch.name) or validation.BatchResult(batch.name != "composition", True)
+        ),
     )
     isolated.validate()
     assert called[:8] == [
@@ -253,6 +292,39 @@ def test_independent_batches_and_quality_continue_but_pilot_is_blocked(isolated,
     assert all(name in called for name, _ in validation.QUALITY)
     assert "pilot-produce" not in called and "pilot-check" not in called
     assert isolated.row("pilot-produce")["outcome"] == "blocked"
+
+
+@pytest.mark.parametrize("dispose_passed", [False, True])
+def test_unresolved_disposal_holds_later_native_work_but_not_quality(
+    isolated, monkeypatch, dispose_passed
+):
+    called = []
+
+    def execute(name, *_args, **_kwargs):
+        called.append(name)
+        if name.endswith("-install"):
+            install_record(Path(isolated.row(name)["service_config"]))
+            return True
+        if name.endswith("-dispose"):
+            return dispose_passed
+        return name not in {batch.name for batch in validation.BATCHES}
+
+    monkeypatch.setattr(isolated, "execute", execute)
+    isolated.validate()
+    native = [name for name in called if name.endswith("-install")]
+    assert native == (
+        [f"{batch.name}-install" for batch in validation.BATCHES]
+        if dispose_passed
+        else ["composition-install"]
+    )
+    assert all(name in called for name, _ in validation.QUALITY)
+    assert "pilot-produce" not in called and "pilot-check" not in called
+    if not dispose_passed:
+        for batch in validation.BATCHES[1:]:
+            for name in (f"{batch.name}-install", batch.name, f"{batch.name}-dispose"):
+                row = isolated.row(name)
+                assert row["outcome"] == "blocked"
+                assert "composition checked disposal unresolved" in row["reason"]
 
 
 def test_exception_is_reported_without_preventing_independent_step(isolated, monkeypatch):

@@ -355,18 +355,31 @@ pub async fn tool(
 
 /// Explicit maintenance installation, never called by ordinary compilation or readiness.
 pub async fn install(config: &RuntimeConfig, keep_closed: bool) -> anyhow::Result<()> {
-    tokio::time::timeout(deadline(), async {
+    use lctx_native::phase::Phase;
+    let operation = Phase::begin("native_installation");
+    let result = tokio::time::timeout(deadline(), async {
         anyhow::ensure!(
             config.authentication == lctx_native::config::AuthenticationScope::Root,
             "installation requires explicit maintenance credentials"
         );
-        lctx_compiler_store::compiler::install_shared(config, &lctx_serving::native_definitions())
-            .await?;
-        let client = lctx_compiler_store::compiler::check_installation(config).await?;
+        let phase = Phase::begin("native_installation_shared_schema");
+        let result = lctx_compiler_store::compiler::install_shared(
+            config,
+            &lctx_serving::native_definitions(),
+        )
+        .await;
+        phase.finish_result(&result);
+        result?;
+        let phase = Phase::begin("native_installation_check");
+        let result = lctx_compiler_store::compiler::check_installation(config).await;
+        phase.finish_result(&result);
+        let client = result?;
         let session = lctx_native::reader::SessionFinalizationGuard::new(client.clone());
+        let phase = Phase::begin("native_installation_embedding_schema");
         let embedding = lctx_native::NativeEmbeddingCache::install(client)
             .await
             .map(|_| ());
+        phase.finish_result(&embedding);
         if embedding
             .as_ref()
             .err()
@@ -375,19 +388,38 @@ pub async fn install(config: &RuntimeConfig, keep_closed: bool) -> anyhow::Resul
             return embedding.map_err(Into::into);
         }
         let mut terminal = lctx_model::domain::completion::Completion::default();
-        terminal.step("embedding schema session close", session.close().await);
+        let phase = Phase::begin("native_installation_embedding_session_close");
+        let result = session.close().await;
+        phase.finish_result(&result);
+        terminal.step("embedding schema session close", result);
         lctx_model::domain::completion::complete(embedding, terminal)?;
-        if let Some(cache) = lctx_compiler_store::NativeProductCache::install(config).await? {
-            std::sync::Arc::new(cache).close().await?;
+        let phase = Phase::begin("native_installation_product_schema");
+        let result = lctx_compiler_store::NativeProductCache::install(config).await;
+        phase.finish_result(&result);
+        if let Some(cache) = result? {
+            let phase = Phase::begin("native_installation_product_session_close");
+            let result = std::sync::Arc::new(cache).close().await;
+            phase.finish_result(&result);
+            result?;
         }
-        lctx_publisher::install_definitions(config, &lctx_serving::native_definitions()).await?;
+        let phase = Phase::begin("native_installation_publication_schema");
+        let result =
+            lctx_publisher::install_definitions(config, &lctx_serving::native_definitions()).await;
+        phase.finish_result(&result);
+        result?;
         if !keep_closed {
-            lctx_compiler_store::compiler::open_admission(config).await?;
+            let phase = Phase::begin("native_installation_open_admission");
+            let result = lctx_compiler_store::compiler::open_admission(config).await;
+            phase.finish_result(&result);
+            result?;
         }
         Ok(())
     })
     .await
-    .context("native installation deadline exceeded")?
+    .context("native installation deadline exceeded")
+    .and_then(std::convert::identity);
+    operation.finish_result(&result);
+    result
 }
 
 /// Explicit lifecycle operations never update the selected snapshot pointer.
