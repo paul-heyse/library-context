@@ -461,21 +461,169 @@ pub async fn register_retirement_roots(
     effect_for_owner(client,EffectOwner::RetirementSetup(job),"IF $__owner.state!='registering' OR $__owner.roots_registered!=$__owner.root_count { THROW 'native retirement roots incomplete'; }; UPDATE $job SET state='open',revision+=1 RETURN NONE",bindings).await
 }
 
-async fn claim(client: &Surreal<Client>, job: &RecordId, item: &Object) -> Result<(), ModelError> {
-    let Some(Value::RecordId(object)) = item.get("object") else {
-        return Err(ModelError::Schema("retirement object"));
-    };
+/// One canonical, row/byte-bounded candidate payload. Discovery is only a hint;
+/// every immutable identity and mutable state is checked again inside the effect.
+fn candidate_bindings(
+    job: &RecordId,
+    lineage: &RecordId,
+    items: Vec<Object>,
+) -> Result<(Variables, usize), ModelError> {
+    if items.is_empty() || items.len() > crate::loader::NATIVE_WINDOW_ROWS {
+        return Err(ModelError::Schema("retirement candidate page width"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut rows = Vec::new();
+    for item in items {
+        let (Some(Value::RecordId(id)), Some(Value::RecordId(object))) =
+            (item.get("id"), item.get("object"))
+        else {
+            return Err(ModelError::Schema("retirement candidate identity"));
+        };
+        let incarnation = int_field(&item, "incarnation")?;
+        if incarnation <= 0
+            || item.get("job") != Some(&Value::RecordId(job.clone()))
+            || id != &item_id(lineage, object, incarnation)?
+            || !seen.insert(id.clone())
+            || item
+                .get("successor")
+                .is_some_and(|value| *value != Value::None)
+            || !matches!(item.get("state"), Some(Value::String(state)) if matches!(state.as_str(), "pending" | "retained" | "retiring"))
+        {
+            return Err(ModelError::Conflict("retirement candidate correspondence"));
+        }
+        let mut row = Object::new();
+        row.insert("id", id.clone());
+        row.insert("object", object.clone());
+        row.insert("incarnation", incarnation);
+        row.insert("state", item.get("state").cloned().unwrap());
+        row.insert("guard", guard_id(&Value::RecordId(object.clone()))?);
+        rows.push(Value::Object(row));
+    }
+    let rows = crate::loader::NativeWindows::new(rows)
+        .next()
+        .transpose()?
+        .unwrap_or_default();
+    let count = rows.len();
     let mut bindings = Variables::new();
     bindings.insert("job", job.clone());
-    bindings.insert(
-        "item",
-        item.get("id")
-            .cloned()
-            .ok_or(ModelError::Schema("retirement item"))?,
-    );
-    bindings.insert("object", object.clone());
-    bindings.insert("guard", guard_id(&Value::RecordId(object.clone()))?);
-    effect_for_owner(client,EffectOwner::Retirement(job.clone()),"fn::native_backup_clear(); fn::native_touch($item); fn::native_touch($object); LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $queued.job!=$job OR $queued.object!=$object OR $queued.successor!=NONE OR $queued.state NOT IN ['pending','retained'] { THROW 'native retirement item not claimable'; }; IF $before.incarnation!=$queued.incarnation OR $before.phase='retired' { UPDATE $item SET state='superseded' RETURN NONE; } ELSE { IF $before.phase='retiring' OR (record::table($object)='native_product' AND (SELECT VALUE released FROM ONLY $object)!=true) OR array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0 { UPDATE $item SET state='retained' RETURN NONE; UPDATE $job SET examined+=1,revision+=1 RETURN NONE; } ELSE { UPDATE $guard SET phase='retiring',retiring_item=$item,revision+=1 RETURN NONE; UPDATE $item SET state='retiring',cutoff=$before.tombstone_revision RETURN NONE; UPDATE $job SET revision+=1 RETURN NONE; }; };",bindings).await
+    bindings.insert("lineage", lineage.clone());
+    bindings.insert("rows", rows);
+    Ok((bindings, count))
+}
+
+// Scalar ONLY locks are deliberate: the streaming engine does not lock record-ID
+// arrays. Classify the whole bounded page before changing any item. The shared
+// backup gate and full native effect protocol are acquired once for this page.
+const RETIRE_CLAIM_PAGE: &str = r#"
+IF $__owner.lineage!=$lineage { THROW 'native retirement lineage changed'; };
+fn::native_backup_clear();
+LET $classified=$rows.map(|$row| {
+    LET $id=$row.id;
+    LET $guard=$row.guard;
+    LET $object=$row.object;
+    LET $queued=SELECT * FROM ONLY $id FOR UPDATE;
+    LET $before=SELECT * FROM ONLY $guard FOR UPDATE;
+    IF $queued.job!=$job OR $queued.object!=$object OR $queued.incarnation!=$row.incarnation OR $queued.successor!=NONE OR $queued.state!=$row.state OR $queued.state NOT IN ['pending','retained'] { THROW 'native retirement candidate changed'; };
+    LET $held=array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0;
+    LET $unreleased=record::table($object)='native_product' AND (SELECT VALUE released FROM ONLY $object FOR UPDATE)!=true;
+    RETURN {id:$id,object:$object,guard:$guard,before:$before,superseded:($before.incarnation!=$queued.incarnation OR $before.phase='retired'),retained:($before.phase='retiring' OR $unreleased OR $held)};
+});
+FOR $row IN $classified {
+    fn::native_touch($row.id);
+    fn::native_touch($row.object);
+    IF $row.superseded {
+        UPDATE $row.id SET state='superseded' RETURN NONE;
+    } ELSE IF $row.retained {
+        UPDATE $row.id SET state='retained' RETURN NONE;
+    } ELSE {
+        UPDATE $row.guard SET phase='retiring',retiring_item=$row.id,revision+=1 RETURN NONE;
+        UPDATE $row.id SET state='retiring',cutoff=$row.before.tombstone_revision RETURN NONE;
+    };
+};
+LET $retained_count=array::len($classified.filter(|$row| !$row.superseded AND $row.retained));
+LET $advanced_count=array::len($classified.filter(|$row| !$row.superseded));
+IF $advanced_count>0 { UPDATE $job SET examined+=$retained_count,revision+=$advanced_count RETURN NONE; };
+"#;
+async fn claim_page(
+    client: &Surreal<Client>,
+    job: &RecordId,
+    bindings: Variables,
+) -> Result<(), ModelError> {
+    effect_for_owner(
+        client,
+        EffectOwner::Retirement(job.clone()),
+        RETIRE_CLAIM_PAGE,
+        bindings,
+    )
+    .await
+}
+
+/// Refresh a bounded hint page in one crossing, retaining its canonical order.
+/// A terminal state is skipped, but identity or successor drift is never ignored.
+async fn refresh_candidates(
+    client: &Surreal<Client>,
+    job: &RecordId,
+    candidates: Vec<Object>,
+    discovered_pending: bool,
+) -> Result<Vec<Object>, ModelError> {
+    let ids = candidates
+        .iter()
+        .map(|row| match row.get("id") {
+            Some(Value::RecordId(id)) => Ok(id.clone()),
+            _ => Err(ModelError::Schema("retirement item identity")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut response = client
+        .query("SELECT * FROM $ids")
+        .bind(("ids", ids))
+        .await
+        .map_err(ModelError::codec)?
+        .check()
+        .map_err(ModelError::codec)?;
+    let rows: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
+    let mut actual = std::collections::BTreeMap::new();
+    for row in rows {
+        let Some(Value::RecordId(id)) = row.get("id") else {
+            return Err(ModelError::Schema("retirement item identity"));
+        };
+        if actual.insert(id.clone(), row).is_some() {
+            return Err(ModelError::Conflict(
+                "retirement duplicate refreshed candidate",
+            ));
+        }
+    }
+    let mut refreshed = Vec::new();
+    for candidate in candidates {
+        let Some(Value::RecordId(id)) = candidate.get("id") else {
+            unreachable!()
+        };
+        let item = actual
+            .remove(id)
+            .ok_or(ModelError::Conflict("native retirement identity missing"))?;
+        if item.get("job") != Some(&Value::RecordId(job.clone()))
+            || item.get("object") != candidate.get("object")
+            || item.get("incarnation") != candidate.get("incarnation")
+            || item
+                .get("successor")
+                .is_some_and(|value| *value != Value::None)
+        {
+            return Err(ModelError::Conflict(
+                "native retirement discovered candidate changed",
+            ));
+        }
+        let eligible = matches!(item.get("state"), Some(Value::String(state))
+            if if discovered_pending { matches!(state.as_str(), "pending" | "retiring") }
+               else { matches!(state.as_str(), "retained" | "retiring") });
+        if eligible {
+            refreshed.push(item);
+        }
+    }
+    if !actual.is_empty() {
+        return Err(ModelError::Conflict(
+            "retirement foreign refreshed candidate",
+        ));
+    }
+    Ok(refreshed)
 }
 
 async fn outgoing_page(
@@ -683,26 +831,75 @@ async fn page(
     commit_page(client, job, bindings).await?;
     Ok(count)
 }
-async fn finalize(
+// Every selected incarnation and both hold directions are checked before ANY
+// terminal deletion. A late changed row refuses the entire page atomically.
+const RETIRE_FINALIZE_PAGE: &str = r#"
+IF $__owner.lineage!=$lineage { THROW 'native retirement lineage changed'; };
+fn::native_backup_clear();
+LET $classified=$rows.map(|$row| {
+    LET $id=$row.id;
+    LET $guard=$row.guard;
+    LET $object=$row.object;
+    LET $queued=SELECT * FROM ONLY $id FOR UPDATE;
+    LET $before=SELECT * FROM ONLY $guard FOR UPDATE;
+    IF $row.state!='retiring' OR $queued.job!=$job OR $queued.object!=$object OR $queued.incarnation!=$row.incarnation OR $queued.state!='retiring' OR $queued.successor!=NONE OR $before.phase!='retiring' OR $before.retiring_item!=$id OR $before.incarnation!=$queued.incarnation OR $queued.cutoff=NONE { THROW 'native retirement finalize incarnation fenced'; };
+    IF array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$object LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0 { THROW 'native retirement final holds remain'; };
+    // Keep only the complete native_incidence input, never compiler/original bodies.
+    LET $physical=SELECT id,attempt,owner,object,effect,contribution,completion,job,release_job,lineage,predecessor,successor,recovery_source FROM ONLY $object FOR UPDATE;
+    RETURN {id:$id,guard:$guard,object:$object,physical:$physical};
+});
+FOR $row IN $classified {
+    fn::native_touch($row.id);
+    fn::native_touch($row.object);
+    IF $row.physical!=NONE { fn::native_incidence($row.physical); };
+    DELETE $row.object RETURN NONE;
+    UPDATE $row.guard SET phase='retired',retired=true,retiring_item=NONE,tombstone_revision+=1,revision+=1 RETURN NONE;
+    UPDATE $row.id SET state='done' RETURN NONE;
+};
+UPDATE $job SET examined+=array::len($rows),retired+=array::len($rows),revision+=array::len($rows) RETURN NONE;
+"#;
+async fn finalize_page(
     client: &Surreal<Client>,
     job: &RecordId,
-    item: &Object,
+    bindings: Variables,
 ) -> Result<(), ModelError> {
-    let Some(Value::RecordId(object)) = item.get("object") else {
-        return Err(ModelError::Schema("retirement object"));
-    };
-    let mut bindings = Variables::new();
-    bindings.insert("job", job.clone());
-    bindings.insert(
-        "item",
-        item.get("id")
-            .cloned()
-            .ok_or(ModelError::Schema("retirement item"))?,
-    );
-    bindings.insert("object", object.clone());
-    bindings.insert("guard", guard_id(&Value::RecordId(object.clone()))?);
-    effect_for_owner(client,EffectOwner::Retirement(job.clone()),"fn::native_backup_clear(); fn::native_touch($item); fn::native_touch($object); LET $queued=SELECT * FROM ONLY $item FOR UPDATE; LET $before=SELECT * FROM ONLY $guard FOR UPDATE; IF $queued.job!=$job OR $queued.state!='retiring' OR $queued.successor!=NONE OR $before.phase!='retiring' OR $before.retiring_item!=$item OR $before.incarnation!=$queued.incarnation OR $queued.cutoff=NONE { THROW 'native retirement finalize incarnation fenced'; }; IF array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$object LIMIT 1)>0 OR array::len(SELECT VALUE id FROM native_hold WITH INDEX object_holds WHERE object=$object LIMIT 1)>0 { THROW 'native retirement final holds remain'; }; LET $object_row=SELECT * FROM ONLY $object FOR UPDATE; IF $object_row!=NONE { fn::native_incidence($object_row); }; DELETE $object RETURN NONE; UPDATE $guard SET phase='retired',retired=true,retiring_item=NONE,tombstone_revision+=1,revision+=1 RETURN NONE; UPDATE $item SET state='done' RETURN NONE; UPDATE $job SET examined+=1,retired+=1,revision+=1 RETURN NONE;",bindings).await
+    effect_for_owner(
+        client,
+        EffectOwner::Retirement(job.clone()),
+        RETIRE_FINALIZE_PAGE,
+        bindings,
+    )
+    .await
 }
+
+/// This read classifies useful work only; terminal authorization still checks the
+/// exact item, guard and both hold directions in RETIRE_FINALIZE_PAGE.
+async fn leaf_candidates(
+    client: &Surreal<Client>,
+    items: &[Object],
+) -> Result<std::collections::BTreeSet<RecordId>, ModelError> {
+    let objects = items
+        .iter()
+        .map(|item| match item.get("object") {
+            Some(Value::RecordId(object)) => Ok(object.clone()),
+            _ => Err(ModelError::Schema("retirement object")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut response = client.query("RETURN $objects.filter(|$object| array::len(SELECT VALUE id FROM native_hold WITH INDEX owner_holds WHERE owner=$object LIMIT 1)=0)")
+        .bind(("objects", objects.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+    let leaves: Vec<RecordId> = response.take(0).map_err(ModelError::codec)?;
+    let expected = objects
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut selected = std::collections::BTreeSet::new();
+    for leaf in leaves {
+        if !expected.contains(&leaf) || !selected.insert(leaf) {
+            return Err(ModelError::Conflict("retirement leaf correspondence"));
+        }
+    }
+    Ok(selected)
+}
+
 async fn progress(
     client: &Surreal<Client>,
     identity: ContentHash,
@@ -895,75 +1092,102 @@ pub async fn resume_retirement(
             pending = pending_page(client, &job, limit - spent).await?;
         }
         let discovered_pending = !pending.is_empty();
-        let candidate = if let Some(item) = pending.pop_front() {
-            item
+        // Reserve useful room for terminal work while allowing a one-unit claim.
+        // This is a bounded wave, never a retained complete retirement queue.
+        let width = (limit - spent)
+            .div_ceil(2)
+            .min(crate::loader::NATIVE_WINDOW_ROWS);
+        let candidates = if discovered_pending {
+            pending
+                .drain(..pending.len().min(width))
+                .collect::<Vec<_>>()
         } else {
+            // Retained priority/cursor semantics stay singleton (ADR-0170).
             let mut response=client.query("SELECT * FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job AND state='retained' AND ($after=NONE OR id>$after) ORDER BY id LIMIT 1")
                 .bind(("job",job.clone())).bind(("after",retained_after.clone())).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
             let rows: Vec<Object> = response.take(0).map_err(ModelError::codec)?;
             let Some(item) = rows.into_iter().next() else {
                 break;
             };
-            item
+            retained_after = item
+                .get("id")
+                .cloned()
+                .ok_or(ModelError::Schema("retirement item identity"))?;
+            vec![item]
         };
-        let Some(Value::RecordId(id)) = candidate.get("id") else {
-            return Err(ModelError::Schema("retirement item identity"));
-        };
-        if !discovered_pending {
-            retained_after = Value::RecordId(id.clone());
+        let candidates = refresh_candidates(client, &job, candidates, discovered_pending).await?;
+        let claims = candidates
+            .iter()
+            .filter(|item| item.get("state") != Some(&Value::String("retiring".into())))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !claims.is_empty() {
+            let (bindings, count) = candidate_bindings(&job, &lineage, claims)?;
+            claim_page(client, &job, bindings).await?;
+            spent += count;
         }
-        let mut item = record(client, id).await?;
-        if item.get("job") != Some(&Value::RecordId(job.clone()))
-            || item.get("object") != candidate.get("object")
-            || item.get("incarnation") != candidate.get("incarnation")
-            || item
-                .get("successor")
-                .is_some_and(|value| *value != Value::None)
-        {
-            return Err(ModelError::Conflict(
-                "native retirement discovered candidate changed",
-            ));
-        }
-        let eligible = match item.get("state") {
-            Some(Value::String(state)) if discovered_pending => {
-                matches!(state.as_str(), "pending" | "retiring")
-            }
-            Some(Value::String(state)) => state == "retained",
-            _ => false,
-        };
-        if !eligible {
+        // Reobserve the bounded wave after claim. A byte-limited claim prefix may
+        // leave unclaimed candidates; they remain durable at the next head.
+        let items = refresh_candidates(client, &job, candidates, discovered_pending)
+            .await?
+            .into_iter()
+            .filter(|item| item.get("state") == Some(&Value::String("retiring".into())))
+            .collect::<Vec<_>>();
+        if spent == limit || items.is_empty() {
             continue;
         }
-        if item.get("state") != Some(&Value::String("retiring".into())) {
-            claim(client, &job, &item).await?;
-            spent += 1;
-            item = record(client, id).await?;
+        let leaves = leaf_candidates(client, &items).await?;
+        let terminal = items.iter().filter(|item| matches!(item.get("object"), Some(Value::RecordId(object)) if leaves.contains(object)))
+            .take(limit - spent).cloned().collect::<Vec<_>>();
+        let mut finalized = std::collections::BTreeSet::new();
+        if !terminal.is_empty() {
+            let (bindings, count) = candidate_bindings(&job, &lineage, terminal)?;
+            let Some(Value::Array(rows)) = bindings.get("rows") else {
+                unreachable!()
+            };
+            for row in rows.iter() {
+                let Value::RecordId(id) = row.get("id") else {
+                    unreachable!()
+                };
+                finalized.insert(id.clone());
+            }
+            finalize_page(client, &job, bindings).await?;
+            spent += count;
         }
-        if item.get("state") != Some(&Value::String("retiring".into())) {
-            continue;
-        }
-        let Some(Value::RecordId(object)) = item.get("object") else {
-            return Err(ModelError::Schema("retirement object"));
-        };
-        loop {
-            if spent >= limit {
+        for item in items {
+            if matches!(item.get("id"), Some(Value::RecordId(id)) if finalized.contains(id)) {
+                continue;
+            }
+            let Some(Value::RecordId(object)) = item.get("object") else {
+                return Err(ModelError::Schema("retirement object"));
+            };
+            let mut nominated = false;
+            loop {
+                if spent >= limit {
+                    break;
+                }
+                let allowance = ((limit - spent) / 2).min(crate::loader::NATIVE_WINDOW_ROWS);
+                // One edge unit comprises a durable child nomination and one exact hold deletion.
+                let holds = outgoing_page(client, object, allowance.max(1)).await?;
+                if holds.is_empty() {
+                    let (bindings, count) = candidate_bindings(&job, &lineage, vec![item.clone()])?;
+                    finalize_page(client, &job, bindings).await?;
+                    spent += count;
+                    break;
+                }
+                if allowance == 0 {
+                    break 'resume;
+                }
+                spent += page(client, &job, &lineage, &item, holds).await? * 2;
+                // Children may sort before every buffered candidate. Their durable
+                // nominations are authoritative; these discovery hints are discarded.
+                pending.clear();
+                nominated = true;
+            }
+            if nominated {
+                // Resume from the newly durable head before other wave hints.
                 break;
             }
-            let allowance = ((limit - spent) / 2).min(crate::loader::NATIVE_WINDOW_ROWS);
-            // One edge unit comprises a durable child nomination and one exact hold deletion.
-            let holds = outgoing_page(client, object, allowance.max(1)).await?;
-            if holds.is_empty() {
-                finalize(client, &job, &item).await?;
-                spent += 1;
-                break;
-            }
-            if allowance == 0 {
-                break 'resume;
-            }
-            spent += page(client, &job, &lineage, &item, holds).await? * 2;
-            // Children may sort before every buffered candidate. Their durable
-            // nominations are authoritative; these discovery hints are discarded.
-            pending.clear();
         }
     }
     progress(client, identity).await
@@ -1873,5 +2097,475 @@ mod cleanup_nomination_controls {
             Some(&crate::control::test_value(0i64))
         );
         assert!(cleanup_nomination_bindings(&owner, vec![], vec![], job).is_err());
+    }
+}
+
+#[cfg(test)]
+mod candidate_page_controls {
+    use super::*;
+    use futures::FutureExt;
+
+    fn candidate(job: &RecordId, lineage: &RecordId, object: &RecordId, state: &str) -> Object {
+        let mut row = Object::new();
+        row.insert("id", item_id(lineage, object, 1).unwrap());
+        row.insert("job", job.clone());
+        row.insert("object", object.clone());
+        row.insert("incarnation", 1i64);
+        row.insert("state", state);
+        row
+    }
+    fn guard(object: &RecordId) -> Value {
+        let mut row = Object::new();
+        row.insert("id", object.clone());
+        row.insert("revision", 0i64);
+        row.insert("retired", false);
+        row.insert("phase", "active");
+        row.insert("incarnation", 1i64);
+        row.insert("tombstone_revision", 0i64);
+        Value::Object(row)
+    }
+    fn selected(bindings: &Variables) -> &[Value] {
+        let Some(Value::Array(rows)) = bindings.get("rows") else {
+            panic!("canonical page");
+        };
+        rows.as_slice()
+    }
+    #[test]
+    fn candidate_pages_prepare_canonical_bounded_identities_and_parse_full_protocol() {
+        let job = RecordId::new("native_retirement", "candidate-job");
+        let lineage = RecordId::new("native_retirement", "candidate-origin");
+        let objects = [
+            RecordId::new("native_guard", "leaf"),
+            RecordId::new("native_guard", "parent"),
+        ];
+        let rows = objects
+            .iter()
+            .map(|object| candidate(&job, &lineage, object, "pending"))
+            .collect();
+        let (bindings, count) = candidate_bindings(&job, &lineage, rows).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(
+            bindings.len(),
+            3,
+            "one canonical page, job and exact lineage"
+        );
+        for (row, object) in selected(&bindings).iter().zip(&objects) {
+            assert_eq!(row.get("object"), &Value::RecordId(object.clone()));
+            assert_eq!(
+                row.get("guard"),
+                &Value::RecordId(guard_id(&Value::RecordId(object.clone())).unwrap())
+            );
+            assert_eq!(
+                row.get("id"),
+                &Value::RecordId(item_id(&lineage, object, 1).unwrap())
+            );
+        }
+        for sql in [RETIRE_CLAIM_PAGE, RETIRE_FINALIZE_PAGE] {
+            surrealdb_syn::parse(sql).unwrap();
+            let mut payload = bindings.clone();
+            payload.insert("__object_expectations", Vec::<Value>::new());
+            let request = NativeRequest {
+                issuance: IssuanceEra {
+                    generation: ContentHash::of(b"candidate-page-wire"),
+                    era: 1,
+                },
+                operation: ContentHash::of(sql.as_bytes()),
+                request: ContentHash::of(&serde_json::to_vec(&(sql, &payload)).unwrap()),
+            };
+            authorization::owner_effect_plan(
+                request,
+                &EffectOwner::Retirement(job.clone()),
+                sql,
+                payload,
+                false,
+            )
+            .unwrap();
+        }
+    }
+    #[test]
+    fn terminal_page_projects_complete_incidence_without_retaining_content_bodies() {
+        let schema = include_str!("schema.surql");
+        let incidence = schema
+            .split("DEFINE FUNCTION fn::native_incidence($row: object) {")
+            .nth(1)
+            .unwrap()
+            .split("DEFINE FUNCTION fn::native_backup_clear()")
+            .next()
+            .unwrap();
+        let required = incidence
+            .split("$row.")
+            .skip(1)
+            .map(|tail| {
+                tail.chars()
+                    .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+                    .collect::<String>()
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+        let projection = RETIRE_FINALIZE_PAGE
+            .split("LET $physical=SELECT ")
+            .nth(1)
+            .unwrap()
+            .split(" FROM ONLY $object FOR UPDATE;")
+            .next()
+            .unwrap()
+            .split(',')
+            .map(str::to_string)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            projection, required,
+            "the page must retain every incidence field and no unrelated payload"
+        );
+        for payload in ["body", "canonical", "bytes", "content"] {
+            assert!(
+                !projection.contains(payload),
+                "large {payload} values must never accumulate in terminal classification"
+            );
+        }
+        assert!(
+            RETIRE_FINALIZE_PAGE
+                .contains("IF $row.physical!=NONE { fn::native_incidence($row.physical); }"),
+            "an absent original keeps its NONE/skip behavior"
+        );
+    }
+    #[test]
+    fn candidate_pages_refuse_ambiguous_identity_and_keep_byte_selected_prefix() {
+        let job = RecordId::new("native_retirement", "candidate-job");
+        let object = RecordId::new("native_guard", "candidate-object");
+        let item = candidate(&job, &job, &object, "pending");
+        assert!(candidate_bindings(&job, &job, vec![item.clone(), item.clone()]).is_err());
+        for (field, value) in [
+            (
+                "job",
+                Value::RecordId(RecordId::new("native_retirement", "foreign")),
+            ),
+            (
+                "id",
+                Value::RecordId(RecordId::new("native_retirement_item", "foreign")),
+            ),
+            ("incarnation", test_value(2i64)),
+            ("state", test_value("done")),
+            ("successor", Value::RecordId(job.clone())),
+        ] {
+            let mut invalid = item.clone();
+            invalid.insert(field, value);
+            assert!(
+                candidate_bindings(&job, &job, vec![invalid]).is_err(),
+                "{field}"
+            );
+        }
+        assert!(candidate_bindings(&job, &job, Vec::new()).is_err());
+        assert!(
+            candidate_bindings(
+                &job,
+                &job,
+                vec![item; crate::loader::NATIVE_WINDOW_ROWS + 1]
+            )
+            .is_err()
+        );
+        let objects = (0..2)
+            .map(|index| {
+                RecordId::new(
+                    "large_candidate",
+                    format!(
+                        "{index}{}",
+                        "x".repeat(lctx_model::domain::resources::TRANSFER_BYTES / 2)
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        let rows = objects
+            .iter()
+            .map(|object| candidate(&job, &job, object, "pending"))
+            .collect();
+        let (bindings, count) = candidate_bindings(&job, &job, rows).unwrap();
+        assert_eq!(
+            count, 1,
+            "byte bounds select a prefix before effect preparation"
+        );
+        assert_eq!(
+            selected(&bindings)[0].get("object"),
+            &Value::RecordId(objects[0].clone())
+        );
+    }
+
+    async fn snapshot(
+        client: &Surreal<Client>,
+        job: &RecordId,
+        objects: &[RecordId],
+    ) -> Vec<Vec<Object>> {
+        let guards = objects
+            .iter()
+            .map(|object| guard_id(&Value::RecordId(object.clone())).unwrap())
+            .collect::<Vec<_>>();
+        let mut response = client.query("SELECT * FROM $job; SELECT * FROM native_retirement_item WITH INDEX retirement_queue_v4 WHERE job=$job ORDER BY id; SELECT * FROM $guards ORDER BY id; SELECT * FROM $objects ORDER BY id")
+            .bind(("job", job.clone())).bind(("guards", guards)).bind(("objects", objects.to_vec())).await.unwrap().check().unwrap();
+        (0..4)
+            .map(|index| response.take::<Vec<Object>>(index).unwrap())
+            .collect()
+    }
+    async fn register(
+        client: &Surreal<Client>,
+        identity: ContentHash,
+        roots: Vec<RecordId>,
+    ) -> RecordId {
+        retire_named_for_owner(
+            client,
+            EffectOwner::Installation,
+            identity,
+            None,
+            roots,
+            1,
+            RetirementMode::RegisterTerminal,
+        )
+        .await
+        .unwrap();
+        RecordId::new("native_retirement", identity.hex())
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn candidate_pages_refuse_late_identity_drift_atomically_and_resume_committed_prefix() {
+        let path =
+            std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned validation runtime");
+        let config = crate::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+        let client = crate::installation::check_installation(&config)
+            .await
+            .unwrap();
+        let outcome = std::panic::AssertUnwindSafe(async {
+            let nonce = fresh_identity("candidate-page-atomic-control").unwrap();
+            let objects = (0..2)
+                .map(|index| {
+                    RecordId::new(
+                        "native_guard",
+                        format!("candidate_atomic_{}_{index}", nonce.hex()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            ensure_rows(&client, None, objects.iter().map(guard).collect())
+                .await
+                .unwrap();
+            let job = register(&client, nonce, objects.clone()).await;
+            let items = objects
+                .iter()
+                .map(|object| candidate(&job, &job, object, "pending"))
+                .collect::<Vec<_>>();
+            let (prepared, count) = candidate_bindings(&job, &job, items.clone()).unwrap();
+            assert_eq!(count, 2);
+            let last = item_id(&job, &objects[1], 1).unwrap();
+            client
+                .query("UPDATE $id SET incarnation=2 RETURN NONE")
+                .bind(("id", last.clone()))
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            let before = snapshot(&client, &job, &objects).await;
+            let error = claim_page(&client, &job, prepared.clone())
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("native retirement candidate changed"),
+                "{error}"
+            );
+            assert_eq!(
+                snapshot(&client, &job, &objects).await,
+                before,
+                "late invalid candidate refuses the entire claim page"
+            );
+            client
+                .query("UPDATE $id SET incarnation=1 RETURN NONE")
+                .bind(("id", last))
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            claim_page(&client, &job, prepared).await.unwrap();
+            let refreshed = refresh_candidates(&client, &job, items, true)
+                .await
+                .unwrap();
+            assert!(
+                refreshed
+                    .iter()
+                    .all(|item| item.get("state") == Some(&test_value("retiring")))
+            );
+            let (prepared, count) = candidate_bindings(&job, &job, refreshed).unwrap();
+            assert_eq!(count, 2);
+            let last_guard = guard_id(&Value::RecordId(objects[1].clone())).unwrap();
+            client
+                .query("UPDATE $id SET incarnation=2,revision+=1 RETURN NONE")
+                .bind(("id", last_guard.clone()))
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            let before = snapshot(&client, &job, &objects).await;
+            let error = finalize_page(&client, &job, prepared.clone())
+                .await
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("native retirement finalize incarnation fenced"),
+                "{error}"
+            );
+            assert_eq!(
+                snapshot(&client, &job, &objects).await,
+                before,
+                "last-row guard drift refuses every terminal deletion"
+            );
+            client
+                .query("UPDATE $id SET incarnation=1,revision+=1 RETURN NONE")
+                .bind(("id", last_guard))
+                .await
+                .unwrap()
+                .check()
+                .unwrap();
+            // An interrupted caller resumes the durable claimed prefix. One unit
+            // finalizes only one leaf; repeating resume never repeats its deletion.
+            let first = resume_retirement(&client, nonce, 1).await.unwrap();
+            assert_eq!(first.retired, 1);
+            assert_eq!(first.remaining.len(), 1);
+            let done = resume_retirement(&client, nonce, 1).await.unwrap();
+            assert_eq!(done.retired, 2);
+            assert!(done.remaining.is_empty());
+            let repeated = resume_retirement(&client, nonce, 1).await.unwrap();
+            assert_eq!(repeated.retired, done.retired);
+            assert_eq!(repeated.examined, done.examined);
+            assert_eq!(snapshot(&client, &job, &objects).await[3].len(), 0);
+        })
+        .catch_unwind()
+        .await;
+        let cleanup = client.invalidate().await;
+        if let Err(panic) = outcome {
+            if let Err(error) = cleanup {
+                eprintln!("candidate atomic page cleanup: {error:?}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+        cleanup.unwrap();
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn candidate_pages_preserve_partial_budget_held_objects_and_high_degree_progress() {
+        let path =
+            std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned validation runtime");
+        let config = crate::RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
+        let client = crate::installation::check_installation(&config)
+            .await
+            .unwrap();
+        let outcome = std::panic::AssertUnwindSafe(async {
+            let nonce = fresh_identity("candidate-page-progress-control").unwrap();
+            let leaves = (0..3)
+                .map(|index| {
+                    RecordId::new(
+                        "native_guard",
+                        format!("candidate_leaf_{}_{index}", nonce.hex()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let holder = RecordId::new("native_guard", format!("candidate_holder_{}", nonce.hex()));
+            let parent = RecordId::new("native_guard", format!("candidate_parent_{}", nonce.hex()));
+            let children = (0..crate::loader::NATIVE_WINDOW_ROWS + 1)
+                .map(|index| {
+                    RecordId::new(
+                        "native_guard",
+                        format!("candidate_child_{}_{index:03}", nonce.hex()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let values = leaves
+                .iter()
+                .chain([&holder, &parent])
+                .chain(children.iter())
+                .map(guard)
+                .collect();
+            ensure_rows(&client, None, values).await.unwrap();
+            hold(&client, None, holder.clone(), vec![leaves[0].clone()])
+                .await
+                .unwrap();
+            hold(&client, None, parent.clone(), children.clone())
+                .await
+                .unwrap();
+            let job = register(&client, nonce, leaves.clone()).await;
+            let first = resume_retirement(&client, nonce, 3).await.unwrap();
+            assert!(
+                first.retired <= 1,
+                "three units cannot claim and finalize two fresh leaves"
+            );
+            let second = resume_retirement(&client, nonce, 8).await.unwrap();
+            assert_eq!(second.retired, 2);
+            assert!(second.remaining.is_empty());
+            assert_eq!(second.retained.len(), 1);
+            assert_eq!(
+                record(
+                    &client,
+                    &guard_id(&Value::RecordId(leaves[0].clone())).unwrap()
+                )
+                .await
+                .unwrap()
+                .get("phase"),
+                Some(&test_value("active"))
+            );
+            // Release the held leaf by retiring its real owner, then revisit the
+            // original retained cursor without resetting its durable item state.
+            retire(&client, holder).await.unwrap();
+            let third = resume_retirement(&client, nonce, 2).await.unwrap();
+            assert!(third.retained.is_empty());
+            assert!(third.remaining.is_empty());
+            assert!(third.retired >= 2);
+            assert_eq!(
+                record(&client, &job).await.unwrap().get("state"),
+                Some(&test_value("done"))
+            );
+
+            let parent_identity = fresh_identity("candidate-high-degree-control").unwrap();
+            let parent_job = register(&client, parent_identity, vec![parent.clone()]).await;
+            let claimed = resume_retirement(&client, parent_identity, 1)
+                .await
+                .unwrap();
+            assert_eq!(claimed.retired, 0);
+            let after_page = resume_retirement(
+                &client,
+                parent_identity,
+                crate::loader::NATIVE_WINDOW_ROWS * 2,
+            )
+            .await
+            .unwrap();
+            assert_eq!(after_page.retired, 0);
+            assert_eq!(
+                outgoing_page(&client, &parent, 2).await.unwrap().len(),
+                1,
+                "one complete hold page consumes exactly two units per edge"
+            );
+            let mut progress = after_page;
+            for _ in 0..8 {
+                if progress.remaining.is_empty() {
+                    break;
+                }
+                progress = resume_retirement(
+                    &client,
+                    parent_identity,
+                    crate::loader::NATIVE_WINDOW_ROWS * 4,
+                )
+                .await
+                .unwrap();
+            }
+            assert_eq!(progress.retired, (children.len() + 1) as u64);
+            assert!(progress.remaining.is_empty());
+            assert!(progress.retained.is_empty());
+            assert_eq!(
+                record(&client, &parent_job).await.unwrap().get("state"),
+                Some(&test_value("done"))
+            );
+        })
+        .catch_unwind()
+        .await;
+        let cleanup = client.invalidate().await;
+        if let Err(panic) = outcome {
+            if let Err(error) = cleanup {
+                eprintln!("candidate progress page cleanup: {error:?}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+        cleanup.unwrap();
     }
 }
