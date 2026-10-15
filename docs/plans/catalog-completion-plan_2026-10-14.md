@@ -197,6 +197,89 @@ remain distinct claims.
 
 ## 6. Sole disposition and current checkpoint
 
+**Operator-requested closeout, 2026-10-15, implementation baseline `b514a774`.** All immediate
+source work is integrated in shared main; no auxiliary worktree was created. No native validation
+continues after closeout. The plan remains incomplete and older queues remain paused. The
+[partial integrated assessment](../design_review/reviews/design_review_catalog-completion-final-integrated_2026-10-15.md)
+accepts its inspected source scope, preserving the unresolved enclosing functional boundary.
+
+**Implemented corrections.** The runner supplies exact managed-run IDs for disposal, distinguishes
+functional results from disposal, holds later native campaigns on unresolved disposal, and selects
+publisher's actual library unit target for publication mutations. Both compiler and independent
+admission plain aliases reuse their exact qualified provider Arc, retaining resolved/view ambiguity,
+all original sources and ordinary current/delayed-read checks. Base, contextual closure, retrieval
+and installation diagnostics reuse existing phase/tracing owners. Bounded retirement claim and
+terminal pages preserve scalar locks, complete all-row prechecks, backup/lineage/incarnation/hold
+fences, pending-head rediscovery, retained cursor and1/1/2 logical work accounting. Terminal
+classification retains only the complete13-field native-incidence projection, excluding full content
+bodies. No schema, codec, codebook, timeout, resource budget, parallelism or functional assertion changed.
+
+| Outcome / boundary | Current evidence and limit |
+|---|---|
+| passed, Python support | `5e84b7`:43 runner/pilot controls and confirmed host cleanup. Actual ignored selection `525e47` lists all3 intended publisher mutation controls. Original `a117ce` remains a zero-test selection failure, with no mutation assertion exercised |
+| passed, builds | CLI `42ca3c`/`5db8fd`; selected executable prebuilds `27e608`/`e89eb4`/`85a328`; full release workspace/all-target compile `95f941`. These precede final mechanical lint/formatting cleanup; final leaves are recorded below |
+| passed, compiler alias and retirement | `3943be`:8 controls plus enclosing fixture/native finality and confirmed host cleanup. Exact provider Arc ownership, canonical bounds/projection, partial allowance, held/high-degree progress, late-row atomic refusal and durable-prefix resume. Earlier `3117e4` retains8 body passes but a failed enclosing fixture; its alias control now explicitly finalizes workspace/native ownership, including panic cleanup |
+| passed, finite Summary | `e3ce73`: actual whole-operation comparison plus independently specified port/BDD/proof/refusal/residual assertions, enclosing exit0/native finality and confirmed host cleanup. Attachment `7545ba11-09bb-497d-aba2-b72a40002625` released. This precedes the final independent-admission alias refinement; its affected native control remains required |
+| passed, current cold | `7a553d`: strict source physical absence, two fresh receiving/admission owners, audits, exact original bytes and enclosing native/host finality. Unique test count1, not overlapping2 captured observations. This precedes the final independent-admission alias refinement; no wider historical/SA9 credit is inferred |
+| passed, final admission alias pure control | `246317`: `reference_target_preparation_preserves_roles_epochs_and_descriptor_refusal`, exit0/confirmed host cleanup. Actual `owned_native_empty_reference_proof_refuses_failed_source_even_after_memo_success` is extended with Arc identity but **not_run** after this final refinement |
+| failed, current V02 | `7c15e3`: actual document and lexical controls both timed out under unchanged360s allowance, before mutation. Both genuine Catalog compilations completed; independent artifact invariant/reference admission was cancelled. No expected refusal assertion passed. Host cleanup confirmed; native Unknown preserved |
+| cancelled / timeout, recursive Summary | `8a3347`: cancellation requested18:26:36UTC; ended18:29:10UTC, exit100, `termination=cancelled`, direct/delegated host cleanup confirmed/no survivors. Nextest also recorded its900s timeout. Native finality remained Unknown (attachment `5882baba-c360-4dc6-9e19-74de20e7919e`). Neither recursive answers nor enclosing functional acceptance are established |
+| passed, closeout hygiene before final formatting | Full strict keep-going Clippy `16b151`, full Ruff/warnings-inclusive Pyrefly `365488`. Initial `7e2f1b` found an introduced needless range loop; iteration now uses enumerate without changing order or rendering semantics |
+
+**Diagnosis and preservation.** Ordinary finite replay `bd6eb5` explicitly truncates26,805,625 bytes,
+including Base observations; its apparent missing interval is not evidence of a stalled await.
+Current captured recursive/mutation runs retain successful-case JUnit and256MiB bounded native
+recordings; inspect actual completeness before causal claims. The V02 fixture is already a genuine
+four-line annotated function with optional analytics disabled. It remains unchanged: removing API,
+options, admission or reconciliation would lose relevant integration. E0 scalar optional-payload
+retention did not execute because this fixture has no payload cache, so `insert_window` was not
+selected. Producer-wide completed-content retention and independent receiving remain separate
+required operations; nested phase intervals are not additive timing evidence. The additional
+independent-admission duplicate alias acquisition was directly source-established and corrected;
+its timing contribution is unmeasured. No SCC redesign, cache bypass, deadline increase or benchmark
+claim is selected. Cancellation took longer than the initial request; investigate the exact owned
+capture/delegation cancellation path on resumption rather than interpreting the later timeout as a
+successful prompt stop. No immediate lifecycle rewrite was attempted during closeout.
+
+**Owned runtime disposition.** All five65a69e targets are authenticated/drained/disposed: epoch
+`e86993b1-8d44-47c2-9bb2-48886c30291f` (`388584`), analyzer
+`411f6039-9edf-4304-9683-d3ab06d1f45a` (`06edaf`), document/lexical
+`d7f7038b-c1f3-4e43-ab69-6d721f8181c2` (`1b13cd`), cold
+`392a61f7-fdf3-41f3-8875-865d02fee594` (`2009a5`) and composition
+`8e9ed44c-b379-483b-b11f-dc8ee80df498` (`a0f534`). Continuation C1
+`be53e011-528c-4ef0-bb51-a45976adc397` (`b2b459`), C2
+`5e0a64a6-4b46-470c-97c3-51fec4b0c3f2` (`ae114c`), C3
+`34221c3f-dbc8-4ef6-a466-85c6f0d9c20c` (`2156a4`), C4
+`44b4944f-999d-44b2-9725-967aed1c0d6c` (`d599c1`) and C5
+`fd270ed9-42c1-46e4-ab38-af1b6164600f` (`0a2bed`) are likewise checked disposed.
+All10 enclosing disposal runs passed with confirmed host cleanup. Whole-target discard settles only
+these targets' obligations, preserving original failed/Unknown observations. Receipts/logs remain
+retained; native captures use `citation:catalog-completion-final`. B remains deliberately retained,
+unpopulated and unselected. Shared/operator targets, older independent Unknowns and warm caches
+were not inspected, reset or purged.
+
+**Next authorized resumption.** First rebuild affected executables and run the final admission alias's
+actual native control with enclosing finality. Use full captured recursive/mutation evidence to
+localize remaining preparation/admission work and cancellation latency; preserve current fixtures,
+assertions and allowances. Complete recursive Summary, clean normal-parallel compact/linked Catalog
+composition, document/lexical/analyzer mutations and epoch drift. Then perform the pinned FastMCP
+Catalog/private-reader exit, final integrated acceptance and applicable quality leaves, followed by
+V04 useful-state regeneration/retirement and substantive V05 older-plan reconciliation. Existing
+link transfer and bounded source/focused credits do not constitute V05 handback. Preserve SA-F02,
+BC3, SM8, numerical/retirement/ANN/history/defaults/X01/X02 and all wider assembled/operator boundaries.
+No additional validation or older queue starts automatically from this checkpoint.
+
+**Final closeout, 2026-10-15.** Source commits on main are `8116fdee` (runner selection/disposal and
+installation diagnostics), `4c5178cf` (exact compiler/admission aliases and scoped observations) and
+`0fe7e020` (bounded retirement). Final formatted-source release workspace/all-target compile
+`4beb3a`, strict keep-going Clippy `87373d`, full Ruff/warnings-inclusive Pyrefly `af2992`, ADR lint
+and docs `67a952` (447 canonical pages/zero errors), structural rules and fixture parsing `b64f02`
+(2 rule families/195 files) all passed with confirmed host cleanup. Whole-tree `just turn-end`
+passed, with unchanged Hakari/dependency generation. The earlier lint failure remains preserved.
+No auxiliary worktree, active subagent, native validation worker or undisposed task-owned campaign
+remains. The new final-admission native assertion and V01–V05 residuals above remain open; no full
+assembled qualification, operator adoption or older-queue resumption occurred.
+
 **Operator-run remaining validation, 2026-10-15, baseline `94bc58aa`:** the operator approved
 V01–V05 with validation focused on product behavior. All three publication mutations remain included,
 including actual analyzer replacement. Extensive environment/tool/configuration/provenance qualification,

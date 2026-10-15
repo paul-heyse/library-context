@@ -1,29 +1,31 @@
 # Status
 _Updated 2026-10-15 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Priority: Catalog-completion validation handed to operator.** The
+**Stopped at operator-requested Catalog closeout, 2026-10-15.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
-alone owns dispositions, exact receipts and remaining scope. P01–P06/T01–T04/I01–I03 are integrated;
-eager views, flat codec1/semantic v4, independent receiving admission and ADR-0171/0172 remain current.
-RC03/RC04 were not selected. All source is on main; no auxiliary worktree exists.
+alone owns dispositions, exact receipts and resumption order. Source is committed on main through `0fe7e020`; no
+auxiliary worktree exists. Eager views, flat codec1/semantic v4 and independent receiving remain.
 
-**Last verified, 2026-10-15:** operator collection `70aaae` completed with exit1 and confirmed host
-cleanup:12 steps passed,3 failed,17 blocked. CLI and full all-target compile passed; incompatible
-Nextest prebuild flags prevented every native control and pilot from starting. That runner error,
-two Clippy diagnostics and all17 Pyrefly warnings are repaired. Full all-target compile (`8aa19c`), keep-going strict Clippy (`a02da3`), full Ruff/warnings-inclusive
-Pyrefly (`c9ff05`) and25 focused Python controls (`ba0128`) passed. Corrected actual selected test prebuild (`d9437e`) passed with confirmed cleanup; an earlier
-`aws-lc-sys` archive failure (`711662`) remains recorded, with no cache deletion or manual repair. Prior native24 (`40db52`), pure5 (`e7fe0b`) and
-pilot-adapter19 (`289543`) retain their bounded passes. The earlier Summary/Catalog `cc2fdc` supplies
-one body pass, three timeouts and native uncertainty; original failed/Unknown receipts remain unchanged.
+**Last verified:** runner/pilot support43 (`5e84b7`), alias/retirement8 (`3943be`), finite Summary
+(`e3ce73`) and current cold (`7a553d`) passed with their stated enclosing cleanup. The final
+independent-admission alias correction passed its pure control (`246317`); its added actual native
+assertion remains not_run. Final full workspace/all-target compile (`4beb3a`), strict keep-going Clippy
+(`87373d`), Ruff/warnings-inclusive Pyrefly (`af2992`) and docs/ADR/rules/fixture checks passed.
+The [partial integrated assessment](docs/design_review/reviews/design_review_catalog-completion-final-integrated_2026-10-15.md)
+accepts inspected source, while enclosing Catalog completion remains unresolved.
 
-**Next:** the operator reruns the corrected `scripts/catalog_completion_validate.py`;
-the [acceptance plan](docs/plans/catalog-completion-acceptance-plan_2026-10-14.md#operator-validation-script)
-owns invocation and results. Native functional controls, exclusive mutations and the FastMCP
-Catalog/private-reader exit still require aggregate review; final V04/V05 closure remains open.
-B remains deliberately retained; A5 and prior owned targets were authenticated/drained/discarded.
-No native campaign or pilot was launched during this repair. Extensive environment/provenance
-qualification, assembled qualification, embedding inference and submitted MCP runtime are excluded.
-Older queues, shared/operator targets, protected Unknowns, evidence and warm caches remain unchanged.
+**Open exits:** both actual document/lexical controls (`7c15e3`) timed out before mutation during
+independent admission. Recursive `8a3347` records the operator cancellation request and900s timeout,
+exit100, with final confirmed host cleanup; recursive answers/native finality remain unproven. All10
+task-owned campaigns were authenticated/drained/disposed, preserving original failures/Unknowns and
+retained evidence. B remains deliberately retained, unpopulated and unselected. No validation remains active.
+
+**On resumption:** run the final admission alias's actual native control; inspect full captured
+recursive/mutation evidence and delayed cancellation; finish normal compact/linked composition,
+mutations/analyzer/epoch and FastMCP V03, then final acceptance/V04/V05 reconciliation. Current
+allowances, budgets, original fixtures and assertions remain. Older queues, shared/operator targets,
+protected independent Unknowns and warm caches stay unchanged. Embedding inference, submitted MCP
+runtime, extensive environmental qualification and assembled qualification remain excluded.
 
 **Prior SA0–SA9 implemented / focused-Tested; assurance remains paused by operator,2026-10-11.** The [architecture
 companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) owns scope; [coordinator

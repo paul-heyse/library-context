@@ -95,9 +95,15 @@ uv run --no-sync python scripts/catalog_completion_validate.py --print
 Run the collection in the background through the existing run owner:
 
 ```bash
-just run --background --label catalog-completion-validation -- \
+just run --background --capture-native --label catalog-completion-validation -- \
   uv run --no-sync python scripts/catalog_completion_validate.py
 ```
+
+Native capture preserves successful-case JUnit and invocation-owned recordings. Inspect capture
+completeness before attributing a missing interval; ordinary user recording limits can truncate
+successful output. Publication mutation controls are publisher library unit tests (`--lib`), while
+the cold control remains the `publication` integration target. The coordinator owns the current
+resumption order; a retained failed collection is not a reason to blindly repeat every passed boundary.
 
 The compile-only prebuild uses Nextest `--no-run` without execution-only fail-fast flags; actual
 test batches use `--no-fail-fast`. The coordinator records the initial parsing failure and corrected
@@ -124,8 +130,11 @@ consumer. Existing private-reader files are protected instead of overwritten. Fu
 compile and keep-going strict Clippy, Ruff, warnings-inclusive Pyrefly and applicable dependency,
 documentation, ADR, fixture, structural-rule and formatting leaves collect their own results. No
 assembled qualification, benchmark, extensive environment/provenance campaign, embedding inference,
-submitted MCP runtime or older paused queue is added. Remediation, final V04/V05 reconciliation and
-any reruns are decided after aggregate review; a nonzero collection exit preserves the useful results.
+submitted MCP runtime or older paused queue is added. A failed functional batch permits the next
+independent native batch only after checked disposal succeeds; unresolved disposal holds subsequent
+native installations and the pilot while independent quality leaves continue. Disposal receives
+exact managed-run IDs; aggregate evidence retains absolute run paths. A nonzero collection exit
+preserves the useful results. The coordinator owns remediation, final V04/V05 reconciliation and reruns.
 
 <a id="v01"></a>
 ## V01 — current-source controls and focused composition
