@@ -1,17 +1,17 @@
 # Status
 _Updated 2026-10-15 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Catalog efficiency target review complete, 2026-10-15.** The [independent
-review](docs/design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md)
-recommends **Revise**: nine findings and eight investigations across native control, compiler/analysis,
-transport and development execution. Baseline `24b0d08b`; remedies remain Proposed. Next: plan corrections.
-[Evidence](docs/design_review/evidence/2026-10-15_catalog-completion-efficiency/README.md) owns controls,
-citations and limits. No production changes or new native workloads.
-**Review checks:** scripts/Ruff passed; `just docs-check` failed on the concurrent reference's missing H1; see evidence.
+**Catalog efficiency plan set authored, 2026-10-15.** The [coordinator
+§6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint) owns this track's
+nine findings/eight investigations; RC01–RC04 approved. Targets remain Proposed; implementation not_run.
+The [fresh plan review](docs/design_review/reviews/design_review_catalog-efficiency-plan_2026-10-15.md)
+is Accept scoped after correcting cutover-before-acceptance ordering; production findings remain open.
+**Checks:** local title/link/anchor/coverage checks passed; full docs-check failed on the supplied reference's missing H1 (coordinator §9).
+**Next:** detailed execution from CE00 and ready corrections/decision slices. No production changes or new native workloads.
 
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
-alone owns dispositions, receipts and resumption order; source through `0fe7e020`, no auxiliary worktree.
+alone owns that track's dispositions/receipts; source through `0fe7e020`, no auxiliary worktree.
 Eager views, flat codec1/semantic v4 and independent receiving remain.
 
 **Prior verification, 2026-10-15:** coordinator §6 retains focused passes and enclosing cleanup;
@@ -24,8 +24,8 @@ independent admission. Recursive `8a3347` records operator cancellation and a 90
 host cleanup confirmed, recursive answers/native finality unproven. All10 owned campaigns were drained/
 disposed, preserving failures/Unknowns and evidence. B remains retained, empty and unselected; no active validation.
 
-**On resumption:** run the admission alias's native control; inspect recursive/mutation and cancellation
-evidence; finish compact/linked composition,
+**Later existing-track resumption:** after efficiency delivery and plan reconciliation, run the admission
+alias's native control; inspect recursive/mutation/cancellation evidence; finish compact/linked composition,
 mutations/analyzer/epoch and FastMCP V03, then final acceptance/V04/V05 reconciliation. Current
 allowances/budgets/fixtures/assertions remain; older queues, shared/operator targets, protected Unknowns
 and warm caches unchanged. Embedding, submitted MCP runtime, extensive environment/assembled qualification excluded.

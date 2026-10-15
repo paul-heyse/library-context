@@ -187,10 +187,10 @@ shortening a completion lock does not admit SDK allocations or eliminate Summary
 
 ## 5. Findings
 
-The following stable IDs are **required for target alignment and unscheduled pending plan creation**.
-Their trigger is preparation to resume Catalog remediation/acceptance. Once scheduled, the
-[active coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
-owns current disposition; this remains a dated assessment. Existing findings keep their source IDs
+The following stable IDs are **required for target alignment and scheduled in the separate
+Catalog efficiency track**. The
+[Catalog efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+owns their current disposition; this remains a dated assessment. Existing findings keep their source IDs
 and historical closure boundaries. Proposed corrections below are not implemented by this review.
 
 <a id="F01"></a>
