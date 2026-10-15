@@ -467,6 +467,14 @@ A future transport substitution must preserve the same complete lifetime/recover
 
 ## 10. Verification, source coverage and authoring checkpoint
 
+Current bounded follow-up evidence is owned by
+[Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint);
+[the persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+credits only fulfilled contracts to the original findings. Wider acceptance and this queue remain
+paused; current Catalog work does not release older Unknowns or close SA-F02, BC3, SM8 or assembled
+qualification. This companion remains the owner of its surviving target contracts.
+
+
 Implementation controls use the pinned toolchain/profile and normal available parallelism.
 Resolve commands through current `just verify --print --select ...` and actual test targets;
 UP7 changes fixture provisioning, not the usefulness of focused controls. During development

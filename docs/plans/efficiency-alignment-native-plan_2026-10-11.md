@@ -360,15 +360,15 @@ eligible terminal attempts compact. No sweep or collection is authorized by auth
 <a id="N10"></a>
 ### N10 — Share original bytes beneath artifact identity
 
-**Open implementation correction, 2026-10-12:** completion currently captures the blob's general
-guard revision around its complete chunk/hash/EOF audit. Equal concurrent piece/header replays also
-advance that revision, so the protected set needs a more precise mutation witness. Preserve active
-incarnation, tombstone, exact layout/header/holds and complete byte validation; do not drop the guard
-or retry with refreshed observations. Investigate every chunk insertion/removal path before choosing
-an insertion-only per-blob predicate using the existing native predicate owner. Required revealing
-controls: equal peer replay/completion succeeds, an intervening extra/changed piece refuses, and stale
-incarnation/tombstone refuses. This is a proposed correction, not a verified diagnosis of which guard
-field changed in the actual failures. The coordinator §4 owns their receipts and current disposition.
+**Current correction, Implemented / source-inspected, 2026-10-14:** the selected route conservatively
+recaptures original content with current exact owner observations. The former insertion-only predicate
+proposal is not selected. Active incarnation, tombstone, exact layout/header/holds and complete bytes,
+hash/range/EOF validation remain required; a refreshed guard alone never proves unchanged content.
+[Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+owns affected current Catalog/cold evidence. This does not close the wider N10 retrieval/recovery,
+selected backup/shared retirement or equal-peer replay, intervening piece mutation and stale
+incarnation/tombstone matrix. The original failed observations remain in this coordinator §4; no
+specific changed guard field is claimed as their measured cause.
 
 **Mechanism selected, Proposed, 2026-10-11.** `OriginalBlob/v1` header carries full-content hash,
 length/format and earned completion; bounded chunks use `H(blob, offset)`. Revision/path-scoped

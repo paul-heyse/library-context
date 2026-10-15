@@ -319,6 +319,14 @@ BC3 profile adoption, SM8 service-survival qualification and real-library/operat
 
 ## 9. Verification, cutover and completion
 
+Current bounded follow-up evidence is owned by
+[Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint);
+[the persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+credits only fulfilled contracts to the original findings. Wider acceptance and this queue remain
+paused; current Catalog work does not release older Unknowns or close SA-F02, BC3, SM8 or assembled
+qualification. This companion remains the owner of its surviving target contracts.
+
+
 **Execution checkpoint,2026-10-11: Implemented / focused Tested; integrated acceptance paused
 at the operator's request.** Complete mixed-state recovery and format3→4→5 transitions are retained
 without replay. Catalog preparation, selected access/nomination/hydration/lifecycle changes and

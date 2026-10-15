@@ -197,6 +197,88 @@ remain distinct claims.
 
 ## 6. Sole disposition and current checkpoint
 
+**Operator-run remaining validation, 2026-10-15, baseline `94bc58aa`:** the operator approved
+V01–V05 with validation focused on product behavior. All three publication mutations remain included,
+including actual analyzer replacement. Extensive environment/tool/configuration/provenance qualification,
+assembled qualification, embedding inference and submitted MCP runtime remain excluded. Existing unchanged
+passes below retain their recorded dates and bounds; older queues remain paused.
+
+Implemented current support comprises independent finite/recursive Summary answers, explicit native and
+workspace fixture finalization (including construction failure), a deterministic final-parent race and
+the narrow CLI FastMCP adapter. Production corrections group nominal SQL comparisons individually;
+reuse captured context only within a pinned compound boundary with final atomic live-hold comparison;
+and prepare contributor input incidence once per exact physical copy/incarnation while preserving every
+view mapping, empty dependency, full inventory/hold EOF and final CAS. Identical immutable Arc handles
+avoid deep equality; independently allocated copies retain full comparison. The physical-grain change
+is source-inspected, not a measured speed or query-reduction claim. Independent frozen-source review
+found no material issue in these contracts or the compact Summary control.
+
+| Outcome / boundary | Current receipt and consequence |
+|---|---|
+| passed, actual native/ownership/availability | `c81ed0`:12 controls plus enclosing fixture, confirmed host cleanup/no survivors; source/client/pool refusal, exact context dispatch, final-parent race, scoped execution and immutable prior admission. Superseded for affected final source by `60aaae`:18 native/scoped/availability/transport/SQL controls passed with enclosing fixture and confirmed host cleanup/no survivors |
+| passed, transport/source ownership | `447e61`:5 actual compiler-view controls passed; enclosing run failed on the separate Catalog assertion and linked timeout, so this is body-scoped evidence only |
+| passed, pure SQL builder | `b7455f`: actual DataFusion binary/Boolean/nullable comparison control; complete-empty branch still avoids SQL preparation |
+| passed, pilot adapter support | `289543`:19 hermetic controls, scoped Ruff/Pyrefly clear, confirmed host cleanup; exact source leases, requiredness/unknown distinctions, source-identified operation search, raw originals and full-file BLAKE3. This is not a FastMCP product exit |
+| passed, current builds/pure recovery | `fc50c1`: release CLI with final physical-grain/SQL correction, zero warnings. `e7fe0b`:5 pure recovery/descriptor-sharing controls, including independently allocated equal and contradictory handles, confirmed cleanup. `ca113d`: current selected functional code generation passed without warnings; final native18 rerun `60aaae` passed |
+| failed / timed out, preserved | `2315be`:10 passed,2 failed,4 timed out; pool and cancellation-contract setup corrected and passed subsequently. `1a1ce9`:5 passed,2 nominal-SQL failures,2 Summary timeouts. `447e61`:5 passed,1 stale per-method Catalog Summary assertion,1 linked900s timeout during independent semantic admission. Current source fixes SQL and asserts the actual admitted compact NotRequested owner/domain with empty request-only outputs; later receipts below preserve the remaining long exits. None of these original outcomes is rewritten |
+| failed / timed out, current Summary boundary | `daa6bc`: finite case completed actual compilation/admission and whole-kernel comparison but failed the nonempty finite-proof assertion; recursive case timed out during Summary production before independent answers. Both original outcomes remain failed, with enclosing native uncertainty. Source review identifies bare Truthy substitution as unsupported by the current stable-guard model; a stable `is None` positive case and preserved Truthy refusal case are implemented, without relabelling unsupported relations or weakening the independent proof assertion |
+
+All three prior ordinary targets were authenticated/drained/discarded: A1
+`80029a30-3dd0-4203-9bb0-9a3c11ebd2d5` (`d59a5b`), A2
+`b2567252-17ea-4cc7-8f67-4b935087e63a` (`e019f4`) and A3
+`591b948b-9ee7-464a-b81a-78b8fdc14351` (`596c66`). Whole-target discard settles only their own
+retention, preserving failed/Unknown observations. A1's initial disposal was blocked by an inherited
+campaign selector in a compiler-cache daemon; it exited naturally, with no daemon kill or cache purge.
+A4 `725e363e-6313-4418-ab58-5a48272a015f` (`6d0666`) was subsequently authenticated/drained/discarded by `9d7078`, settling only its owned retention after `daa6bc`. A5 `b054b2a7-c5a7-4580-bd59-036c51f61b26` (`42739c`) supplied the final current-source controls; checked disposal `56a7fe` passed with confirmed host cleanup after the operator requested the script handoff, settling only this target’s retention. No failed logical result is promoted by disposal.
+Target B `a4e56c59-5bc6-446b-a611-3c2c39dd655f` (`d60a87`) remains empty and deliberately retained at
+`/home/paul/.local/state/library-context/catalog-completion-retained-fastmcp-20261014-b/installation.json`.
+V03 must populate and retain it unselected, with private reader `fastmcp-v03` and consumer
+`catalog-pilot:fastmcp-v03`; temporary participants still must drain. V01/V02/V03 and final V04/V05
+closure remain pending. No shared/operator target or protected older Unknown was inspected or repaired.
+No auxiliary worktree exists.
+
+The operator requested a runnable script instead of further waiting. The
+[acceptance companion](catalog-completion-acceptance-plan_2026-10-14.md#operator-validation-script)
+owns invocation and result consumption. The task-specific script collects remaining V01/V02/V03
+controls and final hygiene under existing owners, retaining aggregate JSON, per-step logs and cleanup
+receipts. Independent checks continue after failures; dependent pilot work is blocked when its
+functional prerequisites fail. V04/V05 final disposition and any remediation await aggregate review.
+No remaining long validation is launched as part of preparing this handoff.
+
+**Script support Tested,2026-10-15:**20 focused controls passed with
+`uv run --no-sync pytest tests/scripts/test_catalog_completion_validate.py -q --basetemp <fresh-owned-temp>/cases --tb=short`.
+They include real inert child and nested managed-parent execution, failure/launcher/cleanup separation,
+exact disposal participants, retained-target refusal, cancellation/recovery, native finality and fresh
+JUnit preservation. Scoped Ruff and warnings-inclusive Pyrefly passed for the runner/tests; actual
+`--print` and `--print --json` previews passed without builds, native queries or service effects.
+Independent frozen-source review found no remaining material issue. These controls qualify the script's
+collection behavior, not the pending product exits. A pre-existing foreign-owned pytest temporary path
+was preserved; the successful controls used a fresh owned temporary root.
+
+The remaining functional block also exposed repeated remote installed-owner checks per foreign-key
+field and memo target. P05 implements a call-local reference-validation phase: full actual
+checks at entry/exit, exact original owner/client/pool/pin/producing/cancellation checks between, SQL
+EOF and all-or-nothing charged new-premise publication after terminal success. Ordinary current checks
+remain unchanged. This correction is Implemented / independently source-inspected; `ed1433`
+touched-crate tests metadata and `ba8ae0` current release CLI passed without warnings. `b01058` selected
+functional code generation passed without warnings. `40db52` passed24 focused reference/native/scoped/
+availability/transport controls and enclosing fixture with confirmed cleanup, including actual
+staged-premise late-owner refusal.
+
+The operator requested cancellation of `cc2fdc` at04:18:39UTC; it ended04:20:50UTC, exit100,
+cancelled, with confirmed direct/delegated host cleanup and no survivors. Nextest recorded one compact
+Catalog NotRequested control passing (including the shared nine-owner assertion) and three900s timeouts:
+finite Summary, recursive Summary and linked Catalog. The enclosing fixture reported native uncertainty;
+these are unresolved functional exits, not current-source passes. Related Catalog tests now use the actual compact owner contract and panic-safe finalization. The shared
+all-nine-owner helper is source-reviewed, compiled by `b01058` and passed at body scope in `cc2fdc`; its enclosing composed exit remains open. Other migrated fixture journeys are not_run, rather than credited by helper agreement.
+
+Development dependencies add only exact `blake3==1.0.11` and the existing pinned Futures0.3.34 edge
+for serving's shared external fixture. No dependency version, persisted schema, codebook, selector
+codec or public model contract changed. Guard-free readiness `7d033e` passed before later Rust edits;
+refresh remains pending after native guards drain. Explicit compile-time depth256 in affected test roots
+preserves ordinary Send checking and normal runtime/threading. Source and logs support structural
+corrections; they do not establish which factor caused each timeout or a numerical performance benefit.
+
 **Design changes Implemented / focused-Tested, 2026-10-14, baseline `cf5fbe11`:** P02–P06 and I01/I02
 are integrated on main. Pure, Python and actual native controls pass at their stated boundaries,
 including enclosing fixture and host cleanup. Necessary V04 implementation and precise partial V05
@@ -285,7 +367,7 @@ operator adoption are unaffected. No auxiliary worktree was created; all worker 
 Native capture/report objects are held under `citation:catalog-completion-design-execution` through
 `just verify report RUN --consumer … --json`; associated run logs and non-capture quality/disposal
 receipts are retained through `just runs retain RUN`. Their records own exact argv, source bounds,
-cleanup and original outcomes. UTC receipts crossing2026-10-15 remain local2026-10-14 evidence.
+cleanup and original outcomes. Receipt timestamps are UTC:2026-10-15 receipts before04:00UTC belong to local2026-10-14; later receipts belong to local2026-10-15.
 
 **Prior bounded agent-effectiveness checkpoint, 2026-10-14:** C00's RC01/RC02/RC05 routes, T01–T04, I03, P01 and narrow
 O02 diagnostics are Implemented / focused-Tested on shared main over `2fc7f7d5`; Rust changes

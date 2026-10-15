@@ -103,12 +103,14 @@ a released pin cannot lend live authority to another request.
 <a id="S04"></a>
 ### S04 — Page from compact ordered state and hydrate the page once
 
-Current member discovery must use earned exact realization/alias membership, through the protected
-selected-payload path or an equivalent earned physical binding. Four `selection::members` queries
-still use obsolete `compiler_view_member.view` predicates with logical view IDs; current rows are keyed
-by `realization`. Migrate those production consumers rather than fabricating legacy fixture rows.
-Preserve the revealing 260-member, foreign-member exclusion, deterministic order and accounting
-assertions. The coordinator §4 records the actual empty-result failure; this correction remains open.
+Current member discovery uses earned exact realization/alias membership through protected selected
+payloads. The obsolete `compiler_view_member.view` consumers are migrated; this is Implemented /
+source-inspected, 2026-10-14, with affected native acceptance owned by
+[Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint).
+The original empty-result failure remains in this coordinator §4. The revealing 260-member,
+foreign-member exclusion, deterministic order/accounting, pagination, cursor and off-page corruption
+obligations remain open here unless their own controls establish closure. No legacy fixture rows are
+required, and bounded Catalog/native passes do not close this entire package.
 
 **Sources:** O-F35; A-F08. Consume S03's validated domain and ordered compact IDs. Continuations use
 that exact context; fetch rich payload only for the page the caller requests. Avoid rediscovering or

@@ -569,6 +569,20 @@ owned preflight and maintenance; plan authoring changes no service, database or 
 
 ## 8. Sole finding disposition
 
+**Bounded cross-plan fulfillment, 2026-10-14:**
+[Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+owns current evidence for P02–P06 and the remaining V01–V05 functional exit. Its actual native/scoped/
+availability/transport controls credit exact prepared selections, protected source/receiving ownership,
+physical-copy and alias independence, parent-race refusal and unchanged-admission reuse. These refine
+SA-F04/SA-F06/SA-INTEGRATION-F01, HS-F01/HS-F02/HS-F06, Unified F02/F04 and Native-efficiency F01/F02/F04;
+they do not close those enclosing findings. Charged preparation, optional handoff and borrowed-reader
+lifetime source/focused evidence also credits HS-F07/HS-F10, Unified F07 and Native-efficiency F06.
+Current Catalog/cold/mutation evidence for SA-F03/SA-F05 and HS-F04 remains pending at that owner.
+SA-F02's historical interruption gap, BC3, SM8 and every unfulfilled recovery, serving-restart,
+profile/numerical/history/retirement or assembled boundary remain open. The older queues stay paused;
+new exact receipts do not replace their original failed/Unknown observations.
+
+
 ### SurrealDB architecture/capability findings transferred on 2026-10-10
 
 The [source review](../design_review/reviews/design_review_surrealdb-architecture-and-capability-leverage_2026-10-10.md)
@@ -901,6 +915,13 @@ paths are deleted, and targeted actual native/MCP/evaluator journeys plus affect
 Report stopped, failed and not_run evidence honestly. Update STATUS from that actual boundary.
 
 ### 9.1 Current execution checkpoint, 2026-10-07
+
+The current bounded Catalog follow-up is owned by
+[Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint),
+with exact fulfillment limits in §8 above. Its controls do not resume this paused queue, release older
+Unknown attachments or establish assembled acceptance. Consume only matching closure credit before
+executing the surviving sequence below.
+
 
 **Resumed current-source SA assurance,2026-10-11, baseline `facc739f`.** The operator approved
 the remaining execution approach through SA9 and its shared HS11/UP9/NE9/GK7/GR6/PC6/PJ5/CU6
@@ -2845,6 +2866,13 @@ bounded encoder, without redefining semantics. These are extension scenarios, no
 features silently scheduled here.
 
 ## 11. Current plan checkpoint
+
+The current bounded Catalog follow-up is owned by
+[Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint),
+with exact fulfillment limits in §8 above. Its controls do not resume this paused queue, release older
+Unknown attachments or establish assembled acceptance. Consume only matching closure credit before
+executing the surviving sequence below.
+
 
 **Implemented / focused Tested,2026-10-11; integrated acceptance paused by operator.**
 The [architecture companion](surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md)

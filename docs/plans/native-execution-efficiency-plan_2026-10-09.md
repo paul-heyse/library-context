@@ -414,6 +414,14 @@ selected skill/Context7 and exact-lock qualification route before implementation
 
 ## 7. Verification, retirement and completion
 
+Current bounded follow-up evidence is owned by
+[Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint);
+[the persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+credits only fulfilled contracts to the original findings. Wider acceptance and this queue remain
+paused; current Catalog work does not release older Unknowns or close SA-F02, BC3, SM8 or assembled
+qualification. This companion remains the owner of its surviving target contracts.
+
+
 The unified target's UP9 is the combined final-source acceptance owner, with this plan's NE9,
 GK7/GR6 and surviving PC/PJ/CU/BC controls as explicit contributors. UP7 replaces disposable
 fixtures with stable service/logical attempts; controls still execute their decision under test.

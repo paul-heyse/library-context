@@ -336,23 +336,26 @@ resume first. Reconcile only the actual current pin/hold owners under the existi
 proof and named recovery, then retry that same journal. No new one-off repair, broad deletion, pointer
 rewrite or generic acknowledgement was attempted at closeout. The shared paused service is untouched.
 
-Two failures at`catalog_runtime.rs:127` report `original blob audit incarnation changed`.
-Source inspection identifies a legal conflicting interleaving: `complete_blob` captures general guard
-revision before full EOF validation, while exact peer chunk/header replays also advance that revision.
-The log does not identify which guard field changed in these actual requests. N10 must distinguish
-actual chunk-set mutation from guard/hold churn, retaining exact bytes/EOF, incarnation, tombstone and
-holds; insertion-only existing per-blob predicate is a proposed mechanism pending all-path inspection
-and revealing equal-replay versus mutation controls. No blind retry or dropped CAS is accepted.
+The original two failures at`catalog_runtime.rs:127` reported `original blob audit incarnation changed`.
+Their exact conflicting field was not observed. The current N10 route uses conservative original
+recapture with exact current ownership and full bytes/range/hash/EOF checks; the earlier proposed
+insertion-only predicate is not selected. This is Implemented / source-inspected, 2026-10-14, with
+affected current Catalog/cold acceptance owned by
+[Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint).
+It does not close N10's wider equal-peer/mutation/incarnation/tombstone, retrieval/recovery, selected
+backup or shared retirement obligations.
 
-The member-hydration case returned[] instead of260 ordered members. Source inspection finds four
-`selection::members` queries still using obsolete `compiler_view_member.view` with logical IDs, while
-current installed rows use `realization`. S04 must migrate production discovery through protected exact
-realization/alias membership; preserve foreign-member exclusion and ordering/accounting assertions.
+The original member-hydration case returned[] instead of260 ordered members. Current production
+has migrated the four obsolete logical `compiler_view_member.view` discovery consumers to earned
+physical selection. This is a delivered source correction; the260-member/pagination/accounting,
+cursor and off-page-corruption controls remain with S04. Current Catalog/native acceptance credits
+only its actually exercised boundary, with exact receipts at Catalog completion §6.
 Fourteen timeouts remain unresolved and are not attributed solely to either source defect. Neither
 concurrency caps nor longer deadlines nor weaker assertions were introduced.
 
-**Resumption order:** resolve exact attachment recovery/maintenance ownership first; repair N10 and
-S04 with minimal revealing controls, then rerun failed/timed-out affected boundaries. Preserve the six
+**Resumption order:** resolve exact attachment recovery/maintenance ownership first; consume Catalog
+completion §6's exact N10/S04 credit, then execute their remaining revealing controls and rerun
+failed/timed-out affected boundaries. Preserve the six
 passing receipts where subsequent changes leave their premises intact. Build current CLI/evaluator/
 replay and perform checked installer handoff before actual new retirement flags. Execute fresh retained
 S01 producer→independent numerical consumer→exact retirement; only then remove ANN declaration,

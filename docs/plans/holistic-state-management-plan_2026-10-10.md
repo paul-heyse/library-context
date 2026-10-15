@@ -404,6 +404,14 @@ cleanup is authorized by plan authoring; execution must name the exact owned mai
 
 ## 11. Verification and completion boundary
 
+Current bounded follow-up evidence is owned by
+[Catalog completion §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint);
+[the persisted coordinator §8](persisted-graph-execution-plan_2026-10-07.md#8-sole-finding-disposition)
+credits only fulfilled contracts to the original findings. Wider acceptance and this queue remain
+paused; current Catalog work does not release older Unknowns or close SA-F02, BC3, SM8 or assembled
+qualification. This companion remains the owner of its surviving target contracts.
+
+
 During implementation use touched compile checks and minimal revealing controls, resolved from
 current `just verify --help` / `just verify --print --select FAMILY[:BOUNDARY]` and actual test
 names. Native controls attach the stable validation service with logical isolation; disruptive

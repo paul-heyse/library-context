@@ -1,27 +1,30 @@
 # Status
-_Updated 2026-10-14 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
+_Updated 2026-10-15 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Priority: Catalog-completion design changes Implemented / focused-Tested, 2026-10-14.**
-The [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
-alone owns dispositions, exact receipts and remaining scope. P01–P06/T01–T04 and I01–I03 are integrated;
+**Priority: Catalog-completion validation handed to operator.** The
+[coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+alone owns dispositions, exact receipts and remaining scope. P01–P06/T01–T04/I01–I03 are integrated;
 eager views, flat codec1/semantic v4, independent receiving admission and ADR-0171/0172 remain current.
-RC03/RC04 were not selected. Useful completed readers now retain an acyclic execution/signal owner;
-explicit drainage still cancels reads. All worker changes are on main; no auxiliary worktree exists.
+RC03/RC04 were not selected. All source is on main; no auxiliary worktree exists.
 
-**Last verified, 2026-10-14:** 63 pure model controls (`924d26`),21 preparation controls (`18638a`),
-2 core controls (`bee16d`),17 hermetic native-session/embedder controls (`2cee83`) and30 affected tooling
-controls (`7fc229`) passed. Final actual native9 (`a69205`) passed bodies and enclosing fixture with
-confirmed direct/delegated cleanup. Both unchanged schema snapshots passed (`591c85`/`94a5e1`). All four
-task-owned campaigns were authenticated/drained/disposed; original failed/Unknown outcomes are retained.
-Final guard-free `just ready` (`5a5ebc`) rebuilt the native extension and passed. Full workspace
-all-target compile (`7bb8e9`), keep-going strict Clippy (`36f680`), Ruff/Pyrefly (`05173b`/`bba091`),
-dependency, ADR/docs, role/skill/gold, fixture and rule checks pass with no warnings/errors.
-Documentation regressions pass82 (`fbba27`); Rust formatting passes (`e430b8`).
+**Last verified, 2026-10-15:** 24 focused reference/native/scoped/availability/transport controls passed
+with enclosing fixture and confirmed cleanup (`40db52`), including staged-reference refusal after actual
+producing-owner closure. Current touched-crate tests metadata (`ed1433`), CLI (`ba8ae0`) and selected
+functional code generation (`b01058`) passed without warnings. Five pure recovery controls (`e7fe0b`)
+and 19 pilot-adapter controls (`289543`) retain their earlier bounded passes. The four-control
+Summary/Catalog run stopped: one compact Catalog body passed and three timed out (`cc2fdc`);
+host cleanup is confirmed, with enclosing native uncertainty. Prior failed/Unknown receipts remain unchanged. Stable identity
+and unsupported truthiness now have separate independent proof/refusal assertions. No numerical speed
+claim follows from source-grain or phase-local reuse. Earlier whole-workspace hygiene passed on the
+prior source; final current full compile/keep-going strict Clippy/Python hygiene remain pending.
 
-**Next, when authorized:** final acceptance planning/execution. Full V01 journeys/matrix, V02 exclusive mutations,
-V03 FastMCP, full V04 useful-view regeneration/V05 older-plan handback, assembled qualification and
-embedding/MCP runtime remain deferred. Older queues remain paused. No shared/operator target was
-inspected or repaired; protected older Unknowns, evidence and warm caches remain unchanged.
+**Next:** the operator runs `scripts/catalog_completion_validate.py` through the managed run route
+in the [acceptance plan](docs/plans/catalog-completion-acceptance-plan_2026-10-14.md#operator-validation-script).
+It collects remaining functional controls, exclusive mutations, the retained FastMCP Catalog/private
+reader and final hygiene for aggregate review; V04/V05 closure follows that review. B remains deliberately
+retained for the new Catalog. A5 and prior targets were authenticated/drained/discarded; original failures
+remain unchanged. Extensive environment/tool/configuration/provenance qualification, assembled qualification, embedding inference and submitted MCP runtime are excluded.
+Older queues, shared/operator targets, protected Unknowns, evidence and warm caches remain unchanged.
 
 **Prior SA0–SA9 implemented / focused-Tested; assurance remains paused by operator,2026-10-11.** The [architecture
 companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) owns scope; [coordinator
@@ -101,11 +104,11 @@ protected. Exactad992027 recovery passed after7-pin reconciliation (`162229…73
 Creation/member/durable controls passed7 (`163252…76d9cb`). Retained-retirement host controls passed14 (`164218…c10f33`). Current numerical replay
 builds and host controls passed; actual cohort remains not_run. Final affected run (`163837…ac22b6`) failed100:6 passed,3 failed,14 timed out; host
 cleanup confirmed 16:49:33UTC/no survivors. The passes include actual named retirement and two selection durability/ cancellation controls plus
-three occurrence/fulltext/BM25 cases; enclosing functional scope remains open. Original completion guard churn and obsolete logical membership
-discovery need protected production corrections. Timeout causes remain unresolved; normal parallelism, stacks and deadlines are unchanged.
+three occurrence/fulltext/BM25 cases; enclosing functional scope remains open. Originals recapture and earned physical member discovery are now source-corrected through Catalog completion;
+their wider old-plan controls remain open. Timeout causes remain unresolved; normal parallelism, stacks and deadlines are unchanged.
 Attachment9938df36-38ee-4bdc-8c7e-75d229dd4099 retains native Unknown. Named recovery (`165029…634eef`) joined/replaced its exact daemon but failed
 validation drain on live readers/backup holds; host cleanup confirmed16:50:54UTC/no survivors. Dedicated campaign remains closed in maintenance.
-Resume exact current pin/hold reconciliation and the same recovery journal before borrowing. Then repair N10/S04, rerun affected failures, finish
+Resume exact current pin/hold reconciliation and the same recovery journal before borrowing. Then consume exact Catalog N10/S04 credit, run their remaining controls and affected failures, and finish
 retained S01 numerical/retirement and ANN DDL cutover, qualify current history evidence/controls, and finish D03 defaults. Ordinary default remains
 release; X01/X02 open. No full-suite, quality campaign, real-library/Qwen/gold/heldout, operator adoption, activation or push. Shared
 paused/operator state, recovery evidence, unrelated work and warm caches remain protected. Auxiliary revisions remain on archive branches; [paused

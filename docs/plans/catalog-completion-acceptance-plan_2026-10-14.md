@@ -8,13 +8,14 @@ V01–V05: the remaining Catalog acceptance and cutover, together with acceptanc
 production and development corrections. Authoring established no runtime result; the coordinator
 records subsequent implementation and focused controls separately from these full acceptance exits.
 
-The operator's current design-change execution includes compile checks and minimal revealing
-functional/native controls, plus necessary V04 implementation and accurate partial V05 reconciliation.
-Full V01 composition/long journeys, V02 exclusive mutations, V03 pilot and assembled qualification
-remain deferred. These contracts remain the final acceptance obligations; a focused source/control
-pass does not satisfy them by association. Coordinator §6 owns the actual current boundary.
-The operator subsequently included full workspace compilation, keep-going strict Clippy, Ruff,
-Pyrefly and repository hygiene repairs. Those checks do not activate the deferred functional matrix.
+The operator's remaining-scope execution includes V01's focused functional composition, all three
+V02 publication mutations, the V03 pinned pilot and V04/V05 cutover/handback. The new unselected
+Catalog is retained on its own target with a private reader and named consumer. Extensive
+environment-specific tool/configuration/provenance qualification is excluded as disproportionate
+to the design phase. Existing unchanged passes stand at their recorded scope. Compile checks,
+keep-going strict Clippy and applicable Python/hygiene checks remain distinct from functional exits;
+no assembled `qualify`/`test-all`, embedding inference or submitted MCP runtime is added.
+Coordinator §6 alone owns outcomes and remaining scope.
 
 ## 1. What completion must establish
 
@@ -82,6 +83,46 @@ which complete source closure ran. Original failures and interrupted outcomes re
 later pass or checked disposal. The coordinator holds the current receipt ledger; this companion holds
 the contracts those receipts must establish.
 
+### Operator validation script
+
+The operator requested a runnable handoff on2026-10-15. From the repository root, preview the
+remaining commands without launching builds, fixtures or services:
+
+```bash
+uv run --no-sync python scripts/catalog_completion_validate.py --print
+```
+
+Run the collection in the background through the existing run owner:
+
+```bash
+just run --background --label catalog-completion-validation -- \
+  uv run --no-sync python scripts/catalog_completion_validate.py
+```
+
+The launcher prints the exact run ID and directory. Inspect that run with `just runs status RUN`
+and `just runs logs RUN --follow`; cancellation uses `just runs cancel RUN`. Return its directory
+for aggregate review after it ends. Results are `build/runs/RUN/summary.json` and `summary.md`. The script retains the run, its aggregate JSON/readable summary,
+per-step commands, logs, original exits, host cleanup and copied Nextest JUnit reports. These are
+collection receipts; they do not automatically close plan findings or replace this coordinator's
+disposition ownership. Native fixture uncertainty remains separate from host cleanup and test bodies.
+
+The collection rebuilds current executables and prepares the environment outside fixture workers,
+then exercises the remaining finite/recursive Summary, compact/linked Catalog, current cold restore,
+exclusive document/lexical and separately actual-analyzer mutations, and final live-hold epoch-drift
+refusal. It preserves current internal budgets, assertions, normal parallelism and existing outer
+allowances. Fresh explicitly owned campaigns isolate independent batches; checked disposal uses their
+exact identities and participants. The retained FastMCP target B is never a disposable batch. Failed
+prerequisites block dependent pilot work while independent validation and hygiene continue.
+
+The pilot produces an unselected FastMCP4.0.5 Catalog and checks it from a fresh private reader using
+the existing adapter. Its output and private `fastmcp-v03` reader remain retained for the named
+consumer. Existing private-reader files are protected instead of overwritten. Full workspace/all-target
+compile and keep-going strict Clippy, Ruff, warnings-inclusive Pyrefly and applicable dependency,
+documentation, ADR, fixture, structural-rule and formatting leaves collect their own results. No
+assembled qualification, benchmark, extensive environment/provenance campaign, embedding inference,
+submitted MCP runtime or older paused queue is added. Remediation, final V04/V05 reconciliation and
+any reruns are decided after aggregate review; a nonzero collection exit preserves the useful results.
+
 <a id="v01"></a>
 ## V01 — current-source controls and focused composition
 
@@ -92,12 +133,14 @@ development ownership, an independent integrated source assessment, and current 
 An unchanged passed control need not repeat solely because the plan was replaced; rerun where a new
 change affects its premises or current coverage remains unresolved.
 
-Rebuild the CLI/development binaries before their runtime use. Carry forward the final four selected
-F06/F07/native controls from the coordinator's exact selection, accounting for the final parent-hold
-and binding-sort refinement. Their earlier four-control binary predates that refinement; the cancelled
-final reruns ran no assertions. Metadata/strict Clippy strength is separately recorded, and relevant
-new edits require affected checks again. Do not promote an earlier binary's result to final-source
-runtime acceptance.
+Rebuild the CLI/development binaries before their runtime use. The coordinator records final-source
+metadata/CLI/code-generation passes and24 focused reference/native/scoped/availability/transport
+controls (`40db52`) with enclosing fixture and confirmed cleanup. These supersede the affected earlier
+cancelled four-control reruns; unchanged passed controls need not repeat. Remaining actual finite and
+recursive Summary, clean composed compact/linked Catalog, current cold receiving and exclusive
+mutation/epoch controls still require their own exits. `cc2fdc` supplies only a compact Catalog body
+pass alongside three timeouts and enclosing native uncertainty. New edits require affected checks;
+metadata or an earlier binary cannot establish final-source runtime acceptance.
 
 | Consumer boundary | Meaningful planned controls and preserved result |
 |---|---|
@@ -121,8 +164,22 @@ Run actual admitted Behavioral Summary through
 finite fixture/oracles. Retain independently specified transfer/closure known answers, qualifying
 alternatives, Entry/Formal context, recursive SCC/delta behavior, independent proofs, PairOutcomes and
 work/residual accounting. Use normal compute/transfer defaults and the existing 1 GiB operation budget.
+Positive guarded composition uses the model's supported stable identity predicates (`IsNone`/`IsValue`).
+Preserve bare truthiness as an explicit unsupported-transfer case with considered matching ports,
+`ConditionTransferUnsupported`, no invented witness and exact residual accounting. The finite fixture
+now exercises both; unsupported truthiness is never relabelled as an identity predicate to obtain a
+proof. General truthiness substitution is not a new capability implied by this acceptance scope.
 The pure port/worklist tests establish their finite contracts, not actual cached native composition.
 Also preserve Catalog's explicitly NotRequested Summary contract.
+
+Current Catalog controls consume admitted whole-owner compact declarations rather than expecting
+retired per-method runs/outcomes. Require actual provider frames, selected definitions and source
+scopes, exact compact authority and explicit NotRequested evidence, legitimate explicit-empty domains,
+outside-domain refusal and empty ordinary producer outputs. Shared epoch vocabulary remains shared.
+The named Summary control exercises the common assertion for all nine compact owners and separately
+checks Summary's independently specified Python-artifact/input scope domain. Migrated Local/Models/
+Base-channel controls retain their original fixtures and all Behavioral assertions; compile checks
+and the shared functional control do not claim that every migrated fixture journey was rerun.
 
 Two named required consumers remain:
 
@@ -202,6 +259,17 @@ compare must return the expected public APIs, source/effective options and suppo
 follow linked analysis and original evidence to exact captured bytes in the same realization. Inspect
 real native query consumers rather than treating producer/consumer agreement as the only oracle.
 Earlier pure recipe and CLI/bridge compilation evidence remain distinct from this journey.
+
+The narrow [pilot adapter](../../scripts/catalog_pilot.py) implements this functional route under
+the existing managed run and fixture owners: `produce --lctx ABSOLUTE_BINARY --output OWNED_DIRECTORY`
+runs inside `just fixture --retain-serving fastmcp-v03 --`; `check` uses the same arguments inside
+a fresh `just fixture --serving fastmcp-v03 --` attachment. Invoke it with
+`uv run --no-sync python scripts/catalog_pilot.py`. The coordinator records exact target, output,
+private reader and run identities. The adapter independently leases the pinned installed release
+and corpus after ordinary compilation, then compares source signatures, linked public operations,
+raw originals and full-artifact BLAKE3. It does not use the exported original bytes as its oracle.
+Its [focused controls](../../tests/scripts/test_catalog_pilot.py) exercise refusal, continuation,
+requiredness and child cleanup; they do not substitute for actual pilot execution.
 
 The approved outer execution allowance is 3600 seconds, excluding builds. Record build, runtime,
 capture and finality separately. Preserve ordinary internal budgets, effect limits, assertions and
