@@ -1,31 +1,34 @@
 # Status
 _Updated 2026-10-15 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Stopped at operator-requested Catalog closeout, 2026-10-15.** The
-[coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
-alone owns dispositions, exact receipts and resumption order. Source is committed on main through `0fe7e020`; no
-auxiliary worktree exists. Eager views, flat codec1/semantic v4 and independent receiving remain.
+**Catalog efficiency target review complete, 2026-10-15.** The [independent
+review](docs/design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md)
+recommends **Revise**: nine findings and eight investigations across native control, compiler/analysis,
+transport and development execution. Baseline `24b0d08b`; remedies remain Proposed. Next: plan corrections.
+[Evidence](docs/design_review/evidence/2026-10-15_catalog-completion-efficiency/README.md) owns controls,
+citations and limits. No production changes or new native workloads.
+**Review checks:** scripts/Ruff passed; `just docs-check` failed on the concurrent reference's missing H1; see evidence.
 
-**Last verified:** runner/pilot support43 (`5e84b7`), alias/retirement8 (`3943be`), finite Summary
-(`e3ce73`) and current cold (`7a553d`) passed with their stated enclosing cleanup. The final
-independent-admission alias correction passed its pure control (`246317`); its added actual native
-assertion remains not_run. Final full workspace/all-target compile (`4beb3a`), strict keep-going Clippy
-(`87373d`), Ruff/warnings-inclusive Pyrefly (`af2992`) and docs/ADR/rules/fixture checks passed.
-The [partial integrated assessment](docs/design_review/reviews/design_review_catalog-completion-final-integrated_2026-10-15.md)
-accepts inspected source, while enclosing Catalog completion remains unresolved.
+**Catalog execution remains stopped at operator-requested closeout.** The
+[coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+alone owns dispositions, receipts and resumption order; source through `0fe7e020`, no auxiliary worktree.
+Eager views, flat codec1/semantic v4 and independent receiving remain.
+
+**Prior verification, 2026-10-15:** coordinator §6 retains focused passes and enclosing cleanup;
+the final admission-alias actual native assertion remains not_run. Full compile (`4beb3a`), strict
+keep-going Clippy (`87373d`), Ruff/warnings-inclusive Pyrefly (`af2992`) and docs/ADR/rules/fixtures passed.
+The [partial assessment](docs/design_review/reviews/design_review_catalog-completion-final-integrated_2026-10-15.md) accepts inspected source; enclosing completion remains unresolved.
 
 **Open exits:** both actual document/lexical controls (`7c15e3`) timed out before mutation during
-independent admission. Recursive `8a3347` records the operator cancellation request and900s timeout,
-exit100, with final confirmed host cleanup; recursive answers/native finality remain unproven. All10
-task-owned campaigns were authenticated/drained/disposed, preserving original failures/Unknowns and
-retained evidence. B remains deliberately retained, unpopulated and unselected. No validation remains active.
+independent admission. Recursive `8a3347` records operator cancellation and a 900s timeout, exit100;
+host cleanup confirmed, recursive answers/native finality unproven. All10 owned campaigns were drained/
+disposed, preserving failures/Unknowns and evidence. B remains retained, empty and unselected; no active validation.
 
-**On resumption:** run the final admission alias's actual native control; inspect full captured
-recursive/mutation evidence and delayed cancellation; finish normal compact/linked composition,
+**On resumption:** run the admission alias's native control; inspect recursive/mutation and cancellation
+evidence; finish compact/linked composition,
 mutations/analyzer/epoch and FastMCP V03, then final acceptance/V04/V05 reconciliation. Current
-allowances, budgets, original fixtures and assertions remain. Older queues, shared/operator targets,
-protected independent Unknowns and warm caches stay unchanged. Embedding inference, submitted MCP
-runtime, extensive environmental qualification and assembled qualification remain excluded.
+allowances/budgets/fixtures/assertions remain; older queues, shared/operator targets, protected Unknowns
+and warm caches unchanged. Embedding, submitted MCP runtime, extensive environment/assembled qualification excluded.
 
 **Prior SA0–SA9 implemented / focused-Tested; assurance remains paused by operator,2026-10-11.** The [architecture
 companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) owns scope; [coordinator
