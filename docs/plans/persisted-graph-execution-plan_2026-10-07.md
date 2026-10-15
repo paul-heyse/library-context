@@ -111,7 +111,7 @@ the affected-caller map when a shared change reveals another consumer. Closure r
 of every actual caller, not just the representative entry point or a favorable text search.
 
 Decisive sources: [workspace](../../crates/cpg-core/src/workspace.rs), [consumed rows](../../crates/cpg-core/src/consumed_rows.rs),
-[native codec](../../crates/lctx-surrealdb/src/codec.rs), [serving evidence](../../crates/lctx-serving/src/source_evidence.rs),
+[native codec](../../crates/lctx-native/src/codec.rs), [serving evidence](../../crates/lctx-serving/src/source_evidence.rs),
 [source usage](../../crates/lctx-serving/src/source_usage.rs), [restore](../../crates/lctx-publisher/src/backup.rs),
 [service](../../crates/lctx-serving/src/service.rs) and [response dispatch](../../crates/lctx-model/src/domain/serving/dispatch.rs).
 The two direct codec writer consumers are loader entities/assertions; reconciliation regenerates

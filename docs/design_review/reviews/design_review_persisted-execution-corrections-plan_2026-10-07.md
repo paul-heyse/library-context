@@ -1,5 +1,7 @@
 # Persisted execution corrections plan — independent target review
 
+> Retired-source links pin the recorded committed baseline `593aebf3`; working-tree differences, where reported, retain their original evidence limits.
+
 **DESIGN / TARGET · 2026-10-07 · Proposed architecture accepted within the scope below.**
 
 The [supporting correction plan](../../plans/persisted-execution-corrections-plan_2026-10-07.md) and revised [persisted execution coordinator](../../plans/persisted-graph-execution-plan_2026-10-07.md) specify a coherent corrective architecture. They integrate correction-causes F01–F06, both confirmed rule impacts, the secondary library recommendations and the consequential uncertainties. Completion, captured attribution, native selection and restore transport now have complete responsibility boundaries rather than six isolated patches.
@@ -120,9 +122,9 @@ FP-01–FP-06 are satisfied by the proposed scoped operation contracts and compo
 
 ## 8. Library fit and total complexity
 
-Exact pinned source was read where decisive. SurrealDB3.3 ordered union dedup retains `HashSet<RecordId>` (`exec/operators/scan/union_index.rs`); adopting it unchanged would relocate F04's growing state. Single-equality index branches plus bounded external ordering avoid that premise. The existing [ordered_rows kernel](../../../crates/lctx-surrealdb/src/ordered_rows.rs) already provides finite runs, binary-carry merging and adjacent conflict checks for full physical rows; compact nominal-key adaptation, charging and acknowledged blocking ownership are **Proposed**, not already delivered.
+Exact pinned source was read where decisive. SurrealDB3.3 ordered union dedup retains `HashSet<RecordId>` (`exec/operators/scan/union_index.rs`); adopting it unchanged would relocate F04's growing state. Single-equality index branches plus bounded external ordering avoid that premise. The existing [ordered_rows kernel](https://github.com/paul-heyse/library-context/blob/593aebf335159d0d1644758a3bbae03e6aa05f8c/crates/lctx-surrealdb/src/ordered_rows.rs) already provides finite runs, binary-carry merging and adjacent conflict checks for full physical rows; compact nominal-key adaptation, charging and acknowledged blocking ownership are **Proposed**, not already delivered.
 
-DataFusion55.1 `StreamingTableExec::with_fetch` supplies the library limit wrapper; [NativeExec](../../../crates/lctx-surrealdb/src/compiler_provider.rs) currently does not delegate it. Faithful post-membership/post-residual delegation is appropriate. Outer LIMIT already stops polling, so delegation does not diagnose an earlier complete scan. DataFusion SortExec remains a valid alternative in a caller that owns its runtime; installing a second nested runtime behind generic native reads would add configuration/lifecycle burden without a new consumer need.
+DataFusion55.1 `StreamingTableExec::with_fetch` supplies the library limit wrapper; [NativeExec](https://github.com/paul-heyse/library-context/blob/593aebf335159d0d1644758a3bbae03e6aa05f8c/crates/lctx-surrealdb/src/compiler_provider.rs) currently does not delegate it. Faithful post-membership/post-residual delegation is appropriate. Outer LIMIT already stops polling, so delegation does not diagnose an earlier complete scan. DataFusion SortExec remains a valid alternative in a caller that owns its runtime; installing a second nested runtime behind generic native reads would add configuration/lifecycle burden without a new consumer need.
 
 The pinned parser/execution units and checked HTTP import remain preferable to bespoke lexical parsing or switching to `/sql`. HTTP SDK3.3 reads the complete response then returns the first statement error; PC5 does not claim it aggregates every error. Arrow59.3 generic FixedSizeBinary coalescing and Tokio1.53/shared-future lifetime behavior retain the source review's bounded reasons for custom compact buffers and durable join ownership. No blanket library replacement is warranted.
 

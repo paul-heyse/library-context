@@ -1,5 +1,7 @@
 # Native execution efficiency and ownership — design review
 
+> Retired-source links pin the recorded committed baseline `85e8b9cb`; working-tree differences, where reported, retain their original evidence limits.
+
 **2026-10-09 · design / target · independent review · decision: Revise**
 
 The native execution architecture needs revision for execution fit. The current tree has substantive ownership, batching, exact-view and admission strengths, but bounded requests still expand into avoidable native crossings, owner/key combinations, repeated query construction and rich decoding. These are structural FP-07/A4 defects. They do not establish the cause or relative contribution of the observed timeouts, and they do not establish semantic corruption.
@@ -299,9 +301,9 @@ Line numbers above identify the inspected dirty baseline, not immutable line add
 
 | Evidence / responsibility | Current source owner |
 |---|---|
-| Exact membership, content tokens, native lifecycle / F01/F03/F06 | [Native compiler store](../../../crates/lctx-surrealdb/src/compiler.rs) |
-| Provider pushdown/projection | [Native compiler provider](../../../crates/lctx-surrealdb/src/compiler_provider.rs) |
-| SDK session retention | [Prepared streams](../../../crates/lctx-surrealdb/src/prepared.rs), [stream reader](../../../crates/lctx-surrealdb/src/reader.rs), [new unverified native control](../../../crates/lctx-surrealdb/tests/native.rs) |
+| Exact membership, content tokens, native lifecycle / F01/F03/F06 | [Native compiler store](https://github.com/paul-heyse/library-context/blob/85e8b9cb9bf8a2941a2daea48f3ccaf258523879/crates/lctx-surrealdb/src/compiler.rs) |
+| Provider pushdown/projection | [Native compiler provider](https://github.com/paul-heyse/library-context/blob/85e8b9cb9bf8a2941a2daea48f3ccaf258523879/crates/lctx-surrealdb/src/compiler_provider.rs) |
+| SDK session retention | [Prepared streams](https://github.com/paul-heyse/library-context/blob/85e8b9cb9bf8a2941a2daea48f3ccaf258523879/crates/lctx-surrealdb/src/prepared.rs), [stream reader](https://github.com/paul-heyse/library-context/blob/85e8b9cb9bf8a2941a2daea48f3ccaf258523879/crates/lctx-surrealdb/src/reader.rs), [new unverified native control](https://github.com/paul-heyse/library-context/blob/85e8b9cb9bf8a2941a2daea48f3ccaf258523879/crates/lctx-surrealdb/tests/native.rs) |
 | Root union/partition/domain preparation | [Consumed rows](../../../crates/cpg-core/src/consumed_rows.rs), [normalization](../../../crates/cpg-core/src/normalize/mod.rs) |
 | Shared assurance / F02 | [Scoped admission](../../../crates/cpg-core/src/scoped_admission.rs), [workspace](../../../crates/cpg-core/src/workspace.rs), [SQL effect boundary](../../../crates/cpg-core/src/sql.rs) |
 | Typed replay / F04 | [Workspace products](../../../crates/cpg-core/src/workspace_products.rs), [normalization replay](../../../crates/cpg-core/src/normalize/reuse.rs), [selected kernel products](../../../crates/cpg-core/src/normalize/kernel_products.rs) |

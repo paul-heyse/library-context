@@ -1,5 +1,7 @@
 # Catalog compilation execution fit
 
+> Retired-source links pin the recorded committed baseline `9fecc014`; working-tree differences, where reported, retain their original evidence limits.
+
 **2026-10-07 · DESIGN / TARGET · Decision: Revise.**
 
 The catalog has useful semantic foundations: pinned acquisition, attributed observations, explicit unresolved states, Rust-owned operations, programmatic assertions, immutable completed inputs and separately published native realizations. Its compilation route nevertheless turns many small semantic operations into repeated large physical operations. Scoped kernels select correct premises, but their row access scans complete IPC relations; shared contributions repeatedly sort and copy the accumulated relation; admission reconstructs properties of unchanged lower inputs; disabled analytics prepare rich execution inputs. Native publication additionally retains scalar writes for external targets inside an otherwise bulk loader.
@@ -193,7 +195,7 @@ Do not overstate the graph component: A0 itself requires call and definition top
 
 **Consequence priority: medium. FP-07, DP-10/13/14, CI-07 · A4 violated, G8 fail. Diagnosis: Implemented/static-inspected. Remedy: Proposed.**
 
-[Loader](../../../crates/lctx-surrealdb/src/loader.rs), lines 125–197, calls `external().await` in each entity-reference/assertion-participant/reference loop. For each external target it executes `INSERT IGNORE INTO external $row RETURN NONE`. Repeated mentions of the same external endpoint repeat the round trip. Later role edges are already inserted as an array; the scalar crossing is hidden inside that bulk-looking capability.
+[Loader](https://github.com/paul-heyse/library-context/blob/9fecc014579c080bbc49f27cc728620ecb7d4ecb/crates/lctx-surrealdb/src/loader.rs), lines 125–197, calls `external().await` in each entity-reference/assertion-participant/reference loop. For each external target it executes `INSERT IGNORE INTO external $row RETURN NONE`. Repeated mentions of the same external endpoint repeat the round trip. Later role edges are already inserted as an array; the scalar crossing is hidden inside that bulk-looking capability.
 
 **Correction owner:** native loader. Collect and deduplicate external endpoint payloads for a bounded batch, bulk insert the set, then insert its enforced edges. Use actual endpoint identity and conflict checks; do not merge distinct relationships or dedup their roles by endpoint pair. If an attempt-level cache is useful, bound it and keep it disposable; native idempotent array insertion may suffice without one. Terminal failures remain observable and partial private state remains unpublished.
 

@@ -189,13 +189,105 @@ obsolete runtime/readers/compatibility-only paths after actual owner quiescence;
 rollback copies or historical benchmark prerequisites. V05 reconciles fulfilled contracts rather
 than granting broad closure to older plans. SA-F02, BC3, SM8, durable cross-process reuse, numerical/
 ANN/history/default and other unfulfilled scopes retain their own evidence and reopening routes.
-No broad `qualify`/`test-all`, general Stage3–5 campaign, embedding/MCP runtime or unrelated quality
-repair is added. Final source review, scoped functional exits, cleanup, pilot and benefit measurement
+No broad `qualify`/`test-all`, general Stage3–5 campaign or embedding/MCP runtime is added.
+The operator subsequently authorized full workspace compilation, keep-going Clippy and all hygiene
+repairs, including Ruff and Pyrefly warnings/errors; these quality checks do not activate final
+functional acceptance. Final source review, scoped functional exits, cleanup, pilot and benefit measurement
 remain distinct claims.
 
 ## 6. Sole disposition and current checkpoint
 
-**Current checkpoint, 2026-10-14:** C00's RC01/RC02/RC05 routes, T01–T04, I03, P01 and narrow
+**Design changes Implemented / focused-Tested, 2026-10-14, baseline `cf5fbe11`:** P02–P06 and I01/I02
+are integrated on main. Pure, Python and actual native controls pass at their stated boundaries,
+including enclosing fixture and host cleanup. Necessary V04 implementation and precise partial V05
+reconciliation are recorded below. Expanded compile/Clippy/Python and hygiene controls pass at their
+recorded boundaries. The operator selected focused
+functional/native controls only, subsequently adding full compile/Clippy/Python and repository hygiene:
+full V01 composition/long journeys, V02 mutations, V03 FastMCP
+and assembled qualification remain deferred. P01/T01–T04/I03 below retain their original receipts.
+
+Implementation commits are `1b1a63b7` (Python request ownership and tooling hygiene) and `de31ed2f`
+(charged preparation, selector/direct assurance, optional handoff, reader lifetime and Rust formatting).
+Focused receipts were produced from the corresponding integrated working tree before these commits;
+formatting changed source identities but not the selected runtime contracts.
+
+I01/I02 select in-memory preparation/direct assurance with unchanged eager visibility and flat
+codec1/semantic v4; RC03/RC04 remain unused after comparison. Contributor-local ordered fragments,
+canonical physical-owner branches and sealed counts remove repeated read/decode/sort, unchanged
+branch work and separate recount; changed eager roots still earn actual conflict/count validity.
+Operation-local direct ingredients share model-owned validation without portable/root success or
+removing each root's physical mapping, holds, EOF and final CAS. The production companion states
+these selected contracts and the alternatives' consumer/lifecycle costs.
+
+Independent source review found and corrected admission-before-clone errors, a cumulative singleton
+clone, required handoff errors escaping fencing, lock-order inversion, pending foreign-pool eviction,
+frozen binding decode accumulation and validation-premise serialization before admission. A second
+bounded review corrected late descendant join ownership, separate outer/inner results, stable sort
+workspace and actual worker input/result allowance lifetimes. Actual controls additionally exposed
+missing completed-reader execution leases and unfinalized negative-control owners. Readers now keep
+the acyclic execution/signal owner through useful borrowing; explicit drainage still cancels reads.
+Negative controls retain their original failure assertions and explicitly settle finality. Private
+capture controls use async contributor intake on their current-thread runtime without changing
+Package epoch semantics. These corrections are not a measured performance result.
+
+Final actual run `a69205` passed9 controls and its enclosing fixture, with direct/composed host
+cleanup confirmed and no survivors. Earlier `ce2ad5`, `1e2110`, `edf418` and `ef80f9` retain their
+failed/body-only/Unknown outcomes; successful successors do not rewrite them. The required source
+and pure controls below establish bounded design closure, not the deferred V01 matrix.
+
+### Cutover and partial handback
+
+V04 selected no persisted schema/codec migration: eager visibility, flat codec1, semantic v4 and
+publication v3 remain current. Obsolete allocating charged-update and repeated preparation paths
+were removed with their actual consumers migrated. New campaign state was regenerated through the
+existing installer and all four wholly owned targets were authenticated, drained and disposed:
+`4e57393c-3abe-42c2-b053-4aae7a4d2ece` (`ef6a23`),
+`34856e61-6f3d-4a9b-88fc-b9590cba51c4` (`28777c`),
+`12e017e2-d7f4-42bf-987c-e03217827e08` (`1ca5da`), and
+`dfb219e9-1534-406d-98d3-931fbf704689` (`9a461b`). Whole-target discard settled only their own
+remote cleanup obligations. No shared/operator view, older Unknown, warm cache or retained evidence
+was inspected, migrated or deleted. Full useful product-view regeneration remains with V03/V04.
+
+Partial V05 credits charged nested mutation/transfer, exact selector backing/direct assurance,
+useful physical preparation, optional-effect cutoff, coherent eager handoff and borrowed-reader
+finality to P02–P06. It does not close inherited Summary/current-cold/alias/transport/Catalog/query
+composition or mutation obligations. The inherited rows below retain those exact open boundaries;
+older efficiency and SA9 queues remain paused. SA-F02, BC3, SM8, numerical/ANN/history/default and
+operator adoption are unaffected. No auxiliary worktree was created; all worker changes are on main.
+
+### Design-change implementation receipts
+
+| Outcome | Command / boundary | Receipt and established scope |
+|---|---|---|
+| passed, preliminary | `cargo nextest run --release --locked -p lctx-model` with seven explicitly selected pure test binaries | `c280cd`;55 controls before final transfer metadata/demand changes; superseded by final63-control `924d26` |
+| passed, scoped | `cargo check --release --locked -p lctx-model -p cpg-core --tests` | `caf67b`;current interfaces and tests before final Schedule/native drainage followups |
+| passed, scoped | `just build-features` | No Hakari/dependency operations needed; serde exact1.0.229 only gains native crate's `rc` feature, with no version/lockfile move |
+| failed, subsequently repaired | `just deps` | `0b156a`;initial8 unused dependency/build-script detections and2 publisher warnings. The expanded hygiene scope removed4 actual unused declarations, retained shared-build/fixture dependencies with precise source-backed metadata, and preserved exact versions. Final `just deps` passed |
+| passed | `cargo check --release --locked --workspace --all-targets --keep-going` | Final `7bb8e9`;full default-feature workspace/all-target metadata, zero warnings/errors. Earlier `9da260`/`2ec7fd`/`a6364b` retain their source bounds |
+| passed | `cargo clippy --release --locked --workspace --all-targets --keep-going -- -D warnings` | Final `36f680`;full default-feature workspace/all-target keep-going Clippy, zero warnings/errors. Named recovery/compact-frame types, ordinary async syntax, statement separation and borrowed single-item handles replace reported lint patterns; no suppression. Earlier `d55077`/`f1444d` retain their source bounds |
+| passed | Final seven pure model binaries plus selected library controls | `924d26`;63 controls, including charged transfer/refusal, normalization, summaries and recovery traversal; supersedes `8f4815`'s obsolete exact-total metadata assertion |
+| passed | Native/compiler/core pure preparation controls | `18638a`;21 controls, including exact selector backing, compact conflicts/counts, useful demand, foreign pending ownership, outer/inner outcome distinction and late descendant joins; original combined `81d936` passed23 before final refinements |
+| passed | `just ruff`; `just types` | Final refreshed-environment `05173b` / `bba091`;full Python Ruff and Pyrefly clear after311/236 initial diagnostics, without suppression/configuration weakening. Formatted-source `6add3d`/`682d94` and earlier runs retain their respective source/environment bounds |
+| passed | Native-session/embedder hermetic Python controls | Final `2cee83`;17 controls. Pending delivery explicitly settles before drain, preserves delivered versus abandoned BaseException outcomes, and attempts both cleanup owners despite cancellation. Earlier `d6927c` passed14; no embedding inference or MCP runtime claim |
+| passed | Owned-campaign `just fixture -- cargo nextest run --release --locked --no-fail-fast --no-tests=fail -p cpg-core -p lctx-native --lib` with exact9-case filter retained in record | `a69205`;real optional decline/cutoff, private capture/disjoint binding, singleton completion, conflict refusal, source protection and borrowed execution lifetime/explicit-drain controls. Nine bodies plus enclosing fixture passed; direct/delegated cleanup confirmed. `25be1a` independently passed retained replay and enclosing cleanup |
+| passed | `INSTA_UPDATE=no` native envelope and extraction-variant snapshot controls | `591c85` native1 and campaign-backed `94a5e1` extraction1;existing snapshots accepted unchanged. Initial `f4ca46` selected no tests; `4cbc79` lacked the fixture prerequisite and remains failed |
+| passed | Current CLI code generation and guard-free `just ready` | `48f7b3` clean CLI build after depth-warning correction; final `5a5ebc` rebuilt the formatted-source native extension and passed readiness with no live native workers. Earlier `bb3298` predates formatting. `bdd94f` compiled with compiler-depth warnings; depth256 is compile-time only and adds no runtime/concurrency limit |
+| passed | `just turn-end`; `cargo fmt --check` | Whole-tree `0eb9c7` regenerated ADR/Hakari and formatted Rust/Python; scoped `1cae44` settled a second-pass Rustfmt layout; final `e430b8` passes. No schema snapshot was changed |
+| passed | Focused tooling failure/ownership/reference controls | `7fc229`;30 controls after `280f6a`'s435 passes/5 failures/1 skip. Prospective owner registration stays required; fault injection now targets actual post-spawn boundaries. Canonical evidence-component names cease to identify every unrelated run, while exact citations/holds remain protective. The deadline control preserves real child cleanup with a deterministic test clock; no production deadline changed |
+| passed | `just deps` | Final `6e271e`;exact families, bans/sources, both analyzer forks, cargo-shear and Hakari clear, with no version movement |
+| passed | `just adr-lint`; `just docs-check`; focused ADR tooling tests | `1849ce`100 records, `5a72c2`446 canonical pages/zero links or renderer warnings,36 focused controls. Strict owner-qualified resolution preserves accepted ADR bytes; dated source evidence links retain verified Git provenance |
+| passed | `just docs-test` with run-owned `PYTEST_ADDOPTS=--basetemp=…` | `fbba27`;82 ADR/design-section/publication controls. Initial `502634` had82 setup errors because `/tmp/pytest-of-paul` belongs to another UID; no foreign directory was changed and no assertions were weakened |
+| passed | `just fixtures-check`; `just rules-scan`; `just rules-test` | Final `53b190` / `338f59` / `8ac6d0`;194 fixture files parse and2 rule families pass. Initial `f8ec31` exposed the SQL helper's moved owner path; only that exact exemption/navigation was migrated |
+| passed | `just lint-agents`; `just skills-check`; `just gold` | Final `3a777e` / `9f9a2b` / `ae1d85`;repository role, skill-selection and pinned pilot/gold declarations; no actual pilot execution |
+| cancelled, no assertions | Initial I01/I02 Nextest invocation without `--lib` | `11abf4`;unnecessarily built integration targets; managed cancellation confirmed no survivors. Final focused selection uses explicit targets |
+| failed selection, no assertions | Native pure filter `test(completed_state::tests)` | `65adf2`;zero selected cases, exit4. Actual module is `completed_state::compound_controls`; corrected in final combined selection |
+
+Native capture/report objects are held under `citation:catalog-completion-design-execution` through
+`just verify report RUN --consumer … --json`; associated run logs and non-capture quality/disposal
+receipts are retained through `just runs retain RUN`. Their records own exact argv, source bounds,
+cleanup and original outcomes. UTC receipts crossing2026-10-15 remain local2026-10-14 evidence.
+
+**Prior bounded agent-effectiveness checkpoint, 2026-10-14:** C00's RC01/RC02/RC05 routes, T01–T04, I03, P01 and narrow
 O02 diagnostics are Implemented / focused-Tested on shared main over `2fc7f7d5`; Rust changes
 landed at `04cab60a`. The
 [independent implementation assessment](../design_review/evidence/2026-10-14_agent-execution/independent-review.md)
@@ -205,6 +297,10 @@ explicit owner composition: probe `08c676` contained nested sessions but the dis
 group also killed its reusable-daemon witness and truncated observer finalization. This rejects that
 candidate, not all cgroup designs or native containment. No measured performance claim follows.
 
+The original quality failures in that checkpoint retain their dated outcomes. The subsequently
+authorized full hygiene work above repaired those wider Python, dependency, ADR and publication
+diagnostics; they are not current open hygiene items.
+
 Native18 (`e251bf`) and ordinary Workspace3 (`5e4931`) passed bodies **and enclosing fixtures**;
 actual Rust diagnostic-writer/host `b01192` passed. Earlier `c25e08`/`bef344` retain their original
 body-only/Unknown outcomes. The test stores now explicitly finalize; the deliberate provider panic
@@ -213,7 +309,7 @@ still records actual failed finality. Campaign `f67fa05d-ba02-4aca-a8a1-f22b4d29
 authenticated/drained/disposed through `626a46`. The installer is not evidence for changed CLI behavior.
 No shared/operator target was inspected or repaired. No auxiliary worktree or active product worker remains.
 
-**Next:** P02/P03 and bounded I01/I02, then P04–P06 and their actual V01–V05 prerequisites. Full
+That slice left P02–P06/I01/I02 for the design execution recorded above. Full
 Summary/current cold/availability/linked900s/mutations/FastMCP3600s/regeneration/older-plan handback
 remain open. Do not restart those journeys merely to requalify this tooling slice. Existing stable
 stripe-table repair, protected Unknown attachments and older paused queues retain their owners.
@@ -259,26 +355,26 @@ runtime are not_run for this scope.
 
 ### New review obligations
 
-Rows remain open and Proposed unless explicitly noted. Related rows share packages without
-merging source IDs or distinct acceptance requirements.
+Rows state their bounded implementation and evidence strength. Related rows share packages without
+merging source IDs or deferred acceptance requirements.
 
 | Source | Responsible package / required closure |
 |---|---|
 | friction#F01 | Closed bounded P01 source/focused-Tested2026-10-14: both dispatcher consumers and Workspace/independent/borrowed admission/artifact/CLI/restore retain operation diagnostics after actual finality; canceled receiver, panic/join, retry and nested Outstanding/Unknown/storage/committed controls above. Wider V01 acceptance remains |
-| friction#F02 | P02/P06: required completed views survive genuine pre-effect optional decline; accepted post-effect/Unknown failures still fail and retain obligations |
-| friction#F03 | P03: all actual charged nested growth reserves before mutation; failed growth leaves prior state/charge coherent, with duplicate/no-growth/shrink behavior retained |
-| friction#F04 | P04/V01: decode/validation/parent/sort scratch releases at allocation lifetime; retained/borrowed backing and independent final receiving/CAS checks remain |
-| friction#F05 | P04: held/installed/remembered mappings share one qualified immutable typed payload; live selection, raw expected envelope bytes and physical-copy distinctions remain |
-| friction#F06 | P05/I01/P06: demanded contributor preparation avoids prefix reconstruction; useful old frozen borrowers survive and undemanded runs release. Retention-only eviction is insufficient |
-| friction#F07 | P05/I02/V01: shared compatible direct assurance preserves model-owned identity/relation/cardinality and exact physical context; flat emission is distinguished from repeated work, cold admission stays independent |
-| friction#F08 | P02/P06: disjoint completion progresses while optional preparation waits; overlapping current-set handoff remains atomic and cancellation/failure drainage truthful |
+| friction#F02 | Closed bounded P02/P06 source/focused-Tested2026-10-14 (`a69205`, `25be1a`): genuine pre-effect optional decline preserves required output; submitted/Unknown failures remain fatal and protected. Wider V01 remains |
+| friction#F03 | Closed P03 source/pure-focused2026-10-14 (`924d26`): actual charged consumers migrated; pre-mutation refusal, duplicate/no-growth/shrink and charged removal/transfer controls. Accounting is owned backing, not RSS |
+| friction#F04 | Closed bounded P04 source/focused-Tested2026-10-14 (`18638a`, `a69205`): allocation-lifetime scratch and retained/borrowed owners; final receiving/CAS checks preserved. Full current-cold/V01 matrix remains |
+| friction#F05 | Closed bounded P04 source/pure-focused2026-10-14 (`18638a`): one qualified immutable payload with exact client/pool refusal; live selection, expected envelope bytes and physical copies preserved. Wider actual selector composition remains V01 |
+| friction#F06 | Closed bounded P05/I01/P06 source/focused-Tested2026-10-14 (`18638a`, `bee16d`, `a69205`): contributor-local preparation and useful demand, stable flight joins, frozen borrowers surviving Workspace/source drop; explicit drain still refuses reads |
+| friction#F07 | Closed bounded P05/I02 source/pure-focused2026-10-14 (`924d26`, `18638a`): direct assurance shares exact compatible ingredients with traversal protocol enforcement; each root keeps mapping/holds/EOF/final checks. Full current native/cold/V01 composition remains |
+| friction#F08 | Closed bounded P02/P06 source/focused-Tested2026-10-14 (`a69205`): real disjoint Release completion/binding while private Package capture waits; conflict refusal and overlapping handoff remain atomic with enclosing cleanup |
 | friction#F09 | Closed supported T01/T03 source/focused-Tested2026-10-14; I03 complete. Prospective composed owners protect writers through cancellation/recovery and preserve independent observer/native lifetimes. Exact historical signal trigger stays unresolved; no retrospective registrations |
 | friction#F10 | Closed T02 source/focused-Tested2026-10-14: bounded recent/default, active/unresolved/label, full-history/detail, cursor/corrupt controls and complete safety-consumer migration |
 | friction#O01 | Delivered T03 focused-Tested2026-10-14 at disclosed launch seams: exact argv/cwd/fixture, native case/phase access, concurrent/nested capture, interruption, export and unsupported-command preservation; no invented ad hoc rerun prerequisites |
 | friction#O02 | Delivered narrow T03/P01 observation capability, focused-Tested2026-10-14: invocation/process/owner spans, pending waits and typed reservation context; no Drop terminal, formatted report_top remains text, not RSS/dominant-cause attribution. Future P02–P06 changes preserve these contracts |
 | friction#O03 | Delivered T04: current sole checkpoint/receipt ownership and truthful source/build/executable boundaries; wider product builds remain with V01–V03 |
 | friction#O04 | Closed T04 configuration/fresh-session-focused2026-10-14: inherited operator model and explicit override; functional roles, effort, independent judgment and activation/message distinction preserved |
-| friction#O05 | Delivered T04 no-effect parser hints/discovery guidance; unrelated14 ADR/22 publication defects retained above with affected-publication/separately authorized repair trigger |
+| friction#O05 | Delivered T04 no-effect parser hints/discovery guidance; the subsequent operator-authorized hygiene scope includes the14 ADR/22 publication defects, with final outcomes recorded above |
 
 ### Inherited scoped dispositions
 
@@ -369,51 +465,14 @@ new retention policy follows plan retirement. Preserve original `391b1b`, `22ada
 `1e2cbe`, `5546fe`, `6684a9`, `39eae3`, `f0ac90`, `b8c4a7` and `6c2648` failures and older
 failed/Unknown receipts; disposal settles ownership only, not workload success.
 
-### Authoring verification
+### Retained authoring boundary
 
-Plan authoring uses static source/owner inspection and existing evidence. Product builds, tests,
-probes, new native campaigns, configuration changes, operator actions and broad qualification are
-**not_run** for this documentation scope. Independent plan review and focused documentation outcomes
-are recorded here at publication; they do not close the implementation rows above.
-
-**Independent plan assessment, 2026-10-14:** a fresh same-model reviewer applied the design-review
-standard to all four plans, the friction review, predecessor obligations and decisive dispatcher/
-charged source. **Accept scoped** for authoring and execution planning, at Proposed contract strength:
-A1–A4 have credible routes and no plan-level G1–G8/CI gate failure was identified. This is not
-production acceptance. The reviewer specifically checked overlapping producers, differing physical
-copies in reconvergent dependencies, optional refusal/wait and delegated cancellation/writer lifetime.
-No material omission or additional rule impact was found. Root reconciled the terminology correction
-to “scoped composed acceptance,” preserving the explicit exclusion of broad qualify/test-all.
-Reviewer builds/tests/probes/services: not_run; no separate review artifact or second ledger.
-
-**Authoring checks, 2026-10-14:** static transfer inspection passed all 36 inherited disposition
-rows and all 15 friction findings/opportunities. Focused rendered local-link/anchor inspection passed
-1,171 links across 33 changed/new Markdown documents, including source-only development README links.
-No working Markdown consumer retains a deleted Catalog-plan filename; `git diff --check` passed.
-An explicit accepted-ADR body comparison confirmed that 0165–0169 contain only authorized navigation
-replacements plus appended amendments. `just adr-index` refreshed the existing generated index,
-including its previously missing ADR-0170 row; no decision metadata was changed.
-
-Pre-commit `just adr-lint` and `just docs-check` failed on the 14 existing architectural-reference/
-ADR-0151-owner defects plus five HEAD-relative immutability checks for the explicitly authorized
-navigation changes. No immutability guard was weakened. Direct `just docs` rendered the current
-inputs but failed publication on 22 existing retired-source/stale-publication links outside changed
-documents, and warned about the existing unclosed `<f64>` tag in the efficiency analysis plan.
-The focused link result does not establish full publication. These unrelated documentation repairs
-remain with the documentation task route, triggered by its next repair/publication work; they do
-not expand the new production scope. Final handoff records the post-integration check boundary.
-
-**Integrated authoring handoff, 2026-10-14:** commit `73a0cdd8` created all four replacements,
-transferred current consumers and deleted the five predecessors on main. Post-integration
-`just adr-lint` and `just docs-check` both failed only on the same 14 existing architectural-reference/
-ADR-0151-owner defects; the HEAD-relative navigation flags are no longer present. Full publication
-remains failed at the separate 22 stale links reported by `just docs`; focused links/coverage and
-independent scoped plan acceptance remain passed at their stated limits. Scoped
-`just turn-end --staged` passed: ADR index ran, build-features/Rust/Python formatting were not
-applicable. All delegated authoring/review tasks are complete on shared main, with no auxiliary
-worktree or merge/removal obligation. No product source, dependency, runtime configuration,
-native target, cited evidence retention or operator state changed. The next action remains
-execution planning for C00/ready P01/P03/T01 and I01–I03, respecting actual prerequisites.
+Commit `73a0cdd8` published these four plans, transferred36 inherited disposition rows and15
+friction findings/opportunities, and retired the five predecessor documents. Independent plan
+assessment accepted the scoped Proposed contracts and preservation routes on2026-10-14; that was
+not production acceptance. Its authoring-only checks and then-existing publication failures remain
+recoverable in Git. Current implementation and repaired hygiene outcomes are recorded above; no
+obsolete authoring next-step or separate mutable progress ledger remains.
 
 ## 7. Complete predecessor transfer and eventual handback
 

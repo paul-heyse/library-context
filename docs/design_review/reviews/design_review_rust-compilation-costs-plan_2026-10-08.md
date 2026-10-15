@@ -1,5 +1,7 @@
 # Rust compilation-cost plan: shared execution, scoped identities and qualified local tests
 
+> Retired-source links pin the recorded committed baseline `8511eb5f`; working-tree differences, where reported, retain their original evidence limits.
+
 **Principal independent design/target review · 2026-10-08**
 
 **Decision: Accept the Proposed target within the reviewed scope.** The plan selects compatible corrections for all four source-review causes. It separates provider attribution from compiler execution composition, moves native scheduling and streaming behind checked typed boundaries, qualifies the local test policy before making it the default, and groups substantial test drivers without broadening the selected verification contract. These are credible mechanisms for removing avoidable compilation work while preserving semantic and lifecycle guarantees. They do not establish a numerical speedup or unchanged production performance.
@@ -72,7 +74,7 @@ For reads, [`consumed_rows`](../../../crates/cpg-core/src/consumed_rows.rs) conf
 
 The selected composition root is credible: [`cpg-core/Cargo.toml`](../../../crates/cpg-core/Cargo.toml) directly includes extraction, model and native store. It therefore covers ingestion changes that provider-emitted rows alone cannot attribute. Composing stage implementation and this digest at `Workspace::output` gives every ordinary workspace output one governing execution identity. Raw provider hashes and `Stage.code` remain supplier/stage attribution. Serving/publisher-only source changes need not affect either production root.
 
-The existing hash field is sufficient. [`ContributionSpec::identity`](../../../crates/lctx-model/src/domain/completed.rs) includes `implementation`; [`producer_inventory`](../../../crates/cpg-core/src/artifact_manifest.rs) reads that field; [restored artifact admission](../../../crates/cpg-core/src/artifact.rs) compares the retained inventory. No consumer needs to parse components from the digest, and no new wire column follows from its new construction. Imported specifications must bypass current-build recomposition and retain their captured value exactly. Model semantic compatibility and native schema realization remain independently owned.
+The existing hash field is sufficient. [`ContributionSpec::identity`](../../../crates/lctx-model/src/domain/completed.rs) includes `implementation`; [`producer_inventory`](https://github.com/paul-heyse/library-context/blob/8511eb5fe27498815ce4433fd2d0029aa2e6016e/crates/cpg-core/src/artifact_manifest.rs) reads that field; [restored artifact admission](../../../crates/cpg-core/src/artifact.rs) compares the retained inventory. No consumer needs to parse components from the digest, and no new wire column follows from its new construction. Imported specifications must bypass current-build recomposition and retain their captured value exactly. Model semantic compatibility and native schema realization remain independently owned.
 
 Whole root manifest/lockfile sensitivity still invalidates more than a minimal resolved dependency set. That conservative scope is deliberate, useful for complete provenance, and substantially narrower than watching unrelated downstream sources. Finer resolution needs a concrete consumer and complete evidence; a new resolver is not justified by this correction.
 

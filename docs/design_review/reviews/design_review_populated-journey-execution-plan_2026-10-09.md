@@ -1,5 +1,7 @@
 # Operation-shaped native execution plan
 
+> Retired-source links pin the recorded committed baseline `3c76f172`; working-tree differences, where reported, retain their original evidence limits.
+
 **Independent design-tier / target review · 2026-10-09**
 
 **Decision: Accept scoped at Proposed strength.** The revised plan provides a credible correction for vocabulary-wide physical enforcement and repeated final canonical preparation. It preserves typed semantic authority, independent cold admission and actual-state reconciliation. One finalization-order defect was corrected in the proposed target during review; implementation and verification remain open.
@@ -56,7 +58,7 @@ The enforcement change is deliberate. Fixed `SCHEMAFULL` envelopes retain top-le
 
 That boundary is adequate for the supported writers because the plan requires rejection before their physical writes and full comparison at cold/publication boundaries. Arbitrary private raw SQL loses statement-time closed-body rejection. The plan exposes this limitation rather than claiming equivalent database enforcement.
 
-Existing [body codecs:70](../../../crates/lctx-surrealdb/src/codec.rs) validate records and preserve textual/opaque binary distinctions. Existing [reconciliation:30](../../../crates/lctx-surrealdb/src/reconciliation.rs) reconstructs expected complete rows and edges from canonical values and compares actual stored state. These provide credible foundations for PJ2; sharing production callbacks does not replace independent corruption controls.
+Existing [body codecs:70](https://github.com/paul-heyse/library-context/blob/3c76f1721b425118ae3d58aa6c612ab042446c4e/crates/lctx-surrealdb/src/codec.rs) validate records and preserve textual/opaque binary distinctions. Existing [reconciliation:30](https://github.com/paul-heyse/library-context/blob/3c76f1721b425118ae3d58aa6c612ab042446c4e/crates/lctx-surrealdb/src/reconciliation.rs) reconstructs expected complete rows and edges from canonical values and compares actual stored state. These provide credible foundations for PJ2; sharing production callbacks does not replace independent corruption controls.
 
 | Contract | Required invariant and failure boundary |
 |---|---|
@@ -69,15 +71,15 @@ Existing [body codecs:70](../../../crates/lctx-surrealdb/src/codec.rs) validate 
 | Publication | Derive permitted projections, drain writers, certify actual content/definitions and publish the same realization |
 | External transport | Imported validity/preparation markers are never trusted; independently admit reconstructed content/state |
 
-The finalization distinction is consequential: [current `end_writes`:944](../../../crates/lctx-surrealdb/src/compiler.rs) closes all native admission. The plan correctly introduces an earlier mutation-only freeze while keeping reads available, and retains later global drain/seal/removal.
+The finalization distinction is consequential: [current `end_writes`:944](https://github.com/paul-heyse/library-context/blob/3c76f1721b425118ae3d58aa6c612ab042446c4e/crates/lctx-surrealdb/src/compiler.rs) closes all native admission. The plan correctly introduces an earlier mutation-only freeze while keeping reads available, and retains later global drain/seal/removal.
 
 ## 4. Composition and execution
 
 The selected composition removes established repeated work without deleting necessary assurance.
 
-For F01, fixed native bodies and supplied scopes remove the vocabulary-wide body unions and stored scope `VALUE` programs visible in [schema generation:179](../../../crates/lctx-surrealdb/src/schema.rs). A prepared declaration-derived adapter selects the actual relation once per group. Keeping synchronous typed leaves avoids moving the same vocabulary expansion into generic async machinery.
+For F01, fixed native bodies and supplied scopes remove the vocabulary-wide body unions and stored scope `VALUE` programs visible in [schema generation:179](https://github.com/paul-heyse/library-context/blob/3c76f1721b425118ae3d58aa6c612ab042446c4e/crates/lctx-surrealdb/src/schema.rs). A prepared declaration-derived adapter selects the actual relation once per group. Keeping synchronous typed leaves avoids moving the same vocabulary expansion into generic async machinery.
 
-For F02, [canonical scan setup:549](../../../crates/lctx-surrealdb/src/compiler.rs) currently discovers completed owners, memberships and aliases and sorts their pointers for each scan. [Header admission:45](../../../crates/cpg-core/src/native_canonical.rs), payload admission, export and sealing have a shared final immutable universe. Preparing compact pointers once is therefore a useful lifetime boundary.
+For F02, [canonical scan setup:549](https://github.com/paul-heyse/library-context/blob/3c76f1721b425118ae3d58aa6c612ab042446c4e/crates/lctx-surrealdb/src/compiler.rs) currently discovers completed owners, memberships and aliases and sorts their pointers for each scan. [Header admission:45](https://github.com/paul-heyse/library-context/blob/3c76f1721b425118ae3d58aa6c612ab042446c4e/crates/cpg-core/src/native_canonical.rs), payload admission, export and sealing have a shared final immutable universe. Preparing compact pointers once is therefore a useful lifetime boundary.
 
 The plan retains actual row reads and their checks. Pointer reuse establishes selection, not body validity, graph agreement or semantic truth.
 
@@ -90,7 +92,7 @@ The plan retains actual row reads and their checks. Pointer reuse establishes se
 | Serving | Existing declared projections, qualification and pinned evidence relationships |
 | Behavioral computation | Existing finite transfer/fixpoint semantics; no reachability substitution |
 
-The scratch refactor is feasible but substantive. [Current ordered state:263](../../../crates/lctx-surrealdb/src/ordered_rows.rs) combines final scratch and mutable reader ownership; [acknowledged ordering:31](../../../crates/lctx-surrealdb/src/acknowledged_candidates.rs) retains blocking commands and their terminal observer. PJ3 must separate immutable scratch from cursor state while preserving that ownership. Merely adding shared rewind access would violate the proposed contract.
+The scratch refactor is feasible but substantive. [Current ordered state:263](https://github.com/paul-heyse/library-context/blob/3c76f1721b425118ae3d58aa6c612ab042446c4e/crates/lctx-surrealdb/src/ordered_rows.rs) combines final scratch and mutable reader ownership; [acknowledged ordering:31](https://github.com/paul-heyse/library-context/blob/3c76f1721b425118ae3d58aa6c612ab042446c4e/crates/lctx-surrealdb/src/acknowledged_candidates.rs) retains blocking commands and their terminal observer. PJ3 must separate immutable scratch from cursor state while preserving that ownership. Merely adding shared rewind access would violate the proposed contract.
 
 Removing the post-readmission reload in [detached publication:182](../../../crates/lctx-publisher/src/lib.rs) is also coherent. Initial external admission remains independent; publication can consume the authority already established by [detached readmission:751](../../../crates/cpg-core/src/artifact.rs).
 

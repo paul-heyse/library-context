@@ -5,7 +5,8 @@ backing and preparation corrections needed for a credible pinned API/evidence Ca
 [implementation-friction F01–F08](../design_review/reviews/design_review_implementation-friction-target_2026-10-14.md#F01)
 and preserves the delivered compiler, analysis and native foundations. Inspected authoring baseline:
 `f330bf1d972ddab4962ffd7d9b1d4bd92b9d71b2`. The coordinator owns current implementation and evidence;
-P01's delivered finality contract does not establish P02–P06 or assembled Catalog acceptance.
+Each package's delivered source and focused controls retain their own boundary; none establishes
+assembled Catalog acceptance.
 
 The [coordinator §6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 alone owns finding dispositions, decisions, execution state and receipts. Its decision table owns
@@ -179,6 +180,12 @@ Replay of an existing exact retained product still checks its original request/c
 and boundary under actual protection. No incomplete product is silently overwritten or relabelled
 absent. P01 carries nested metadata and late results; P02 decides what the operation means.
 
+The store-earned `CompletedProduction` retains its exact singleton descriptor, source and pool.
+`prepare_product_retention` performs only local admission and request-gate ownership, returning
+explicit `Declined` or an owned `PreparedRetention`. The latter enters mandatory dispatch before the
+first replay/native request or pin. It never suppresses a later Resource/Limit by matching its label.
+Required completion errors, including local errors after native effects, fence and cancel Workspace.
+
 **Exact consumer scope.** Migrate Workspace product-request handling, compiler-store retention
 admission, request gates, native retained boundary construction/replay and the product-cache/attached
 candidate consumers affected by the chosen preparation/effect split. Required singleton completion,
@@ -207,6 +214,12 @@ requiring a full replacement allocation. A raw arbitrary mutation callback canno
 reserve-before-growth promise; remove it from growth paths rather than ask every caller to duplicate
 Vec/B-tree accounting. Do not clone full values for rollback, which creates another allocation and
 unnecessary live state. Existing StateCharge and HeapSize remain the accounting foundation.
+
+The selected transfer API keeps removed/replaced backing in `ChargedValue`. Receiving state
+prepares accounting metadata before effects with `StateCharge::prepare_absorb`, then transfers
+without allocation or a reserve/release gap. A failed removal reservation leaves the source intact.
+Accounting metadata itself has an admitted owner; payload reconciliation and total accounted backing
+remain distinct observations. No old unrestricted allocating update path remains.
 
 **Exact consumer scope.** Find every production ChargedMap::update call and classify its actual
 mutation: vector append, set insertion, scalar/no-growth update or a separately owned operation.
@@ -242,6 +255,12 @@ retain the necessary typed inventory and one current row's scratch rather than a
 allowances. Include container capacity, map nodes, Arc headers, pointer/sort workspace and typed
 heaps where they actually exist. Values used to calculate allowance must not allocate an unadmitted
 serialization first. Preserve failure/drainage ownership of in-flight native work and prepared spill.
+
+Completed relations and their batch readers retain the execution owner and its signal independently
+of Workspace. The owner has no completed-relation registry backreference; readers hold the lease,
+not their background driver. Dropping Workspace or a source cannot cancel a useful borrower, while
+explicit drainage still closes admission and cancels reads. Restored descriptors/snapshots and
+returned relation backing receive their retained allowance before transfer scratch ends.
 
 Independent receiving inventory inspection remains. Scope builder sets, references and copied
 contributors until their comparisons/effects finish, then release them, or consume independently
@@ -342,6 +361,30 @@ cancellation and final drain. If P05 chooses only in-memory ingredients, it stil
 work and unsupported retention obligations identified by I01/I02; it cannot claim persisted arrays
 were eliminated. If it chooses RC03/RC04, include every affected artifact/publication, sparse/read,
 candidate/attachment, transport, backup/restore/import and cold consumer before the cutover is complete.
+
+**Selected I01/I02 route.** Keep eager visibility, flat selector codec1 and semantic v4; RC03/RC04
+remain unused. Contributor-local compact leaves and canonical binary partitions of sorted physical
+contributor identities reuse unchanged branches across overlapping sets. Counts are sealed by the
+same checked sort/merge EOF that earns conflict validity. This avoids repeated leaf reads/decodes/sorts
+and a second count replay; changed eager roots still require a real merge. An incremental latest union
+alone would not serve independently selected earlier ports. Demand-only visibility would move the
+existing completion/conflict boundary and require a broader consumer migration; the selected route
+preserves it with less change.
+
+Current and actually bound frozen roots retain their prepared run for reads/final admission. Remaining
+and running stage/prefix recipes retain exact available singleton ingredients; prospective remaining
+output relations retain reusable intermediate branches only while composition can use them. Cursor
+borrows and accepted flights independently retain their original backing. Foreign pools cannot evict a
+pending flight. Final drainage joins the actual task, preserving outer join failure separately from
+its operation outcome and retaining the former through retries.
+
+Model-owned direct recovery ingredients share validated typed contributor/view handles within the
+same protected source and resource context. Each root still visits its complete closure and independently
+earns physical correspondence, holds, EOF and final-state validity. Flat ordered array emission and
+identity remain necessary output work. Persisted factorization would add fragment/copy identity and
+receiving/import/backup consumers; removing the identified local reconstruction does not require that
+change. Reopen RC03/RC04 only for a concrete remaining workload/consumer mismatch, not an unmeasured
+claim that every repeated flat element entails another database query.
 
 **Functional evidence.** Multiple shared-relation producers with disjoint, equal-overlap and conflicting
 nominal content retain exact demanded rows/counts and independently specified old frozen views.

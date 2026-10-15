@@ -1,5 +1,7 @@
 # Persisted execution: architectural causes behind the correction sequence
 
+> Retired-source links pin the recorded committed baseline `1be0dd96`; working-tree differences, where reported, retain their original evidence limits.
+
 **Design tier · target purpose · deep review · 2026-10-07**
 
 ## 1. Assessment and review boundary
@@ -23,7 +25,7 @@ The recommended direction retains the useful semantic and lifecycle distinctions
 | Exclusions | Real-library/Qwen qualification, operator activation, protected evaluation populations, quantitative performance qualification and the unrelated agent-workspace work. |
 | Evidence method | Read-only source, types, current owners, commit changes and attributed historical receipts. No new probes, builds, tests or operator operations. |
 
-The included dirty files are [artifact_manifest.rs](../../../crates/cpg-core/src/artifact_manifest.rs), [facts.rs](../../../crates/cpg-core/src/facts.rs), [workspace.rs](../../../crates/cpg-core/src/workspace.rs) and [semantic-model.md](../../design/sections/semantic-model.md). Their current changes are **Implemented, uncommitted and unqualified**. In particular, the dirty `AdmittedFacts` change shares recorded-provider reporting with manifest construction; it is not a successful restored-artifact receipt.
+The included dirty files are [artifact_manifest.rs](https://github.com/paul-heyse/library-context/blob/1be0dd96714aba85aeb0a01af48758a8e314f9b9/crates/cpg-core/src/artifact_manifest.rs), [facts.rs](../../../crates/cpg-core/src/facts.rs), [workspace.rs](../../../crates/cpg-core/src/workspace.rs) and [semantic-model.md](../../design/sections/semantic-model.md). Their current changes are **Implemented, uncommitted and unqualified**. In particular, the dirty `AdmittedFacts` change shares recorded-provider reporting with manifest construction; it is not a successful restored-artifact receipt.
 
 The unrelated dirty evidence index, agent-workspace evidence folder and agent-workspace plan were preserved and excluded.
 
@@ -129,7 +131,7 @@ This review does **not** establish that these paths publish partial content. Nat
 
 [Recorded coverage](../../../crates/cpg-core/src/facts.rs), lines 147–199, constructs current executable declarations with a sentinel configuration, separately enumerates six provider prototypes, identifies contributions by producer name, applies named configuration exceptions and conditionally compares build identities. `Stage.coverage` in [stages.rs](../../../crates/lctx-model/src/domain/stages.rs), lines 164–176, carries concrete provider IDs. It does not itself supply the stable role/binding contract needed to interpret recorded suppliers independently of executable builds.
 
-The dirty `AdmittedFacts` change usefully shares availability and reporting with [manifest outcomes](../../../crates/cpg-core/src/artifact_manifest.rs), lines 163–183. The [workspace cache](../../../crates/cpg-core/src/workspace.rs), lines 385–448, binds profile and all nine exact completed views. Preserve those corrections. Neither removes the central knowledge about prototype suppliers and configuration categories.
+The dirty `AdmittedFacts` change usefully shares availability and reporting with [manifest outcomes](https://github.com/paul-heyse/library-context/blob/1be0dd96714aba85aeb0a01af48758a8e314f9b9/crates/cpg-core/src/artifact_manifest.rs), lines 163–183. The [workspace cache](../../../crates/cpg-core/src/workspace.rs), lines 385–448, binds profile and all nine exact completed views. Preserve those corrections. Neither removes the central knowledge about prototype suppliers and configuration categories.
 
 **Cause and consequence.** Executable extraction declarations and captured implementation bindings were initially treated as one authority. The correction now remaps between them using another hand-maintained interpretation. Adding a covering provider or changing its configuration binding requires both its declaration and knowledge in the central prototype/exception logic. A declaration can be valid for extraction while cold admission cannot identify its supplier.
 
@@ -157,10 +159,10 @@ Retain independent obligations: coverage rows cannot choose their own expected s
 
 **Diagnosis: Implemented propagation defect; particular published plan shapes remain unresolved.**
 
-The compiler correction prepares scope constants before indexed selection in [compiler.rs](../../../crates/lctx-surrealdb/src/compiler.rs), lines 768–778. Analogous expressions remain in:
+The compiler correction prepares scope constants before indexed selection in [compiler.rs](https://github.com/paul-heyse/library-context/blob/1be0dd96714aba85aeb0a01af48758a8e314f9b9/crates/lctx-surrealdb/src/compiler.rs), lines 768–778. Analogous expressions remain in:
 
-- [NativeReader records](../../../crates/lctx-surrealdb/src/reader.rs), lines 118–127;
-- [native projection roots](../../../crates/lctx-surrealdb/src/projections.rs), lines 229–231;
+- [NativeReader records](https://github.com/paul-heyse/library-context/blob/1be0dd96714aba85aeb0a01af48758a8e314f9b9/crates/lctx-surrealdb/src/reader.rs), lines 118–127;
+- [native projection roots](https://github.com/paul-heyse/library-context/blob/1be0dd96714aba85aeb0a01af48758a8e314f9b9/crates/lctx-surrealdb/src/projections.rs), lines 229–231;
 - [member-selection function](../../../crates/lctx-serving/src/selection.rs), line 104;
 - [capability-search selection](../../../crates/lctx-serving/src/operations.rs), line 481.
 
@@ -186,7 +188,7 @@ Keep exact membership/view constraints, null and missing behavior, context predi
 
 **Diagnosis: Implemented execution amplification, 2026-10-07.**
 
-[Compiler scope selection](../../../crates/lctx-surrealdb/src/compiler.rs), lines 768–781, creates a `LET` array of matching IDs for each scope window, flattens/distincts the combined arrays, then selects and orders semantic keys. Only after this preparation do `SelectedRows` and membership/payload windows bound late hydration.
+[Compiler scope selection](https://github.com/paul-heyse/library-context/blob/1be0dd96714aba85aeb0a01af48758a8e314f9b9/crates/lctx-surrealdb/src/compiler.rs), lines 768–781, creates a `LET` array of matching IDs for each scope window, flattens/distincts the combined arrays, then selects and orders semantic keys. Only after this preparation do `SelectedRows` and membership/payload windows bound late hydration.
 
 General selected/unfiltered paths in lines 791–809 likewise materialize candidate/member node arrays. Their complete universe may be semantically necessary; a whole resident ID array is not thereby necessary.
 
@@ -210,9 +212,9 @@ Where exact membership/order cannot be expressed efficiently in one native opera
 
 **Diagnosis: Implemented generated-layout amplification, 2026-10-07.**
 
-[Schema generation](../../../crates/lctx-surrealdb/src/schema.rs), lines 127–173, gathers the global atomic scope-field inventory from graph and compiler declarations. `scope_schema` installs a scalar `scope_<field>` definition for every inventory entry on each backing table and builds `scope_keys` from that same global set.
+[Schema generation](https://github.com/paul-heyse/library-context/blob/1be0dd96714aba85aeb0a01af48758a8e314f9b9/crates/lctx-surrealdb/src/schema.rs), lines 127–173, gathers the global atomic scope-field inventory from graph and compiler declarations. `scope_schema` installs a scalar `scope_<field>` definition for every inventory entry on each backing table and builds `scope_keys` from that same global set.
 
-[Reconciliation](../../../crates/lctx-surrealdb/src/reconciliation.rs), lines 315–336, derives the corresponding physical values in Rust; loader construction also calls that derivation. Locked SurrealDB document processing visits table field definitions in dependency order during writes.
+[Reconciliation](https://github.com/paul-heyse/library-context/blob/1be0dd96714aba85aeb0a01af48758a8e314f9b9/crates/lctx-surrealdb/src/reconciliation.rs), lines 315–336, derives the corresponding physical values in Rust; loader construction also calls that derivation. Locked SurrealDB document processing visits table field definitions in dependency order during writes.
 
 **Cause and consequence.** A new nominal reference anywhere enlarges physical declarations and value evaluation for tables that may never contain it. The shared array-element scope index is useful. Automatically retaining every scalar copy on every table is a separate decision, and the reviewed current sources show particular scalar consumers rather than a need for that universal projection.
 
@@ -396,7 +398,7 @@ The subsequent correction plan now develops these complete operation boundaries 
 
 The review and library researchers inspected the resolved source at the exact versions in
 [Cargo.lock](../../../Cargo.lock), [workspace dependencies](../../../Cargo.toml) and
-[native SDK dependencies](../../../crates/lctx-surrealdb/Cargo.toml). The source locators below
+[native SDK dependencies](https://github.com/paul-heyse/library-context/blob/1be0dd96714aba85aeb0a01af48758a8e314f9b9/crates/lctx-surrealdb/Cargo.toml). The source locators below
 are relative to the local Cargo registry directory
 `/home/paul/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/`.
 They establish **Interface-checked** capabilities, not execution of the proposed compositions.

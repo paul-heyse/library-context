@@ -1,5 +1,7 @@
 # Unified persistent SurrealDB plan: independent target assessment
 
+> Retired-source links pin the recorded committed baseline `23daeaa8`; working-tree differences, where reported, retain their original evidence limits.
+
 **Decision: Accept, at Proposed / Interface-checked strength.** The plan specifies a coherent shared-content architecture and a credible execution route for repeated compilation, pinned serving, concurrent logical tests and worktrees. Its revision resolves the restore isolation defect TF01 identified during authoring: ordinary restore now decodes data into fresh logical staging rather than executing native dump commands against a shared database. This decision accepts the document's selected architecture; it does not establish a working persistent service or production implementation.
 
 ## 1. Scope, standard and evidence
@@ -49,7 +51,7 @@ The inspected current [completed descriptors](../../../crates/lctx-model/src/dom
 
 Plan §4 selects content-addressed payloads, nominal anchors and a compact exact view resolver. This resolves the important same-key revision question: distinct views may select different payloads under one nominal key; one view cannot silently select two conflicting meanings. An anchor's existence carries no selected-view membership. Forward references resolve through the view; reverse references also restrict their source payloads to that view. Independent vertices, isolates, parallel arcs, self-loops and role positions survive.
 
-This is a credible replacement for current [schema](../../../crates/lctx-surrealdb/src/schema.rs), whose entity/assertion and backing-row uniqueness is global by nominal key, and [compiler memberships](../../../crates/lctx-surrealdb/src/compiler.rs), which rely on the private database for broader isolation. Native enforced endpoint existence alone is weaker than exact semantic closure. The plan makes that limitation explicit rather than relabelling physical referential integrity as admission.
+This is a credible replacement for current [schema](https://github.com/paul-heyse/library-context/blob/23daeaa8e7b7b777ff16dee91acfc08aed4e8b49/crates/lctx-surrealdb/src/schema.rs), whose entity/assertion and backing-row uniqueness is global by nominal key, and [compiler memberships](https://github.com/paul-heyse/library-context/blob/23daeaa8e7b7b777ff16dee91acfc08aed4e8b49/crates/lctx-surrealdb/src/compiler.rs), which rely on the private database for broader isolation. Native enforced endpoint existence alone is weaker than exact semantic closure. The plan makes that limitation explicit rather than relabelling physical referential integrity as admission.
 
 One native resolver serves compiler reads, admission, reconciliation, publication, serving and export. That avoids separate view predicates in consumers. Ordered bounded completion constructs its compact mapping once rather than enumerating owner/key products. The mapping is derived access state; contribution membership remains authoritative. Model/codec compatibility, semantic content, physical generation and runtime ownership retain separate identities. Existing stable contribution/view identities can survive when their meaning survives; changed serialized formats require explicit revision and rejection before reconstruction.
 

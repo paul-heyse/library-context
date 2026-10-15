@@ -1,5 +1,7 @@
 # Agent workspace effectiveness: capability review
 
+> Retired-source links pin the recorded committed baseline `43cd6501`; working-tree differences, where reported, retain their original evidence limits.
+
 **Decision: Revise. Proposed target review, 2026-10-07.**
 
 The proposal identifies real friction and supplies useful directions: explicit synchronization,
@@ -209,7 +211,7 @@ fixture execution does not deadlock. An intentional override names the guarantee
 
 D2's lifetimes are useful. Fresh launcher-supplied cache and selection paths do not isolate every
 command: [native_journey.rs](../../../crates/lctx-serving/tests/native_journey.rs) chooses its
-own namespace/cache/viewer names, and [cache.rs](../../../crates/lctx-surrealdb/src/cache.rs)
+own namespace/cache/viewer names, and [cache.rs](https://github.com/paul-heyse/library-context/blob/43cd650191ebc68223c19b3c16d3af886ad3e3a4/crates/lctx-surrealdb/src/cache.rs)
 contains test-owned database choices. Retaining a server also differs from retaining the published
 content that P4's MCP reuse needs.
 

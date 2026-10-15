@@ -1,5 +1,7 @@
 # Assembled populated execution correction — independent review
 
+> Retired-source links pin the recorded committed baseline `e98fb4a9`; working-tree differences, where reported, retain their original evidence limits. Links marked as subsequent source use the first later committed version, not an exact capture of the reviewed working tree.
+
 **Current decision: Accept scoped at static / Implemented strength, 2026-10-09.**
 The initial review and first reassessment found material integration defects. Sections 10–11
 record their independent source reassessment after correction; no remaining material finding
@@ -68,13 +70,13 @@ No changed path inspected relabels provider relations as another semantic relati
 
 ### Declaration-selected lowering removes the identified vocabulary coupling
 
-[adapter.rs](../../../crates/lctx-surrealdb/src/adapter.rs) constructs declaration-derived adapters once and selects by relation name. The compiler checks the selected relation’s type and schema, then invokes its canonical callback before lowering: [compiler.rs](../../../crates/lctx-surrealdb/src/compiler.rs).
+[adapter.rs](https://github.com/paul-heyse/library-context/blob/2a62e8170d39bb5533b349d95b397e00ff43d716/crates/lctx-surrealdb/src/adapter.rs "First subsequent committed source; not an exact capture of the reviewed working tree") constructs declaration-derived adapters once and selects by relation name. The compiler checks the selected relation’s type and schema, then invokes its canonical callback before lowering: [compiler.rs](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs).
 
 The fixed DDL removes vocabulary-wide body unions and scope `VALUE` programs. Adding an unrelated declaration changes lookup construction and semantic declarations; it does not expand an existing row’s database body-validation program. Local sum validation remains with the typed record callback rather than moving into another broad Rust union interpreter.
 
 Independent reconstruction remains substantive:
 
-- Graph reconciliation compares complete actual rows with mechanically regenerated envelopes: [reconciliation.rs](../../../crates/lctx-surrealdb/src/reconciliation.rs).
+- Graph reconciliation compares complete actual rows with mechanically regenerated envelopes: [reconciliation.rs](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/reconciliation.rs).
 - Compiler backing reconstructs canonical bodies, nominal keys and complete physical envelopes.
 - Scope values are regenerated from declared fields.
 - Opaque original metadata checks multiplication and end-range arithmetic before the compiler begins the window’s effects.
@@ -83,9 +85,9 @@ Sharing mechanical envelope construction is appropriate. The independent boundar
 
 ### Final pointer preparation preserves hydration
 
-The prepared runs contain compact physical pointers. [GraphRows](../../../crates/lctx-surrealdb/src/compiler.rs) still hydrates bounded pointer windows and checks missing, unexpected and incorrectly ordered backing rows.
+The prepared runs contain compact physical pointers. [GraphRows](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs) still hydrates bounded pointer windows and checks missing, unexpected and incorrectly ordered backing rows.
 
-[ordered_rows.rs](../../../crates/lctx-surrealdb/src/ordered_rows.rs) separates immutable scratch ownership from mutable cursors. Each cursor reopens the file and reserves reader/decode work. [acknowledged_candidates.rs](../../../crates/lctx-surrealdb/src/acknowledged_candidates.rs) drains the preparation worker before returning the immutable run. Consequently, an idle prepared handle does not retain its creator’s native scan lease.
+[ordered_rows.rs](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/ordered_rows.rs) separates immutable scratch ownership from mutable cursors. Each cursor reopens the file and reserves reader/decode work. [acknowledged_candidates.rs](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/acknowledged_candidates.rs) drains the preparation worker before returning the immutable run. Consequently, an idle prepared handle does not retain its creator’s native scan lease.
 
 The ordinary same-Workspace path has explicit charges for completed-owner descriptors, final handoff copies, scratch ownership, cursor work and transfer windows. I found no material new population-sized retained collection without a charge in that path. This is a static lifetime/accounting assessment, not measured memory qualification.
 
@@ -137,7 +139,7 @@ Do not fix this by freezing the resource Workspace or importing content merely t
 
 Two exposed paths share this structural cause.
 
-First, [NativeCompilerStore::frozen](../../../crates/lctx-surrealdb/src/compiler.rs) is public. It checks physical content readiness and mutation terminality, but not successful Workspace owner/binding agreement, compilation attestation or semantic admission. A caller can obtain `FrozenNative` after native `freeze_content` without traversing the admission owned by core.
+First, [NativeCompilerStore::frozen](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs) is public. It checks physical content readiness and mutation terminality, but not successful Workspace owner/binding agreement, compilation attestation or semantic admission. A caller can obtain `FrozenNative` after native `freeze_content` without traversing the admission owned by core.
 
 The production wrappers traverse admission correctly. The exported capability contract does not enforce that route.
 
@@ -160,9 +162,9 @@ Do not add a second semantic validator in the native layer. Preserve core’s se
 **Priority: Medium — scheduling-dependent lifecycle regression.**
 **Principles/judgments:** FP-02, FP-05; DP-08, DP-19; A3; G6.
 
-[retain_read_setup](../../../crates/lctx-surrealdb/src/compiler.rs) admits the read before spawning its setup driver. The final seal closes general admission and waits for those admitted operations.
+[retain_read_setup](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs) admits the read before spawning its setup driver. The final seal closes general admission and waits for those admitted operations.
 
-The new frozen setup path then calls [prepared_canonical](../../../crates/lctx-surrealdb/src/compiler.rs), which unconditionally invokes `check_frozen`. That calls the general `check`, rejecting a globally closed authority—even when the preparation already exists.
+The new frozen setup path then calls [prepared_canonical](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs), which unconditionally invokes `check_frozen`. That calls the general `check`, rejecting a globally closed authority—even when the preparation already exists.
 
 A revealing schedule is:
 
@@ -186,7 +188,7 @@ A revealing schedule is:
 
 `native publication.rs` (intermediate source) acknowledges the marker and records the committed handle in a **local** `Completion`, then awaits session invalidation and VIEWER readback.
 
-Returned failures preserve that committed effect correctly. Cancellation during either later await drops the local completion. The private [OperationLease drop path](../../../crates/lctx-surrealdb/src/compiler.rs) retains an unconfirmed-operation failure, but the native operation state has no retained committed publication identity.
+Returned failures preserve that committed effect correctly. Cancellation during either later await drops the local completion. The private [OperationLease drop path](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs) retains an unconfirmed-operation failure, but the native operation state has no retained committed publication identity.
 
 **Consequence.** A later drain can report uncertainty/orphan disposition, but cannot report the exact publication handle already known to have committed. One-shot sealing prevents retry; the known committed identity is nevertheless lost.
 
@@ -209,7 +211,7 @@ Several production callers, however, finish only successful results:
 
 - `native publication.rs` (intermediate source);
 - publication search/reconciliation/seal;
-- [canonical preparation](../../../crates/lctx-surrealdb/src/compiler.rs);
+- [canonical preparation](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs);
 - artifact/semantic admission paths that return through `?`.
 
 For example, an acknowledged statement error finishes its operation lease and returns `Err`, but the phase is dropped without a `failed` terminal.
@@ -337,15 +339,15 @@ AGENTS, design-review skills, coordination routing, core/template 3.3, heuristic
 | Finding | Independent source assessment |
 |---|---|
 | **F01 — Transport inspection regression** | **Source-resolved.** Known-manifest inspection returns `CheckedTransport` without importing or requiring frozen native content. Detached verification separately loads and admits before constructing `VerifiedExport`. See [artifact.rs](../../../crates/cpg-core/src/artifact.rs). The intact/tampered-original control remains present; it was not executed. |
-| **F02 — Publication admission bypass** | **Source-resolved.** Private `Admission` accepts only nominal core-owned artifacts, exports or restored admissions and obtains their paired native store/manifest. The marker writer is private; lifecycle guards expose no client or publication method. Session creation and sealing check retained endpoint/namespace identity; cold sessions lack publication location authority. See [native_publication.rs](../../../crates/lctx-publisher/src/native_publication.rs) and [target check](../../../crates/lctx-surrealdb/src/compiler.rs). Existing privileged Loader access is outside this supported publication route. |
-| **F03 — Admitted canonical read rejected during closure** | **Original defect source-resolved.** Public preparation admits first; private descendant preparation checks failure/frozen readiness without reapplying global admission closure. Preparation and cursor workers retain scan ownership. See [preparation](../../../crates/lctx-surrealdb/src/compiler.rs). The cached-preparation control exercises that distinction; the first-owner control exercises its constituent ownership operations rather than the complete native discovery branch. New F06 below concerns a separate public exception. |
-| **F04 — Acknowledged handle lost on cancellation** | **Source-resolved.** Checked marker acknowledgement records the pre-encoded exact handle in retained operation state before another await. Drain/refusal preserve it; abandon requires no committed effects. See [marker acknowledgement](../../../crates/lctx-publisher/src/native_publication.rs) and [abandon](../../../crates/lctx-surrealdb/src/compiler.rs). Record-then-drop and unknown-drop controls exist, but do not execute cancellation inside production marker/readback. |
+| **F02 — Publication admission bypass** | **Source-resolved.** Private `Admission` accepts only nominal core-owned artifacts, exports or restored admissions and obtains their paired native store/manifest. The marker writer is private; lifecycle guards expose no client or publication method. Session creation and sealing check retained endpoint/namespace identity; cold sessions lack publication location authority. See [native_publication.rs](../../../crates/lctx-publisher/src/native_publication.rs) and [target check](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs). Existing privileged Loader access is outside this supported publication route. |
+| **F03 — Admitted canonical read rejected during closure** | **Original defect source-resolved.** Public preparation admits first; private descendant preparation checks failure/frozen readiness without reapplying global admission closure. Preparation and cursor workers retain scan ownership. See [preparation](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs). The cached-preparation control exercises that distinction; the first-owner control exercises its constituent ownership operations rather than the complete native discovery branch. New F06 below concerns a separate public exception. |
+| **F04 — Acknowledged handle lost on cancellation** | **Source-resolved.** Checked marker acknowledgement records the pre-encoded exact handle in retained operation state before another await. Drain/refusal preserve it; abandon requires no committed effects. See [marker acknowledgement](../../../crates/lctx-publisher/src/native_publication.rs) and [abandon](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs). Record-then-drop and unknown-drop controls exist, but do not execute cancellation inside production marker/readback. |
 | **F05 — Failure phases appear incomplete** | **Substantially corrected, still open.** Admission, preparation, publication, compiler and CLI result owners now finish failure results; `Phase` drop remains silent. Native setup still has an early-return gap described below. |
 
 **F06 — Public post-closure reads lack a retained parent**
 **Medium; FP-02/05, DP-08/19/20; A2/A3, G3/G5/G6.**
 
-[completed_state_after_closure](../../../crates/lctx-surrealdb/src/compiler.rs) is public and checks only the permanent `seal_started` flag. It neither requires a live finalization guard nor registers parent ownership before its first await. Its descendants use [track_rows](../../../crates/lctx-surrealdb/src/compiler.rs), which deliberately permits closed-state execution.
+[completed_state_after_closure](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs) is public and checks only the permanent `seal_started` flag. It neither requires a live finalization guard nor registers parent ownership before its first await. Its descendants use [track_rows](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs), which deliberately permits closed-state execution.
 
 After a seal attempt ends, a fresh caller can therefore start this read despite global closure. On an acknowledged pre-marker failure, cleanup can observe zero active operations and proceed while this unregistered caller subsequently starts descendants. This defeats drainage’s closed-admission premise. The production publisher holds its finalization lease correctly; the defect is the exposed exception.
 
@@ -354,7 +356,7 @@ After a seal attempt ends, a fresh caller can therefore start this read despite 
 **Residual F05 — Native setup authentication failure has no terminal**
 **Medium; FP-06, DP-21.**
 
-[native setup](../../../crates/lctx-surrealdb/src/compiler.rs) emits `begin`, then authenticates through `await?` before entering the result block that emits terminals. An authentication rejection returns `Err` and silently drops the phase, making a completed failure look interrupted.
+[native setup](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs) emits `begin`, then authenticates through `await?` before entering the result block that emits terminals. An authentication rejection returns `Err` and silently drops the phase, making a completed failure look interrupted.
 
 **Proposed correction:** encompass the complete setup result in terminal reporting, preserving existing cleanup and silent cancellation behavior.
 
@@ -372,9 +374,9 @@ Focused native/core/publisher controls and `just verify --select serving:mcp` re
 
 **Accept scoped at static / Implemented strength, 2026-10-09.** Against `e98fb4a9` plus the inspected dirty tree, F06 and residual F05 are source-resolved. **No remaining material findings or regressions were identified within this reassessment.**
 
-- **F06:** [completed_state_after_closure](../../../crates/lctx-surrealdb/src/compiler.rs) requires a borrowed `&OperationLease` and rejects non-finalization, finished or different-store parents before its first await. Finalization origin is a private flag set by `begin_finalization`; an operation label cannot supply it. The borrow prevents consuming the parent while the read remains live, and its active ownership blocks drainage across the read’s awaits. [Publisher sealing](../../../crates/lctx-publisher/src/native_publication.rs) passes its own retained lease and finishes it after the complete result. The [source control](../../../crates/lctx-surrealdb/src/compiler.rs) rejects label spoofing and another-store ownership, observes pending read/drain, and confirms drain remains pending after read cancellation until the parent finishes. It does not exercise a completed native query.
-- **Residual F05:** [Native begin](../../../crates/lctx-surrealdb/src/compiler.rs) wraps the entire private `begin_inner` result, including authentication refusal and setup cleanup, before emitting its terminal. The [fixture-backed control](../../../crates/lctx-surrealdb/tests/compiler_lifecycle.rs) supplies an incorrect password and asserts begin/failed observations without password disclosure; it was not executed here.
-- **Adjacent restore diagnostics:** [Restore](../../../crates/lctx-publisher/src/backup.rs) owns an outer result through cleanup, with local result terminals for staging admission, canonical copy, derived references and staging cleanup. Early errors reach the outer terminal. [Phase](../../../crates/lctx-surrealdb/src/phase.rs) still emits no terminal on drop, preserving interruption as incomplete.
+- **F06:** [completed_state_after_closure](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs) requires a borrowed `&OperationLease` and rejects non-finalization, finished or different-store parents before its first await. Finalization origin is a private flag set by `begin_finalization`; an operation label cannot supply it. The borrow prevents consuming the parent while the read remains live, and its active ownership blocks drainage across the read’s awaits. [Publisher sealing](../../../crates/lctx-publisher/src/native_publication.rs) passes its own retained lease and finishes it after the complete result. The [source control](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs) rejects label spoofing and another-store ownership, observes pending read/drain, and confirms drain remains pending after read cancellation until the parent finishes. It does not exercise a completed native query.
+- **Residual F05:** [Native begin](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler.rs) wraps the entire private `begin_inner` result, including authentication refusal and setup cleanup, before emitting its terminal. The [fixture-backed control](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/tests/compiler_lifecycle.rs) supplies an incorrect password and asserts begin/failed observations without password disclosure; it was not executed here.
+- **Adjacent restore diagnostics:** [Restore](../../../crates/lctx-publisher/src/backup.rs) owns an outer result through cleanup, with local result terminals for staging admission, canonical copy, derived references and staging cleanup. Early errors reach the outer terminal. [Phase](https://github.com/paul-heyse/library-context/blob/2a62e8170d39bb5533b349d95b397e00ff43d716/crates/lctx-surrealdb/src/phase.rs "First subsequent committed source; not an exact capture of the reviewed working tree") still emits no terminal on drop, preserving interruption as incomplete.
 
 F01–F04 retain their earlier **bounded source-resolved verdicts and control limitations by reference** to [followup.md](#10-independent-reassessment-of-integration-corrections); they were not re-reviewed.
 
@@ -386,10 +388,10 @@ Edits, builds, tests, generation and delegation: **not_run**. No runtime, Tested
 
 **Accept scoped at static / Implemented strength, 2026-10-09.** No material defects found in the final diagnostics correction on dirty main at `e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f`, against plan §3.5 and assembled-review F05.
 
-- [phase.rs:48](../../../crates/lctx-surrealdb/src/phase.rs) registers metadata with the captured dispatcher, checks `enabled`, and sends through `Dispatch::event`. Pinned tracing-core **0.1.36** confirms that this also checks `event_enabled`. The four declared fields match their values; begins omit elapsed duration.
+- [phase.rs:48](https://github.com/paul-heyse/library-context/blob/2a62e8170d39bb5533b349d95b397e00ff43d716/crates/lctx-surrealdb/src/phase.rs "First subsequent committed source; not an exact capture of the reviewed working tree") registers metadata with the captured dispatcher, checks `enabled`, and sends through `Dispatch::event`. Pinned tracing-core **0.1.36** confirms that this also checks `event_enabled`. The four declared fields match their values; begins omit elapsed duration.
 - Captured dispatcher and retained span provide consistent subscriber routing and explicit parent attribution. [native.rs:12](../../../crates/cpg-core/tests/fixtures/native.rs) restores both around the thread’s `block_on`; adjacent task handoffs retain poll-scoped attribution.
 - [artifact.rs:1050](../../../crates/cpg-core/src/artifact.rs) finishes facts, invariants and frontier observations before propagating errors. Enclosing observations also receive failures. Consuming finish prevents duplicate terminals; silent drop preserves incomplete work. `Returned` remains distinct from semantic success, and cancellation is never fabricated on drop.
-- Observations remain coarse, outside row loops, with no added payload or credential fields. Existing stderr/run-log routing remains intact. [compiler_provider.rs:703](../../../crates/lctx-surrealdb/src/compiler_provider.rs) is a behavior-preserving private formatter rename.
+- Observations remain coarse, outside row loops, with no added payload or credential fields. Existing stderr/run-log routing remains intact. [compiler_provider.rs:703](https://github.com/paul-heyse/library-context/blob/e98fb4a994a4b49050ccc3c851a98e8e8ca66b9f/crates/lctx-surrealdb/src/compiler_provider.rs) is a behavior-preserving private formatter rename.
 
 The reported binary suppression is an observed symptom; its underlying tracing/library/compiler cause remains **unproven**.
 

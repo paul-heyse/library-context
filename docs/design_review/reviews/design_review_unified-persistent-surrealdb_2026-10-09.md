@@ -1,5 +1,7 @@
 # Unified persistent SurrealDB: independent design and target review
 
+> Retired-source links pin the recorded committed baseline `05cc139b`; working-tree differences, where reported, retain their original evidence limits.
+
 **Decision: Revise.** A single durable SurrealDB service is a sound direction for the requested workflow, but keeping the current server alive would not deliver the target. The present compiler, publication and test contracts use a private database as the unit of attempt isolation, content ownership and sealing. Product-cache hits still decode and replay canonical rows into fresh contributions. These mechanisms preserve important guarantees, but also preserve repeated setup, copies and reconstruction.
 
 The recommended direction is **Proposed**: one durable library-context service and shared canonical content, with completed views, publication, reader pins and attempt effects represented inside a small stable database arrangement. Reuse should attach compatible immutable completed content through fresh checked bindings rather than reconstructing it merely to acquire a new attempt owner. Domain validity, current provenance and independent cold admission remain necessary. Database-wide isolation must be replaced deliberately; removing it without equivalent view-relative enforcement would weaken correctness.
@@ -69,7 +71,7 @@ Shared storage must not collapse provider assertions, computational equivalence 
 
 **Implemented diagnosis.** NativeCompilerStore::begin_inner constructs a clock/process-derived snapshot database, creates it STRICT and installs schemas for each attempt. abandon removes that database or reports it as an orphan. Fixture attachment creates a new namespace plus core/cache/product databases and scratch coordination state; release normally removes the namespace. Keeping the server process alive therefore does not keep a shared reusable compiler universe.
 
-Evidence: [compiler.rs](../../../crates/lctx-surrealdb/src/compiler.rs), lines 505-607 and 1447-1472; [surrealdb_fixture.py](../../../scripts/surrealdb_fixture.py), baseline lines 869-925 and 1040-1053; [storage/publication section 6](../../design/sections/storage-and-publication.md).
+Evidence: [compiler.rs](https://github.com/paul-heyse/library-context/blob/05cc139b8d126c7e770f238c79eec9d39769e3b6/crates/lctx-surrealdb/src/compiler.rs), lines 505-607 and 1447-1472; [surrealdb_fixture.py](../../../scripts/surrealdb_fixture.py), baseline lines 869-925 and 1040-1053; [storage/publication section 6](../../design/sections/storage-and-publication.md).
 
 **Consequence.** Repeated worktrees and controls continue paying schema/setup and fresh-ingress costs. A failed client lifetime still owns deletion of a whole content container. Service persistence and reusable data persistence remain different mechanisms.
 
@@ -85,7 +87,7 @@ A few stable databases are permitted only for concrete physical/trust responsibi
 
 **Implemented diagnosis.** Canonical entity, assertion and backing tables enforce uniqueness on (semantic_type, semantic_key). Native role edges enforce endpoint existence in the database. Exact compiler memberships provide a separate input boundary, but the private database supplies broader isolation for canonical graph, originals and published search.
 
-Evidence: [schema.rs](../../../crates/lctx-surrealdb/src/schema.rs), lines 155-183; [completed.rs](../../../crates/lctx-model/src/domain/completed.rs), lines 42-64 and 135-153; [semantic model sections 15.2-15.3](../../design/sections/semantic-model.md).
+Evidence: [schema.rs](https://github.com/paul-heyse/library-context/blob/05cc139b8d126c7e770f238c79eec9d39769e3b6/crates/lctx-surrealdb/src/schema.rs), lines 155-183; [completed.rs](../../../crates/lctx-model/src/domain/completed.rs), lines 42-64 and 135-153; [semantic model sections 15.2-15.3](../../design/sections/semantic-model.md).
 
 **Consequence.** Replacing private databases with an attempt filter is insufficient. Endpoint existence somewhere in a shared database does not establish membership in the selected view. Different model/layout revisions also need an explicit rule for nominal keys and payload compatibility. A changed payload under a retained nominal key must be either a legitimate separately represented revision or a defined conflict; global storage uniqueness must not make that decision accidentally.
 
@@ -101,7 +103,7 @@ Possible realizations include closed immutable segments with compact membership 
 
 **Implemented diagnosis.** Publication fingerprints effective database/table definitions, creates a database VIEWER and inserts publication:current. SnapshotHandle combines semantic content, realization and database identity. This works with one sealed database per realization. A stable shared database contains concurrent unpublished content and may serve several compatible executable revisions.
 
-Evidence: [native_publication.rs](../../../crates/lctx-publisher/src/native_publication.rs), lines 169-236; [realization.rs](../../../crates/lctx-surrealdb/src/realization.rs), lines 48-104; [serving identity](../../../crates/lctx-model/src/domain/serving/identity.rs), lines 10-37; [storage/publication sections 6.1-6.2](../../design/sections/storage-and-publication.md).
+Evidence: [native_publication.rs](../../../crates/lctx-publisher/src/native_publication.rs), lines 169-236; [realization.rs](https://github.com/paul-heyse/library-context/blob/05cc139b8d126c7e770f238c79eec9d39769e3b6/crates/lctx-surrealdb/src/realization.rs), lines 48-104; [serving identity](../../../crates/lctx-model/src/domain/serving/identity.rs), lines 10-37; [storage/publication sections 6.1-6.2](../../design/sections/storage-and-publication.md).
 
 **Consequence.** Database VIEWER credentials alone no longer imply a single published universe. Unrelated schema/function changes can invalidate a database-wide fingerprint, while in-place definition replacement can change an older reader's meaning. Publication cannot freeze all unrelated writers each time one attempt completes.
 
@@ -135,7 +137,7 @@ Where attribution is already part of the canonical result, sharing requires exac
 
 The product cache already demonstrates a narrower pattern: persistent generation records fence delayed effects, while local leases and acknowledgments coordinate a managed local store.
 
-Evidence: [compiler.rs](../../../crates/lctx-surrealdb/src/compiler.rs), lines 1447-1539; [product_cache.rs](../../../crates/lctx-surrealdb/src/product_cache.rs), lines 151-219 and 450-507; [completion/publication owner](../../design/sections/storage-and-publication.md).
+Evidence: [compiler.rs](https://github.com/paul-heyse/library-context/blob/05cc139b8d126c7e770f238c79eec9d39769e3b6/crates/lctx-surrealdb/src/compiler.rs), lines 1447-1539; [product_cache.rs](https://github.com/paul-heyse/library-context/blob/05cc139b8d126c7e770f238c79eec9d39769e3b6/crates/lctx-surrealdb/src/product_cache.rs), lines 151-219 and 450-507; [completion/publication owner](../../design/sections/storage-and-publication.md).
 
 **Consequence.** A dead client or released filesystem lock does not prove its server request stopped. An unknown write could complete after cleanup or attachment unless all competing operations consult a durable fence. Blind retries can duplicate effects or confuse incomplete and completed membership.
 
@@ -151,7 +153,7 @@ Version-matched SurrealDB source restricts FOR UPDATE to specific record targets
 
 **Implemented diagnosis.** Fixture attachments and sampled native controls create and remove namespaces/databases. Product-cache tests use scratch lease directories. These mechanisms provide isolated mutation but defeat stable shared-data reuse.
 
-Evidence: [fixture baseline](../../../scripts/surrealdb_fixture.py), lines 869-925 and 1040-1053; [cache controls](../../../crates/lctx-surrealdb/tests/cache.rs), lines 35-86; [product-cache controls](../../../crates/lctx-surrealdb/src/product_cache.rs), lines 523-527. This is decisive sampled evidence, not an exhaustive teardown inventory.
+Evidence: [fixture baseline](../../../scripts/surrealdb_fixture.py), lines 869-925 and 1040-1053; [cache controls](https://github.com/paul-heyse/library-context/blob/05cc139b8d126c7e770f238c79eec9d39769e3b6/crates/lctx-surrealdb/tests/cache.rs), lines 35-86; [product-cache controls](https://github.com/paul-heyse/library-context/blob/05cc139b8d126c7e770f238c79eec9d39769e3b6/crates/lctx-surrealdb/src/product_cache.rs), lines 523-527. This is decisive sampled evidence, not an exhaustive teardown inventory.
 
 **Proposed correction.** Ordinary tests use immutable named fixture inputs plus owned attempts and scoped effect identities. Tests of derivation or admission must execute the operation under test; a retained success cannot replace their independent expectation. Reuse fixture prerequisites and unaffected completed inputs, not the decision being asserted. Negative controls use fresh untrusted payloads and independently enforced rejection.
 
@@ -167,7 +169,7 @@ Physical corruption of the shared storage engine cannot be claimed safe merely b
 
 **Implemented diagnosis.** Native-to-Arrow conversion, canonical product decoding, compact topology, kernel state, queued native values and server caches can overlap. Product candidates retain complete typed sections; native stream queues are row-bounded rather than byte-bounded. Database persistence alone does not release those representations.
 
-Evidence: [workspace_products.rs](../../../crates/cpg-core/src/workspace_products.rs), lines 5-15 and 133 onward; [projected_arrow.rs](../../../crates/lctx-surrealdb/src/projected_arrow.rs), lines 20-145; [reader.rs](../../../crates/lctx-surrealdb/src/reader.rs), lines 515-549; [native-efficiency plan](../../plans/native-execution-efficiency-plan_2026-10-09.md).
+Evidence: [workspace_products.rs](../../../crates/cpg-core/src/workspace_products.rs), lines 5-15 and 133 onward; [projected_arrow.rs](https://github.com/paul-heyse/library-context/blob/05cc139b8d126c7e770f238c79eec9d39769e3b6/crates/lctx-surrealdb/src/projected_arrow.rs), lines 20-145; [reader.rs](https://github.com/paul-heyse/library-context/blob/05cc139b8d126c7e770f238c79eec9d39769e3b6/crates/lctx-surrealdb/src/reader.rs), lines 515-549; [native-efficiency plan](../../plans/native-execution-efficiency-plan_2026-10-09.md).
 
 **Consequence.** Concurrent warm clients can still repeatedly hydrate the same input or maintain overlapping large graphs. A bounded packet, transport batch or cache allowance does not establish feasibility for global analytics or skewed adjacency. Conversely, moving every kernel into SurrealQL could replace good finite algorithms with repeated expansion.
 
@@ -263,7 +265,7 @@ Context7 documentation discovery, official documentation and GitHub release/sour
 
 The engine API's default query streaming replays buffered results. The vendored gRPC implementation overrides it and now requires application End plus checked transport completion. NativeRows retains ordered statement terminals and late failure. These are concrete reasons to retain the current baseline, not evidence that WebSocket is inherently unsuitable.
 
-Evidence: surrealdb-engine-api-3.3.0/src/lib.rs, lines 304-389; [vendored grpc.rs](../../../third_party/surrealdb/src/engine/remote/grpc.rs), lines 914-950 and 1102 onward; [reader.rs](../../../crates/lctx-surrealdb/src/reader.rs), lines 453-549.
+Evidence: surrealdb-engine-api-3.3.0/src/lib.rs, lines 304-389; [vendored grpc.rs](../../../third_party/surrealdb/src/engine/remote/grpc.rs), lines 914-950 and 1102 onward; [reader.rs](https://github.com/paul-heyse/library-context/blob/05cc139b8d126c7e770f238c79eec9d39769e3b6/crates/lctx-surrealdb/src/reader.rs), lines 453-549.
 
 A WebSocket adapter must finish each request from its own terminal/error/retraction protocol; closing a shared socket is not a substitute for gRPC EOF. Cancellation acknowledgment does not prove rollback. The inspected SDK default export/import operations are unsupported, while gRPC implements file transport; a WebSocket choice must preserve backup through a qualified same-service combination. Official current documentation identifies [server streaming RPC](https://surrealdb.com/docs/reference/rest-api/rpc-protocol#query_stream) separately from [SDK query behavior](https://surrealdb.com/docs/reference/rust/methods/query); those current pages are discovery/reference evidence, not a transfer of every later patch behavior to locked 3.3.0.
 

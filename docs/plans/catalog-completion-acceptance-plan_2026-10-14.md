@@ -5,8 +5,16 @@
 [§6](catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint) alone owns current
 dispositions, package outcomes, receipt identities and revision bounds. This document develops
 V01–V05: the remaining Catalog acceptance and cutover, together with acceptance of the reviewed
-production and development corrections. Plan authoring runs no product campaign and establishes no
-new runtime result.
+production and development corrections. Authoring established no runtime result; the coordinator
+records subsequent implementation and focused controls separately from these full acceptance exits.
+
+The operator's current design-change execution includes compile checks and minimal revealing
+functional/native controls, plus necessary V04 implementation and accurate partial V05 reconciliation.
+Full V01 composition/long journeys, V02 exclusive mutations, V03 pilot and assembled qualification
+remain deferred. These contracts remain the final acceptance obligations; a focused source/control
+pass does not satisfy them by association. Coordinator §6 owns the actual current boundary.
+The operator subsequently included full workspace compilation, keep-going strict Clippy, Ruff,
+Pyrefly and repository hygiene repairs. Those checks do not activate the deferred functional matrix.
 
 ## 1. What completion must establish
 

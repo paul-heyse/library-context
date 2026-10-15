@@ -275,7 +275,7 @@ uses a bounded heap whose comparator is the exact inverse of that final order, f
 canonical sorting. Evaluate all required pairs and the existing exact work/refusal calculation before
 publishing; candidate retention does not reduce necessary exact scoring work.
 
-**Library comparison resolved:** DataFusion 55.1.0 `inner_product`/`dot_product` coerces to List<F64>,
+**Library comparison resolved:** DataFusion 55.1.0 `inner_product`/`dot_product` coerces to `List<F64>`,
 checks equal lengths, and performs a component-order scalar F64 loop. On admitted finite, equal-width,
 non-null promoted projections, that arithmetic can agree with the existing kernel. A library
 replacement is therefore **not rejected as numerically impossible**. Its complete route would expand

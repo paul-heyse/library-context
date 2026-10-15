@@ -1,5 +1,7 @@
 # Graph-native pivot — implementation completeness audit
 
+> Retired-source links pin the recorded committed baseline `b90cb611`; working-tree differences, where reported, retain their original evidence limits.
+
 **Revise: the runtime migration is substantially present, but the complete plan is not fully realized.**
 Independent source inspection identifies missing semantic admission guarantees, incomplete executable
 identity and cold auditing, lifecycle and serving defects, and retained execution structures that
@@ -146,7 +148,7 @@ absent while required semantic assurances remain. F01 and F03 require compatible
 
 **Medium · P2 audit / realization · FP-05, CI-13.**
 [inspection::audit](../../../crates/lctx-publisher/src/inspection.rs):181 checks canonical
-reconciliation and definition identity. [reconciliation](../../../crates/lctx-surrealdb/src/reconciliation.rs):9–19,176 inventories canonical records/roles/external endpoints/originals, but not search documents,
+reconciliation and definition identity. [reconciliation](https://github.com/paul-heyse/library-context/blob/b90cb611b6b11ff3c01fdadc7e199c765d28a8b6/crates/lctx-surrealdb/src/reconciliation.rs):9–19,176 inventories canonical records/roles/external endpoints/originals, but not search documents,
 vectors or lexical/vector occurrences; its `Node` omits query-visible scope fields.
 
 Altered search text/eligibility/witnesses/numeric vectors or stale scope values can leave canonical
@@ -163,7 +165,7 @@ replaying producers or making ordinary requests rehash the database. See diagnos
 ### F05 — Selection publishes two authorities in separate renames
 
 **Medium · P2 selection / S3 launch configuration · FP-04, G5.**
-[RuntimeConfig::select](../../../crates/lctx-surrealdb/src/config.rs):98–99 publishes serving JSON
+[RuntimeConfig::select](https://github.com/paul-heyse/library-context/blob/b90cb611b6b11ff3c01fdadc7e199c765d28a8b6/crates/lctx-surrealdb/src/config.rs):98–99 publishes serving JSON
 before selected JSON. A crash/error between renames can make new MCP launches pin B while CLI
 selection remains A; a failed selection can already expose B's serving configuration.
 [retirement](../../../crates/lctx-publisher/src/backup.rs):324–327 checks only selected JSON.
@@ -270,7 +272,7 @@ resource error data, within complete wire-byte admission.
 fragment/anchor/use inventories for a page of units, accumulates expanded unit × fragment × member ×
 anchor occurrences and vector objects, then chunks inserts (:328). Its expected-ID map grows over
 the whole load. A 128-unit page does not bound corpus size, fanout, response bytes or expanded live
-objects. Separately, [cache admission](../../../crates/lctx-surrealdb/src/cache.rs):120–148 accepts
+objects. Separately, [cache admission](https://github.com/paul-heyse/library-context/blob/b90cb611b6b11ff3c01fdadc7e199c765d28a8b6/crates/lctx-surrealdb/src/cache.rs):120–148 accepts
 a slice but awaits one gRPC INSERT per vector before its batch winner lookup. Both leave material
 work outside the promised bulk/bounded boundary; they have distinct closure obligations.
 

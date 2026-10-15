@@ -1,28 +1,27 @@
 # Status
 _Updated 2026-10-14 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 
-**Priority: agent-effectiveness slice implemented / focused-Tested, 2026-10-14.** The
-[Catalog completion coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
-alone owns finding dispositions, exact receipts and remaining scope. C00's approved routes, T01–T04,
-I03, P01 and narrow O02 diagnostics are delivered on shared main over `2fc7f7d5` (Rust `04cab60a`). ADR-0171/0172 replace
-model routing and host ownership. RC03/RC04 remain conditional and unselected. The independent source
-assessment accepts this bounded slice; no measured effectiveness or whole-Catalog claim follows.
+**Priority: Catalog-completion design changes Implemented / focused-Tested, 2026-10-14.**
+The [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+alone owns dispositions, exact receipts and remaining scope. P01–P06/T01–T04 and I01–I03 are integrated;
+eager views, flat codec1/semantic v4, independent receiving admission and ADR-0171/0172 remain current.
+RC03/RC04 were not selected. Useful completed readers now retain an acyclic execution/signal owner;
+explicit drainage still cancels reads. All worker changes are on main; no auxiliary worktree exists.
 
-**Last verified, 2026-10-14:** native18 (`e251bf`) and Workspace3 (`5e4931`) passed bodies and enclosing
-fixtures; diagnostic-writer/host (`b01192`), final385 host/capture controls (`5db38f`), fresh parent/role model
-inheritance and explicit override passed. Touched-crate keep-going strict Clippy passed `dddb33`.
-Scoped host/capture Pyrefly passed; original broader typing and documentation failures remain at §6.
-Scoped turn-end/diff checks passed; unchanged Ruff/type diagnostics are retained separately.
-`just adr-lint`/`docs-check` still fail on14 pre-existing refs; direct publication has22 stale links.
-Earlier body-only/Unknown native receipts remain unchanged. The new isolated campaign was drained
-and disposed (`626a46`); no shared/operator target was inspected or repaired. No auxiliary worktree
-or product worker remains. The supported capture seams and conservative observer/PID guarantees
-are explicit at §6; unknown native finality never becomes host confirmation.
+**Last verified, 2026-10-14:** 63 pure model controls (`924d26`),21 preparation controls (`18638a`),
+2 core controls (`bee16d`),17 hermetic native-session/embedder controls (`2cee83`) and30 affected tooling
+controls (`7fc229`) passed. Final actual native9 (`a69205`) passed bodies and enclosing fixture with
+confirmed direct/delegated cleanup. Both unchanged schema snapshots passed (`591c85`/`94a5e1`). All four
+task-owned campaigns were authenticated/drained/disposed; original failed/Unknown outcomes are retained.
+Final guard-free `just ready` (`5a5ebc`) rebuilt the native extension and passed. Full workspace
+all-target compile (`7bb8e9`), keep-going strict Clippy (`36f680`), Ruff/Pyrefly (`05173b`/`bba091`),
+dependency, ADR/docs, role/skill/gold, fixture and rule checks pass with no warnings/errors.
+Documentation regressions pass82 (`fbba27`); Rust formatting passes (`e430b8`).
 
-**Next:** P02/P03 and bounded I01/I02, then P04–P06 and actual V01–V05 prerequisites. Summary/current
-cold/availability/linked900s/exclusive mutations/FastMCP3600s/regeneration and substantive older-plan
-handback remain open. Older queues stay paused. Broad qualification, embedding/MCP runtime and
-operator adoption were not_run for this agent-effectiveness scope. Disk recovery is not a blocker.
+**Next, when authorized:** final acceptance planning/execution. Full V01 journeys/matrix, V02 exclusive mutations,
+V03 FastMCP, full V04 useful-view regeneration/V05 older-plan handback, assembled qualification and
+embedding/MCP runtime remain deferred. Older queues remain paused. No shared/operator target was
+inspected or repaired; protected older Unknowns, evidence and warm caches remain unchanged.
 
 **Prior SA0–SA9 implemented / focused-Tested; assurance remains paused by operator,2026-10-11.** The [architecture
 companion](docs/plans/surrealdb-architecture-and-capability-leverage-plan_2026-10-10.md) owns scope; [coordinator
@@ -42,8 +41,8 @@ build passed (`b05cfd`). No measured speed claim. Prior exact reader-pin recover
 confirmed11:54:15UTC/no survivors. It was interrupted after 801.571s, before its explicit900s allowance. A seal, baseline backup and B construction
 were reached; full backup equivalence, B preservation and fresh-restore assertions remain unproven. Host status was
 ready/maintenance=false/borrowers=[]; native pins/attempts remain unknown. Two unresolved storage attachments are preserved; coordinator §9.1 owns
-exact IDs and recovery limits. No further product tests, readiness, recovery or serving restart ran after the stop. Earlier readiness `bec1a2`
-predates the latest compiler/manifest edits; the native extension needs guard-free refresh. Current-source `just verify --qualify --cli` is
+exact IDs and recovery limits. No further product tests, readiness, recovery or serving restart ran after the stop. Current native readiness is recorded in the Catalog checkpoint above; it does not close SA9 acceptance.
+Current-source `just verify --qualify --cli` is
 **not_run**. Documentation closeout `just docs-check` passed402 pages/zero link errors; this does not qualify product behavior.
 
 **Remaining, on resumption:** inspect exact stopped-run native/attachment ownership; resolve only evidenced cleanup obligations; diagnose and

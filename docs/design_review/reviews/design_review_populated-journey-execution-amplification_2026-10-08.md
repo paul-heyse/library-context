@@ -1,5 +1,7 @@
 # Populated native journey execution amplification
 
+> Retired-source links pin the recorded committed baseline `70b8bf53`; working-tree differences, where reported, retain their original evidence limits.
+
 **Formal design-tier / target review · 2026-10-08**
 
 **Decision: Revise.** The inspected implementation preserves useful semantic and lifecycle boundaries, but its physical composition repeatedly reconstructs an unchanged canonical membership inventory and makes ordinary writes pay for a broad semantic vocabulary. These are structural execution-fit defects. Neither establishes which phase dominates the observed populated-journey duration.
@@ -129,7 +131,7 @@ This review finds no basis to claim every registered method executes, that all g
 
 **Principles:** FP-07; DP-03, DP-10, DP-15, DP-16; A4.
 
-`NativeCompilerStore::begin` installs canonical and compiler schemas for every attempt: [compiler.rs:303–362](../../../crates/lctx-surrealdb/src/compiler.rs). `compiler_record_schema` constructs one closed union for the complete nongraph inventory. Canonical entity/assertion bodies likewise use broad unions. `scope_schema` constructs a table-wide array of field/family conditions and filtering for the stored `scope_keys` VALUE expression: [schema.rs:179–219](../../../crates/lctx-surrealdb/src/schema.rs).
+`NativeCompilerStore::begin` installs canonical and compiler schemas for every attempt: [compiler.rs:303–362](https://github.com/paul-heyse/library-context/blob/70b8bf53bfd119d1cc1b69a79ad69ab370866440/crates/lctx-surrealdb/src/compiler.rs). `compiler_record_schema` constructs one closed union for the complete nongraph inventory. Canonical entity/assertion bodies likewise use broad unions. `scope_schema` constructs a table-wide array of field/family conditions and filtering for the stored `scope_keys` VALUE expression: [schema.rs:179–219](https://github.com/paul-heyse/library-context/blob/70b8bf53bfd119d1cc1b69a79ad69ab370866440/crates/lctx-surrealdb/src/schema.rs).
 
 Exact SurrealDB 3.3.0 source establishes two relevant mechanisms:
 
@@ -167,7 +169,7 @@ A giant sequential CASE, constructing a lookup map on every row, or a table per 
 
 **Principles:** FP-07; DP-09, DP-10, DP-20, DP-23; CI-05, CI-08; A4.
 
-[compiler.rs:549–620](../../../crates/lctx-surrealdb/src/compiler.rs) shows each canonical family scan:
+[compiler.rs:549–620](https://github.com/paul-heyse/library-context/blob/70b8bf53bfd119d1cc1b69a79ad69ab370866440/crates/lctx-surrealdb/src/compiler.rs) shows each canonical family scan:
 
 1. Enumerates completed contribution owners.
 2. Reads their membership pointers.
@@ -177,9 +179,9 @@ A giant sequential CASE, constructing a lookup map on every row, or a table per 
 
 The operation is bounded/spillable and does not hydrate every prior rich payload. Nevertheless, its membership/alias preparation repeats while the completed state is unchanged.
 
-Artifact admission first loads entity/assertion headers through `Lookup::load`, then reads canonical entities and assertions: [native_canonical.rs:45–67](../../../crates/cpg-core/src/native_canonical.rs) and [artifact.rs:1006–1021](../../../crates/cpg-core/src/artifact.rs). That is four canonical-family preparations. Ordinary sealing requests the two families again: [publisher lib.rs:47–55](../../../crates/lctx-publisher/src/lib.rs). The final completed membership state has not changed between these consumers.
+Artifact admission first loads entity/assertion headers through `Lookup::load`, then reads canonical entities and assertions: [native_canonical.rs:45–67](https://github.com/paul-heyse/library-context/blob/70b8bf53bfd119d1cc1b69a79ad69ab370866440/crates/cpg-core/src/native_canonical.rs) and [artifact.rs:1006–1021](../../../crates/cpg-core/src/artifact.rs). That is four canonical-family preparations. Ordinary sealing requests the two families again: [publisher lib.rs:47–55](../../../crates/lctx-publisher/src/lib.rs). The final completed membership state has not changed between these consumers.
 
-An adjacent manifestation is bounded nominal-key membership probing across every selected contributor. `MembershipLookup` constructs candidate-key × owner membership IDs: [compiler.rs:2919–2972](../../../crates/lctx-surrealdb/src/compiler.rs). This protects exact view membership and avoids whole-prior-payload construction, but more contributors increase lookup work independently of matching payload count.
+An adjacent manifestation is bounded nominal-key membership probing across every selected contributor. `MembershipLookup` constructs candidate-key × owner membership IDs: [compiler.rs:2919–2972](https://github.com/paul-heyse/library-context/blob/70b8bf53bfd119d1cc1b69a79ad69ab370866440/crates/lctx-surrealdb/src/compiler.rs). This protects exact view membership and avoids whole-prior-payload construction, but more contributors increase lookup work independently of matching payload count.
 
 **Consequence.** Complete admission and publication need the complete universe, but they do not need to independently rediscover its immutable pointer union at every header/payload boundary. As records, aliases and contributions grow, preparation, crossings and sorting repeat without adding a different semantic check.
 
@@ -197,7 +199,7 @@ For selected nominal demand, compare the existing deterministic point reads with
 
 **Legitimate countercase.** Place companions and aliases can belong to the canonical exposure without appearing as direct members of the requested family’s original contribution. A reused inventory containing only direct nodes would silently omit valid identities. The closed inventory and its dependencies must include actual alias expansion. A header cache also cannot be treated as proof that stored bodies or physical edges remain correct.
 
-**Independent assurance retained.** [reconciliation.rs:30–161](../../../crates/lctx-surrealdb/src/reconciliation.rs) examines actual stored canonical/body/scope/edge state. It catches physical disagreement that an internally prepared pointer inventory does not. Cold imports must independently reconstruct and validate their captured membership and model contents.
+**Independent assurance retained.** [reconciliation.rs:30–161](https://github.com/paul-heyse/library-context/blob/70b8bf53bfd119d1cc1b69a79ad69ab370866440/crates/lctx-surrealdb/src/reconciliation.rs) examines actual stored canonical/body/scope/edge state. It catches physical disagreement that an internally prepared pointer inventory does not. Cold imports must independently reconstruct and validate their captured membership and model contents.
 
 **Closure evidence.** Show one preparation for a fixed completed state across lookup/admission/sealing, and correct invalidation after new completion. Challenge aliases, overlapping contributors, isolates, empty views, pending rows, same-key disagreement, changed membership and cold corruption. Preserve independent physical readback. Measure complete journeys only to claim runtime benefit.
 
@@ -215,7 +217,7 @@ For selected nominal demand, compare the existing deterministic point reads with
 
 **Principles:** FP-03, FP-07; DP-19, DP-20.
 
-`complete_contribution_inner` calls `wait_scans` before completing a contribution: [compiler.rs:1542–1549](../../../crates/lctx-surrealdb/src/compiler.rs). `wait_operations(true)` waits until the **entire attempt’s** scan count is zero: [compiler.rs:884–908](../../../crates/lctx-surrealdb/src/compiler.rs).
+`complete_contribution_inner` calls `wait_scans` before completing a contribution: [compiler.rs:1542–1549](https://github.com/paul-heyse/library-context/blob/70b8bf53bfd119d1cc1b69a79ad69ab370866440/crates/lctx-surrealdb/src/compiler.rs). `wait_operations(true)` waits until the **entire attempt’s** scan count is zero: [compiler.rs:884–908](https://github.com/paul-heyse/library-context/blob/70b8bf53bfd119d1cc1b69a79ad69ab370866440/crates/lctx-surrealdb/src/compiler.rs).
 
 The revealing scenario is an independent consumer retaining a stream of an already completed immutable view while another producer completes a distinct output contribution. Pending outputs cannot widen that old view. Yet the unrelated retained stream delays completion because the barrier has attempt scope.
 
@@ -343,7 +345,7 @@ The following questions identify investigations needed when selecting a remedy. 
 | Can browse reuse static preparation? | Serving classification/browse | Identify immutable versus request-dependent inputs; compare exact counts, classifications, ownership unknowns and retained-state burden. Trigger: repeated browse preparation becomes material |
 | Can data-only restore replace staging? | Publisher transport/admission | Map complete graph/original/state codecs into fresh admission; establish imported executable metadata never gains authority and cold corruption still rejects. Trigger: selecting transport replacement |
 | Is a graph-trait adapter required? | Projection and consuming algorithm | Check the selected algorithm’s exact trait bounds and identity/universe preservation. Trigger: a named consumer cannot use the current borrowed view |
-| Does batch lowering amplify live intermediates? | Native ingestion/resource owner | Examine simultaneous canonical Arrow, native bodies, decoded graph rows, node/member maps and alias values before loader windows: [compiler.rs:1088–1329](../../../crates/lctx-surrealdb/src/compiler.rs). Establish actual peak ownership/accounting and worthwhile windowing. Trigger: memory-shaped failure or lowering redesign |
+| Does batch lowering amplify live intermediates? | Native ingestion/resource owner | Examine simultaneous canonical Arrow, native bodies, decoded graph rows, node/member maps and alias values before loader windows: [compiler.rs:1088–1329](https://github.com/paul-heyse/library-context/blob/70b8bf53bfd119d1cc1b69a79ad69ab370866440/crates/lctx-surrealdb/src/compiler.rs). Establish actual peak ownership/accounting and worthwhile windowing. Trigger: memory-shaped failure or lowering redesign |
 
 Incoming batch bounds apply to the final question. Downstream loader windows alone do not establish the combined live-state bound; this review does not establish that intermediate collections are unbounded or uncharged.
 

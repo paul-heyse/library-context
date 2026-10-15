@@ -1,5 +1,7 @@
 # Compiled-product reuse contracts
 
+> Retired-source links pin the recorded committed baseline `85e8b9cb`; working-tree differences, where reported, retain their original evidence limits. Links marked as subsequent source use the first later committed version, not an exact capture of the reviewed working tree.
+
 **Review date:** 2026-10-09. **Purpose:** bounded independent change/target review of the
 GR0/GR2/GR5 contract checkpoint, followed by a bounded inspection of integrated compiler
 reuse. **Baseline:** `85e8b9cb` plus the concurrent, uncommitted implementation in the shared
@@ -55,7 +57,7 @@ evaluation path.
 Relevant source owners are [compilation_product.rs](../../../crates/lctx-model/src/domain/compilation_product.rs),
 [workspace_products.rs](../../../crates/cpg-core/src/workspace_products.rs),
 [workspace.rs](../../../crates/cpg-core/src/workspace.rs),
-[product_cache.rs](../../../crates/lctx-surrealdb/src/product_cache.rs), and
+[product_cache.rs](https://github.com/paul-heyse/library-context/blob/2a9a3771ac7a7041e0e0c42d4010ade24ddee426/crates/lctx-surrealdb/src/product_cache.rs "First subsequent committed source; not an exact capture of the reviewed working tree"), and
 [preparation.rs](../../../crates/lctx-serving/src/preparation.rs). The governing work is
 the [reuse plan](../../plans/graph-compilation-reuse-and-invalidation-plan_2026-10-09.md)
 and the [persisted-graph coordinator](../../plans/persisted-graph-execution-plan_2026-10-07.md).
@@ -436,14 +438,14 @@ path loads mandatory fresh topology rather than optional retention. No further o
 of this optional-capture defect was found in those bounded related consumers.
 
 Follow-up source anchors:
-[native generation/quota/acknowledgement](../../../crates/lctx-surrealdb/src/product_cache.rs),
+[native generation/quota/acknowledgement](https://github.com/paul-heyse/library-context/blob/2a9a3771ac7a7041e0e0c42d4010ade24ddee426/crates/lctx-surrealdb/src/product_cache.rs "First subsequent committed source; not an exact capture of the reviewed working tree"),
 [preparation load/close](../../../crates/lctx-serving/src/preparation.rs),
 [reuse eligibility](../../../crates/cpg-core/src/compilation.rs),
 [fresh Local](../../../crates/cpg-core/src/local_semantics.rs),
 [fresh behavioral execution](../../../crates/cpg-core/src/semantic_execution.rs),
 [prepared replay/canonical validation/capture](../../../crates/cpg-core/src/workspace_products.rs),
 [selected decoders](../../../crates/cpg-core/src/normalize/kernel_products.rs),
-[stream error conversion](../../../crates/lctx-surrealdb/src/compiler_provider.rs), and
+[stream error conversion](https://github.com/paul-heyse/library-context/blob/85e8b9cb9bf8a2941a2daea48f3ccaf258523879/crates/lctx-surrealdb/src/compiler_provider.rs), and
 [global relation content order](../../../crates/lctx-model/src/domain/model.rs).
 
 The following SHA-256 receipts identify the inspected dirty source exactly; they are

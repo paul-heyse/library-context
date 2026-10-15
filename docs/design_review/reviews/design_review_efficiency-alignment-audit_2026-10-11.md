@@ -1,5 +1,7 @@
 # Independent comparative audit: efficiency alignment
 
+> Retired-source links pin the recorded committed baseline `88f33bc0`; working-tree differences, where reported, retain their original evidence limits.
+
 **Decision: Revise.** The original review correctly identifies substantial avoidable work in
 library-context's physical realization. Its central FP-07/A4 judgment survives independent
 inspection. Several diagnoses need narrowing, and several proposed remedies need stronger
@@ -240,7 +242,7 @@ those contracts. Engine conflict frequency and performance remain unmeasured.
 ### F02 — Selective compiler requests broaden into membership and payload work
 
 **High · A4 · FP-07 · DP-10/14 · O-F21/O-F22.**
-[SupportedFilter::driver](../../../crates/lctx-surrealdb/src/compiler_provider.rs) (B:848–864)
+[SupportedFilter::driver](https://github.com/paul-heyse/library-context/blob/88f33bc0dd8bc67ef9291115c3a487b5f54bcb57/crates/lctx-surrealdb/src/compiler_provider.rs) (B:848–864)
 recognizes atomic fields, while real consumers issue mandatory `id IN` requests. The resulting
 path can read the complete membership run and hydrate payload addresses. Multi-owner explicit-key
 lookup additionally probes keys against retained history before filtering owners.
