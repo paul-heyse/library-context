@@ -26,11 +26,12 @@ use lctx_model::domain::{
     *,
 };
 use std::{any::TypeId, sync::Arc};
+use tracing::Instrument;
 type AdmittedSourceRoots = (
     std::collections::BTreeSet<Id<SourceArtifact>>,
     Box<dyn resources::Reservation>,
 );
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) enum Kernel {
     Expression,
     Use,
@@ -155,9 +156,23 @@ fn read_data<'a, R: Record>(
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         let permit = access.read_at::<R>(input.prefix())?;
-        stream_query_at(&permit, input, access, scope.session(), sql, |_, batch| {
-            data.visit(input, batch)
-        })
+        let span = tracing::info_span!(target:"lctx_phase", "base_selected_input",
+            relation=R::NAME, selector=?input.prefix(), view=?permit.source().view());
+        async {
+            let mut rows = 0usize;
+            lctx_native::phase::wait(
+                "base_selected_input_stream",
+                stream_query_at(&permit, input, access, scope.session(), sql, |_, batch| {
+                    data.visit(input, batch)?;
+                    rows = rows.saturating_add(batch.num_rows());
+                    Ok(())
+                }),
+            )
+            .await?;
+            tracing::info!(target:"lctx_phase", observation="base_selected_input_eof", rows);
+            Ok(())
+        }
+        .instrument(span)
         .await
     })
 }
@@ -615,7 +630,11 @@ impl BaseScopes {
                     .map(|table| table.alias.capacity())
                     .sum::<usize>(),
         )?;
-        let edges = plan.prepare(session, budget).await?;
+        let edges = lctx_native::phase::wait(
+            "base_nominal_closure_preparation",
+            plan.prepare(session, budget),
+        )
+        .await?;
         Ok(Self {
             inputs,
             tables,
@@ -771,6 +790,7 @@ impl BaseScopes {
             "SELECT r.id FROM {root} r {joins} {qualified} WHERE {filter}{qualified_filter}{kind} ORDER BY r.id"
         ))
     }
+    #[tracing::instrument(skip_all, target="lctx_phase", fields(?kernel, ?key))]
     pub(super) async fn scope(
         &self,
         kernel: Kernel,
@@ -785,13 +805,15 @@ impl BaseScopes {
             Kernel::FieldGlobal => self.field_global,
             _ => self.index(kernel.type_id())?,
         };
-        self.edges
-            .grain(
+        lctx_native::phase::wait(
+            "base_selected_grain",
+            self.edges.grain(
                 index,
                 &crate::scoped_admission::root_predicate(&[key]),
                 budget,
-            )
-            .await
+            ),
+        )
+        .await
     }
     pub(super) fn data<'a>(
         &'a self,
@@ -819,7 +841,11 @@ impl BaseScopes {
             for (table, input) in self.inputs.iter().enumerate() {
                 let sql = scope.select(table)?;
                 if opaque_literals && input.type_id() == TypeId::of::<value::Literal>() {
-                    read_opaque_literals(access, input, scope, &sql, &mut data, budget).await?;
+                    lctx_native::phase::wait(
+                        "base_selected_literal_hydration",
+                        read_opaque_literals(access, input, scope, &sql, &mut data, budget),
+                    )
+                    .await?;
                     continue;
                 }
                 // The first matching decoder wins, as in the prior loaded guard. Overlap

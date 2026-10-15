@@ -2120,20 +2120,22 @@ impl CompletedInputs {
     pub fn relations(&self) -> impl Iterator<Item = &Arc<CompletedRelation>> {
         self.relations.values().map(|binding| &binding.source)
     }
+    #[tracing::instrument(skip_all, target="lctx_phase", fields(producer=self.name, relation=source.name(), view=?source.view.identity))]
     async fn provider(
         &self,
         workspace: &Workspace,
         source: &CompletedRelation,
     ) -> Result<Arc<dyn datafusion::catalog::TableProvider>, ModelError> {
-        let provider = workspace
-            .native
-            .table_provider(
+        let provider = lctx_native::phase::wait(
+            "completed_input_provider",
+            workspace.native.table_provider(
                 &source.view,
                 source.relation.clone(),
                 workspace.budget.clone(),
                 workspace.options.batch_rows,
-            )
-            .await?;
+            ),
+        )
+        .await?;
         match &self.producing_scope {
             Some(scope) => lctx_compiler_store::compiler_provider::bind_producing(&provider, scope),
             None => Ok(provider),
@@ -2201,6 +2203,8 @@ impl CompletedInputs {
         let mut aliases = BTreeMap::new();
         for ((name, prefix), source) in self.ordered_bindings() {
             let table = Self::table(name, prefix);
+            tracing::info!(target: "lctx_phase", observation="completed_input_binding", producer=self.name,
+                relation=name, selector=?prefix, view=?source.view.identity, rows=source.rows());
             let provider = self.provider(workspace, source).await?;
             aliases.insert(table.clone(), provider.clone());
             context
@@ -2215,16 +2219,10 @@ impl CompletedInputs {
             .map(|(name, _)| *name)
             .collect::<std::collections::BTreeSet<_>>();
         for name in names {
-            let mut sources = self
-                .relations
-                .iter()
-                .filter(|((candidate, _), _)| *candidate == name)
-                .map(|(_, source)| source);
-            let source = sources.next().expect("declared input");
-            if sources.all(|other| {
-                other.resolved == source.resolved && other.view.identity == source.view.identity
-            }) {
-                let provider = self.provider(workspace, source).await?;
+            if let Some(key) = self.plain_binding(name) {
+                // This is the exact qualified binding already captured above, including its
+                // producing scope and operational guards. An alias needs no second acquisition.
+                let provider = aliases[&Self::table(key.0, key.1)].clone();
                 aliases.insert(name.to_owned(), provider.clone());
                 context
                     .register_table(name, provider)
@@ -2239,6 +2237,24 @@ impl CompletedInputs {
                 StateCharge::new(&self.budget, "completed-input-logical-templates"),
             )),
         })
+    }
+    fn plain_binding(
+        &self,
+        name: &'static str,
+    ) -> Option<(
+        &'static str,
+        Option<lctx_model::domain::stages::PublicationBoundary>,
+    )> {
+        let mut sources = self
+            .relations
+            .iter()
+            .filter(|((candidate, _), _)| *candidate == name);
+        let (key, source) = sources.next()?;
+        sources
+            .all(|(_, other)| {
+                other.resolved == source.resolved && other.view.identity == source.view.identity
+            })
+            .then_some(*key)
     }
     /// Read-only logical preparation is bound to these exact captured ports and operational
     /// read scope. Physical plans, streams and predicate state remain fresh per request.
@@ -4087,6 +4103,8 @@ mod tests {
     }
     #[tokio::test]
     async fn completed_inventory_preserves_roles_and_actual_epochs() {
+        use futures::FutureExt;
+        use lctx_model::domain::completion::{self, LocalState, RemoteState, StorageState};
         use lctx_model::domain::stages::PublicationBoundary;
         let workspace = Workspace::new(
             model(),
@@ -4094,126 +4112,208 @@ mod tests {
             crate::test_native::store(),
         )
         .unwrap();
-        let output = workspace.output(
-            "inventory-source",
-            Profile::Catalog,
-            ContentHash::of(b"inventory-source"),
-            workspace
-                .inputs("inventory-source", Profile::Catalog, [])
-                .unwrap(),
-            [Package::NAME],
-        );
-        output.declare_async::<Package>().await.unwrap();
-        output.finish(ProviderOutcome::Complete).await.unwrap();
-        let source = workspace.completed::<Package>().unwrap();
-        let facts = PublicationBoundary::Facts;
-        let normalized = PublicationBoundary::Dispatch;
-        let access = CompletedInputs {
-            attempt: workspace.files.clone(),
-            model: workspace.model.digest(),
-            program: ContentHash::of(b"inventory-consumer"),
-            budget: workspace.budget.clone(),
-            producing_scope: None,
-            prepared_session: Arc::new(tokio::sync::OnceCell::new()),
-            name: "inventory-consumer",
-            profile: Profile::Catalog,
-            relations: [
-                (
-                    (Package::NAME, Some(facts)),
-                    ResolvedInput {
-                        role: 1,
-                        requested: Some(facts),
-                        resolved: Some(facts),
-                        source: source.clone(),
-                    },
-                ),
-                (
-                    (Package::NAME, Some(normalized)),
-                    ResolvedInput {
-                        role: 0,
-                        requested: Some(normalized),
-                        resolved: Some(normalized),
-                        source,
-                    },
-                ),
-            ]
-            .into(),
-        };
-        let roles = access
-            .ordered_bindings()
-            .iter()
-            .map(|(_, binding)| binding.resolved)
-            .collect::<Vec<_>>();
-        assert_eq!(roles, vec![Some(normalized), Some(facts)]);
-        assert!(access.relation::<Package>().is_err());
-        assert!(
-            access
-                .table_for(&lctx_model::domain::ValidationInput::of::<Package>(&["id"]))
-                .is_err()
-        );
-        let session = access.session(&workspace).await.unwrap();
-        assert!(!session.table_exist(Package::NAME).unwrap());
-        assert!(
-            session
-                .table_exist(CompletedInputs::table(Package::NAME, Some(facts)))
-                .unwrap()
-        );
-        let left = access.predicate_session(&workspace).await.unwrap();
-        let right = access.predicate_session(&workspace).await.unwrap();
-        left.register_batch(
-            "cached_normalization_control",
-            Package::encode(&[Package {
-                name: "left".into(),
-            }])
-            .unwrap(),
-        )
-        .unwrap();
-        right
-            .register_batch(
+        let result = std::panic::AssertUnwindSafe(async {
+            let output = workspace.output(
+                "inventory-source",
+                Profile::Catalog,
+                ContentHash::of(b"inventory-source"),
+                workspace
+                    .inputs("inventory-source", Profile::Catalog, [])
+                    .unwrap(),
+                [Package::NAME],
+            );
+            output.declare_async::<Package>().await.unwrap();
+            output.finish(ProviderOutcome::Complete).await.unwrap();
+            let source = workspace.completed::<Package>().unwrap();
+            let facts = PublicationBoundary::Facts;
+            let normalized = PublicationBoundary::Dispatch;
+            let access = CompletedInputs {
+                attempt: workspace.files.clone(),
+                model: workspace.model.digest(),
+                program: ContentHash::of(b"inventory-consumer"),
+                budget: workspace.budget.clone(),
+                producing_scope: None,
+                prepared_session: Arc::new(tokio::sync::OnceCell::new()),
+                name: "inventory-consumer",
+                profile: Profile::Catalog,
+                relations: [
+                    (
+                        (Package::NAME, Some(facts)),
+                        ResolvedInput {
+                            role: 1,
+                            requested: Some(facts),
+                            resolved: Some(facts),
+                            source: source.clone(),
+                        },
+                    ),
+                    (
+                        (Package::NAME, Some(normalized)),
+                        ResolvedInput {
+                            role: 0,
+                            requested: Some(normalized),
+                            resolved: Some(normalized),
+                            source,
+                        },
+                    ),
+                ]
+                .into(),
+            };
+            let roles = access
+                .ordered_bindings()
+                .iter()
+                .map(|(_, binding)| binding.resolved)
+                .collect::<Vec<_>>();
+            assert_eq!(roles, vec![Some(normalized), Some(facts)]);
+            assert!(access.plain_binding(Package::NAME).is_none());
+            let mut compatible = access.clone();
+            compatible.prepared_session = Arc::new(tokio::sync::OnceCell::new());
+            for binding in compatible.relations.values_mut() {
+                binding.resolved = Some(normalized);
+            }
+            let selected = compatible.plain_binding(Package::NAME).unwrap();
+            let compatible_session = compatible.session(&workspace).await.unwrap();
+            let plain = compatible_session
+                .table_provider(Package::NAME)
+                .await
+                .unwrap();
+            let qualified = compatible_session
+                .table_provider(CompletedInputs::table(selected.0, selected.1))
+                .await
+                .unwrap();
+            assert!(
+                Arc::ptr_eq(&plain, &qualified),
+                "plain aliases borrow the selected captured provider"
+            );
+            let prepared = compatible.prepared_session.get().unwrap();
+            for ((name, prefix), _) in compatible.ordered_bindings() {
+                let provider = compatible_session
+                    .table_provider(CompletedInputs::table(name, prefix))
+                    .await
+                    .unwrap();
+                assert!(Arc::ptr_eq(
+                    &provider,
+                    &prepared.aliases[&CompletedInputs::table(name, prefix)]
+                ));
+            }
+            let mut distinct_view = compatible.clone();
+            let binding = distinct_view
+                .relations
+                .get_mut(&(Package::NAME, Some(facts)))
+                .unwrap();
+            Arc::make_mut(&mut binding.source).view.identity = ContentHash::of(b"distinct-view");
+            assert!(
+                distinct_view.plain_binding(Package::NAME).is_none(),
+                "matching epochs do not alias distinct views"
+            );
+            drop(distinct_view);
+            drop(compatible_session);
+            drop(compatible);
+            assert!(access.relation::<Package>().is_err());
+            assert!(
+                access
+                    .table_for(&lctx_model::domain::ValidationInput::of::<Package>(&["id"]))
+                    .is_err()
+            );
+            let session = access.session(&workspace).await.unwrap();
+            assert!(!session.table_exist(Package::NAME).unwrap());
+            assert!(
+                session
+                    .table_exist(CompletedInputs::table(Package::NAME, Some(facts)))
+                    .unwrap()
+            );
+            let left = access.predicate_session(&workspace).await.unwrap();
+            let right = access.predicate_session(&workspace).await.unwrap();
+            left.register_batch(
                 "cached_normalization_control",
                 Package::encode(&[Package {
-                    name: "right".into(),
+                    name: "left".into(),
                 }])
                 .unwrap(),
             )
             .unwrap();
-        let (left_rows, right_rows) = tokio::join!(
-            left.table("cached_normalization_control"),
-            right.table("cached_normalization_control")
-        );
-        let (left_rows, right_rows) =
-            tokio::join!(left_rows.unwrap().collect(), right_rows.unwrap().collect());
-        assert_eq!(
-            Package::decode(&left_rows.unwrap()[0]).unwrap()[0].name,
-            "left"
-        );
-        assert_eq!(
-            Package::decode(&right_rows.unwrap()[0]).unwrap()[0].name,
-            "right"
-        );
-        drop(left);
-        drop(right);
-        assert!(
-            !session.table_exist("cached_normalization_control").unwrap(),
-            "candidate arrays never enter the retained input catalog"
-        );
-        let output = workspace.output(
-            "inventory-consumer",
-            Profile::Catalog,
-            ContentHash::of(b"consumer"),
-            access,
-            [Package::NAME],
-        );
-        let request = output.product_request().unwrap();
-        assert_eq!(request.dependencies[0].role, "input/0");
-        assert_eq!(
-            request.dependencies[0].prefix.as_deref(),
-            Some(normalized.name())
-        );
-        assert_eq!(
-            request.dependencies[1].prefix.as_deref(),
-            Some(facts.name())
-        );
+            right
+                .register_batch(
+                    "cached_normalization_control",
+                    Package::encode(&[Package {
+                        name: "right".into(),
+                    }])
+                    .unwrap(),
+                )
+                .unwrap();
+            let (left_rows, right_rows) = tokio::join!(
+                left.table("cached_normalization_control"),
+                right.table("cached_normalization_control")
+            );
+            let (left_rows, right_rows) =
+                tokio::join!(left_rows.unwrap().collect(), right_rows.unwrap().collect());
+            assert_eq!(
+                Package::decode(&left_rows.unwrap()[0]).unwrap()[0].name,
+                "left"
+            );
+            assert_eq!(
+                Package::decode(&right_rows.unwrap()[0]).unwrap()[0].name,
+                "right"
+            );
+            drop(left);
+            drop(right);
+            assert!(
+                !session.table_exist("cached_normalization_control").unwrap(),
+                "candidate arrays never enter the retained input catalog"
+            );
+            let output = workspace.output(
+                "inventory-consumer",
+                Profile::Catalog,
+                ContentHash::of(b"consumer"),
+                access,
+                [Package::NAME],
+            );
+            let request = output.product_request().unwrap();
+            assert_eq!(request.dependencies[0].role, "input/0");
+            assert_eq!(
+                request.dependencies[0].prefix.as_deref(),
+                Some(normalized.name())
+            );
+            assert_eq!(
+                request.dependencies[1].prefix.as_deref(),
+                Some(facts.name())
+            );
+        })
+        .catch_unwind()
+        .await;
+        // The assertion scope drops all providers and candidate catalogs before joining the
+        // workspace. Confirm native abandonment before settling its enclosing fixture signal.
+        let mut finality = workspace.drain_owned_report().await;
+        if finality.local == LocalState::Terminal
+            && finality.remote == RemoteState::Confirmed
+            && finality
+                .failures
+                .iter()
+                .all(|failure| failure.error.permits_storage_cleanup())
+        {
+            finality.merge(workspace.native.abandon_finality_report().await);
+        } else {
+            finality.storage.push(StorageState::Orphan(format!(
+                "native_attempt:{}",
+                workspace.native.attempt().hex()
+            )));
+        }
+        let signal = workspace.complete_signal(&finality).await;
+        finality.step("completed inventory workspace signal", signal);
+        let mut diagnostics = completion::Completion::default();
+        workspace.append_operation_failures(&mut diagnostics);
+        if let Err(panic) = result {
+            if let Err(error) = completion::complete::<()>(Ok(()), finality) {
+                eprintln!("completed inventory finalization after assertion panic: {error:#?}");
+            }
+            if !diagnostics.failures.is_empty() {
+                eprintln!(
+                    "completed inventory operation diagnostics after assertion panic: {diagnostics:#?}"
+                );
+            }
+            std::panic::resume_unwind(panic);
+        }
+        completion::complete::<()>(Ok(()), finality).unwrap();
+        completion::complete::<()>(Ok(()), diagnostics).unwrap();
     }
     #[tokio::test]
     async fn writer_close_preparation_is_lazy_and_refusal_releases_pending_charge() {

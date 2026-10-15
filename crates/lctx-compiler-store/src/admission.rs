@@ -2833,32 +2833,35 @@ impl ValidationInputs {
             .map(|(name, _)| *name)
             .collect::<BTreeSet<_>>();
         for name in names {
-            let mut sources = self
-                .relations
-                .iter()
-                .filter(|((n, _), _)| *n == name)
-                .map(|(_, s)| s);
-            let source = sources.next().expect("declared input");
-            if sources.all(|other| {
-                other.resolved == source.resolved && other.view.identity == source.view.identity
-            }) {
+            if let Some((name, prefix)) = self.plain_binding(name) {
+                // The qualified registration already owns this exact native capability.
+                // Plain naming must neither reacquire it nor replace any original source.
+                let provider = session
+                    .context
+                    .table_provider(Self::table(name, prefix))
+                    .await
+                    .map_err(ModelError::codec)?;
                 session
-                    .register_table(
-                        name,
-                        runtime
-                            .native
-                            .table_provider(
-                                &source.view,
-                                source.relation.clone(),
-                                runtime.budget.clone(),
-                                runtime.options.batch_rows,
-                            )
-                            .await?,
-                    )
+                    .register_table(name, provider)
                     .map_err(ModelError::codec)?;
             }
         }
         Ok(session)
+    }
+    fn plain_binding(
+        &self,
+        name: &'static str,
+    ) -> Option<(&'static str, Option<PublicationBoundary>)> {
+        let mut sources = self
+            .relations
+            .iter()
+            .filter(|((candidate, _), _)| *candidate == name);
+        let (key, source) = sources.next()?;
+        sources
+            .all(|(_, other)| {
+                other.resolved == source.resolved && other.view.identity == source.view.identity
+            })
+            .then_some(*key)
     }
     fn validation_source(
         &self,
@@ -3286,6 +3289,24 @@ mod reference_empty_controls {
             1,
             "one exact view supplies one target table"
         );
+        assert_eq!(
+            inputs.plain_binding(Package::NAME),
+            Some((Package::NAME, None))
+        );
+        inputs
+            .relations
+            .get_mut(&(Package::NAME, Some(PublicationBoundary::Facts)))
+            .unwrap()
+            .resolved = Some(PublicationBoundary::Facts);
+        assert!(
+            inputs.plain_binding(Package::NAME).is_none(),
+            "distinct resolved epochs remain ambiguous"
+        );
+        inputs
+            .relations
+            .get_mut(&(Package::NAME, Some(PublicationBoundary::Facts)))
+            .unwrap()
+            .resolved = None;
         let mut distinct = selected(&runtime, vec![later]);
         inputs.relations.insert(
             (Package::NAME, Some(PublicationBoundary::CatalogCore)),
@@ -3295,6 +3316,10 @@ mod reference_empty_controls {
             inputs.reference_targets().unwrap().len(),
             2,
             "different epochs retain independent target branches"
+        );
+        assert!(
+            inputs.plain_binding(Package::NAME).is_none(),
+            "equal resolved epochs cannot alias distinct views"
         );
         let mut collision = source;
         let mut view = collision.view.clone();
@@ -3617,6 +3642,12 @@ mod reference_empty_controls {
             let inputs = selected(&runtime, views.into_values().collect());
             let session = inputs.session(&runtime).await.unwrap();
             assert_eq!(session.native_sources.len(), 2);
+            for name in [Package::NAME, Release::NAME] {
+                let (name, prefix) = inputs.plain_binding(name).unwrap();
+                let qualified = session.table_provider(ValidationInputs::table(name, prefix)).await.unwrap();
+                let plain = session.table_provider(name).await.unwrap();
+                assert!(Arc::ptr_eq(&plain, &qualified), "plain admission alias reuses its exact captured provider");
+            }
             runtime
                 .validate_references(&session, &[], &inputs, Some(&session))
                 .await

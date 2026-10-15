@@ -866,6 +866,7 @@ impl Preparation {
         .await?;
         Ok(())
     }
+    #[tracing::instrument(skip_all, target="lctx_phase", fields(root=?id))]
     async fn finish_root(
         &self,
         access: &CompletedInputs,
@@ -913,25 +914,38 @@ impl Preparation {
         let request = crate::retrieval_products::request(&data, output, domain, runtime)?;
         let hit = match &request {
             Some((request, _)) => {
-                crate::retrieval_products::lookup(request, &data, runtime).await?
+                let phase = lctx_native::phase::Phase::begin("retrieval_root_cache_lookup");
+                let result = crate::retrieval_products::lookup(request, &data, runtime).await;
+                phase.finish_result(&result);
+                result?
             }
             None => None,
         };
         drop(request);
         let reused = hit.is_some();
-        let rows = match hit {
-            Some(rows) => rows,
-            None => build::root(&data, id, budget)?,
-        };
-        rows.verify_completion(&data, budget)?;
+        let phase = lctx_native::phase::Phase::begin("retrieval_root_render_verify");
+        let rendered = (|| {
+            let rows = match hit {
+                Some(rows) => rows,
+                None => build::root(&data, id, budget)?,
+            };
+            rows.verify_completion(&data, budget)?;
+            Ok::<_, ModelError>(rows)
+        })();
+        phase.finish_result(&rendered);
+        let rows = rendered?;
         if !reused
             && let Some((request, _hold)) =
                 crate::retrieval_products::request(&data, output, domain, runtime)?
         {
-            crate::retrieval_products::retain(&request, &rows, runtime).await?;
+            let phase = lctx_native::phase::Phase::begin("retrieval_root_optional_retention");
+            let result = crate::retrieval_products::retain(&request, &rows, runtime).await;
+            phase.finish_result(&result);
+            result?;
         }
         Ok((data, rows))
     }
+    #[tracing::instrument(skip_all, target="lctx_phase", fields(brief=?id))]
     async fn finish_brief(
         &self,
         id: Id<synthesis::briefs::Brief>,
@@ -949,26 +963,38 @@ impl Preparation {
         let request = crate::retrieval_products::request(&data, output, domain, runtime)?;
         let hit = match &request {
             Some((request, _)) => {
-                crate::retrieval_products::lookup(request, &data, runtime).await?
+                let phase = lctx_native::phase::Phase::begin("retrieval_brief_cache_lookup");
+                let result = crate::retrieval_products::lookup(request, &data, runtime).await;
+                phase.finish_result(&result);
+                result?
             }
             None => None,
         };
         drop(request);
         let reused = hit.is_some();
-        let rows = match hit {
-            Some(rows) => rows,
-            None => {
-                let mut rows = Output::new(budget);
-                build::extend_synthesis(&data, &mut rows, budget)?;
-                rows
-            }
-        };
-        rows.verify_completion(&data, budget)?;
+        let phase = lctx_native::phase::Phase::begin("retrieval_brief_render_verify");
+        let rendered = (|| {
+            let rows = match hit {
+                Some(rows) => rows,
+                None => {
+                    let mut rows = Output::new(budget);
+                    build::extend_synthesis(&data, &mut rows, budget)?;
+                    rows
+                }
+            };
+            rows.verify_completion(&data, budget)?;
+            Ok::<_, ModelError>(rows)
+        })();
+        phase.finish_result(&rendered);
+        let rows = rendered?;
         if !reused
             && let Some((request, _hold)) =
                 crate::retrieval_products::request(&data, output, domain, runtime)?
         {
-            crate::retrieval_products::retain(&request, &rows, runtime).await?;
+            let phase = lctx_native::phase::Phase::begin("retrieval_brief_optional_retention");
+            let result = crate::retrieval_products::retain(&request, &rows, runtime).await;
+            phase.finish_result(&result);
+            result?;
         }
         Ok((data, rows))
     }

@@ -18,6 +18,7 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+use tracing::Instrument;
 async fn load<R: Record>(
     access: &CompletedInputs,
     session: &SessionContext,
@@ -333,7 +334,7 @@ pub async fn produce(
                         .render_window(&access, &keys, brief, b, &runtime.cancellation())
                         .await?;
                     let mut pending = PendingUses::new(b);
-                    for partition in 0..keys.len() {
+                    for (partition, root) in keys.iter().enumerate() {
                         let rendered = window
                             .render(
                                 &access,
@@ -417,7 +418,12 @@ pub async fn produce(
                                     .await?;
                             }
                         }
-                        retrieval_preparation::publish_mandatory(&mut output, &mandatory).await?;
+                        async {
+                            let phase = lctx_native::phase::Phase::begin("retrieval_required_publication");
+                            let result = retrieval_preparation::publish_mandatory(&mut output, &mandatory).await;
+                            phase.finish_result(&result);
+                            result
+                        }.instrument(tracing::info_span!(target:"lctx_phase", "retrieval_publication", brief, ?root)).await?;
                         drop(mandatory);
                         drop(render);
                     }

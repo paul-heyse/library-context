@@ -19,6 +19,7 @@ use lctx_model::domain::{
     *,
 };
 use std::sync::Arc;
+use tracing::Instrument;
 #[path = "base_scope.rs"]
 mod base_scope;
 #[path = "execution_counts.rs"]
@@ -42,15 +43,41 @@ fn load<'a, R: Record>(
 ) -> BoxFuture<'a, Result<(), ModelError>> {
     Box::pin(async move {
         while let Some((input, permit)) = consumed.next::<R>(access)? {
-            if crate::consumed_rows::stream_artifact_admission(access, &input, session, admission)
+            let span = tracing::info_span!(target: "lctx_phase", "semantic_input",
+                producer=access.name(), relation=R::NAME, selector=?input.prefix(),
+                view=?permit.source().view(), declared_rows=permit.source().rows());
+            async {
+                if lctx_native::phase::wait(
+                    "semantic_artifact_admission",
+                    crate::consumed_rows::stream_artifact_admission(
+                        access, &input, session, admission,
+                    ),
+                )
                 .await?
-            {
-                continue;
+                {
+                    return Ok(());
+                }
+                let mut rows = 0usize;
+                lctx_native::phase::wait(
+                    "semantic_input_stream",
+                    crate::consumed_rows::stream_at(
+                        &permit,
+                        &input,
+                        access,
+                        session,
+                        |permit, batch| {
+                            admission.visit_if_expected(permit, batch)?;
+                            visit(&input, permit, batch)?;
+                            rows = rows.saturating_add(batch.num_rows());
+                            Ok(())
+                        },
+                    ),
+                )
+                .await?;
+                tracing::info!(target: "lctx_phase", observation="semantic_input_eof", rows);
+                Ok::<(), ModelError>(())
             }
-            crate::consumed_rows::stream_at(&permit, &input, access, session, |permit, batch| {
-                admission.visit_if_expected(permit, batch)?;
-                visit(&input, permit, batch)
-            })
+            .instrument(span)
             .await?;
         }
         Ok(())
@@ -168,8 +195,12 @@ pub async fn evaluate_base(
     let profile = access.profile();
     let budget = runtime.budget();
     let sources = CapturedSources::capture(access.profile(), access.snapshots(), budget)?;
-    let mut admission = runtime.coverage_admission(&sources).await?;
-    let session = access.session(runtime).await?;
+    let mut admission = lctx_native::phase::wait(
+        "base_coverage_admission",
+        runtime.coverage_admission(&sources),
+    )
+    .await?;
+    let session = lctx_native::phase::wait("base_input_session", access.session(runtime)).await?;
     let data = EvaluationData::new(budget);
     let entry = EntryData::new(budget);
     let mut declarations = Vec::new();
@@ -258,7 +289,13 @@ pub async fn evaluate_base(
     .await?;
     consumed.finish(access.name())?;
     let scopes = if profile == Profile::Behavioral {
-        Some(base_scope::BaseScopes::prepare(&access, &session, model, budget).await?)
+        Some(
+            lctx_native::phase::wait(
+                "base_scope_preparation",
+                base_scope::BaseScopes::prepare(&access, &session, model, budget),
+            )
+            .await?,
+        )
     } else {
         None
     };
@@ -376,17 +413,28 @@ pub async fn evaluate_base(
             use futures::TryStreamExt;
             let actual =
                 actual_local.ok_or(ModelError::Conflict("actual Local entry owner absent"))?;
-            let (mut reads, metadata) = scopes.metadata(&session, &invocation, budget).await?;
-            let mut roots = crate::sql::query(
-                &session,
-                &scopes.roots(&invocation, base_scope::Kernel::Expression)?,
+            let (mut reads, metadata) = lctx_native::phase::wait(
+                "base_metadata_preparation",
+                scopes.metadata(&session, &invocation, budget),
             )
-            .await
-            .map_err(ModelError::codec)?
-            .execute_stream()
-            .await
-            .map_err(ModelError::codec)?;
-            while let Some(batch) = roots.try_next().await.map_err(ModelError::codec)? {
+            .await?;
+            let mut roots = lctx_native::phase::wait("base_expression_roots", async {
+                crate::sql::query(
+                    &session,
+                    &scopes.roots(&invocation, base_scope::Kernel::Expression)?,
+                )
+                .await
+                .map_err(ModelError::codec)?
+                .execute_stream()
+                .await
+                .map_err(ModelError::codec)
+            })
+            .await?;
+            while let Some(batch) =
+                lctx_native::phase::wait("base_expression_root_batch", roots.try_next())
+                    .await
+                    .map_err(ModelError::codec)?
+            {
                 let _transfer = budget.reserve(
                     "Base-expression-root-transfer",
                     batch.get_array_memory_size(),

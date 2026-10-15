@@ -4,6 +4,7 @@ use datafusion::prelude::SessionContext;
 use futures::TryStreamExt;
 use lctx_model::domain::{charged, resources::ResourceBudget, *};
 use std::collections::{BTreeMap, BTreeSet};
+use tracing::Instrument;
 
 pub fn identifier(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
@@ -325,6 +326,7 @@ impl NominalClosure {
     }
     /// Project nominal edges once for an immutable dependency set into an external ordered IPC
     /// stream. All subsequent grains reuse these compact edges without rescanning rich inputs.
+    #[tracing::instrument(skip_all, target="lctx_phase", fields(tables=self.tables.len(), pairs=self.pairs.len()))]
     pub async fn prepare(
         &self,
         session: &SessionContext,
@@ -441,10 +443,12 @@ impl NominalClosure {
         let mut providers = Vec::with_capacity(self.tables.len());
         for table in &self.tables {
             providers.push(
-                session
-                    .table_provider(table.alias.as_str())
-                    .await
-                    .map_err(ModelError::codec)?,
+                lctx_native::phase::wait(
+                    "nominal_closure_provider",
+                    session.table_provider(table.alias.as_str()),
+                )
+                .await
+                .map_err(ModelError::codec)?,
             );
         }
         let mut native_edges = Vec::with_capacity(self.native.len());
@@ -459,27 +463,51 @@ impl NominalClosure {
             }
             // Only detached finite sources and owner-authored contextual pair queries need
             // a compact bulk adjacency universe. Native declared references use the frontier.
-            let frame = crate::sql::query(&session, &Self::pair_sql(*source, *target, sql))
+            let span = tracing::info_span!(target:"lctx_phase", "nominal_closure_pair",
+                source=self.tables[*source].alias, target=self.tables[*target].alias,
+                source_kind=source, target_kind=target, query_kind="contextual_pair");
+            async {
+                let frame = lctx_native::phase::wait(
+                    "nominal_closure_pair_plan",
+                    crate::sql::query(&session, &Self::pair_sql(*source, *target, sql)),
+                )
                 .await
                 .map_err(crate::sql::model_error)?;
-            let mut stream = frame
-                .execute_stream()
-                .await
-                .map_err(crate::sql::model_error)?;
-            while let Some(batch) = stream.try_next().await.map_err(crate::sql::model_error)? {
-                let _transfer = budget.reserve(
-                    "semantic-edge-transfer",
-                    logical_batch_bytes(&batch)?
-                        .saturating_mul(3)
-                        .saturating_add(4096),
-                )?;
-                validate_edge_batch(&batch)?;
-                buffer.push(&batch, |edge_batch| {
-                    staging_charge.grow(128)?;
-                    write_edge_ordering(&edge_batch, &codec, &ordering_schema, &mut staged, budget)
-                })?;
-                tokio::task::yield_now().await;
+                let mut stream =
+                    lctx_native::phase::wait("nominal_closure_pair_start", frame.execute_stream())
+                        .await
+                        .map_err(crate::sql::model_error)?;
+                let mut rows = 0usize;
+                while let Some(batch) =
+                    lctx_native::phase::wait("nominal_closure_pair_batch", stream.try_next())
+                        .await
+                        .map_err(crate::sql::model_error)?
+                {
+                    let _transfer = budget.reserve(
+                        "semantic-edge-transfer",
+                        logical_batch_bytes(&batch)?
+                            .saturating_mul(3)
+                            .saturating_add(4096),
+                    )?;
+                    validate_edge_batch(&batch)?;
+                    buffer.push(&batch, |edge_batch| {
+                        staging_charge.grow(128)?;
+                        write_edge_ordering(
+                            &edge_batch,
+                            &codec,
+                            &ordering_schema,
+                            &mut staged,
+                            budget,
+                        )
+                    })?;
+                    rows = rows.saturating_add(batch.num_rows());
+                    tokio::task::yield_now().await;
+                }
+                tracing::info!(target:"lctx_phase", observation="nominal_closure_pair_eof", rows);
+                Ok::<(), ModelError>(())
             }
+            .instrument(span)
+            .await?;
         }
         if let Some(batch) = buffer.finish()? {
             staging_charge.grow(128)?;
@@ -496,16 +524,20 @@ impl NominalClosure {
             .map_err(crate::sql::model_error)?
             .sort(vec![col("edge_order").sort(true, false)])
             .map_err(crate::sql::model_error)?;
-        let mut stream = frame
-            .execute_stream()
-            .await
-            .map_err(crate::sql::model_error)?;
+        let mut stream =
+            lctx_native::phase::wait("nominal_closure_sort_start", frame.execute_stream())
+                .await
+                .map_err(crate::sql::model_error)?;
         let mut batches = charged::ChargedVec::default();
         let mut index_charge = charged::StateCharge::new(budget, "semantic-edge-batch-index");
         let mut writer =
             FileWriter::try_new(File::create(&path).map_err(ModelError::codec)?, &schema)
                 .map_err(ModelError::codec)?;
-        while let Some(encoded) = stream.try_next().await.map_err(crate::sql::model_error)? {
+        while let Some(encoded) =
+            lctx_native::phase::wait("nominal_closure_sort_batch", stream.try_next())
+                .await
+                .map_err(crate::sql::model_error)?
+        {
             // The query stream owns its encoded input. Charge typed decoding, its row-slice
             // vector and the outgoing copy before reconstructing this one compute batch.
             let _transfer = budget.reserve(
