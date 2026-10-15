@@ -369,12 +369,21 @@ the opaque still-owned physical completion may share its charged inventory only 
 client/pool and fresh original-parent bytes/incarnation/frozen-owner plus admission checks. Data-only,
 foreign and cold factories independently earn fresh inventory. No serialized identity supplies reuse
 authority. The Catalog coordinator owns remaining native controls and generated composition.
+**Implemented / bounded native controls Tested,2026-10-15:** compound inspection reuses one captured
+installation context within its live phase, with local source/client/pool/pin checks and actual final
+generation/epoch/parent CAS. Ordinary operation currency checks remain independent. Contributor input
+incidence follows each exact physical copy/incarnation once per successful phase; every logical-view
+mapping and empty dependency still earns its own required correspondence. Identical immutable handles
+avoid deep equality, while distinct handles retain full descriptor comparison. Root traversal, complete
+inventory/hold EOF and independently earned receiving ownership remain unchanged. The Catalog
+coordinator owns precise acceptance limits; these controls establish no numerical speed claim.
 **Open equivalence boundary,2026-10-13:** equal v4 content does not bind contributor-local alias
-incidence. Cold alias transport currently refuses; unchanged publication/convergence and retained
-attachment still require an independently checked eligibility comparison or bound physical identity
-before substituting another selection. Their current disposition and concrete carrier/receipt callers
-are owned by the Catalog coordinator and consumer companion; an exact winning boundary alone does
-not establish equivalence to an incoming one.
+incidence. Unchanged publication/convergence and retained attachment require an independently checked
+eligibility comparison or bound physical identity before substituting another selection. Current
+bounded native controls preserve root-qualified empty copies and permuted alias chains with local
+absence; they do not establish all winner-substitution or cold publication obligations. The Catalog
+coordinator and consumer companion own their current disposition and concrete carrier/receipt callers;
+an exact winning boundary alone does not establish equivalence to an incoming one.
 Exact typed declared-view lowering avoids a second native read; cold reconstruction remains
 independent. Cache payloads and conservative sparse-tree metadata remain admitted until drop.
 Installed-view construction

@@ -66,6 +66,15 @@ graph records and complete retained native state; its authored hashes or publica
 Cold reconciliation compares full canonical/body/key/content agreement for graph and fixed non-graph
 backing, and verifies original bytes independently. Ordinary compilation carries exact unchanged validity.
 
+**Implemented source / focused native controls Tested,2026-10-15:** private reference validation
+observes every original captured native source at entry and terminal completion. Local use retains
+exact capability/client/pool/pin/reader, producing admission and cancellation checks; ordinary currency
+checks remain unchanged. All required SQL reaches EOF before newly proved references enter the shared
+memo in one precharged merge. Failed observations, ownership, cleanup or reservation publish no new
+prefix. This call-local reuse grants no portable or cross-owner authority. The
+[Catalog completion coordinator](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+owns actual composed acceptance and its remaining limits.
+
 **Native publication** (Implemented, 2026-10-06) derives schema and indexes from
 the model and enforces the artifact's contract before readiness or selection. No PostgreSQL path,
 old-format reader or independent rule registry remains.

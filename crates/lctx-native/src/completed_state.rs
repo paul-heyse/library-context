@@ -15,6 +15,16 @@ use surrealdb::types::{Object, RecordId, SurrealValue, Value};
 pub use uniform::PublishedUniformOwners;
 
 pub const VERSION: u32 = 2;
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct FinalParentObservationBarrier {
+    pub(crate) observed: std::sync::Arc<tokio::sync::Barrier>,
+    pub(crate) resume: std::sync::Arc<tokio::sync::Barrier>,
+}
+#[cfg(test)]
+tokio::task_local! {
+    pub(crate) static FINAL_PARENT_OBSERVATION_BARRIER: FinalParentObservationBarrier;
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RealizationInventory {
@@ -1459,6 +1469,11 @@ pub(crate) async fn hold_physical_state_for_attempt(
             ))?;
         if expected.incarnation() != held.incarnation() {
             return Err(ModelError::Conflict("frozen lifecycle completion ABA"));
+        }
+        #[cfg(test)]
+        if let Ok(barrier) = FINAL_PARENT_OBSERVATION_BARRIER.try_with(Clone::clone) {
+            barrier.observed.wait().await;
+            barrier.resume.wait().await;
         }
         let repeated =
             crate::control::hold_frozen_physical_expected(&client, &data, expected, budget).await?;

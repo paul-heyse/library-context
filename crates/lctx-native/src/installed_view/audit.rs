@@ -141,6 +141,8 @@ pub struct InstallationAudit {
     contribution_observations: std::sync::Arc<std::sync::atomic::AtomicU64>,
     logical_contribution_observations: std::sync::Arc<std::sync::atomic::AtomicU64>,
     alias_observations: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    #[cfg(test)]
+    context_observations: std::sync::Arc<std::sync::atomic::AtomicU64>,
     closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
     context: (ContentHash, i64),
     work: std::sync::Arc<WorkOwner>,
@@ -236,6 +238,8 @@ impl InstallationAudit {
                 std::sync::atomic::AtomicU64::new(0),
             ),
             alias_observations: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            #[cfg(test)]
+            context_observations: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             closed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             work: std::sync::Arc::new(WorkOwner {
                 flights: std::sync::Mutex::new(BTreeMap::new()),
@@ -317,6 +321,9 @@ impl InstallationAudit {
     ) -> Result<(), ModelError> {
         self.check(reader, budget)?;
         let _charge = budget.reserve("installation audit context check", 4096)?;
+        #[cfg(test)]
+        self.context_observations
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let rows: Vec<surrealdb::types::Object> = reader
             .query_native(
                 "SELECT generation,validity_epoch FROM native_installation:current",
@@ -922,9 +929,13 @@ pub(crate) struct ClosureInspectionScope {
     descriptors: BTreeMap<ContentHash, std::sync::Arc<ContributionDescriptor>>,
     views: BTreeMap<ContentHash, std::sync::Arc<ObservedView>>,
     holds: std::collections::BTreeSet<(RecordId, RecordId)>,
+    // Input incidences belong to the exact physical copy, not each view which
+    // selects it. Every copy still earns its own protected endpoints and holds.
+    prepared_dependencies: std::collections::BTreeSet<(ContentHash, i64)>,
     protected: std::collections::BTreeSet<RecordId>,
     operation: bool,
     source: bool,
+    boundary: bool,
     context_checked: bool,
     charge: StateCharge,
 }
@@ -946,9 +957,11 @@ impl ClosureInspectionScope {
             descriptors: BTreeMap::new(),
             views: BTreeMap::new(),
             holds: std::collections::BTreeSet::new(),
+            prepared_dependencies: std::collections::BTreeSet::new(),
             protected: std::collections::BTreeSet::new(),
             operation: false,
             source: false,
+            boundary: false,
             context_checked: false,
             charge: StateCharge::new(budget, "boundary exact observation shared handles"),
         })
@@ -960,6 +973,21 @@ impl ClosureInspectionScope {
         let mut scope = Self::new(audit, budget)?;
         scope.operation = true;
         Ok(scope)
+    }
+    /// A compound receiving phase fences the captured context in its final native
+    /// effect. Its selector iterations borrow one observation, without changing
+    /// ordinary operation scopes or their independent current-context checks.
+    pub(crate) fn for_boundary(mut self) -> Self {
+        self.boundary = true;
+        self
+    }
+    pub(crate) fn check_receiving_source(
+        &self,
+        reader: &NativeReader<()>,
+        audit: &InstallationAudit,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        self.check_local(reader, audit, budget)
     }
     fn check_local(
         &self,
@@ -989,11 +1017,12 @@ impl ClosureInspectionScope {
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         self.check_local(reader, audit, budget)?;
-        // A fresh phase retains exact-CAS-pinned endpoints. Its boundary final CAS
-        // or terminal-acquisition check independently fences full installation
-        // context; reborrowing these phase-local premises needs no new read.
-        if self.operation || !self.context_checked {
+        // A receiving phase retains exact-CAS-pinned endpoints, and its final
+        // completion/acquisition effect independently fences captured context.
+        // Ordinary operation scopes still reobserve context on every check.
+        if (self.operation && !self.boundary) || !self.context_checked {
             audit.ensure_context(reader, budget).await?;
+            self.check_local(reader, audit, budget)?;
             self.context_checked = true;
         }
         Ok(())
@@ -1086,13 +1115,21 @@ impl ClosureInspectionScope {
         }
         self.observe_fresh_requests(reader, requests, audit, budget)
             .await?;
+        let mut dependency_owners = std::collections::BTreeSet::new();
+        for mapping in mappings.clone() {
+            let owner = (mapping.physical, mapping.incarnation);
+            if !self.prepared_dependencies.contains(&owner) && !dependency_owners.contains(&owner) {
+                request_charge.grow(std::mem::size_of::<(ContentHash, i64)>() + 32)?;
+                dependency_owners.insert(owner);
+            }
+        }
         let mut requests = BTreeMap::new();
         // Declared inputs include empty dependency views with no mapping entries.
         let identities = views
             .map(|(root, _)| root.identity)
             .chain(mappings.clone().map(|mapping| mapping.view))
-            .chain(mappings.clone().flat_map(|mapping| {
-                self.observations[&mapping.physical]
+            .chain(dependency_owners.iter().flat_map(|(physical, _)| {
+                self.observations[physical]
                     .descriptor
                     .data
                     .spec
@@ -1119,30 +1156,28 @@ impl ClosureInspectionScope {
         let mut pairs = std::collections::BTreeSet::new();
         let mut pair_charge =
             StateCharge::new(budget, "fresh boundary exact incidence request identities");
-        for mapping in mappings {
+        let view_pairs = mappings.map(|mapping| {
             let owner = RecordId::new("compiler_view", mapping.view.hex());
             let physical = RecordId::new("compiler_contribution", mapping.physical.hex());
-            let inputs = &self.observations[&mapping.physical]
-                .descriptor
-                .data
-                .spec
-                .inputs;
-            for pair in
-                std::iter::once((owner, physical.clone())).chain(inputs.iter().map(|input| {
-                    (
-                        physical.clone(),
-                        RecordId::new("compiler_view", input.view().hex()),
-                    )
-                }))
-            {
-                if !self.holds.contains(&pair) && !pairs.contains(&pair) {
-                    pair_charge.grow(
-                        crate::selection::node_bytes(&pair.0)
-                            .saturating_add(crate::selection::node_bytes(&pair.1))
-                            .saturating_add(256),
-                    )?;
-                    pairs.insert(pair);
-                }
+            (owner, physical)
+        });
+        let input_pairs = dependency_owners.iter().flat_map(|(physical, _)| {
+            let inputs = &self.observations[physical].descriptor.data.spec.inputs;
+            inputs.iter().map(move |input| {
+                (
+                    RecordId::new("compiler_contribution", physical.hex()),
+                    RecordId::new("compiler_view", input.view().hex()),
+                )
+            })
+        });
+        for pair in view_pairs.chain(input_pairs) {
+            if !self.holds.contains(&pair) && !pairs.contains(&pair) {
+                pair_charge.grow(
+                    crate::selection::node_bytes(&pair.0)
+                        .saturating_add(crate::selection::node_bytes(&pair.1))
+                        .saturating_add(256),
+                )?;
+                pairs.insert(pair);
             }
         }
         pair_charge.grow(
@@ -1196,7 +1231,15 @@ impl ClosureInspectionScope {
             offset += count;
             width = crate::loader::NATIVE_WINDOW_ROWS;
         }
-        self.check_local(reader, audit, budget)
+        self.check_local(reader, audit, budget)?;
+        // Publish reuse only after the complete dependency observation and hold
+        // windows have reached EOF successfully under this scope's live pin.
+        for owner in dependency_owners {
+            self.charge
+                .grow(std::mem::size_of::<(ContentHash, i64)>() + 32)?;
+            self.prepared_dependencies.insert(owner);
+        }
+        Ok(())
     }
     async fn observe_fresh_requests(
         &mut self,
@@ -1248,7 +1291,9 @@ impl ClosureInspectionScope {
                                     .get(&mapping.logical)
                                     .or_else(|| descriptors.get(&mapping.logical))
                                 {
-                                    if previous.data != value.descriptor.data {
+                                    if !std::sync::Arc::ptr_eq(previous, &value.descriptor)
+                                        && previous.data != value.descriptor.data
+                                    {
                                         return Err(ModelError::Conflict(
                                             "installed equivalent copies differ in full descriptor",
                                         ));
@@ -1394,7 +1439,9 @@ impl ClosureInspectionScope {
                             ));
                         }
                         let value = if let Some(previous) = self.descriptors.get(&mapping.logical) {
-                            if previous.data != value.descriptor.data {
+                            if !std::sync::Arc::ptr_eq(previous, &value.descriptor)
+                                && previous.data != value.descriptor.data
+                            {
                                 return Err(ModelError::Conflict(
                                     "installed equivalent copies differ in full descriptor",
                                 ));
@@ -1760,7 +1807,9 @@ async fn inspect_selected_contributor(
             ));
         };
         let descriptor = if let Some(previous) = scope.descriptors.get(&mapping.logical) {
-            if previous.data != observed.descriptor.data {
+            if !std::sync::Arc::ptr_eq(previous, &observed.descriptor)
+                && previous.data != observed.descriptor.data
+            {
                 return Err(ModelError::Conflict(
                     "installed equivalent copies differ in full descriptor",
                 ));
@@ -2158,7 +2207,9 @@ async fn inspect_closure_inner(
             None => inspect_selected_contributor(reader, mapping, budget, None).await?,
         };
         if let Some(previous) = descriptors.get(&mapping.logical) {
-            if previous.data != observed.descriptor.data {
+            if !std::sync::Arc::ptr_eq(previous, &observed.descriptor)
+                && previous.data != observed.descriptor.data
+            {
                 return Err(ModelError::Conflict(
                     "installed equivalent copies differ in full descriptor",
                 ));
@@ -2182,6 +2233,7 @@ async fn inspect_closure_inner(
         }
         descriptors_by_physical.insert(mapping.physical, descriptors[&mapping.logical].clone());
         if let Some(previous) = contributors.insert(mapping.physical, observed.expected.clone())
+            && !std::sync::Arc::ptr_eq(&previous, &observed.expected)
             && (previous.incarnation() != observed.expected.incarnation()
                 || previous.row() != observed.expected.row())
         {
@@ -2192,7 +2244,8 @@ async fn inspect_closure_inner(
     }
     // The adapter still independently observes the exact root and every selected
     // physical copy. Shared ingredients contain logical direct edges only; each
-    // root rechecks its mapping, native holds and final context independently.
+    // root rechecks its mapping and view holds, with copy input holds earned
+    // once under the same live inspection scope and final context fence.
     let root_observed = match scope.as_mut() {
         Some((scope, audit)) => scope.view(reader, root.identity, audit, budget).await?,
         None => inspect_view_fresh(reader, root.identity, budget).await?,
@@ -2201,6 +2254,9 @@ async fn inspect_closure_inner(
         return Err(ModelError::Conflict("recovery exact dependency view"));
     }
     let mut traversal = SharedRecoveryTraversal::for_view(root_observed, budget)?;
+    let mut checked_dependencies = std::collections::BTreeSet::new();
+    let mut dependency_check_charge =
+        StateCharge::new(budget, "installed exact physical dependency owner handles");
     while let Some(requested) = traversal.next_view()? {
         let observed = match scope.as_mut() {
             Some((scope, audit)) => {
@@ -2210,7 +2266,7 @@ async fn inspect_closure_inner(
             }
             None => inspect_view_fresh(reader, requested.identity, budget).await?,
         };
-        if observed.data != requested.data {
+        if !std::sync::Arc::ptr_eq(&observed, &requested) && observed.data != requested.data {
             return Err(ModelError::Conflict("recovery exact dependency view"));
         }
         // A fresh receiving phase earns its own ingredients. Only an actual
@@ -2221,10 +2277,10 @@ async fn inspect_closure_inner(
         let cached = operation_audit
             .as_ref()
             .and_then(|audit| audit.recovery_views.get(&requested.identity));
-        if cached
-            .as_ref()
-            .is_some_and(|ingredient| ingredient.view().data != observed.data)
-        {
+        if cached.as_ref().is_some_and(|ingredient| {
+            !std::sync::Arc::ptr_eq(ingredient.view(), &observed)
+                && ingredient.view().data != observed.data
+        }) {
             return Err(ModelError::Conflict("recovery view descriptor collision"));
         }
         let mut local = StateCharge::new(budget, "installed direct ingredient input handles");
@@ -2252,10 +2308,10 @@ async fn inspect_closure_inner(
             let ready = operation_audit
                 .as_ref()
                 .and_then(|audit| audit.recovery_contributors.get(logical));
-            if ready
-                .as_ref()
-                .is_some_and(|ingredient| ingredient.data().data != contribution.data)
-            {
+            if ready.as_ref().is_some_and(|ingredient| {
+                !std::sync::Arc::ptr_eq(ingredient.data(), contribution)
+                    && ingredient.data().data != contribution.data
+            }) {
                 return Err(ModelError::Conflict("recovery contributor collision"));
             }
             let mapping = &mappings[mappings
@@ -2279,42 +2335,59 @@ async fn inspect_closure_inner(
             let mut dependencies = BTreeMap::new();
             let mut dependency_charge =
                 StateCharge::new(budget, "installed direct dependency input handles");
-            for input in &contribution.data.spec.inputs {
-                if ready.is_none() && cached.is_none() && !dependencies.contains_key(&input.view())
-                {
-                    let dependency = match scope.as_mut() {
+            let physical_owner = (mapping.physical, mapping.incarnation);
+            let require_inputs = !checked_dependencies.contains(&physical_owner)
+                && !scope.as_ref().is_some_and(|(scope, _)| {
+                    scope.prepared_dependencies.contains(&physical_owner)
+                });
+            let build_dependencies = ready.is_none() && cached.is_none();
+            // The same copy's inputs were already assured as a whole by the
+            // phase, or by this independent traversal. New logical ingredients
+            // still resolve every declared input, including empty views.
+            if require_inputs || build_dependencies {
+                for input in &contribution.data.spec.inputs {
+                    if build_dependencies && !dependencies.contains_key(&input.view()) {
+                        let dependency = match scope.as_mut() {
+                            Some((scope, audit)) => {
+                                scope.view(reader, input.view(), audit, budget).await?
+                            }
+                            None => inspect_view_fresh(reader, input.view(), budget).await?,
+                        };
+                        dependency_charge.grow(
+                            std::mem::size_of::<(ContentHash, std::sync::Arc<ObservedView>)>() + 32,
+                        )?;
+                        dependencies.insert(input.view(), dependency);
+                    }
+                    if !require_inputs {
+                        continue;
+                    }
+                    let dependency_record = RecordId::new("compiler_view", input.view().hex());
+                    match scope.as_mut() {
                         Some((scope, audit)) => {
-                            scope.view(reader, input.view(), audit, budget).await?
+                            scope
+                                .require_hold(
+                                    reader,
+                                    &contributor_record,
+                                    &dependency_record,
+                                    audit,
+                                    budget,
+                                )
+                                .await?
                         }
-                        None => inspect_view_fresh(reader, input.view(), budget).await?,
-                    };
-                    dependency_charge.grow(
-                        std::mem::size_of::<(ContentHash, std::sync::Arc<ObservedView>)>() + 32,
-                    )?;
-                    dependencies.insert(input.view(), dependency);
-                }
-                let dependency_record = RecordId::new("compiler_view", input.view().hex());
-                match scope.as_mut() {
-                    Some((scope, audit)) => {
-                        scope
-                            .require_hold(
+                        None => {
+                            crate::completed_state::require_hold(
                                 reader,
                                 &contributor_record,
                                 &dependency_record,
-                                audit,
-                                budget,
                             )
                             .await?
-                    }
-                    None => {
-                        crate::completed_state::require_hold(
-                            reader,
-                            &contributor_record,
-                            &dependency_record,
-                        )
-                        .await?
+                        }
                     }
                 }
+            }
+            if require_inputs {
+                dependency_check_charge.grow(std::mem::size_of::<(ContentHash, i64)>() + 32)?;
+                checked_dependencies.insert(physical_owner);
             }
             if cached.is_none() {
                 let make = || {
@@ -3544,6 +3617,202 @@ mod tests {
         if let Err(panic) = result {
             if let Err(error) = cleaned {
                 eprintln!("protected source inventory cleanup: {error:?}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+        cleaned.unwrap();
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn final_parent_incarnation_change_after_inventory_eof_refuses_completion() {
+        use crate::completed_state::{
+            FINAL_PARENT_OBSERVATION_BARRIER, FinalParentObservationBarrier,
+        };
+        use lctx_compiler_store::compiler::NativeCompilerStore;
+        let config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("fresh owned native campaign"),
+        ))
+        .unwrap();
+        let store = NativeCompilerStore::begin(&config, d::admission::Frontier::Facts)
+            .await
+            .unwrap();
+        let client = lctx_compiler_store::reader::connect(
+            &config.endpoint,
+            &config.writer_credentials(),
+            store.namespace().as_str(),
+            store.database().as_str(),
+        )
+        .await
+        .unwrap();
+        let budget = ResourceBudget::fixed(256 << 20).unwrap();
+        let reader = NativeReader::private(client.clone()).with_budget(&budget);
+        // Keep the exact owned guard outside the assertion body so even a failed
+        // assertion restores its incarnation before attempt cleanup.
+        let mut restore = None;
+        let result = std::panic::AssertUnwindSafe(async {
+            let relation = Relation::of::<Package>();
+            let mut specification = contribution("final-parent-inventory-race", vec![]).spec;
+            specification.outputs = [relation.name().into()].into();
+            let model = specification.model;
+            let producer = store.begin_contribution(specification).await.unwrap();
+            store
+                .write_batch(
+                    &producer,
+                    &relation,
+                    &Package::encode(&[Package {
+                        name: format!("final-parent-{}", store.attempt().hex()),
+                    }])
+                    .unwrap(),
+                    &budget,
+                )
+                .await
+                .unwrap();
+            let views = store
+                .complete_contribution(
+                    producer,
+                    d::stages::ProviderOutcome::Complete,
+                    std::slice::from_ref(&relation),
+                    &BTreeMap::new(),
+                    &budget,
+                )
+                .await
+                .unwrap();
+            let view = &views[relation.name()];
+            store
+                .bind(d::completed::CompletedBinding {
+                    boundary: None,
+                    source: SourceSnapshot::of_completed_view(
+                        &relation,
+                        model,
+                        view,
+                    )
+                    .unwrap(),
+                    view: view.clone(),
+                    configuration: None,
+                })
+                .await
+                .unwrap();
+            store.freeze_content(&budget).await.unwrap();
+            let physical = store.complete_physical_content(&budget).await.unwrap();
+            // The dev dependency has its own crate instance: transfer only data,
+            // and earn the actual receiver's native authority independently.
+            let completion: crate::completed_state::FrozenCompletion =
+                serde_json::from_value(serde_json::to_value(physical.completion()).unwrap())
+                    .unwrap();
+            let parent = completion.record().unwrap();
+            let guard = crate::control::guard_id(&Value::RecordId(parent.clone())).unwrap();
+            let mut variables = Variables::new();
+            variables.insert("guard", guard.clone());
+            let rows: Vec<surrealdb::types::Object> = reader
+                .query_native("SELECT * FROM $guard", variables.clone())
+                .await
+                .unwrap();
+            let [original] = rows.as_slice() else {
+                panic!("owned physical parent must have exactly one guard");
+            };
+            let incarnation = i64::from_value(original.get("incarnation").unwrap().clone())
+                .unwrap();
+            assert!(incarnation > 0);
+            restore = Some((guard.clone(), original.clone()));
+            variables.insert("incarnation", incarnation.checked_add(1).unwrap());
+            let barrier = FinalParentObservationBarrier {
+                observed: std::sync::Arc::new(tokio::sync::Barrier::new(2)),
+                resume: std::sync::Arc::new(tokio::sync::Barrier::new(2)),
+            };
+            let receiving = FINAL_PARENT_OBSERVATION_BARRIER.scope(
+                barrier.clone(),
+                crate::completed_state::hold_physical_state_for_attempt(
+                    client.clone(),
+                    store.attempt(),
+                    &budget,
+                ),
+            );
+            tokio::pin!(receiving);
+            // An unexpected early refusal must reach cleanup rather than leave
+            // the mutator waiting forever for a checkpoint the receiver missed.
+            tokio::select! {
+                early = receiving.as_mut() => match early {
+                    Ok(_) => panic!("receiver returned authority before the final parent checkpoint"),
+                    Err(error) => panic!("receiver failed before the final parent checkpoint: {error:?}"),
+                },
+                _ = barrier.observed.wait() => {}
+            }
+            // The first successful hold legitimately advances the guard revision.
+            // Compare the mutation against the checkpoint state, not the state
+            // before that hold was earned.
+            let checkpoint: Vec<surrealdb::types::Object> = reader
+                .query_native("SELECT * FROM $guard", variables.clone())
+                .await
+                .unwrap();
+            let [checkpoint] = checkpoint.as_slice() else {
+                panic!("the final parent checkpoint must retain exactly one guard");
+            };
+            assert_eq!(checkpoint.get("incarnation"), original.get("incarnation"));
+            restore = Some((guard.clone(), checkpoint.clone()));
+            let mutate = async {
+                // This task-local checkpoint is reached only after inventory EOF,
+                // exact child/hold checks, and the last parent observation.
+                let changed = client
+                    .query("UPDATE $guard SET incarnation=$incarnation RETURN NONE")
+                    .bind(variables.clone())
+                    .await
+                    .and_then(|response| response.check());
+                // Always release the receiver before reporting mutation failure.
+                barrier.resume.wait().await;
+                changed
+            };
+            let (received, changed) = tokio::join!(receiving.as_mut(), mutate);
+            changed.unwrap();
+            let error = match received {
+                Ok(_) => panic!("changed parent incarnation must never return completion authority"),
+                Err(error) => error,
+            };
+            assert!(
+                error.to_string().contains("physical completed hold changed"),
+                "the final checked native effect must refuse the parent race: {error:?}"
+            );
+            let actual: Vec<surrealdb::types::Object> = reader
+                .query_native("SELECT * FROM $guard", variables)
+                .await
+                .unwrap();
+            let mut expected = checkpoint.clone();
+            expected.insert("incarnation", incarnation + 1);
+            assert_eq!(actual, vec![expected], "only the owned parent incarnation changed");
+        })
+        .catch_unwind()
+        .await;
+        let mut cleanup = d::completion::Completion::default();
+        if let Some((guard, original)) = restore {
+            let mut variables = Variables::new();
+            variables.insert("guard", guard);
+            variables.insert("row", original);
+            cleanup.step(
+                "final parent exact guard restoration",
+                async {
+                    client
+                        .query("UPSERT $guard CONTENT $row RETURN NONE")
+                        .bind(variables)
+                        .await
+                        .map_err(ModelError::codec)?
+                        .check()
+                        .map_err(ModelError::codec)?;
+                    Ok(())
+                }
+                .await,
+            );
+        }
+        cleanup.step("final parent inventory reader close", reader.close().await);
+        cleanup.step(
+            "final parent inventory attempt cleanup",
+            store.abandon().await,
+        );
+        cleanup.step(
+            "final parent inventory observer invalidation",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
+        let cleaned = d::completion::complete(Ok(()), cleanup);
+        if let Err(panic) = result {
+            if let Err(error) = cleaned {
+                eprintln!("final parent inventory cleanup: {error:?}");
             }
             std::panic::resume_unwind(panic);
         }
@@ -4828,14 +5097,16 @@ impl LogicalFamilyInputs {
                 "logical family foreign resource owner",
             ));
         }
-        for mapping in &closure.mappings {
-            let descriptor = &closure.logical.contributions()[&mapping.logical];
-            let expected = &closure.contributors[&mapping.physical];
+        for (physical, expected) in &closure.contributors {
+            let descriptor = closure.descriptor_for_copy(physical)?;
             let id = expected.record();
             let cached = audit.contributors.get(id).ok_or(ModelError::Conflict(
                 "logical fragment requires complete protected contributor audit",
             ))?;
-            if cached.incarnation() != expected.incarnation() || cached.row() != expected.row() {
+            if !std::sync::Arc::ptr_eq(&cached, expected)
+                && (cached.incarnation() != expected.incarnation()
+                    || cached.row() != expected.row())
+            {
                 return Err(ModelError::Conflict(
                     "logical fragment exact contributor premise changed",
                 ));
@@ -6179,6 +6450,7 @@ mod shared_preparation_controls {
             contribution_observations: Arc::new(AtomicU64::new(0)),
             logical_contribution_observations: Arc::new(AtomicU64::new(0)),
             alias_observations: Arc::new(AtomicU64::new(0)),
+            context_observations: Arc::new(AtomicU64::new(0)),
             closed: Arc::new(AtomicBool::new(false)),
             context: (ContentHash([1; 32]), 1),
             worker: false,
@@ -6615,6 +6887,182 @@ mod closure_metadata_controls {
             )]
             .into(),
         }
+    }
+    fn require_context_campaign_maintenance(config: &crate::RuntimeConfig) {
+        let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let proof = std::process::Command::new(repository.join(".venv/bin/python"))
+            .env("PYTHONPATH", repository.join("scripts"))
+            .args(["-c", r#"
+import os
+from pathlib import Path
+import sys
+import surrealdb_service as service
+installation = service.Installation.load(ready=False)
+record = installation.record
+assert Path(os.environ["LCTX_SURREAL_SERVICE_CONFIG"]).resolve() == (installation.directory / "installation.json").resolve()
+assert record.get("kind") == "campaign" and record.get("purpose") == "surrealdb-lifecycle"
+assert installation.id == os.environ["LCTX_SURREAL_INSTALLATION_ID"]
+endpoint, namespace, generation, database = sys.argv[1:]
+assert installation.grpc_endpoint == endpoint and record["namespace"] == namespace
+assert bytes(record["service_generation"]).hex() == generation == os.environ["LCTX_SURREAL_GENERATION"]
+assert database in record["databases"]
+assert Path(os.environ["LCTX_SURREAL_INSTALLER_CONFIG"]).resolve() == installation.runtime_path(database, installer=True).resolve()
+assert service.maintenance_owned(installation), "exclusive owned campaign maintenance required"
+"#])
+            .arg(&config.endpoint).arg(config.namespace.as_str())
+            .arg(config.service_generation.hex()).arg(config.database.as_str())
+            .output().unwrap();
+        assert!(
+            proof.status.success(),
+            "context drift maintenance ownership refused: {}",
+            String::from_utf8_lossy(&proof.stderr)
+        );
+    }
+    async fn boundary_context_control(drift: bool) {
+        use futures::FutureExt;
+        use lctx_compiler_store::compiler::NativeCompilerStore;
+        let config = crate::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native campaign"),
+        ))
+        .unwrap();
+        // The destructive case proves maintenance before creating even an attempt.
+        if drift {
+            require_context_campaign_maintenance(&config);
+        }
+        // The dev dependency uses the ordinary crate instance. Read its typed
+        // configuration independently rather than treating unit-test types as authority.
+        let store_config = lctx_compiler_store::RuntimeConfig::read(std::path::Path::new(
+            &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native campaign"),
+        ))
+        .unwrap();
+        let store = NativeCompilerStore::begin(&store_config, d::admission::Frontier::Facts)
+            .await
+            .unwrap();
+        let client = crate::reader::connect(
+            &config.endpoint,
+            &config.writer_credentials(),
+            store.namespace().as_str(),
+            store.database().as_str(),
+        )
+        .await
+        .unwrap();
+        let budget = ResourceBudget::fixed(64 << 20).unwrap();
+        let reader = NativeReader::private(client.clone()).with_budget(&budget);
+        let audit = InstallationAudit::new(client.clone(), &budget)
+            .await
+            .unwrap();
+        let mut admin = None;
+        let mut restore_epoch = None;
+        let mut boundary_owner = None;
+        let result = std::panic::AssertUnwindSafe(async {
+            let source = audit.protected_source(&client, &budget).await.unwrap();
+            let mut scope = source.inspection_scope(&reader, &budget).unwrap().for_boundary();
+            let before = audit.context_observations.load(std::sync::atomic::Ordering::Relaxed);
+            scope.check(&reader, &audit, &budget).await.unwrap();
+            let first = audit.context_observations.load(std::sync::atomic::Ordering::Relaxed);
+            assert_eq!(first, before + 1, "phase entry dispatches an actual native context query");
+            for _ in 0..64 { scope.check(&reader, &audit, &budget).await.unwrap(); }
+            assert_eq!(audit.context_observations.load(std::sync::atomic::Ordering::Relaxed), first,
+                "selector reuse keeps pin/client/pool/source checks without repeated context queries");
+            let mut ordinary = source.inspection_scope(&reader, &budget).unwrap();
+            ordinary.check(&reader, &audit, &budget).await.unwrap();
+            ordinary.check(&reader, &audit, &budget).await.unwrap();
+            assert_eq!(audit.context_observations.load(std::sync::atomic::Ordering::Relaxed), first + 2,
+                "ordinary operation scopes still query actual context on each check");
+            if !drift { return; }
+            // Earn a genuine completed parent first; stale local context is never
+            // substituted for a receiving parent or incarnation capability.
+            let boundary = crate::completed_state::complete_retained_content_from_source(
+                client.clone(), store.attempt(), &[], &[], &budget, &source,
+            ).await.unwrap();
+            boundary_owner = Some(boundary);
+            let boundary = boundary_owner.as_ref().unwrap();
+            let completion = boundary.completion().clone();
+            let expected = crate::control::inspect_expected_read(&reader, completion.record().unwrap(), &budget)
+                .await.unwrap().unwrap();
+            let live = crate::control::live_view::capture(&reader, store.attempt(), &budget).await.unwrap();
+            let installer = crate::RuntimeConfig::read(std::path::Path::new(
+                &std::env::var_os("LCTX_SURREAL_INSTALLER_CONFIG").expect("exact owned campaign installer"),
+            )).unwrap();
+            assert_eq!(installer.endpoint, config.endpoint);
+            assert_eq!(installer.namespace, config.namespace);
+            assert_eq!(installer.database, config.database);
+            assert_eq!(installer.service_generation, config.service_generation);
+            assert_eq!(installer.authentication, crate::AuthenticationScope::Root);
+            let connected = crate::reader::connect(&installer.endpoint, &installer.writer_credentials(),
+                store.namespace().as_str(), store.database().as_str()).await.unwrap();
+            admin = Some(connected);
+            let admin = admin.as_ref().unwrap();
+            let old = audit.context.1;
+            let new = old.checked_add(1).unwrap();
+            // Deliberate test tamper and exact restoration are restricted to this
+            // disposable exclusive target; this is not a production epoch rollback.
+            restore_epoch = Some(old);
+            let mut variables = Variables::new(); variables.insert("epoch", new);
+            admin.query("UPDATE native_installation:current SET validity_epoch=$epoch RETURN NONE")
+                .bind(variables).await.unwrap().check().unwrap();
+            let before_reuse = audit.context_observations.load(std::sync::atomic::Ordering::Relaxed);
+            scope.check(&reader, &audit, &budget).await.unwrap();
+            assert_eq!(audit.context_observations.load(std::sync::atomic::Ordering::Relaxed), before_reuse,
+                "cached phase context defers remote drift detection to its receiving boundary");
+            scope.check_receiving_source(&reader, &audit, &budget).unwrap();
+            let error = match crate::control::held::hold_live_boundary_expected(
+                &client, &live, &completion, expected, &budget,
+            ).await {
+                Ok(_) => panic!("late validity drift must not return independently held boundary authority"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("live installed view owner changed"),
+                "final live acquisition must compare the captured context atomically: {error:?}");
+            let error = ordinary.check(&reader, &audit, &budget).await.unwrap_err();
+            assert!(error.to_string().contains("installation audit validity context changed"));
+        }).catch_unwind().await;
+        let mut cleanup = d::completion::Completion::default();
+        if let (Some(admin), Some(epoch)) = (admin.as_ref(), restore_epoch) {
+            let mut variables = Variables::new();
+            variables.insert("epoch", epoch);
+            cleanup.step("context drift exact test epoch restoration", async {
+                admin.query("UPDATE native_installation:current SET validity_epoch=$epoch RETURN NONE")
+                    .bind(variables).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+                Ok(())
+            }.await);
+        }
+        if let Some(boundary) = boundary_owner {
+            cleanup.step(
+                "context drift retained boundary close",
+                boundary.close().await,
+            );
+        }
+        cleanup.step("boundary context reader close", reader.close().await);
+        cleanup.step("boundary context audit close", audit.close().await);
+        cleanup.step("boundary context attempt cleanup", store.abandon().await);
+        cleanup.step(
+            "boundary context observer invalidation",
+            client.invalidate().await.map_err(ModelError::codec),
+        );
+        if let Some(admin) = admin {
+            cleanup.step(
+                "context drift installer invalidation",
+                admin.invalidate().await.map_err(ModelError::codec),
+            );
+        }
+        let cleaned = d::completion::complete(Ok(()), cleanup);
+        if let Err(panic) = result {
+            if let Err(error) = cleaned {
+                eprintln!("boundary context finalization after assertion panic: {error:?}");
+            }
+            std::panic::resume_unwind(panic);
+        }
+        cleaned.unwrap();
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn boundary_context_reuse_dispatches_once_while_ordinary_operations_recheck() {
+        boundary_context_control(false).await;
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "requires exclusive coordinator-owned disposable maintenance campaign; mutates actual validity epoch"]
+    async fn boundary_final_live_hold_refuses_epoch_drift_after_local_context_reuse() {
+        boundary_context_control(true).await;
     }
     #[tokio::test]
     async fn protected_source_scope_reuses_operation_holds_and_refuses_unobserved_incidence() {

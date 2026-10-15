@@ -116,10 +116,19 @@ impl<'a> BoundaryInspection<'a> {
         reader: &crate::NativeReader<()>,
         budget: &ResourceBudget,
     ) -> Result<installed_view::audit::ClosureInspectionScope, ModelError> {
-        match self {
+        let scope = match self {
             Self::Fresh(audit) => installed_view::audit::ClosureInspectionScope::new(audit, budget),
             Self::Source(source) => source.inspection_scope(reader, budget),
-        }
+        }?;
+        Ok(scope.for_boundary())
+    }
+    fn check_receiving_source(
+        self,
+        reader: &crate::NativeReader<()>,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        self.scope(reader, budget)?
+            .check_receiving_source(reader, self.audit(), budget)
     }
 }
 fn boundary_writer<'a>(
@@ -168,13 +177,8 @@ async fn hold_boundary(
             crate::control::hold_frozen_physical_expected(client, data, expected, budget).await
         }
         BoundaryMode::Live(owner) => {
-            crate::control::hold_expected(
-                client,
-                owner.attempt(),
-                RecordId::new("native_attempt", owner.attempt().hex()),
-                expected,
-            )
-            .await
+            crate::control::held::hold_live_boundary_expected(client, owner, data, expected, budget)
+                .await
         }
     }
 }
@@ -586,6 +590,9 @@ async fn complete_boundary_content(
             if expected.incarnation() != existing.incarnation() {
                 return Err(ModelError::Conflict("compound replay ABA"));
             }
+            inspection.check_receiving_source(&reader, budget)?;
+            // The receiving effect independently compares captured context and the
+            // exact parent. Once earned, this destination need not borrow the source.
             let held = hold_boundary(&client, &mode, &data, expected, budget).await?;
             let retained_charge = retained_boundary_charge(&held, budget)?;
             return Ok(NativeCompletedState {
@@ -719,6 +726,7 @@ async fn complete_boundary_content(
         let expected = crate::control::inspect_expected_read(&reader, data.record()?, budget)
             .await?
             .ok_or(ModelError::Conflict("compound completed parent absent"))?;
+        inspection.check_receiving_source(&reader, budget)?;
         let held = hold_boundary(&client, &mode, &data, expected, budget).await?;
         let retained_charge = retained_boundary_charge(&held, budget)?;
         Ok(NativeCompletedState {

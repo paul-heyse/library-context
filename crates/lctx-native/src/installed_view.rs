@@ -200,6 +200,39 @@ enum InstalledViewOwner {
     },
 }
 impl HeldInstalledView {
+    /// Check an already captured immutable source between a private consumer's
+    /// actual entry and terminal observations. This grants no current-context
+    /// evidence and cannot replace `ensure_borrowed_current` at those boundaries.
+    pub fn check_borrowed_local(
+        &self,
+        client: &std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
+        budget: &d::resources::ResourceBudget,
+    ) -> Result<(), ModelError> {
+        if !std::sync::Arc::ptr_eq(&self.client, client) {
+            return Err(ModelError::Conflict(
+                "borrowed selector foreign native client",
+            ));
+        }
+        self.require_pool(budget)?;
+        match &self.owner {
+            InstalledViewOwner::Earned { set } => {
+                set.pin().require_client(client)?;
+                set.pin().ensure_live()
+            }
+            InstalledViewOwner::Recovery { pin, .. } => {
+                pin.require_client(client)?;
+                pin.ensure_live()
+            }
+            InstalledViewOwner::Published { completed, .. } => {
+                completed.require_session(client.as_ref())?;
+                completed.retained_reader().ensure_scope_live()
+            }
+            // These capabilities retain their exact durable owning attempt.
+            // The compiler read lease checks that owner locally; actual parent,
+            // selector, hold and epoch checks remain at both phase boundaries.
+            InstalledViewOwner::Physical { .. } | InstalledViewOwner::Frozen { .. } => Ok(()),
+        }
+    }
     /// Check the original backing pool; a matching descriptor cannot transfer its charge.
     pub fn require_pool(&self, budget: &d::resources::ResourceBudget) -> Result<(), ModelError> {
         let inventory = match &self.owner {

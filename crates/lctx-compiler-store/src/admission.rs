@@ -2305,8 +2305,11 @@ impl AdmissionRuntime {
     ) -> Result<(), ModelError> {
         self.cancellation.check()?;
         if let Some(owned) = owned {
-            owned.require_owner(self, session)?;
+            // This call owns the reference phase. No field-level memo can
+            // substitute for actual observations of every original source.
+            owned.current(self, session).await?;
         }
+        let mut pending = PendingReferencePremises::new(self.budget());
         let quote = |name: &str| format!("\"{}\"", name.replace('"', "\"\""));
         let tables = inputs.reference_targets()?;
         // A union of reference targets cannot hide conflicting nominal payloads.
@@ -2331,37 +2334,34 @@ impl AdmissionRuntime {
                 if left_relation.name() != right_relation.name() {
                     continue;
                 }
-                let differences = left_relation
+                if left_relation
                     .schema()
                     .fields()
                     .iter()
-                    .filter(|field| field.name() != "id")
-                    .map(|field| {
-                        format!(
-                            "l.{} IS DISTINCT FROM r.{}",
-                            quote(field.name()),
-                            quote(field.name())
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" OR ");
-                if differences.is_empty() {
+                    .all(|field| field.name() == "id")
+                {
                     continue;
                 }
                 if let Some(owned) = owned {
                     if left_empty {
-                        owned.check_empty(self, session, left_identity)?;
+                        owned.check_empty(self, session, left_identity).await?;
                         continue;
                     }
                     if owned.earned_empty(self, session, right_identity).await? {
                         continue;
                     }
                 }
-                let sql = format!(
-                    "SELECT l.id FROM {} l JOIN {} r ON l.id=r.id WHERE {differences} LIMIT 1",
-                    quote(left_table),
-                    quote(right_table)
-                );
+                // Complete-empty authority needs no SQL preparation. Format only
+                // the comparison that will actually be planned and executed.
+                let Some(sql) =
+                    nominal_payload_conflict_sql(left_relation.schema(), left_table, right_table)
+                else {
+                    continue;
+                };
+                if let Some(owned) = owned {
+                    owned.check_empty(self, session, left_identity).await?;
+                    owned.check_empty(self, session, right_identity).await?;
+                }
                 let mut stream = crate::sql::query(session, &sql)
                     .await
                     .map_err(ModelError::codec)?
@@ -2379,9 +2379,8 @@ impl AdmissionRuntime {
             }
         }
         for (identity, (relation, source_table)) in &tables {
-            // One current-owner observation covers this synchronous empty-source
-            // field block. Every field still checks cancellation and schema/premise
-            // obligations; an empty block never suspends after earning this fact.
+            // Actual current observations bracket this private phase. Every field
+            // still checks its original local owners and schema obligations.
             let empty = if relation
                 .fields()
                 .iter()
@@ -2434,29 +2433,28 @@ impl AdmissionRuntime {
                 } else {
                     String::new()
                 };
+                if let Some(owner) = owned {
+                    owner.check_empty(self, session, identity).await?;
+                    for (target_identity, _) in &targets {
+                        owner.check_empty(self, session, target_identity).await?;
+                    }
+                }
                 if empty {
-                    owned
-                        .expect("earned empty private session")
-                        .check_empty(self, session, identity)?;
-                    self.remember_premise(Some(premise))?;
+                    pending.insert(premise)?;
                     continue;
                 }
-                if let Some(owner) = owned
-                    && self
-                        .memo
-                        .checked
-                        .lock()
-                        .map_err(|_| poisoned())?
-                        .0
-                        .contains(&premise)
+                if owned.is_some()
+                    && (pending.contains(&premise)
+                        || self
+                            .memo
+                            .checked
+                            .lock()
+                            .map_err(|_| poisoned())?
+                            .0
+                            .contains(&premise))
                 {
-                    // A preceding nonempty field may have suspended for SQL. Do
-                    // not let its later memo hit outlive any producing input owner.
-                    owner.earned_empty(self, session, identity).await?;
-                    for (target_identity, _) in &targets {
-                        owner.earned_empty(self, session, target_identity).await?;
-                    }
-                    owner.check_empty(self, session, identity)?;
+                    // Local original-owner checks above remain mandatory even
+                    // for old memo entries or facts staged earlier in this call.
                     continue;
                 }
                 let source_name = quote(source_table);
@@ -2492,12 +2490,76 @@ impl AdmissionRuntime {
                     }
                 }
                 if owned.is_some() {
-                    self.remember_premise(Some(premise))?;
+                    pending.insert(premise)?;
                 }
             }
         }
+        #[cfg(test)]
+        if let Ok(barrier) = REFERENCE_PHASE_BARRIER.try_with(Arc::clone) {
+            barrier
+                .pending
+                .store(pending.values.len(), Ordering::Release);
+            barrier.reached.wait().await;
+            barrier.resume.wait().await;
+        }
+        if let Some(owned) = owned {
+            // All SQL has reached EOF. A changed epoch/selector/hold or source
+            // lifetime refuses the whole call before any new memo is visible.
+            owned.current(self, session).await?;
+        }
+        self.cancellation.check()?;
+        pending.commit(&self.memo)?;
         Ok(())
     }
+}
+
+/// Proved reference premises remain private until the complete call's terminal
+/// observations succeed. Admission never exposes a charged prefix on refusal.
+struct PendingReferencePremises {
+    values: BTreeSet<ContentHash>,
+    charge: StateCharge,
+}
+impl PendingReferencePremises {
+    fn new(budget: &ResourceBudget) -> Self {
+        Self {
+            values: BTreeSet::new(),
+            charge: StateCharge::new(budget, "pending reference premises"),
+        }
+    }
+    fn contains(&self, value: &ContentHash) -> bool {
+        self.values.contains(value)
+    }
+    fn insert(&mut self, value: ContentHash) -> Result<(), ModelError> {
+        if !self.values.contains(&value) {
+            self.charge.grow(128)?;
+            self.values.insert(value);
+        }
+        Ok(())
+    }
+    fn commit(self, memo: &AdmissionMemo) -> Result<(), ModelError> {
+        let mut checked = memo.checked.lock().map_err(|_| poisoned())?;
+        let missing = self
+            .values
+            .iter()
+            .filter(|value| !checked.0.contains(*value))
+            .count();
+        // Reserve the entire merge before its first insertion: resource refusal
+        // and every preceding phase failure leave the shared memo unchanged.
+        checked.1.grow(missing.saturating_mul(128))?;
+        checked.0.extend(self.values);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+struct ReferencePhaseBarrier {
+    reached: tokio::sync::Barrier,
+    resume: tokio::sync::Barrier,
+    pending: std::sync::atomic::AtomicUsize,
+}
+#[cfg(test)]
+tokio::task_local! {
+    static REFERENCE_PHASE_BARRIER: Arc<ReferencePhaseBarrier>;
 }
 
 struct ValidationSession {
@@ -2527,7 +2589,7 @@ impl ValidationSession {
         }
         Ok(())
     }
-    fn check_empty(
+    async fn check_empty(
         &self,
         runtime: &AdmissionRuntime,
         context: &SessionContext,
@@ -2536,10 +2598,38 @@ impl ValidationSession {
         self.require_owner(runtime, context)?;
         if let Some(sources) = self.native_sources.get(identity) {
             for source in sources {
-                source.check()?;
+                source.check().await?;
             }
         }
+        self.require_owner(runtime, context)?;
         Ok(())
+    }
+    async fn check_all(
+        &self,
+        runtime: &AdmissionRuntime,
+        context: &SessionContext,
+    ) -> Result<(), ModelError> {
+        self.require_owner(runtime, context)?;
+        for identity in self.native_sources.keys() {
+            self.check_empty(runtime, context, identity).await?;
+        }
+        self.require_owner(runtime, context)
+    }
+    async fn current(
+        &self,
+        runtime: &AdmissionRuntime,
+        context: &SessionContext,
+    ) -> Result<(), ModelError> {
+        self.require_owner(runtime, context)?;
+        // Equal logical views may have independent captured producing owners;
+        // retain every original provider instead of collapsing those aliases.
+        for sources in self.native_sources.values() {
+            for source in sources {
+                source.current().await?;
+                self.require_owner(runtime, context)?;
+            }
+        }
+        self.check_all(runtime, context).await
     }
     async fn earned_empty(
         &self,
@@ -2549,10 +2639,10 @@ impl ValidationSession {
     ) -> Result<bool, ModelError> {
         self.require_owner(runtime, context)?;
         if let Some(sources) = self.native_sources.get(identity) {
-            // Nonempty providers also check their original producing and installed
-            // owners before native reference memoization becomes eligible.
+            // Entry/terminal observations belong to validate_references. Within
+            // that call, even nonempty memo inputs retain their original owners.
             for source in sources {
-                source.current().await?;
+                source.check().await?;
             }
             runtime.cancellation.check()?;
             return Ok(sources.iter().all(|source| source.is_empty()));
@@ -2904,6 +2994,36 @@ impl MemoryPool for BudgetMemoryPool {
     }
 }
 
+fn nominal_payload_conflict_sql(
+    schema: &arrow_schema::Schema,
+    left: &str,
+    right: &str,
+) -> Option<String> {
+    let quote = crate::consumed_rows::identifier;
+    let differences = schema
+        .fields()
+        .iter()
+        .filter(|field| field.name() != "id")
+        .map(|field| {
+            format!(
+                // sqlparser's DISTINCT FROM RHS consumes an expression. Group each
+                // null-sensitive comparison so OR joins boolean predicates only.
+                "(l.{} IS DISTINCT FROM r.{})",
+                quote(field.name()),
+                quote(field.name())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    (!differences.is_empty()).then(|| {
+        format!(
+            "SELECT l.id FROM {} l JOIN {} r ON l.id=r.id WHERE {differences} LIMIT 1",
+            quote(left),
+            quote(right)
+        )
+    })
+}
+
 fn poisoned() -> ModelError {
     ModelError::Invalid("admission runtime lock poisoned".into())
 }
@@ -2955,6 +3075,166 @@ mod reference_empty_controls {
         analysis::sources::SourceSnapshot,
         input::{Package, Release},
     };
+    #[test]
+    fn reference_premise_merge_is_charged_atomic_and_private_until_commit() {
+        let scratch = ResourceBudget::fixed(4096).unwrap();
+        let tiny = ResourceBudget::fixed(1).unwrap();
+        let refused = AdmissionMemo::new(&tiny);
+        let values = [ContentHash::of(b"first"), ContentHash::of(b"second")];
+        let mut pending = PendingReferencePremises::new(&scratch);
+        for value in values {
+            pending.insert(value).unwrap();
+        }
+        pending.insert(values[0]).unwrap();
+        assert!(refused.checked.lock().unwrap().0.is_empty());
+        assert_eq!(
+            pending.charge.reserved(),
+            256,
+            "duplicate premise keeps one admitted owner"
+        );
+        assert!(matches!(
+            pending.commit(&refused),
+            Err(ModelError::Resource { .. })
+        ));
+        assert!(
+            refused.checked.lock().unwrap().0.is_empty(),
+            "resource refusal publishes no prefix"
+        );
+        assert_eq!(tiny.reserved(), 0);
+        assert_eq!(scratch.reserved(), 0);
+
+        let backing = ResourceBudget::fixed(4096).unwrap();
+        let memo = AdmissionMemo::new(&backing);
+        let mut abandoned = PendingReferencePremises::new(&scratch);
+        abandoned.insert(values[0]).unwrap();
+        drop(abandoned);
+        assert!(
+            memo.checked.lock().unwrap().0.is_empty(),
+            "abandoned phase leaves no reusable proof"
+        );
+        let mut pending = PendingReferencePremises::new(&scratch);
+        for value in values {
+            pending.insert(value).unwrap();
+        }
+        pending.commit(&memo).unwrap();
+        assert_eq!(
+            memo.checked.lock().unwrap().0,
+            values.into_iter().collect::<BTreeSet<_>>()
+        );
+        assert_eq!(memo.checked.lock().unwrap().1.reserved(), 256);
+        let retained = backing.reserved();
+        let mut repeated = PendingReferencePremises::new(&scratch);
+        repeated.insert(values[0]).unwrap();
+        repeated.commit(&memo).unwrap();
+        assert_eq!(
+            backing.reserved(),
+            retained,
+            "existing proof retains its one charge"
+        );
+        assert_eq!(scratch.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn nominal_payload_comparisons_group_binary_boolean_and_nullable_predicates() {
+        use arrow_array::{Array, BooleanArray, FixedSizeBinaryArray};
+        use arrow_schema::{DataType, Field, Schema};
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::FixedSizeBinary(16), false),
+            Field::new("payload", DataType::FixedSizeBinary(16), false),
+            Field::new("active", DataType::Boolean, false),
+            Field::new("nullable", DataType::FixedSizeBinary(16), true),
+        ]));
+        let batch = |payload: [[u8; 16]; 2], active: [bool; 2], nullable: [Option<[u8; 16]>; 2]| {
+            RecordBatch::try_new(
+                schema.clone(),
+                vec![
+                    Arc::new(
+                        FixedSizeBinaryArray::try_from_iter([[1u8; 16], [2u8; 16]].into_iter())
+                            .unwrap(),
+                    ),
+                    Arc::new(FixedSizeBinaryArray::try_from_iter(payload.into_iter()).unwrap()),
+                    Arc::new(BooleanArray::from(active.to_vec())),
+                    Arc::new(
+                        FixedSizeBinaryArray::try_from_sparse_iter_with_size(
+                            nullable.into_iter(),
+                            16,
+                        )
+                        .unwrap(),
+                    ),
+                ],
+            )
+            .unwrap()
+        };
+        let session = SessionContext::new();
+        let left = "left\"input";
+        let right = "right-input";
+        session
+            .register_batch(left, batch([[7; 16]; 2], [true; 2], [Some([9; 16]), None]))
+            .unwrap();
+        let sql = nominal_payload_conflict_sql(&schema, left, right).unwrap();
+        for (payload, active, nullable, expected) in [
+            ([[7; 16]; 2], [true; 2], [Some([9; 16]), None], None),
+            (
+                [[8; 16], [7; 16]],
+                [true; 2],
+                [Some([9; 16]), None],
+                Some([1u8; 16]),
+            ),
+            (
+                [[7; 16]; 2],
+                [false, true],
+                [Some([9; 16]), None],
+                Some([1; 16]),
+            ),
+            ([[7; 16]; 2], [true; 2], [None, None], Some([1; 16])),
+            (
+                [[7; 16]; 2],
+                [true; 2],
+                [Some([9; 16]), Some([9; 16])],
+                Some([2; 16]),
+            ),
+        ] {
+            session.deregister_table(right).unwrap();
+            session
+                .register_batch(right, batch(payload, active, nullable))
+                .unwrap();
+            let results = crate::sql::query(&session, &sql)
+                .await
+                .unwrap()
+                .collect()
+                .await
+                .unwrap();
+            let found = results
+                .iter()
+                .flat_map(|batch| {
+                    let ids = batch
+                        .column(0)
+                        .as_any()
+                        .downcast_ref::<FixedSizeBinaryArray>()
+                        .unwrap();
+                    (0..ids.len())
+                        .map(|row| ids.value(row).to_vec())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                found,
+                expected
+                    .into_iter()
+                    .map(|id| id.to_vec())
+                    .collect::<Vec<_>>(),
+                "nominal payload differences retain binary, boolean and NULL semantics"
+            );
+        }
+        assert!(
+            nominal_payload_conflict_sql(
+                &Schema::new(vec![Field::new("id", DataType::FixedSizeBinary(16), false)]),
+                left,
+                right
+            )
+            .is_none(),
+            "an identity-only relation has no payload to compare"
+        );
+    }
     fn runtime(
         model: Arc<ValidatedModel>,
         native: Option<Arc<NativeCompilerStore>>,
@@ -3544,7 +3824,35 @@ mod reference_empty_controls {
                     .contains("missing or wrong-subtype nominal reference"),
                 "owned empty memo must not bypass external actual rows: {external_error}"
             );
-            producing.close_and_wait().await.unwrap();
+            // Pause after a new complete-empty missing-target premise has been
+            // staged, then close the actual producing owner. Terminal refusal
+            // must preserve all old memo entries and expose none from this call.
+            let mut missing_target = inputs.clone();
+            missing_target.relations.retain(|(name, _), _| *name != Package::NAME);
+            let before_refusal = runtime.memo.checked.lock().unwrap().0.clone();
+            let barrier = Arc::new(ReferencePhaseBarrier {
+                reached: tokio::sync::Barrier::new(2),
+                resume: tokio::sync::Barrier::new(2),
+                pending: std::sync::atomic::AtomicUsize::new(0),
+            });
+            let validation = REFERENCE_PHASE_BARRIER.scope(barrier.clone(),
+                runtime.validate_references(&snapshot, &[], &missing_target, Some(&snapshot)));
+            tokio::pin!(validation);
+            tokio::select! {
+                result = &mut validation => panic!("reference phase did not reach terminal control: {result:?}"),
+                _ = barrier.reached.wait() => {},
+            }
+            // No prefix is visible even before terminal validation fails.
+            let unchanged = runtime.memo.checked.lock().unwrap().0 == before_refusal;
+            let staged = barrier.pending.load(Ordering::Acquire);
+            let closed = producing.close_and_wait().await;
+            let (_, refused) = tokio::join!(barrier.resume.wait(), validation);
+            assert!(staged > 0, "actual reference phase staged a new proof before the late close");
+            assert!(unchanged, "staged reference proof remains private before terminal checks");
+            closed.unwrap();
+            assert!(refused.is_err(), "late producing close refuses the complete private phase");
+            assert_eq!(runtime.memo.checked.lock().unwrap().0, before_refusal,
+                "terminal refusal leaves the existing memo exactly unchanged");
             assert!(
                 runtime
                     .validate_references(&snapshot, &[], &inputs, Some(&snapshot))

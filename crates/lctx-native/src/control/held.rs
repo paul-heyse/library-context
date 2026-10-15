@@ -86,6 +86,60 @@ pub async fn hold_expected(
     Ok(HeldRecord { expected, owner })
 }
 
+/// Independently acquire a completed live boundary under its captured installation
+/// context. This also guards replay, which does not execute a new completion CAS.
+pub(crate) async fn hold_live_boundary_expected(
+    client: &Surreal<Client>,
+    live: &super::live_view::LiveViewOwner,
+    completion: &crate::completed_state::FrozenCompletion,
+    expected: ExpectedRecord,
+    budget: &ResourceBudget,
+) -> Result<HeldRecord, ModelError> {
+    if completion.attempt != live.attempt()
+        || completion.generation != live.generation()
+        || completion.attempt_epoch != live.epoch()
+        || completion.validity_epoch != live.validity_epoch()
+        || expected.record() != &completion.record()?
+        || expected.row() != completion.value(true)?
+    {
+        return Err(ModelError::Conflict(
+            "live boundary hold exact captured envelope",
+        ));
+    }
+    let _charge = budget.reserve(
+        "live boundary checked acquisition",
+        crate::loader::native_bytes(expected.row())
+            .saturating_mul(32)
+            .saturating_add(131072),
+    )?;
+    let owner = RecordId::new("native_attempt", live.attempt().hex());
+    let (_, holds, mut variables) = hold_plan(
+        Some(live.attempt()),
+        vec![(owner.clone(), expected.record.clone())],
+    )?
+    .ok_or(ModelError::Schema("live boundary hold plan"))?;
+    super::live_view::bind(live, &mut variables);
+    variables.insert("boundary", expected.record.clone());
+    variables.insert(
+        "boundary_guard",
+        guard_id(&Value::RecordId(expected.record.clone()))?,
+    );
+    variables.insert("boundary_incarnation", expected.incarnation);
+    variables.insert("boundary_bytes", expected.row.clone());
+    let sql = format!(
+        "{} LET $guard=SELECT * FROM ONLY $boundary_guard FOR UPDATE; LET $actual=SELECT * FROM ONLY $boundary FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$boundary_incarnation OR $actual!=$boundary_bytes {{ THROW 'live completed boundary hold changed'; }}; {holds}",
+        super::live_view::GUARD
+    );
+    effect_for_owner(
+        client,
+        EffectOwner::OpenAttempt(live.attempt()),
+        &sql,
+        variables,
+    )
+    .await?;
+    Ok(HeldRecord { expected, owner })
+}
+
 /// A bounded, identity-correlated observation. Extraction transfers each row's
 /// independent reservation; dropping the window cannot release an extracted row.
 /// These separate reads do not promise an atomic snapshot. Receiving effects must

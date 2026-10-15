@@ -1589,6 +1589,36 @@ impl NativeCompilerStore {
         // including a failed observation or concurrent cache replacement.
         d::completion::complete(result, terminal).map(|_| held)
     }
+    /// Local use of one original reference provider between actual phase fences.
+    /// The ordinary installed-view acquisition path retains its remote checks.
+    pub(crate) fn check_reference_source_local(
+        self: &Arc<Self>,
+        held: &Arc<lctx_native::installed_view::HeldInstalledView>,
+        view: &CompletedView,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        let lease = self.admit(false, "private reference source local borrow", true)?;
+        let result = (|| {
+            self.check_failed()?;
+            if held.completion().view != *view {
+                return Err(ModelError::Conflict("installed view descriptor collision"));
+            }
+            let installed = self
+                .installed_views
+                .lock()
+                .map_err(|_| ModelError::Conflict("native installed view owner"))?;
+            if !installed
+                .get(&view.identity)
+                .is_some_and(|actual| Arc::ptr_eq(actual, held))
+            {
+                return Err(ModelError::Conflict(
+                    "reference installed native owner changed",
+                ));
+            }
+            held.check_borrowed_local(&self.client, budget)
+        })();
+        lease.finish_cached_view_borrow(result, true)
+    }
     async fn installed_view_inner(
         self: &Arc<Self>,
         view: &CompletedView,

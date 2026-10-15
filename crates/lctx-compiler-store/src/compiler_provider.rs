@@ -159,12 +159,22 @@ impl ReferenceSource {
             .rows
             == 0
     }
-    pub(crate) fn check(&self) -> Result<(), ModelError> {
-        self.provider
+    pub(crate) async fn check(&self) -> Result<(), ModelError> {
+        let source = self
+            .provider
             .downcast_ref::<NativeTable>()
-            .expect("captured native reference source")
-            .store
-            .check()
+            .expect("captured native reference source");
+        let local = async {
+            source.store.check_reference_source_local(
+                &source.installed,
+                &source.view,
+                &source.budget,
+            )
+        };
+        match &source.producing {
+            Some(scope) => scope.run(local).await,
+            None => local.await,
+        }
     }
     pub(crate) async fn current(&self) -> Result<(), ModelError> {
         let source = self

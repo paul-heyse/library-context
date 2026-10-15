@@ -1001,14 +1001,26 @@ mod controls {
                 inventory.bindings,
                 &mut runtimes,
             );
-            wrong_pool
-                .execute_semantics(Profile::Catalog)
-                .await
-                .unwrap();
+            // Frozen physical inventory retains the actual pool that admitted its
+            // backing. Copying its logical descriptors into another runtime cannot
+            // earn a foreign-pool native reader, even when both limits are equal.
+            // Refuse at that ownership boundary before attempting native execution;
+            // a receiving operation would need independently earned physical owners.
+            let physical = native.complete_physical_content(&budget).await.unwrap();
+            assert!(matches!(
+                physical.inventory().require_pool(&foreign_pool),
+                Err(ModelError::Conflict(
+                    "completed inventory foreign resource pool"
+                ))
+            ));
+            assert!(
+                !Operation::of(&runtime).matches(&wrong_pool),
+                "equal-sized foreign pool cannot consume scoped semantic authority"
+            );
             assert_eq!(
                 finished.load(Ordering::SeqCst),
-                3,
-                "equal-sized foreign pool cannot consume scoped authority"
+                2,
+                "foreign-pool refusal must not execute a grouped validator"
             );
             memo.close_scoped().unwrap();
             assert!(
@@ -1035,7 +1047,7 @@ mod controls {
             cold.execute_semantics(Profile::Catalog).await.unwrap();
             assert_eq!(
                 finished.load(Ordering::SeqCst),
-                4,
+                3,
                 "fresh admission independently executes"
             );
             cold.memo.close_scoped().unwrap();

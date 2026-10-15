@@ -217,7 +217,7 @@ impl<V: AsRef<CompletedView>, C: AsRef<CompletedContribution>> SharedRecoveryTra
         while let Some(view) = self.pending.pop() {
             let actual = view.as_ref().as_ref();
             if let Some(old) = self.closure.views.get(&actual.identity) {
-                if old.as_ref().as_ref() != actual {
+                if !Arc::ptr_eq(old, &view) && old.as_ref().as_ref() != actual {
                     return Err(ModelError::Conflict("recovery view descriptor collision"));
                 }
                 continue;
@@ -233,12 +233,16 @@ impl<V: AsRef<CompletedView>, C: AsRef<CompletedContribution>> SharedRecoveryTra
         ingredient: &SharedRecoveryIngredient<V, C>,
     ) -> Result<(), ModelError> {
         let actual = ingredient.view.as_ref().as_ref();
-        if self.awaiting != Some(actual.identity) || actual != requested.as_ref().as_ref() {
+        if self.awaiting != Some(actual.identity)
+            || (!Arc::ptr_eq(&ingredient.view, requested) && actual != requested.as_ref().as_ref())
+        {
             return Err(ModelError::Conflict("recovery exact dependency view"));
         }
         for (identity, contribution) in &ingredient.contributions {
             if let Some(old) = self.closure.contributions.get(identity) {
-                if old.as_ref().as_ref() != contribution.data.as_ref().as_ref() {
+                if !Arc::ptr_eq(old, &contribution.data)
+                    && old.as_ref().as_ref() != contribution.data.as_ref().as_ref()
+                {
                     return Err(ModelError::Conflict("recovery contributor collision"));
                 }
                 continue;
@@ -447,6 +451,53 @@ mod tests {
         );
         drop(ingredients);
         assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn independently_allocated_recovery_handles_keep_full_descriptor_checks() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let seed = contribution("seed", &[]);
+        let seed_view = view(&seed);
+        let equal_view = Arc::new(Handle(seed_view.0.clone()));
+        let equal_seed = Arc::new(Handle(seed.0.clone()));
+        assert!(!Arc::ptr_eq(&seed_view, &equal_view));
+        assert!(!Arc::ptr_eq(&seed, &equal_seed));
+        let direct = ingredient(seed.clone(), equal_view, &[], &budget);
+        let identity = seed.as_ref().as_ref().identity().unwrap();
+        let mut traversal = SharedRecoveryTraversal::for_view(seed_view.clone(), &budget).unwrap();
+        let requested = traversal.next_view().unwrap().unwrap();
+        traversal.closure.contributions.insert(identity, equal_seed);
+        traversal.include_view(&requested, &direct).unwrap();
+        // An independently allocated equal duplicate is accepted on revisiting;
+        // a contradictory descriptor with the same claimed identity is refused.
+        traversal
+            .pending
+            .push(Arc::new(Handle(seed_view.0.clone())));
+        assert!(traversal.next_view().unwrap().is_none());
+        let mut changed_view = seed_view.0.clone();
+        changed_view.rows += 1;
+        traversal.pending.push(Arc::new(Handle(changed_view)));
+        assert!(matches!(
+            traversal.next_view(),
+            Err(ModelError::Conflict("recovery view descriptor collision"))
+        ));
+        let mut changed_seed = seed.0.clone();
+        changed_seed.outcome += 1;
+        let mut traversal = SharedRecoveryTraversal::for_view(seed_view, &budget).unwrap();
+        let requested = traversal.next_view().unwrap().unwrap();
+        traversal
+            .closure
+            .contributions
+            .insert(identity, Arc::new(Handle(changed_seed)));
+        assert!(matches!(
+            traversal.include_view(&requested, &direct),
+            Err(ModelError::Conflict("recovery contributor collision"))
+        ));
+        let mut changed_request = requested.0.clone();
+        changed_request.rows += 1;
+        assert!(matches!(
+            traversal.include_view(&Arc::new(Handle(changed_request)), &direct),
+            Err(ModelError::Conflict("recovery exact dependency view"))
+        ));
     }
     #[test]
     fn direct_ingredients_refuse_missing_inventory_and_wrong_dependency_metadata() {

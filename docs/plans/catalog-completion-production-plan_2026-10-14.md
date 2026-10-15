@@ -386,6 +386,34 @@ receiving/import/backup consumers; removing the identified local reconstruction 
 change. Reopen RC03/RC04 only for a concrete remaining workload/consumer mismatch, not an unmeasured
 claim that every repeated flat element entails another database query.
 
+Compound receiving phases borrow one actual installation-context observation for their selector
+iteration, retaining local session, pool, pin and source-open checks. Ordinary operation scopes
+continue to observe current context independently. Both new and replay live boundary acquisition
+compare the captured generation, validity and attempt epoch together with exact parent bytes and
+incarnation in the final checked native effect; frozen acquisition retains its original fence.
+Complete child/hold inventories and EOF precede authority. Once the receiver earns independent
+ownership, later source closure does not revoke it. This removes repeated context queries without
+introducing a portable success cache or relaxing receiving assurance.
+
+Within that live inspection phase, contributor-to-input assurance follows the exact physical
+contributor/incarnation once; view-to-contributor correspondence still follows every mapping.
+Publish prepared dependency incidence only after complete endpoint and hold-window inspection,
+including empty dependency views. Each independently selected physical copy earns its own proof.
+Shared immutable handles avoid deep equality only when their Arc identity is identical; distinct
+handles retain full descriptor comparison. Family accumulation follows the already distinct physical
+contributor inventory rather than repeating one owner's inputs and payload for every relation.
+These changes preserve root traversal, ordered output, complete EOF and final receiving CAS.
+
+Private reference validation brackets one call with actual current observations of every captured
+source, including distinct producing aliases. Between those boundaries, each empty or memoized use
+checks the original installed-capability Arc/descriptor, client, resource pool, live pin/reader,
+native read admission, producing scope and cancellation. Ordinary installed-view/current checks
+retain their existing behavior. Every SQL stream reaches its required EOF. Newly proved reference
+premises stay in a charged call-local set; only successful terminal current/local checks permit one
+fully precharged memo merge. SQL, ownership, cancellation, cleanup or reservation failure leaves
+previous valid memo entries unchanged and publishes no new prefix. This is phase-local preparation,
+not serialized authority or cross-owner reuse.
+
 **Functional evidence.** Multiple shared-relation producers with disjoint, equal-overlap and conflicting
 nominal content retain exact demanded rows/counts and independently specified old frozen views.
 Show ingredient preparation and no-longer-demanded registry release through structural witnesses;
