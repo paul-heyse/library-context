@@ -27,6 +27,8 @@ dev = [
     "bm25s==0.3.12",
     "pytest-reportlog==1.0.0",
     "tomlkit==0.15.1",
+    # Independent full-artifact digest oracle for the native Catalog pilot.
+    "blake3==1.0.11",
 ]
 
 [tool.uv]
