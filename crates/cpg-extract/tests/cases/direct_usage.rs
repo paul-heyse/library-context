@@ -1,6 +1,6 @@
 //! Actual captured documentation roles and native normalized Usage-policy evidence.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     analysis::usage,
     input::{ArtifactUse, SourceRole},

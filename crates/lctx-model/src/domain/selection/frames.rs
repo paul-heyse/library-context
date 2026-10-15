@@ -44,10 +44,14 @@ macro_rules! metadata {($($field:ident:$ty:ty,)*)=>{
 frame_rows!(metadata);
 impl Frames {
     pub fn parents(&self, b: &ResourceBudget) -> Result<Rows<c1::Invocation>, ModelError> {
-        let mut compact=self.compact.retain(b)?;
-        for run in self.runs.iter(){for helper in [&self.local_uniform,&self.source_uniform]{
-            if let Some(domain)=helper.frame(run.input,run.context)?{compact.include(domain)?;}
-        }}
+        let mut compact = self.compact.retain(b)?;
+        for run in self.runs.iter() {
+            for helper in [&self.local_uniform, &self.source_uniform] {
+                if let Some(domain) = helper.frame(run.input, run.context)? {
+                    compact.include(domain)?;
+                }
+            }
+        }
         parents_from(
             &self.runs,
             &self.core,
@@ -55,7 +59,7 @@ impl Frames {
             &self.evidence_sources,
             &self.evidence_inputs,
             &catalog::evidence::frames::LowerFrames {
-                compact:&compact,
+                compact: &compact,
                 local: &self.local,
                 local_outcomes: &self.local_outcomes,
                 source: &self.source,
@@ -224,7 +228,12 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.frames.admit_uniform_owner(owner)}
+    fn admit_uniform_owner(
+        &mut self,
+        owner: &uniform_outcome::ValidatedUniformOwner,
+    ) -> Result<(), ModelError> {
+        self.frames.admit_uniform_owner(owner)
+    }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         if self.frames.visit(n, b)? {
             return Ok(());

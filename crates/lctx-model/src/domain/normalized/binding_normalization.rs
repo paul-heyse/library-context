@@ -128,36 +128,28 @@ impl<'a> Index<'a> {
             .filter(|v| v.role.runtime_source())
         {
             let raw = need(&data.signatures, v.signature)?;
-            s.raw_variants
-                .update(&mut s._charge, raw.symbol, |vs| vs.push(v))?;
+            s.raw_variants.push(&mut s._charge, raw.symbol, v)?;
             if let Some(callable) = v.callable {
-                s.variants
-                    .update(&mut s._charge, (callable, v.context), |vs| vs.push(v))?;
+                s.variants.push(&mut s._charge, (callable, v.context), v)?;
             }
         }
         for row in data.syntax.iter() {
             let q = need(&data.qualifications, row.qualification)?;
-            s.syntax
-                .update(&mut s._charge, (row.site, q.context), |vs| vs.push(row))?;
+            s.syntax.push(&mut s._charge, (row.site, q.context), row)?;
         }
         for row in data.parameters.iter() {
-            s.parameters.update(&mut s._charge, row.signature, |vs| {
-                vs.push(row.clone());
-                vs.sort_by_key(|p| p.ordinal);
-            })?;
+            s.parameters
+                .push_ordered(&mut s._charge, row.signature, row.clone(), |p| p.ordinal)?;
         }
         for row in data.arguments.iter() {
-            s.arguments.update(&mut s._charge, row.call, |vs| {
-                vs.push(row.clone());
-                vs.sort_by_key(|a| a.ordinal);
-            })?;
+            s.arguments
+                .push_ordered(&mut s._charge, row.call, row.clone(), |a| a.ordinal)?;
         }
         for row in data.callable_slots.iter() {
             s.slots.insert(&mut s._charge, row.parameter, row)?;
         }
         for row in data.signature_supports.iter() {
-            s.supports
-                .update(&mut s._charge, row.assertion, |vs| vs.push(row))?;
+            s.supports.push(&mut s._charge, row.assertion, row)?;
         }
         Ok(s)
     }
@@ -480,7 +472,7 @@ fn normalize_with(
                     events,
                     budget,
                 )?;
-                sets.update(&mut charge, key, |ids| ids.push(id))?;
+                sets.push(&mut charge, key, id)?;
             }
         }
     }
@@ -500,14 +492,18 @@ fn assess_set(
     let mut charge = StateCharge::new(budget, "binding-variant-set");
     // Production discovers alternatives/variants/syntax in a different order from the
     // independent stored-row reader. Closed membership has one canonical ID order.
-    charge.grow(attempts.len().saturating_mul(size_of::<Id<CallBindingAttempt>>()))?;
+    charge.grow(
+        attempts
+            .len()
+            .saturating_mul(size_of::<Id<CallBindingAttempt>>()),
+    )?;
     let mut ordered = attempts.to_vec();
     ordered.sort_unstable();
     let mut variants: ChargedMap<Option<Id<SignatureVariant>>, Vec<&CallBindingAttempt>> =
         Default::default();
     for id in &ordered {
         let row = need(&output.attempts.view(), *id)?;
-        variants.update(&mut charge, row.variant, |vs| vs.push(row))?;
+        variants.push(&mut charge, row.variant, row)?;
     }
     let mut assessments = Vec::new();
     let mut whole = KeySink::new("binding-variant-set");
@@ -987,7 +983,7 @@ impl EnumerationAuthority {
             result.member_counts.insert(charge, row.id(), 0)?;
             result
                 .symbol_counts
-                .update(charge, row.symbol, |n| *n += 1)?;
+                .update_inline(charge, row.symbol, |n| *n += 1)?;
         }
         for member in data.signature_enumeration_members.iter() {
             result
@@ -995,7 +991,7 @@ impl EnumerationAuthority {
                 .insert(charge, member.id(), member.content_digest())?;
             result
                 .member_counts
-                .update(charge, member.enumeration, |n| *n += 1)?;
+                .update_inline(charge, member.enumeration, |n| *n += 1)?;
             let signature = need(&data.signatures, member.signature)?;
             result
                 .signatures
@@ -1022,14 +1018,14 @@ impl EnumerationAuthority {
                 while let Some(key) = other.$field.keys().next().copied() {
                     let value = other
                         .$field
-                        .remove(other_charge, &key)
+                        .remove(other_charge, &key)?
                         .expect("enumeration predecessor entry");
                     if let Some(old) = self.$field.get(&key) {
-                        if old != &value {
+                        if old != &*value {
                             return Err(ModelError::Conflict("enumeration predecessor changed"));
                         }
                     } else {
-                        self.$field.insert(charge, key, value)?;
+                        self.$field.insert_owned(charge, key, value)?;
                     }
                 }
             };
@@ -1042,15 +1038,17 @@ impl EnumerationAuthority {
         while let Some(key) = other.observations.keys().next().copied() {
             let value = other
                 .observations
-                .remove(other_charge, &key)
+                .remove(other_charge, &key)?
                 .expect("enumeration predecessor observation");
             if let Some(old) = self.observations.get(&key) {
-                if old != &value {
+                if old != &*value {
                     return Err(ModelError::Conflict("enumeration predecessor changed"));
                 }
             } else {
-                self.observations.insert(charge, key, value)?;
-                self.symbol_counts.update(charge, value.1, |n| *n += 1)?;
+                let symbol = value.1;
+                self.observations.insert_owned(charge, key, value)?;
+                self.symbol_counts
+                    .update_inline(charge, symbol, |n| *n += 1)?;
             }
         }
         Ok(())
@@ -1156,9 +1154,9 @@ impl VerifiedBindings {
                     }
                     let value = other
                         .$field
-                        .remove(&mut other._charge, &key)
+                        .remove(&mut other._charge, &key)?
                         .expect("selected owner entry");
-                    self.$field.insert(&mut self._charge, key, value)?;
+                    self.$field.insert_owned(&mut self._charge, key, value)?;
                 }
             }};
         }
@@ -2330,8 +2328,10 @@ mod set_order_controls {
 
     fn nominal<T>(value: u8) -> Id<T> {
         serde::Deserialize::deserialize(serde::de::value::SeqDeserializer::<
-            _, serde::de::value::Error,
-        >::new([value; 16].into_iter())).unwrap()
+            _,
+            serde::de::value::Error,
+        >::new([value; 16].into_iter()))
+        .unwrap()
     }
 
     #[test]
@@ -2365,7 +2365,9 @@ mod set_order_controls {
             });
             let assess = |rows: &[CallBindingAttempt], ids: &[Id<CallBindingAttempt>]| {
                 let mut output = BindingOutput::new(&budget);
-                for row in rows { output.attempts.insert(row.clone()).unwrap(); }
+                for row in rows {
+                    output.attempts.insert(row.clone()).unwrap();
+                }
                 assess_set(&view, &index, key, ids, &mut output, &budget).unwrap();
                 output
             };

@@ -321,7 +321,11 @@ fn grouped_counts_preserve_mixed_statuses_and_representatives_under_row_shuffle(
         .find(|c| c.status == CoverageStatus::Partial)
         .unwrap();
     assert_eq!(partial.observations, 2);
-    let lctx_model::domain::uniform_outcome::CoverageAuthority::Scoped{coverage}=partial.coverage else {panic!("ordinary fixture retains scoped authority")};
+    let lctx_model::domain::uniform_outcome::CoverageAuthority::Scoped { coverage } =
+        partial.coverage
+    else {
+        panic!("ordinary fixture retains scoped authority")
+    };
     let representative = forward.coverage.get(coverage).unwrap();
     assert_eq!(representative.status, CoverageStatus::Partial);
     assert_eq!(Some(representative.scope), partial.scope.0);

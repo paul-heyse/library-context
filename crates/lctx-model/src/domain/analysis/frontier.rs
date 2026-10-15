@@ -365,7 +365,12 @@ struct Check {
     budget: ResourceBudget,
 }
 impl PublicationCheck for Check {
-    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.data.admit_uniform_owner(owner)}
+    fn admit_uniform_owner(
+        &mut self,
+        owner: &uniform_outcome::ValidatedUniformOwner,
+    ) -> Result<(), ModelError> {
+        self.data.admit_uniform_owner(owner)
+    }
     fn visit(&mut self, n: &str, b: &arrow_array::RecordBatch) -> Result<(), ModelError> {
         match (self.target, n) {
             (Target::Analysis, AnalysisAssessment::NAME) => {
@@ -442,7 +447,7 @@ pub fn stage(
     }
     Ok(stages::Stage {
         captured_binding: None,
-name: match target {
+        name: match target {
             Target::Analysis => "assess_analysis_frontier",
             Target::Catalog => "assess_catalog_frontier",
         },

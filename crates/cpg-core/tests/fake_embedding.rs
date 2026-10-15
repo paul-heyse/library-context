@@ -43,4 +43,3 @@ fn the_fake_embedder_is_a_committed_known_answer() {
         answers
     );
 }
-

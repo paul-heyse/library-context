@@ -999,7 +999,6 @@ async fn selected_source_signature_witness_replay_refuses_missing_and_foreign_do
     }
 }
 
-
 #[path = "cases/transfer/finite_summaries.rs"]
 mod finite_summaries;
 

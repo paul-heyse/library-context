@@ -33,6 +33,9 @@ use tracing::{Instrument, instrument::WithSubscriber};
 type ProviderDrain = Shared<BoxFuture<'static, Result<(), Arc<ModelError>>>>;
 type ChargedBatch = Result<(RecordBatch, Box<dyn Reservation>), ModelError>;
 
+mod membership_demand;
+use membership_demand::MembershipDemand;
+
 pub use lctx_compiler_store::admission::{AdmissionOptions as WorkspaceOptions, Cancellation};
 struct WorkspaceFiles {
     directory: tempfile::TempDir,
@@ -46,6 +49,7 @@ struct WorkspaceExecutionOwner {
     native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
     provider_drains: Arc<Mutex<Vec<ProviderDrain>>>,
     product_cache: Arc<Mutex<Option<Arc<lctx_compiler_store::NativeProductCache>>>>,
+    membership_demand: Arc<Mutex<Option<MembershipDemand>>>,
     signal: Arc<lctx_native::signal::SignalRegistration>,
     admission_memo: Arc<lctx_compiler_store::admission::AdmissionMemo>,
 }
@@ -90,6 +94,7 @@ pub struct Workspace {
     budget: ResourceBudget,
     scope_programs: Arc<lctx_model::domain::scope_program::ScopeProgramRuntime>,
     product_cache: Arc<Mutex<Option<Arc<lctx_compiler_store::NativeProductCache>>>>,
+    membership_demand: Arc<Mutex<Option<MembershipDemand>>>,
     admitted_product_reuse: AtomicBool,
     model: Arc<ValidatedModel>,
     native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
@@ -162,6 +167,15 @@ impl lctx_compiler_store::admission::ExecutionOwner for WorkspaceExecutionOwner 
                 } else {
                     cache.retain_unknown();
                     completion.local = LocalState::Outstanding;
+                }
+            }
+            if completion.local == LocalState::Terminal
+                && completion.remote == lctx_model::domain::completion::RemoteState::Confirmed
+                && completion.failures.iter().all(|failure| failure.error.permits_storage_cleanup())
+            {
+                match self.membership_demand.lock() {
+                    Ok(mut demand) => { demand.take(); }
+                    Err(_) => completion.step("membership demand owner release", Err(poisoned())),
                 }
             }
             completion
@@ -245,6 +259,7 @@ impl Workspace {
         let files = Arc::new(WorkspaceFiles { directory });
         let provider_drains = Arc::new(Mutex::default());
         let product_cache = Arc::new(Mutex::default());
+        let membership_demand = Arc::new(Mutex::default());
         let execution = Arc::new(WorkspaceExecutionOwner {
             _files: files.clone(),
             cancellation: cancellation.clone(),
@@ -253,6 +268,7 @@ impl Workspace {
             native: native.clone(),
             provider_drains: provider_drains.clone(),
             product_cache: product_cache.clone(),
+            membership_demand: membership_demand.clone(),
             signal: signal.clone(),
             admission_memo: admission_memo.clone(),
         });
@@ -265,6 +281,7 @@ impl Workspace {
                 &model, &budget,
             )?,
             product_cache,
+            membership_demand,
             admitted_product_reuse: AtomicBool::new(true),
             budget,
             model,
@@ -369,11 +386,11 @@ impl Workspace {
         let mut owner_charge = StateCharge::new(&self.budget, "compiler-completed-owners");
         for contribution in contributions {
             owner_charge.grow(
-                serde_json::to_vec(&contribution)
-                    .map_err(ModelError::codec)?
-                    .len()
-                    .saturating_mul(4)
-                    .saturating_add(256),
+                std::mem::size_of_val(&contribution)
+                    .saturating_add(lctx_native::installed_view::contribution_heap(
+                        &contribution,
+                    ))
+                    .saturating_add(128),
             )?;
             owners.insert(contribution.spec.identity()?, contribution);
         }
@@ -386,6 +403,14 @@ impl Workspace {
                 .ok_or(ModelError::Schema("restored compiler relation"))?
                 .clone();
             let name = relation.name();
+            let retained = self.budget.reserve(
+                "restored completed relation backing",
+                std::mem::size_of::<CompletedRelation>()
+                    + 128
+                    + binding.source.producer().len()
+                    + binding.source.heap_bytes()
+                    + lctx_native::installed_view::view_heap(&binding.view),
+            )?;
             let source = Arc::new(CompletedRelation {
                 relation,
                 producer: binding.source.producer().into(),
@@ -404,7 +429,8 @@ impl Workspace {
                 contribution: lctx_model::domain::stages::is_epoch_shared(name),
                 snapshot: binding.source,
                 _files: self.files.clone(),
-                _selection_charge: None,
+                _selection_charge: Some(Arc::from(retained)),
+                _execution: self.execution.clone(),
             });
             if let Some(boundary) = binding.boundary {
                 let boundary = lctx_model::domain::stages::PublicationBoundary::ALL
@@ -1159,6 +1185,7 @@ impl Workspace {
             .lock()
             .map_err(|_| poisoned())?
             .insert((boundary, selection.relation), source);
+        self.refresh_membership_demand()?;
         Ok(())
     }
     pub(crate) async fn bind_scheduled_inputs(
@@ -1190,6 +1217,7 @@ impl Workspace {
         for selection in schedule.prefix_selections(boundary)? {
             self.bind_exact_selection(selection).await?;
         }
+        self.finish_membership_prefix(schedule.digest(), boundary)?;
         Ok(())
     }
     /// Bind each declared semantic boundary to immutable shared streams. Only small
@@ -1290,6 +1318,7 @@ impl Workspace {
                 "selected compiler inputs differ from declaration".into(),
             ));
         }
+        let current = self.completed.lock().map_err(|_| poisoned())?;
         let frozen = self.frozen_shared.lock().map_err(|_| poisoned())?;
         let mut relations = BTreeMap::new();
         for (role, (declared, input)) in declaration.inputs.iter().zip(&selected.inputs).enumerate()
@@ -1312,7 +1341,9 @@ impl Workspace {
                         ))
                     })?
             } else {
-                self.relation(input.name())?
+                current.get(input.name()).cloned().ok_or_else(|| {
+                    ModelError::Invalid(format!("input {} is not completed", input.name()))
+                })?
             };
             if relations
                 .insert(
@@ -1431,6 +1462,9 @@ pub struct CompletedRelation {
     snapshot: lctx_model::domain::analysis::sources::SourceSnapshot,
     _files: Arc<WorkspaceFiles>,
     _selection_charge: Option<Arc<dyn Reservation>>,
+    // Useful immutable borrowers retain the operation owner, without retaining
+    // Workspace or its completed-relation registry and creating a cycle.
+    _execution: Arc<WorkspaceExecutionOwner>,
 }
 impl CompletedRelation {
     pub fn schema(&self) -> &Arc<arrow_schema::Schema> {
@@ -1531,6 +1565,7 @@ impl CompletedRelation {
             cancellation: self.cancellation.clone(),
             charge: None,
             done: false,
+            _execution: Some(self._execution.clone()),
         };
         (driver, reader)
     }
@@ -1580,6 +1615,7 @@ pub struct NativeBatches {
     cancellation: Cancellation,
     charge: Option<Box<dyn Reservation>>,
     done: bool,
+    _execution: Option<Arc<WorkspaceExecutionOwner>>,
 }
 impl NativeBatches {
     /// Async compiler callers await the same handoff that wakes provider threads.
@@ -2704,14 +2740,17 @@ impl ProducerOutput {
     }
     /// Asynchronous compiler consumers register natively without blocking their runtime.
     pub fn declare_async<R: Record>(&self) -> BoxFuture<'_, Result<(), ModelError>> {
+        self.declare_kind_async::<R>(lctx_model::domain::stages::is_epoch_shared(R::NAME))
+    }
+    fn declare_kind_async<R: Record>(
+        &self,
+        contribution: bool,
+    ) -> BoxFuture<'_, Result<(), ModelError>> {
         Box::pin(async move {
             let result = async {
                 self.check_output::<R>()?;
                 let producer = self.registration_request().await?;
-                self.insert_writer::<R>(
-                    producer,
-                    lctx_model::domain::stages::is_epoch_shared(R::NAME),
-                )
+                self.insert_writer::<R>(producer, contribution)
             }
             .await;
             if result.is_err() {
@@ -2936,6 +2975,8 @@ impl ProducerOutput {
                     "refused producer ingress drain",
                     self.finish_ingress().await,
                 );
+                self.workspace.native.fail();
+                self.workspace.cancellation.cancel();
                 return lctx_model::domain::completion::complete(Err(error), completion);
             }
             self.complete().await
@@ -2946,11 +2987,19 @@ impl ProducerOutput {
     }
     pub fn complete(self) -> BoxFuture<'static, Result<(), ModelError>> {
         let ingress = self.ingress.clone();
+        let workspace = self.workspace.clone();
         Box::pin(async move {
             let result = self.complete_inner().await;
             let mut completion = lctx_model::domain::completion::Completion::default();
             completion.step("producer accepted ingress drain", ingress.finish().await);
-            lctx_model::domain::completion::complete(result, completion)
+            let result = lctx_model::domain::completion::complete(result, completion);
+            if result.is_err() {
+                // Required completion cannot be caught and relabelled as an optional
+                // capture miss, including local failure after native binding effects.
+                workspace.native.fail();
+                workspace.cancellation.cancel();
+            }
+            result
         })
     }
     fn complete_inner(self) -> BoxFuture<'static, Result<(), ModelError>> {
@@ -3008,31 +3057,6 @@ impl ProducerOutput {
             let id = registration.await?;
             self.ingress.finish().await?;
             producing_scope.close_and_wait().await?;
-            let _completion = lctx_native::phase::wait(
-                "compiler_completion_gate",
-                self.workspace.completion_gate.lock(),
-            )
-            .await;
-            self.workspace.writable()?;
-            let previous = self
-                .workspace
-                .completed
-                .lock()
-                .map_err(|_| poisoned())?
-                .iter()
-                .map(|(name, source)| ((*name).to_owned(), source.view.clone()))
-                .collect();
-            for source in &pending {
-                if let Ok(previous) = self.workspace.relation(source.relation.name())
-                    && !source.contribution
-                    && !previous.contribution
-                {
-                    return Err(ModelError::Invalid(format!(
-                        "completed output {} already has an owner",
-                        source.relation.name()
-                    )));
-                }
-            }
             let outputs = pending
                 .iter()
                 .map(|source| source.relation.clone())
@@ -3045,46 +3069,127 @@ impl ProducerOutput {
             let expected_outcome = outcome as i16;
             let native = self.workspace.native.clone();
             let budget = self.workspace.budget.clone();
-            let views = self
+            let production = self
                 .workspace
                 .native_calls
                 .call(async move {
                     native
-                        .complete_contribution_scoped(
-                            &producing_scope,
-                            id,
-                            outcome,
-                            &outputs,
-                            &previous,
-                            &budget,
-                        )
+                        .complete_singleton_scoped(&producing_scope, id, outcome, &outputs, &budget)
                         .await
                 })
                 .await?;
-            let native = self.workspace.native.clone();
-            let descriptor = self
-                .workspace
-                .native_calls
-                .call(async move { native.completed_contribution(id).await })
-                .await?;
+            let descriptor = production.descriptor();
             if descriptor.spec != spec || descriptor.outcome != expected_outcome {
                 return Err(ModelError::Conflict("completed native producer handoff"));
             }
             if let Some(request) = product_request {
-                self.workspace.retain_product(request, id, outcome).await?;
+                self.workspace
+                    .retain_product(request, production.clone())
+                    .await?;
             }
-            let descriptor_bytes = serde_json::to_vec(&descriptor)
-                .map_err(ModelError::codec)?
-                .len()
-                .saturating_mul(4)
-                .saturating_add(256);
+            // Only latest contributor composition, binding and coherent host visibility
+            // require this gate. Private singleton/capture work above can overlap.
+            let _completion = lctx_native::phase::wait(
+                "compiler_completion_gate",
+                self.workspace.completion_gate.lock(),
+            )
+            .await;
+            self.workspace.cancellation.check()?;
+            self.workspace.writable()?;
+            let mut handoff_charge =
+                StateCharge::new(&self.workspace.budget, "compiler completed handoff");
+            let owner_key = descriptor.spec.identity()?;
+            if self
+                .workspace
+                .completed_owners
+                .lock()
+                .map_err(|_| poisoned())?
+                .0
+                .contains_key(&owner_key)
+            {
+                return Err(ModelError::Conflict(
+                    "duplicate completed native producer handoff",
+                ));
+            }
+            // Local preparation backing drops on any failure; transfer to the persistent
+            // owner happens only with the coherent handoff.
+            handoff_charge.grow(
+                std::mem::size_of_val(descriptor)
+                    + lctx_native::installed_view::contribution_heap(descriptor)
+                    + 128,
+            )?;
+            let descriptor_copy = descriptor.clone();
+            let previous_charge;
+            let previous = {
+                let visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
+                previous_charge = self.workspace.budget.reserve(
+                    "completion previous view snapshot",
+                    visible
+                        .values()
+                        .filter(|source| production.outputs().contains_key(source.name()))
+                        .map(|source| {
+                            std::mem::size_of::<(
+                                String,
+                                lctx_model::domain::completed::CompletedView,
+                            )>() + 64
+                                + source.name().len()
+                                + lctx_native::installed_view::view_heap(&source.view)
+                        })
+                        .sum(),
+                )?;
+                visible
+                    .iter()
+                    .filter(|(name, _)| production.outputs().contains_key(**name))
+                    .map(|(name, source)| ((*name).to_owned(), source.view.clone()))
+                    .collect()
+            };
+            for source in &pending {
+                if let Ok(previous) = self.workspace.relation(source.relation.name())
+                    && !source.contribution
+                    && !previous.contribution
+                {
+                    return Err(ModelError::Invalid(format!(
+                        "completed output {} already has an owner",
+                        source.relation.name()
+                    )));
+                }
+                if self
+                    .workspace
+                    .completed_by_producer
+                    .lock()
+                    .map_err(|_| poisoned())?
+                    .contains_key(&(self.name, source.relation.name()))
+                {
+                    return Err(ModelError::Conflict("duplicate exact producer output"));
+                }
+            }
+            let native = self.workspace.native.clone();
+            let budget = self.workspace.budget.clone();
+            let composed = production.clone();
+            let (views, views_charge) = self
+                .workspace
+                .native_calls
+                .call(async move {
+                    native
+                        .compose_production(&composed, &previous, &budget)
+                        .await
+                })
+                .await?;
+            drop(previous_charge);
             let mut completed = Vec::new();
             for pending in pending {
                 let name = pending.relation.name();
-                let view = views
+                let supplied = views
                     .get(name)
-                    .ok_or(ModelError::Schema("completed native output absent"))?
-                    .clone();
+                    .ok_or(ModelError::Schema("completed native output absent"))?;
+                let retained = self.workspace.budget.reserve(
+                    "completed visible relation backing",
+                    std::mem::size_of::<CompletedRelation>() + 128 + self.name.len()
+                        // Canonical snapshots own the relation and generated producer strings.
+                        + pending.relation.name().len().saturating_mul(3) + 64
+                        + lctx_native::installed_view::view_heap(supplied),
+                )?;
+                let view = supplied.clone();
                 completed.push(Arc::new(CompletedRelation {
                     snapshot:
                         lctx_model::domain::analysis::sources::SourceSnapshot::of_completed_view(
@@ -3108,17 +3213,81 @@ impl ProducerOutput {
                     profile: self.profile,
                     contribution: pending.contribution,
                     _files: self.workspace.files.clone(),
-                    _selection_charge: None,
+                    _selection_charge: Some(Arc::from(retained)),
+                    _execution: self.workspace.execution.clone(),
                 }));
             }
+            let mut singletons = Vec::new();
             for source in &completed {
-                let native = self.workspace.native.clone();
-                let binding = lctx_model::domain::completed::CompletedBinding {
+                let supplied = production
+                    .outputs()
+                    .get(source.name())
+                    .ok_or(ModelError::Conflict("exact producer output absent"))?;
+                let retained = self.workspace.budget.reserve(
+                    "completed exact producer relation backing",
+                    std::mem::size_of::<CompletedRelation>()
+                        + 128
+                        + self.name.len()
+                        + source.relation.name().len().saturating_mul(3)
+                        + 64
+                        + lctx_native::installed_view::view_heap(supplied),
+                )?;
+                let singleton = CompletedRelation {
+                    snapshot: analysis::sources::SourceSnapshot::of_completed_view(
+                        &source.relation,
+                        self.workspace.model.digest(),
+                        supplied,
+                    )?,
+                    relation: source.relation.clone(),
+                    producer: source.producer.clone(),
+                    implementation: source.implementation,
+                    configuration: source.configuration,
+                    contract: source.contract,
+                    rows: supplied.rows,
+                    view: supplied.clone(),
+                    native: source.native.clone(),
+                    bridge: source.bridge.clone(),
+                    budget: source.budget.clone(),
+                    batch_rows: source.batch_rows,
+                    cancellation: source.cancellation.clone(),
+                    inputs: source.inputs.clone(),
+                    profile: source.profile,
+                    contribution: source.contribution,
+                    _files: source._files.clone(),
+                    _selection_charge: Some(Arc::from(retained)),
+                    _execution: source._execution.clone(),
+                };
+                singletons.push(Arc::new(singleton));
+            }
+            // Bind scratch is admitted before cloning all affected bindings.
+            let _bindings_charge = self.workspace.budget.reserve(
+                "completed visibility bind preparation",
+                completed
+                    .iter()
+                    .map(|source| {
+                        std::mem::size_of::<lctx_model::domain::completed::CompletedBinding>()
+                            + 512
+                            + lctx_native::installed_view::view_heap(&source.view)
+                    })
+                    .sum(),
+            )?;
+            self.workspace
+                .completed_owners
+                .lock()
+                .map_err(|_| poisoned())?
+                .1
+                .prepare_absorb(&handoff_charge)?;
+            let bindings = completed
+                .iter()
+                .map(|source| lctx_model::domain::completed::CompletedBinding {
                     boundary: None,
                     source: source.snapshot(),
                     view: source.view.clone(),
                     configuration: None,
-                };
+                })
+                .collect::<Vec<_>>();
+            for binding in bindings {
+                let native = self.workspace.native.clone();
                 self.workspace
                     .native_calls
                     .call(async move { native.bind(binding).await })
@@ -3130,58 +3299,23 @@ impl ProducerOutput {
                 .completed_owners
                 .lock()
                 .map_err(|_| poisoned())?;
-            owners.1.grow(
-                descriptor_bytes.saturating_add(
-                    completed
-                        .len()
-                        .saturating_mul(std::mem::size_of::<CompletedRelation>() + 512),
-                ),
-            )?;
-            if owners
-                .0
-                .insert(descriptor.spec.identity()?, descriptor.clone())
-                .is_some()
-            {
-                return Err(ModelError::Conflict(
-                    "duplicate completed native producer handoff",
-                ));
-            }
-            drop(owners);
             let mut by_producer = self
                 .workspace
                 .completed_by_producer
                 .lock()
                 .map_err(|_| poisoned())?;
-            for source in &completed {
-                let output = descriptor
-                    .outputs
-                    .get(source.name())
-                    .ok_or(ModelError::Conflict("exact producer output absent"))?;
-                let view = lctx_model::domain::completed::CompletedView::new(
-                    source.name().into(),
-                    [descriptor.identity()?].into(),
-                    output.rows,
-                )?;
-                let mut singleton = (**source).clone();
-                singleton.rows = view.rows;
-                singleton.snapshot = analysis::sources::SourceSnapshot::of_completed_view(
-                    &singleton.relation,
-                    self.workspace.model.digest(),
-                    &view,
-                )?;
-                singleton.view = view;
-                if by_producer
-                    .insert((self.name, source.name()), Arc::new(singleton))
-                    .is_some()
-                {
-                    return Err(ModelError::Conflict("duplicate exact producer output"));
-                }
-            }
-            drop(by_producer);
             let mut visible = self.workspace.completed.lock().map_err(|_| poisoned())?;
+            owners.1.absorb(handoff_charge)?;
+            owners.0.insert(owner_key, descriptor_copy);
+            for singleton in singletons {
+                by_producer.insert((self.name, singleton.name()), singleton);
+            }
             for source in completed {
                 visible.insert(source.name(), source);
             }
+            drop((owners, by_producer, visible));
+            drop(views_charge);
+            self.workspace.refresh_membership_demand()?;
             Ok(())
         })
     }
@@ -3938,6 +4072,7 @@ mod tests {
             cancellation: cancellation.clone(),
             charge: None,
             done: false,
+            _execution: None,
         };
         assert!(reader.next_async().await.unwrap().is_ok());
         assert_eq!(budget.reserved(), 4096);
@@ -4789,6 +4924,14 @@ mod tests {
         ));
         assert!(workspace.completed::<Package>().is_err());
         assert!(workspace.completed::<SourceArtifact>().is_err());
+        let finality = workspace.drain_owned_report().await;
+        workspace.complete_signal(&finality).await.unwrap();
+        lctx_model::domain::completion::complete::<()>(Ok(()), finality).unwrap();
+        lctx_model::domain::completion::complete::<()>(
+            Ok(()),
+            workspace.native.abandon_finality_report().await,
+        )
+        .unwrap();
     }
     #[tokio::test]
     async fn ordinary_owner_adopts_native_contributions_then_refuses_another_owner() {
@@ -4838,6 +4981,14 @@ mod tests {
             workspace.completed::<Package>().unwrap().producer(),
             "assembly"
         );
+        let finality = workspace.drain_owned_report().await;
+        workspace.complete_signal(&finality).await.unwrap();
+        lctx_model::domain::completion::complete::<()>(Ok(()), finality).unwrap();
+        lctx_model::domain::completion::complete::<()>(
+            Ok(()),
+            workspace.native.abandon_finality_report().await,
+        )
+        .unwrap();
     }
     #[tokio::test]
     async fn nominal_reference_closure_reuses_completed_streams_and_refuses_missing_targets() {
@@ -4894,6 +5045,7 @@ mod tests {
     #[tokio::test]
     async fn completed_input_keeps_native_membership_alive_and_later_contributions_do_not_change_it()
      {
+        use lctx_compiler_store::admission::ExecutionOwner;
         let workspace = Workspace::new(
             model(),
             WorkspaceOptions::default(),
@@ -4935,19 +5087,89 @@ mod tests {
         );
         assert_eq!(original.rows(), 1);
         assert_eq!(workspace.completed::<Package>().unwrap().rows(), 2);
+        let weak_workspace = Arc::downgrade(&workspace);
+        let weak_execution = Arc::downgrade(&workspace.execution);
+        let weak_signal = Arc::downgrade(&workspace.execution.signal);
+        let native = workspace.native.clone();
         drop(bound);
         drop(workspace);
+        assert!(
+            weak_workspace.upgrade().is_none(),
+            "borrowers do not retain Workspace"
+        );
+        assert!(weak_execution.upgrade().is_some());
+        assert!(weak_signal.upgrade().is_some());
+        let mut source_reader = original.batches().unwrap();
         assert_eq!(
-            original
-                .batches()
-                .unwrap()
-                .next()
+            source_reader
+                .next_async()
+                .await
                 .unwrap()
                 .unwrap()
                 .num_rows(),
             1
         );
+        assert!(source_reader.next_async().await.is_none());
+        drop(source_reader);
+        let mut reader = original.batches().unwrap();
         drop(original);
+        assert!(
+            weak_execution.upgrade().is_some(),
+            "the reader retains its own execution lease"
+        );
+        assert_eq!(reader.next_async().await.unwrap().unwrap().num_rows(), 1);
+        assert!(reader.next_async().await.is_none());
+        // Require clean finality only after real readers reach EOF. Interrupting
+        // an accepted native request can truthfully retain remote uncertainty.
+        let execution = weak_execution.upgrade().unwrap();
+        let finality = execution.drain_owned_report().await;
+        assert!(execution.cancellation.check().is_err());
+        drop(reader);
+        execution.complete_signal(&finality).await.unwrap();
+        lctx_model::domain::completion::complete::<()>(Ok(()), finality).unwrap();
+        lctx_model::domain::completion::complete::<()>(
+            Ok(()),
+            native.abandon_finality_report().await,
+        )
+        .unwrap();
+        drop(execution);
+        assert!(
+            weak_execution.upgrade().is_none(),
+            "no completed-registry ownership cycle"
+        );
+        assert!(weak_signal.upgrade().is_none());
+    }
+    #[tokio::test]
+    async fn explicit_workspace_drain_refuses_borrowed_relation_reads() {
+        let workspace = Workspace::new(
+            model(),
+            WorkspaceOptions::default(),
+            crate::test_native::store(),
+        )
+        .unwrap();
+        let output = workspace.output(
+            "drained-borrower",
+            Profile::Catalog,
+            ContentHash::of(b"drained-borrower"),
+            workspace
+                .inputs("drained-borrower", Profile::Catalog, [])
+                .unwrap(),
+            [Package::NAME],
+        );
+        output.declare_async::<Package>().await.unwrap();
+        output.finish(ProviderOutcome::Complete).await.unwrap();
+        let source = workspace.completed::<Package>().unwrap();
+        workspace.drain().await.unwrap();
+        assert!(
+            source.batches().is_err(),
+            "a retained execution lease cannot reopen explicit drainage"
+        );
+        drop(source);
+        lctx_model::domain::completion::complete::<()>(
+            Ok(()),
+            workspace.native.abandon_finality_report().await,
+        )
+        .unwrap();
     }
 }
 

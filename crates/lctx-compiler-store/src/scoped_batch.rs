@@ -1,7 +1,7 @@
 //! Shared rich hydration and borrowed typed partitions over an exact prepared root batch.
 use crate::{
-    consumed_rows::{PreparedRootBatch, stream_batches},
     admission::Cancellation,
+    consumed_rows::{PreparedRootBatch, stream_batches},
 };
 use lctx_model::domain::{
     charged::{ChargedVec, StateCharge},
@@ -273,7 +273,12 @@ mod native_controls {
             .await
             .unwrap();
         store
-            .write_batch(&contribution, &relation, &Package::encode(&rows).unwrap(), &budget)
+            .write_batch(
+                &contribution,
+                &relation,
+                &Package::encode(&rows).unwrap(),
+                &budget,
+            )
             .await
             .unwrap();
         let views = store
@@ -291,7 +296,8 @@ mod native_controls {
             .register_table(
                 "packages",
                 store
-                    .table_provider(&views[Package::NAME], relation.clone(), budget.clone(), 1).await
+                    .table_provider(&views[Package::NAME], relation.clone(), budget.clone(), 1)
+                    .await
                     .unwrap(),
             )
             .unwrap();

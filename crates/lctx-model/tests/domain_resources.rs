@@ -365,8 +365,7 @@ mod charged_state {
             budget.reserved() < one,
             "replacing a value releases the old payload"
         );
-        map.update(&mut charge, 2, |value| value.push_str(&"c".repeat(1000)))
-            .unwrap();
+        map.insert(&mut charge, 2, "c".repeat(1000)).unwrap();
         assert!(budget.reserved() >= 1000);
         map.remove(&mut charge, &2).unwrap();
         let mut set = ChargedSet::<i64>::default();
@@ -395,6 +394,228 @@ mod charged_state {
         ));
         drop(charge);
         assert_eq!(tiny.reserved(), 0);
+    }
+
+    #[test]
+    fn nested_growth_refuses_before_mutation_and_duplicates_need_no_new_charge() {
+        use std::{cell::Cell, collections::BTreeSet};
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let mut charge = StateCharge::new(&budget, "nested-control");
+        let mut vectors = ChargedMap::<i64, Vec<String>>::default();
+        for _ in 0..4 {
+            vectors.push(&mut charge, 1, String::new()).unwrap();
+        }
+        let mut sets = ChargedMap::<i64, BTreeSet<i64>>::default();
+        assert!(sets.insert_set(&mut charge, 1, 7).unwrap());
+        let mut counts = ChargedMap::<i64, usize>::default();
+        counts.update_inline(&mut charge, 1, |n| *n = 1).unwrap();
+        let before = charge.reserved();
+        let capacity = vectors[&1].capacity();
+        let filler = budget
+            .reserve("refuse-growth", budget.limit() - budget.reserved())
+            .unwrap();
+        assert!(matches!(
+            vectors.push(&mut charge, 1, String::new()),
+            Err(ModelError::Resource { .. })
+        ));
+        assert_eq!(vectors[&1].len(), 4);
+        assert_eq!(vectors[&1].capacity(), capacity);
+        assert!(!sets.insert_set(&mut charge, 1, 7).unwrap());
+        counts.update_inline(&mut charge, 1, |n| *n += 1).unwrap();
+        assert_eq!(counts[&1], 2);
+        let previous = counts.insert(&mut charge, 1, 3).unwrap().unwrap();
+        assert_eq!(
+            *previous, 2,
+            "inline replacement needs no duplicate node admission"
+        );
+        drop(previous);
+        let called = Cell::new(false);
+        struct LargeHeap<'a>(&'a Cell<bool>);
+        impl AdmittedMutation<Vec<String>> for LargeHeap<'_> {
+            type Output = ();
+            fn additional(&self, _: &Vec<String>) -> Result<usize, ModelError> {
+                Ok(2048)
+            }
+            fn apply(self, value: &mut Vec<String>) {
+                self.0.set(true);
+                value.push("x".repeat(1024));
+            }
+        }
+        assert!(vectors.mutate(&mut charge, 1, LargeHeap(&called)).is_err());
+        assert!(!called.get(), "refusal precedes the allocating mutation");
+        assert!(vectors.mutate(&mut charge, 2, LargeHeap(&called)).is_err());
+        assert!(
+            !vectors.contains_key(&2),
+            "refusal does not install a default entry"
+        );
+        assert_eq!(charge.reserved(), before);
+        drop(filler);
+        vectors.mutate(&mut charge, 1, LargeHeap(&called)).unwrap();
+        assert!(called.get());
+        assert_eq!(vectors[&1].last().unwrap().len(), 1024);
+        let pool_before_move = budget.reserved();
+        let held = budget
+            .reserve(
+                "refuse-transfer-metadata",
+                budget.limit() - pool_before_move,
+            )
+            .unwrap();
+        assert!(
+            vectors.remove(&mut charge, &1).is_err(),
+            "guard metadata is admitted before removing actual backing"
+        );
+        assert_eq!(vectors[&1].len(), 5);
+        assert_eq!(budget.reserved(), budget.limit());
+        drop(held);
+        assert!(sets.insert_set(&mut charge, 1, 8).unwrap());
+    }
+
+    #[test]
+    fn removed_and_replaced_values_keep_backing_and_transfer_without_readmission() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let mut first = StateCharge::new(&budget, "first");
+        let mut second = StateCharge::new(&budget, "second");
+        let mut source = ChargedMap::<i64, String>::default();
+        let mut destination = ChargedMap::<i64, String>::default();
+        source.insert(&mut first, 1, "a".repeat(1024)).unwrap();
+        let old = source
+            .insert(&mut first, 1, "b".repeat(128))
+            .unwrap()
+            .unwrap();
+        assert_eq!(old.len(), 1024);
+        assert!(
+            budget.reserved() >= 1024 + 128,
+            "both live payloads remain admitted"
+        );
+        drop(old);
+        destination.insert(&mut second, 2, String::new()).unwrap();
+        let moved = source.remove(&mut first, &1).unwrap().unwrap();
+        assert_eq!(moved.len(), 128);
+        let node_bytes = size_of::<i64>() + size_of::<String>() + 32;
+        let filler = budget
+            .reserve(
+                "no-extra-payload",
+                budget.limit() - budget.reserved() - node_bytes,
+            )
+            .unwrap();
+        let receiving_payload = second.reserved();
+        destination.insert_owned(&mut second, 1, moved).unwrap();
+        assert_eq!(
+            second.reserved(),
+            receiving_payload + node_bytes + 128,
+            "only the new node and original live payload move into the receiver"
+        );
+        assert!(
+            budget.reserved() <= budget.limit(),
+            "transfer succeeds without readmitting payload; dead guard metadata may release"
+        );
+        drop(filler);
+        let retained = destination.remove(&mut second, &1).unwrap().unwrap();
+        drop((source, destination, first, second));
+        assert_eq!(
+            budget.reserved(),
+            retained.accounted_bytes(),
+            "removed backing and accounting metadata survive their old state owner"
+        );
+        assert_eq!(&**retained, &"b".repeat(128));
+        drop(retained);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[test]
+    fn moved_backing_refuses_a_foreign_pool_without_creating_a_receiver_entry() {
+        let source_budget = ResourceBudget::fixed(4096).unwrap();
+        let receiving_budget = ResourceBudget::fixed(4096).unwrap();
+        let mut source_charge = StateCharge::new(&source_budget, "source");
+        let mut receiving_charge = StateCharge::new(&receiving_budget, "receiver");
+        let mut source = ChargedMap::<i64, String>::default();
+        let mut receiver = ChargedMap::<i64, String>::default();
+        source
+            .insert(&mut source_charge, 1, "owned".into())
+            .unwrap();
+        let value = source.remove(&mut source_charge, &1).unwrap().unwrap();
+        assert!(
+            receiver
+                .insert_owned(&mut receiving_charge, 1, value)
+                .is_err()
+        );
+        assert!(receiver.is_empty());
+        assert_eq!(source_charge.reserved(), 0);
+        assert_eq!(
+            source_budget.reserved(),
+            source_charge.accounted_bytes(),
+            "empty retained accounting capacity stays admitted"
+        );
+        assert_eq!(receiving_budget.reserved(), 0);
+        drop((source_charge, receiving_charge));
+        assert_eq!(source_budget.reserved(), 0);
+    }
+
+    #[test]
+    fn prepared_accounting_transfer_needs_no_post_effect_allocation() {
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let mut donor = StateCharge::new(&budget, "donor");
+        donor.grow(128).unwrap();
+        let mut receiver = StateCharge::new(&budget, "receiver");
+        receiver.prepare_absorb(&donor).unwrap();
+        let filler = budget
+            .reserve(
+                "no-post-effect-allocation",
+                budget.limit() - budget.reserved(),
+            )
+            .unwrap();
+        receiver.absorb(donor).unwrap();
+        assert_eq!(receiver.reserved(), 128);
+        drop(filler);
+        assert_eq!(budget.reserved(), receiver.accounted_bytes());
+        drop(receiver);
+        assert_eq!(budget.reserved(), 0);
+    }
+
+    #[test]
+    fn nested_maps_ordered_vectors_and_shrinking_preserve_exact_state() {
+        use std::collections::BTreeMap;
+        let budget = ResourceBudget::fixed(4096).unwrap();
+        let mut charge = StateCharge::new(&budget, "owned-operations");
+        let mut maps = ChargedMap::<i64, BTreeMap<i64, String>>::default();
+        assert!(
+            maps.insert_map(&mut charge, 1, 7, "x".repeat(128))
+                .unwrap()
+                .is_none()
+        );
+        let replaced = maps
+            .insert_map(&mut charge, 1, 7, String::new())
+            .unwrap()
+            .unwrap();
+        assert_eq!(replaced.len(), 128);
+        drop(replaced);
+        let mut vectors = ChargedMap::<i64, Vec<(usize, usize)>>::default();
+        vectors
+            .push_ordered(&mut charge, 1, (2, 0), |v| v.0)
+            .unwrap();
+        vectors
+            .push_ordered(&mut charge, 1, (1, 1), |v| v.0)
+            .unwrap();
+        vectors
+            .push_ordered(&mut charge, 1, (2, 2), |v| v.0)
+            .unwrap();
+        assert_eq!(vectors[&1], [(1, 1), (2, 0), (2, 2)]);
+        let mut heaps = ChargedMap::<i64, Vec<String>>::default();
+        heaps.push(&mut charge, 1, "x".repeat(256)).unwrap();
+        let before_shrink = budget.reserved();
+        let capacity = heaps[&1].capacity();
+        heaps.truncate(&mut charge, 1, 0).unwrap();
+        assert_eq!(heaps[&1].capacity(), capacity);
+        assert_eq!(budget.reserved(), before_shrink - 256);
+        let mut sequence = ChargedVec::<String>::default();
+        sequence.push(&mut charge, "payload".into()).unwrap();
+        let before = budget.reserved();
+        let owned = sequence.take_last(&mut charge).unwrap().unwrap();
+        drop(owned);
+        assert_eq!(budget.reserved(), before - 7);
+        assert!(sequence.is_empty());
+        drop((maps, vectors, heaps, sequence, charge));
+        assert_eq!(budget.reserved(), 0);
     }
 
     #[test]
@@ -435,23 +656,53 @@ mod charged_state {
 
 #[test]
 fn checked_ingress_moves_canonical_buffers_and_releases_only_typed_row_charge() {
-    use lctx_model::domain::{input::Package, model, Batch, Record};
+    use lctx_model::domain::{Batch, Record, input::Package, model};
     let model = model().unwrap();
     let budget = ResourceBudget::fixed(16 << 20).unwrap();
-    let rows = vec![Package { name: "long-canonical-payload".repeat(200) }, Package { name: "other".into() }];
+    let rows = vec![
+        Package {
+            name: "long-canonical-payload".repeat(200),
+        },
+        Package {
+            name: "other".into(),
+        },
+    ];
     let batch = Batch::new(&model, rows, &budget).unwrap();
     let initial = budget.reserved();
     let encoded = batch.arrow().get_array_memory_size();
-    let pointers: Vec<_> = batch.arrow().columns().iter().map(std::sync::Arc::as_ptr).collect();
+    let pointers: Vec<_> = batch
+        .arrow()
+        .columns()
+        .iter()
+        .map(std::sync::Arc::as_ptr)
+        .collect();
     let canonical_ids = batch.rows().iter().map(Record::id).collect::<Vec<_>>();
-    assert!(initial > encoded, "typed rows and encoded buffers coexist before transfer");
+    assert!(
+        initial > encoded,
+        "typed rows and encoded buffers coexist before transfer"
+    );
     let checked = batch.into_checked().unwrap();
     assert_eq!(checked.model(), model.digest());
     assert_eq!(checked.relation().name(), Package::NAME);
     assert_eq!(checked.reserved(), encoded);
     assert_eq!(budget.reserved(), encoded);
-    assert_eq!(pointers, checked.arrow().columns().iter().map(std::sync::Arc::as_ptr).collect::<Vec<_>>());
-    assert_eq!(canonical_ids, Package::decode(checked.arrow()).unwrap().iter().map(Record::id).collect::<Vec<_>>());
+    assert_eq!(
+        pointers,
+        checked
+            .arrow()
+            .columns()
+            .iter()
+            .map(std::sync::Arc::as_ptr)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        canonical_ids,
+        Package::decode(checked.arrow())
+            .unwrap()
+            .iter()
+            .map(Record::id)
+            .collect::<Vec<_>>()
+    );
     drop(checked);
     assert_eq!(budget.reserved(), 0);
 }

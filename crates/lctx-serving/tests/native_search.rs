@@ -61,9 +61,15 @@ async fn insert<Context>(
     if table.starts_with("search_") || matches!(table, "lex_occurs" | "vec_occurs" | "vector") {
         let derivation = reader.derivation().unwrap().hex();
         for row in &mut rows {
-            let Value::Object(row) = row else { panic!("derived fixture row") };
+            let Value::Object(row) = row else {
+                panic!("derived fixture row")
+            };
             if let Some(previous) = row.get("derivation") {
-                assert_eq!(previous, &Value::String(derivation.clone()), "fixture realization changed");
+                assert_eq!(
+                    previous,
+                    &Value::String(derivation.clone()),
+                    "fixture realization changed"
+                );
             }
             row.insert("derivation", derivation.clone());
         }
@@ -86,9 +92,24 @@ async fn insert<Context>(
         }
     }
     if matches!(table, "lex_occurs" | "vec_occurs" | "vector") {
-        let selected=reader.prepare_selection().await.unwrap().expect("exact installed fixture scope");
-        let mut pointers=selected.pointers().unwrap();let mut dependencies=Vec::new();
-        while let Some(row)=pointers.next_row().unwrap(){dependencies.push(row.as_object().unwrap().get("id").unwrap().as_record().unwrap().clone());}
+        let selected = reader
+            .prepare_selection()
+            .await
+            .unwrap()
+            .expect("exact installed fixture scope");
+        let mut pointers = selected.pointers().unwrap();
+        let mut dependencies = Vec::new();
+        while let Some(row) = pointers.next_row().unwrap() {
+            dependencies.push(
+                row.as_object()
+                    .unwrap()
+                    .get("id")
+                    .unwrap()
+                    .as_record()
+                    .unwrap()
+                    .clone(),
+            );
+        }
         for row in &mut rows {
             let Value::Object(row) = row else {
                 panic!("kernel row")
@@ -98,9 +119,16 @@ async fn insert<Context>(
             }
             row.insert("dependencies", dependencies.clone());
             if table != "vector" {
-                let mut vars = Variables::new(); vars.insert("nodes",dependencies.clone());
+                let mut vars = Variables::new();
+                vars.insert("nodes", dependencies.clone());
                 vars.insert("unit_anchor", row.get("unit_node").unwrap().clone());
-                let payloads:Vec<RecordId>=reader.query("SELECT VALUE id FROM $nodes WHERE anchor=$unit_anchor",vars).await.unwrap();
+                let payloads: Vec<RecordId> = reader
+                    .query(
+                        "SELECT VALUE id FROM $nodes WHERE anchor=$unit_anchor",
+                        vars,
+                    )
+                    .await
+                    .unwrap();
                 let payload = payloads
                     .first()
                     .cloned()
@@ -140,12 +168,19 @@ async fn extend(
 ) {
     let native_read_budget = native.resource_budget().unwrap();
     let added = scoped::reader(config, entities, &[]).await.unwrap();
-    let mut installed=fixtures.iter().flat_map(|fixture|fixture.installed.iter().cloned()).collect::<Vec<_>>();
+    let mut installed = fixtures
+        .iter()
+        .flat_map(|fixture| fixture.installed.iter().cloned())
+        .collect::<Vec<_>>();
     installed.extend(added.installed.iter().cloned());
-    let derivation=native.derivation().unwrap();
-    let replacement=NativeReader::for_installed_views(native.shared_client(),&installed,&native_read_budget).await.unwrap().with_derivation(derivation);
+    let derivation = native.derivation().unwrap();
+    let replacement =
+        NativeReader::for_installed_views(native.shared_client(), &installed, &native_read_budget)
+            .await
+            .unwrap()
+            .with_derivation(derivation);
     native.close().await.unwrap();
-    *native=replacement;
+    *native = replacement;
     fixtures.push(added);
 }
 async fn freeze(
@@ -181,8 +216,10 @@ async fn freeze(
         fixtures[0].store.attempt(),
         views,
     )
-    .with_derivation(native.derivation().unwrap()).with_budget(&native_read_budget)
-    .with_installed_reader(native).unwrap();
+    .with_derivation(native.derivation().unwrap())
+    .with_budget(&native_read_budget)
+    .with_installed_reader(native)
+    .unwrap();
     lctx_native::lexical_stats::materialize(&loader)
         .await
         .unwrap();
@@ -229,67 +266,153 @@ fn occurrence(
 /// This fixture has real nonempty sources, so its one completed contribution also
 /// supplies their typed original chunks. Metadata alone cannot earn blob completion.
 async fn member_fixture(
-    config: &lctx_native::RuntimeConfig, entities: &[Entity],
-    assertions: &[graph::Assertion], originals: &[(&source::SourceArtifact, &[u8])],
+    config: &lctx_native::RuntimeConfig,
+    entities: &[Entity],
+    assertions: &[graph::Assertion],
+    originals: &[(&source::SourceArtifact, &[u8])],
 ) -> Result<scoped::ScopedFixture, ModelError> {
+    use lctx_model::domain::{
+        admission::Frontier,
+        artifact::ArtifactChunk,
+        completed::{ContributionSpec, OutputProfile},
+        stages::{Profile, ProviderOutcome},
+    };
     use std::collections::{BTreeMap, BTreeSet};
-    use lctx_model::domain::{admission::Frontier, artifact::ArtifactChunk,
-        completed::{ContributionSpec, OutputProfile}, stages::{Profile, ProviderOutcome}};
-    let store=lctx_compiler_store::compiler::NativeCompilerStore::begin(config,Frontier::Facts).await?;
-    let budget=ResourceBudget::fixed(64<<20)?;
-    let result:Result<_,ModelError>=async {
-        let model=model()?;
-        let mut groups=BTreeMap::<String,Vec<Value>>::new();
-        for row in lctx_native::codec::entity_views(entities)?.into_iter()
-            .chain(lctx_native::codec::assertion_views(assertions)?) {
-            let Value::Object(mut body)=row.body else {return Err(ModelError::Schema("member fixture typed body"));};
-            body.insert("id",row.semantic_key);
-            groups.entry(row.semantic_type).or_default().push(Value::Object(body));
+    let store =
+        lctx_compiler_store::compiler::NativeCompilerStore::begin(config, Frontier::Facts).await?;
+    let budget = ResourceBudget::fixed(64 << 20)?;
+    let result: Result<_, ModelError> = async {
+        let model = model()?;
+        let mut groups = BTreeMap::<String, Vec<Value>>::new();
+        for row in lctx_native::codec::entity_views(entities)?
+            .into_iter()
+            .chain(lctx_native::codec::assertion_views(assertions)?)
+        {
+            let Value::Object(mut body) = row.body else {
+                return Err(ModelError::Schema("member fixture typed body"));
+            };
+            body.insert("id", row.semantic_key);
+            groups
+                .entry(row.semantic_type)
+                .or_default()
+                .push(Value::Object(body));
         }
-        let mut relations=groups.keys().map(|name|model.relation(name).cloned()
-            .ok_or(ModelError::Schema("member fixture relation"))).collect::<Result<Vec<_>,_>>()?;
-        let chunks=originals.iter().map(|(source,body)|ArtifactChunk::split(source,body)
-            .map(|rows|rows.collect::<Vec<_>>())).collect::<Result<Vec<_>,_>>()?
-            .into_iter().flatten().collect::<Vec<_>>();
-        let chunk_relation=Relation::of::<ArtifactChunk>();relations.push(chunk_relation.clone());
-        let contribution=store.begin_contribution(ContributionSpec{
-            captured_binding:None,producer:"scoped-native-member-fixture".into(),
-            profile:OutputProfile::Specific(Profile::Catalog),model:model.digest(),
-            implementation:ContentHash::of(b"scoped-native-member-fixture/v1"),configuration:None,
-            inputs:vec![],outputs:relations.iter().map(|relation|relation.name().to_owned()).collect::<BTreeSet<_>>(),
-        }).await?;
+        let mut relations = groups
+            .keys()
+            .map(|name| {
+                model
+                    .relation(name)
+                    .cloned()
+                    .ok_or(ModelError::Schema("member fixture relation"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let chunks = originals
+            .iter()
+            .map(|(source, body)| {
+                ArtifactChunk::split(source, body).map(|rows| rows.collect::<Vec<_>>())
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        let chunk_relation = Relation::of::<ArtifactChunk>();
+        relations.push(chunk_relation.clone());
+        let contribution = store
+            .begin_contribution(ContributionSpec {
+                captured_binding: None,
+                producer: "scoped-native-member-fixture".into(),
+                profile: OutputProfile::Specific(Profile::Catalog),
+                model: model.digest(),
+                implementation: ContentHash::of(b"scoped-native-member-fixture/v1"),
+                configuration: None,
+                inputs: vec![],
+                outputs: relations
+                    .iter()
+                    .map(|relation| relation.name().to_owned())
+                    .collect::<BTreeSet<_>>(),
+            })
+            .await?;
         for relation in &relations {
-            let batch=if relation.name()==ArtifactChunk::NAME {<ArtifactChunk as Record>::encode(&chunks)?}
-                else {lctx_native::codec::decode_bodies(relation,groups.remove(relation.name())
-                    .ok_or(ModelError::Schema("member fixture missing bodies"))?,&budget)?};
-            store.write_batch(&contribution,relation,&batch,&budget).await?;
+            let batch = if relation.name() == ArtifactChunk::NAME {
+                <ArtifactChunk as Record>::encode(&chunks)?
+            } else {
+                lctx_native::codec::decode_bodies(
+                    relation,
+                    groups
+                        .remove(relation.name())
+                        .ok_or(ModelError::Schema("member fixture missing bodies"))?,
+                    &budget,
+                )?
+            };
+            store
+                .write_batch(&contribution, relation, &batch, &budget)
+                .await?;
         }
-        let views=store.complete_contribution(contribution,ProviderOutcome::Complete,&relations,&BTreeMap::new(),&budget).await?;
-        let derivation=ContentHash::of(format!("scoped-native-member-fixture/{}",store.attempt().hex()).as_bytes());
-        let client=lctx_compiler_store::compiler::check_installation(config).await?;
-        let session=reader::SessionFinalizationGuard::new(client.clone());
-        let references=async {
-            let loader=lctx_native::Loader::for_attempt_views(client.clone(),store.attempt(),views.values().map(|view|view.identity).collect())
-                .with_derivation(derivation).with_budget(&budget);
-            loader.entity_references(entities).await?;loader.assertion_references(assertions).await
-        }.await;
-        let mut terminal=completion::Completion::default();
-        if references.as_ref().err().is_none_or(ModelError::permits_storage_cleanup) {
-            terminal.step("member fixture reference session close",session.close().await);
+        let views = store
+            .complete_contribution(
+                contribution,
+                ProviderOutcome::Complete,
+                &relations,
+                &BTreeMap::new(),
+                &budget,
+            )
+            .await?;
+        let derivation = ContentHash::of(
+            format!("scoped-native-member-fixture/{}", store.attempt().hex()).as_bytes(),
+        );
+        let client = lctx_compiler_store::compiler::check_installation(config).await?;
+        let session = reader::SessionFinalizationGuard::new(client.clone());
+        let references = async {
+            let loader = lctx_native::Loader::for_attempt_views(
+                client.clone(),
+                store.attempt(),
+                views.values().map(|view| view.identity).collect(),
+            )
+            .with_derivation(derivation)
+            .with_budget(&budget);
+            loader.entity_references(entities).await?;
+            loader.assertion_references(assertions).await
         }
-        completion::complete(references,terminal)?;
-        let descriptors=views.into_values().collect::<Vec<_>>();
-        let mut installed=Vec::new();
-        for view in &descriptors {installed.push(store.installed_view(view,&budget).await?);}
-        let reader=store.reader_for_views(&descriptors,&budget).await?.with_derivation(derivation);
-        Ok((reader,installed))
-    }.await;
+        .await;
+        let mut terminal = completion::Completion::default();
+        if references
+            .as_ref()
+            .err()
+            .is_none_or(ModelError::permits_storage_cleanup)
+        {
+            terminal.step(
+                "member fixture reference session close",
+                session.close().await,
+            );
+        }
+        completion::complete(references, terminal)?;
+        let descriptors = views.into_values().collect::<Vec<_>>();
+        let mut installed = Vec::new();
+        for view in &descriptors {
+            installed.push(store.installed_view(view, &budget).await?);
+        }
+        let reader = store
+            .reader_for_views(&descriptors, &budget)
+            .await?
+            .with_derivation(derivation);
+        Ok((reader, installed))
+    }
+    .await;
     match result {
-        Ok((reader,installed))=>Ok(scoped::ScopedFixture{reader,store,installed}),
-        Err(error)=>{
-            let mut terminal=completion::Completion::default();
-            if error.permits_storage_cleanup(){terminal.step("member fixture failed setup abandonment",store.abandon().await);}
-            completion::complete(Err(error),terminal)
+        Ok((reader, installed)) => Ok(scoped::ScopedFixture {
+            reader,
+            store,
+            installed,
+        }),
+        Err(error) => {
+            let mut terminal = completion::Completion::default();
+            if error.permits_storage_cleanup() {
+                terminal.step(
+                    "member fixture failed setup abandonment",
+                    store.abandon().await,
+                );
+            }
+            completion::complete(Err(error), terminal)
         }
     }
 }
@@ -379,10 +502,17 @@ async fn native_member_hydration_uses_bounded_physical_windows_without_family_sc
     .into_iter()
     .map(|row| Assertion::from_record(row).unwrap())
     .collect::<Vec<_>>();
-    let native = member_fixture(&config, &entities, &assertions,
-        &[(&source, b"selected source"), (&other_source, b"other source")])
-        .await
-        .unwrap();
+    let native = member_fixture(
+        &config,
+        &entities,
+        &assertions,
+        &[
+            (&source, b"selected source"),
+            (&other_source, b"other source"),
+        ],
+    )
+    .await
+    .unwrap();
     let budget = ResourceBudget::fixed(32 << 20).unwrap();
     expected.sort_by_key(Record::id);
     let members = lctx_serving::selection::members(
@@ -651,7 +781,14 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     let initial = scoped::reader(&config, &[Entity::from(member.clone())], &[])
         .await
         .unwrap();
-    let mut native=NativeReader::for_installed_views(initial.reader.shared_client(),&initial.installed,&native_read_budget).await.unwrap().with_derivation(initial.reader.derivation().unwrap());
+    let mut native = NativeReader::for_installed_views(
+        initial.reader.shared_client(),
+        &initial.installed,
+        &native_read_budget,
+    )
+    .await
+    .unwrap()
+    .with_derivation(initial.reader.derivation().unwrap());
     let mut fixtures = vec![initial];
     let mut member_vars = Variables::new();
     member_vars.insert(
@@ -931,7 +1068,8 @@ async fn native_channels_admit_exact_context_pairs_and_members_before_candidate_
     assert_eq!(vector[0].occurrence.context, good);
     // Independent finite scalar arithmetic supplies the expected served winner score;
     // neither the production SQL nor a native EXPLAIN is the numerical oracle.
-    let expected = f64::from(0.8f32) / (f64::from(0.8f32).powi(2) + f64::from(0.6f32).powi(2)).sqrt();
+    let expected =
+        f64::from(0.8f32) / (f64::from(0.8f32).powi(2) + f64::from(0.6f32).powi(2)).sqrt();
     assert!((vector[0].score.unwrap() - expected).abs() < 1e-12);
     // Brief eligibility precedes both channel caps and does not materialize a unit inventory.
     freeze(&mut native, &mut fixtures, &config).await;
@@ -1319,8 +1457,10 @@ async fn lexical_fixture(
         fixture.store.attempt(),
         views,
     )
-    .with_derivation(fixture.reader.derivation().unwrap()).with_budget(&native_read_budget)
-    .with_installed_reader(&fixture.reader).unwrap();
+    .with_derivation(fixture.reader.derivation().unwrap())
+    .with_budget(&native_read_budget)
+    .with_installed_reader(&fixture.reader)
+    .unwrap();
     lctx_native::derived_search::materialize_search(&loader)
         .await
         .unwrap();
@@ -1628,7 +1768,9 @@ async fn frozen_view_bm25_survives_unrelated_documents_and_changed_window_on_sam
             .await
             .unwrap();
     }
-    drop(aloader);drop(bloader);drop(newloader);
+    drop(aloader);
+    drop(bloader);
+    drop(newloader);
     a.close().await.unwrap();
     b.close().await.unwrap();
     new.close().await.unwrap();

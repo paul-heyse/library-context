@@ -890,7 +890,8 @@ fn derive_domain(
         })
         .ok_or_else(|| invalid("Local theory sequence allocation overflow"))?;
     let _buffer = budget.reserve("local_type_membership_buffer", buffer)?;
-    while let Some((id, enter, depth)) = stack.take_last(&mut charge) {
+    while let Some(value) = stack.take_last(&mut charge)? {
+        let (id, enter, depth) = *value;
         work += 1;
         if depth > 256 {
             return Err(TheoryReason::WorkLimit.into());

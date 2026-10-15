@@ -201,14 +201,13 @@ fn fixture_text(
             evidence: c1.id(),
             selection: id(8),
             structural: id(9),
-            analytic:Some(id(10)),
-            analytic_kind:synthesis::frames::ParentKind::Ordinary,
-            analytic_uniform:None,
-            summary:Some(id(11)),
-            summary_kind:synthesis::frames::ParentKind::Ordinary,
-            summary_uniform:None,
-        
-})
+            analytic: Some(id(10)),
+            analytic_kind: synthesis::frames::ParentKind::Ordinary,
+            analytic_uniform: None,
+            summary: Some(id(11)),
+            summary_kind: synthesis::frames::ParentKind::Ordinary,
+            summary_uniform: None,
+        })
         .unwrap();
     let mut parents = vec![];
     for source in d.render.parents(a.input, id(2)).unwrap() {
@@ -318,8 +317,14 @@ fn checked_window_use_survives_render_release_and_refuses_foreign_nominal_or_val
     let unit = data.output.units.get(window.unit).unwrap();
     let unit_id = unit.id();
     let root_id = unit.origin;
-    let expected = PreparedWindowUse::new(window, unit,
-        &invocation, &data.selected_consumption().unwrap(), &b).unwrap();
+    let expected = PreparedWindowUse::new(
+        window,
+        unit,
+        &invocation,
+        &data.selected_consumption().unwrap(),
+        &b,
+    )
+    .unwrap();
     let window_id = expected.window();
     data.output = retrieval::build::Output::new(&b);
     let row = expected.published(&published).unwrap();
@@ -328,15 +333,33 @@ fn checked_window_use_survives_render_release_and_refuses_foreign_nominal_or_val
     expected.verify(&row).unwrap();
     for case in 0..5 {
         let mut foreign = row.clone();
-        match case { 0 => foreign.window = id(81), 1 => foreign.input = ContentHash::of(b"foreign"),
-            2 => foreign.value = Some(id(82)), 3 => foreign.document = id(83), _ => foreign.admitted_tokens = Some(0) }
+        match case {
+            0 => foreign.window = id(81),
+            1 => foreign.input = ContentHash::of(b"foreign"),
+            2 => foreign.value = Some(id(82)),
+            3 => foreign.document = id(83),
+            _ => foreign.admitted_tokens = Some(0),
+        }
         assert!(expected.verify(&foreign).is_err());
     }
-    assert!(expected.refused(VectorAvailability::TokenLimit, Some(1)).is_err());
-    assert_eq!(expected.refused(VectorAvailability::ServiceUnavailable, None).unwrap().input, row.input);
+    assert!(
+        expected
+            .refused(VectorAvailability::TokenLimit, Some(1))
+            .is_err()
+    );
+    assert_eq!(
+        expected
+            .refused(VectorAvailability::ServiceUnavailable, None)
+            .unwrap()
+            .input,
+        row.input
+    );
     let retained = b.reserved();
     drop(expected);
-    assert!(b.reserved() < retained, "compact expectation releases its admitted lease after terminal attribution");
+    assert!(
+        b.reserved() < retained,
+        "compact expectation releases its admitted lease after terminal attribution"
+    );
 }
 #[test]
 fn canonical_companions_roundtrip_preserves_signed_zero_and_reference_only_uses() {

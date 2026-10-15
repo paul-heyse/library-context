@@ -14,7 +14,7 @@ use lctx_model::domain::{
 use typed_driver::{files, rows};
 pub struct Facts(pub typed_driver::Tables);
 impl typed_driver::Inspector for Facts {
-    fn demand(&self)->typed_driver::ObservationDemand {
+    fn demand(&self) -> typed_driver::ObservationDemand {
         // Reconstruction and negative admission controls consume the complete inventory.
         typed_driver::ObservationDemand::Complete
     }

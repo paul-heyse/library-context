@@ -1,4 +1,5 @@
 //! Actual persistent gRPC cache boundaries; no tokenizer, provider or compiler input.
+use lctx_compiler_store::compiler::check_installation;
 use lctx_model::domain::{
     ContentHash,
     embedding::{
@@ -8,7 +9,6 @@ use lctx_model::domain::{
     },
 };
 use lctx_native::{NativeEmbeddingCache, RuntimeConfig};
-use lctx_compiler_store::compiler::check_installation;
 use std::{collections::BTreeSet, sync::Arc};
 use surrealdb::{Surreal, engine::remote::grpc::Client, types::Variables};
 

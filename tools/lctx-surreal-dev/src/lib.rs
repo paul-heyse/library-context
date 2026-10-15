@@ -298,15 +298,29 @@ mod tests {
         let info = build_info().unwrap();
         let lock: toml::Value = toml::from_str(include_str!("../../../Cargo.lock")).unwrap();
         for name in ["surrealkit", "surrealdb", "surrealdb-rpc"] {
-            let package = lock["package"].as_array().unwrap().iter()
-                .find(|package| package["name"].as_str() == Some(name)).unwrap();
-            assert_eq!(info["dependencies"][name]["version"].as_str(), package["version"].as_str());
+            let package = lock["package"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|package| package["name"].as_str() == Some(name))
+                .unwrap();
+            assert_eq!(
+                info["dependencies"][name]["version"].as_str(),
+                package["version"].as_str()
+            );
             let profile = &info["dependencies"][name]["patch_profile"];
             let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
             let manifest = std::fs::read(root.join(profile["manifest"].as_str().unwrap())).unwrap();
-            assert_eq!(profile["manifest_blake3"], blake3::hash(&manifest).to_hex().to_string());
-            let documentation = std::fs::read(root.join(profile["documentation"].as_str().unwrap())).unwrap();
-            assert_eq!(profile["documentation_blake3"], blake3::hash(&documentation).to_hex().to_string());
+            assert_eq!(
+                profile["manifest_blake3"],
+                blake3::hash(&manifest).to_hex().to_string()
+            );
+            let documentation =
+                std::fs::read(root.join(profile["documentation"].as_str().unwrap())).unwrap();
+            assert_eq!(
+                profile["documentation_blake3"],
+                blake3::hash(&documentation).to_hex().to_string()
+            );
             assert_eq!(profile["status"], "declared_build_input");
         }
         assert_eq!(info["schema"]["profile_identity"], source_identity());

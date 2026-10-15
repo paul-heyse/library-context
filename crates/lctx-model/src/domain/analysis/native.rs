@@ -76,7 +76,7 @@ macro_rules! native_pairs {
                         };
                         let fidelity = attribution.fidelity;
                         if self.supports.insert(&mut self.charge, premise.id(), (premise, fidelity))?
-                            .is_some_and(|(_, previous)| previous != fidelity) {
+                            .is_some_and(|previous| previous.1 != fidelity) {
                             return Err(ModelError::Conflict(<$support>::NAME));
                         }
                     }

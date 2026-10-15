@@ -1,6 +1,9 @@
 //! `lctx` acquires pinned library inputs and compiles admitted graph artifacts.
 //! `compile --artifact-only --output DIR` exports a native-backed artifact; ordinary compilation
 //! publishes an immutable native snapshot without changing the selected handle.
+// Match compiler-store's finite native cursor auto-trait proof depth during
+// downstream code generation; revisit with the pinned toolchain (rust-lang/rust#159228).
+#![recursion_limit = "256"]
 
 mod acquisition;
 mod compile;

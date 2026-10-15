@@ -393,15 +393,12 @@ impl InvariantCheck for ExportCheck {
             }
         } else if name == value::LiteralSetMember::NAME {
             for row in value::LiteralSetMember::decode(batch)? {
-                self.members
-                    .update(&mut self.charge, row.set, |values| values.push(row.value))?;
+                self.members.push(&mut self.charge, row.set, row.value)?;
             }
         } else if name == PublicNameObservation::NAME {
             for row in PublicNameObservation::decode(batch)? {
                 self.names
-                    .update(&mut self.charge, (row.qualification, row.access), |names| {
-                        names.push(row.name)
-                    })?;
+                    .push(&mut self.charge, (row.qualification, row.access), row.name)?;
             }
         } else if name == ExportEnumerationObservation::NAME {
             for row in ExportEnumerationObservation::decode(batch)? {
@@ -534,7 +531,12 @@ struct SequenceCheck {
 impl SequenceCheck {
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((id, members)) = self.current.take()
-            && self.expected.remove(&mut self.charge, &id) != Some(sequence_digest(&members))
+            && self
+                .expected
+                .remove(&mut self.charge, &id)?
+                .as_deref()
+                .copied()
+                != Some(sequence_digest(&members))
         {
             return Err(invalid("symbol sequence membership differs"));
         }
@@ -760,9 +762,7 @@ impl InvariantCheck for SymbolCheck {
         } else if relation == SymbolSequenceMember::NAME {
             for row in SymbolSequenceMember::decode(batch)? {
                 self.sequences
-                    .update(&mut self.charge, row.sequence, |members| {
-                        members.push(row.symbol)
-                    })?;
+                    .push(&mut self.charge, row.sequence, row.symbol)?;
             }
         } else if relation == SymbolObservation::NAME {
             let rows = SymbolObservation::decode(batch)?;

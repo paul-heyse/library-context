@@ -210,14 +210,10 @@ impl ConfiguredRequests {
                 }
                 self.members
                     .insert(&mut self.charge, frame.id(), frame.member)?;
-                self.matches.update(
+                self.matches.push_unique(
                     &mut self.charge,
                     (parent.input, parent.context, ordinal as i64),
-                    |matches| {
-                        if !matches.contains(&frame.id()) {
-                            matches.push(frame.id());
-                        }
-                    },
+                    frame.id(),
                 )?;
             }
         }

@@ -256,7 +256,9 @@ fn manifest_distinguishes_exact_empty_partial_and_missing_obligations() {
         format_version: ARTIFACT_FORMAT_VERSION,
         completed_state: d::completed::CompletedStateIdentity {
             format_version: d::completed::STATE_FORMAT_VERSION,
-            contributions: 0, memberships: 0, backing_rows: 0,
+            contributions: 0,
+            memberships: 0,
+            backing_rows: 0,
             content: hash(8),
         },
         frontier: d::admission::Frontier::Facts,
@@ -264,7 +266,9 @@ fn manifest_distinguishes_exact_empty_partial_and_missing_obligations() {
         captures: vec![EntityId(hash(3))],
         semantic_contract: hash(4),
         producers: vec![ProducerImplementation {
-            assurance: d::producer_assurance::ProducerAssurance::CurrentProviderInterface.summary().unwrap(),
+            assurance: d::producer_assurance::ProducerAssurance::CurrentProviderInterface
+                .summary()
+                .unwrap(),
             contract: None,
             producer: "native".into(),
             implementation: hash(5),
@@ -960,7 +964,10 @@ fn identity_bearing_analysis_companions_survive_transport_and_refuse_omission() 
             value["view"] = serde_json::to_value(hash(99)).unwrap();
             let changed: owner::SourceReceipt = serde_json::from_value(value).unwrap();
             changed.validate().unwrap();
-            assert_ne!(changed,receipts[0],"the corruption control must change retained source identity");
+            assert_ne!(
+                changed, receipts[0],
+                "the corruption control must change retained source identity"
+            );
             assert!(
                 check(&[changed], &projections)
                     .unwrap_err()

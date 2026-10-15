@@ -60,21 +60,37 @@ pub struct CallableOwnerSelection<'a> {
     _charge: StateCharge,
 }
 impl<'a> CallableOwnerSelection<'a> {
-    pub fn new(rows: &'a CallableOutput, selected: Id<CallableEntity>, budget: &ResourceBudget) -> Result<Self, ModelError> {
+    pub fn new(
+        rows: &'a CallableOutput,
+        selected: Id<CallableEntity>,
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
         let mut charge = StateCharge::new(budget, "callable-advertised-owner-membership");
         charge.grow(size_of::<Self>())?;
         let mut assessments = ChargedVec::default();
-        for row in rows.assessments.iter().filter(|row| row.callable == selected) {
+        for row in rows
+            .assessments
+            .iter()
+            .filter(|row| row.callable == selected)
+        {
             assessments.push(&mut charge, row.id())?;
         }
         let mut decorators = ChargedVec::default();
-        for row in rows.decorators.iter().filter(|row| assessments.binary_search(&row.assessment).is_ok()) {
+        for row in rows
+            .decorators
+            .iter()
+            .filter(|row| assessments.binary_search(&row.assessment).is_ok())
+        {
             decorators.push(&mut charge, row.id())?;
         }
         let mut evidence = ChargedVec::default();
         let mut scratch = StateCharge::new(budget, "callable-advertised-premise-index");
         let mut referenced = ChargedSet::default();
-        for row in rows.evidence.iter().filter(|row| assessments.binary_search(&row.assessment).is_ok()) {
+        for row in rows
+            .evidence
+            .iter()
+            .filter(|row| assessments.binary_search(&row.assessment).is_ok())
+        {
             if rows.premises.get(row.premise).is_none() {
                 return Err(invalid("advertised callable evidence premise is absent"));
             }
@@ -82,10 +98,21 @@ impl<'a> CallableOwnerSelection<'a> {
             referenced.insert(&mut scratch, row.premise)?;
         }
         let mut premises = ChargedVec::default();
-        for row in rows.premises.iter().filter(|row| referenced.contains(&row.id())) {
+        for row in rows
+            .premises
+            .iter()
+            .filter(|row| referenced.contains(&row.id()))
+        {
             premises.push(&mut charge, row.id())?;
         }
-        Ok(Self { rows, assessments, decorators, premises, evidence, _charge: charge })
+        Ok(Self {
+            rows,
+            assessments,
+            decorators,
+            premises,
+            evidence,
+            _charge: charge,
+        })
     }
     /// Borrow exactly the necessary owner family; signature/slot outputs belong to their own
     /// kernels and are not part of this assessment/evidence admission.
@@ -177,9 +204,7 @@ impl<'a> Index<'a> {
             index.resolutions.insert(charge, row.symbol, row)?;
             if let Some(callable) = callable(data, row) {
                 index.universe.insert(charge, (callable, row.context))?;
-                index
-                    .mappings
-                    .update(charge, (callable, row.context), |v| v.push(row))?;
+                index.mappings.push(charge, (callable, row.context), row)?;
             }
         }
         for row in data
@@ -188,15 +213,13 @@ impl<'a> Index<'a> {
             .filter(|r| r.family == FactFamily::Syntax)
         {
             if let CoverageScope::Artifact { artifact } = need(&data.scopes, row.scope)? {
-                index
-                    .coverage
-                    .update(charge, (*artifact, row.context), |v| v.push(row))?;
+                index.coverage.push(charge, (*artifact, row.context), row)?;
             }
         }
         let mut sources: ChargedMap<Id<SourceArtifact>, Vec<Id<AnalysisContext>>> =
             Default::default();
         for (source, ctx) in index.coverage.keys() {
-            sources.update(charge, *source, |v| v.push(*ctx))?;
+            sources.push(charge, *source, *ctx)?;
         }
         for row in data.callables.iter() {
             if let CallableEntity::Source { declaration, .. } = row {
@@ -213,7 +236,7 @@ impl<'a> Index<'a> {
             let ctx = context(data, row.qualification)?;
             index
                 .declarations
-                .update(charge, (row.declaration, ctx), |v| v.push(row))?;
+                .push(charge, (row.declaration, ctx), row)?;
             if let Some(entity) =
                 super::entities::source_callable(need(&data.occurrences, row.declaration)?)
             {
@@ -222,26 +245,24 @@ impl<'a> Index<'a> {
             }
         }
         for row in data.decorators.iter() {
-            index.decorators.update(
+            index.decorators.push(
                 charge,
                 (row.declaration, context(data, row.qualification)?),
-                |v| v.push(row),
+                row,
             )?;
         }
         for row in data.bodies.iter() {
-            index.bodies.update(
+            index.bodies.push(
                 charge,
                 (row.declaration, context(data, row.qualification)?),
-                |v| v.push(row),
+                row,
             )?;
         }
         for row in data.placements.iter() {
             if let Some(parent) = row.parent {
-                index.children.update(
-                    charge,
-                    (parent, context(data, row.qualification)?),
-                    |v| v.push(row),
-                )?;
+                index
+                    .children
+                    .push(charge, (parent, context(data, row.qualification)?), row)?;
             }
         }
         for row in data.traits.iter() {
@@ -250,9 +271,7 @@ impl<'a> Index<'a> {
             {
                 let ctx = context(data, row.qualification)?;
                 if ctx == resolution.context {
-                    index
-                        .traits
-                        .update(charge, (callable, ctx), |v| v.push(row))?;
+                    index.traits.push(charge, (callable, ctx), row)?;
                 }
             }
         }
@@ -262,24 +281,20 @@ impl<'a> Index<'a> {
             {
                 let ctx = context(data, row.qualification)?;
                 if ctx == resolution.context {
-                    index
-                        .signatures
-                        .update(charge, (callable, ctx), |v| v.push(row))?;
+                    index.signatures.push(charge, (callable, ctx), row)?;
                 }
             }
         }
         for row in data.reference_assessments.iter() {
             let reference = need(&data.references, row.reference)?;
-            index.references.update(
+            index.references.push(
                 charge,
                 (reference.read, context(data, reference.qualification)?),
-                |v| v.push(row),
+                row,
             )?;
         }
         for row in data.reference_candidates.iter() {
-            index
-                .targets
-                .update(charge, row.assessment, |v| v.push(row))?;
+            index.targets.push(charge, row.assessment, row)?;
         }
         for row in data.owners.iter() {
             if matches!(
@@ -420,7 +435,7 @@ fn signature_knowledge(
     let mut charge = StateCharge::new(budget, "callable-signature-contracts");
     let mut providers: ChargedMap<Id<ProviderSymbol>, Vec<&Signature>> = Default::default();
     for row in rows {
-        providers.update(&mut charge, row.symbol, |v| v.push(*row))?;
+        providers.push(&mut charge, row.symbol, *row)?;
     }
     let mut contracts = ChargedSet::default();
     for rows in providers.values() {

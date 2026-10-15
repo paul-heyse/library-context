@@ -155,52 +155,93 @@ fn complete_using_summary(
     let mut charge = charged::StateCharge::new(b, "automatic-seed-order");
     // Keep multi-valued buckets: duplicate public slots or selected communities must still
     // expose ambiguity at the same candidate that previously scanned their complete rows.
-    let index_count = d.member_frames.len().checked_add(a.ranks.len())
+    let index_count = d
+        .member_frames
+        .len()
+        .checked_add(a.ranks.len())
         .and_then(|n| n.checked_add(a.community_members.len()))
         .and_then(|n| n.checked_add(analytic.frames.len()))
         .and_then(|n| n.checked_add(analytic.results.len()))
         .and_then(|n| n.checked_add(out.selected.len()))
         .ok_or_else(|| invalid("automatic seed index overflow"))?;
-    charge.grow(index_count.checked_mul(384)
-        .ok_or_else(|| invalid("automatic seed index allowance overflow"))?)?;
+    charge.grow(
+        index_count
+            .checked_mul(384)
+            .ok_or_else(|| invalid("automatic seed index allowance overflow"))?,
+    )?;
     let mut members_by_slot = BTreeMap::<_, Vec<_>>::new();
-    for member in d.member_frames.iter().filter(|member| d.core_invocations.get(member.invocation)
-        .is_some_and(|parent| (parent.input, parent.context) == (inv.input, inv.context))) {
-        members_by_slot.entry(member.member).or_default().push(member);
+    for member in d.member_frames.iter().filter(|member| {
+        d.core_invocations
+            .get(member.invocation)
+            .is_some_and(|parent| (parent.input, parent.context) == (inv.input, inv.context))
+    }) {
+        members_by_slot
+            .entry(member.member)
+            .or_default()
+            .push(member);
     }
     let mut ranks = BTreeMap::<_, Vec<_>>::new();
     for rank in a.ranks.iter() {
-        ranks.entry((rank.result, rank.target)).or_default().push(rank);
+        ranks
+            .entry((rank.result, rank.target))
+            .or_default()
+            .push(rank);
     }
     let mut communities_by_result = BTreeMap::<_, Vec<_>>::new();
     for member in a.community_members.iter() {
         if let Some(community) = a.communities.get(member.community) {
-            communities_by_result.entry((community.result, member.entity)).or_default().push(community);
+            communities_by_result
+                .entry((community.result, member.entity))
+                .or_default()
+                .push(community);
         }
     }
     let mut analytic_frames = BTreeMap::<_, Vec<_>>::new();
-    for frame in analytic.frames.iter().filter(|frame| frame.configuration == s.id()) {
-        analytic_frames.entry(frame.structural).or_default().push(frame);
+    for frame in analytic
+        .frames
+        .iter()
+        .filter(|frame| frame.configuration == s.id())
+    {
+        analytic_frames
+            .entry(frame.structural)
+            .or_default()
+            .push(frame);
     }
     let mut results = BTreeMap::<_, Vec<_>>::new();
     for result in analytic.results.iter() {
-        results.entry((result.frame, result.method as i16)).or_default().push(result);
+        results
+            .entry((result.frame, result.method as i16))
+            .or_default()
+            .push(result);
     }
     let selected_result = |frame, method| -> Result<_, ModelError> {
-        let Some(frames) = analytic_frames.get(&frame) else { return Ok(None); };
-        if frames.len() != 1 { return Err(invalid("automatic seed analytic frame ambiguous")); }
-        let Some(rows) = results.get(&(frames[0].id(), method as i16)) else { return Ok(None); };
-        if rows.len() != 1 { return Err(invalid("automatic seed result ambiguous")); }
+        let Some(frames) = analytic_frames.get(&frame) else {
+            return Ok(None);
+        };
+        if frames.len() != 1 {
+            return Err(invalid("automatic seed analytic frame ambiguous"));
+        }
+        let Some(rows) = results.get(&(frames[0].id(), method as i16)) else {
+            return Ok(None);
+        };
+        if rows.len() != 1 {
+            return Err(invalid("automatic seed result ambiguous"));
+        }
         let row = rows[0];
         let parent = need(&analytic.invocations, row.invocation)?;
         if (parent.input, parent.context) != (inv.input, inv.context)
-            || parent.definition != analytics::build::definition(s, method)?.1.id() {
-            return Err(invalid("automatic seed result changes exact selected frame"));
+            || parent.definition != analytics::build::definition(s, method)?.1.id()
+        {
+            return Err(invalid(
+                "automatic seed result changes exact selected frame",
+            ));
         }
         Ok(Some(row))
     };
     let mut selected_counts = BTreeMap::<_, usize>::new();
-    for row in out.selected.iter() { *selected_counts.entry(row.member).or_default() += 1; }
+    for row in out.selected.iter() {
+        *selected_counts.entry(row.member).or_default() += 1;
+    }
     let mut decisions = Vec::<Decision>::new();
     let mut configured = charged::ChargedSet::default();
     let mut configured_communities = charged::ChargedSet::default();
@@ -217,7 +258,11 @@ fn complete_using_summary(
         if (parent.input, parent.context) != (inv.input, inv.context) {
             continue;
         }
-        let mut members = members_by_slot.get(&candidate.member).into_iter().flatten().copied();
+        let mut members = members_by_slot
+            .get(&candidate.member)
+            .into_iter()
+            .flatten()
+            .copied();
         let member = members
             .next()
             .ok_or_else(|| invalid("automatic public slot has no C0 frame"))?;
@@ -239,16 +284,22 @@ fn complete_using_summary(
             rank_result
                 .filter(|r| r.selected && r.status != analysis::AnalysisStatus::NotRequested)
                 .and_then(|r| {
-                    ranks.get(&(r.id(), candidate.entity)).and_then(|rows| rows.first().copied())
+                    ranks
+                        .get(&(r.id(), candidate.entity))
+                        .and_then(|rows| rows.first().copied())
                 })
         } else {
             None
         };
         let community_result = selected_result(sf.id(), analysis::AnalysisMethod::Communities)?;
-        let mut communities = community_result.filter(|r| s.communities && r.selected
-            && r.status != analysis::AnalysisStatus::NotRequested)
+        let mut communities = community_result
+            .filter(|r| {
+                s.communities && r.selected && r.status != analysis::AnalysisStatus::NotRequested
+            })
             .and_then(|r| communities_by_result.get(&(r.id(), candidate.entity)))
-            .into_iter().flatten().copied();
+            .into_iter()
+            .flatten()
+            .copied();
         let community = communities.next().map(Record::id);
         if communities.next().is_some() {
             return Err(invalid("automatic seed has ambiguous selected community"));
@@ -262,8 +313,7 @@ fn complete_using_summary(
             held.insert(
                 &mut charge,
                 c,
-                count
-                    + selected_counts.get(&member.id()).copied().unwrap_or(0),
+                count + selected_counts.get(&member.id()).copied().unwrap_or(0),
             )?;
         }
         let reason = if configured.contains(&member.id()) {
@@ -589,37 +639,97 @@ mod tests {
     #[test]
     fn tied_selected_ranks_keep_canonical_winner_and_every_budget_decision() {
         let (b, d, docs, p, f, parents, mut a, s, i) = fixture_with(4, 1, true, false, false);
-        let result = analytic(&mut a, &s, f.iter().next().unwrap().id(), &i, analysis::AnalysisMethod::PageRank, true);
+        let result = analytic(
+            &mut a,
+            &s,
+            f.iter().next().unwrap().id(),
+            &i,
+            analysis::AnalysisMethod::PageRank,
+            true,
+        );
         for candidate in p.iter() {
-            a.ranks.insert(analytics::RankScore { result: result.id(), target: candidate.entity,
-                score: FiniteF64::new(0.5).unwrap() }).unwrap();
+            a.ranks
+                .insert(analytics::RankScore {
+                    result: result.id(),
+                    target: candidate.entity,
+                    score: FiniteF64::new(0.5).unwrap(),
+                })
+                .unwrap();
         }
         let expected = d.member_frames.iter().map(Record::id).min().unwrap();
         let before = b.reserved();
-        let out = select(SelectionInputs { d: &d, docs: &docs, p: &p, f: &f, parents: &parents, a: &a }, &s, &i, &b);
+        let out = select(
+            SelectionInputs {
+                d: &d,
+                docs: &docs,
+                p: &p,
+                f: &f,
+                parents: &parents,
+                a: &a,
+            },
+            &s,
+            &i,
+            &b,
+        );
         assert_eq!(out.automatic.len(), 4);
         assert_eq!(out.selected.len(), 1);
         assert_eq!(out.selected.iter().next().unwrap().member, expected);
-        assert_eq!(out.automatic.iter().filter(|row| row.reason == DecisionReason::Budget).count(), 3);
-        assert!(out.automatic.iter().all(|row| row.basis == RankBasis::SelectedPageRank && row.score.get() == 0.5));
+        assert_eq!(
+            out.automatic
+                .iter()
+                .filter(|row| row.reason == DecisionReason::Budget)
+                .count(),
+            3
+        );
+        assert!(
+            out.automatic
+                .iter()
+                .all(|row| row.basis == RankBasis::SelectedPageRank && row.score.get() == 0.5)
+        );
         drop(out);
-        assert_eq!(b.reserved(), before, "invocation preparation is released with selected output");
+        assert_eq!(
+            b.reserved(),
+            before,
+            "invocation preparation is released with selected output"
+        );
     }
     #[test]
     fn indexed_community_membership_preserves_duplicate_slot_ambiguity() {
         let (b, d, docs, p, f, parents, mut a, s, i) = fixture_with(2, 1, false, true, false);
-        let result = analytic(&mut a, &s, f.iter().next().unwrap().id(), &i, analysis::AnalysisMethod::Communities, true);
+        let result = analytic(
+            &mut a,
+            &s,
+            f.iter().next().unwrap().id(),
+            &i,
+            analysis::AnalysisMethod::Communities,
+            true,
+        );
         let entity = p.iter().next().unwrap().entity;
         for representative in p.iter().map(|candidate| candidate.entity) {
-            let community = a.communities.insert(analytics::Community { result: result.id(), representative,
-                agreement: FiniteF64::new(1.0).unwrap() }).unwrap();
-            a.community_members.insert(analytics::CommunityMember { community, entity }).unwrap();
+            let community = a
+                .communities
+                .insert(analytics::Community {
+                    result: result.id(),
+                    representative,
+                    agreement: FiniteF64::new(1.0).unwrap(),
+                })
+                .unwrap();
+            a.community_members
+                .insert(analytics::CommunityMember { community, entity })
+                .unwrap();
         }
         let mut out = seeds::configured(&d, &p, &f, &parents, &s, &i, &b).unwrap();
         let before = b.reserved();
-        let error = complete(&d, &docs, &p, &f, &parents, &a, &a.parents, &s, &i, &mut out, &b).unwrap_err();
+        let error = complete(
+            &d, &docs, &p, &f, &parents, &a, &a.parents, &s, &i, &mut out, &b,
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("ambiguous selected community"));
-        assert_eq!(b.reserved(), before, "refused preparation does not retain index state");
+        assert_eq!(
+            b.reserved(),
+            before,
+            "refused preparation does not retain index state"
+        );
     }
     #[test]
     fn eligible_extras_follow_official_usage_and_zero_budget_is_explicit() {

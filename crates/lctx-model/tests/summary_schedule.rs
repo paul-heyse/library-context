@@ -20,7 +20,7 @@ fn summary_dependencies_use_only_published_nominal_evidence_routes() {
             analysis::preparation::Configuration::new(&catalog, pairs.clone(), &budget).unwrap();
         let facts = Stage {
             captured_binding: None,
-name: "fixture_facts_declaration",
+            name: "fixture_facts_declaration",
             inputs: vec![],
             outputs: facts_relations()
                 .iter()

@@ -3,7 +3,6 @@
     reason = "Shared fixture runner serves focused compiler controls"
 )]
 //! Fixture inputs run through the actual persisted compiler; assertions inspect completed native views.
-use lctx_model::domain::embedding::Embedder;
 use cpg_core::{
     compilation::{self, PreparedCompilation},
     workspace::{Workspace, WorkspaceOptions},
@@ -14,6 +13,7 @@ use cpg_extract::{
     capture::CapturedInput,
 };
 use datafusion::{common::ScalarValue, prelude::SessionContext};
+use lctx_model::domain::embedding::Embedder;
 use lctx_model::domain::{
     admission::Frontier, analysis::settings::AnalyticsConfiguration, stages::Profile, *,
 };
@@ -48,20 +48,28 @@ pub fn root(case: &str) -> std::path::PathBuf {
         .join("../../fixtures/python")
         .join(case)
 }
-pub fn capture(case:&str,profile:Profile,budget:&resources::ResourceBudget)->Arc<CapturedInputs>{
-    try_capture(case,profile,budget).unwrap()
+pub fn capture(
+    case: &str,
+    profile: Profile,
+    budget: &resources::ResourceBudget,
+) -> Arc<CapturedInputs> {
+    try_capture(case, profile, budget).unwrap()
 }
 pub fn try_capture(
     case: &str,
     profile: Profile,
     budget: &resources::ResourceBudget,
-) -> Result<Arc<CapturedInputs>,ModelError> {
+) -> Result<Arc<CapturedInputs>, ModelError> {
     let root = root(case);
     let mut paths = Vec::new();
     let mut pending = vec![root.clone()];
     while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(directory).map_err(|error|ModelError::Cause(Box::new(error)))? {
-            let path = entry.map_err(|error|ModelError::Cause(Box::new(error)))?.path();
+        for entry in
+            std::fs::read_dir(directory).map_err(|error| ModelError::Cause(Box::new(error)))?
+        {
+            let path = entry
+                .map_err(|error| ModelError::Cause(Box::new(error)))?
+                .path();
             if path.is_dir() {
                 pending.push(path);
             } else {
@@ -83,7 +91,7 @@ pub fn try_capture(
     Ok(Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(
             CapturedInput::capture_derived(&root, &paths, budget, &documents, derive_blocks)
-                .map_err(|error|ModelError::Cause(Box::new(error)))?,
+                .map_err(|error| ModelError::Cause(Box::new(error)))?,
             case,
         )],
         cpg_extract::native_context::NativeContextConfig::committed(profile, budget)?,

@@ -242,7 +242,7 @@ impl AssumptionIndex {
             for row in AssumptionSetMember::decode(batch)? {
                 if !self
                     .members
-                    .update(&mut self.charge, row.set, |ids| ids.insert(row.assumption))?
+                    .insert_set(&mut self.charge, row.set, row.assumption)?
                 {
                     return Err(invalid("duplicate assumption membership"));
                 }
@@ -259,9 +259,8 @@ impl AssumptionIndex {
         self.sets
             .insert(&mut self.charge, basis.set.id(), basis.set.clone())?;
         for member in &basis.members {
-            self.members.update(&mut self.charge, member.set, |ids| {
-                ids.insert(member.assumption)
-            })?;
+            self.members
+                .insert_set(&mut self.charge, member.set, member.assumption)?;
         }
         Ok(())
     }

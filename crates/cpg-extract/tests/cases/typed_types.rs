@@ -1,6 +1,6 @@
 //! Independent raw type answers over the pinned native provider, through shared model validation.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     attribution::*, calls::*, declarations::ParameterDeclaration, source::*, types::*, *,
 };

@@ -10,8 +10,9 @@ use std::sync::Arc;
 async fn completed_input_sessions_are_isolated_and_detached_queries_retain_sources() {
     let workspace = Workspace::new(
         Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap()),
-        WorkspaceOptions::default(), crate::native_fixture::store()
-)
+        WorkspaceOptions::default(),
+        crate::native_fixture::store(),
+    )
     .unwrap();
     let empty = workspace.inputs("source", Profile::Catalog, []).unwrap();
     let output = workspace.output(
@@ -19,7 +20,7 @@ async fn completed_input_sessions_are_isolated_and_detached_queries_retain_sourc
         Profile::Catalog,
         ContentHash::of(b"source"),
         empty.clone(),
-    [<Package>::NAME],
+        [<Package>::NAME],
     );
     output.declare::<Package>().unwrap();
     output
@@ -51,8 +52,9 @@ async fn compute_and_external_reservations_share_one_compiler_pool() {
             memory_bytes: 32 * 1024 * 1024,
             partitions: 1,
             ..Default::default()
-        }, crate::native_fixture::store()
-)
+        },
+        crate::native_fixture::store(),
+    )
     .unwrap();
     let budget = workspace.budget().clone();
     let empty = workspace.inputs("compute", Profile::Catalog, []).unwrap();

@@ -1,6 +1,6 @@
 //! Model requirements extend the one linked provider's captured dependency context.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use cpg_extract::{
     acquisition::*,
     bundle::CapturedInputs,

@@ -168,9 +168,8 @@ impl InvariantCheck for EnumerationCheck {
                 {
                     return Err(invalid("conflicting native signature variant"));
                 }
-                self.signatures.update(&mut self.charge, key, |rows| {
-                    rows.insert(row.variant, row.id());
-                })?;
+                self.signatures
+                    .insert_map(&mut self.charge, key, row.variant, row.id())?;
             }
         } else if relation == SignatureEnumerationObservation::NAME {
             for row in SignatureEnumerationObservation::decode(batch)? {
@@ -187,10 +186,12 @@ impl InvariantCheck for EnumerationCheck {
                 {
                     return Err(invalid("conflicting signature enumeration member"));
                 }
-                self.members
-                    .update(&mut self.charge, row.enumeration, |rows| {
-                        rows.insert(row.ordinal, row.signature);
-                    })?;
+                self.members.insert_map(
+                    &mut self.charge,
+                    row.enumeration,
+                    row.ordinal,
+                    row.signature,
+                )?;
             }
         } else {
             return Err(invalid("undeclared signature enumeration input"));

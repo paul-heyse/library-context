@@ -1,6 +1,6 @@
 //! Native coordinates through the typed facts writer and shared invariants.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     assertion::*, attribution::*, conditions::*, flow::*, source::*, value::*, *,
 };

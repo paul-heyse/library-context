@@ -52,7 +52,7 @@ struct Entry<K> {
     work_bytes: usize,
 }
 trait Adapter {
-    type Key: Ord;
+    type Key: Ord + Clone;
     type Output;
     const CONFLICT: &'static str;
     fn key(value: &Self::Output) -> Result<Self::Key, ModelError>;
@@ -95,9 +95,11 @@ impl Adapter for Physical {
         physical_work_bytes(value, frame)
     }
 }
+type NominalCandidateKey = (String, [u8; 16]);
+type CandidateFrameRef<'a> = (&'a NominalCandidateKey, &'a [u8]);
 struct Compact;
 impl Adapter for Compact {
-    type Key = (String, [u8; 16]);
+    type Key = NominalCandidateKey;
     type Output = Candidate;
     const CONFLICT: &'static str = "conflicting nominal candidate pointer";
     fn key(value: &Candidate) -> Result<Self::Key, ModelError> {
@@ -200,17 +202,22 @@ fn reserve(
         .map(|budget| budget.reserve(OWNER, bytes))
         .transpose()
 }
+struct CountedRun {
+    file: NamedTempFile,
+    count: usize,
+}
 fn merge<A: Adapter>(
     directory: &Path,
     a: NamedTempFile,
     b: NamedTempFile,
     budget: Option<&ResourceBudget>,
     bounds: FrameBounds,
-) -> Result<NamedTempFile, ModelError> {
+) -> Result<CountedRun, ModelError> {
     // Two live heads and one transient decode, sized from admitted compact frames,
     // plus fixed reader/writer buffers. Small candidates do not pay the full-row bound.
     let _work = reserve(budget, 3 * bounds.work + 3 * IO_BYTES)?;
     let output = NamedTempFile::new_in(directory).map_err(ModelError::codec)?;
+    let mut count = 0usize;
     let mut writer =
         BufWriter::with_capacity(IO_BYTES, output.reopen().map_err(ModelError::codec)?);
     let mut ar = BufReader::with_capacity(IO_BYTES, a.reopen().map_err(ModelError::codec)?);
@@ -235,16 +242,25 @@ fn merge<A: Adapter>(
         }
         if take_a {
             write(&mut writer, av.as_ref().expect("merge source"))?;
+            count = count
+                .checked_add(1)
+                .ok_or(ModelError::Schema("ordered run count"))?;
             drop(av.take());
             av = read::<A>(&mut ar, bounds)?;
         } else {
             write(&mut writer, bv.as_ref().expect("merge source"))?;
+            count = count
+                .checked_add(1)
+                .ok_or(ModelError::Schema("ordered run count"))?;
             drop(bv.take());
             bv = read::<A>(&mut br, bounds)?;
         }
     }
     writer.flush().map_err(ModelError::codec)?;
-    Ok(output)
+    Ok(CountedRun {
+        file: output,
+        count,
+    })
 }
 fn merge_tail<A: Adapter>(
     directory: &Path,
@@ -252,9 +268,10 @@ fn merge_tail<A: Adapter>(
     tail: &[Entry<A::Key>],
     budget: Option<&ResourceBudget>,
     bounds: FrameBounds,
-) -> Result<NamedTempFile, ModelError> {
+) -> Result<CountedRun, ModelError> {
     let _work = reserve(budget, 2 * bounds.work + 2 * IO_BYTES)?;
     let output = NamedTempFile::new_in(directory).map_err(ModelError::codec)?;
+    let mut count = 0usize;
     let mut writer =
         BufWriter::with_capacity(IO_BYTES, output.reopen().map_err(ModelError::codec)?);
     let mut reader = BufReader::with_capacity(IO_BYTES, disk.reopen().map_err(ModelError::codec)?);
@@ -268,26 +285,41 @@ fn merge_tail<A: Adapter>(
                     return Err(ModelError::Conflict(A::CONFLICT));
                 }
                 write(&mut writer, a)?;
+                count = count
+                    .checked_add(1)
+                    .ok_or(ModelError::Schema("ordered run count"))?;
                 head = read::<A>(&mut reader, bounds)?;
                 position += 1;
             }
             (Some(a), Some(b)) if a.key > b.key => {
                 write(&mut writer, b)?;
+                count = count
+                    .checked_add(1)
+                    .ok_or(ModelError::Schema("ordered run count"))?;
                 position += 1;
             }
             (Some(a), _) => {
                 write(&mut writer, a)?;
+                count = count
+                    .checked_add(1)
+                    .ok_or(ModelError::Schema("ordered run count"))?;
                 head = read::<A>(&mut reader, bounds)?;
             }
             (None, Some(b)) => {
                 write(&mut writer, b)?;
+                count = count
+                    .checked_add(1)
+                    .ok_or(ModelError::Schema("ordered run count"))?;
                 position += 1;
             }
             (None, None) => break,
         }
     }
     writer.flush().map_err(ModelError::codec)?;
-    Ok(output)
+    Ok(CountedRun {
+        file: output,
+        count,
+    })
 }
 struct Sorter<A: Adapter> {
     directory: Option<TempDir>,
@@ -296,7 +328,7 @@ struct Sorter<A: Adapter> {
     limit: usize,
     row_bytes: usize,
     // Binary carry merging: logarithmic descriptors and two live heads, never a seen set.
-    runs: Vec<Option<NamedTempFile>>,
+    runs: Vec<Option<CountedRun>>,
     budget: Option<ResourceBudget>,
     retained: Option<Box<dyn Reservation>>,
     poisoned: bool,
@@ -330,7 +362,7 @@ impl<A: Adapter> Sorter<A> {
             .map_or(0, |dir| dir.path().as_os_str().len());
         size_of::<Self>()
             + path_bytes
-            + capacity * (size_of::<Option<NamedTempFile>>() + path_bytes + 64)
+            + capacity * (size_of::<Option<CountedRun>>() + path_bytes + 64)
     }
     fn charge(&mut self, pending: usize, run_capacity: usize) -> Result<(), ModelError> {
         let bytes = pending.saturating_add(self.metadata_bytes(run_capacity));
@@ -475,7 +507,10 @@ impl<A: Adapter> Sorter<A> {
         }
         drop(row);
         self.charge(0, self.runs.capacity())?;
-        self.carry_run(run)
+        self.carry_run(CountedRun {
+            file: run,
+            count: 1,
+        })
     }
     fn flush(&mut self) -> Result<(), ModelError> {
         if self.pending.is_empty() {
@@ -504,12 +539,13 @@ impl<A: Adapter> Sorter<A> {
             }
             writer.flush().map_err(ModelError::codec)?;
         }
+        let count = self.pending.len();
         self.pending = Vec::new();
         self.payload_bytes = 0;
         self.charge(0, self.runs.capacity())?;
-        self.carry_run(run)
+        self.carry_run(CountedRun { file: run, count })
     }
-    fn carry_run(&mut self, mut run: NamedTempFile) -> Result<(), ModelError> {
+    fn carry_run(&mut self, mut run: CountedRun) -> Result<(), ModelError> {
         let mut level = 0;
         loop {
             if level == self.runs.len() {
@@ -524,8 +560,8 @@ impl<A: Adapter> Sorter<A> {
                 Some(previous) => {
                     run = merge::<A>(
                         self.directory.as_ref().expect("spill directory").path(),
-                        previous,
-                        run,
+                        previous.file,
+                        run.file,
                         self.budget.as_ref(),
                         self.bounds,
                     )?;
@@ -544,13 +580,13 @@ impl<A: Adapter> Sorter<A> {
             return Err(ModelError::Conflict("failed external ordering"));
         }
         self.sort_pending()?;
-        let mut final_run = None;
+        let mut final_run: Option<CountedRun> = None;
         for run in self.runs.into_iter().flatten() {
             final_run = Some(match final_run {
                 Some(previous) => merge::<A>(
                     self.directory.as_ref().expect("spill directory").path(),
-                    previous,
-                    run,
+                    previous.file,
+                    run.file,
                     self.budget.as_ref(),
                     self.bounds,
                 )?,
@@ -565,7 +601,7 @@ impl<A: Adapter> Sorter<A> {
             } else {
                 final_run = Some(merge_tail::<A>(
                     self.directory.as_ref().expect("spill directory").path(),
-                    file,
+                    file.file,
                     &self.pending,
                     self.budget.as_ref(),
                     self.bounds,
@@ -589,8 +625,10 @@ impl<A: Adapter> Sorter<A> {
         if let Some(retained) = &mut self.retained {
             retained.try_resize(retained_bytes)?;
         }
+        let count = final_run.as_ref().map_or(memory.len(), |run| run.count);
         let run = Arc::new(Run {
-            file: final_run,
+            count,
+            file: final_run.map(|run| run.file),
             memory,
             _directory: self.directory,
             _retained: self.retained,
@@ -604,6 +642,7 @@ impl<A: Adapter> Sorter<A> {
 /// Immutable final scratch. Every cursor opens a distinct file description and owns its
 /// reader/decode reservation. The last run/cursor releases both scratch and owner charge.
 struct Run<A: Adapter> {
+    count: usize,
     file: Option<NamedTempFile>,
     memory: Vec<Entry<A::Key>>,
     _directory: Option<TempDir>,
@@ -752,25 +791,26 @@ impl PreparedFrameRows {
 
 /// Appends already ordered, conflict-checked frames under the existing run owner.
 /// No sorting, logical lowering or JSON encoding occurs here.
-struct OrderedAppend {
+struct OrderedAppend<A: Adapter> {
+    count: usize,
     file: Option<NamedTempFile>,
     directory: Option<TempDir>,
     writer: Option<BufWriter<File>>,
-    memory: Vec<Entry<RecordId>>,
+    memory: Vec<Entry<A::Key>>,
     payload_bytes: usize,
     budget: ResourceBudget,
     retained: Box<dyn Reservation>,
     _work: Box<dyn Reservation>,
     bounds: FrameBounds,
 }
-impl OrderedAppend {
+impl<A: Adapter> OrderedAppend<A> {
     fn new(budget: &ResourceBudget, bounds: FrameBounds) -> Result<Self, ModelError> {
-        let retained =
-            budget.reserve(OWNER, size_of::<Run<Physical>>() + 2 * size_of::<usize>())?;
+        let retained = budget.reserve(OWNER, size_of::<Run<A>>() + 2 * size_of::<usize>())?;
         // Keep a small path-creation allowance while accumulating fitting memory.
         // It transfers to the disk owner before creating any scratch, if spilling.
         let work = budget.reserve(OWNER, size_of::<Self>() + 512)?;
         Ok(Self {
+            count: 0,
             file: None,
             directory: None,
             writer: None,
@@ -808,10 +848,10 @@ impl OrderedAppend {
         self.memory = Vec::new();
         self.payload_bytes = 0;
         self.retained
-            .try_resize(size_of::<Run<Physical>>() + 2 * size_of::<usize>() + 512)?;
+            .try_resize(size_of::<Run<A>>() + 2 * size_of::<usize>() + 512)?;
         Ok(())
     }
-    fn append(&mut self, key: &RecordId, payload: &[u8]) -> Result<(), ModelError> {
+    fn append(&mut self, key: &A::Key, payload: &[u8]) -> Result<(), ModelError> {
         if payload.len() > self.bounds.frame {
             return Err(ModelError::Schema("ordered append frame bound"));
         }
@@ -824,13 +864,13 @@ impl OrderedAppend {
             let payload_bytes = self
                 .payload_bytes
                 .saturating_add(payload.len())
-                .saturating_add(record_id_bytes(key));
+                .saturating_add(A::key_bytes(key));
             let memory_bytes =
-                payload_bytes.saturating_add(capacity.saturating_mul(size_of::<Entry<RecordId>>()));
+                payload_bytes.saturating_add(capacity.saturating_mul(size_of::<Entry<A::Key>>()));
             if memory_bytes <= RUN_BYTES {
                 match self
                     .retained
-                    .try_resize(size_of::<Run<Physical>>() + 2 * size_of::<usize>() + memory_bytes)
+                    .try_resize(size_of::<Run<A>>() + 2 * size_of::<usize>() + memory_bytes)
                 {
                     Ok(()) => {
                         if capacity > self.memory.capacity() {
@@ -842,6 +882,10 @@ impl OrderedAppend {
                             work_bytes: self.bounds.work,
                         });
                         self.payload_bytes = payload_bytes;
+                        self.count = self
+                            .count
+                            .checked_add(1)
+                            .ok_or(ModelError::Schema("ordered append count"))?;
                         return Ok(());
                     }
                     Err(ModelError::Resource { .. }) => {}
@@ -854,14 +898,20 @@ impl OrderedAppend {
         writer
             .write_all(&(payload.len() as u64).to_le_bytes())
             .map_err(ModelError::codec)?;
-        writer.write_all(payload).map_err(ModelError::codec)
+        writer.write_all(payload).map_err(ModelError::codec)?;
+        self.count = self
+            .count
+            .checked_add(1)
+            .ok_or(ModelError::Schema("ordered append count"))?;
+        Ok(())
     }
-    fn finish(mut self) -> Result<PreparedRows, ModelError> {
+    fn finish(mut self) -> Result<Arc<Run<A>>, ModelError> {
         if let Some(writer) = &mut self.writer {
             writer.flush().map_err(ModelError::codec)?;
         }
         drop(self.writer.take());
-        Ok(PreparedRows(Arc::new(Run {
+        Ok(Arc::new(Run {
+            count: self.count,
             file: self.file,
             memory: self.memory,
             _directory: self.directory,
@@ -869,7 +919,7 @@ impl OrderedAppend {
             bounds: self.bounds,
             budget: Some(self.budget),
             _adapter: PhantomData,
-        })))
+        }))
     }
 }
 
@@ -990,10 +1040,10 @@ fn balanced_union(
     let left = balanced_union(&inputs[..middle], budget, check)?;
     let right = balanced_union(&inputs[middle..], budget, check)?;
     let pair = [left, right];
-    let mut output = OrderedAppend::new(budget, prepared_bounds(&pair))?;
+    let mut output = OrderedAppend::<Physical>::new(budget, prepared_bounds(&pair))?;
     FrameHeads::open(&pair, budget)?.fold(check, &mut |key, bytes| output.append(key, bytes))?;
     check()?;
-    let completed = output.finish()?;
+    let completed = PreparedRows(output.finish()?);
     check()?;
     Ok(completed)
 }
@@ -1055,12 +1105,12 @@ impl PreparedRows {
     ) -> Result<Self, ModelError> {
         check()?;
         prepared_pools(inputs, budget)?;
-        let mut output = OrderedAppend::new(budget, prepared_bounds(inputs))?;
+        let mut output = OrderedAppend::<Physical>::new(budget, prepared_bounds(inputs))?;
         match FrameHeads::open(inputs, budget) {
             Ok(heads) => {
                 heads.fold(&mut check, &mut |key, bytes| output.append(key, bytes))?;
                 check()?;
-                let completed = output.finish()?;
+                let completed = PreparedRows(output.finish()?);
                 check()?;
                 Ok(completed)
             }
@@ -1679,11 +1729,149 @@ pub struct OrderedCandidates(Ordered<Compact>);
 #[derive(Clone)]
 pub struct PreparedCandidates(Arc<Run<Compact>>);
 impl PreparedCandidates {
+    /// Earned during sorting/merging through complete input EOF; never a metadata
+    /// claim from a registered native descriptor or a second count-only scan.
+    pub fn rows(&self) -> usize {
+        self.0.count
+    }
+    /// Merge immutable compact frames in nominal-key order without decoding and
+    /// sorting their entire contents again. Every actual changed union is checked
+    /// through both EOFs before its sealed count/backing becomes available.
+    pub fn union_prepared(
+        inputs: &[Self],
+        budget: &ResourceBudget,
+        mut check: impl FnMut() -> Result<(), ModelError>,
+    ) -> Result<Self, ModelError> {
+        fn union(
+            inputs: &[PreparedCandidates],
+            budget: &ResourceBudget,
+            check: &mut impl FnMut() -> Result<(), ModelError>,
+        ) -> Result<PreparedCandidates, ModelError> {
+            check()?;
+            let _handles = budget.reserve(OWNER, 4 * size_of::<PreparedCandidates>())?;
+            if inputs.is_empty() {
+                return Ok(SortedCandidates::new(budget)?.finish()?.into_prepared());
+            }
+            if inputs.len() == 1 {
+                return Ok(inputs[0].clone());
+            }
+            let middle = inputs.len() / 2;
+            let left = union(&inputs[..middle], budget, check)?;
+            let right = union(&inputs[middle..], budget, check)?;
+            let bounds = FrameBounds {
+                frame: left.0.bounds.frame.max(right.0.bounds.frame),
+                work: left.0.bounds.work.max(right.0.bounds.work),
+            };
+            let mut a = CompactFrames::open(&left, budget)?;
+            let mut b = CompactFrames::open(&right, budget)?;
+            let mut output = OrderedAppend::<Compact>::new(budget, bounds)?;
+            a.advance()?;
+            b.advance()?;
+            while a.current().is_some() || b.current().is_some() {
+                check()?;
+                let (take_a, duplicate) = match (a.current(), b.current()) {
+                    (Some((ak, av)), Some((bk, bv))) if ak == bk => {
+                        if av != bv {
+                            return Err(ModelError::Conflict(Compact::CONFLICT));
+                        }
+                        (true, true)
+                    }
+                    (Some((ak, _)), Some((bk, _))) => (ak < bk, false),
+                    (Some(_), None) => (true, false),
+                    _ => (false, false),
+                };
+                if take_a {
+                    let (key, payload) = a.current().expect("selected compact head");
+                    output.append(key, payload)?;
+                    a.advance()?;
+                    if duplicate {
+                        b.advance()?;
+                    }
+                } else {
+                    let (key, payload) = b.current().expect("selected compact head");
+                    output.append(key, payload)?;
+                    b.advance()?;
+                }
+            }
+            check()?;
+            let result = PreparedCandidates(output.finish()?);
+            check()?;
+            Ok(result)
+        }
+        if inputs.iter().any(|input| {
+            !input
+                .0
+                .budget
+                .as_ref()
+                .is_some_and(|owner| owner.shares_pool(budget))
+        }) {
+            return Err(ModelError::Conflict("ordered union foreign resource pool"));
+        }
+        union(inputs, budget, &mut check)
+    }
     pub fn cursor_with_budget(
         &self,
         budget: &ResourceBudget,
     ) -> Result<OrderedCandidates, ModelError> {
         Ordered::open_in(self.0.clone(), Some(budget.clone())).map(OrderedCandidates)
+    }
+}
+struct CompactFrames {
+    run: Arc<Run<Compact>>,
+    reader: Option<BufReader<File>>,
+    head: Option<Entry<NominalCandidateKey>>,
+    position: usize,
+    _charge: Box<dyn Reservation>,
+}
+impl CompactFrames {
+    fn open(input: &PreparedCandidates, budget: &ResourceBudget) -> Result<Self, ModelError> {
+        let charge = budget.reserve(
+            OWNER,
+            size_of::<Self>()
+                + if input.0.file.is_some() {
+                    input.0.bounds.work + IO_BYTES
+                } else {
+                    0
+                },
+        )?;
+        let reader = input
+            .0
+            .file
+            .as_ref()
+            .map(|file| {
+                file.reopen()
+                    .map(|file| BufReader::with_capacity(IO_BYTES, file))
+            })
+            .transpose()
+            .map_err(ModelError::codec)?;
+        Ok(Self {
+            run: input.0.clone(),
+            reader,
+            head: None,
+            position: 0,
+            _charge: charge,
+        })
+    }
+    fn current(&self) -> Option<CandidateFrameRef<'_>> {
+        if self.reader.is_some() {
+            self.head
+                .as_ref()
+                .map(|entry| (&entry.key, entry.bytes.as_slice()))
+        } else {
+            self.position
+                .checked_sub(1)
+                .and_then(|position| self.run.memory.get(position))
+                .map(|entry| (&entry.key, entry.bytes.as_slice()))
+        }
+    }
+    fn advance(&mut self) -> Result<(), ModelError> {
+        if let Some(reader) = &mut self.reader {
+            self.head = None;
+            self.head = read::<Compact>(reader, self.run.bounds)?;
+        } else {
+            self.position = self.position.saturating_add(1);
+        }
+        Ok(())
     }
 }
 impl OrderedCandidates {
@@ -1711,6 +1899,104 @@ mod tests {
             key: nominal,
             node: RecordId::new("entity", node),
         }
+    }
+    #[test]
+    fn compact_prepared_union_seals_counts_for_memory_and_spill_without_reordering() {
+        for limit in [RUN_BYTES, 64] {
+            let budget = ResourceBudget::fixed(2 << 20).unwrap();
+            let make = |rows: Vec<Candidate>| {
+                let mut sorted = SortedCandidates::with_run_bytes(&budget, limit).unwrap();
+                for row in rows {
+                    sorted.push(row).unwrap();
+                }
+                sorted.finish().unwrap().into_prepared()
+            };
+            let a = candidate("packages", 1, "a");
+            let b = candidate("packages", 2, "b");
+            let c = candidate("packages", 3, "c");
+            let left = make(vec![c.clone(), a.clone(), a.clone()]);
+            let right = make(vec![c.clone(), b.clone()]);
+            assert_eq!(left.rows(), 2);
+            assert_eq!(right.rows(), 2);
+            let result =
+                PreparedCandidates::union_prepared(&[left.clone(), right.clone()], &budget, || {
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(result.rows(), 3);
+            let mut cursor = result.cursor_with_budget(&budget).unwrap();
+            assert_eq!(cursor.next_candidate().unwrap(), Some(a));
+            assert_eq!(cursor.next_candidate().unwrap(), Some(b));
+            assert_eq!(cursor.next_candidate().unwrap(), Some(c));
+            assert!(cursor.next_candidate().unwrap().is_none());
+            drop(cursor);
+            drop(result);
+            drop(left);
+            drop(right);
+            assert_eq!(budget.reserved(), 0);
+        }
+    }
+    #[test]
+    fn compact_union_refuses_late_conflict_cancellation_foreign_pool_and_local_capacity() {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let make = |rows: Vec<Candidate>| {
+            let mut sorted = SortedCandidates::with_run_bytes(&budget, 64).unwrap();
+            for row in rows {
+                sorted.push(row).unwrap();
+            }
+            sorted.finish().unwrap().into_prepared()
+        };
+        let left = make(vec![
+            candidate("packages", 1, "a"),
+            candidate("packages", 9, "same"),
+        ]);
+        let conflict = make(vec![
+            candidate("packages", 2, "b"),
+            candidate("packages", 9, "different"),
+        ]);
+        let before = budget.reserved();
+        assert!(matches!(
+            PreparedCandidates::union_prepared(&[left.clone(), conflict.clone()], &budget, || Ok(
+                ()
+            )),
+            Err(ModelError::Conflict(
+                "conflicting nominal candidate pointer"
+            ))
+        ));
+        assert_eq!(budget.reserved(), before);
+        let mut calls = 0;
+        assert!(
+            PreparedCandidates::union_prepared(&[left.clone(), left.clone()], &budget, || {
+                calls += 1;
+                if calls > 3 {
+                    Err(ModelError::Conflict("test cancelled"))
+                } else {
+                    Ok(())
+                }
+            })
+            .is_err()
+        );
+        assert_eq!(budget.reserved(), before);
+        let foreign = ResourceBudget::fixed(1 << 20).unwrap();
+        assert!(matches!(
+            PreparedCandidates::union_prepared(std::slice::from_ref(&left), &foreign, || Ok(())),
+            Err(ModelError::Conflict("ordered union foreign resource pool"))
+        ));
+        let held = budget
+            .reserve("test fill", budget.limit() - budget.reserved() - 512)
+            .unwrap();
+        assert!(matches!(
+            PreparedCandidates::union_prepared(&[left.clone(), left.clone()], &budget, || Ok(())),
+            Err(ModelError::Resource { .. })
+        ));
+        drop(held);
+        assert_eq!(left.rows(), 2);
+        let mut cursor = left.cursor_with_budget(&budget).unwrap();
+        assert!(cursor.next_candidate().unwrap().is_some());
+        drop(cursor);
+        drop(left);
+        drop(conflict);
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn empty_candidate_ordering_needs_no_merge_or_reader_work_buffer() {
@@ -2288,7 +2574,7 @@ mod tests {
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
         let input = prepared(&budget, RUN_BYTES, vec![row("a", Value::Null)]);
         let before = budget.reserved();
-        let mut output = OrderedAppend::new(&budget, input.0.bounds).unwrap();
+        let mut output = OrderedAppend::<Physical>::new(&budget, input.0.bounds).unwrap();
         PreparedRows::fold_union(
             std::slice::from_ref(&input),
             &budget,

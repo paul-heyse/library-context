@@ -500,8 +500,7 @@ impl InvariantCheck for SignatureCheck {
                 {
                     return Err(invalid("signature parameter work limit"));
                 }
-                self.members
-                    .update(&mut self.charge, row.signature, |members| members.push(row))?;
+                self.members.push(&mut self.charge, row.signature, row)?;
             }
         } else {
             return Err(invalid("undeclared signature validation input"));
@@ -837,7 +836,12 @@ struct OriginCheck {
 impl OriginCheck {
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((id, steps)) = self.current.take()
-            && self.expected.remove(&mut self.charge, &id) != Some(origin_digest(&steps))
+            && self
+                .expected
+                .remove(&mut self.charge, &id)?
+                .as_deref()
+                .copied()
+                != Some(origin_digest(&steps))
         {
             return Err(invalid("call origin steps differ"));
         }
@@ -1038,8 +1042,7 @@ impl InvariantCheck for CallerCheck {
             }
         } else if relation == CallOriginStep::NAME {
             for row in CallOriginStep::decode(batch)? {
-                self.steps
-                    .update(&mut self.charge, row.origin, |steps| steps.push(row.step))?;
+                self.steps.push(&mut self.charge, row.origin, row.step)?;
             }
         } else if relation == ProviderCallSite::NAME {
             for row in ProviderCallSite::decode(batch)? {
@@ -1283,10 +1286,11 @@ impl CallSyntaxCheck {
     }
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((call, digest)) = self.current.take() {
-            let (expected, _) = self
+            let removed = self
                 .expected
-                .remove(&mut self.charge, &call)
+                .remove(&mut self.charge, &call)?
                 .ok_or_else(|| invalid("call arguments name an absent or repeated call"))?;
+            let (expected, _) = *removed;
             if digest.finish() != expected {
                 return Err(invalid(
                     "call arguments differ from the call's declared membership",
@@ -1936,9 +1940,7 @@ impl InvariantCheck for ResolutionCheck {
                     .is_some_and(|members| members.len() >= 4096)
                     || !self
                         .members
-                        .update(&mut self.charge, row.resolution, |members| {
-                            members.insert(row.target)
-                        })?
+                        .insert_set(&mut self.charge, row.resolution, row.target)?
                 {
                     return Err(invalid("call alternatives repeated or work limit exceeded"));
                 }

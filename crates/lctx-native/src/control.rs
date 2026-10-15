@@ -769,6 +769,13 @@ pub struct ReaderPin {
     uncertain: std::sync::atomic::AtomicBool,
 }
 impl ReaderPin {
+    pub(crate) fn require_client(&self, client: &Arc<Surreal<Client>>) -> Result<(), ModelError> {
+        if Arc::ptr_eq(&self.client, client) {
+            Ok(())
+        } else {
+            Err(ModelError::Conflict("native pin foreign client"))
+        }
+    }
     pub async fn acquire(
         client: Arc<Surreal<Client>>,
         views: &[ContentHash],

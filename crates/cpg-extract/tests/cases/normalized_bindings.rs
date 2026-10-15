@@ -1,6 +1,6 @@
 //! Independent Python examples through all native facts and N1-N5, including private replay.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     calls::*,
     normalized::{

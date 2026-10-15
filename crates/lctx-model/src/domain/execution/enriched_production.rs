@@ -1247,7 +1247,10 @@ pub(crate) fn run_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "enriched_execution_inventory",
-        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+            analysis::owner::AnalysisOwner::Enriched,
+            invariant_inputs(),
+        ),
         create: std::sync::Arc::new(|budget| Box::new(ExecutionCheck::new(budget))),
     }]
 }
@@ -1256,7 +1259,10 @@ pub(crate) fn binding_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "context_entry_binding_replay",
-        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+            analysis::owner::AnalysisOwner::Enriched,
+            invariant_inputs(),
+        ),
         create: std::sync::Arc::new(|b| Box::new(ExecutionCheck::new(b))),
     }]
 }
@@ -1265,7 +1271,10 @@ pub(crate) fn context_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "context_execution_replay",
-        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+            analysis::owner::AnalysisOwner::Enriched,
+            invariant_inputs(),
+        ),
         create: std::sync::Arc::new(|b| Box::new(ExecutionCheck::new(b))),
     }]
 }
@@ -1274,7 +1283,10 @@ pub(crate) fn definition_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "definition_evaluation_replay",
-        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+            analysis::owner::AnalysisOwner::Enriched,
+            invariant_inputs(),
+        ),
         create: std::sync::Arc::new(|b| Box::new(ExecutionCheck::new(b))),
     }]
 }
@@ -1283,7 +1295,10 @@ pub(crate) fn modeled_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "enriched_modeled_call_replay",
-        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+            analysis::owner::AnalysisOwner::Enriched,
+            invariant_inputs(),
+        ),
         create: std::sync::Arc::new(|budget| Box::new(ExecutionCheck::new(budget))),
     }]
 }
@@ -1292,7 +1307,10 @@ pub(crate) fn statement_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "enriched_statement_replay",
-        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Enriched,invariant_inputs()),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+            analysis::owner::AnalysisOwner::Enriched,
+            invariant_inputs(),
+        ),
         create: std::sync::Arc::new(|budget| Box::new(ExecutionCheck::new(budget))),
     }]
 }
@@ -1423,7 +1441,7 @@ pub fn stage(
     definition.id().encode(&mut key);
     Ok(Stage {
         captured_binding: None,
-name: "enrich_execution",
+        name: "enrich_execution",
         inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

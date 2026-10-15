@@ -278,4 +278,3 @@ async fn native_catalog_reuses_analytic_winners_and_batches_unique_requests_with
     );
     assert!(trace.batches.iter().all(|batch| batch.len() <= 64));
 }
-

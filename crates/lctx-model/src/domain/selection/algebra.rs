@@ -174,6 +174,64 @@ impl HeapSize for Claims {
         self.positive.heap_bytes() + self.negative.heap_bytes() + self.admissible.heap_bytes()
     }
 }
+impl charged::empty_state::Sealed for Claims {}
+impl charged::EmptyState for Claims {}
+struct ObserveClaims<'a>(&'a Observation);
+impl charged::AdmittedMutation<Claims> for ObserveClaims<'_> {
+    type Output = ();
+    fn additional(&self, claims: &Claims) -> Result<usize, ModelError> {
+        let target = match self.0.value {
+            Some(true) => &claims.positive,
+            Some(false) => &claims.negative,
+            None => return Ok(0),
+        };
+        let required = target
+            .len()
+            .checked_add(self.0.evidence.len())
+            .ok_or_else(|| invalid("selection evidence capacity overflow"))?;
+        let vector = required
+            .saturating_sub(target.capacity())
+            .checked_mul(size_of::<Witness>())
+            .ok_or_else(|| invalid("selection evidence capacity overflow"))?;
+        let heap = self
+            .0
+            .evidence
+            .iter()
+            .map(HeapSize::heap_bytes)
+            .sum::<usize>();
+        let contexts = if self.0.value == Some(true) {
+            self.0
+                .admissible
+                .iter()
+                .filter(|context| !claims.admissible.contains(*context))
+                .count()
+                .saturating_mul(size_of::<ClaimContext>() + 16)
+        } else {
+            0
+        };
+        vector
+            .checked_add(heap)
+            .and_then(|n| n.checked_add(contexts))
+            .ok_or_else(|| invalid("selection claim capacity overflow"))
+    }
+    fn apply(self, claims: &mut Claims) {
+        match self.0.value {
+            Some(value) => {
+                let target = if value {
+                    &mut claims.positive
+                } else {
+                    &mut claims.negative
+                };
+                target.reserve_exact(self.0.evidence.len());
+                target.extend(self.0.evidence.iter().cloned());
+                if value {
+                    claims.admissible.extend(self.0.admissible.iter().cloned());
+                }
+            }
+            None => claims.unknown = true,
+        }
+    }
+}
 pub fn classify(
     requirement: &Requirement,
     domain: &Domain,
@@ -209,19 +267,10 @@ pub fn classify(
                 ));
             }
         }
-        claims.update(
+        claims.mutate(
             &mut charge,
             (observation.context.clone(), observation.basis),
-            |claims| match observation.value {
-                Some(true) => {
-                    claims.positive.extend(observation.evidence.iter().cloned());
-                    claims
-                        .admissible
-                        .extend(observation.admissible.iter().cloned());
-                }
-                Some(false) => claims.negative.extend(observation.evidence.iter().cloned()),
-                None => claims.unknown = true,
-            },
+            ObserveClaims(observation),
         )?;
     }
     let mut witnesses = Vec::new();

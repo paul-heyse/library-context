@@ -33,9 +33,9 @@ tempfile.workspace = true
 [lints]
 workspace = true
 
-# Used by shared catalog_runtime.rs/native.rs fixtures included from cpg-core tests,
-# outside cargo-shear's package-local source scan.
+# Build dependencies are used by #[path]-included scripts/producer_fingerprint.rs;
+# datafusion is used by shared cpg-core test fixtures. Both are outside the local scan.
 [package.metadata.cargo-shear]
-ignored = ["datafusion", "tracing"]
-# backup.rs includes this test module through an explicit #[path].
-ignored-paths = ["tests/fixtures/grpc_export.rs"]
+ignored = ["blake3", "toml", "datafusion"]
+# backup.rs and native_publication.rs include these fixture modules through #[path].
+ignored-paths = ["tests/fixtures/grpc_export.rs", "tests/fixtures/publication_expectations.rs"]

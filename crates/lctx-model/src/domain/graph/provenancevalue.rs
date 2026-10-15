@@ -332,7 +332,10 @@ pub enum ProvenanceValue {
 impl Key for ProvenanceValue {
     fn encode(&self, sink: &mut KeySink) {
         match self {
-            Self::UniformNotRequested(row)=>{sink.part(b"variant",&173u16.to_le_bytes());row.content_digest().encode(sink);}
+            Self::UniformNotRequested(row) => {
+                sink.part(b"variant", &173u16.to_le_bytes());
+                row.content_digest().encode(sink);
+            }
             Self::RetainedGuardSubstitution(row) => {
                 sink.part(b"variant", &143u16.to_le_bytes());
                 row.content_digest().encode(sink);

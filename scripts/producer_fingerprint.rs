@@ -1,9 +1,6 @@
 //! Build-time production closure rooted at its owning crate. Cargo retains resolution authority.
 //! Paths in captures are workspace-relative; machine paths never enter implementation identities.
-use std::{
-    collections::BTreeSet,
-    path::Path,
-};
+use std::{collections::BTreeSet, path::Path};
 #[path = "../crates/cpg-extract/src/runtime_scripts.rs"]
 mod runtime_scripts;
 
@@ -44,7 +41,12 @@ pub fn capture_with_scripts(root: &Path, owner: &Path, scripts: &[&str]) -> Sour
             }
         }
     }
-    for name in ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "scripts/producer_fingerprint.rs"] {
+    for name in [
+        "Cargo.toml",
+        "Cargo.lock",
+        "rust-toolchain.toml",
+        "scripts/producer_fingerprint.rs",
+    ] {
         closure.walk(&root.join(name));
     }
     // Patch bytes are small conservative inputs; do not walk unrelated vendored package trees.
@@ -56,7 +58,10 @@ pub fn capture_with_scripts(root: &Path, owner: &Path, scripts: &[&str]) -> Sour
         closure.watches.insert(closure.relative(&third_party));
         for entry in std::fs::read_dir(&third_party).expect("third-party patches") {
             let path = entry.expect("patch entry").path();
-            if path.extension().is_some_and(|extension| extension == "patch") {
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "patch")
+            {
                 closure.walk(&path);
             }
         }
@@ -95,14 +100,18 @@ impl Collector<'_> {
     fn relative(&self, path: &Path) -> String {
         path.strip_prefix(self.root)
             .unwrap_or_else(|_| panic!("fingerprint input outside workspace: {}", path.display()))
-            .to_str().expect("UTF-8 fingerprint path").replace('\\', "/")
+            .to_str()
+            .expect("UTF-8 fingerprint path")
+            .replace('\\', "/")
     }
     fn walk(&mut self, path: &Path) {
         if path.file_name().is_some_and(|name| name == "__pycache__")
-            || path.extension().is_some_and(|extension| extension == "pyc") {
+            || path.extension().is_some_and(|extension| extension == "pyc")
+        {
             return;
         }
-        let path = path.canonicalize()
+        let path = path
+            .canonicalize()
             .unwrap_or_else(|error| panic!("fingerprint input {}: {error}", path.display()));
         let relative = self.relative(&path);
         if !self.watches.insert(relative.clone()) {
@@ -117,7 +126,9 @@ impl Collector<'_> {
         }
     }
     fn package(&mut self, path: &Path) {
-        let path = path.canonicalize().expect("local production dependency root");
+        let path = path
+            .canonicalize()
+            .expect("local production dependency root");
         if !self.members.insert(self.relative(&path)) {
             return;
         }
@@ -129,7 +140,11 @@ impl Collector<'_> {
         // Build scripts and root-level Rust modules can live beside the manifest.
         for entry in std::fs::read_dir(&path).expect("production package directory") {
             let source = entry.expect("production package entry").path();
-            if source.is_file() && source.extension().is_some_and(|extension| extension == "rs") {
+            if source.is_file()
+                && source
+                    .extension()
+                    .is_some_and(|extension| extension == "rs")
+            {
                 self.walk(&source);
             }
         }
@@ -138,8 +153,11 @@ impl Collector<'_> {
                 self.walk(&path.join(directory));
             }
         }
-        if let Some(build) = declaration.get("package").and_then(|package| package.get("build"))
-            .and_then(toml::Value::as_str) {
+        if let Some(build) = declaration
+            .get("package")
+            .and_then(|package| package.get("build"))
+            .and_then(toml::Value::as_str)
+        {
             self.source(&path, build);
         } else if path.join("build.rs").exists() {
             self.walk(&path.join("build.rs"));
@@ -167,7 +185,11 @@ impl Collector<'_> {
     fn source(&mut self, root: &Path, source: &str) {
         let source = root.join(source);
         // Custom build/target directories can contain adjacent modules and embedded assets.
-        let parent = source.parent().expect("source parent").canonicalize().expect("source parent");
+        let parent = source
+            .parent()
+            .expect("source parent")
+            .canonicalize()
+            .expect("source parent");
         if parent != root {
             self.walk(&parent);
         } else {
@@ -178,15 +200,21 @@ impl Collector<'_> {
         for kind in ["dependencies", "build-dependencies"] {
             if let Some(dependencies) = declaration.get(kind).and_then(toml::Value::as_table) {
                 for (name, dependency) in dependencies {
-                    let (base, dependency) = if dependency.get("workspace").and_then(toml::Value::as_bool) == Some(true) {
-                        let inherited = self.workspace.get("workspace")
-                            .and_then(|workspace| workspace.get("dependencies"))
-                            .and_then(|dependencies| dependencies.get(name))
-                            .unwrap_or_else(|| panic!("missing inherited workspace dependency {name}"));
-                        (self.root, inherited)
-                    } else {
-                        (root, dependency)
-                    };
+                    let (base, dependency) =
+                        if dependency.get("workspace").and_then(toml::Value::as_bool) == Some(true)
+                        {
+                            let inherited = self
+                                .workspace
+                                .get("workspace")
+                                .and_then(|workspace| workspace.get("dependencies"))
+                                .and_then(|dependencies| dependencies.get(name))
+                                .unwrap_or_else(|| {
+                                    panic!("missing inherited workspace dependency {name}")
+                                });
+                            (self.root, inherited)
+                        } else {
+                            (root, dependency)
+                        };
                     if let Some(path) = dependency.get("path").and_then(toml::Value::as_str) {
                         self.package(&base.join(path));
                     }

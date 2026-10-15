@@ -1,5 +1,5 @@
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{calls::ProviderSymbol, captures::*, *};
 use typed_driver::{files, rows};
 inspector!(

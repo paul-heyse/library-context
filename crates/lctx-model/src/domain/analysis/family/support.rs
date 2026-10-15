@@ -97,7 +97,7 @@ impl InvariantCheck for SupportCheck {
         macro_rules! insert {($r:ty,$field:ident)=>{if relation==<$r>::NAME {for row in <$r>::decode(batch)? {if self.$field.insert(&mut self.charge,row.id(),row)?.is_some() {return Err(ModelError::Conflict(<$r>::NAME));}}return Ok(());}};}
         insert!(AnalysisProposition,propositions);insert!(AnalysisInvocation,invocations);insert!(AnalysisDefinition,definitions);insert!(AssertionQualification,qualifications);insert!(conditions::Condition,conditions);insert!(conditions::ConditionNode,nodes);insert!(SupportSource,sources);insert!(AnalysisDerivation,derivations);
         if relation==NativeQualification::NAME {for row in NativeQualification::decode(batch)? {self.facts.insert(&mut self.charge,derivation::RowRef::of(row.premise),SourceFacts {qualification:row.qualification,status:row.status,heuristic:false})?;}return Ok(());}
-        if relation==AnalysisDerivationPremise::NAME {for row in AnalysisDerivationPremise::decode(batch)? {if !self.members.update(&mut self.charge,row.derivation,|m|m.insert(row.source))? {return Err(invalid("duplicate derivation premise"));}}return Ok(());}
+        if relation==AnalysisDerivationPremise::NAME {for row in AnalysisDerivationPremise::decode(batch)? {if !self.members.insert_set(&mut self.charge, row.derivation, row.source)? {return Err(invalid("duplicate derivation premise"));}}return Ok(());}
         if visit_predecessor_support(relation,batch,&mut self.facts,&mut self.charge)? {return Ok(());}
         Err(invalid("undeclared qualified derivation input"))
     }

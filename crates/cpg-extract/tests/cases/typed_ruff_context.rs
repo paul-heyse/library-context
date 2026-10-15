@@ -1,6 +1,6 @@
 //! Populated canonical Ruff facts and the first semantic recognition use the actual provider.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{attribution::*, ruff::*, source::*, syntax::*, *};
 use typed_driver::{files, rows, run};
 inspector!(

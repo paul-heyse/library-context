@@ -125,8 +125,8 @@ fn b(kind: BindingEventKind, line: usize) -> To {
     To::Binding(kind.code(), line)
 }
 
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 inspector!(
     Inspect,
     lctx_model::domain::source::SourceArtifact,

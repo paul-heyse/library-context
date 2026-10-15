@@ -157,7 +157,9 @@ pub(super) async fn transaction_named(
     // Identifies generated SQL shape and exact operation/stage without logging
     // SQL, payloads, credentials or caller-provided binding values.
     let query_digest = ContentHash::of(sql.as_bytes()).hex();
-    let operation = bindings.get("__effect").or_else(|| bindings.get("effect"))
+    let operation = bindings
+        .get("__effect")
+        .or_else(|| bindings.get("effect"))
         .and_then(|value| match value {
             Value::RecordId(id) if id.table.as_str() == "native_effect" => match &id.key {
                 surrealdb::types::RecordIdKey::String(key) => Some(key.as_str()),

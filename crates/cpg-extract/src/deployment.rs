@@ -1,10 +1,10 @@
 //! Deployment descriptions and explicitly captured reports; analyzed code is never executed.
-use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use crate::{
     acquisition::{AcquiredInput, Acquisition},
     bundle::{Declared, ProviderStage, StageContext},
 };
+use lctx_model::domain::producer_contract::ProducerContract;
 use lctx_model::domain::{
     assertion::*, attribution::*, conditions::Diagram, deployment::*, input::*, source::*,
     stages::*, *,
@@ -44,13 +44,19 @@ macro_rules! outputs {
         )
     };
 }
-pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::deployment() }
+pub fn contract() -> ProducerContract {
+    lctx_model::domain::producer_contract::facts::deployment()
+}
 impl Declared for Deployment {
     fn declaration(&self, _: Profile) -> Stage {
         let provider = provider();
-        contract().bind(provider.build_digest, ContentHash::of(
+        contract().bind(
+            provider.build_digest,
+            ContentHash::of(
                 b"receipt-v1;64KiB;metadata-and-configuration=64MiB;report-only-runtime",
-            ), [("deployment", provider)])
+            ),
+            [("deployment", provider)],
+        )
     }
 }
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]

@@ -176,9 +176,10 @@ mod controls {
             &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
         ))
         .unwrap();
-        let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Facts)
-            .await
-            .unwrap();
+        let native =
+            lctx_compiler_store::compiler::NativeCompilerStore::begin(&config, Frontier::Facts)
+                .await
+                .unwrap();
         let model = Arc::new(lctx_model::domain::model().unwrap());
         let workspace = Workspace::new(
             model.clone(),

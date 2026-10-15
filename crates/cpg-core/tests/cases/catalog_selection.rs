@@ -37,4 +37,3 @@ async fn finite_selection_domains_follow_actual_completed_catalog_owners() {
 async fn behavioral_selection_keeps_runtime_field_witnesses_without_exact_state() {
     run(Profile::Behavioral).await;
 }
-

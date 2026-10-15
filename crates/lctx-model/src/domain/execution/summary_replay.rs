@@ -67,7 +67,10 @@ pub fn invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "finite_summary_inventory_replay",
-        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Summary,inputs()),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+            analysis::owner::AnalysisOwner::Summary,
+            inputs(),
+        ),
         create: std::sync::Arc::new(|b| Box::new(Check::new(b))),
     }]
 }
@@ -235,7 +238,7 @@ pub fn stage(
     definition.id().encode(&mut configuration);
     Ok(Stage {
         captured_binding: None,
-name: "analyze_summaries",
+        name: "analyze_summaries",
         inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

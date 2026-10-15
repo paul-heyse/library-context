@@ -420,7 +420,12 @@ struct ParameterListCheck {
 impl ParameterListCheck {
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((id, slots)) = self.current.take()
-            && self.expected.remove(&mut self.charge, &id) != Some(parameter_list_digest(&slots))
+            && self
+                .expected
+                .remove(&mut self.charge, &id)?
+                .as_deref()
+                .copied()
+                != Some(parameter_list_digest(&slots))
         {
             return Err(invalid("callable parameter membership differs"));
         }
@@ -565,7 +570,13 @@ struct DictFieldCheck {
 impl DictFieldCheck {
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((id, mut slots)) = self.current.take() {
-            if self.expected.remove(&mut self.charge, &id) != Some(dict_field_digest(&slots)) {
+            if self
+                .expected
+                .remove(&mut self.charge, &id)?
+                .as_deref()
+                .copied()
+                != Some(dict_field_digest(&slots))
+            {
                 return Err(invalid("typed dictionary membership differs"));
             }
             let _scratch = self
@@ -578,7 +589,7 @@ impl DictFieldCheck {
                 return Err(invalid("duplicate typed dictionary key"));
             }
             drop(names);
-            drop(slots.take(&mut self.charge));
+            drop(slots.take(&mut self.charge)?);
         }
         Ok(())
     }
@@ -795,7 +806,12 @@ struct SequenceCheck {
 impl SequenceCheck {
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((id, members)) = self.current.take()
-            && self.expected.remove(&mut self.charge, &id) != Some(sequence_digest(&members))
+            && self
+                .expected
+                .remove(&mut self.charge, &id)?
+                .as_deref()
+                .copied()
+                != Some(sequence_digest(&members))
         {
             return Err(invalid("type sequence membership differs"));
         }
@@ -912,8 +928,7 @@ impl TypeIndex {
             }
         } else if relation == TypedDictField::NAME {
             for row in TypedDictField::decode(batch)? {
-                self.dict_fields
-                    .update(&mut self.charge, row.list, |fields| fields.push(row))?;
+                self.dict_fields.push(&mut self.charge, row.list, row)?;
             }
         } else if relation == CallableParameterList::NAME {
             for row in CallableParameterList::decode(batch)? {
@@ -921,8 +936,7 @@ impl TypeIndex {
             }
         } else if relation == CallableParameter::NAME {
             for row in CallableParameter::decode(batch)? {
-                self.slots
-                    .update(&mut self.charge, row.list, |slots| slots.push(row))?;
+                self.slots.push(&mut self.charge, row.list, row)?;
             }
         } else if relation == ProviderSymbol::NAME {
             for row in ProviderSymbol::decode(batch)? {
@@ -938,8 +952,7 @@ impl TypeIndex {
             }
         } else if relation == TypeSequenceMember::NAME {
             for row in TypeSequenceMember::decode(batch)? {
-                self.members
-                    .update(&mut self.charge, row.sequence, |members| members.push(row))?;
+                self.members.push(&mut self.charge, row.sequence, row)?;
             }
         } else if relation == TypeTerm::NAME {
             for row in TypeTerm::decode(batch)? {
@@ -1040,7 +1053,8 @@ impl TypeIndex {
         let mut pending = ChargedVec::default();
         let mut seen = ChargedSet::default();
         pending.push(&mut scratch, id)?;
-        while let Some(id) = pending.take_last(&mut scratch) {
+        while let Some(owned_id) = pending.take_last(&mut scratch)? {
+            let id = *owned_id;
             if self.verified.contains(&key(id)) || !seen.insert(&mut scratch, id)? {
                 continue;
             }
@@ -1617,10 +1631,11 @@ impl InvariantCheck for RecordCheck {
                 self.spans
                     .insert(&mut self.charge, row.id(), (row.source, row.start, row.end))?;
                 if row.syntax_kind == super::source::SyntaxKind::StmtClassDef {
-                    self.class_statements
-                        .update(&mut self.charge, row.source, |spans| {
-                            spans.push((row.start, row.end))
-                        })?;
+                    self.class_statements.push(
+                        &mut self.charge,
+                        row.source,
+                        (row.start, row.end),
+                    )?;
                 }
             }
         } else if relation == ProviderSymbol::NAME {
@@ -1650,10 +1665,11 @@ impl InvariantCheck for RecordCheck {
                         ));
                     }
                 }
-                self.fields
-                    .update(&mut self.charge, (row.qualification, row.class), |fields| {
-                        fields.push((row.ordinal, row.record))
-                    })?;
+                self.fields.push(
+                    &mut self.charge,
+                    (row.qualification, row.class),
+                    (row.ordinal, row.record),
+                )?;
             }
         } else {
             return Err(invalid("undeclared record field input"));

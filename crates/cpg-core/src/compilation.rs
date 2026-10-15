@@ -1148,6 +1148,7 @@ async fn compile_driver(
     })();
     setup_phase.finish_result(&setup);
     let (model, capture_identity, providers, schedule, fact_names) = setup?;
+    let schedule = workspace.install_membership_demand(schedule)?;
 
     let providers_phase = Phase::begin("providers");
     let providers_result = async {
@@ -1168,6 +1169,9 @@ async fn compile_driver(
         .collect();
     let mut frozen = Default::default();
     freeze_completed_inputs(workspace, &schedule, &completed, &mut frozen).await?;
+    for name in &completed {
+        workspace.membership_stage_completed(name)?;
+    }
     let mut binding_application = None;
     let mut receiver_authority: Option<
         Arc<crate::normalize::ProducedNormalization<normalized::receiver::VerifiedReceivers>>,
@@ -1345,6 +1349,7 @@ async fn compile_driver(
                         &mut ready,
                     )
                     .await?;
+                    workspace.membership_stage_completed(result.name)?;
                     Ok(())
                 }
                 .await
@@ -1527,6 +1532,7 @@ async fn compile_driver(
                         &mut ready,
                     )
                     .await?;
+                    workspace.membership_stage_completed(result.name)?;
                     Ok(())
                 }
                 .await

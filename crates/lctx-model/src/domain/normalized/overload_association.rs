@@ -91,26 +91,24 @@ pub fn associate_view(
         if qualification.context != variant.context {
             return Err(invalid("native declaration context mismatch"));
         }
-        declarations.update(&mut charge, (origin, variant.context), |values| {
-            values.push((variant, native))
-        })?;
+        declarations.push(&mut charge, (origin, variant.context), (variant, native))?;
     }
     let mut trace_supports: ChargedMap<Id<NativeOverloadObservation>, Vec<&NativeOverloadSupport>> =
         Default::default();
     for support in data.overload_supports.iter() {
-        trace_supports.update(&mut charge, support.assertion(), |v| v.push(support))?;
+        trace_supports.push(&mut charge, support.assertion(), support)?;
     }
     let mut declaration_supports: ChargedMap<
         Id<NativeSignatureObservation>,
         Vec<&NativeSignatureSupport>,
     > = Default::default();
     for support in data.native_signature_supports.iter() {
-        declaration_supports.update(&mut charge, support.assertion(), |v| v.push(support))?;
+        declaration_supports.push(&mut charge, support.assertion(), support)?;
     }
     let mut traces: ChargedMap<Id<NativeOverloadObservation>, Vec<&NativeOverloadCandidate>> =
         Default::default();
     for candidate in data.overload_candidates.iter() {
-        traces.update(&mut charge, candidate.trace, |v| v.push(candidate))?;
+        traces.push(&mut charge, candidate.trace, candidate)?;
     }
     // Reserve the result before allocation. Rows retains its own transferred values afterwards.
     charge.grow(data.overload_candidates.len().saturating_mul(1024))?;

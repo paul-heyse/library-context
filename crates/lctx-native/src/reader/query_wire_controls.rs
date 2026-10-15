@@ -1,30 +1,58 @@
 //! Tableless finite-query controls on the explicitly borrowed installed fixture.
 //! They never install a schema, mutate application content or abandon a remote stream.
 use super::*;
-use lctx_model::domain::{completion::{Completion, RemoteState}, resources::ResourceBudget};
+use lctx_model::domain::{
+    completion::{Completion, RemoteState},
+    resources::ResourceBudget,
+};
 use surrealdb::method::BatchItem;
 use surrealdb_protocol::proto::{rpc::v1 as rpc, v1 as proto};
 
-fn accepted(reader:&NativeReader<()>, stream:impl futures::Stream<Item=surrealdb::Result<BatchItem>>+Send+'static,
-    statements:usize,selected:usize)->NativeValueOwner {
-    let budget=reader.scratch_budget().unwrap();
-    let charge=budget.reserve("S09 actual wire accumulation",std::mem::size_of::<Value>()).unwrap();
-    NativeValueOwner::new(stream,statements,selected,budget,charge,
-        QueryLease::admit(reader.operations.clone(),reader.client.clone(),None).unwrap())
+fn accepted(
+    reader: &NativeReader<()>,
+    stream: impl futures::Stream<Item = surrealdb::Result<BatchItem>> + Send + 'static,
+    statements: usize,
+    selected: usize,
+) -> NativeValueOwner {
+    let budget = reader.scratch_budget().unwrap();
+    let charge = budget
+        .reserve("S09 actual wire accumulation", std::mem::size_of::<Value>())
+        .unwrap();
+    NativeValueOwner::new(
+        stream,
+        statements,
+        selected,
+        budget,
+        charge,
+        QueryLease::admit(reader.operations.clone(), reader.client.clone(), None).unwrap(),
+    )
 }
 
 #[tokio::test]
-async fn accepted_finite_query_wire_shapes_cancellation_drop_and_terminal_errors()->Result<(),ModelError>{
-    let config=crate::RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
-        .ok_or(ModelError::Conflict("installed query wire fixture required"))?))?;
-    let flag=Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let signal=crate::signal::SignalRegistration::new("S09 finite accepted-query wire owner",{
-        let flag=flag.clone();move||flag.store(true,std::sync::atomic::Ordering::Release)
+async fn accepted_finite_query_wire_shapes_cancellation_drop_and_terminal_errors()
+-> Result<(), ModelError> {
+    let config = crate::RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").ok_or(ModelError::Conflict(
+            "installed query wire fixture required",
+        ))?,
+    ))?;
+    let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let signal = crate::signal::SignalRegistration::new("S09 finite accepted-query wire owner", {
+        let flag = flag.clone();
+        move || flag.store(true, std::sync::atomic::Ordering::Release)
     })?;
-    let client=connect(&config.endpoint,&config.writer_credentials(),config.namespace.as_str(),config.database.as_str()).await?;
-    let budget=ResourceBudget::fixed(16<<20)?;
-    let reader=NativeReader::private(client.clone()).with_budget(&budget).with_read_cancellation(flag.clone());
-    let mut session_context=None;
+    let client = connect(
+        &config.endpoint,
+        &config.writer_credentials(),
+        config.namespace.as_str(),
+        config.database.as_str(),
+    )
+    .await?;
+    let budget = ResourceBudget::fixed(16 << 20)?;
+    let reader = NativeReader::private(client.clone())
+        .with_budget(&budget)
+        .with_read_cancellation(flag.clone());
+    let mut session_context = None;
     let result=async {
         let session:surrealdb::types::Uuid=reader.query_native("RETURN session::id()",Variables::new()).await?;
         session_context=Some(rpc::RequestContext{session:Some(proto::Uuid::from_uuid(session.into_inner())),..Default::default()});
@@ -116,135 +144,284 @@ async fn accepted_finite_query_wire_shapes_cancellation_drop_and_terminal_errors
         assert_eq!(reader.query_native::<surrealdb::types::Uuid>("RETURN session::id()",Variables::new()).await?,session);
         Ok(())
     }.await;
-    let mut completion=Completion::default();
-    if let Err(error)=&result {if !error.permits_storage_cleanup(){completion.remote=RemoteState::Unknown;}completion.step("S09 actual wire control",Err(ModelError::Invalid(error.to_string())));}
-    completion.step("S09 accepted query reader close",reader.close().await);
-    if completion.remote==RemoteState::Confirmed {
-        completion.step("S09 original session invalidation",client.invalidate().await.map_err(sdk_error));
-        if let Some(context)=session_context {
-            let detach=async {
-                let mut wire=rpc::surreal_db_service_client::SurrealDbServiceClient::connect(config.endpoint.replacen("grpc://","http://",1)).await.map_err(ModelError::codec)?;
-                wire.detach_session(rpc::DetachSessionRequest{context:Some(context)}).await.map_err(ModelError::codec)?;
-                Ok(())
-            }.await;
-            completion.step("S09 original named session detach acknowledgement",detach);
+    let mut completion = Completion::default();
+    if let Err(error) = &result {
+        if !error.permits_storage_cleanup() {
+            completion.remote = RemoteState::Unknown;
         }
-    } else {std::mem::forget(reader);std::mem::forget(client);}
-    completion.step("S09 native owner receipt",signal.complete(&completion).await);
-    lctx_model::domain::completion::complete(result,completion)
+        completion.step(
+            "S09 actual wire control",
+            Err(ModelError::Invalid(error.to_string())),
+        );
+    }
+    completion.step("S09 accepted query reader close", reader.close().await);
+    if completion.remote == RemoteState::Confirmed {
+        completion.step(
+            "S09 original session invalidation",
+            client.invalidate().await.map_err(sdk_error),
+        );
+        if let Some(context) = session_context {
+            let detach = async {
+                let mut wire = rpc::surreal_db_service_client::SurrealDbServiceClient::connect(
+                    config.endpoint.replacen("grpc://", "http://", 1),
+                )
+                .await
+                .map_err(ModelError::codec)?;
+                wire.detach_session(rpc::DetachSessionRequest {
+                    context: Some(context),
+                })
+                .await
+                .map_err(ModelError::codec)?;
+                Ok(())
+            }
+            .await;
+            completion.step("S09 original named session detach acknowledgement", detach);
+        }
+    } else {
+        std::mem::forget(reader);
+        std::mem::forget(client);
+    }
+    completion.step(
+        "S09 native owner receipt",
+        signal.complete(&completion).await,
+    );
+    lctx_model::domain::completion::complete(result, completion)
 }
 
 /// Invoked only by the parent below, with the parent's real fixture binding.
 #[tokio::test]
 #[ignore = "owned direct-process native signal child"]
 async fn direct_native_signal_child() -> Result<(), ModelError> {
-    let ready = std::path::PathBuf::from(std::env::var_os("LCTX_NATIVE_SIGNAL_READY")
-        .ok_or(ModelError::Conflict("owned direct signal child required"))?);
-    let config = crate::RuntimeConfig::read(std::path::Path::new(&std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
-        .ok_or(ModelError::Conflict("installed direct signal fixture required"))?))?;
+    let ready = std::path::PathBuf::from(
+        std::env::var_os("LCTX_NATIVE_SIGNAL_READY")
+            .ok_or(ModelError::Conflict("owned direct signal child required"))?,
+    );
+    let config = crate::RuntimeConfig::read(std::path::Path::new(
+        &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").ok_or(ModelError::Conflict(
+            "installed direct signal fixture required",
+        ))?,
+    ))?;
     let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let wake = Arc::new(tokio::sync::Notify::new());
     let signal = crate::signal::SignalRegistration::new("D10 direct native query signal owner", {
-        let cancelled = cancelled.clone(); let wake = wake.clone();
-        move || { cancelled.store(true, std::sync::atomic::Ordering::Release); wake.notify_one(); }
+        let cancelled = cancelled.clone();
+        let wake = wake.clone();
+        move || {
+            cancelled.store(true, std::sync::atomic::Ordering::Release);
+            wake.notify_one();
+        }
     })?;
-    let client = connect(&config.endpoint, &config.writer_credentials(), config.namespace.as_str(), config.database.as_str()).await?;
+    let client = connect(
+        &config.endpoint,
+        &config.writer_credentials(),
+        config.namespace.as_str(),
+        config.database.as_str(),
+    )
+    .await?;
     let budget = ResourceBudget::fixed(16 << 20)?;
     let reader = NativeReader::private(client.clone()).with_budget(&budget);
     let mut context = None;
     let result = async {
-        let session: surrealdb::types::Uuid = reader.query_native("RETURN session::id()", Variables::new()).await?;
-        context = Some(rpc::RequestContext { session: Some(proto::Uuid::from_uuid(session.into_inner())), ..Default::default() });
-        let mut stream = client.query("SELECT VALUE session::id() FROM [0]; RETURN NONE; RETURN 42")
-            .stream_batches().map_err(sdk_error)?;
-        let first = stream.next().await.ok_or(ModelError::Schema("direct signal remote acknowledgement missing"))?;
-        if !matches!(first, Ok(BatchItem::Rows { index: 0, .. }) | Ok(BatchItem::Value { index: 0, .. })) {
+        let session: surrealdb::types::Uuid = reader
+            .query_native("RETURN session::id()", Variables::new())
+            .await?;
+        context = Some(rpc::RequestContext {
+            session: Some(proto::Uuid::from_uuid(session.into_inner())),
+            ..Default::default()
+        });
+        let mut stream = client
+            .query("SELECT VALUE session::id() FROM [0]; RETURN NONE; RETURN 42")
+            .stream_batches()
+            .map_err(sdk_error)?;
+        let first = stream.next().await.ok_or(ModelError::Schema(
+            "direct signal remote acknowledgement missing",
+        ))?;
+        if !matches!(
+            first,
+            Ok(BatchItem::Rows { index: 0, .. }) | Ok(BatchItem::Value { index: 0, .. })
+        ) {
             return Err(ModelError::Schema("direct signal first remote frame"));
         }
         // Retain the accepted physical stream before exposing readiness. The OS
         // signal affects delivery; collect still consumes all terminals and EOF.
-        let mut owner = accepted(&reader, futures::stream::once(async move { first }).chain(stream), 3, 2);
+        let mut owner = accepted(
+            &reader,
+            futures::stream::once(async move { first }).chain(stream),
+            3,
+            2,
+        );
         {
             use std::{io::Write, os::unix::fs::OpenOptionsExt};
-            let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&ready).map_err(ModelError::codec)?;
-            file.write_all(b"remote first frame acknowledged; accepted owner retained").map_err(ModelError::codec)?;
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&ready)
+                .map_err(ModelError::codec)?;
+            file.write_all(b"remote first frame acknowledged; accepted owner retained")
+                .map_err(ModelError::codec)?;
             file.sync_all().map_err(ModelError::codec)?;
         }
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {
                 let notified = wake.notified();
-                if cancelled.load(std::sync::atomic::Ordering::Acquire) { break; }
+                if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                    break;
+                }
                 notified.await;
             }
-        }).await.map_err(ModelError::codec)?;
-        let error = owner.collect(Some(cancelled.clone())).await.err()
-            .ok_or(ModelError::Schema("direct signal delivered cancelled result"))?;
+        })
+        .await
+        .map_err(ModelError::codec)?;
+        let error =
+            owner
+                .collect(Some(cancelled.clone()))
+                .await
+                .err()
+                .ok_or(ModelError::Schema(
+                    "direct signal delivered cancelled result",
+                ))?;
         if !error.to_string().contains("cancelled") || !error.permits_storage_cleanup() {
             return Err(error);
         }
         reader.close().await?;
         assert_eq!(reader.operations.lock().unwrap().active, 0);
         assert_eq!(budget.reserved(), 0);
-        assert!(reader.check_read_admission().is_err(), "drained reader remains closed");
+        assert!(
+            reader.check_read_admission().is_err(),
+            "drained reader remains closed"
+        );
         Ok(())
-    }.await;
+    }
+    .await;
     let mut completion = Completion::default();
     if let Err(error) = &result {
-        if !error.permits_storage_cleanup() { completion.remote = RemoteState::Unknown; }
-        completion.step("D10 actual native signal control", Err(ModelError::Invalid(error.to_string())));
+        if !error.permits_storage_cleanup() {
+            completion.remote = RemoteState::Unknown;
+        }
+        completion.step(
+            "D10 actual native signal control",
+            Err(ModelError::Invalid(error.to_string())),
+        );
     }
     completion.step("D10 accepted native query close", reader.close().await);
     if completion.remote == RemoteState::Confirmed {
-        completion.step("D10 session invalidation", client.invalidate().await.map_err(sdk_error));
+        completion.step(
+            "D10 session invalidation",
+            client.invalidate().await.map_err(sdk_error),
+        );
         if let Some(context) = context {
-            completion.step("D10 named session detach acknowledgement", async {
-                let mut wire = rpc::surreal_db_service_client::SurrealDbServiceClient::connect(config.endpoint.replacen("grpc://", "http://", 1))
-                    .await.map_err(ModelError::codec)?;
-                wire.detach_session(rpc::DetachSessionRequest { context: Some(context) }).await.map_err(ModelError::codec)?;
-                Ok(())
-            }.await);
+            completion.step(
+                "D10 named session detach acknowledgement",
+                async {
+                    let mut wire = rpc::surreal_db_service_client::SurrealDbServiceClient::connect(
+                        config.endpoint.replacen("grpc://", "http://", 1),
+                    )
+                    .await
+                    .map_err(ModelError::codec)?;
+                    wire.detach_session(rpc::DetachSessionRequest {
+                        context: Some(context),
+                    })
+                    .await
+                    .map_err(ModelError::codec)?;
+                    Ok(())
+                }
+                .await,
+            );
         }
-    } else { std::mem::forget(reader); std::mem::forget(client); }
-    completion.step("D10 native owner receipt", signal.complete(&completion).await);
+    } else {
+        std::mem::forget(reader);
+        std::mem::forget(client);
+    }
+    completion.step(
+        "D10 native owner receipt",
+        signal.complete(&completion).await,
+    );
     lctx_model::domain::completion::complete(result, completion)
 }
 
 #[test]
 fn actual_direct_native_sigint_and_sigterm_drain_remote_queries() {
-    use std::{process::Command, time::{Duration, Instant}};
+    use std::{
+        process::Command,
+        time::{Duration, Instant},
+    };
     struct Child(std::process::Child);
-    impl Drop for Child { fn drop(&mut self) { let _ = self.0.kill(); let _ = self.0.wait(); } }
-    let directory = std::path::PathBuf::from(std::env::var_os("LCTX_NATIVE_DRAIN_DIRECTORY")
-        .expect("actual fixture receipt owner required"));
+    impl Drop for Child {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let directory = std::path::PathBuf::from(
+        std::env::var_os("LCTX_NATIVE_DRAIN_DIRECTORY")
+            .expect("actual fixture receipt owner required"),
+    );
     assert!(std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").is_some());
     for (name, flag) in [("SIGINT", "-INT"), ("SIGTERM", "-TERM")] {
         let ready = directory.join(format!("direct-native-ready-{}-{name}", std::process::id()));
-        let mut child = Child(Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "reader::query_wire_controls::direct_native_signal_child", "--ignored", "--nocapture"])
-            .env("LCTX_NATIVE_SIGNAL_READY", &ready).spawn().unwrap());
+        let mut child = Child(
+            Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "reader::query_wire_controls::direct_native_signal_child",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env("LCTX_NATIVE_SIGNAL_READY", &ready)
+                .spawn()
+                .unwrap(),
+        );
         let until = Instant::now() + Duration::from_secs(10);
         while !ready.exists() {
-            assert!(child.0.try_wait().unwrap().is_none(), "native child exited before first remote frame");
-            assert!(Instant::now() < until, "native child did not acknowledge first remote frame");
+            assert!(
+                child.0.try_wait().unwrap().is_none(),
+                "native child exited before first remote frame"
+            );
+            assert!(
+                Instant::now() < until,
+                "native child did not acknowledge first remote frame"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert!(Command::new("kill").arg(flag).arg(child.0.id().to_string()).status().unwrap().success());
+        assert!(
+            Command::new("kill")
+                .arg(flag)
+                .arg(child.0.id().to_string())
+                .status()
+                .unwrap()
+                .success()
+        );
         let until = Instant::now() + Duration::from_secs(10);
         let status = loop {
-            if let Some(status) = child.0.try_wait().unwrap() { break status; }
-            assert!(Instant::now() < until, "native signal child did not join after remote drain");
+            if let Some(status) = child.0.try_wait().unwrap() {
+                break status;
+            }
+            assert!(
+                Instant::now() < until,
+                "native signal child did not join after remote drain"
+            );
             std::thread::sleep(Duration::from_millis(10));
         };
         assert!(status.success(), "direct native {name} control failed");
-        let receipts = std::fs::read_dir(&directory).unwrap().filter_map(|entry| {
-            let path = entry.unwrap().path();
-            if path.extension().is_none_or(|extension| extension != "json") { return None; }
-            let row: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-            (row["owner"] == "D10 direct native query signal owner" && row["process"]["pid"] == child.0.id()).then_some(row)
-        }).collect::<Vec<_>>();
+        let receipts = std::fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(|entry| {
+                let path = entry.unwrap().path();
+                if path.extension().is_none_or(|extension| extension != "json") {
+                    return None;
+                }
+                let row: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+                (row["owner"] == "D10 direct native query signal owner"
+                    && row["process"]["pid"] == child.0.id())
+                .then_some(row)
+            })
+            .collect::<Vec<_>>();
         assert_eq!(receipts.len(), 1);
         let receipt = &receipts[0];
-        assert_eq!(receipt["state"], "complete"); assert_eq!(receipt["signal"], name);
+        assert_eq!(receipt["state"], "complete");
+        assert_eq!(receipt["signal"], name);
         assert_eq!(receipt["completion"]["local"], "terminal");
         assert_eq!(receipt["completion"]["remote"], "confirmed");
         assert_eq!(receipt["completion"]["storage"], serde_json::json!([]));

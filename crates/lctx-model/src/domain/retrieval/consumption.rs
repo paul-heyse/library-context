@@ -105,72 +105,156 @@ pub struct PreparedWindowUse {
     _reservation: Box<dyn resources::Reservation>,
 }
 impl PreparedWindowUse {
-    pub fn new(window: &SearchWindow, unit: &Unit, invocation: &AnalysisInvocation,
-        selected: &SelectedConsumption<'_>, b: &ResourceBudget) -> Result<Self, ModelError> {
+    pub fn new(
+        window: &SearchWindow,
+        unit: &Unit,
+        invocation: &AnalysisInvocation,
+        selected: &SelectedConsumption<'_>,
+        b: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
         window.validate()?;
-        if window.unit != unit.id() || (unit.input, unit.context) != (invocation.input, invocation.context) {
-            return Err(invalid("retrieval prepared window changes its exact root/frame"));
+        if window.unit != unit.id()
+            || (unit.input, unit.context) != (invocation.input, invocation.context)
+        {
+            return Err(invalid(
+                "retrieval prepared window changes its exact root/frame",
+            ));
         }
-        let reservation = b.reserve("retrieval-prepared-window-use", 2 * size_of::<Self>() + 128)?;
+        let reservation =
+            b.reserve("retrieval-prepared-window-use", 2 * size_of::<Self>() + 128)?;
         let spec = selected.document.configuration(selected.encoder)?;
-        let bound = window.text.len().checked_mul(spec.document_template.matches("{text}").count())
-            .and_then(|n| n.checked_add(spec.document_template.len())).and_then(|n| n.checked_mul(2))
+        let bound = window
+            .text
+            .len()
+            .checked_mul(spec.document_template.matches("{text}").count())
+            .and_then(|n| n.checked_add(spec.document_template.len()))
+            .and_then(|n| n.checked_mul(2))
             .ok_or_else(|| invalid("retrieval request overflow"))?;
         let _request = b.reserve("retrieval-consumption-request", bound)?;
         let request = spec.document_text(window.text.as_str());
         if request != window.input_text.as_str() {
-            return Err(invalid("retrieval complete encoder input differs from selected processing"));
+            return Err(invalid(
+                "retrieval complete encoder input differs from selected processing",
+            ));
         }
-        Ok(Self { invocation: invocation.id(), unit: unit.id(), root: unit.origin, window: window.id(),
-            specification: selected.encoder.id(), document: selected.document.id(), projection: selected.projection.id(),
-            input: value::input_hash(&request), tokens: window.tokens, max_tokens: selected.document.max_tokens,
-            availability: window.availability, _reservation: reservation })
+        Ok(Self {
+            invocation: invocation.id(),
+            unit: unit.id(),
+            root: unit.origin,
+            window: window.id(),
+            specification: selected.encoder.id(),
+            document: selected.document.id(),
+            projection: selected.projection.id(),
+            input: value::input_hash(&request),
+            tokens: window.tokens,
+            max_tokens: selected.document.max_tokens,
+            availability: window.availability,
+            _reservation: reservation,
+        })
     }
-    pub fn input(&self) -> ContentHash { self.input }
-    pub fn window(&self) -> Id<SearchWindow> { self.window }
-    pub fn unit(&self) -> Id<Unit> { self.unit }
-    pub fn root(&self) -> Id<Origin> { self.root }
-    pub fn availability(&self) -> WindowAvailability { self.availability }
-    pub fn tokens(&self) -> Option<i64> { self.tokens }
+    pub fn input(&self) -> ContentHash {
+        self.input
+    }
+    pub fn window(&self) -> Id<SearchWindow> {
+        self.window
+    }
+    pub fn unit(&self) -> Id<Unit> {
+        self.unit
+    }
+    pub fn root(&self) -> Id<Origin> {
+        self.root
+    }
+    pub fn availability(&self) -> WindowAvailability {
+        self.availability
+    }
+    pub fn tokens(&self) -> Option<i64> {
+        self.tokens
+    }
     pub fn verify(&self, row: &RetrievalEmbeddingUse) -> Result<(), ModelError> {
         row.validate()?;
-        if row.invocation != self.invocation || row.window != self.window
-            || row.specification != self.specification || row.document != self.document {
-            return Err(invalid("retrieval use changed selected specification or exact window"));
+        if row.invocation != self.invocation
+            || row.window != self.window
+            || row.specification != self.specification
+            || row.document != self.document
+        {
+            return Err(invalid(
+                "retrieval use changed selected specification or exact window",
+            ));
         }
-        if row.input != self.input { return Err(invalid("retrieval input differs from completed window")); }
-        if self.availability == WindowAvailability::LexicalOnly && row.availability != VectorAvailability::TokenLimit {
+        if row.input != self.input {
+            return Err(invalid("retrieval input differs from completed window"));
+        }
+        if self.availability == WindowAvailability::LexicalOnly
+            && row.availability != VectorAvailability::TokenLimit
+        {
             return Err(invalid("oversized semantic window cannot admit a vector"));
         }
         match row.availability {
             VectorAvailability::Available => {
-                let value = Id::of(&value::FullValueKey { encoder: self.specification, input: self.input });
-                let projection = Id::of(&embedding::projection::ProjectedValueKey { value, definition: self.projection });
-                if row.value != Some(value) || row.projection != Some(projection)
-                    || row.admitted_tokens.is_none_or(|n| n > 2048 || n > self.max_tokens)
-                    || row.admitted_tokens != self.tokens {
-                    return Err(invalid("retrieval canonical reference keys or complete token count differ"));
+                let value = Id::of(&value::FullValueKey {
+                    encoder: self.specification,
+                    input: self.input,
+                });
+                let projection = Id::of(&embedding::projection::ProjectedValueKey {
+                    value,
+                    definition: self.projection,
+                });
+                if row.value != Some(value)
+                    || row.projection != Some(projection)
+                    || row
+                        .admitted_tokens
+                        .is_none_or(|n| n > 2048 || n > self.max_tokens)
+                    || row.admitted_tokens != self.tokens
+                {
+                    return Err(invalid(
+                        "retrieval canonical reference keys or complete token count differ",
+                    ));
                 }
             }
-            VectorAvailability::TokenLimit if row.admitted_tokens.is_none_or(|n| n <= 2048)
-                || row.admitted_tokens != self.tokens => return Err(invalid("retrieval token refusal within selected cap")),
+            VectorAvailability::TokenLimit
+                if row.admitted_tokens.is_none_or(|n| n <= 2048)
+                    || row.admitted_tokens != self.tokens =>
+            {
+                return Err(invalid("retrieval token refusal within selected cap"));
+            }
             _ => {}
         }
         Ok(())
     }
     pub fn published(&self, value: &PublishedValue) -> Result<RetrievalEmbeddingUse, ModelError> {
-        let row = RetrievalEmbeddingUse { invocation: self.invocation, window: self.window,
-            specification: self.specification, document: self.document, input: value.input,
-            availability: VectorAvailability::Available, admitted_tokens: Some(value.tokens.into()),
-            value: Some(value.value), projection: Some(value.projection) };
+        let row = RetrievalEmbeddingUse {
+            invocation: self.invocation,
+            window: self.window,
+            specification: self.specification,
+            document: self.document,
+            input: value.input,
+            availability: VectorAvailability::Available,
+            admitted_tokens: Some(value.tokens.into()),
+            value: Some(value.value),
+            projection: Some(value.projection),
+        };
         self.verify(&row)?;
         Ok(row)
     }
-    pub fn refused(&self, availability: VectorAvailability, admitted_tokens: Option<i64>) -> Result<RetrievalEmbeddingUse, ModelError> {
-        if availability == VectorAvailability::Available { return Err(invalid("retrieval refusal contains an available value")); }
-        let row = RetrievalEmbeddingUse { invocation: self.invocation, window: self.window,
-            specification: self.specification, document: self.document, input: self.input,
-            availability, admitted_tokens, value: None, projection: None };
+    pub fn refused(
+        &self,
+        availability: VectorAvailability,
+        admitted_tokens: Option<i64>,
+    ) -> Result<RetrievalEmbeddingUse, ModelError> {
+        if availability == VectorAvailability::Available {
+            return Err(invalid("retrieval refusal contains an available value"));
+        }
+        let row = RetrievalEmbeddingUse {
+            invocation: self.invocation,
+            window: self.window,
+            specification: self.specification,
+            document: self.document,
+            input: self.input,
+            availability,
+            admitted_tokens,
+            value: None,
+            projection: None,
+        };
         self.verify(&row)?;
         Ok(row)
     }
@@ -243,8 +327,14 @@ pub fn verify_uses(
             window: window.id(),
         });
         expected.insert(&mut charge, id)?;
-        PreparedWindowUse::new(window, need(&output.units, window.unit)?, invocation, &selected, b)?
-            .verify(need(uses, id)?)?;
+        PreparedWindowUse::new(
+            window,
+            need(&output.units, window.unit)?,
+            invocation,
+            &selected,
+            b,
+        )?
+        .verify(need(uses, id)?)?;
     }
     if expected.len() != uses.len() {
         return Err(invalid("retrieval use domain missing or unexpected rows"));

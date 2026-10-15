@@ -1,4 +1,8 @@
 //! Publication consumes trusted verified compiler exports, without replaying producers.
+// Downstream monomorphization traverses the same finite native cursor types as
+// compiler-store. This is compiler proof depth, not a runtime recursion bound;
+// revisit with the pinned toolchain (rust-lang/rust#159228).
+#![recursion_limit = "256"]
 use lctx_compiler_store::artifact::VerifiedExport;
 use lctx_model::domain::{
     ModelError,

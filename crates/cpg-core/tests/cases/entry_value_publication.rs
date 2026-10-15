@@ -117,62 +117,19 @@ async fn run() {
     // Only the replay row changes; the exact immutable provider observations stay shared.
     // Each variant still earns admission through a newly created independent validator.
     for forged in [false, true] {
-    let mut row = entry.witness().clone();
-    if forged {
-        row.use_observation = data
-            .use_observations
-            .iter()
-            .find(|o| o.id() != row.use_observation)
-            .unwrap()
-            .id();
-    }
-
-    let invariant = entry::entry_invariants()
-        .into_iter()
-        .find(|i| i.name == "entry_value_witness_replay")
-        .unwrap();
-    let mut check = (invariant.create)(budget);
-    for input in &invariant.inputs {
-        if input.name() == EntryValueWitness::NAME {
-            check
-                .visit(
-                    input.name(),
-                    &EntryValueWitness::encode(&[row.clone()]).unwrap(),
-                )
-                .unwrap();
-        } else if input.name() == EntryAccessSource::NAME {
-            check
-                .visit(
-                    input.name(),
-                    &<EntryAccessSource as Record>::encode(&[entry.source().clone()]).unwrap(),
-                )
-                .unwrap();
-        } else {
-            for batch in fixture
-                .workspace
-                .relation(input.name())
+        let mut row = entry.witness().clone();
+        if forged {
+            row.use_observation = data
+                .use_observations
+                .iter()
+                .find(|o| o.id() != row.use_observation)
                 .unwrap()
-                .batches()
-                .unwrap()
-            {
-                check.visit(input.name(), &batch.unwrap()).unwrap();
-            }
+                .id();
         }
-    }
-    let result = check.finish();
-    if forged {
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("stored entry witness differs from replay"),
-            "forged existing native use premise must be refused by independent replay"
-        );
-    } else {
-        result.expect("exact native entry witness must independently replay");
-        let invariant = stability::stability_invariants()
+
+        let invariant = entry::entry_invariants()
             .into_iter()
-            .next()
+            .find(|i| i.name == "entry_value_witness_replay")
             .unwrap();
         let mut check = (invariant.create)(budget);
         for input in &invariant.inputs {
@@ -190,13 +147,6 @@ async fn run() {
                         &<EntryAccessSource as Record>::encode(&[entry.source().clone()]).unwrap(),
                     )
                     .unwrap();
-            } else if input.name() == StabilityWitness::NAME {
-                check
-                    .visit(
-                        input.name(),
-                        &StabilityWitness::encode(&[stability.witness().clone()]).unwrap(),
-                    )
-                    .unwrap();
             } else {
                 for batch in fixture
                     .workspace
@@ -209,12 +159,64 @@ async fn run() {
                 }
             }
         }
-        check.finish().expect("exact native stability witness must independently replay");
-    }
+        let result = check.finish();
+        if forged {
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("stored entry witness differs from replay"),
+                "forged existing native use premise must be refused by independent replay"
+            );
+        } else {
+            result.expect("exact native entry witness must independently replay");
+            let invariant = stability::stability_invariants()
+                .into_iter()
+                .next()
+                .unwrap();
+            let mut check = (invariant.create)(budget);
+            for input in &invariant.inputs {
+                if input.name() == EntryValueWitness::NAME {
+                    check
+                        .visit(
+                            input.name(),
+                            &EntryValueWitness::encode(&[row.clone()]).unwrap(),
+                        )
+                        .unwrap();
+                } else if input.name() == EntryAccessSource::NAME {
+                    check
+                        .visit(
+                            input.name(),
+                            &<EntryAccessSource as Record>::encode(&[entry.source().clone()])
+                                .unwrap(),
+                        )
+                        .unwrap();
+                } else if input.name() == StabilityWitness::NAME {
+                    check
+                        .visit(
+                            input.name(),
+                            &StabilityWitness::encode(&[stability.witness().clone()]).unwrap(),
+                        )
+                        .unwrap();
+                } else {
+                    for batch in fixture
+                        .workspace
+                        .relation(input.name())
+                        .unwrap()
+                        .batches()
+                        .unwrap()
+                    {
+                        check.visit(input.name(), &batch.unwrap()).unwrap();
+                    }
+                }
+            }
+            check
+                .finish()
+                .expect("exact native stability witness must independently replay");
+        }
     }
 }
 #[tokio::test]
 async fn native_entry_and_stability_replay_exact_witnesses_and_refuse_forged_premises() {
     run().await;
 }
-

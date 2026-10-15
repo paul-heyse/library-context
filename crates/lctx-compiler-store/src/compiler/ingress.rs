@@ -11,14 +11,28 @@ pub struct IngressSequence {
     result: oneshot::Receiver<Result<WriteAcknowledgement, ModelError>>,
 }
 impl IngressSequence {
-    pub fn sequence(&self) -> u64 { self.sequence }
+    pub fn sequence(&self) -> u64 {
+        self.sequence
+    }
     pub async fn await_committed(self) -> Result<WriteAcknowledgement, ModelError> {
-        let result = self.result.await.map_err(|_| ModelError::infrastructure(
-            Infrastructure::Unconfirmed, "accepted native ingress lost its acknowledgement owner"))??;
-        if result.sequence != self.sequence { return Err(ModelError::Conflict("native ingress sequence")); }
-        if result.effects.entries().iter().any(|receipt|
-            receipt.disposition != crate::control::EffectDisposition::Committed) {
-            return Err(ModelError::Conflict("native ingress lacks committed disposition"));
+        let result = self.result.await.map_err(|_| {
+            ModelError::infrastructure(
+                Infrastructure::Unconfirmed,
+                "accepted native ingress lost its acknowledgement owner",
+            )
+        })??;
+        if result.sequence != self.sequence {
+            return Err(ModelError::Conflict("native ingress sequence"));
+        }
+        if result
+            .effects
+            .entries()
+            .iter()
+            .any(|receipt| receipt.disposition != crate::control::EffectDisposition::Committed)
+        {
+            return Err(ModelError::Conflict(
+                "native ingress lacks committed disposition",
+            ));
         }
         Ok(result)
     }
@@ -35,24 +49,51 @@ pub struct NativeIngress {
     stopped: Arc<AtomicBool>,
 }
 impl NativeIngress {
-    pub async fn accept(&mut self, batch: CheckedCanonicalBatch) -> Result<IngressSequence, ModelError> {
-        if self.stopped.load(Ordering::Acquire) { return Err(ModelError::Conflict("native ingress closed")); }
-        let sender = self.sender.as_ref().ok_or(ModelError::Conflict("native ingress closed"))?;
-        let permit = sender.reserve().await.map_err(|_| ModelError::Conflict("native ingress closed"))?;
-        if self.stopped.load(Ordering::Acquire) { return Err(ModelError::Conflict("native ingress closed")); }
+    pub async fn accept(
+        &mut self,
+        batch: CheckedCanonicalBatch,
+    ) -> Result<IngressSequence, ModelError> {
+        if self.stopped.load(Ordering::Acquire) {
+            return Err(ModelError::Conflict("native ingress closed"));
+        }
+        let sender = self
+            .sender
+            .as_ref()
+            .ok_or(ModelError::Conflict("native ingress closed"))?;
+        let permit = sender
+            .reserve()
+            .await
+            .map_err(|_| ModelError::Conflict("native ingress closed"))?;
+        if self.stopped.load(Ordering::Acquire) {
+            return Err(ModelError::Conflict("native ingress closed"));
+        }
         let sequence = self.next;
-        self.next = self.next.checked_add(1).ok_or(ModelError::Schema("native ingress sequence overflow"))?;
+        self.next = self
+            .next
+            .checked_add(1)
+            .ok_or(ModelError::Schema("native ingress sequence overflow"))?;
         let (send, result) = oneshot::channel();
         // The queue takes the nominal checked buffers and their charge. This is not
         // an effect acknowledgement; only await_committed observes that boundary.
-        permit.send(Accepted { sequence, batch, result: send });
+        permit.send(Accepted {
+            sequence,
+            batch,
+            result: send,
+        });
         Ok(IngressSequence { sequence, result })
     }
     pub async fn finish(mut self) -> Result<(), ModelError> {
         self.sender.take();
-        let terminal = self.terminal.take().ok_or(ModelError::Conflict("native ingress finish"))?;
-        terminal.await.map_err(|error| ModelError::infrastructure(Infrastructure::Unconfirmed,
-            format!("native ingress driver lost: {error}")))?
+        let terminal = self
+            .terminal
+            .take()
+            .ok_or(ModelError::Conflict("native ingress finish"))?;
+        terminal.await.map_err(|error| {
+            ModelError::infrastructure(
+                Infrastructure::Unconfirmed,
+                format!("native ingress driver lost: {error}"),
+            )
+        })?
     }
 }
 impl Drop for NativeIngress {
@@ -65,9 +106,11 @@ impl Drop for NativeIngress {
 }
 
 impl NativeCompilerStore {
-    pub fn ingress(self: &Arc<Self>, contribution: ContentHash, budget: &ResourceBudget)
-        -> Result<NativeIngress, ModelError>
-    {
+    pub fn ingress(
+        self: &Arc<Self>,
+        contribution: ContentHash,
+        budget: &ResourceBudget,
+    ) -> Result<NativeIngress, ModelError> {
         self.check_failed()?;
         // One pending charged batch plus the executing batch; this bounds retained
         // transfer storage, independently of provider or runtime worker concurrency.
@@ -77,42 +120,73 @@ impl NativeCompilerStore {
         let (sender, mut receiver) = mpsc::channel::<Accepted>(1);
         let stopped = Arc::new(AtomicBool::new(false));
         let driver_stopped = stopped.clone();
-        let store = self.clone(); let budget = budget.clone();
+        let store = self.clone();
+        let budget = budget.clone();
         let cancellation = crate::control::capture_retry_cancellation();
-        let terminal = tokio::spawn(crate::control::with_retry_context(cancellation, async move {
-            let _retained = retained;
-            let result = lease.within(producing_future(producing, async {
-                let mut failure: Option<Arc<ModelError>> = None;
-                while let Some(accepted) = receiver.recv().await {
-                    if let Some(error) = &failure {
-                        let _ = accepted.result.send(Err(ModelError::SharedCause(error.clone())));
-                        continue;
-                    }
-                    let captured = crate::control::capture_effect_receipts(&budget,
-                        store.write_checked_batch(&contribution, &accepted.batch, &budget)).await;
-                    let result = match captured {
-                        Ok((Ok(()), effects)) => Ok(WriteAcknowledgement { sequence: accepted.sequence, effects }),
-                        Ok((Err(source), effects)) => Err(ModelError::Cause(Box::new(IngressFailure {
-                            sequence: accepted.sequence, source, effects }))),
-                        Err(error) => Err(error),
-                    };
-                    match result {
-                        Ok(acknowledgement) => { let _ = accepted.result.send(Ok(acknowledgement)); }
-                        Err(error) => {
-                            let error = Arc::new(error);
-                            driver_stopped.store(true, Ordering::Release);
-                            receiver.close();
-                            let _ = accepted.result.send(Err(ModelError::SharedCause(error.clone())));
-                            failure = Some(error);
+        let terminal = tokio::spawn(crate::control::with_retry_context(
+            cancellation,
+            async move {
+                let _retained = retained;
+                let result = lease
+                    .within(producing_future(producing, async {
+                        let mut failure: Option<Arc<ModelError>> = None;
+                        while let Some(accepted) = receiver.recv().await {
+                            if let Some(error) = &failure {
+                                let _ = accepted
+                                    .result
+                                    .send(Err(ModelError::SharedCause(error.clone())));
+                                continue;
+                            }
+                            let captured = crate::control::capture_effect_receipts(
+                                &budget,
+                                store.write_checked_batch(&contribution, &accepted.batch, &budget),
+                            )
+                            .await;
+                            let result = match captured {
+                                Ok((Ok(()), effects)) => Ok(WriteAcknowledgement {
+                                    sequence: accepted.sequence,
+                                    effects,
+                                }),
+                                Ok((Err(source), effects)) => {
+                                    Err(ModelError::Cause(Box::new(IngressFailure {
+                                        sequence: accepted.sequence,
+                                        source,
+                                        effects,
+                                    })))
+                                }
+                                Err(error) => Err(error),
+                            };
+                            match result {
+                                Ok(acknowledgement) => {
+                                    let _ = accepted.result.send(Ok(acknowledgement));
+                                }
+                                Err(error) => {
+                                    let error = Arc::new(error);
+                                    driver_stopped.store(true, Ordering::Release);
+                                    receiver.close();
+                                    let _ = accepted
+                                        .result
+                                        .send(Err(ModelError::SharedCause(error.clone())));
+                                    failure = Some(error);
+                                }
+                            }
                         }
-                    }
-                }
-                match failure { Some(error) => Err(ModelError::SharedCause(error)), None => Ok(()) }
-            })).await;
-            driver_stopped.store(true, Ordering::Release);
-            lease.finish_with(result)
-        }));
-        Ok(NativeIngress { sender: Some(sender), terminal: Some(terminal), next: 0, stopped })
+                        match failure {
+                            Some(error) => Err(ModelError::SharedCause(error)),
+                            None => Ok(()),
+                        }
+                    }))
+                    .await;
+                driver_stopped.store(true, Ordering::Release);
+                lease.finish_with(result)
+            },
+        ));
+        Ok(NativeIngress {
+            sender: Some(sender),
+            terminal: Some(terminal),
+            next: 0,
+            stopped,
+        })
     }
 }
 
@@ -123,30 +197,41 @@ pub struct IngressFailure {
 }
 impl std::fmt::Debug for IngressFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IngressFailure").field("sequence", &self.sequence)
-            .field("source", &self.source).field("effects", &self.effects.entries()).finish()
+        f.debug_struct("IngressFailure")
+            .field("sequence", &self.sequence)
+            .field("source", &self.source)
+            .field("effects", &self.effects.entries())
+            .finish()
     }
 }
 impl std::fmt::Display for IngressFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "native ingress {}: {}", self.sequence, self.source) }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "native ingress {}: {}", self.sequence, self.source)
+    }
 }
 impl std::error::Error for IngressFailure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { Some(&self.source) }
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.source)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     fn local_store() -> Arc<NativeCompilerStore> {
-        NativeCompilerStore::from_existing(Arc::new(Surreal::init()),
+        NativeCompilerStore::from_existing(
+            Arc::new(Surreal::init()),
             d::serving::Name::new("ingress_control").unwrap(),
-            d::serving::Name::new("owned_control").unwrap())
+            d::serving::Name::new("owned_control").unwrap(),
+        )
     }
     #[tokio::test]
     async fn admission_precedes_worker_poll_and_drop_keeps_global_drain_owned() {
         let store = local_store();
         let budget = ResourceBudget::fixed(16384).unwrap();
-        let ingress = store.ingress(ContentHash::of(b"contribution"), &budget).unwrap();
+        let ingress = store
+            .ingress(ContentHash::of(b"contribution"), &budget)
+            .unwrap();
         assert!(budget.reserved() >= 4096);
         let mut drain = Box::pin(store.drain());
         assert!(drain.as_mut().now_or_never().is_none());
@@ -158,9 +243,13 @@ mod tests {
     async fn acceptance_is_not_success_and_failed_driver_cannot_finish_successfully() {
         let store = local_store();
         let budget = ResourceBudget::fixed(1 << 20).unwrap();
-        let mut ingress = store.ingress(ContentHash::of(b"unknown contribution"), &budget).unwrap();
+        let mut ingress = store
+            .ingress(ContentHash::of(b"unknown contribution"), &budget)
+            .unwrap();
         let batch = Batch::<d::analytics::QualityStep>::new(&d::model().unwrap(), vec![], &budget)
-            .unwrap().into_checked().unwrap();
+            .unwrap()
+            .into_checked()
+            .unwrap();
         let accepted = ingress.accept(batch).await.unwrap();
         assert_eq!(accepted.sequence(), 0);
         assert!(accepted.await_committed().await.is_err());

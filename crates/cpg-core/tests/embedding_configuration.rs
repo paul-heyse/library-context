@@ -1,11 +1,11 @@
 //! Actual completed selection with service-free deterministic contract values.
 //! These effects validate wiring; they do not qualify a live embedding service.
-use lctx_model::domain::embedding::{Embedder};
 use cpg_core::{
     analysis_prepare, embedding_realization,
     embedding_service::FakeEmbedder,
     workspace::{Workspace, WorkspaceOptions},
 };
+use lctx_model::domain::embedding::Embedder;
 use lctx_model::domain::{
     embedding::{
         EmbeddingSpec,
@@ -25,8 +25,9 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
             WorkspaceOptions {
                 memory_bytes: 1 << 24,
                 ..Default::default()
-            }, crate::native_fixture::store()
-)
+            },
+            crate::native_fixture::store(),
+        )
         .unwrap();
         let budget = workspace.budget().clone();
         let configuration = selected
@@ -39,7 +40,9 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
             Profile::Catalog,
             ContentHash::of(b"configuration"),
             empty.clone(),
-            embedding::configuration_relations().into_iter().map(|relation| relation.name()),
+            embedding::configuration_relations()
+                .into_iter()
+                .map(|relation| relation.name()),
         );
         analysis_prepare::embedding_configuration(
             empty.clone(),
@@ -91,7 +94,7 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
             Profile::Catalog,
             ContentHash::of(b"second"),
             empty,
-        [<EmbeddingSpec>::NAME],
+            [<EmbeddingSpec>::NAME],
         );
         duplicate.declare::<EmbeddingSpec>().unwrap();
         assert!(duplicate.finish(ProviderOutcome::Complete).await.is_err());

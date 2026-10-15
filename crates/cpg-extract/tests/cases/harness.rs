@@ -3,8 +3,8 @@
 //! over the same frozen input, per analyzed module, compared as sets. It checks our driver
 //! (configuration, reporter lifecycle, lazy solving), not Pysa's correctness. The CLI is the `uv`
 //! dev-group Pyrefly of the same revision (docs/pins.md); it is never a production input.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use cpg_extract::{
     pyrefly_stage::{Pyrefly, PysaTap},
     typed_syntax::SyntaxLimits,

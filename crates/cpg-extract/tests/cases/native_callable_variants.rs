@@ -1,6 +1,6 @@
 //! Native roles and ports remain distinct through normalization and explicit typed selection.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     calls::*,
     catalog::{self, *},

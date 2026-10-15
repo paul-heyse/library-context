@@ -93,8 +93,8 @@ impl Facts {
     }
 }
 
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 inspector!(
     Inspect,
     lctx_model::domain::source::SourceArtifact,

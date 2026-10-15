@@ -6,8 +6,8 @@ use ruff_db::{
 use ruff_ranged_value::ValueSource;
 use ruff_text_size_latest::TextSize;
 use std::{
-    io::Read,
     collections::BTreeSet,
+    io::Read,
     process::{Command, ExitStatus, Stdio},
     time::{Duration, Instant},
 };
@@ -15,7 +15,8 @@ use ty_project::{Db, ProjectDatabase, ProjectMetadata, metadata::Options};
 
 const API: &str = include_str!("../../../../fixtures/python/python_reference_oracle/api.py");
 const USES: &str = include_str!("../../../../fixtures/python/python_reference_oracle/uses.py");
-const OMITTED: &str = include_str!("../../../../fixtures/python/python_reference_oracle/omitted.py");
+const OMITTED: &str =
+    include_str!("../../../../fixtures/python/python_reference_oracle/omitted.py");
 
 fn database(include_uses: bool, reverse: bool) -> ProjectDatabase {
     let system = InMemorySystem::default();
@@ -97,12 +98,7 @@ fn child_test_name() -> String {
 
 fn run_oracle_child(test_name: &str) -> (ExitStatus, String) {
     let mut child = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            test_name,
-            "--ignored",
-            "--nocapture",
-        ])
+        .args(["--exact", test_name, "--ignored", "--nocapture"])
         .env("LCTX_TY_REFERENCE_ORACLE_CHILD", "1")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -141,18 +137,38 @@ fn child_completed(output: &str) -> bool {
 fn ty_reference_oracle_is_bounded_by_a_joined_process() {
     let (status, output) = run_oracle_child(&child_test_name());
     print!("{output}");
-    assert!(status.success(), "native ty reference controls failed: {status}\n{output}");
-    assert!(child_completed(&output), "native ty reference child did not affirm completed controls; a successful zero-test exit is insufficient\n{output}");
+    assert!(
+        status.success(),
+        "native ty reference controls failed: {status}\n{output}"
+    );
+    assert!(
+        child_completed(&output),
+        "native ty reference child did not affirm completed controls; a successful zero-test exit is insufficient\n{output}"
+    );
 }
 
 #[test]
 fn ty_reference_oracle_refuses_successful_zero_test_child() {
-    assert_eq!(child_test_name(), "python_reference_oracle::ty_reference_oracle_child");
-    assert!(child_completed(&format!("test {} ... {CHILD_COMPLETED}\nok", child_test_name())));
-    assert!(!child_completed(&format!("{CHILD_COMPLETED}\n{CHILD_COMPLETED}")));
+    assert_eq!(
+        child_test_name(),
+        "python_reference_oracle::ty_reference_oracle_child"
+    );
+    assert!(child_completed(&format!(
+        "test {} ... {CHILD_COMPLETED}\nok",
+        child_test_name()
+    )));
+    assert!(!child_completed(&format!(
+        "{CHILD_COMPLETED}\n{CHILD_COMPLETED}"
+    )));
     let (status, output) = run_oracle_child(&format!("{}__missing_control", child_test_name()));
-    assert!(status.success(), "zero-test harness control failed: {status}\n{output}");
-    assert!(!child_completed(&output), "zero-test child unexpectedly affirmed executed controls\n{output}");
+    assert!(
+        status.success(),
+        "zero-test harness control failed: {status}\n{output}"
+    );
+    assert!(
+        !child_completed(&output),
+        "zero-test child unexpectedly affirmed executed controls\n{output}"
+    );
 }
 
 #[test]
@@ -261,8 +277,8 @@ fn ty_reference_oracle_child() {
     println!("\n{CHILD_COMPLETED}");
 }
 
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     normalized::{
         entities::{CallableEntity, EntityRef, ResolutionStatus},

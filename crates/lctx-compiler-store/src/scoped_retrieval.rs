@@ -1,8 +1,8 @@
 //! Necessary E0 admission over exact unit grains and one externally ordered request group.
 use crate::{
+    admission::Cancellation,
     consumed_rows::{ClosureTable, NominalClosure, identifier},
     scoped_admission::field_target,
-    admission::Cancellation,
 };
 use datafusion::prelude::SessionContext;
 use futures::TryStreamExt;
@@ -244,7 +244,7 @@ fn original_chunk_keys(
                     "original chunk selection exceeds its anchor",
                 ));
             }
-            crate::original_demands::union_range(&mut selected,charge,artifact,start,end)?;
+            crate::original_demands::union_range(&mut selected, charge, artifact, start, end)?;
         }
     }
     Ok(selected)
@@ -396,10 +396,17 @@ pub async fn validate_retrieval(
             let mut chunk_charge =
                 charged::StateCharge::new(budget, "retrieval-completion-original-chunks");
             let selected_chunks = original_chunk_keys(&data, &output, &mut chunk_charge)?;
-            crate::original_demands::stream_selected(session,&chunks,&selected_chunks,budget,|batch| {
-                cancellation.check()?;
-                data.facts.chunks.decode(batch)
-            }).await?;
+            crate::original_demands::stream_selected(
+                session,
+                &chunks,
+                &selected_chunks,
+                budget,
+                |batch| {
+                    cancellation.check()?;
+                    data.facts.chunks.decode(batch)
+                },
+            )
+            .await?;
             output.verify_completion(&data, budget)?;
             let owner = build::need(&output.units, id)?;
             let mut parents = invocations.iter().filter(|invocation| {

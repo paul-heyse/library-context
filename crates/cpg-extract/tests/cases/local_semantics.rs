@@ -1,6 +1,6 @@
 //! Actual native flow exercises the shared Local producer and stored witness replay.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     analysis::{self, local, native::*},
     assertion::*,
@@ -52,7 +52,9 @@ async fn observation() -> typed_driver::Tables {
     .unwrap();
     tables
 }
-fn fixture(tables: &typed_driver::Tables) -> (
+fn fixture(
+    tables: &typed_driver::Tables,
+) -> (
     LocalData,
     local::AnalysisInvocation,
     analysis::AnalysisDefinition,
@@ -131,7 +133,9 @@ fn owner_name(data: &LocalData, key: &transfer::local::TransferKey) -> String {
     )
     .unwrap()
 }
-fn native_local_parameter_receiver_and_class_receiver_return_transfers_are_witnessed(tables: &typed_driver::Tables) {
+fn native_local_parameter_receiver_and_class_receiver_return_transfers_are_witnessed(
+    tables: &typed_driver::Tables,
+) {
     let (data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
@@ -265,7 +269,9 @@ fn replay(
     );
     check.finish()
 }
-fn local_shared_replay_refuses_forged_transfer_guard_entry_influence_and_qualification(tables: &typed_driver::Tables) {
+fn local_shared_replay_refuses_forged_transfer_guard_entry_influence_and_qualification(
+    tables: &typed_driver::Tables,
+) {
     let (data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
@@ -325,7 +331,9 @@ fn entry_replay(
     )?;
     check.finish()
 }
-fn native_entry_sources_refuse_other_values_regions_supports_and_guard_phases(tables: &typed_driver::Tables) {
+fn native_entry_sources_refuse_other_values_regions_supports_and_guard_phases(
+    tables: &typed_driver::Tables,
+) {
     use conditions::entry::*;
     use conditions::stability::StabilityWitness;
     let (mut data, invocation, definition, budget) = fixture(tables);
@@ -519,7 +527,9 @@ fn occurrence_text(data: &LocalData, id: Id<Occurrence>) -> String {
     )
     .unwrap()
 }
-fn native_finite_domains_scalar_refutation_and_complete_diamond_mro_retain_boundaries(tables: &typed_driver::Tables) {
+fn native_finite_domains_scalar_refutation_and_complete_diamond_mro_retain_boundaries(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::local_theory::*;
     let (data, invocation, definition, budget) = fixture(tables);
     let rows =
@@ -679,7 +689,9 @@ fn replay_theory(
     lctx_model::local_theory_outputs!(output);
     check.finish()
 }
-fn theory_shared_replay_refuses_forged_exhaustiveness_scalar_truth_and_ancestry_members(tables: &typed_driver::Tables) {
+fn theory_shared_replay_refuses_forged_exhaustiveness_scalar_truth_and_ancestry_members(
+    tables: &typed_driver::Tables,
+) {
     let (data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)
@@ -692,7 +704,9 @@ fn theory_shared_replay_refuses_forged_exhaustiveness_scalar_truth_and_ancestry_
         );
     }
 }
-fn local_definitions_are_bound_to_code_parameters_and_interpretation(tables: &typed_driver::Tables) {
+fn local_definitions_are_bound_to_code_parameters_and_interpretation(
+    tables: &typed_driver::Tables,
+) {
     let (data, invocation, definition, budget) = fixture(tables);
     let before = budget.reserved();
     for mutation in 0..3 {
@@ -714,7 +728,9 @@ fn local_definitions_are_bound_to_code_parameters_and_interpretation(tables: &ty
     assert_eq!(budget.reserved(), before);
 }
 
-fn native_type_domains_refuse_missing_prefix_mro_partial_coverage_and_foreign_frames(tables: &typed_driver::Tables) {
+fn native_type_domains_refuse_missing_prefix_mro_partial_coverage_and_foreign_frames(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::{attribution::*, local_theory::*, symbols::*};
     use normalized::Rows;
     let (mut data, invocation, definition, budget) = fixture(tables);
@@ -877,7 +893,9 @@ fn native_type_domains_refuse_missing_prefix_mro_partial_coverage_and_foreign_fr
     assert_eq!(tiny.reserved(), 0);
 }
 
-fn native_builtin_type_predicates_use_supported_operands_and_refuse_shadowed_functions(tables: &typed_driver::Tables) {
+fn native_builtin_type_predicates_use_supported_operands_and_refuse_shadowed_functions(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::local_theory::*;
     let (data, invocation, definition, budget) = fixture(tables);
     let rows =
@@ -952,7 +970,9 @@ fn native_builtin_type_predicates_use_supported_operands_and_refuse_shadowed_fun
     replay_theory(&data, &invocation, &rows.theory, 0, &budget).unwrap();
 }
 
-fn native_scalar_admission_refuses_a_type_known_only_outside_the_leaf_domain(tables: &typed_driver::Tables) {
+fn native_scalar_admission_refuses_a_type_known_only_outside_the_leaf_domain(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::{conditions::Diagram, local_theory::*, types::*};
     use normalized::{Rows, links::*};
     let (mut data, invocation, definition, budget) = fixture(tables);
@@ -1128,7 +1148,9 @@ fn replay_fields(
     )?;
     check.finish()
 }
-fn native_field_locations_keep_two_fields_and_unrelated_readers_distinct_and_state_open(tables: &typed_driver::Tables) {
+fn native_field_locations_keep_two_fields_and_unrelated_readers_distinct_and_state_open(
+    tables: &typed_driver::Tables,
+) {
     use local_fields::*;
     let (data, invocation, definition, budget) = fixture(tables);
     let records =
@@ -1204,7 +1226,9 @@ fn native_field_locations_keep_two_fields_and_unrelated_readers_distinct_and_sta
         );
     }
 }
-fn native_field_locations_refuse_wrong_role_foreign_placement_support_and_context(tables: &typed_driver::Tables) {
+fn native_field_locations_refuse_wrong_role_foreign_placement_support_and_context(
+    tables: &typed_driver::Tables,
+) {
     use local_fields::*;
     use normalized::Rows;
     for mutation in 0..3 {
@@ -1309,7 +1333,9 @@ fn native_field_locations_refuse_wrong_role_foreign_placement_support_and_contex
     }
 }
 
-fn native_assignment_transfer_retains_exact_definition_premise_and_refuses_rebound_input(tables: &typed_driver::Tables) {
+fn native_assignment_transfer_retains_exact_definition_premise_and_refuses_rebound_input(
+    tables: &typed_driver::Tables,
+) {
     let (mut data, invocation, definition, budget) = fixture(tables);
     let rows =
         lctx_model::domain::local_semantics::produce(&data, &invocation, &definition, &budget)

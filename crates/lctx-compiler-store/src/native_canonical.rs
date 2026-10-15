@@ -1,12 +1,10 @@
 //! Bounded native canonical graph reads and compact admission keys.
 use crate::admission::AdmissionRuntime;
+use crate::compiler::CompilerRows;
 use d::resources::Reservation;
 use futures::stream::BoxStream;
 use lctx_model::domain::{self as d, ModelError, Record, charged::StateCharge, graph::*};
-use crate::compiler::CompilerRows;
-use lctx_native::{
-    surrealdb::types::{Number, Object, RecordId, Value},
-};
+use lctx_native::surrealdb::types::{Number, Object, RecordId, Value};
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,

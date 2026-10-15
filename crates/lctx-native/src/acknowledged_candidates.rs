@@ -32,6 +32,10 @@ enum Input {
         runs: Vec<PreparedRows>,
         cancelled: Option<Arc<AtomicBool>>,
     },
+    UnionCandidates {
+        runs: Vec<PreparedCandidates>,
+        cancelled: Option<Arc<AtomicBool>>,
+    },
     UnionRows {
         runs: Vec<PreparedRows>,
         cancelled: Option<Arc<AtomicBool>>,
@@ -248,6 +252,15 @@ impl Owner {
                                 crate::prepared::check_read_cancellation(cancelled.as_ref())?;
                                 Ok(Output::FamilyRoot(hash.finish()))
                             }
+                            Input::UnionCandidates { runs, cancelled } => {
+                                if !matches!(kernel, Kernel::Taken) {
+                                    return Err(ModelError::Conflict("compact union worker state"));
+                                }
+                                PreparedCandidates::union_prepared(&runs, &worker_budget, || {
+                                    crate::prepared::check_read_cancellation(cancelled.as_ref())
+                                })
+                                .map(Output::PreparedCandidates)
+                            }
                             Input::UnionRows { runs, cancelled } => {
                                 if !matches!(kernel, Kernel::Taken) {
                                     return Err(ModelError::Conflict(
@@ -416,6 +429,52 @@ impl Owner {
 
 pub struct AsyncCandidateSort(Owner);
 impl AsyncCandidateSort {
+    /// Exact compact union retains the same registered blocking worker, transfer
+    /// and terminality ownership as physical ordering.
+    pub async fn union_registered(
+        runs: Vec<PreparedCandidates>,
+        budget: &ResourceBudget,
+        guard: impl Send + 'static,
+        register: impl FnOnce(BlockingTerminal) + Send + 'static,
+        cancellation: Option<Arc<AtomicBool>>,
+    ) -> Result<PreparedCandidates, ModelError> {
+        let transfer = budget.reserve(
+            "ordered-command-input",
+            std::mem::size_of::<Input>().saturating_add(
+                runs.capacity()
+                    .saturating_mul(std::mem::size_of::<PreparedCandidates>()),
+            ),
+        )?;
+        let control = budget.reserve("ordered-command-owner", 2048)?;
+        let mut owner = Owner::new(
+            budget,
+            guard,
+            None,
+            None,
+            None,
+            Some(control),
+            Some(Box::new(register)),
+        )
+        .await?;
+        let result = async {
+            owner.submit_reserved(
+                Input::UnionCandidates {
+                    runs,
+                    cancelled: cancellation,
+                },
+                transfer,
+            )?;
+            match owner.acknowledge().await? {
+                Some(Output::PreparedCandidates(rows)) => Ok(rows),
+                _ => Err(ModelError::Schema("compact union response")),
+            }
+        }
+        .await;
+        let mut completion = lctx_model::domain::completion::Completion::default();
+        completion.step("compact union worker drainage", owner.drain().await);
+        lctx_model::domain::completion::complete(result, completion)
+    }
+
     pub async fn new(budget: &ResourceBudget) -> Result<Self, ModelError> {
         Self::new_with_owner(budget, ()).await
     }

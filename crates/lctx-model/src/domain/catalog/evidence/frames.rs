@@ -37,7 +37,7 @@ pub fn parents(
     Ok(output)
 }
 pub struct LowerFrames<'a> {
-    pub compact:&'a uniform_outcome::AnalysisPredecessors,
+    pub compact: &'a uniform_outcome::AnalysisPredecessors,
     pub local: &'a Rows<analysis::local::Invocation>,
     pub local_outcomes: &'a Rows<analysis::local::AnalysisOutcome>,
     pub source: &'a Rows<analysis::source_call::Invocation>,
@@ -72,29 +72,60 @@ pub fn sources(
             row
         }};
     }
-    let local = if let Some(descriptor)=lower.compact.get(analysis::owner::AnalysisOwner::Local,parent.input,parent.context)?{
-        if lower.local.iter().any(|row|(row.input,row.context)==(parent.input,parent.context)){return Err(invalid("C1 compact and ordinary Local overlap"));}
-        evidence::InvocationSource::UniformAnalysis{descriptor}
-    }else{evidence::InvocationSource::Local{invocation:fixed!(
-        lower.local,
-        lower.local_outcomes,
-        crate::domain::local_semantics::definition().1.id()
-    ).id()}};
-    let source = if let Some(descriptor)=lower.compact.get(analysis::owner::AnalysisOwner::SourceCalls,parent.input,parent.context)?{
-        if lower.source.iter().any(|row|(row.input,row.context)==(parent.input,parent.context)){return Err(invalid("C1 compact and ordinary SourceCall overlap"));}
-        evidence::InvocationSource::UniformAnalysis{descriptor}
-    }else{evidence::InvocationSource::SourceCallAnalysis{invocation:fixed!(
-        lower.source,
-        lower.source_outcomes,
-        crate::domain::execution::configuration::source_calls()
-            .1
-            .id()
-    ).id()}};
+    let local = if let Some(descriptor) = lower.compact.get(
+        analysis::owner::AnalysisOwner::Local,
+        parent.input,
+        parent.context,
+    )? {
+        if lower
+            .local
+            .iter()
+            .any(|row| (row.input, row.context) == (parent.input, parent.context))
+        {
+            return Err(invalid("C1 compact and ordinary Local overlap"));
+        }
+        evidence::InvocationSource::UniformAnalysis { descriptor }
+    } else {
+        evidence::InvocationSource::Local {
+            invocation: fixed!(
+                lower.local,
+                lower.local_outcomes,
+                crate::domain::local_semantics::definition().1.id()
+            )
+            .id(),
+        }
+    };
+    let source = if let Some(descriptor) = lower.compact.get(
+        analysis::owner::AnalysisOwner::SourceCalls,
+        parent.input,
+        parent.context,
+    )? {
+        if lower
+            .source
+            .iter()
+            .any(|row| (row.input, row.context) == (parent.input, parent.context))
+        {
+            return Err(invalid("C1 compact and ordinary SourceCall overlap"));
+        }
+        evidence::InvocationSource::UniformAnalysis { descriptor }
+    } else {
+        evidence::InvocationSource::SourceCallAnalysis {
+            invocation: fixed!(
+                lower.source,
+                lower.source_outcomes,
+                crate::domain::execution::configuration::source_calls()
+                    .1
+                    .id()
+            )
+            .id(),
+        }
+    };
     Ok([
         evidence::InvocationSource::CatalogCore {
             invocation: parent.id(),
         },
-        local,source,
+        local,
+        source,
     ])
 }
 pub fn verify(
@@ -148,22 +179,33 @@ pub(crate) fn invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::Admission,
         revision: 2,
         name: "catalog_evidence_invocation_domain",
-        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::SourceCalls,
-            uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Local, vec![
-            ValidationInput::of::<ProviderRun>(&["id"]),
-            ValidationInput::of::<core::Invocation>(&["id"]),
-            ValidationInput::of::<evidence::Invocation>(&["id"]),
-            ValidationInput::of::<evidence::InvocationSource>(&["id"]),
-            ValidationInput::of::<evidence::AnalysisInput>(&["id"]),
-            ValidationInput::of::<analysis::local::Invocation>(&["id"]),
-            ValidationInput::of::<analysis::local::AnalysisOutcome>(&["id"]),
-            ValidationInput::of::<analysis::source_call::Invocation>(&["id"]),
-            ValidationInput::of::<analysis::source_call::AnalysisOutcome>(&["id"]),
-        ])),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+            analysis::owner::AnalysisOwner::SourceCalls,
+            uniform_outcome::AnalysisUniformConsumer::inputs(
+                analysis::owner::AnalysisOwner::Local,
+                vec![
+                    ValidationInput::of::<ProviderRun>(&["id"]),
+                    ValidationInput::of::<core::Invocation>(&["id"]),
+                    ValidationInput::of::<evidence::Invocation>(&["id"]),
+                    ValidationInput::of::<evidence::InvocationSource>(&["id"]),
+                    ValidationInput::of::<evidence::AnalysisInput>(&["id"]),
+                    ValidationInput::of::<analysis::local::Invocation>(&["id"]),
+                    ValidationInput::of::<analysis::local::AnalysisOutcome>(&["id"]),
+                    ValidationInput::of::<analysis::source_call::Invocation>(&["id"]),
+                    ValidationInput::of::<analysis::source_call::AnalysisOutcome>(&["id"]),
+                ],
+            ),
+        ),
         create: std::sync::Arc::new(|b| {
             Box::new(Check {
-                local_uniform: uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Local,b),
-                source_uniform: uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::SourceCalls,b),
+                local_uniform: uniform_outcome::AnalysisUniformConsumer::new(
+                    analysis::owner::AnalysisOwner::Local,
+                    b,
+                ),
+                source_uniform: uniform_outcome::AnalysisUniformConsumer::new(
+                    analysis::owner::AnalysisOwner::SourceCalls,
+                    b,
+                ),
                 runs: Rows::new(b),
                 core: Rows::new(b),
                 invocations: Rows::new(b),
@@ -187,12 +229,16 @@ struct Check {
     budget: ResourceBudget,
 }
 impl InvariantCheck for Check {
-    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{
-        self.local_uniform.admit(owner)?; self.source_uniform.admit(owner)
+    fn admit_uniform_owner(
+        &mut self,
+        owner: &uniform_outcome::ValidatedUniformOwner,
+    ) -> Result<(), ModelError> {
+        self.local_uniform.admit(owner)?;
+        self.source_uniform.admit(owner)
     }
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        self.local_uniform.visit(name,batch)?;
-        self.source_uniform.visit(name,batch)?;
+        self.local_uniform.visit(name, batch)?;
+        self.source_uniform.visit(name, batch)?;
         if self.lower.visit(name, batch)? {
             return Ok(());
         }
@@ -206,15 +252,20 @@ impl InvariantCheck for Check {
             self.sources.decode(batch)?;
         } else if name == evidence::AnalysisInput::NAME {
             self.inputs.decode(batch)?;
-        } else if !uniform_outcome::AnalysisUniformInputs::inputs().iter().any(|input|input.name()==name) {
+        } else if !uniform_outcome::AnalysisUniformInputs::inputs()
+            .iter()
+            .any(|input| input.name() == name)
+        {
             return Err(invalid("undeclared evidence frame input"));
         }
         Ok(())
     }
     fn finish(mut self: Box<Self>) -> Result<(), ModelError> {
-        for parent in parents(&self.runs,&self.core,&self.budget)?.iter(){
-            for helper in [&self.local_uniform,&self.source_uniform]{
-                if let Some(domain)=helper.frame(parent.input,parent.context)?{self.lower.compact.include(domain)?;}
+        for parent in parents(&self.runs, &self.core, &self.budget)?.iter() {
+            for helper in [&self.local_uniform, &self.source_uniform] {
+                if let Some(domain) = helper.frame(parent.input, parent.context)? {
+                    self.lower.compact.include(domain)?;
+                }
             }
         }
         verify(

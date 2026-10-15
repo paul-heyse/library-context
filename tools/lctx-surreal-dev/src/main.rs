@@ -52,7 +52,10 @@ enum Command {
 async fn main() -> anyhow::Result<()> {
     match Cli::parse().command {
         Command::BuildInfo => {
-            println!("{}", serde_json::to_string(&lctx_surreal_dev::build_info()?)?);
+            println!(
+                "{}",
+                serde_json::to_string(&lctx_surreal_dev::build_info()?)?
+            );
             Ok(())
         }
         Command::Generate { root, check } => lctx_surreal_dev::generate(&root, check),

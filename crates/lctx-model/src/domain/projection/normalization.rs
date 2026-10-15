@@ -186,8 +186,7 @@ impl<'a> Index<'a> {
             }
         }
         for row in data.alternatives.iter() {
-            out.alternatives
-                .update(&mut out._charge, row.event, |v| v.push(row))?;
+            out.alternatives.push(&mut out._charge, row.event, row)?;
         }
         for row in data.admissions.iter() {
             let policy = need(&data.policies, row.assessment)?;
@@ -200,16 +199,13 @@ impl<'a> Index<'a> {
             }
         }
         for row in data.import_candidates.iter() {
-            out.imports
-                .update(&mut out._charge, row.assessment, |v| v.push(row))?;
+            out.imports.push(&mut out._charge, row.assessment, row)?;
         }
         for row in data.reference_candidates.iter() {
-            out.references
-                .update(&mut out._charge, row.assessment, |v| v.push(row))?;
+            out.references.push(&mut out._charge, row.assessment, row)?;
         }
         for row in data.exposure_candidates.iter() {
-            out.exposures
-                .update(&mut out._charge, row.exposure, |v| v.push(row))?;
+            out.exposures.push(&mut out._charge, row.exposure, row)?;
         }
         Ok(out)
     }

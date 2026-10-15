@@ -1,12 +1,9 @@
 //! Independent scalar geometry controls for the exact typed attachment contract.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{attachment::*, source::*, *};
 use typed_driver::{Tables, rows};
-inspector!(
-    Syntax,
-    lctx_model::domain::source::Occurrence
-);
+inspector!(Syntax, lctx_model::domain::source::Occurrence);
 fn scalar(rows: &[Occurrence], query: &AttachmentQuery) -> Attachment {
     let mut candidates = rows
         .iter()

@@ -4115,7 +4115,7 @@ impl FamilyHasher {
 #[serde(deny_unknown_fields)]
 pub struct ProducerImplementation {
     pub assurance: super::producer_assurance::ProducerAssuranceSummary,
-    #[serde(deserialize_with="super::producer_contract::required_optional")]
+    #[serde(deserialize_with = "super::producer_contract::required_optional")]
     pub contract: Option<ContentHash>,
     pub producer: String,
     pub implementation: ContentHash,
@@ -4164,7 +4164,7 @@ pub struct EmbeddingConsumption {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
-    pub admission_contract:ContentHash,
+    pub admission_contract: ContentHash,
     pub completed_state: super::completed::CompletedStateIdentity,
     pub format_version: u32,
     pub frontier: super::admission::Frontier,
@@ -4182,24 +4182,46 @@ pub struct Manifest {
 }
 impl Manifest {
     /// Check format authority before reconstructing the descriptor inventory.
-    pub fn decode(bytes:&[u8])->Result<Self,ModelError> {
+    pub fn decode(bytes: &[u8]) -> Result<Self, ModelError> {
         #[derive(Deserialize)]
-        struct StateHeader {format_version:u32}
+        struct StateHeader {
+            format_version: u32,
+        }
         #[derive(Deserialize)]
-        struct Header {format_version:u32,completed_state:StateHeader}
-        let header:Header=serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-        if header.format_version!=ARTIFACT_FORMAT_VERSION || header.completed_state.format_version!=super::completed::STATE_FORMAT_VERSION {return Err(invalid("unsupported artifact/completed-state format"));}
-        let manifest:Self=serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-        manifest.validate()?;Ok(manifest)
+        struct Header {
+            format_version: u32,
+            completed_state: StateHeader,
+        }
+        let header: Header = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+        if header.format_version != ARTIFACT_FORMAT_VERSION
+            || header.completed_state.format_version != super::completed::STATE_FORMAT_VERSION
+        {
+            return Err(invalid("unsupported artifact/completed-state format"));
+        }
+        let manifest: Self = serde_json::from_slice(bytes).map_err(ModelError::codec)?;
+        manifest.validate()?;
+        Ok(manifest)
     }
     pub fn content(&self) -> ContentHash {
         let mut sink = KeySink::new("graph-artifact/v4");
         sink.part(b"u32", &self.format_version.to_le_bytes());
         self.completed_state.content.encode(&mut sink);
-        sink.part(b"completed-state-format_version",&self.completed_state.format_version.to_le_bytes());
-        sink.part(b"completed-state-contributions",&self.completed_state.contributions.to_le_bytes());
-        sink.part(b"completed-state-memberships",&self.completed_state.memberships.to_le_bytes());
-        sink.part(b"completed-state-backing_rows",&self.completed_state.backing_rows.to_le_bytes());
+        sink.part(
+            b"completed-state-format_version",
+            &self.completed_state.format_version.to_le_bytes(),
+        );
+        sink.part(
+            b"completed-state-contributions",
+            &self.completed_state.contributions.to_le_bytes(),
+        );
+        sink.part(
+            b"completed-state-memberships",
+            &self.completed_state.memberships.to_le_bytes(),
+        );
+        sink.part(
+            b"completed-state-backing_rows",
+            &self.completed_state.backing_rows.to_le_bytes(),
+        );
         sink.part(b"frontier", self.frontier.name().as_bytes());
         sink.part(b"profile", self.profile.name().as_bytes());
         self.captures.encode(&mut sink);
@@ -4290,7 +4312,9 @@ impl Manifest {
         if self.producers.iter().any(|p| p.producer.is_empty()) {
             return Err(invalid("manifest producer needs name"));
         }
-        for producer in &self.producers { producer.assurance.validate(producer.contract)?; }
+        for producer in &self.producers {
+            producer.assurance.validate(producer.contract)?;
+        }
         if self.outcomes.len() != self.required_outcomes.len()
             || self
                 .outcomes
@@ -10791,12 +10815,23 @@ macro_rules! graph_assertion_records{($apply:ident)=>{$apply! {
     UniformNotRequested:$crate::domain::uniform_outcome::UniformNotRequested,
 }};}
 impl From<super::uniform_outcome::UniformNotRequested> for ProvenanceValue {
-    fn from(row:super::uniform_outcome::UniformNotRequested)->Self {Self::UniformNotRequested(row)}
+    fn from(row: super::uniform_outcome::UniformNotRequested) -> Self {
+        Self::UniformNotRequested(row)
+    }
 }
 impl GraphAssertionRecord for super::uniform_outcome::UniformNotRequested {
-    const GRAPH_KIND:AssertionKind=AssertionKind::EvidenceAssociation;
-    fn graph_payload(row:Self)->Assertion {
-        Assertion{source:Some(SemanticKey::of(row.id())),kind:Self::GRAPH_KIND,participants:vec![],qualification:Qualification::Payload,run:None,evidence:vec![],value:AssertionValue::Provenance(row.into()),derivation:None}
+    const GRAPH_KIND: AssertionKind = AssertionKind::EvidenceAssociation;
+    fn graph_payload(row: Self) -> Assertion {
+        Assertion {
+            source: Some(SemanticKey::of(row.id())),
+            kind: Self::GRAPH_KIND,
+            participants: vec![],
+            qualification: Qualification::Payload,
+            run: None,
+            evidence: vec![],
+            value: AssertionValue::Provenance(row.into()),
+            derivation: None,
+        }
     }
 }
 impl From<super::input::InputAcquisition> for ProvenanceValue {
@@ -14340,10 +14375,27 @@ mod policy_controls {
             root: serde_json::from_value(serde_json::to_value([13u8; 16]).unwrap()).unwrap(),
             path: serde_json::from_value(serde_json::to_value([17u8; 16]).unwrap()).unwrap(),
         };
-        let expected = Entity::from(crate::domain::normalized::entities::EntityRef::Place { place: place.id() });
-        assert_eq!(Entity::from(place).canonical_place_endpoint(), Some(expected));
-        assert_eq!(Entity::canonical_place_endpoint_relations(), &[(crate::domain::value::Place::NAME, crate::domain::normalized::entities::EntityRef::NAME)]);
-        assert!(Entity::from(crate::domain::input::Package { name: "ordinary member".into() }).canonical_place_endpoint().is_none());
+        let expected = Entity::from(crate::domain::normalized::entities::EntityRef::Place {
+            place: place.id(),
+        });
+        assert_eq!(
+            Entity::from(place).canonical_place_endpoint(),
+            Some(expected)
+        );
+        assert_eq!(
+            Entity::canonical_place_endpoint_relations(),
+            &[(
+                crate::domain::value::Place::NAME,
+                crate::domain::normalized::entities::EntityRef::NAME
+            )]
+        );
+        assert!(
+            Entity::from(crate::domain::input::Package {
+                name: "ordinary member".into()
+            })
+            .canonical_place_endpoint()
+            .is_none()
+        );
     }
     #[test]
     fn graph_policy_revisions_and_intrinsic_categories_enter_contract() {

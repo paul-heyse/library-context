@@ -1,6 +1,6 @@
 //! Independent recovery of the dormant P3 derived-table expectations, using typed ownership.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     normalized::{
         Rows, binding_normalization::BindingData, callable_normalization, entities::*,

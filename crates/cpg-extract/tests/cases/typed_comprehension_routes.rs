@@ -1,6 +1,6 @@
 //! Actual retained Ruff parse emits semantic comprehension child fields, without another parse.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{lexical::SyntaxField, source::*, syntax::*, *};
 use typed_driver::{files, rows, run};
 inspector!(

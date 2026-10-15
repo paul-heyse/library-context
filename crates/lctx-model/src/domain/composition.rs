@@ -2262,8 +2262,7 @@ impl InvariantCheck for CompositionCheck {
                     self.predicates.get(&row.predicate)
                 {
                     let id = row.id();
-                    self.restatements
-                        .update(c, (row.evaluation, *source), |restated| restated.push(id))?;
+                    self.restatements.push(c, (row.evaluation, *source), id)?;
                 }
             }
         } else if relation == ConditionNode::NAME {
@@ -2354,13 +2353,11 @@ impl InvariantCheck for CompositionCheck {
             }
         } else if relation == super::transfer::local::TransferSupport::NAME {
             for row in super::transfer::local::TransferSupport::decode(batch)? {
-                self.local_supports
-                    .update(c, row.assertion, |sources| sources.push(row.source))?;
+                self.local_supports.push(c, row.assertion, row.source)?;
             }
         } else if relation == super::transfer::model::TransferSupport::NAME {
             for row in super::transfer::model::TransferSupport::decode(batch)? {
-                self.model_supports
-                    .update(c, row.assertion, |sources| sources.push(row.source))?;
+                self.model_supports.push(c, row.assertion, row.source)?;
             }
         } else if relation == super::analysis::summary::AnalysisInvocation::NAME {
             for row in super::analysis::summary::AnalysisInvocation::decode(batch)? {

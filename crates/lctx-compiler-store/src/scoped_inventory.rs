@@ -1,8 +1,8 @@
 //! Necessary Flow inventory admission over exact owner grains; no producer is rerun.
 use crate::{
+    admission::Cancellation,
     consumed_rows::{ClosureTable, NominalClosure, identifier},
     scoped_admission::{column, declared, field_target, root_predicate},
-    admission::Cancellation,
 };
 use datafusion::prelude::SessionContext;
 use futures::TryStreamExt;

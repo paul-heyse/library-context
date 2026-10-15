@@ -117,14 +117,13 @@ fn fixture(reason: ObligationKind) -> Fixture {
             evidence: nominal(16),
             selection: nominal(17),
             structural: nominal(18),
-            analytic:Some(nominal(19)),
-            analytic_kind:frames::ParentKind::Ordinary,
-            analytic_uniform:None,
-            summary:Some(conclusion.invocation),
-            summary_kind:frames::ParentKind::Ordinary,
-            summary_uniform:None,
-        
-})
+            analytic: Some(nominal(19)),
+            analytic_kind: frames::ParentKind::Ordinary,
+            analytic_uniform: None,
+            summary: Some(conclusion.invocation),
+            summary_kind: frames::ParentKind::Ordinary,
+            summary_uniform: None,
+        })
         .unwrap();
     let mut invocations = Rows::new(&budget);
     invocations.insert(invocation).unwrap();

@@ -1,7 +1,7 @@
 //! Installation-local completed view data and held read authority.
 //! Deserializing completion data never establishes a native hold or cold admission.
 pub(crate) mod audit;
-pub use audit::{InstallationAudit, ProtectedInspectionSource};
+pub use audit::{InstallationAudit, ProtectedInspectionSource, contribution_heap, view_heap};
 mod earned;
 mod live;
 mod receiving;
@@ -34,11 +34,19 @@ pub struct InstalledViewCompletion {
     pub parent_completion: ContentHash,
     pub generation: ContentHash,
     pub validity_epoch: i64,
-    pub view: d::completed::CompletedView,
-    pub mappings: Vec<ContributorRealization>,
+    /// One immutable typed payload, shared by its inventory and retained caps.
+    /// Sharing this data alone conveys neither a native pin nor resource ownership.
+    #[serde(flatten)]
+    pub selection: std::sync::Arc<SelectedViewDescriptor>,
     pub member_codec: u32,
     pub membership_rows: u64,
     pub membership_content: ContentHash,
+}
+impl std::ops::Deref for InstalledViewCompletion {
+    type Target = SelectedViewDescriptor;
+    fn deref(&self) -> &Self::Target {
+        &self.selection
+    }
 }
 impl InstalledViewCompletion {
     pub fn validate(&self) -> Result<(), ModelError> {
@@ -146,10 +154,24 @@ pub fn member_id(selector: ContentHash, relation: &str, key: &[u8; 16]) -> Recor
 /// attempt or a protected publication pin. There is no public data-only constructor.
 pub struct HeldInstalledView {
     client: std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
-    completion: Option<InstalledViewCompletion>,
-    selector: SelectedViewDescriptor,
+    selector: HeldSelector,
     owner: InstalledViewOwner,
     _charge: d::charged::StateCharge,
+}
+enum HeldSelector {
+    // Scalar physical context is cheap; the sole variable-size payload is owned
+    // by the exact inventory retained through InstalledViewOwner.
+    Retained(InstalledViewCompletion),
+    Earned(SelectedViewDescriptor),
+}
+impl std::ops::Deref for HeldSelector {
+    type Target = SelectedViewDescriptor;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Retained(completion) => &completion.selection,
+            Self::Earned(selector) => selector,
+        }
+    }
 }
 enum InstalledViewOwner {
     Earned {
@@ -178,6 +200,29 @@ enum InstalledViewOwner {
     },
 }
 impl HeldInstalledView {
+    /// Check the original backing pool; a matching descriptor cannot transfer its charge.
+    pub fn require_pool(&self, budget: &d::resources::ResourceBudget) -> Result<(), ModelError> {
+        let inventory = match &self.owner {
+            InstalledViewOwner::Earned { set } => {
+                return if set
+                    ._charge
+                    .budget()
+                    .is_some_and(|owner| owner.shares_pool(budget))
+                {
+                    Ok(())
+                } else {
+                    Err(ModelError::Conflict(
+                        "earned selector foreign resource pool",
+                    ))
+                };
+            }
+            InstalledViewOwner::Recovery { inventory, .. } => inventory.as_ref(),
+            InstalledViewOwner::Physical { completed, .. } => completed.inventory(),
+            InstalledViewOwner::Frozen { completed, .. } => completed.inventory(),
+            InstalledViewOwner::Published { completed, .. } => completed.inventory(),
+        };
+        inventory.require_pool(budget)
+    }
     pub(crate) fn earned_source(&self) -> Option<&std::sync::Arc<EarnedContributionSet>> {
         match &self.owner {
             InstalledViewOwner::Earned { set } => Some(set),
@@ -205,9 +250,12 @@ impl HeldInstalledView {
         &self.selector
     }
     pub fn retained_completion(&self) -> Result<&InstalledViewCompletion, ModelError> {
-        self.completion.as_ref().ok_or(ModelError::Conflict(
-            "internal selection has no retained boundary",
-        ))
+        match &self.selector {
+            HeldSelector::Retained(completion) => Ok(completion),
+            HeldSelector::Earned(_) => Err(ModelError::Conflict(
+                "internal selection has no retained boundary",
+            )),
+        }
     }
     pub fn owner(&self) -> &RecordId {
         match &self.owner {

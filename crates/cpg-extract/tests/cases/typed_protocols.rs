@@ -1,6 +1,6 @@
 //! Actual located native decisions; results do not claim unconditional runtime semantics.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{protocols::*, source::*, types::*, *};
 use typed_driver::{files, rows, run};
 inspector!(

@@ -1,7 +1,7 @@
 //! Receiver applicability owns one target and its complete syntax/placement candidate domains.
 use crate::{
-    consumed_rows::{ClosureTable, PreparedEdges},
     admission::InputTables,
+    consumed_rows::{ClosureTable, PreparedEdges},
 };
 use lctx_model::domain::{normalized::receiver::ReceiverData, *};
 use std::{any::TypeId, sync::Arc};
@@ -22,9 +22,7 @@ impl ReceiverScopes {
     ) -> Result<Self, ModelError> {
         let inputs: Vec<_> = ReceiverData::validation_inputs()
             .into_iter()
-            .filter(|input| {
-                access.contains_relation(input.name())
-            })
+            .filter(|input| access.contains_relation(input.name()))
             .collect();
         let tables: Vec<_> = inputs
             .iter()

@@ -1,6 +1,6 @@
 //! Native assignment/closure/loop twins through the shared entry and normalized guard operators.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     calls::*,
     conditions::{entry::*, rebase::*, stability::*, *},
@@ -38,7 +38,9 @@ async fn entry_value_witnesses_from_one_behavioral_observation() {
         }};
     }
     check!(entry_identity_retains_parameter_and_receiver_but_refuses_rebinding_and_nested_reach);
-    check!(normalized_actual_and_receiver_guards_preserve_source_operations_and_qualified_influence);
+    check!(
+        normalized_actual_and_receiver_guards_preserve_source_operations_and_qualified_influence
+    );
     check!(stored_summary_substitution_replays_the_original_binding_prefix);
     check!(native_parameter_bridge_requires_the_exact_first_identifier_and_native_support);
     check!(partial_family_native_singleton_requires_its_complete_attributed_inventory);
@@ -54,7 +56,9 @@ async fn observation() -> typed_driver::Tables {
     .unwrap();
     tables
 }
-fn fixture(tables: &typed_driver::Tables) -> (EntryData, BindingData, BindingOutput, ResourceBudget) {
+fn fixture(
+    tables: &typed_driver::Tables,
+) -> (EntryData, BindingData, BindingOutput, ResourceBudget) {
     let budget = ResourceBudget::fixed(256 << 20).unwrap();
     let mut relations = relation_normalization::RelationData::new(&budget);
     macro_rules! facts {($($field:ident:$ty:ty=>$family:ident,)*)=>{$(for row in typed_driver::rows::<$ty>(tables){relations.facts.$field.insert(row).unwrap();})*};}
@@ -159,7 +163,9 @@ fn request(data: &EntryData, function: &str) -> EntryRequest {
         run: run.id(),
     }
 }
-fn entry_identity_retains_parameter_and_receiver_but_refuses_rebinding_and_nested_reach(tables: &typed_driver::Tables) {
+fn entry_identity_retains_parameter_and_receiver_but_refuses_rebinding_and_nested_reach(
+    tables: &typed_driver::Tables,
+) {
     let (data, _, _, budget) = fixture(tables);
     for function in ["parameter", "method", "class_method"] {
         let req = request(&data, function);
@@ -319,8 +325,9 @@ fn replay_substitution(
     )?;
     check.finish()
 }
-fn normalized_actual_and_receiver_guards_preserve_source_operations_and_qualified_influence(tables: &typed_driver::Tables)
-{
+fn normalized_actual_and_receiver_guards_preserve_source_operations_and_qualified_influence(
+    tables: &typed_driver::Tables,
+) {
     guard_controls(tables, false);
 }
 fn stored_summary_substitution_replays_the_original_binding_prefix(tables: &typed_driver::Tables) {
@@ -560,7 +567,9 @@ fn guard_controls(tables: &typed_driver::Tables, stored: bool) {
         assert_eq!(tiny.reserved(), 0);
     }
 }
-fn native_parameter_bridge_requires_the_exact_first_identifier_and_native_support(tables: &typed_driver::Tables) {
+fn native_parameter_bridge_requires_the_exact_first_identifier_and_native_support(
+    tables: &typed_driver::Tables,
+) {
     for mutation in 0..3 {
         let (mut data, _, _, budget) = fixture(tables);
         let req = request(&data, "parameter");
@@ -670,7 +679,9 @@ fn native_parameter_bridge_requires_the_exact_first_identifier_and_native_suppor
     }
 }
 
-fn partial_family_native_singleton_requires_its_complete_attributed_inventory(tables: &typed_driver::Tables) {
+fn partial_family_native_singleton_requires_its_complete_attributed_inventory(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::{attribution::*, flow_inventory::*};
     let (mut data, _, _, budget) = fixture(tables);
     let req = request(&data, "parameter");

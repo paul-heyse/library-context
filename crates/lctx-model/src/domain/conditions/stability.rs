@@ -150,15 +150,15 @@ impl ProducedStability {
             mut charge,
         } = other;
         while let Some(id) = values.keys().next().copied() {
-            let value = values.remove(&mut charge, &id).expect("stability");
+            let value = values.remove(&mut charge, &id)?.expect("stability");
             if self
                 .values
                 .get(&id)
-                .is_some_and(|previous| previous != &value)
+                .is_some_and(|previous| previous != &*value)
             {
                 return Err(ModelError::Conflict("actual Local stability receipt"));
             }
-            self.values.insert(&mut self.charge, id, value)?;
+            self.values.insert_owned(&mut self.charge, id, value)?;
         }
         Ok(())
     }

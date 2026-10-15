@@ -1,6 +1,6 @@
 //! Actual per-alias public paths retain identity, candidate publicity and module completeness.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     attribution::*,
     normalized::{

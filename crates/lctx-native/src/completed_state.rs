@@ -306,6 +306,7 @@ impl FrozenContentFence {
 /// The native hold is on the exact independently read completion incarnation.
 /// A DTO or matching hash cannot construct this owner.
 pub struct HeldFrozenCompletedState {
+    pub(crate) client: std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::grpc::Client>>,
     pub(crate) completion: FrozenCompletion,
     pub(crate) held: crate::control::HeldRecord,
     pub(crate) admission: crate::control::HeldRecord,
@@ -453,7 +454,7 @@ async fn hold_completed_state_inner(
         )
         .await?
         .ok_or(ModelError::Conflict("native frozen completion missing"))?;
-        let completion_charge = budget.reserve(
+        let completion_decode = budget.reserve(
             "native frozen completion decoding",
             crate::loader::native_bytes(expected.row())
                 .saturating_mul(32)
@@ -470,6 +471,7 @@ async fn hold_completed_state_inner(
                 "completed source exact parent changed",
             ));
         }
+        drop(completion_decode);
         let held = crate::control::hold_frozen_completed_expected(&client, &data, expected, budget)
             .await?;
         let inventory = match source {
@@ -502,6 +504,8 @@ async fn hold_completed_state_inner(
             &client, &data, &semantic, admission, budget,
         )
         .await?;
+        drop(semantic);
+        drop(_decode);
         // Recheck owner/installation after all reads. The first hold remains retained,
         // while this fixed exact effect confirms no epoch/admission change at return.
         let expected = crate::control::inspect_expected_read(&reader, data.record()?, budget)
@@ -514,7 +518,15 @@ async fn hold_completed_state_inner(
             crate::control::hold_frozen_completed_expected(&client, &data, expected, budget)
                 .await?;
         drop(held);
+        let completion_charge = budget.reserve(
+            "native frozen completion retained owner",
+            std::mem::size_of::<HeldFrozenCompletedState>()
+                .saturating_add(2 * std::mem::size_of::<usize>())
+                .saturating_add(crate::selection::node_bytes(repeated.owner()))
+                .saturating_add(crate::selection::node_bytes(admission.owner())),
+        )?;
         Ok(HeldFrozenCompletedState {
+            client: client.clone(),
             completion: data,
             held: repeated,
             admission,
@@ -821,6 +833,20 @@ pub struct InstalledViewInventory {
     _charge: d::charged::StateCharge,
 }
 impl InstalledViewInventory {
+    /// Check actual retained backing ownership before borrowing it in an operation.
+    pub fn require_pool(&self, budget: &d::resources::ResourceBudget) -> Result<(), ModelError> {
+        if self
+            ._charge
+            .budget()
+            .is_some_and(|owner| owner.shares_pool(budget))
+        {
+            Ok(())
+        } else {
+            Err(ModelError::Conflict(
+                "completed inventory foreign resource pool",
+            ))
+        }
+    }
     fn new(budget: &d::resources::ResourceBudget) -> Result<Self, ModelError> {
         let mut charge =
             d::charged::StateCharge::new(budget, "exact completed installed inventory");
@@ -938,9 +964,17 @@ fn completed_view_heap(view: &d::completed::CompletedView) -> usize {
         .saturating_add(view.contributions.heap_bytes())
 }
 fn selector_heap(selector: &crate::installed_view::InstalledViewCompletion) -> usize {
-    completed_view_heap(&selector.view).saturating_add(selector.mappings.capacity().saturating_mul(
-        std::mem::size_of::<crate::installed_view::ContributorRealization>(),
-    ))
+    std::mem::size_of::<crate::installed_view::SelectedViewDescriptor>()
+        .saturating_add(2 * std::mem::size_of::<usize>())
+        .saturating_add(completed_view_heap(&selector.view))
+        .saturating_add(
+            selector
+                .mappings
+                .capacity()
+                .saturating_mul(std::mem::size_of::<
+                    crate::installed_view::ContributorRealization,
+                >()),
+        )
 }
 fn binding_heap(binding: &d::completed::CompletedBinding) -> usize {
     use d::HeapSize;
@@ -1401,9 +1435,8 @@ pub(crate) async fn hold_physical_state_for_attempt(
         .ok_or(ModelError::Conflict(
             "frozen lifecycle physical completion absent",
         ))?;
-        let mut charge =
-            d::charged::StateCharge::new(budget, "frozen lifecycle physical completion");
-        charge.grow(
+        let decode = budget.reserve(
+            "frozen lifecycle physical completion decode",
             crate::loader::native_bytes(expected.row())
                 .saturating_mul(32)
                 .saturating_add(65536),
@@ -1414,6 +1447,7 @@ pub(crate) async fn hold_physical_state_for_attempt(
                 "frozen lifecycle physical owner identity",
             ));
         }
+        drop(decode);
         let held =
             crate::control::hold_frozen_physical_expected(&client, &data, expected, budget).await?;
         let inventory = inspect_inventory(&reader, &data, budget).await?;
@@ -1428,6 +1462,13 @@ pub(crate) async fn hold_physical_state_for_attempt(
         }
         let repeated =
             crate::control::hold_frozen_physical_expected(&client, &data, expected, budget).await?;
+        drop(held);
+        let mut charge = d::charged::StateCharge::new(budget, "frozen lifecycle physical owner");
+        charge.grow(
+            std::mem::size_of::<NativeCompletedState>()
+                .saturating_add(2 * std::mem::size_of::<usize>())
+                .saturating_add(crate::selection::node_bytes(repeated.owner())),
+        )?;
         Ok(NativeCompletedState {
             client: client.clone(),
             budget: budget.clone(),
@@ -1463,6 +1504,100 @@ pub struct CompletedAdmission {
     pub generation: ContentHash,
     pub validity_epoch: i64,
     pub evidence: d::artifact_admission::ArtifactAdmissionEvidence,
+}
+/// Retained typed admission backing, independent of serialized envelope and
+/// decoding/validation workspace. ExpectedRecord owns its own native bytes.
+fn admission_heap(admission: &CompletedAdmission) -> usize {
+    fn vector<T>(values: &Vec<T>) -> usize {
+        values.capacity().saturating_mul(std::mem::size_of::<T>())
+    }
+    fn execution(values: &Vec<d::artifact_admission::ValidationExecution>) -> usize {
+        use d::HeapSize;
+        vector(values).saturating_add(
+            values
+                .iter()
+                .map(|value| {
+                    value
+                        .name
+                        .capacity()
+                        .saturating_add(vector(&value.inputs))
+                        .saturating_add(
+                            value
+                                .inputs
+                                .iter()
+                                .map(|input| match input {
+                                    d::artifact_admission::SelectedInput::Completed {
+                                        source,
+                                        ..
+                                    } => source.heap_bytes(),
+                                    d::artifact_admission::SelectedInput::NotRequested {
+                                        ..
+                                    }
+                                    | d::artifact_admission::SelectedInput::EmptyDomain => 0,
+                                })
+                                .sum::<usize>(),
+                        )
+                })
+                .sum::<usize>(),
+        )
+    }
+    let manifest = &admission.evidence.manifest;
+    vector(&manifest.captures)
+        .saturating_add(vector(&manifest.producers))
+        .saturating_add(
+            manifest
+                .producers
+                .iter()
+                .map(|producer| producer.producer.capacity())
+                .sum::<usize>(),
+        )
+        .saturating_add(vector(&manifest.families))
+        .saturating_add(vector(&manifest.required_outcomes))
+        .saturating_add(
+            manifest
+                .required_outcomes
+                .iter()
+                .map(|outcome| outcome.producer.capacity())
+                .sum::<usize>(),
+        )
+        .saturating_add(vector(&manifest.outcomes))
+        .saturating_add(
+            manifest
+                .outcomes
+                .iter()
+                .map(|outcome| {
+                    outcome
+                        .key
+                        .producer
+                        .capacity()
+                        .saturating_add(outcome.detail.as_ref().map_or(0, String::capacity))
+                })
+                .sum::<usize>(),
+        )
+        .saturating_add(vector(&manifest.originals))
+        .saturating_add(vector(&manifest.projections))
+        .saturating_add(
+            manifest
+                .projections
+                .iter()
+                .map(|projection| {
+                    projection
+                        .name
+                        .capacity()
+                        .saturating_add(vector(&projection.declared_losses))
+                        .saturating_add(
+                            projection
+                                .declared_losses
+                                .iter()
+                                .map(String::capacity)
+                                .sum::<usize>(),
+                        )
+                })
+                .sum::<usize>(),
+        )
+        .saturating_add(vector(&manifest.embeddings))
+        .saturating_add(execution(&admission.evidence.invariants))
+        .saturating_add(execution(&admission.evidence.frontier))
 }
 impl CompletedAdmission {
     pub(crate) fn validate(
@@ -1618,13 +1753,13 @@ pub async fn published_completed_state(
             "published physical completion identity/incarnation",
         ));
     }
+    drop(_scratch);
     let admission = crate::control::inspect_expected_read(&transport, admission_id.clone(), budget)
         .await?
         .ok_or(ModelError::Conflict("published semantic admission missing"))?;
-    let mut charge = budget.reserve(
-        "published completed retained data",
-        crate::loader::native_bytes(expected.row())
-            .saturating_add(crate::loader::native_bytes(admission.row()))
+    let admission_decode = budget.reserve(
+        "published semantic admission decode",
+        crate::loader::native_bytes(admission.row())
             .saturating_mul(32)
             .saturating_add(65536),
     )?;
@@ -1637,21 +1772,28 @@ pub async fn published_completed_state(
             "published semantic admission identity/incarnation",
         ));
     }
-    require_hold(&transport, &semantic.record()?, &data.record()?).await?;
+    let charge = budget.reserve(
+        "published completed retained typed data",
+        std::mem::size_of::<PublishedCompletedInner>()
+            .saturating_add(2 * std::mem::size_of::<usize>())
+            .saturating_add(admission_heap(&semantic)),
+    )?;
+    drop(admission_decode);
+    require_hold(&transport, &admission_id, &completion_id).await?;
     let inventory = inspect_inventory(&transport, &data, budget).await?;
-    semantic.validate(&data, expected.incarnation(), &model, &inventory, budget)?;
+    {
+        let _validation = inventory_typed_charge(
+            std::mem::size_of::<CompletedAdmission>().saturating_add(admission_heap(&semantic)),
+            budget,
+        )?;
+        semantic.validate(&data, expected.incarnation(), &model, &inventory, budget)?;
+    }
     let repeated = reader.protected_publication_marker(budget).await?;
     if repeated.row() != marker.row() {
         return Err(ModelError::Conflict(
             "published marker changed during completed factory",
         ));
     }
-    charge.try_resize(
-        crate::loader::native_bytes(&data.value(true)?)
-            .saturating_add(crate::loader::native_bytes(&semantic.value()?))
-            .saturating_mul(32)
-            .saturating_add(65536),
-    )?;
     let result = PublishedCompletedState {
         inner: std::sync::Arc::new(PublishedCompletedInner {
             completion: data,
@@ -1753,13 +1895,15 @@ mod compound_controls {
                 parent_completion: ContentHash([0; 32]),
                 generation: ContentHash([4; 32]),
                 validity_epoch: 1,
-                mappings: vec![crate::installed_view::ContributorRealization {
-                    view: view.identity,
-                    logical,
-                    physical: ContentHash([5; 32]),
-                    incarnation: 1,
-                }],
-                view,
+                selection: std::sync::Arc::new(crate::installed_view::SelectedViewDescriptor {
+                    mappings: vec![crate::installed_view::ContributorRealization {
+                        view: view.identity,
+                        logical,
+                        physical: ContentHash([5; 32]),
+                        incarnation: 1,
+                    }],
+                    view,
+                }),
                 member_codec: crate::installed_view::MEMBER_CODEC,
                 membership_rows: 0,
                 membership_content: ContentHash([6; 32]),
@@ -1811,15 +1955,16 @@ mod compound_controls {
         let mut fixtures = (0..129)
             .map(|index| {
                 let mut reference = selector();
-                reference.selector.view = d::completed::CompletedView::new(
-                    format!("selector_{index:03}"),
-                    logical.clone(),
-                    0,
-                )
-                .unwrap();
+                std::sync::Arc::make_mut(&mut reference.selector.selection).view =
+                    d::completed::CompletedView::new(
+                        format!("selector_{index:03}"),
+                        logical.clone(),
+                        0,
+                    )
+                    .unwrap();
                 reference.logical_view = reference.selector.view.identity;
                 reference.selector.parent_completion = parent;
-                reference.selector.mappings = logical
+                std::sync::Arc::make_mut(&mut reference.selector.selection).mappings = logical
                     .iter()
                     .map(|logical| crate::installed_view::ContributorRealization {
                         view: reference.logical_view,
@@ -1838,7 +1983,7 @@ mod compound_controls {
         let mut hasher = RealizationHasher::default();
         for fixture in fixtures {
             let row = fixture.value(parent).unwrap();
-            let before = budget.reserved();
+            let before = inventory._charge.reserved();
             {
                 let decode = inventory_decode_charge(&row, &budget).unwrap();
                 former_workspace = former_workspace.saturating_add(decode.size());
@@ -1846,14 +1991,14 @@ mod compound_controls {
                 hasher.row(&reference).unwrap();
                 inventory.retain_reference(reference).unwrap();
                 assert!(
-                    budget.reserved() > inventory._charge.reserved(),
+                    budget.reserved() > inventory._charge.accounted_bytes(),
                     "decode scratch remains admitted while physical decoding and hashing are live"
                 );
             }
             assert!(inventory._charge.reserved() > before);
             assert_eq!(
                 budget.reserved(),
-                inventory._charge.reserved(),
+                inventory._charge.accounted_bytes(),
                 "finished row workspace must not accumulate in retained inventory"
             );
         }
@@ -1870,6 +2015,7 @@ mod compound_controls {
                 .map(|reference| selector_heap(&reference.selector))
                 .sum::<usize>();
         assert_eq!(inventory._charge.reserved(), typed);
+        let accounted = inventory._charge.accounted_bytes();
         for reference in &inventory.references {
             {
                 let _validation = inventory_typed_charge(
@@ -1889,13 +2035,13 @@ mod compound_controls {
                     Some(&Value::RecordId(child))
                 );
                 assert!(
-                    budget.reserved() > typed,
+                    budget.reserved() > accounted,
                     "post-decode selector addressing and hold projection need their own live workspace"
                 );
             }
             assert_eq!(
                 budget.reserved(),
-                typed,
+                accounted,
                 "typed validation scratch ends after each actual projection"
             );
         }
@@ -1910,7 +2056,19 @@ mod compound_controls {
                 inventory.contributors(expected.logical_view).unwrap(),
                 expected.selector.mappings
             );
+            let held_descriptor = installed.clone();
+            assert!(
+                std::sync::Arc::ptr_eq(&held_descriptor.selection, &installed.selection),
+                "retained capabilities share the inventory payload rather than clone its transitive mappings"
+            );
+            assert_eq!(budget.reserved(), accounted);
         }
+        assert!(inventory.require_pool(&budget).is_ok());
+        assert!(
+            inventory
+                .require_pool(&d::resources::ResourceBudget::fixed(16 << 20).unwrap())
+                .is_err()
+        );
         assert!(matches!(
             inventory.installed(ContentHash([255; 32])),
             Err(ModelError::Conflict(
@@ -1922,11 +2080,57 @@ mod compound_controls {
         drop(owner);
         assert_eq!(
             budget.reserved(),
-            typed,
+            accounted,
             "live borrowers retain actual typed allocation ownership"
         );
         drop(borrower);
         assert_eq!(budget.reserved(), 0);
+    }
+    #[test]
+    fn shared_selector_keeps_exact_flat_wire_and_rejects_unknown_fields() {
+        #[derive(Serialize)]
+        struct PreviousWire<'a> {
+            version: u32,
+            parent_completion: ContentHash,
+            generation: ContentHash,
+            validity_epoch: i64,
+            view: &'a d::completed::CompletedView,
+            mappings: &'a [crate::installed_view::ContributorRealization],
+            member_codec: u32,
+            membership_rows: u64,
+            membership_content: ContentHash,
+        }
+        let selector = selector().selector;
+        let prior = PreviousWire {
+            version: selector.version,
+            parent_completion: selector.parent_completion,
+            generation: selector.generation,
+            validity_epoch: selector.validity_epoch,
+            view: &selector.view,
+            mappings: &selector.mappings,
+            member_codec: selector.member_codec,
+            membership_rows: selector.membership_rows,
+            membership_content: selector.membership_content,
+        };
+        let bytes = serde_json::to_vec(&selector).unwrap();
+        assert_eq!(
+            bytes,
+            serde_json::to_vec(&prior).unwrap(),
+            "sharing changes no persisted byte or field order"
+        );
+        let decoded: crate::installed_view::InstalledViewCompletion =
+            serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(decoded, selector);
+        assert_eq!(decoded.identity().unwrap(), selector.identity().unwrap());
+        let mut unknown: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        unknown
+            .as_object_mut()
+            .unwrap()
+            .insert("extra".into(), true.into());
+        assert!(
+            serde_json::from_value::<crate::installed_view::InstalledViewCompletion>(unknown)
+                .is_err()
+        );
     }
     #[test]
     fn installed_ref_requests_preserve_each_exact_selector_and_share_only_equal_copy_requirements()
@@ -1936,14 +2140,16 @@ mod compound_controls {
         let mut first = selector();
         first.selector.parent_completion = data.identity().unwrap();
         let mut second = first.clone();
-        second.selector.view = d::completed::CompletedView::new(
-            "releases".into(),
-            first.selector.view.contributions.clone(),
-            0,
-        )
-        .unwrap();
+        std::sync::Arc::make_mut(&mut second.selector.selection).view =
+            d::completed::CompletedView::new(
+                "releases".into(),
+                first.selector.view.contributions.clone(),
+                0,
+            )
+            .unwrap();
         second.logical_view = second.selector.view.identity;
-        second.selector.mappings[0].view = second.logical_view;
+        std::sync::Arc::make_mut(&mut second.selector.selection).mappings[0].view =
+            second.logical_view;
         let references = vec![first, second];
         let requests = installed_ref_requests(&data, &references, &budget).unwrap();
         assert_eq!(requests.selectors.len(), 2);
@@ -1972,7 +2178,7 @@ mod compound_controls {
             );
         }
         let mut changed = references.clone();
-        changed[1].selector.mappings[0].incarnation += 1;
+        std::sync::Arc::make_mut(&mut changed[1].selector.selection).mappings[0].incarnation += 1;
         assert!(installed_ref_requests(&data, &changed, &budget).is_err());
     }
     #[test]
@@ -2023,7 +2229,7 @@ mod compound_controls {
         assert_eq!(before.finish(), after.finish());
         another.selector.membership_content = ContentHash([8; 32]);
         assert_ne!(another.selector.identity().unwrap(), unlinked);
-        another.selector.mappings[0].incarnation = 0;
+        std::sync::Arc::make_mut(&mut another.selector.selection).mappings[0].incarnation = 0;
         assert!(another.validate().is_err());
     }
     #[test]

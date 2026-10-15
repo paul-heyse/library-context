@@ -678,12 +678,15 @@ pub(crate) fn run_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "base_completion_inventory",
-        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Completion,run_inputs()),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+            analysis::owner::AnalysisOwner::Completion,
+            run_inputs(),
+        ),
         create: std::sync::Arc::new(|budget| Box::new(CompletionRunCheck::new(budget))),
     }]
 }
 struct CompletionRunCheck {
-    uniform:uniform_outcome::AnalysisUniformConsumer,
+    uniform: uniform_outcome::AnalysisUniformConsumer,
     data: CompletedEvaluations,
     invocations: Rows<publication::AnalysisInvocation>,
     definitions: Rows<analysis::AnalysisDefinition>,
@@ -705,7 +708,10 @@ struct CompletionRunCheck {
 impl CompletionRunCheck {
     fn new(budget: &ResourceBudget) -> Self {
         Self {
-            uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Completion,budget),
+            uniform: uniform_outcome::AnalysisUniformConsumer::new(
+                analysis::owner::AnalysisOwner::Completion,
+                budget,
+            ),
             data: CompletedEvaluations::new(budget),
             invocations: Rows::new(budget),
             definitions: Rows::new(budget),
@@ -727,16 +733,38 @@ impl CompletionRunCheck {
     }
 }
 impl InvariantCheck for CompletionRunCheck {
-    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform.admit(owner)}
+    fn admit_uniform_owner(
+        &mut self,
+        owner: &uniform_outcome::ValidatedUniformOwner,
+    ) -> Result<(), ModelError> {
+        self.uniform.admit(owner)
+    }
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        self.uniform.visit(name,batch)?;
+        self.uniform.visit(name, batch)?;
         self.data.visit(name, batch)?;
         macro_rules! rows{($($field:ident:$ty:ty,)*)=>{$(if name==<$ty>::NAME{self.$field.decode(batch)?;})*};}
         rows! {invocations:publication::AnalysisInvocation,definitions:analysis::AnalysisDefinition,runs:CompletionRun,completions:StatementCompletion,outcomes:CompletionOutcome,sources:CompletionSource,members:CompletionMember,entered:EnteredStatement,boundaries:CompletionBoundary,bodies:SourceBodyCompletion,body_sources:BodySource,body_members:BodyMember,body_releases:BodyReleaseInput,body_boundaries:BodyBoundary,results:publication::AnalysisOutcome,}
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        if self.uniform.complete_empty(self.invocations.is_empty() && self.runs.is_empty() && self.completions.is_empty() && self.outcomes.is_empty() && self.sources.is_empty() && self.members.is_empty() && self.entered.is_empty() && self.boundaries.is_empty() && self.bodies.is_empty() && self.body_sources.is_empty() && self.body_members.is_empty() && self.body_releases.is_empty() && self.body_boundaries.is_empty() && self.results.is_empty())?{return Ok(());}
+        if self.uniform.complete_empty(
+            self.invocations.is_empty()
+                && self.runs.is_empty()
+                && self.completions.is_empty()
+                && self.outcomes.is_empty()
+                && self.sources.is_empty()
+                && self.members.is_empty()
+                && self.entered.is_empty()
+                && self.boundaries.is_empty()
+                && self.bodies.is_empty()
+                && self.body_sources.is_empty()
+                && self.body_members.is_empty()
+                && self.body_releases.is_empty()
+                && self.body_boundaries.is_empty()
+                && self.results.is_empty(),
+        )? {
+            return Ok(());
+        }
         let invalid = |message: &str| ModelError::Invalid(message.into());
         let mut charge = charged::StateCharge::new(&self.budget, "base_completion_frames");
         let mut frames = charged::ChargedSet::default();
@@ -938,7 +966,7 @@ pub fn stage(
     definition.id().encode(&mut key);
     Ok(Stage {
         captured_binding: None,
-name: "complete_base",
+        name: "complete_base",
         inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

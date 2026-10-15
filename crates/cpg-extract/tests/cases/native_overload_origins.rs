@@ -155,8 +155,8 @@ fn native_overload_origins_preserve_original_vectors_and_selection_limits() {
         .unwrap();
 }
 
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{types::*, *};
 // Independent invariant replay consumes complete negative domains and native premises.
 inspector!(OriginFacts, complete);

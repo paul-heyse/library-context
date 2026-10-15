@@ -12,14 +12,12 @@ use lctx_model::domain::{
     *,
 };
 fn need<R: Record>(rows: &PacketRows<R>, id: Id<R>) -> Result<R, Error> {
-    rows.get(id)?
-        .cloned()
-        .ok_or_else(|| {
-            Error::Model(ModelError::Invalid(format!(
-                "required native evidence row missing: {}",
-                R::NAME
-            )))
-        })
+    rows.get(id)?.cloned().ok_or_else(|| {
+        Error::Model(ModelError::Invalid(format!(
+            "required native evidence row missing: {}",
+            R::NAME
+        )))
+    })
 }
 fn unavailable(reason: &str) -> Availability {
     Availability::Unavailable {

@@ -1,6 +1,6 @@
 //! Model-qualified summary packets over one native canonical dependency selection.
 use crate::{
-    records::{need, rows, wire, Prepared},
+    records::{Prepared, need, rows, wire},
     source_evidence::NativePackets,
 };
 use lctx_model::domain::{serving::*, *};
@@ -14,11 +14,13 @@ pub(crate) async fn visit_packets(
     let members = rows::<catalog::CatalogMember>(source)?;
     let input = need(&members, member)?.input;
     let links = rows::<catalog::CatalogMemberInvocation>(source)?;
-    let links = links.select_for("member",&[member])?
+    let links = links
+        .select_for("member", &[member])?
         .iter()
         .map(|link| link.id())
         .collect::<BTreeSet<_>>();
-    let facets = rows::<synthesis::summary::SummaryFacet>(source)?.select_for("member",&links.iter().copied().collect::<Vec<_>>())?;
+    let facets = rows::<synthesis::summary::SummaryFacet>(source)?
+        .select_for("member", &links.iter().copied().collect::<Vec<_>>())?;
     let invocations = rows::<analysis::summary::AnalysisInvocation>(source)?;
     let selected = invocations
         .iter()

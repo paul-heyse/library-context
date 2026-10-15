@@ -18,12 +18,10 @@ prost = "=0.14.4"
 surrealdb-syn.workspace = true
 surrealdb-sql.workspace = true
 futures.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["rc"] }
 serde_json.workspace = true
 arrow-array.workspace = true
-arrow-row.workspace = true
 arrow-schema.workspace = true
-async-trait = "=0.1.92"
 hex.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["signal"] }
@@ -36,6 +34,11 @@ tracing-subscriber.workspace = true
 insta.workspace = true
 tonic = { version = "=0.14.6", features = ["transport"] }
 
+
+# Used by scripts/producer_fingerprint.rs included through build.rs's #[path],
+# outside cargo-shear's package-local scan.
+[package.metadata.cargo-shear]
+ignored = ["blake3", "toml"]
 
 [lints]
 workspace = true

@@ -1,8 +1,8 @@
 //! Callable metadata selects typed owner namespaces before rich decoding.
 use crate::{
+    admission::Cancellation,
     consumed_rows::{ClosureTable, PreparedEdges, identifier},
     scoped_admission::column,
-    admission::Cancellation,
 };
 use datafusion::prelude::SessionContext;
 use futures::TryStreamExt;
@@ -24,7 +24,9 @@ pub struct AspectScopes {
     _program: std::sync::Arc<lctx_model::domain::scope_program::CompiledScopeProgram>,
 }
 impl AspectScopes {
-    pub fn program_identity(&self) -> ContentHash { self._program.identity() }
+    pub fn program_identity(&self) -> ContentHash {
+        self._program.identity()
+    }
     pub async fn prepare(
         inputs: Vec<ValidationInput>,
         tables: Vec<ClosureTable>,

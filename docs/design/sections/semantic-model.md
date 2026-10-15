@@ -154,7 +154,7 @@ serialization is implied. Source acceptance and focused native/diagnostic contro
 foundations; generated-analysis/native-query and enclosing acceptance retain their exact boundaries
 in the [Catalog completion coordinator §6](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint).
 
-> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0168, ADR-0108, ADR-0165, ADR-0166
+> Decision: ADR-0145, ADR-0139, ADR-0085, ADR-0117, ADR-0151, ADR-0168, ADR-0108, ADR-0165, ADR-0166
 
 <a id="section-15-2"></a>
 
@@ -880,6 +880,24 @@ uses a native-owned terminal handoff for descriptor visibility. Unrelated immuta
 cannot extend this local wait. Global failure propagation, final content freeze, admission,
 seal and abandonment retain their existing drainage/certainty contracts; local completion
 does not grant publication authority. The native-efficiency companion owns migration and acceptance.
+
+**Implemented / focused-Tested, 2026-10-14; full composition acceptance open.** A store-earned singleton result
+retains its exact descriptor, source and resource ownership. Required producer completion and local
+optional-retention preparation precede the Workspace visibility gate. Only a fully local, settled
+reservation refusal can decline capture; replay reads, pins and all native retention work remain
+mandatory. The gate rechecks current visibility, earns actual affected contributor unions, prepares
+host bookkeeping before binding, then hands off all affected outputs coherently. Eager visibility and
+exact frozen prefixes remain unchanged. The [Catalog completion coordinator](../../plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
+owns focused evidence and deferred assembled acceptance.
+
+Completed relations and batch readers retain the execution owner and signal without retaining
+Workspace or its relation registry. Useful borrowers survive Workspace/source drop; explicit
+drainage still cancels reads and independently settles native ownership.
+
+Charged model containers admit typed nested growth before mutation. Fixed inline updates have an
+explicit no-owned-heap contract; empty-entry construction is restricted to audited nonallocating
+defaults. Removed/replaced values retain their original accounting until dropped or transferred into
+a receiving owner on the same pool. Reservation accounting describes owned backing, not process RSS.
 
 **Implemented / focused Tested, 2026-10-09; coordinated acceptance open.** Native transfer windows and
 DataFusion compute batches have separate meanings. Transfer size does not configure compute

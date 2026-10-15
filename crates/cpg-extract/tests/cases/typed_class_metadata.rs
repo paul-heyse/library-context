@@ -1,6 +1,6 @@
 //! Native class metadata controls through the shared source and provider validators.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     assertion::AssertionQualification, calls::*, class_metadata::*, normalized::Rows, types::*, *,
 };

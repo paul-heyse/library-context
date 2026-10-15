@@ -1,4 +1,9 @@
 //! Validated compiler admission and immutable native completed inputs.
+// The pinned compiler's auto-trait solver needs additional compile-time depth for
+// the finite, shared native cursor/assurance graph (rust-lang/rust#159228).
+// Keep Send checking intact without a heap allocation per delivered row; revisit
+// this limit with the pinned toolchain, including downstream code generation.
+#![recursion_limit = "256"]
 pub use lctx_native::{
     AuthenticationScope, Loader, NativeReader, ReuseConfig, RuntimeConfig, reader, surrealdb,
 };

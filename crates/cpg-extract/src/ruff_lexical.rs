@@ -156,16 +156,38 @@ struct EventIndex<'a> {
 }
 impl<'a> EventIndex<'a> {
     fn new(events: &'a [BindingEvent], budget: &ResourceBudget) -> Result<Self, ModelError> {
-        let charge=budget.reserve("ruff-binding-event-index",events.len().checked_mul(256).ok_or(ModelError::Schema("Ruff binding event index overflow"))?)?;
-        let mut index=Self{sites:BTreeMap::new(),names:BTreeMap::new(),_charge:charge};
+        let charge = budget.reserve(
+            "ruff-binding-event-index",
+            events
+                .len()
+                .checked_mul(256)
+                .ok_or(ModelError::Schema("Ruff binding event index overflow"))?,
+        )?;
+        let mut index = Self {
+            sites: BTreeMap::new(),
+            names: BTreeMap::new(),
+            _charge: charge,
+        };
         for event in events {
-            index.sites.entry(event.site).and_modify(|hit|*hit=None).or_insert(Some(event));
-            index.names.entry((event.site,event.name.as_str())).and_modify(|hit|*hit=None).or_insert(Some(event));
+            index
+                .sites
+                .entry(event.site)
+                .and_modify(|hit| *hit = None)
+                .or_insert(Some(event));
+            index
+                .names
+                .entry((event.site, event.name.as_str()))
+                .and_modify(|hit| *hit = None)
+                .or_insert(Some(event));
         }
         Ok(index)
     }
-    fn get(&self,site:Id<Occurrence>,name:&str)->Option<&'a BindingEvent>{
-        self.sites.get(&site).copied().flatten().or_else(||self.names.get(&(site,name)).copied().flatten())
+    fn get(&self, site: Id<Occurrence>, name: &str) -> Option<&'a BindingEvent> {
+        self.sites
+            .get(&site)
+            .copied()
+            .flatten()
+            .or_else(|| self.names.get(&(site, name)).copied().flatten())
     }
 }
 impl NativeRows {
@@ -503,18 +525,64 @@ impl NativeRows {
 mod event_index_controls {
     use super::*;
     #[test]
-    fn indexed_binding_candidates_preserve_multiplicity_unique_site_fallback_and_ambiguity(){
-        let site:Id<Occurrence>=serde_json::from_value(serde_json::json!(vec![1u8;16])).unwrap();
-        let other:Id<Occurrence>=serde_json::from_value(serde_json::json!(vec![2u8;16])).unwrap();
-        let budget=ResourceBudget::fixed(1<<20).unwrap();
-        for events in [vec![],vec![BindingEvent{site,name:"one".into()}],vec![BindingEvent{site,name:"one".into()},BindingEvent{site,name:"two".into()}],vec![BindingEvent{site,name:"one".into()},BindingEvent{site,name:"one".into()}]]{
-            let index=EventIndex::new(&events,&budget).unwrap();
-            for selected in [site,other]{for name in ["one","two","unknown"]{
-                let hits:Vec<_>=events.iter().filter(|event|event.site==selected).collect();
-                let old=match hits.as_slice(){[event]=>Some(*event),_=>{let exact:Vec<_>=hits.into_iter().filter(|event|event.name==name).collect();match exact.as_slice(){[event]=>Some(*event),_=>None}}};
-                assert_eq!(index.get(selected,name),old);
-            }}
-            drop(index);assert_eq!(budget.reserved(),0);
+    fn indexed_binding_candidates_preserve_multiplicity_unique_site_fallback_and_ambiguity() {
+        let site: Id<Occurrence> =
+            serde_json::from_value(serde_json::json!(vec![1u8; 16])).unwrap();
+        let other: Id<Occurrence> =
+            serde_json::from_value(serde_json::json!(vec![2u8; 16])).unwrap();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        for events in [
+            vec![],
+            vec![BindingEvent {
+                site,
+                name: "one".into(),
+            }],
+            vec![
+                BindingEvent {
+                    site,
+                    name: "one".into(),
+                },
+                BindingEvent {
+                    site,
+                    name: "two".into(),
+                },
+            ],
+            vec![
+                BindingEvent {
+                    site,
+                    name: "one".into(),
+                },
+                BindingEvent {
+                    site,
+                    name: "one".into(),
+                },
+            ],
+        ] {
+            let index = EventIndex::new(&events, &budget).unwrap();
+            for selected in [site, other] {
+                for name in ["one", "two", "unknown"] {
+                    let hits: Vec<_> = events
+                        .iter()
+                        .filter(|event| event.site == selected)
+                        .collect();
+                    let old = match hits.as_slice() {
+                        [event] => Some(*event),
+                        _ => {
+                            let exact: Vec<_> = hits
+                                .into_iter()
+                                .filter(|event| event.name == name)
+                                .collect();
+                            match exact.as_slice() {
+                                [event] => Some(*event),
+                                _ => None,
+                            }
+                        }
+                    };
+                    assert_eq!(index.get(selected, name), old);
+                }
+            }
+            drop(index);
+            assert_eq!(budget.reserved(), 0);
         }
     }
 }

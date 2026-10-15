@@ -1,6 +1,6 @@
 //! Native document answers through the real stage graph and shared model validators.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{assertion::*, attribution::*, documents::*, source::*, *};
 use typed_driver::{files, rows, run};
 inspector!(

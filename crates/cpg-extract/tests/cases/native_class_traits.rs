@@ -1,6 +1,6 @@
 //! Exact linked class traits add native support without changing the report assertion.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     assertion::ProviderSurface,
     attribution::{ExtractionMode, Fidelity, Origin, ProviderRun},

@@ -164,10 +164,10 @@ impl InvariantCheck for DeclarationCheck {
                         "declaring occurrence does not define the symbol's kind",
                     ));
                 }
-                self.declared.update(
+                self.declared.push(
                     &mut self.charge,
                     (row.qualification, row.symbol),
-                    |declarations| declarations.push(row.declaration),
+                    row.declaration,
                 )?;
                 self.symbol_links
                     .insert(&mut self.charge, row.id(), row.symbol)?;

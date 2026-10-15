@@ -1,6 +1,6 @@
 //! Deprecation comes from each actual native callable alternative, with explicit availability.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{calls::*, types::*, *};
 use typed_driver::{files, rows};
 inspector!(

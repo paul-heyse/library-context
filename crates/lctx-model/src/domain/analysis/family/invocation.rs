@@ -157,15 +157,13 @@ impl InvariantCheck for InvocationCheck {
             for row in AnalysisInput::decode(batch)? {
                 if !self
                     .edges
-                    .update(&mut self.charge, row.invocation, |edges| {
-                        edges.insert(row.parent)
-                    })?
+                    .insert_set(&mut self.charge, row.invocation, row.parent)?
                 {
                     return Err(invalid("duplicate analysis parent"));
                 }
             }
-        } else if relation==SourceReceipt::NAME {for row in SourceReceipt::decode(batch)? {let snapshot=row.snapshot();let mut duplicate=false;self.snapshots.update(&mut self.charge,row.invocation,|sources|{duplicate=sources.insert(snapshot.identity(),snapshot).is_some();})?;if duplicate {return Err(invalid("duplicate invocation source receipt"));}}
-        } else if relation==ProjectionInput::NAME {for row in ProjectionInput::decode(batch)? {if !self.projections.update(&mut self.charge,row.invocation,|p|p.insert(row.projection))? {return Err(invalid("duplicate invocation projection"));}}}
+        } else if relation==SourceReceipt::NAME {for row in SourceReceipt::decode(batch)? {let snapshot=row.snapshot();let duplicate=self.snapshots.insert_map(&mut self.charge,row.invocation,snapshot.identity(),snapshot)?.is_some();if duplicate {return Err(invalid("duplicate invocation source receipt"));}}
+        } else if relation==ProjectionInput::NAME {for row in ProjectionInput::decode(batch)? {if !self.projections.insert_set(&mut self.charge, row.invocation, row.projection)? {return Err(invalid("duplicate invocation projection"));}}}
         else if relation==InvocationSource::NAME { for row in InvocationSource::decode(batch)? { self.sources.insert(&mut self.charge,row.id(),row)?; }
         } else if !visit_predecessor_invocation(relation,batch,&mut self.frames,&mut self.charge)? {
             return Err(invalid("undeclared analysis invocation input"));

@@ -575,6 +575,109 @@ pub struct Schedule {
     digest: ContentHash,
     profile: Profile,
 }
+impl super::HeapSize for Schedule {
+    fn heap_bytes(&self) -> usize {
+        fn selections(rows: &[InputSelection], capacity: usize) -> usize {
+            rows.iter().fold(
+                capacity.saturating_mul(size_of::<InputSelection>()),
+                |bytes, row| {
+                    bytes.saturating_add(
+                        row.producers
+                            .len()
+                            .saturating_mul(size_of::<&'static str>() + 32),
+                    )
+                },
+            )
+        }
+        let mut bytes = self
+            .groups
+            .capacity()
+            .saturating_mul(size_of::<ScheduledPublication>());
+        for group in &self.groups {
+            bytes = bytes.saturating_add(
+                group
+                    .stages
+                    .capacity()
+                    .saturating_mul(size_of::<&'static str>()),
+            );
+        }
+        bytes = bytes.saturating_add(
+            self.publication_order
+                .boundaries
+                .capacity()
+                .saturating_mul(size_of::<PublicationBoundary>()),
+        );
+        bytes = bytes.saturating_add(
+            self.prerequisites
+                .len()
+                .saturating_mul(size_of::<(&'static str, BTreeSet<&'static str>)>() + 32),
+        );
+        for prerequisites in self.prerequisites.values() {
+            bytes = bytes.saturating_add(
+                prerequisites
+                    .len()
+                    .saturating_mul(size_of::<&'static str>() + 32),
+            );
+        }
+        bytes = bytes.saturating_add(
+            self.selections
+                .len()
+                .saturating_mul(size_of::<(&'static str, Vec<InputSelection>)>() + 32),
+        );
+        for rows in self.selections.values() {
+            bytes = bytes.saturating_add(selections(rows, rows.capacity()));
+        }
+        bytes = bytes.saturating_add(
+            self.prefixes
+                .len()
+                .saturating_mul(size_of::<(PublicationBoundary, Vec<InputSelection>)>() + 32),
+        );
+        for rows in self.prefixes.values() {
+            bytes = bytes.saturating_add(selections(rows, rows.capacity()));
+        }
+        bytes = bytes.saturating_add(self.stages.capacity().saturating_mul(size_of::<Stage>()));
+        for stage in &self.stages {
+            bytes = bytes
+                .saturating_add(
+                    stage
+                        .inputs
+                        .capacity()
+                        .saturating_mul(size_of::<RelationUse>()),
+                )
+                .saturating_add(
+                    stage
+                        .outputs
+                        .capacity()
+                        .saturating_mul(size_of::<RelationUse>()),
+                )
+                .saturating_add(
+                    stage
+                        .contributes
+                        .capacity()
+                        .saturating_mul(size_of::<RelationUse>()),
+                )
+                .saturating_add(
+                    stage
+                        .coverage
+                        .capacity()
+                        .saturating_mul(size_of::<FamilyCoverage>()),
+                )
+                .saturating_add(
+                    stage
+                        .profiles
+                        .capacity()
+                        .saturating_mul(size_of::<Profile>()),
+                )
+                .saturating_add(
+                    stage
+                        .captured_binding
+                        .as_ref()
+                        .map_or(0, |binding| binding.heap_bytes()),
+                );
+        }
+        bytes
+    }
+}
 impl Schedule {
     pub fn build(
         model: &ValidatedModel,

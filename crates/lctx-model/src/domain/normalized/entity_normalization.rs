@@ -140,7 +140,7 @@ impl OwnershipSweep {
                 || !row.structural_path.starts_with(&frame.path)
                 || frame.path.len() >= row.structural_path.len()
         }) {
-            self.frames.take_last(&mut self.charge);
+            self.frames.take_last(&mut self.charge)?;
         }
         let mut output = EntityOutput::new(budget);
         let own_entity = if crate::domain::occurrence_owner::owns_body(row.syntax_kind)
@@ -256,7 +256,11 @@ pub enum EntityDemand {
 enum SymbolDemand<'a> {
     All,
     One(Id<ProviderSymbol>),
-    Public { context: Id<attribution::AnalysisContext>, module: Id<ProviderModule>, name: &'a str },
+    Public {
+        context: Id<attribution::AnalysisContext>,
+        module: Id<ProviderModule>,
+        name: &'a str,
+    },
     None,
 }
 impl SymbolDemand<'_> {
@@ -264,7 +268,11 @@ impl SymbolDemand<'_> {
         match self {
             Self::All => true,
             Self::One(id) => symbol.id() == id,
-            Self::Public { context, module, name } => symbol.context == context && symbol.module == module && symbol.name == name,
+            Self::Public {
+                context,
+                module,
+                name,
+            } => symbol.context == context && symbol.module == module && symbol.name == name,
             Self::None => false,
         }
     }
@@ -284,18 +292,34 @@ pub fn normalize_demand_view(
     let mut output = EntityOutput::new(budget);
     match *demand {
         EntityDemand::Symbol(id) => {
-            input.symbols.get(id).ok_or_else(|| missing("requested symbol"))?;
+            input
+                .symbols
+                .get(id)
+                .ok_or_else(|| missing("requested symbol"))?;
             symbol_entities(input, &mut output, SymbolDemand::One(id), true, budget)?;
         }
         EntityDemand::SyntaxField(id) => {
-            input.syntax_fields.get(id).ok_or_else(|| missing("requested syntax field"))?;
+            input
+                .syntax_fields
+                .get(id)
+                .ok_or_else(|| missing("requested syntax field"))?;
             syntax_fields(input, &mut output, Some(id), budget)?;
         }
         EntityDemand::Public(id) => {
-            let public = input.public_names.get(id).ok_or_else(|| missing("requested public name"))?;
-            let origin = input.export_origins.get(public.origin).ok_or_else(|| missing("public export origin"))?;
+            let public = input
+                .public_names
+                .get(id)
+                .ok_or_else(|| missing("requested public name"))?;
+            let origin = input
+                .export_origins
+                .get(public.origin)
+                .ok_or_else(|| missing("public export origin"))?;
             let symbols = match origin {
-                ExportOrigin::Traced { module, name, .. } => SymbolDemand::Public { context: context(input, public.qualification)?, module: *module, name },
+                ExportOrigin::Traced { module, name, .. } => SymbolDemand::Public {
+                    context: context(input, public.qualification)?,
+                    module: *module,
+                    name,
+                },
                 ExportOrigin::Untraced => SymbolDemand::None,
             };
             // Only correspondence is needed here; signatures and fields belong to Symbol roots.
@@ -303,7 +327,10 @@ pub fn normalize_demand_view(
             public_entities(input, &mut output, ExposureDemand::Public(id), budget)?;
         }
         EntityDemand::Enumeration(id) => {
-            input.export_enumerations.get(id).ok_or_else(|| missing("requested export enumeration"))?;
+            input
+                .export_enumerations
+                .get(id)
+                .ok_or_else(|| missing("requested export enumeration"))?;
             public_entities(input, &mut output, ExposureDemand::Enumeration(id), budget)?;
         }
     }
@@ -319,10 +346,10 @@ fn source_entities(
     let mut by_source: ChargedMap<Id<SourceArtifact>, Vec<&Occurrence>> = Default::default();
     let mut modules: ChargedMap<Id<SourceArtifact>, Vec<Id<Module>>> = Default::default();
     for module in input.modules.iter() {
-        modules.update(&mut charge, module.source, |ids| ids.push(module.id()))?;
+        modules.push(&mut charge, module.source, module.id())?;
     }
     for occurrence in input.occurrences.iter() {
-        by_source.update(&mut charge, occurrence.source, |rows| rows.push(occurrence))?;
+        by_source.push(&mut charge, occurrence.source, occurrence)?;
     }
     // The ownership sweep is source-local; headers/defaults/decorators keep their evaluation owner.
     for (source, occurrences) in by_source.iter() {
@@ -392,10 +419,10 @@ fn symbol_entities(
     let mut supports: ChargedMap<Id<SymbolDeclaration>, Vec<&SymbolDeclarationSupport>> =
         Default::default();
     for row in input.declarations.iter() {
-        declarations.update(&mut charge, row.symbol, |rows| rows.push(row))?;
+        declarations.push(&mut charge, row.symbol, row)?;
     }
     for row in input.declaration_supports.iter() {
-        supports.update(&mut charge, row.assertion, |rows| rows.push(row))?;
+        supports.push(&mut charge, row.assertion, row)?;
     }
     let mut resolved: ChargedMap<Id<ProviderSymbol>, Id<SymbolEntityResolution>> =
         Default::default();
@@ -404,12 +431,16 @@ fn symbol_entities(
     let mut class_traits: ChargedMap<Id<ProviderSymbol>, Vec<&ClassTraitObservation>> =
         Default::default();
     for row in input.function_traits.iter() {
-        function_traits.update(&mut charge, row.symbol, |rows| rows.push(row))?;
+        function_traits.push(&mut charge, row.symbol, row)?;
     }
     for row in input.class_traits.iter() {
-        class_traits.update(&mut charge, row.symbol, |rows| rows.push(row))?;
+        class_traits.push(&mut charge, row.symbol, row)?;
     }
-    for symbol in input.symbols.iter().filter(|symbol| demand.includes(symbol)) {
+    for symbol in input
+        .symbols
+        .iter()
+        .filter(|symbol| demand.includes(symbol))
+    {
         let mut candidates: ChargedMap<Id<EntityRef>, Vec<SymbolEntityPremise>> =
             Default::default();
         let mut established: ChargedSet<Id<EntityRef>> = Default::default();
@@ -439,12 +470,14 @@ fn symbol_entities(
                 established.insert(&mut candidate_charge, entity)?;
             }
             for support in evidence {
-                candidates.update(&mut candidate_charge, entity, |rows| {
-                    rows.push(SymbolEntityPremise::Declaration {
+                candidates.push(
+                    &mut candidate_charge,
+                    entity,
+                    SymbolEntityPremise::Declaration {
                         declaration: declaration.id(),
                         support: support.id(),
-                    })
-                })?;
+                    },
+                )?;
             }
         }
         let mut reason = EntityReason::DeclarationAgreement;
@@ -456,11 +489,13 @@ fn symbol_entities(
             match (symbol.kind, module) {
                 (SymbolKind::Module, ProviderModule::Acquired { module }) => {
                     let entity = output.refs.insert(EntityRef::Module { module: *module })?;
-                    candidates.update(&mut candidate_charge, entity, |rows| {
-                        rows.push(SymbolEntityPremise::Module {
+                    candidates.push(
+                        &mut candidate_charge,
+                        entity,
+                        SymbolEntityPremise::Module {
                             module: symbol.module,
-                        })
-                    })?;
+                        },
+                    )?;
                     established.insert(&mut candidate_charge, entity)?;
                     reason = EntityReason::AcquiredModule;
                 }
@@ -482,11 +517,13 @@ fn symbol_entities(
                         }
                     };
                     let entity = output.refs.insert(entity)?;
-                    candidates.update(&mut candidate_charge, entity, |rows| {
-                        rows.push(SymbolEntityPremise::Module {
+                    candidates.push(
+                        &mut candidate_charge,
+                        entity,
+                        SymbolEntityPremise::Module {
                             module: symbol.module,
-                        })
-                    })?;
+                        },
+                    )?;
                     established.insert(&mut candidate_charge, entity)?;
                     reason = EntityReason::ProviderExternal;
                 }
@@ -521,9 +558,11 @@ fn symbol_entities(
                             )? {
                                 established.insert(&mut candidate_charge, entity)?;
                             }
-                            candidates.update(&mut candidate_charge, entity, |rows| {
-                                rows.push(SymbolEntityPremise::FunctionTraits { observation })
-                            })?;
+                            candidates.push(
+                                &mut candidate_charge,
+                                entity,
+                                SymbolEntityPremise::FunctionTraits { observation },
+                            )?;
                         }
                         reason = EntityReason::ProviderSynthetic;
                     }
@@ -559,9 +598,11 @@ fn symbol_entities(
                             )? {
                                 established.insert(&mut candidate_charge, entity)?;
                             }
-                            candidates.update(&mut candidate_charge, entity, |rows| {
-                                rows.push(SymbolEntityPremise::ClassTraits { observation })
-                            })?;
+                            candidates.push(
+                                &mut candidate_charge,
+                                entity,
+                                SymbolEntityPremise::ClassTraits { observation },
+                            )?;
                         }
                         reason = EntityReason::ProviderSynthetic;
                     }
@@ -614,10 +655,19 @@ fn symbol_entities(
             }
         }
     }
-    if !children { return Ok(()); }
-    let symbol = match demand { SymbolDemand::One(id) => Some(id), _ => None };
+    if !children {
+        return Ok(());
+    }
+    let symbol = match demand {
+        SymbolDemand::One(id) => Some(id),
+        _ => None,
+    };
     normalize_parameters(input, &resolved, output, symbol, budget)?;
-    for field in input.fields.iter().filter(|field| symbol.is_none_or(|id| field.class == id)) {
+    for field in input
+        .fields
+        .iter()
+        .filter(|field| symbol.is_none_or(|id| field.class == id))
+    {
         let resolution = output
             .resolutions
             .get(
@@ -655,9 +705,13 @@ fn syntax_fields(
     let mut bindings: ChargedMap<Id<Occurrence>, Vec<&crate::domain::lexical::BindingEvent>> =
         Default::default();
     for binding in input.bindings.iter() {
-        bindings.update(&mut charge, binding.site, |rows| rows.push(binding))?;
+        bindings.push(&mut charge, binding.site, binding)?;
     }
-    for declaration in input.syntax_fields.iter().filter(|row| requested.is_none_or(|id| row.id() == id)) {
+    for declaration in input
+        .syntax_fields
+        .iter()
+        .filter(|row| requested.is_none_or(|id| row.id() == id))
+    {
         let occurrence = input
             .occurrences
             .get(declaration.class)
@@ -708,14 +762,16 @@ fn normalize_parameters(
     let mut declarations: ChargedMap<Id<SignatureParameter>, Vec<&ParameterDeclaration>> =
         Default::default();
     for row in input.parameter_declarations.iter() {
-        declarations.update(&mut charge, row.parameter, |rows| rows.push(row))?;
+        declarations.push(&mut charge, row.parameter, row)?;
     }
     for parameter in input.parameters.iter() {
         let signature = input
             .signatures
             .get(parameter.signature)
             .ok_or_else(|| missing("parameter signature"))?;
-        if requested.is_some_and(|id| signature.symbol != id) { continue; }
+        if requested.is_some_and(|id| signature.symbol != id) {
+            continue;
+        }
         let resolution = output
             .resolutions
             .get(
@@ -774,13 +830,30 @@ fn normalize_enumerations(
     demand: ExposureDemand,
 ) -> Result<(), ModelError> {
     for enumeration in input.export_enumerations.iter() {
-        if let ExposureDemand::Enumeration(id) = demand && enumeration.id() != id { continue; }
+        if let ExposureDemand::Enumeration(id) = demand
+            && enumeration.id() != id
+        {
+            continue;
+        }
         if let ExposureDemand::Public(id) = demand {
-            let public = input.public_names.get(id).ok_or_else(|| missing("requested public name"))?;
-            if enumeration.access != public.access { continue; }
-            let public_q = input.qualifications.get(public.qualification).ok_or_else(|| missing("public path qualification"))?;
-            let q = input.qualifications.get(enumeration.qualification).ok_or_else(|| missing("export enumeration qualification"))?;
-            if q.context != public_q.context || q.scope != public_q.scope { continue; }
+            let public = input
+                .public_names
+                .get(id)
+                .ok_or_else(|| missing("requested public name"))?;
+            if enumeration.access != public.access {
+                continue;
+            }
+            let public_q = input
+                .qualifications
+                .get(public.qualification)
+                .ok_or_else(|| missing("public path qualification"))?;
+            let q = input
+                .qualifications
+                .get(enumeration.qualification)
+                .ok_or_else(|| missing("export enumeration qualification"))?;
+            if q.context != public_q.context || q.scope != public_q.scope {
+                continue;
+            }
         }
         let q = input
             .qualifications
@@ -842,12 +915,10 @@ fn normalize_exposures(
         if context(input, report.qualification)? != symbol.context {
             return Err(missing("same-context symbol report"));
         }
-        reports.update(&mut index_charge, report.symbol, |rows| rows.push(report))?;
+        reports.push(&mut index_charge, report.symbol, report)?;
     }
     for support in input.symbol_supports.iter() {
-        report_supports.update(&mut index_charge, support.assertion, |rows| {
-            rows.push(support)
-        })?;
+        report_supports.push(&mut index_charge, support.assertion, support)?;
     }
     for symbol in input.symbols.iter() {
         // Callable type metadata names original overload members which Pysa deliberately
@@ -858,23 +929,19 @@ fn normalize_exposures(
         {
             continue;
         }
-        symbols.update(
+        symbols.push(
             &mut index_charge,
             (symbol.context, symbol.module, symbol.name.clone()),
-            |rows| rows.push(symbol),
+            symbol,
         )?;
     }
     for support in input.public_supports.iter() {
-        supports.update(&mut index_charge, support.assertion, |rows| {
-            rows.push(support)
-        })?;
+        supports.push(&mut index_charge, support.assertion, support)?;
     }
     let mut alternatives: ChargedMap<Id<SymbolEntityResolution>, Vec<Id<EntityRef>>> =
         Default::default();
     for candidate in output.candidates.iter() {
-        alternatives.update(&mut index_charge, candidate.resolution, |rows| {
-            rows.push(candidate.entity)
-        })?;
+        alternatives.push(&mut index_charge, candidate.resolution, candidate.entity)?;
     }
     normalize_enumerations(input, output, demand)?;
     for public in input.public_names.iter().filter(|row| match demand {
@@ -1396,15 +1463,18 @@ impl InvariantCheck for EntityAdmission {
             )?;
         });
         each!(FunctionTraitObservation, row, {
-            self.functions
-                .update(&mut self.charge, row.symbol, |rows| {
-                    rows.push((row.qualification, row.origin))
-                })?;
+            self.functions.push(
+                &mut self.charge,
+                row.symbol,
+                (row.qualification, row.origin),
+            )?;
         });
         each!(ClassTraitObservation, row, {
-            self.classes.update(&mut self.charge, row.symbol, |rows| {
-                rows.push((row.qualification, row.synthesized))
-            })?;
+            self.classes.push(
+                &mut self.charge,
+                row.symbol,
+                (row.qualification, row.synthesized),
+            )?;
         });
         each!(PublicNameObservation, row, {
             self.public.insert(
@@ -1444,9 +1514,7 @@ impl InvariantCheck for EntityAdmission {
         });
         each!(SymbolEntityCandidate, row, {
             self.candidates
-                .update(&mut self.charge, row.resolution, |entities| {
-                    entities.push(row.entity)
-                })?;
+                .push(&mut self.charge, row.resolution, row.entity)?;
         });
         macro_rules! rows {
             ($ty:ty,$field:ident) => {

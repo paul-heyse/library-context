@@ -7,11 +7,15 @@ use crate::{
     control::ExpectedRecord,
 };
 use futures::FutureExt;
+#[cfg(test)]
+use lctx_model::domain::recovery_closure::{RecoveryClosure, RecoveryTraversal};
 use lctx_model::domain::{
     self as d, ContentHash, ModelError,
     charged::StateCharge,
     completed::{CompletedContribution, CompletedView},
-    recovery_closure::{RecoveryClosure, RecoveryTraversal},
+    recovery_closure::{
+        SharedRecoveryContribution, SharedRecoveryIngredient, SharedRecoveryTraversal,
+    },
     resources::ResourceBudget,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -61,6 +65,19 @@ impl<K: Ord, V> SharedMap<K, V> {
     fn insert_arc(&self, key: K, value: std::sync::Arc<V>) -> Option<std::sync::Arc<V>> {
         self.0.lock().unwrap().insert(key, value)
     }
+    fn get_or_try_insert(
+        &self,
+        key: K,
+        make: impl FnOnce() -> Result<V, ModelError>,
+    ) -> Result<std::sync::Arc<V>, ModelError> {
+        let mut values = self.0.lock().unwrap();
+        if let Some(value) = values.get(&key) {
+            return Ok(value.clone());
+        }
+        let value = std::sync::Arc::new(make()?);
+        values.insert(key, value.clone());
+        Ok(value)
+    }
     fn contains_key(&self, key: &K) -> bool {
         self.0.lock().unwrap().contains_key(key)
     }
@@ -102,6 +119,10 @@ pub struct InstallationAudit {
     inspected_contributors: SharedMap<ContentHash, ObservedContributor>,
     inspected_views: SharedMap<ContentHash, ObservedView>,
     inspected_holds: SharedMap<(RecordId, RecordId), ()>,
+    recovery_contributors:
+        SharedMap<ContentHash, SharedRecoveryContribution<ObservedView, ContributionDescriptor>>,
+    recovery_views:
+        SharedMap<ContentHash, SharedRecoveryIngredient<ObservedView, ContributionDescriptor>>,
     logical_contributors: SharedMap<RecordId, LogicalContributorRows>,
     family_roots: SharedMap<(usize, ContentHash), d::completed_identity::CompletedFamilyRoot>,
     selected_members: SharedMap<ContentHash, PreparedSelectedMembers>,
@@ -197,6 +218,8 @@ impl InstallationAudit {
             inspected_contributors: SharedMap::new(),
             inspected_views: SharedMap::new(),
             inspected_holds: SharedMap::new(),
+            recovery_contributors: SharedMap::new(),
+            recovery_views: SharedMap::new(),
             logical_contributors: SharedMap::new(),
             family_roots: SharedMap::new(),
             selected_members: SharedMap::new(),
@@ -817,6 +840,11 @@ struct ContributionDescriptor {
     data: CompletedContribution,
     _charge: Box<dyn d::resources::Reservation>,
 }
+impl AsRef<CompletedContribution> for ContributionDescriptor {
+    fn as_ref(&self) -> &CompletedContribution {
+        &self.data
+    }
+}
 #[derive(Clone)]
 struct ObservedContributor {
     expected: std::sync::Arc<ExpectedRecord>,
@@ -829,6 +857,17 @@ struct ObservedView {
     expected: std::sync::Arc<ExpectedRecord>,
     data: CompletedView,
     _charge: Box<dyn d::resources::Reservation>,
+}
+impl AsRef<CompletedView> for ObservedView {
+    fn as_ref(&self) -> &CompletedView {
+        &self.data
+    }
+}
+impl std::ops::Deref for ObservedView {
+    type Target = CompletedView;
+    fn deref(&self) -> &CompletedView {
+        &self.data
+    }
 }
 #[derive(Clone)]
 enum FreshRequest {
@@ -1594,15 +1633,40 @@ impl ClosureInspectionScope {
 /// Shared logical metadata retains domain traversal meaning without retaining
 /// another full contribution descriptor for every selector that reaches it.
 pub(crate) struct InspectedLogicalClosure {
-    views: BTreeMap<ContentHash, CompletedView>,
+    views: SharedViews,
     contributions: SharedContributions,
 }
 impl InspectedLogicalClosure {
-    pub(crate) fn views(&self) -> &BTreeMap<ContentHash, CompletedView> {
+    pub(crate) fn views(&self) -> &SharedViews {
         &self.views
     }
     pub(crate) fn contributions(&self) -> &SharedContributions {
         &self.contributions
+    }
+}
+pub(crate) struct SharedViews(BTreeMap<ContentHash, std::sync::Arc<ObservedView>>);
+impl SharedViews {
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &ContentHash> {
+        self.0.keys()
+    }
+    pub(crate) fn contains_key(&self, identity: &ContentHash) -> bool {
+        self.0.contains_key(identity)
+    }
+}
+pub(crate) struct SharedViewIter<'a>(
+    std::collections::btree_map::Iter<'a, ContentHash, std::sync::Arc<ObservedView>>,
+);
+impl<'a> Iterator for SharedViewIter<'a> {
+    type Item = (&'a ContentHash, &'a CompletedView);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(identity, view)| (identity, &view.data))
+    }
+}
+impl<'a> IntoIterator for &'a SharedViews {
+    type Item = (&'a ContentHash, &'a CompletedView);
+    type IntoIter = SharedViewIter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        SharedViewIter(self.0.iter())
     }
 }
 pub(crate) struct SharedContributions(
@@ -1636,6 +1700,7 @@ pub(crate) struct InspectedClosure {
     descriptors_by_physical: BTreeMap<ContentHash, std::sync::Arc<ContributionDescriptor>>,
     pub(crate) mappings: Vec<ContributorRealization>,
     _charge: StateCharge,
+    _logical_charge: StateCharge,
 }
 impl InspectedClosure {
     pub(crate) fn descriptor_for_copy(
@@ -1933,7 +1998,7 @@ async fn inspect_exact_hold(
 }
 /// Heap admission for a retained typed contribution, independently of any
 /// ExpectedRecord native row or temporary descriptor serialization.
-pub(crate) fn contribution_heap(value: &CompletedContribution) -> usize {
+pub fn contribution_heap(value: &CompletedContribution) -> usize {
     use d::HeapSize;
     value
         .spec
@@ -1960,23 +2025,29 @@ pub(crate) fn contribution_heap(value: &CompletedContribution) -> usize {
                 .fold(0, usize::saturating_add),
         )
 }
+/// Typed view heap admission estimate, including B-tree nodes. This is not RSS.
+pub fn view_heap(view: &CompletedView) -> usize {
+    view.relation.capacity().saturating_add(
+        view.contributions
+            .len()
+            .saturating_mul(std::mem::size_of::<ContentHash>() + 32),
+    )
+}
 pub(crate) fn descriptor<T: serde::de::DeserializeOwned>(row: &Value) -> Result<T, ModelError> {
     let Some(Value::Bytes(bytes)) = row.as_object().and_then(|row| row.get("descriptor")) else {
         return Err(ModelError::Schema("installed audit descriptor"));
     };
     serde_json::from_slice(bytes).map_err(ModelError::codec)
 }
-fn exact_mappings(
-    closure: &RecoveryClosure,
+fn exact_mapping_views<'a>(
+    views: impl Iterator<Item = &'a CompletedView>,
     mappings: &[ContributorRealization],
 ) -> Result<(), ModelError> {
     if mappings
         .windows(2)
         .any(|pair| (pair[0].view, pair[0].logical) >= (pair[1].view, pair[1].logical))
         || mappings.iter().any(|mapping| mapping.incarnation <= 0)
-        || !closure
-            .views()
-            .values()
+        || !views
             .flat_map(|view| {
                 view.contributions
                     .iter()
@@ -2003,6 +2074,13 @@ fn exact_mappings(
         }
     }
     Ok(())
+}
+#[cfg(test)]
+fn exact_mappings(
+    closure: &RecoveryClosure,
+    mappings: &[ContributorRealization],
+) -> Result<(), ModelError> {
+    exact_mapping_views(closure.views().values(), mappings)
 }
 /// Reads only explicitly supplied physical contributors. A matching logical copy elsewhere
 /// in the installation cannot satisfy a missing, replaced or malformed selected contributor.
@@ -2046,29 +2124,11 @@ async fn inspect_closure_inner(
     budget: &ResourceBudget,
     mut scope: Option<(&mut ClosureInspectionScope, &InstallationAudit)>,
 ) -> Result<InspectedClosure, ModelError> {
-    fn view_heap(view: &CompletedView) -> usize {
-        view.relation.capacity().saturating_add(
-            view.contributions
-                .len()
-                .saturating_mul(std::mem::size_of::<ContentHash>() + 32),
-        )
-    }
-    fn pending_capacity(count: usize) -> Result<usize, ModelError> {
-        count
-            .max(4)
-            .checked_next_power_of_two()
-            .and_then(|capacity| capacity.checked_mul(std::mem::size_of::<CompletedView>()))
-            .ok_or_else(|| {
-                ModelError::Invalid("installed traversal pending capacity overflow".into())
-            })
-    }
     // Validation constructs an independent CompletedView, including its set clone.
-    let mut validation_bytes = view_heap(root);
-    let mut validation = budget.reserve(
-        "installed closure view validation scratch",
-        validation_bytes,
-    )?;
+    let _validation =
+        budget.reserve("installed closure view validation scratch", view_heap(root))?;
     root.validate()?;
+    drop(_validation);
     let mut charge = StateCharge::new(budget, "installed exact closure descriptors");
     charge.grow(
         mappings
@@ -2089,7 +2149,6 @@ async fn inspect_closure_inner(
     let mut descriptors_by_physical = BTreeMap::new();
     let mut descriptors: BTreeMap<ContentHash, std::sync::Arc<ContributionDescriptor>> =
         BTreeMap::new();
-    let mut identity_bytes = 0usize;
     for mapping in mappings {
         let observed = match scope.as_mut() {
             Some((scope, audit)) => {
@@ -2098,11 +2157,6 @@ async fn inspect_closure_inner(
             }
             None => inspect_selected_contributor(reader, mapping, budget, None).await?,
         };
-        identity_bytes = identity_bytes.max(
-            crate::loader::native_bytes(observed.expected.row())
-                .saturating_mul(32)
-                .saturating_add(65536),
-        );
         if let Some(previous) = descriptors.get(&mapping.logical) {
             if previous.data != observed.descriptor.data {
                 return Err(ModelError::Conflict(
@@ -2136,29 +2190,17 @@ async fn inspect_closure_inner(
             ));
         }
     }
-    let mut traversal_charge = StateCharge::new(
-        budget,
-        "installed traversal temporary full logical descriptors",
-    );
-    // RecoveryTraversal retains unique logical descriptors, but its private pending
-    // Vec may contain repeated dependencies and keeps capacity after popping. Admit
-    // a conservative single-traversal bound for every dependency queued by each new
-    // contributor, including the root and power-of-two capacity highwater. This
-    // working bound is released at traversal completion, not retained in its result.
-    // include_view revalidates contribution identity after decode scratch ends:
-    // output-key sets, input identity vectors and captured-binding validation are
-    // additional allocations. Preserve the existing descriptor decode/validation
-    // bound for the largest selected contributor, independently of retained copies.
-    let _identity = budget.reserve(
-        "installed closure contributor validation scratch",
-        identity_bytes,
-    )?;
-    let mut working = StateCharge::new(budget, "installed closure traversal working state");
-    let mut queued = 1usize;
-    let mut pending_bytes = pending_capacity(queued)?;
-    working.grow(pending_bytes.saturating_add(view_heap(root)))?;
-    let mut scheduled = std::collections::BTreeSet::new();
-    let mut traversal = RecoveryTraversal::for_views(vec![root.clone()])?;
+    // The adapter still independently observes the exact root and every selected
+    // physical copy. Shared ingredients contain logical direct edges only; each
+    // root rechecks its mapping, native holds and final context independently.
+    let root_observed = match scope.as_mut() {
+        Some((scope, audit)) => scope.view(reader, root.identity, audit, budget).await?,
+        None => inspect_view_fresh(reader, root.identity, budget).await?,
+    };
+    if root_observed.data != *root {
+        return Err(ModelError::Conflict("recovery exact dependency view"));
+    }
+    let mut traversal = SharedRecoveryTraversal::for_view(root_observed, budget)?;
     while let Some(requested) = traversal.next_view()? {
         let observed = match scope.as_mut() {
             Some((scope, audit)) => {
@@ -2168,25 +2210,54 @@ async fn inspect_closure_inner(
             }
             None => inspect_view_fresh(reader, requested.identity, budget).await?,
         };
-        let actual = observed.data.clone();
-        let actual_validation = view_heap(&actual);
-        if actual_validation > validation_bytes {
-            validation.try_resize(actual_validation)?;
-            validation_bytes = actual_validation;
+        if observed.data != requested.data {
+            return Err(ModelError::Conflict("recovery exact dependency view"));
         }
-        let mut local = StateCharge::new(budget, "installed closure local selected descriptors");
-        local.grow(requested.contributions.len().saturating_mul(
-            std::mem::size_of::<CompletedContribution>() + std::mem::size_of::<ContentHash>() + 32,
-        ))?;
-        let mut selected = Vec::with_capacity(requested.contributions.len());
-        let mut dependencies = BTreeMap::new();
+        // A fresh receiving phase earns its own ingredients. Only an actual
+        // operation/source scope can borrow its own audit's cached preparation.
+        let operation_audit = scope
+            .as_ref()
+            .and_then(|(scope, audit)| (scope.operation || scope.source).then(|| (*audit).clone()));
+        let cached = operation_audit
+            .as_ref()
+            .and_then(|audit| audit.recovery_views.get(&requested.identity));
+        if cached
+            .as_ref()
+            .is_some_and(|ingredient| ingredient.view().data != observed.data)
+        {
+            return Err(ModelError::Conflict("recovery view descriptor collision"));
+        }
+        let mut local = StateCharge::new(budget, "installed direct ingredient input handles");
+        if cached.is_none() {
+            local.grow(
+                requested
+                    .contributions
+                    .len()
+                    .saturating_mul(std::mem::size_of::<
+                        std::sync::Arc<
+                            SharedRecoveryContribution<ObservedView, ContributionDescriptor>,
+                        >,
+                    >()),
+            )?;
+        }
+        let mut selected = Vec::with_capacity(if cached.is_none() {
+            requested.contributions.len()
+        } else {
+            0
+        });
         for logical in &requested.contributions {
             let contribution = descriptors
                 .get(logical)
                 .ok_or(ModelError::Conflict("installed missing dependency mapping"))?;
-            let contribution = &contribution.data;
-            local.grow(contribution_heap(contribution))?;
-            selected.push(contribution.clone());
+            let ready = operation_audit
+                .as_ref()
+                .and_then(|audit| audit.recovery_contributors.get(logical));
+            if ready
+                .as_ref()
+                .is_some_and(|ingredient| ingredient.data().data != contribution.data)
+            {
+                return Err(ModelError::Conflict("recovery contributor collision"));
+            }
             let mapping = &mappings[mappings
                 .binary_search_by_key(&(requested.identity, *logical), |mapping| {
                     (mapping.view, mapping.logical)
@@ -2205,22 +2276,22 @@ async fn inspect_closure_inner(
                         .await?
                 }
             }
-            for input in &contribution.spec.inputs {
-                if let std::collections::btree_map::Entry::Vacant(entry) =
-                    dependencies.entry(input.view())
+            let mut dependencies = BTreeMap::new();
+            let mut dependency_charge =
+                StateCharge::new(budget, "installed direct dependency input handles");
+            for input in &contribution.data.spec.inputs {
+                if ready.is_none() && cached.is_none() && !dependencies.contains_key(&input.view())
                 {
-                    let observed = match scope.as_mut() {
+                    let dependency = match scope.as_mut() {
                         Some((scope, audit)) => {
                             scope.view(reader, input.view(), audit, budget).await?
                         }
                         None => inspect_view_fresh(reader, input.view(), budget).await?,
                     };
-                    local.grow(
-                        std::mem::size_of::<(ContentHash, CompletedView)>()
-                            .saturating_add(32)
-                            .saturating_add(view_heap(&observed.data)),
+                    dependency_charge.grow(
+                        std::mem::size_of::<(ContentHash, std::sync::Arc<ObservedView>)>() + 32,
                     )?;
-                    entry.insert(observed.data.clone());
+                    dependencies.insert(input.view(), dependency);
                 }
                 let dependency_record = RecordId::new("compiler_view", input.view().hex());
                 match scope.as_mut() {
@@ -2245,46 +2316,62 @@ async fn inspect_closure_inner(
                     }
                 }
             }
-            if !scheduled.contains(logical) {
-                working.grow(std::mem::size_of::<ContentHash>() + 32)?;
-                // include_view queues inputs only for a contributor first entering
-                // its logical closure; repeated input roles still own separate clones.
-                for input in &contribution.spec.inputs {
-                    let dependency = dependencies
-                        .get(&input.view())
-                        .ok_or(ModelError::Conflict("installed undeclared dependency view"))?;
-                    let dependency_validation = view_heap(dependency);
-                    if dependency_validation > validation_bytes {
-                        validation.try_resize(dependency_validation)?;
-                        validation_bytes = dependency_validation;
+            if cached.is_none() {
+                let make = || {
+                    SharedRecoveryContribution::new(contribution.clone(), budget, |identity| {
+                        dependencies
+                            .get(&identity)
+                            .cloned()
+                            .ok_or(ModelError::Conflict("installed undeclared dependency view"))
+                    })
+                };
+                let ingredient = match (ready, operation_audit.as_ref()) {
+                    (Some(ingredient), _) => ingredient,
+                    (None, Some(audit)) => {
+                        audit
+                            .recovery_contributors
+                            .get_or_try_insert(*logical, || {
+                                let value = make()?;
+                                audit.charge.grow(
+                                    std::mem::size_of::<(
+                                        ContentHash,
+                                        std::sync::Arc<
+                                            SharedRecoveryContribution<
+                                                ObservedView,
+                                                ContributionDescriptor,
+                                            >,
+                                        >,
+                                    )>() + 32,
+                                )?;
+                                Ok(value)
+                            })?
                     }
-                    queued = queued.checked_add(1).ok_or_else(|| {
-                        ModelError::Invalid("installed traversal pending count overflow".into())
-                    })?;
-                    let capacity = pending_capacity(queued)?;
-                    working.grow(
-                        capacity
-                            .saturating_sub(pending_bytes)
-                            .saturating_add(view_heap(dependency)),
-                    )?;
-                    pending_bytes = capacity;
-                }
-                traversal_charge.grow(
-                    std::mem::size_of::<(ContentHash, CompletedContribution)>()
-                        + 32
-                        + contribution_heap(contribution),
-                )?;
-                scheduled.insert(*logical);
+                    (None, None) => std::sync::Arc::new(make()?),
+                };
+                selected.push(ingredient);
             }
         }
-        charge
-            .grow(std::mem::size_of::<(ContentHash, CompletedView)>() + 32 + view_heap(&actual))?;
-        traversal.include_view(&requested, actual, selected, |identity| {
-            dependencies
-                .get(&identity)
-                .cloned()
-                .ok_or(ModelError::Conflict("installed undeclared dependency view"))
-        })?;
+        let ingredient = if let Some(ingredient) = cached {
+            ingredient
+        } else if let Some(audit) = operation_audit.as_ref() {
+            audit
+                .recovery_views
+                .get_or_try_insert(requested.identity, || {
+                    let value = SharedRecoveryIngredient::new(observed, selected, budget)?;
+                    audit.charge.grow(
+                        std::mem::size_of::<(
+                            ContentHash,
+                            std::sync::Arc<
+                                SharedRecoveryIngredient<ObservedView, ContributionDescriptor>,
+                            >,
+                        )>() + 32,
+                    )?;
+                    Ok(value)
+                })?
+        } else {
+            std::sync::Arc::new(SharedRecoveryIngredient::new(observed, selected, budget)?)
+        };
+        traversal.include_view(&requested, &ingredient)?;
     }
     let logical = traversal.finish()?;
     let _mapping_check = budget.reserve(
@@ -2293,45 +2380,23 @@ async fn inspect_closure_inner(
             .len()
             .saturating_mul(std::mem::size_of::<(ContentHash, (ContentHash, i64))>() + 32),
     )?;
-    exact_mappings(&logical, mappings)?;
-    charge.grow(
-        logical.contributions().len().saturating_mul(
-            std::mem::size_of::<(ContentHash, std::sync::Arc<ContributionDescriptor>)>()
-                .saturating_add(32),
-        ),
-    )?;
-    let shared = SharedContributions(
-        logical
-            .contributions()
-            .keys()
-            .map(|id| {
-                Ok((
-                    *id,
-                    descriptors
-                        .get(id)
-                        .ok_or(ModelError::Conflict(
-                            "inspected logical descriptor handle missing",
-                        ))?
-                        .clone(),
-                ))
-            })
-            .collect::<Result<_, ModelError>>()?,
-    );
+    exact_mapping_views(logical.views().values().map(|view| &view.data), mappings)?;
+    drop(_mapping_check);
+    let (views, contributions, logical_charge) = logical.into_parts();
     let shared_logical = InspectedLogicalClosure {
-        views: logical.views().clone(),
-        contributions: shared,
+        views: SharedViews(views),
+        contributions: SharedContributions(contributions),
     };
     if let Some((scope, audit)) = scope.as_mut() {
         scope.check(reader, audit, budget).await?;
     }
-    drop(logical);
-    drop(traversal_charge);
     Ok(InspectedClosure {
         logical: shared_logical,
         contributors,
         descriptors_by_physical,
         mappings: mappings.to_vec(),
         _charge: charge,
+        _logical_charge: logical_charge,
     })
 }
 
@@ -3281,6 +3346,8 @@ mod tests {
             let roots = logical_roots_scoped(&reader, &closure, &[], &aliases, &budget, &audit)
                 .await
                 .unwrap();
+            let direct = audit.recovery_views.get(&view.identity).unwrap();
+            let direct_contributor = audit.recovery_contributors.get(&mappings[0].logical).unwrap();
             let next = audit.work.next.load(std::sync::atomic::Ordering::Relaxed);
             let cold = inspect_closure(&reader, view, &mappings, &budget)
                 .await
@@ -3300,6 +3367,10 @@ mod tests {
             assure_boundary_closure(&reader, &again, &budget, &audit, &mut repeated)
                 .await
                 .unwrap();
+            assert!(std::sync::Arc::ptr_eq(&direct, &audit.recovery_views.get(&view.identity).unwrap()), "direct view preparation is reused within its actual protected operation");
+            assert!(std::sync::Arc::ptr_eq(&direct_contributor, &audit.recovery_contributors.get(&mappings[0].logical).unwrap()), "direct dependency preparation is not rebuilt per root");
+            assert!(std::sync::Arc::ptr_eq(&closure.logical.views.0[&view.identity], &again.logical.views.0[&view.identity]), "roots retain one typed view backing through shared handles");
+            assert!(!std::sync::Arc::ptr_eq(&closure.logical.views.0[&view.identity], &cold.logical.views.0[&view.identity]), "independent cold inspection earns its own backing");
             for mapping in &mappings {
                 assert!(
                     std::sync::Arc::ptr_eq(
@@ -3441,6 +3512,17 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(received.completion(), &completion);
+            assert!(received._charge.reserved() <= std::mem::size_of::<crate::completed_state::NativeCompletedState>()
+                + crate::selection::node_bytes(received.held.owner()) + 2 * std::mem::size_of::<usize>(),
+                "physical return owns its actual retained wrapper, not departed decode/builder scratch");
+            let received = std::sync::Arc::new(received);
+            let selected = crate::installed_view::hold_physical_view(client.clone(), received.clone(), view.identity, &budget).await.unwrap();
+            assert!(std::sync::Arc::ptr_eq(&selected.retained_completion().unwrap().selection, &received.inventory().installed(view.identity).unwrap().selection),
+                "retained cap and independently checked inventory share one exact selector payload");
+            assert!(crate::installed_view::hold_physical_view(client.clone(), received.clone(), view.identity, &foreign_budget).await.is_err());
+            let foreign_client = std::sync::Arc::new(surrealdb::Surreal::init());
+            assert!(crate::installed_view::hold_physical_view(foreign_client, received, view.identity, &budget).await.is_err());
+
         })
         .catch_unwind()
         .await;
@@ -6080,6 +6162,8 @@ mod shared_preparation_controls {
             inspected_contributors: SharedMap::new(),
             inspected_views: SharedMap::new(),
             inspected_holds: SharedMap::new(),
+            recovery_contributors: SharedMap::new(),
+            recovery_views: SharedMap::new(),
             logical_contributors: SharedMap::new(),
             family_roots: SharedMap::new(),
             selected_members: SharedMap::new(),

@@ -123,10 +123,23 @@ pub(crate) async fn install_epoch(
             "installed native search/schema definitions",
         ));
     }
-    catalog.apply(&(functions.join(";\n") + ";"), "immutable executable epoch").await?;
+    catalog
+        .apply(&(functions.join(";\n") + ";"), "immutable executable epoch")
+        .await?;
     loader.check_read_admission()?;
-    let version = loader.client().version().await.map_err(ModelError::codec)?.to_string();
-    verify_expected(blueprint, &version, &catalog.definitions(), &base, &functions)
+    let version = loader
+        .client()
+        .version()
+        .await
+        .map_err(ModelError::codec)?
+        .to_string();
+    verify_expected(
+        blueprint,
+        &version,
+        &catalog.definitions(),
+        &base,
+        &functions,
+    )
 }
 pub(crate) async fn verify_epoch(
     loader: &Loader,
@@ -142,18 +155,33 @@ pub(crate) async fn verify_epoch(
         .to_string();
     verify_inventory(blueprint, &version, &actual)
 }
-pub(crate) fn verify_inventory(blueprint: &str, version: &str, actual: &BTreeSet<String>) -> Result<ContentHash, ModelError> {
+pub(crate) fn verify_inventory(
+    blueprint: &str,
+    version: &str,
+    actual: &BTreeSet<String>,
+) -> Result<ContentHash, ModelError> {
     let (base, functions) = expected(blueprint)?;
     verify_expected(blueprint, version, actual, &base, &functions)
 }
-fn verify_expected(blueprint: &str, version: &str, actual: &BTreeSet<String>, base: &[String], functions: &[String]) -> Result<ContentHash, ModelError> {
+fn verify_expected(
+    blueprint: &str,
+    version: &str,
+    actual: &BTreeSet<String>,
+    base: &[String],
+    functions: &[String],
+) -> Result<ContentHash, ModelError> {
     for definition in base.iter().chain(functions.iter()) {
         if !actual.contains(definition) {
             return Err(ModelError::Conflict("pinned executable definition epoch"));
         }
     }
     let mut key = KeySink::new("native-view-realization/v2");
-    lctx_native::derivation::DerivationIdentity::current(implementation_identity()?,epoch_identity(blueprint))?.identity()?.encode(&mut key);
+    lctx_native::derivation::DerivationIdentity::current(
+        implementation_identity()?,
+        epoch_identity(blueprint),
+    )?
+    .identity()?
+    .encode(&mut key);
     if !version.starts_with("3.3.") {
         return Err(ModelError::Conflict("reviewed native engine family"));
     }
@@ -167,7 +195,11 @@ fn verify_expected(blueprint: &str, version: &str, actual: &BTreeSet<String>, ba
 }
 pub(crate) use verify_epoch as verify_realization;
 
-fn implementation_identity()->Result<ContentHash,ModelError>{
- Ok(ContentHash(hex::decode(env!("LCTX_PUBLICATION_SOURCE_DIGEST")).map_err(ModelError::codec)?.try_into().map_err(|_|ModelError::Schema("publication implementation digest width"))?))
+fn implementation_identity() -> Result<ContentHash, ModelError> {
+    Ok(ContentHash(
+        hex::decode(env!("LCTX_PUBLICATION_SOURCE_DIGEST"))
+            .map_err(ModelError::codec)?
+            .try_into()
+            .map_err(|_| ModelError::Schema("publication implementation digest width"))?,
+    ))
 }
-

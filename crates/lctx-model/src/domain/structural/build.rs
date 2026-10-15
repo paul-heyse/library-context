@@ -311,7 +311,7 @@ pub fn produce(
         }
         let configured_ordinal = configured_ordinals.get(&path).copied();
         if let Some(ordinal) = configured_ordinal {
-            configured_counts.update(
+            configured_counts.update_inline(
                 &mut correspondence_charge,
                 ordinal,
                 |counts: &mut (usize, usize)| {

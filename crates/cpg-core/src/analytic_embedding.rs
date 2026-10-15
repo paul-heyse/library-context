@@ -1,10 +1,10 @@
 //! Incremental exact original-window consumption with one immutable selected effect Session.
-use lctx_model::domain::embedding::Embedder;
 use crate::{
     embedding_realization,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
-use futures::{TryStreamExt, FutureExt};
+use futures::{FutureExt, TryStreamExt};
+use lctx_model::domain::embedding::Embedder;
 use lctx_model::domain::{
     analysis::{self, analytic_embedding::*},
     embedding::{
@@ -40,7 +40,8 @@ async fn scan<R: Record>(
     crate::consumed_rows::stream_at(&permit, &declaration, access, session, |permit, batch| {
         admission.visit_if_expected(permit, batch)?;
         consume(batch)
-    }).await
+    })
+    .await
 }
 
 fn key_literal(bytes: &[u8]) -> String {
@@ -217,7 +218,11 @@ pub async fn produce(
                     let windows = TextWindow::decode(&batch)?;
                     // Erase the borrowed iterator future before composing the stage (rustc #100013).
                     for window in &windows {
-                        service.queue_ready(window.text.as_str()).boxed().await.map_err(ModelError::codec)?;
+                        service
+                            .queue_ready(window.text.as_str())
+                            .boxed()
+                            .await
+                            .map_err(ModelError::codec)?;
                     }
                     service.flush_ready().await.map_err(ModelError::codec)?;
                     for window in &windows {

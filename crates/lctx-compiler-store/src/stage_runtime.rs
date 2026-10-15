@@ -33,7 +33,10 @@ pub fn borrowed_cpu<T>(producer: &'static str, run: impl FnOnce() -> T) -> T {
 #[cfg(test)]
 mod tests {
     use super::borrowed_cpu;
-    use std::{io::{self, Write}, sync::{Arc, Mutex}};
+    use std::{
+        io::{self, Write},
+        sync::{Arc, Mutex},
+    };
 
     #[derive(Clone, Default)]
     struct Output(Arc<Mutex<Vec<u8>>>);
@@ -42,27 +45,41 @@ mod tests {
             self.0.lock().unwrap().extend_from_slice(bytes);
             Ok(bytes.len())
         }
-        fn flush(&mut self) -> io::Result<()> { Ok(()) }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
     }
 
     #[test]
     fn root_detail_requires_debug_while_coarse_terminals_remain_visible() {
-        for (filter, detailed) in [("warn,lctx_phase=info", false), ("warn,lctx_phase=debug", true)] {
+        for (filter, detailed) in [
+            ("warn,lctx_phase=info", false),
+            ("warn,lctx_phase=debug", true),
+        ] {
             let output = Output::default();
             let writer = output.clone();
             let subscriber = tracing_subscriber::fmt()
-                .with_ansi(false).without_time()
+                .with_ansi(false)
+                .without_time()
                 .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
-                .with_writer(move || writer.clone()).finish();
+                .with_writer(move || writer.clone())
+                .finish();
             tracing::subscriber::with_default(subscriber, || {
                 let phase = lctx_native::phase::Phase::begin("coarse_stage");
                 assert_eq!(borrowed_cpu("selected_root", || 42), 42);
                 phase.finish(lctx_native::phase::Terminal::Failed);
-                lctx_native::phase::Phase::begin("drain").finish(lctx_native::phase::Terminal::Cancelled);
+                lctx_native::phase::Phase::begin("drain")
+                    .finish(lctx_native::phase::Terminal::Cancelled);
             });
             let text = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
-            assert!(text.contains("coarse_stage") && text.contains("status=\"failed\""), "{text}");
-            assert!(text.contains("drain") && text.contains("status=\"cancelled\""), "{text}");
+            assert!(
+                text.contains("coarse_stage") && text.contains("status=\"failed\""),
+                "{text}"
+            );
+            assert!(
+                text.contains("drain") && text.contains("status=\"cancelled\""),
+                "{text}"
+            );
             assert_eq!(text.contains("borrowed_cpu"), detailed, "{text}");
             assert_eq!(text.contains("selected_root"), detailed, "{text}");
         }

@@ -321,10 +321,10 @@ fn references(
         Vec<&LexicalResolution>,
     > = Default::default();
     for row in data.lexical_resolutions.iter() {
-        resolutions.update(
+        resolutions.push(
             &mut charge,
             (context(data, row.qualification)?, row.read),
-            |rows| rows.push(row),
+            row,
         )?;
     }
     for reference in data.references.iter() {
@@ -399,14 +399,14 @@ fn imports(
                     "module resolution alias is not an import alias occurrence",
                 ));
             }
-            resolutions.update(
+            resolutions.push(
                 &mut charge,
                 (
                     context(data, row.qualification)?,
                     captured_input_view(data, row.qualification)?,
                     alias,
                 ),
-                |rows| rows.push(row),
+                row,
             )?;
         }
     }
@@ -456,7 +456,7 @@ fn ancestry(
     let mut sequences: ChargedMap<Id<SymbolSequence>, Vec<&SymbolSequenceMember>> =
         Default::default();
     for row in data.sequence_members.iter() {
-        sequences.update(&mut charge, row.sequence, |rows| rows.push(row))?;
+        sequences.push(&mut charge, row.sequence, row)?;
     }
     for observation in data.ancestry.iter() {
         let class = index.resolution(observation.class)?;
@@ -514,19 +514,19 @@ fn mentions(
     let mut linked_inputs: ChargedMap<Id<input::InputRevision>, Vec<Id<input::InputRevision>>> =
         Default::default();
     for link in data.corpus_libraries.iter() {
-        linked_inputs.update(&mut charge, link.corpus, |inputs| inputs.push(link.library))?;
+        linked_inputs.push(&mut charge, link.corpus, link.library)?;
     }
     let mut exposures: ChargedMap<QualifiedPath, Vec<&PublicExposure>> = Default::default();
     for exposure in data.entities.exposures.iter() {
         let module = need(&data.facts.modules, exposure.access)?;
         let name = need(&data.facts.public_names, exposure.observation)?;
-        exposures.update(
+        exposures.push(
             &mut charge,
             (
                 need(&data.artifacts, module.source)?.input,
                 format!("{}.{}", module.qualified_name, name.name),
             ),
-            |rows| rows.push(exposure),
+            exposure,
         )?;
     }
     let mut exposure_members: ChargedMap<Id<PublicExposure>, Vec<Id<SymbolEntityResolution>>> =
@@ -534,15 +534,15 @@ fn mentions(
     let mut resolved_members: ChargedMap<Id<SymbolEntityResolution>, Vec<Id<EntityRef>>> =
         Default::default();
     for row in data.entities.exposure_candidates.iter() {
-        exposure_members.update(&mut charge, row.exposure, |rows| rows.push(row.resolution))?;
+        exposure_members.push(&mut charge, row.exposure, row.resolution)?;
     }
     for row in data.entities.candidates.iter() {
-        resolved_members.update(&mut charge, row.resolution, |rows| rows.push(row.entity))?;
+        resolved_members.push(&mut charge, row.resolution, row.entity)?;
     }
     let mut observations: ChargedMap<Id<ProviderSymbol>, Vec<&SymbolObservation>> =
         Default::default();
     for row in data.symbol_observations.iter() {
-        observations.update(&mut charge, row.symbol, |rows| rows.push(row))?;
+        observations.push(&mut charge, row.symbol, row)?;
     }
     let mut qualified: ChargedMap<QualifiedPath, Vec<&SymbolObservation>> = Default::default();
     for row in data.symbol_observations.iter() {
@@ -577,13 +577,13 @@ fn mentions(
             .modules
             .get(&symbol.module)
             .ok_or_else(|| invalid("qualified symbol module missing"))?;
-        qualified.update(
+        qualified.push(
             &mut charge,
             (
                 captured_input_view(data, row.qualification)?,
                 format!("{module}.{}", names.join(".")),
             ),
-            |rows| rows.push(row),
+            row,
         )?;
     }
     for mention in data.mentions.iter() {
@@ -743,7 +743,7 @@ fn binders(
     let mut by_source: ChargedMap<Id<SourceArtifact>, Vec<&Occurrence>> = Default::default();
     let mut by_path: ChargedMap<(Id<SourceArtifact>, Vec<i32>), &Occurrence> = Default::default();
     for row in data.facts.occurrences.iter() {
-        by_source.update(&mut charge, row.source, |rows| rows.push(row))?;
+        by_source.push(&mut charge, row.source, row)?;
         by_path.insert(&mut charge, (row.source, row.structural_path.clone()), row)?;
     }
     let mut supported: ChargedMap<(Id<AnalysisContext>, Id<Occurrence>), Vec<TypeBinderPremise>> =
@@ -754,13 +754,11 @@ fn binders(
             occurrence.syntax_kind,
             SyntaxKind::StmtFunctionDef | SyntaxKind::StmtClassDef | SyntaxKind::StmtTypeAlias
         ) {
-            supported.update(
+            supported.push(
                 &mut charge,
                 (context(data, row.qualification)?, occurrence.id()),
-                |rows| {
-                    rows.push(TypeBinderPremise::Declaration {
-                        observation: row.id(),
-                    })
+                TypeBinderPremise::Declaration {
+                    observation: row.id(),
                 },
             )?;
         }
@@ -794,13 +792,11 @@ fn binders(
                     | SyntaxKind::StmtFunctionDef
                     | SyntaxKind::StmtClassDef
             ) {
-                supported.update(
+                supported.push(
                     &mut charge,
                     (context(data, row.qualification)?, occurrence.id()),
-                    |rows| {
-                        rows.push(TypeBinderPremise::Binding {
-                            observation: row.id(),
-                        })
+                    TypeBinderPremise::Binding {
+                        observation: row.id(),
                     },
                 )?;
                 break;
@@ -943,10 +939,10 @@ fn test_operands(
         .iter()
         .filter(|o| o.role == TypeRole::TestOperand)
     {
-        observations.update(
+        observations.push(
             &mut charge,
             (context(data, row.qualification)?, row.subject),
-            |rows| rows.push(row),
+            row,
         )?;
     }
     let mut coverages: ChargedMap<
@@ -959,7 +955,7 @@ fn test_operands(
         .filter(|c| c.family == FactFamily::Types)
     {
         if let CoverageScope::Artifact { artifact } = need(&data.scopes, row.scope)? {
-            coverages.update(&mut charge, (row.context, *artifact), |rows| rows.push(row))?;
+            coverages.push(&mut charge, (row.context, *artifact), row)?;
         }
     }
     for leaf in data.leaves.iter() {

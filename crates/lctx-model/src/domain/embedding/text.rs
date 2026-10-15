@@ -209,7 +209,7 @@ pub fn stage(
     definition.id().encode(&mut key);
     Ok(Stage {
         captured_binding: None,
-name: "analytic_text",
+        name: "analytic_text",
         inputs,
         outputs,
         contributes: vec![],

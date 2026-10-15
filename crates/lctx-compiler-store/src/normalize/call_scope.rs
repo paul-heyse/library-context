@@ -1,7 +1,7 @@
 //! Complete event candidate and binding-set grains over immutable typed premises.
 use crate::{
-    consumed_rows::{ClosureTable, NominalClosure, PreparedEdges},
     admission::InputTables,
+    consumed_rows::{ClosureTable, NominalClosure, PreparedEdges},
 };
 use lctx_model::domain::{
     normalized::{binding_normalization::BindingData, event_normalization::EventData},
@@ -18,7 +18,6 @@ fn first_input<R: Record>(inputs: &[ValidationInput]) -> Option<(usize, &Validat
         .enumerate()
         .find(|(_, input)| input.type_id() == TypeId::of::<R>())
 }
-
 
 pub struct CallScopeMode {
     pub binding: bool,
@@ -203,7 +202,6 @@ impl CallScopes {
         &self.inputs
     }
 }
-
 
 impl CallScopes {
     pub fn root_for<R: Record>(&self) -> Result<usize, ModelError> {

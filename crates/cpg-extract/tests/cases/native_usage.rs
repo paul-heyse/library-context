@@ -1,6 +1,6 @@
 //! Actual native target identities survive aliasing, re-export and reassignment.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{calls::*, source::*, types::*, *};
 use typed_driver::{files, rows};
 // Independent invariant replay consumes complete negative domains and native premises.

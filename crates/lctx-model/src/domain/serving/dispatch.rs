@@ -1,8 +1,8 @@
 //! One finite route inventory supplies Rust decoding, schemas and Python registration.
 use super::identity::{RequestIdentity, WireIdentity};
 use super::*;
-use crate::domain::{KeySink, selection};
 use crate::domain::resources::{Reservation, ResourceBudget};
+use crate::domain::{KeySink, selection};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -124,7 +124,10 @@ struct BoundedJson {
 }
 impl BoundedJson {
     fn append(&mut self, bytes: &[u8]) -> Result<(), WireError> {
-        let end = self.bytes.len().checked_add(bytes.len())
+        let end = self
+            .bytes
+            .len()
+            .checked_add(bytes.len())
             .filter(|end| *end <= self.limit)
             .ok_or_else(|| WireError::ResourceRefused(self.refusal.into()))?;
         let mut remaining = bytes;
@@ -135,15 +138,19 @@ impl BoundedJson {
                 let old = self.bytes.capacity();
                 let increment = old.clamp(64, ENCODING_GROWTH_BYTES);
                 let capacity = old.saturating_add(increment).min(self.limit);
-                let charged = capacity.checked_mul(2)
+                let charged = capacity
+                    .checked_mul(2)
                     .ok_or_else(|| WireError::ResourceRefused(self.refusal.into()))?;
                 self.charge.try_resize(charged).map_err(|_| {
                     WireError::Failure(PublicFailure::new(FailureKind::ResourceRefused))
                 })?;
-                self.bytes.try_reserve_exact(capacity - self.bytes.len())
+                self.bytes
+                    .try_reserve_exact(capacity - self.bytes.len())
                     .map_err(|_| WireError::ResourceRefused("response allocation".into()))?;
             }
-            let count = remaining.len().min(self.bytes.capacity() - self.bytes.len());
+            let count = remaining
+                .len()
+                .min(self.bytes.capacity() - self.bytes.len());
             self.bytes.extend_from_slice(&remaining[..count]);
             remaining = &remaining[count..];
         }
@@ -162,16 +169,31 @@ impl std::io::Write for BoundedJson {
         Ok(())
     }
 }
-fn encode_json<T: Serialize>(value: &T, budget: &ResourceBudget, limit: usize, refusal: &'static str) -> Result<EncodedJson, WireError> {
-    let charge = budget.reserve("native-complete-response", 0)
+fn encode_json<T: Serialize>(
+    value: &T,
+    budget: &ResourceBudget,
+    limit: usize,
+    refusal: &'static str,
+) -> Result<EncodedJson, WireError> {
+    let charge = budget
+        .reserve("native-complete-response", 0)
         .map_err(|_| WireError::Failure(PublicFailure::new(FailureKind::ResourceRefused)))?;
-    let mut writer = BoundedJson { bytes: Vec::new(), charge, limit, refusal, failure: None };
+    let mut writer = BoundedJson {
+        bytes: Vec::new(),
+        charge,
+        limit,
+        refusal,
+        failure: None,
+    };
     if let Err(error) = serde_json::to_writer(&mut writer, value) {
         return Err(writer.failure.take().unwrap_or_else(|| error.into()));
     }
-    let bytes = String::from_utf8(writer.bytes)
-        .map_err(|error| WireError::Invalid(error.to_string()))?;
-    Ok(EncodedJson { bytes, _charge: writer.charge })
+    let bytes =
+        String::from_utf8(writer.bytes).map_err(|error| WireError::Invalid(error.to_string()))?;
+    Ok(EncodedJson {
+        bytes,
+        _charge: writer.charge,
+    })
 }
 #[cfg(test)]
 mod encoding_tests {
@@ -221,8 +243,13 @@ mod encoding_tests {
         assert!(writer.write_all(b"x").is_err());
         assert_eq!(writer.bytes.len(), 64);
         assert_eq!(writer.bytes.capacity(), 64);
-        assert!(matches!(writer.failure,
-            Some(WireError::Failure(PublicFailure { kind: FailureKind::ResourceRefused, .. }))));
+        assert!(matches!(
+            writer.failure,
+            Some(WireError::Failure(PublicFailure {
+                kind: FailureKind::ResourceRefused,
+                ..
+            }))
+        ));
         drop(writer);
         assert_eq!(budget.reserved(), 0);
     }

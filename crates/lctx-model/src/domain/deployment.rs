@@ -352,7 +352,7 @@ impl CollectionCheck {
         if let Some((id, ids)) = self.current.take() {
             let row = self
                 .expected
-                .remove(&mut self.charge, &id)
+                .remove(&mut self.charge, &id)?
                 .ok_or_else(|| invalid("report collection absent or repeated"))?;
             if row.members != member_digest(row.kind, ids.iter().copied()) {
                 return Err(invalid("report collection membership differs"));

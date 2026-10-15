@@ -286,8 +286,8 @@ impl InvariantCheck for CoverageCheck {
         insert!(ProviderCoverage,native,|r:&ProviderCoverage|r.id());
         insert!(uniform_outcome::UniformNotRequested,uniform,|r:&uniform_outcome::UniformNotRequested|r.id());
         if normalization_enabled() {insert!(NormalizationCoverage,normalized,|r:&NormalizationCoverage|r.id());}
-        if relation==CoverageRequiredSource::NAME { for row in CoverageRequiredSource::decode(batch)? { if !self.required.update(&mut self.charge,row.requirement,|m|m.insert(row.source))? { return Err(invalid("duplicate required coverage source")); } } return Ok(()); }
-        if relation==AnalysisCoveragePremise::NAME { for row in AnalysisCoveragePremise::decode(batch)? { if !self.members.update(&mut self.charge,row.coverage,|m|m.insert(row.source))? { return Err(invalid("duplicate stored coverage premise")); } } return Ok(()); }
+        if relation==CoverageRequiredSource::NAME { for row in CoverageRequiredSource::decode(batch)? { if !self.required.insert_set(&mut self.charge, row.requirement, row.source)? { return Err(invalid("duplicate required coverage source")); } } return Ok(()); }
+        if relation==AnalysisCoveragePremise::NAME { for row in AnalysisCoveragePremise::decode(batch)? { if !self.members.insert_set(&mut self.charge, row.coverage, row.source)? { return Err(invalid("duplicate stored coverage premise")); } } return Ok(()); }
         if visit_predecessor_coverage(relation,batch,&mut self.predecessors,&mut self.charge)? {return Ok(());}
         Err(invalid("undeclared analysis coverage input"))
     }
@@ -378,8 +378,8 @@ impl PublicationCheck for FrontierCheck {
     fn visit(&mut self,relation:&str,batch:&arrow_array::RecordBatch)->Result<(),ModelError> {
         macro_rules! insert {($r:ty,$field:ident,$key:expr)=>{if relation==<$r>::NAME {for row in <$r>::decode(batch)? {if self.$field.insert(&mut self.charge,$key(&row),row)?.is_some() {return Err(ModelError::Conflict(<$r>::NAME));}}return Ok(());}};}
         insert!(AnalysisInvocation,invocations,|r:&AnalysisInvocation|r.id());insert!(AnalysisDefinition,definitions,|r:&AnalysisDefinition|r.id());insert!(super::AnalysisOutcome,outcomes,|r:&super::AnalysisOutcome|r.invocation);insert!(CoverageRequirement,requirements,|r:&CoverageRequirement|r.id());insert!(AnalysisCoverage,coverage,|r:&AnalysisCoverage|r.id());insert!(CoverageSource,sources,|r:&CoverageSource|r.id());
-        if relation==CoverageRequiredSource::NAME {for row in CoverageRequiredSource::decode(batch)? {if !self.required.update(&mut self.charge,row.requirement,|v|v.insert(row.source))? {return Err(invalid("duplicate frontier requirement member"));}}return Ok(());}
-        if relation==AnalysisCoveragePremise::NAME {for row in AnalysisCoveragePremise::decode(batch)? {if !self.premises.update(&mut self.charge,row.coverage,|v|v.insert(row.source))? {return Err(invalid("duplicate frontier coverage premise"));}}return Ok(());}
+        if relation==CoverageRequiredSource::NAME {for row in CoverageRequiredSource::decode(batch)? {if !self.required.insert_set(&mut self.charge, row.requirement, row.source)? {return Err(invalid("duplicate frontier requirement member"));}}return Ok(());}
+        if relation==AnalysisCoveragePremise::NAME {for row in AnalysisCoveragePremise::decode(batch)? {if !self.premises.insert_set(&mut self.charge, row.coverage, row.source)? {return Err(invalid("duplicate frontier coverage premise"));}}return Ok(());}
         if !bound_methods().is_empty() && self.frontier.visit(relation,batch)? {return Ok(());}Err(invalid("undeclared analysis frontier input"))
     }
     fn finish(mut self:Box<Self>,actual:&[crate::domain::analysis::sources::SourceSnapshot],profile:stages::Profile)->Result<(),ModelError> {

@@ -1,6 +1,6 @@
 //! Readable declaration/context closure over the already hydrated canonical scope.
 //! Runtime override/effective-value claims are never inferred from source/default IDs.
-use crate::records::{need, rows, wire, Prepared,PacketRows};
+use crate::records::{PacketRows, Prepared, need, rows, wire};
 use lctx_model::domain::{resources::ResourceBudget, serving::*, *};
 use lctx_native::NativeReader;
 use std::collections::{BTreeMap, BTreeSet};
@@ -99,7 +99,7 @@ pub fn closure(
     source: &Prepared<'_>,
     core: &OperationCore,
 ) -> Result<InterpretationClosure, ModelError> {
-    let options = rows::<catalog::CatalogOption>(source)?.select_for("member",&[core.member])?;
+    let options = rows::<catalog::CatalogOption>(source)?.select_for("member", &[core.member])?;
     let subjects = rows::<catalog::CatalogOptionSubject>(source)?;
     let evidence = rows::<catalog::CatalogOptionEvidence>(source)?;
     let syntax = rows::<syntax::ParameterSyntaxObservation>(source)?;
@@ -540,7 +540,9 @@ mod tests {
     use super::*;
     #[test]
     fn opaque_class_operand_never_becomes_readable_predicate() {
-        let literals=PacketRows::<value::Literal>::new(vec![],&ResourceBudget::fixed(1024).unwrap()).unwrap();
+        let literals =
+            PacketRows::<value::Literal>::new(vec![], &ResourceBudget::fixed(1024).unwrap())
+                .unwrap();
         assert_eq!(
             readable_predicate(
                 &value::Predicate::IsInstance {

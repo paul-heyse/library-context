@@ -215,7 +215,9 @@ async fn acquire(f: &Fixture) -> Result<Rows, String> {
             ..WorkspaceOptions::default()
         },
         budget,
-        native_fixture::create_native().await.map_err(|e|e.to_string())?,
+        native_fixture::create_native()
+            .await
+            .map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
     cpg_core::facts::compile_facts(
@@ -637,5 +639,5 @@ async fn a_quoted_record_path_is_captured_and_verified() {
     refused(&f, "demo/a,b.py does not match its RECORD sha256");
 }
 
-#[path="fixtures/native.rs"]
+#[path = "fixtures/native.rs"]
 mod native_fixture;

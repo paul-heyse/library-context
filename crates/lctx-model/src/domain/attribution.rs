@@ -269,7 +269,11 @@ pub fn validate_coverage_contract(
     }
     let mut expected_keys = ChargedSet::default();
     for item in expected {
-        if item.provider.is_some()!=item.run.is_some(){return Err(ModelError::Invalid("coverage expectation supplier differs from invocation presence".into()));}
+        if item.provider.is_some() != item.run.is_some() {
+            return Err(ModelError::Invalid(
+                "coverage expectation supplier differs from invocation presence".into(),
+            ));
+        }
         let key = (
             item.scope,
             item.provider,
@@ -281,14 +285,16 @@ pub fn validate_coverage_contract(
             return Err(ModelError::Invalid("duplicate coverage expectation".into()));
         }
         let outcome = outcomes
-            .remove(&mut invocation.charge, &key)
-            .ok_or_else(|| ModelError::Invalid("missing required coverage outcome".into()))?;
+            .remove(&mut invocation.charge, &key)?
+            .ok_or_else(|| ModelError::Invalid("missing required coverage outcome".into()))?
+            .into_inner(&mut invocation.charge)?;
         if let Some(id) = item.run {
             let run = invocation
                 .runs
                 .get(&id)
                 .ok_or_else(|| ModelError::Invalid("coverage names missing invocation".into()))?;
-            if (run.input, Some(run.provider), run.context) != (item.input, item.provider, item.context)
+            if (run.input, Some(run.provider), run.context)
+                != (item.input, item.provider, item.context)
                 || !invocation
                     .families
                     .get(&id)
@@ -357,9 +363,7 @@ impl InvocationCheck {
         if !self.runs.contains_key(&row.run)
             || !self
                 .families
-                .update(&mut self.charge, row.run, |families| {
-                    families.insert(row.family)
-                })?
+                .insert_set(&mut self.charge, row.run, row.family)?
         {
             return Err(ModelError::Invalid(
                 "invalid invocation family membership".into(),

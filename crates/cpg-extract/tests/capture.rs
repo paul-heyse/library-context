@@ -202,27 +202,74 @@ fn derivations_live_only_in_the_frozen_reserved_namespace() {
 #[test]
 fn captured_closed_tree_refuses_persistent_membership_content_and_symlink_changes() {
     use cpg_extract::capture::Derived;
-    for fault in ["root", "dependency", "support", "derived", "addition", "deletion", "symlink"] {
+    for fault in [
+        "root",
+        "dependency",
+        "support",
+        "derived",
+        "addition",
+        "deletion",
+        "symlink",
+    ] {
         let source = tempfile::tempdir().unwrap();
         fs::create_dir(source.path().join("pkg")).unwrap();
-        for (path, bytes) in [("main.py", "import pkg.dep"), ("pkg/dep.py", "value = 1"), ("support.txt", "unused"), ("doc.md", "docs")] {
+        for (path, bytes) in [
+            ("main.py", "import pkg.dep"),
+            ("pkg/dep.py", "value = 1"),
+            ("support.txt", "unused"),
+            ("doc.md", "docs"),
+        ] {
             fs::write(source.path().join(path), bytes).unwrap();
         }
         let budget = ResourceBudget::fixed(8 << 20).unwrap();
-        let captured = CapturedInput::capture_derived(source.path(), &["main.py".into(), "pkg/dep.py".into(), "support.txt".into(), "doc.md".into()], &budget, &["doc.md".into()], |_,_| Ok(vec![Derived{path:"_lctx/block.py".into(), document:"doc.md".into(), ordinal:0, fence:(0,1), bytes:b"derived = 1".to_vec()}])).unwrap();
+        let captured = CapturedInput::capture_derived(
+            source.path(),
+            &[
+                "main.py".into(),
+                "pkg/dep.py".into(),
+                "support.txt".into(),
+                "doc.md".into(),
+            ],
+            &budget,
+            &["doc.md".into()],
+            |_, _| {
+                Ok(vec![Derived {
+                    path: "_lctx/block.py".into(),
+                    document: "doc.md".into(),
+                    ordinal: 0,
+                    fence: (0, 1),
+                    bytes: b"derived = 1".to_vec(),
+                }])
+            },
+        )
+        .unwrap();
         let held = budget.reserved();
         captured.verify().unwrap();
         // Ambient source checkout edits cannot alter this retained captured closure.
         fs::write(source.path().join("unrelated.py"), "dirty = True").unwrap();
         fs::write(source.path().join("pkg/dep.py"), "value = 9").unwrap();
         captured.verify().unwrap();
-        let path = match fault {"root"=>Some("main.py"),"dependency"=>Some("pkg/dep.py"),"support"=>Some("support.txt"),"derived"=>Some("_lctx/block.py"),_=>None};
-        if let Some(path) = path {fs::remove_file(captured.root().join(path)).unwrap(); fs::write(captured.root().join(path), "changed").unwrap();}
+        let path = match fault {
+            "root" => Some("main.py"),
+            "dependency" => Some("pkg/dep.py"),
+            "support" => Some("support.txt"),
+            "derived" => Some("_lctx/block.py"),
+            _ => None,
+        };
+        if let Some(path) = path {
+            fs::remove_file(captured.root().join(path)).unwrap();
+            fs::write(captured.root().join(path), "changed").unwrap();
+        }
         match fault {
-            "addition"=>fs::write(captured.root().join("pkg/injected.py"), "injected = True").unwrap(),
-            "deletion"=>fs::remove_file(captured.root().join("pkg/dep.py")).unwrap(),
-            "symlink"=>{#[cfg(unix)] std::os::unix::fs::symlink(source.path(), captured.root().join("ambient")).unwrap();},
-            _=>{}
+            "addition" => {
+                fs::write(captured.root().join("pkg/injected.py"), "injected = True").unwrap()
+            }
+            "deletion" => fs::remove_file(captured.root().join("pkg/dep.py")).unwrap(),
+            "symlink" => {
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(source.path(), captured.root().join("ambient")).unwrap();
+            }
+            _ => {}
         }
         assert!(captured.verify().is_err(), "{fault}");
         assert_eq!(budget.reserved(), held);

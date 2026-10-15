@@ -226,7 +226,12 @@ impl<K: TransferKeyRecord> TransferBranch<K> {
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
         let charge = Self::reserve(&key, &qualification, condition, budget)?;
-        Ok(Self(Arc::new(Branch { key, qualification, condition: condition.clone(), _charge: charge })))
+        Ok(Self(Arc::new(Branch {
+            key,
+            qualification,
+            condition: condition.clone(),
+            _charge: charge,
+        })))
     }
     pub fn new(
         key: K,
@@ -235,10 +240,19 @@ impl<K: TransferKeyRecord> TransferBranch<K> {
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
         let charge = Self::reserve(&key, &qualification, &condition, budget)?;
-        Ok(Self(Arc::new(Branch { key, qualification, condition, _charge: charge })))
+        Ok(Self(Arc::new(Branch {
+            key,
+            qualification,
+            condition,
+            _charge: charge,
+        })))
     }
-    fn reserve(key: &K, qualification: &AssertionQualification, condition: &Diagram,
-        budget: &ResourceBudget) -> Result<Box<dyn Reservation>, ModelError> {
+    fn reserve(
+        key: &K,
+        qualification: &AssertionQualification,
+        condition: &Diagram,
+        budget: &ResourceBudget,
+    ) -> Result<Box<dyn Reservation>, ModelError> {
         key.descriptor().check(qualification)?;
         if qualification.condition != condition.id() {
             return Err(invalid("transfer condition differs from qualification"));

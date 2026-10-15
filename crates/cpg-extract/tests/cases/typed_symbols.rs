@@ -2,8 +2,8 @@
 //! analyzed module as symbols, traits, ancestry, signatures and displayed annotations, linked to
 //! their declarations at exact name spans, in a generation the model validates. Answers are
 //! written from the fixture sources.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     attribution::*, calls::*, declarations::*, source::*, symbols::*, syntax::SubjectBoundary, *,
 };

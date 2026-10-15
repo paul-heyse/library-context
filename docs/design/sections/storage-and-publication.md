@@ -32,7 +32,7 @@ publication handle. Indexed native selection and projected Arrow streams feed mo
 semantic/vector predecessors. Published export uses scoped native queries and terminally successful
 responses under the same projection contract. External destinations remain consumer-triggered.
 
-> Decision: ADR-0145, ADR-0103, ADR-0044, ADR-0085
+> Decision: ADR-0145, ADR-0103, ADR-0044, ADR-0085, ADR-0161
 
 ## §6 Persistence and publication
 
@@ -126,6 +126,24 @@ heaps/capacities/nodes remain charged through the last borrower; native decode, 
 parent-hold projection and identity-sort scratch are separately admitted for their actual temporary
 lifetime. Full child/context/incarnation, EOF, correspondence, incidence/hold and final guarded
 visibility checks remain independent. The Catalog coordinator owns focused and enclosing acceptance.
+
+**Implemented / focused-Tested, 2026-10-14; full composition acceptance open.** Retained installed views borrow one
+immutable selector payload from their original inventory. Capability factories require its exact
+native client and resource pool; a matching logical descriptor cannot transfer protection or make
+another pool's backing free. Compiler mapping lookup borrows that retained inventory, while mutable
+live selections retain their own registry. Decode/build/validation scratch ends with its actual
+borrower; returned owners retain only their typed backing and protection.
+
+Operation-local recovery ingredients validate each contributor's direct model dependencies once and
+share typed handles. Every selected root still traverses its complete closure and independently
+checks physical mappings, holds, membership EOF and final state. Flat codec1 and semantic v4 remain
+unchanged; no root admission or portable proof cache is shared. Membership preparation reuses
+physical-contributor compact leaves and deterministic union branches; changed eager unions retain
+conflict/count checks. Registry ownership follows current/frozen bindings and running/remaining
+selected consumers, independently of cursor and accepted-flight lifetime. These changes remove
+identified repeated work; no measured speed or RSS claim follows. Current evidence and final
+acceptance remain with the Catalog coordinator.
+
 **Accepted target / implementation in progress, 2026-10-13 (ADR-0166).** Semantic v4 stays unchanged.
 Portable transport binds complete root-qualified selector/copy correspondence and explicit local
 membership/alias inventories in a separate capture envelope. Independently supplied export/backup
@@ -179,7 +197,7 @@ Remove transition-only converters and frozen historical fixtures after cutover. 
 need minimal revealing functional cases, not historical campaigns or performance benchmarks.
 The efficiency coordinator owns migration/regeneration dispositions and current acceptance.
 
-> Decision: ADR-0151, ADR-0161, ADR-0165, ADR-0166
+> Decision: ADR-0151, ADR-0152, ADR-0161, ADR-0165, ADR-0166
 
 Immutable payload identity includes model/codec, relation, nominal key and full content digest.
 Hash hits compare canonical bytes. Nominal anchors contain identity without view existence.
@@ -425,7 +443,7 @@ member copies, seals and legacy readers are removed. Whole-inventory attachment 
 inputs before one exact receiving CAS. Selector-qualified alias edges prevent union-wide witness
 leakage. Runtime completion remains subject to the coordinator’s focused acceptance.
 
-> Decision: ADR-0152, ADR-0165, ADR-0166
+> Decision: ADR-0152, ADR-0156, ADR-0157, ADR-0165, ADR-0166
 
 **Accepted campaign recovery target / implementation in progress, 2026-10-11.** An explicit
 joint named-attachment recovery retains original Unknown/not_observed receipts and composes checked server execution
@@ -512,7 +530,7 @@ engine coercions do not define semantic identity. Snapshot changes are explicit 
 codebooks remain append-only. Rebuild fresh from pinned inputs without old-format readers, legacy
 IDs, dual writes or rollback/runtime archives. Quiesce actual readers before replacing their state.
 
-> Decision: ADR-0161, ADR-0145, ADR-0087, ADR-0048
+> Decision: ADR-0161, ADR-0145, ADR-0087, ADR-0048, ADR-0155
 
 ### §6.4 Serving realizations
 

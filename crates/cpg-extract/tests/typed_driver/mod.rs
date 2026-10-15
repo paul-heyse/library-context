@@ -26,9 +26,13 @@ pub fn budget() -> ResourceBudget {
 // Every driver invocation uses the same executable-declared model. Captured inputs,
 // provider configuration, budgets and attempt ownership remain invocation-specific.
 fn fixture_model() -> Result<Arc<ValidatedModel>, ModelError> {
-    static MODEL: std::sync::OnceLock<Result<Arc<ValidatedModel>, Arc<ModelError>>> = std::sync::OnceLock::new();
-    MODEL.get_or_init(|| model().map(Arc::new).map_err(Arc::new))
-        .as_ref().map(Arc::clone).map_err(|error| ModelError::SharedCause(error.clone()))
+    static MODEL: std::sync::OnceLock<Result<Arc<ValidatedModel>, Arc<ModelError>>> =
+        std::sync::OnceLock::new();
+    MODEL
+        .get_or_init(|| model().map(Arc::new).map_err(Arc::new))
+        .as_ref()
+        .map(Arc::clone)
+        .map_err(|error| ModelError::SharedCause(error.clone()))
 }
 
 /// Every file of `fixtures/python/<fixture>`, by relative path.
@@ -63,45 +67,72 @@ pub fn rows<R: Record>(tables: &Tables) -> Vec<R> {
         .unwrap()
         .get(R::NAME)
         .map(|b| R::decode(b).unwrap())
-        .unwrap_or_else(||panic!("undeclared observer relation {}",R::NAME))
+        .unwrap_or_else(|| panic!("undeclared observer relation {}", R::NAME))
 }
 
 /// Select only the independent assertion's inputs, or explicitly request the complete inventory.
 /// Typed empty batches preserve the distinction between declared absence and unobserved data.
 pub enum ObservationDemand {
-    Selected(BTreeMap<&'static str,arrow_array::RecordBatch>),
+    Selected(BTreeMap<&'static str, arrow_array::RecordBatch>),
     Complete,
 }
 impl ObservationDemand {
-    pub fn selected()->Self {Self::Selected(BTreeMap::new())}
-    pub fn include<R:Record>(&mut self) {
-        let Self::Selected(tables)=self else {panic!("complete observation has no selection")};
-        tables.insert(R::NAME,arrow_array::RecordBatch::new_empty(R::schema()));
+    pub fn selected() -> Self {
+        Self::Selected(BTreeMap::new())
+    }
+    pub fn include<R: Record>(&mut self) {
+        let Self::Selected(tables) = self else {
+            panic!("complete observation has no selection")
+        };
+        tables.insert(R::NAME, arrow_array::RecordBatch::new_empty(R::schema()));
     }
 }
 pub trait Inspector {
     fn tables(&self) -> Tables;
-    fn demand(&self)->ObservationDemand;
+    fn demand(&self) -> ObservationDemand;
 }
 /// Copy small fixture outputs for independent assertions, after the actual compiler completed them.
-pub async fn observe(workspace: &Workspace, tables: &Tables, demand:ObservationDemand) -> Result<(), ModelError> {
-    let complete=matches!(&demand,ObservationDemand::Complete);
-    let mut observed=match demand {
-        ObservationDemand::Selected(tables)=>tables,
-        ObservationDemand::Complete=>workspace.model().relations().iter().map(|relation|
-            (relation.name(),arrow_array::RecordBatch::new_empty(relation.schema().clone()))).collect(),
+pub async fn observe(
+    workspace: &Workspace,
+    tables: &Tables,
+    demand: ObservationDemand,
+) -> Result<(), ModelError> {
+    let complete = matches!(&demand, ObservationDemand::Complete);
+    let mut observed = match demand {
+        ObservationDemand::Selected(tables) => tables,
+        ObservationDemand::Complete => workspace
+            .model()
+            .relations()
+            .iter()
+            .map(|relation| {
+                (
+                    relation.name(),
+                    arrow_array::RecordBatch::new_empty(relation.schema().clone()),
+                )
+            })
+            .collect(),
     };
     for relation in workspace.completed_relations()? {
-        if !complete && !observed.contains_key(relation.name()) {continue;}
-        let mut stream=relation.batches_async().await?;
-        let mut batches=Vec::new();
-        while let Some(batch)=stream.next_async().await {batches.push(batch?);}
-        let batch=if batches.is_empty() {arrow_array::RecordBatch::new_empty(relation.schema().clone())}
-            else {arrow_select::concat::concat_batches(relation.schema(),&batches).map_err(ModelError::codec)?};
-        observed.insert(relation.name(),batch);
+        if !complete && !observed.contains_key(relation.name()) {
+            continue;
+        }
+        let mut stream = relation.batches_async().await?;
+        let mut batches = Vec::new();
+        while let Some(batch) = stream.next_async().await {
+            batches.push(batch?);
+        }
+        let batch = if batches.is_empty() {
+            arrow_array::RecordBatch::new_empty(relation.schema().clone())
+        } else {
+            arrow_select::concat::concat_batches(relation.schema(), &batches)
+                .map_err(ModelError::codec)?
+        };
+        observed.insert(relation.name(), batch);
     }
     // No observer mutex is held across native I/O, waiting, decoding or concatenation.
-    *tables.lock().map_err(|_| ModelError::Invalid("test observer poisoned".into()))?=observed;
+    *tables
+        .lock()
+        .map_err(|_| ModelError::Invalid("test observer poisoned".into()))? = observed;
     Ok(())
 }
 
@@ -284,18 +315,25 @@ pub async fn run_profile_with_budget<I: Inspector>(
         Ok(workspace) => workspace,
         Err(error) => {
             let mut completion = lctx_model::domain::completion::Completion::default();
-            completion.step("provider fixture setup attempt abandonment", native.abandon().await);
+            completion.step(
+                "provider fixture setup attempt abandonment",
+                native.abandon().await,
+            );
             return lctx_model::domain::completion::complete(Err(error), completion);
         }
     };
     let result = async {
         cpg_core::facts::compile_facts(&workspace, &captured, profile, providers, limits).await?;
         workspace.validate().await?;
-        observe(&workspace, &inspect.tables(),inspect.demand()).await?;
+        observe(&workspace, &inspect.tables(), inspect.demand()).await?;
         workspace.identity()
-    }.await;
+    }
+    .await;
     let mut completion = workspace.drain_report().await;
-    completion.step("provider fixture attempt abandonment and session invalidation", native.abandon().await);
+    completion.step(
+        "provider fixture attempt abandonment and session invalidation",
+        native.abandon().await,
+    );
     lctx_model::domain::completion::complete(result, completion)
 }
 
@@ -304,5 +342,5 @@ pub fn artifact<'a>(artifacts: &'a [SourceArtifact], path: &str) -> &'a SourceAr
     artifacts.iter().find(|a| a.path == path).unwrap()
 }
 
-#[path="../fixtures/native.rs"]
+#[path = "../fixtures/native.rs"]
 mod native_fixture;

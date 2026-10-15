@@ -49,7 +49,7 @@ impl Index {
                 ));
             }
             d.validate_context(c)?;
-            members.update(&mut charge, r.domain, |v: &mut Vec<_>| v.push(r.id()))?;
+            members.push(&mut charge, r.domain, r.id())?;
         }
         for r in o.evidence.iter() {
             let c = need(&o.contexts, r.context)?;
@@ -69,9 +69,7 @@ impl Index {
                 return Err(invalid("selection evidence has no domain membership"));
             }
             d.validate_witness(c, w)?;
-            evidence.update(&mut charge, (r.domain, r.context), |v: &mut Vec<_>| {
-                v.push(r.id())
-            })?;
+            evidence.push(&mut charge, (r.domain, r.context), r.id())?;
         }
         for r in o.closure.iter() {
             need(&o.domains, r.domain)?;
@@ -79,7 +77,7 @@ impl Index {
             if let Witness::Domain { domain } = w {
                 need(&o.domains, *domain)?;
             }
-            closure.update(&mut charge, r.domain, |v: &mut Vec<_>| v.push(r.id()))?;
+            closure.push(&mut charge, r.domain, r.id())?;
         }
         for r in o.domains.iter() {
             let mut pairs = ChargedSet::default();

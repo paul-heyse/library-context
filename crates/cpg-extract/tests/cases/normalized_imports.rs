@@ -1,6 +1,6 @@
 //! N4a uses actual per-alias provider resolution, including analyzed roots, without name joins.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     assertion::AssertionQualification,
     calls::ProviderModule,

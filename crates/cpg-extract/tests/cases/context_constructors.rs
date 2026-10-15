@@ -1,6 +1,6 @@
 //! Native constructor contracts; these facts alone do not establish protocol execution.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{calls::*, source::*, symbols::SymbolObservation, *};
 use typed_driver::{files, rows};
 inspector!(

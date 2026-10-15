@@ -1,7 +1,7 @@
 //! Compiler controls require the owned disposable authenticated native fixture.
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::admission::Frontier;
 use lctx_native::RuntimeConfig;
-use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::sync::{Arc, OnceLock};
 #[allow(
     dead_code,

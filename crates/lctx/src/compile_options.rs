@@ -1,7 +1,7 @@
 //! Validate explicit upper-frontier configuration before acquisition, service requests or database access.
 use cpg_core::embedding_service::FakeEmbedder;
-use lctx_model::domain::embedding::{Embedder};
 use lctx_model::domain::analysis::settings::{AnalyticsConfiguration, Techniques};
+use lctx_model::domain::embedding::Embedder;
 use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum EmbeddingChoice {
@@ -28,9 +28,7 @@ impl Options {
                 || self.embedding_endpoint.is_some()
                 || self.embedding_spec.is_some())
         {
-            anyhow::bail!(
-                "techniques and embedding options require --through analysis or catalog"
-            );
+            anyhow::bail!("techniques and embedding options require --through analysis or catalog");
         }
         Ok(())
     }

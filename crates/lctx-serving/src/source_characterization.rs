@@ -22,14 +22,12 @@ fn native_text(value: String) -> Result<Text<0, 16384>, Error> {
         .map_err(|_| Error::ResourceRefused("indivisible native source characterization text"))
 }
 fn required<R: Record>(batch: &PacketRows<R>, id: Id<R>) -> Result<R, Error> {
-    batch.get(id)?
-        .cloned()
-        .ok_or_else(|| {
-            Error::Model(ModelError::Invalid(format!(
-                "required native evidence row missing: {}",
-                R::NAME
-            )))
-        })
+    batch.get(id)?.cloned().ok_or_else(|| {
+        Error::Model(ModelError::Invalid(format!(
+            "required native evidence row missing: {}",
+            R::NAME
+        )))
+    })
 }
 fn unavailable() -> Availability {
     Availability::Unavailable {
@@ -417,36 +415,75 @@ impl NativePackets<'_> {
             // Retain a failed nomination in source order. A later metadata failure
             // must not outrank an earlier payload refusal during the global pass.
             let nomination = async {
-                let q = required(&self.read_ids::<AssertionQualification>(&[row.qualification]).await?, row.qualification)?;
-                if q.context != grant.context { return Ok(None); }
+                let q = required(
+                    &self
+                        .read_ids::<AssertionQualification>(&[row.qualification])
+                        .await?,
+                    row.qualification,
+                )?;
+                if q.context != grant.context {
+                    return Ok(None);
+                }
                 let source = self.characterization_source(row.source).await?;
-                if source.artifact != grant.artifact || source.start < grant.start || source.end > grant.end { return Ok(None); }
+                if source.artifact != grant.artifact
+                    || source.start < grant.start
+                    || source.end > grant.end
+                {
+                    return Ok(None);
+                }
                 Ok::<_, Error>(Some((q, source)))
-            }.await;
+            }
+            .await;
             if matches!(nomination, Ok(Some(_))) {
                 if keys.len() == keys.capacity() {
                     let additional = keys.capacity().max(4);
                     charge.grow(additional.saturating_mul(size_of::<(ContentHash, usize)>()))?;
                     keys.reserve_exact(additional);
                 }
-                keys.push((super::source_evidence::key(derivation::RowRef::of(row.id()))?, ordinal));
+                keys.push((
+                    super::source_evidence::key(derivation::RowRef::of(row.id()))?,
+                    ordinal,
+                ));
             }
             if nominated.len() == nominated.capacity() {
                 let additional = nominated.capacity().max(4);
-                charge.grow(additional.saturating_mul(size_of::<SourceCharacterization>() + std::mem::size_of_val(&nomination)))?;
+                charge.grow(additional.saturating_mul(
+                    size_of::<SourceCharacterization>() + std::mem::size_of_val(&nomination),
+                ))?;
                 nominated.reserve_exact(additional);
             }
             nominated.push((row, nomination));
         }
-        let compact = crate::pagination::page(keys, request, snapshot, channels, request.tool().name(),
-            "source_characterization", None, Availability::Available {})
-            .map_err(|error| Error::Model(crate::records::wire(error)));
-        let selected = compact.as_ref().map(|page| page.items.iter().copied().collect::<std::collections::BTreeSet<_>>()).unwrap_or_default();
+        let compact = crate::pagination::page(
+            keys,
+            request,
+            snapshot,
+            channels,
+            request.tool().name(),
+            "source_characterization",
+            None,
+            Availability::Available {},
+        )
+        .map_err(|error| Error::Model(crate::records::wire(error)));
+        let selected = compact
+            .as_ref()
+            .map(|page| {
+                page.items
+                    .iter()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>()
+            })
+            .unwrap_or_default();
         charge.grow(selected.len().saturating_mul(size_of::<usize>() + 32))?;
         let mut items = std::collections::BTreeMap::new();
         for (ordinal, (row, nomination)) in nominated.into_iter().enumerate() {
-            let Some((q, source)) = nomination? else { continue; };
-            let mut charge = charged::StateCharge::new(&self.budget, "source-characterization-validation-window");
+            let Some((q, source)) = nomination? else {
+                continue;
+            };
+            let mut charge = charged::StateCharge::new(
+                &self.budget,
+                "source-characterization-validation-window",
+            );
             charge.grow(4096)?;
             let premise = required(
                 &self
@@ -609,7 +646,8 @@ impl NativePackets<'_> {
                     usage.usage,
                 ))?);
             }
-            let diagnostic_correlation = self.diagnostic_correlation(&row, grant, usize::MAX).await?;
+            let diagnostic_correlation =
+                self.diagnostic_correlation(&row, grant, usize::MAX).await?;
             if let Some(correlation) = &diagnostic_correlation.0 {
                 proof.push(ProofReference::from_canonical(derivation::RowRef::of(
                     correlation.assessment,
@@ -618,22 +656,37 @@ impl NativePackets<'_> {
             if selected.contains(&ordinal) {
                 // The selected rich collections outlive this validation window.
                 // Transfer their allowance before dropping its local reservation.
-                self.charge.grow(charge.reserved().saturating_add(size_of::<SourceCharacterizationPacket>() + 64))?;
-                items.insert(ordinal, SourceCharacterizationPacket {
-                characterization: row.id(),
-                qualification: row.qualification,
-                source,
-                containing_scenarios,
-                diagnostic_correlation,
-                payload: payload.0,
-                support: payload.1,
-                proof,
-            }); }
+                self.charge.grow(
+                    charge
+                        .reserved()
+                        .saturating_add(size_of::<SourceCharacterizationPacket>() + 64),
+                )?;
+                items.insert(
+                    ordinal,
+                    SourceCharacterizationPacket {
+                        characterization: row.id(),
+                        qualification: row.qualification,
+                        source,
+                        containing_scenarios,
+                        diagnostic_correlation,
+                        payload: payload.0,
+                        support: payload.1,
+                        proof,
+                    },
+                );
+            }
         }
         let compact = compact?;
         let mut ordered = Vec::new();
-        for ordinal in compact.items { ordered.push(items.remove(&ordinal).ok_or(Error::Contract)?); }
-        Ok(SectionPage { availability: Availability::Available {}, items: ordered,
-            continuation: compact.continuation, omitted: compact.omitted, truncated: compact.truncated })
+        for ordinal in compact.items {
+            ordered.push(items.remove(&ordinal).ok_or(Error::Contract)?);
+        }
+        Ok(SectionPage {
+            availability: Availability::Available {},
+            items: ordered,
+            continuation: compact.continuation,
+            omitted: compact.omitted,
+            truncated: compact.truncated,
+        })
     }
 }

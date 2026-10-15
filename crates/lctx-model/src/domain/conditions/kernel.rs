@@ -62,7 +62,10 @@ impl std::ops::Deref for AdmittedDiagram {
 }
 impl AdmittedDiagram {
     pub(super) fn from_parts(diagram: Diagram, reservation: Box<dyn Reservation>) -> Self {
-        Self { diagram, reservation }
+        Self {
+            diagram,
+            reservation,
+        }
     }
     pub fn reserved_bytes(&self) -> usize {
         self.reservation.size()
@@ -152,8 +155,6 @@ impl CondExpr {
         }
         count
     }
-
-
 }
 
 impl Diagram {
@@ -228,7 +229,9 @@ impl Diagram {
         let mut pending = vec![expr];
         while let Some(part) = pending.pop() {
             match part {
-                CondExpr::Atom(atom) => { atoms.insert(*atom); }
+                CondExpr::Atom(atom) => {
+                    atoms.insert(*atom);
+                }
                 CondExpr::Not(inner) => pending.push(inner),
                 CondExpr::And(parts) | CondExpr::Or(parts) => pending.extend(parts),
                 CondExpr::True | CondExpr::False => {}
@@ -236,20 +239,36 @@ impl Diagram {
         }
         let support = atoms.into_iter().collect::<Vec<_>>();
         let ctx = context(&support);
-        fn build(expr: &CondExpr, support: &[AtomId], ctx: &BddVariableSet, work: &mut usize) -> Result<Bdd, KernelBoundary> {
+        fn build(
+            expr: &CondExpr,
+            support: &[AtomId],
+            ctx: &BddVariableSet,
+            work: &mut usize,
+        ) -> Result<Bdd, KernelBoundary> {
             match expr {
                 CondExpr::True => Ok(ctx.mk_true()),
                 CondExpr::False => Ok(ctx.mk_false()),
-                CondExpr::Atom(atom) => Ok(ctx.mk_var(BddVariable::from_index(support.binary_search(atom).expect("gathered atom")))),
+                CondExpr::Atom(atom) => Ok(ctx.mk_var(BddVariable::from_index(
+                    support.binary_search(atom).expect("gathered atom"),
+                ))),
                 CondExpr::Not(inner) => Ok(build(inner, support, ctx, work)?.not()),
                 CondExpr::And(parts) | CondExpr::Or(parts) => {
                     let and = matches!(expr, CondExpr::And(_));
                     let mut acc = if and { ctx.mk_true() } else { ctx.mk_false() };
                     for part in parts {
                         let next = build(part, support, ctx, work)?;
-                        *work = work.checked_sub(acc.size().saturating_mul(next.size()))
+                        *work = work
+                            .checked_sub(acc.size().saturating_mul(next.size()))
                             .ok_or(KernelBoundary::WorkPreflight)?;
-                        acc = apply(&acc, &next, if and { op_function::and } else { op_function::or })?;
+                        acc = apply(
+                            &acc,
+                            &next,
+                            if and {
+                                op_function::and
+                            } else {
+                                op_function::or
+                            },
+                        )?;
                     }
                     Ok(acc)
                 }
@@ -865,7 +884,7 @@ pub(crate) fn closure(
                 let row = nodes
                     .get(child)
                     .ok_or_else(|| ModelError::Invalid("condition child absent".into()))?
-            .borrow();
+                    .borrow();
                 if let ConditionNode::Branch {
                     atom: child_atom, ..
                 } = row

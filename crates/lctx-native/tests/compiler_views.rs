@@ -1969,29 +1969,67 @@ async fn installed_reader_pins_exact_closure_through_source_abandon_and_releases
     let client = fixture_client(&store, &config).await;
     // Receiving authority rechecks actual native incarnation and full bytes even
     // when the opaque source already earned and retained its exact inventory.
-    let guard = RecordId::new("native_guard", ContentHash::of(
-        &serde_json::to_vec(&lctx_native::surrealdb::types::Value::RecordId(completion.clone())).unwrap(),
-    ).hex());
+    let guard = RecordId::new(
+        "native_guard",
+        ContentHash::of(
+            &serde_json::to_vec(&lctx_native::surrealdb::types::Value::RecordId(
+                completion.clone(),
+            ))
+            .unwrap(),
+        )
+        .hex(),
+    );
     for (kind, id, mutation) in [
-        ("physical incarnation", guard.clone(), "UPDATE $id SET incarnation+=1 RETURN NONE"),
-        ("inactive physical guard", guard, "UPDATE $id SET phase='retired' RETURN NONE"),
-        ("full contributor bytes", completion.clone(), "UPDATE $id SET producer='receiving-corruption' RETURN NONE"),
+        (
+            "physical incarnation",
+            guard.clone(),
+            "UPDATE $id SET incarnation+=1 RETURN NONE",
+        ),
+        (
+            "inactive physical guard",
+            guard,
+            "UPDATE $id SET phase='retired' RETURN NONE",
+        ),
+        (
+            "full contributor bytes",
+            completion.clone(),
+            "UPDATE $id SET producer='receiving-corruption' RETURN NONE",
+        ),
     ] {
         let mut variables = Variables::new();
         variables.insert("id", id);
-        let mut response = client.query("SELECT * FROM $id").bind(variables.clone())
-            .await.unwrap().check().unwrap();
+        let mut response = client
+            .query("SELECT * FROM $id")
+            .bind(variables.clone())
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
         let original: Vec<lctx_native::surrealdb::types::Value> = response.take(0).unwrap();
         assert_eq!(original.len(), 1);
-        client.query(mutation).bind(variables.clone()).await.unwrap().check().unwrap();
+        client
+            .query(mutation)
+            .bind(variables.clone())
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
         let received = lctx_native::NativeReader::for_installed_views(
-            client.clone(), std::slice::from_ref(&held), &budget,
-        ).await;
+            client.clone(),
+            std::slice::from_ref(&held),
+            &budget,
+        )
+        .await;
         // Restore only the exact owned row before reporting refusal. An accidental
         // successful receiver still owns a real pin, which must be drained first.
         variables.insert("row", original[0].clone());
-        client.query("UPSERT $id CONTENT $row RETURN NONE").bind(variables)
-            .await.unwrap().check().unwrap();
+        client
+            .query("UPSERT $id CONTENT $row RETURN NONE")
+            .bind(variables)
+            .await
+            .unwrap()
+            .check()
+            .unwrap();
         if let Ok(unexpected) = received {
             unexpected.close().await.unwrap();
             panic!("fresh receiving pin accepted changed {kind}");

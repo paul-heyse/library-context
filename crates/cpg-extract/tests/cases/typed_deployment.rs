@@ -1,6 +1,6 @@
 //! Report parsing and independent source/environment association through real fact producers.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use cpg_extract::{acquisition::*, bundle::CapturedInputs, capture::CapturedInput};
 use lctx_model::domain::{attribution::*, deployment::*, input::*, *};
 use sha2::{Digest as _, Sha256};

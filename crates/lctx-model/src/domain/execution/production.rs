@@ -477,8 +477,11 @@ fn evaluate_selected_produced(
         }
         let checked = match actual_local {
             Some(actual) => actual.entry(witness, source, budget)?,
-            None => std::sync::Arc::new(EntryValueWitness::derive_for(entry, witness.request(), source, budget)?
-                .map_err(|_| ModelError::Invalid("base stored Use entry replay refused".into()))?),
+            None => std::sync::Arc::new(
+                EntryValueWitness::derive_for(entry, witness.request(), source, budget)?.map_err(
+                    |_| ModelError::Invalid("base stored Use entry replay refused".into()),
+                )?,
+            ),
         };
         if checked.witness() != witness {
             return Err(ModelError::Invalid("base stored Use entry changed".into()));
@@ -489,7 +492,10 @@ fn evaluate_selected_produced(
         )?;
         entry_proofs.push(checked);
     }
-    let refs = entry_proofs.iter().map(std::sync::Arc::as_ref).collect::<Vec<_>>();
+    let refs = entry_proofs
+        .iter()
+        .map(std::sync::Arc::as_ref)
+        .collect::<Vec<_>>();
     for row in data.occurrences.iter().filter(|row| {
         selected.is_none_or(|selected| row.id() == selected)
             && is_expression(row.syntax_kind)
@@ -620,12 +626,15 @@ pub(crate) fn run_invariants() -> Vec<Invariant> {
         purpose: crate::domain::InvariantPurpose::DiagnosticReplay,
         revision: 1,
         name: "base_evaluation_inventory",
-        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(analysis::owner::AnalysisOwner::Base,run_inputs()),
+        inputs: uniform_outcome::AnalysisUniformConsumer::inputs(
+            analysis::owner::AnalysisOwner::Base,
+            run_inputs(),
+        ),
         create: std::sync::Arc::new(|budget| Box::new(EvaluationRunCheck::new(budget))),
     }]
 }
 struct EvaluationRunCheck {
-    uniform:uniform_outcome::AnalysisUniformConsumer,
+    uniform: uniform_outcome::AnalysisUniformConsumer,
     reads: super::read_channels::ReadRecords,
     local: Rows<analysis::local::AnalysisInvocation>,
     data: EvaluationData,
@@ -646,7 +655,10 @@ struct EvaluationRunCheck {
 impl EvaluationRunCheck {
     fn new(budget: &ResourceBudget) -> Self {
         Self {
-            uniform:uniform_outcome::AnalysisUniformConsumer::new(analysis::owner::AnalysisOwner::Base,budget),
+            uniform: uniform_outcome::AnalysisUniformConsumer::new(
+                analysis::owner::AnalysisOwner::Base,
+                budget,
+            ),
             reads: super::read_channels::ReadRecords::new(budget),
             local: Rows::new(budget),
             data: EvaluationData::new(budget),
@@ -667,9 +679,14 @@ impl EvaluationRunCheck {
     }
 }
 impl InvariantCheck for EvaluationRunCheck {
-    fn admit_uniform_owner(&mut self,owner:&uniform_outcome::ValidatedUniformOwner)->Result<(),ModelError>{self.uniform.admit(owner)}
+    fn admit_uniform_owner(
+        &mut self,
+        owner: &uniform_outcome::ValidatedUniformOwner,
+    ) -> Result<(), ModelError> {
+        self.uniform.admit(owner)
+    }
     fn visit(&mut self, name: &str, batch: &arrow_array::RecordBatch) -> Result<(), ModelError> {
-        self.uniform.visit(name,batch)?;
+        self.uniform.visit(name, batch)?;
         self.data.visit(name, batch)?;
         self.entry.visit(name, batch)?;
         self.reads.visit(name, batch)?;
@@ -678,7 +695,18 @@ impl InvariantCheck for EvaluationRunCheck {
         Ok(())
     }
     fn finish(self: Box<Self>) -> Result<(), ModelError> {
-        if self.uniform.complete_empty(self.invocations.is_empty() && self.runs.is_empty() && self.boundaries.is_empty() && self.evaluations.is_empty() && self.sources.is_empty() && self.members.is_empty() && self.operands.is_empty() && self.outcomes.is_empty())?{return Ok(());}
+        if self.uniform.complete_empty(
+            self.invocations.is_empty()
+                && self.runs.is_empty()
+                && self.boundaries.is_empty()
+                && self.evaluations.is_empty()
+                && self.sources.is_empty()
+                && self.members.is_empty()
+                && self.operands.is_empty()
+                && self.outcomes.is_empty(),
+        )? {
+            return Ok(());
+        }
         let invalid = |message: &str| ModelError::Invalid(message.into());
         let mut expected_reads = super::read_channels::ReadRecords::new(&self.budget);
         let mut runs = Rows::new(&self.budget);
@@ -876,7 +904,7 @@ pub fn stage(
     definition.id().encode(&mut key);
     Ok(Stage {
         captured_binding: None,
-name: "evaluate_base",
+        name: "evaluate_base",
         inputs,
         outputs: outputs.iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],

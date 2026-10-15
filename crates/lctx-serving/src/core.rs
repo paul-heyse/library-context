@@ -1,14 +1,14 @@
 //! Indivisible mandatory operation packets from exact scoped canonical records.
 use crate::{
     claims::Claims,
-    records::{need, rows, wire, Prepared,PacketRows},
+    records::{PacketRows, Prepared, need, rows, wire},
 };
-use lctx_model::domain::{resources, serving::mappings::PacketOutput};
 use lctx_model::domain::{
     normalized::{callables::*, entities::*},
     serving::*,
     *,
 };
+use lctx_model::domain::{resources, serving::mappings::PacketOutput};
 use lctx_native::{NativeReader, batches::CanonicalBatches, reader::target_id};
 use std::collections::BTreeSet;
 
@@ -87,7 +87,8 @@ impl InventoryRoots {
         self.literals
             .iter()
             .map(|key| {
-                let row = literals.get_key(key)?
+                let row = literals
+                    .get_key(key)?
                     .ok_or(ModelError::Schema("core literal dependency"))?;
                 LiteralPacket::from_canonical(row)
             })
@@ -154,8 +155,11 @@ fn signature_observations(
 ) -> Result<PacketRows<types::SignatureTypeObservation>, ModelError> {
     // Sum ports have canonical variant identities. Their semantic reference roles are
     // distinct from the flattened Arrow columns declared by the sum's physical schema.
-    let selected=subjects.select_ids(&[subject.id()])?;
-    observations.select_for("subject",&selected.iter().map(Record::id).collect::<Vec<_>>())
+    let selected = subjects.select_ids(&[subject.id()])?;
+    observations.select_for(
+        "subject",
+        &selected.iter().map(Record::id).collect::<Vec<_>>(),
+    )
 }
 
 pub async fn hydrate(
@@ -205,18 +209,26 @@ pub fn packet(
     if releases.iter().any(|r| r != &release) {
         return Err(ModelError::Conflict("operation release capture ambiguity"));
     }
-    let exposures = rows::<catalog::CatalogExposure>(source)?.select_for("member",&[member.id()])?;
+    let exposures =
+        rows::<catalog::CatalogExposure>(source)?.select_for("member", &[member.id()])?;
     let exposure_ids = exposures
         .iter()
         .map(Record::id)
         .collect::<std::collections::BTreeSet<_>>();
-    let candidates = rows::<catalog::CatalogCandidate>(source)?.select_for("exposure",&exposure_ids.iter().copied().collect::<Vec<_>>())?;
-    let callables = rows::<catalog::CatalogCallable>(source)?.select_for("member",&[member.id()])?;
+    let candidates = rows::<catalog::CatalogCandidate>(source)?.select_for(
+        "exposure",
+        &exposure_ids.iter().copied().collect::<Vec<_>>(),
+    )?;
+    let callables =
+        rows::<catalog::CatalogCallable>(source)?.select_for("member", &[member.id()])?;
     let callable_ids = callables
         .iter()
         .map(Record::id)
         .collect::<std::collections::BTreeSet<_>>();
-    let invocations = rows::<catalog::CatalogInvocation>(source)?.select_for("callable",&callable_ids.iter().copied().collect::<Vec<_>>())?;
+    let invocations = rows::<catalog::CatalogInvocation>(source)?.select_for(
+        "callable",
+        &callable_ids.iter().copied().collect::<Vec<_>>(),
+    )?;
     let assessments = rows::<EffectiveCallableAssessment>(source)?;
     let variants = rows::<SignatureVariant>(source)?;
     let signatures = rows::<calls::Signature>(source)?;
@@ -231,12 +243,12 @@ pub fn packet(
     let type_supports = rows::<types::TypeSupport>(source)?;
     let signature_type_supports = rows::<types::SignatureTypeSupport>(source)?;
     let native_signatures = rows::<types::NativeSignatureObservation>(source)?;
-    let options = rows::<catalog::CatalogOption>(source)?.select_for("member",&[member.id()])?;
+    let options = rows::<catalog::CatalogOption>(source)?.select_for("member", &[member.id()])?;
     let option_subjects = rows::<catalog::CatalogOptionSubject>(source)?;
     let defaults = rows::<catalog::CatalogDefault>(source)?;
     let default_evidence = rows::<catalog::CatalogOptionEvidence>(source)?;
     let default_syntax = rows::<syntax::ParameterSyntaxObservation>(source)?;
-    let mut subjects_checked=false;
+    let mut subjects_checked = false;
     let mut invocation_packets = Vec::new();
     let mut signature_packets = Vec::new();
     for invocation in &invocations {
@@ -258,8 +270,8 @@ pub fn packet(
                 DescriptorKind::Property => selection::InvocationForm::Property,
             })),
         });
-        let selected_parameters=parameters.select_for("signature",&[signature.id()])?;
-        let mut signature_parameters=selected_parameters.iter().collect::<Vec<_>>();
+        let selected_parameters = parameters.select_for("signature", &[signature.id()])?;
+        let mut signature_parameters = selected_parameters.iter().collect::<Vec<_>>();
         signature_parameters.sort_by_key(|p| p.ordinal);
         let mut parameter_packets = Vec::new();
         let mut typing = Vec::new();
@@ -267,17 +279,27 @@ pub fn packet(
         let mut return_evidence = Vec::new();
         for parameter in signature_parameters {
             let shape = need(&shapes, parameter.shape)?;
-            let selected_slots=slots.select_for("parameter",&[parameter.id()])?;
-            let slot=selected_slots.iter().find(|slot|slot.variant==variant.id());
-            let parameter_links=links.select_for("parameter",&[parameter.id()])?;
-            let parameter_formals = parameter_links
+            let selected_slots = slots.select_for("parameter", &[parameter.id()])?;
+            let slot = selected_slots
                 .iter()
-                .map(|l| l.entity)
-                .collect::<Vec<_>>();
+                .find(|slot| slot.variant == variant.id());
+            let parameter_links = links.select_for("parameter", &[parameter.id()])?;
+            let parameter_formals = parameter_links.iter().map(|l| l.entity).collect::<Vec<_>>();
             let mut terms = Vec::new();
             let mut evidence = Vec::new();
-            if !subjects_checked{for observation in &signature_types{need(&subjects,observation.subject)?;}subjects_checked=true;}
-            let parameter_observations=signature_observations(&subjects,&signature_types,types::SignatureTypeSubject::Parameter{parameter:parameter.id()})?;
+            if !subjects_checked {
+                for observation in &signature_types {
+                    need(&subjects, observation.subject)?;
+                }
+                subjects_checked = true;
+            }
+            let parameter_observations = signature_observations(
+                &subjects,
+                &signature_types,
+                types::SignatureTypeSubject::Parameter {
+                    parameter: parameter.id(),
+                },
+            )?;
             for observation in &parameter_observations {
                 let q = claims
                     .qualifications
@@ -290,7 +312,8 @@ pub fn packet(
                     observation.id(),
                 ))?];
                 proof.extend(
-                    signature_type_supports.select_for("assertion",&[observation.id()])?
+                    signature_type_supports
+                        .select_for("assertion", &[observation.id()])?
                         .iter()
                         .map(|s| ProofReference::from_canonical(derivation::RowRef::of(s.id())))
                         .collect::<Result<Vec<_>, _>>()?,
@@ -310,8 +333,11 @@ pub fn packet(
             }
             for formal in &parameter_formals {
                 if let ParameterEntity::Source { declaration } = need(&formals, *formal)? {
-                    let selected_types=source_types.select_for("subject",&[*declaration])?;
-                    for observation in selected_types.iter().filter(|observation|observation.role==types::TypeRole::Parameter) {
+                    let selected_types = source_types.select_for("subject", &[*declaration])?;
+                    for observation in selected_types
+                        .iter()
+                        .filter(|observation| observation.role == types::TypeRole::Parameter)
+                    {
                         let q = claims
                             .qualifications
                             .get(&observation.qualification)
@@ -323,8 +349,9 @@ pub fn packet(
                             derivation::RowRef::of(observation.id()),
                         )?];
                         proof.extend(
-                            type_supports.select_for("assertion",&[observation.id()])?
-                        .iter()
+                            type_supports
+                                .select_for("assertion", &[observation.id()])?
+                                .iter()
                                 .map(|s| {
                                     ProofReference::from_canonical(derivation::RowRef::of(s.id()))
                                 })
@@ -407,8 +434,19 @@ pub fn packet(
                 default,
             });
         }
-        if !subjects_checked{for observation in &signature_types{need(&subjects,observation.subject)?;}subjects_checked=true;}
-        let return_observations=signature_observations(&subjects,&signature_types,types::SignatureTypeSubject::Return{signature:signature.id()})?;
+        if !subjects_checked {
+            for observation in &signature_types {
+                need(&subjects, observation.subject)?;
+            }
+            subjects_checked = true;
+        }
+        let return_observations = signature_observations(
+            &subjects,
+            &signature_types,
+            types::SignatureTypeSubject::Return {
+                signature: signature.id(),
+            },
+        )?;
         for observation in &return_observations {
             let q = claims
                 .qualifications
@@ -421,8 +459,9 @@ pub fn packet(
                 observation.id(),
             ))?];
             proof.extend(
-                signature_type_supports.select_for("assertion",&[observation.id()])?
-                        .iter()
+                signature_type_supports
+                    .select_for("assertion", &[observation.id()])?
+                    .iter()
                     .map(|s| ProofReference::from_canonical(derivation::RowRef::of(s.id())))
                     .collect::<Result<Vec<_>, _>>()?,
             );
@@ -442,8 +481,11 @@ pub fn packet(
         if let Some(callable) = variant.callable {
             let callable_rows = rows::<CallableEntity>(source)?;
             if let CallableEntity::Source { declaration, .. } = need(&callable_rows, callable)? {
-                let selected_types=source_types.select_for("subject",&[*declaration])?;
-                for observation in selected_types.iter().filter(|observation|observation.role==types::TypeRole::Return) {
+                let selected_types = source_types.select_for("subject", &[*declaration])?;
+                for observation in selected_types
+                    .iter()
+                    .filter(|observation| observation.role == types::TypeRole::Return)
+                {
                     let q = claims
                         .qualifications
                         .get(&observation.qualification)
@@ -455,8 +497,9 @@ pub fn packet(
                         observation.id(),
                     ))?];
                     proof.extend(
-                        type_supports.select_for("assertion",&[observation.id()])?
-                        .iter()
+                        type_supports
+                            .select_for("assertion", &[observation.id()])?
+                            .iter()
                             .map(|s| ProofReference::from_canonical(derivation::RowRef::of(s.id())))
                             .collect::<Result<Vec<_>, _>>()?,
                     );
@@ -599,7 +642,9 @@ pub fn packet(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn packet_rows<R:Record>(rows:Vec<R>)->PacketRows<R>{PacketRows::new(rows,&resources::ResourceBudget::fixed(1<<20).unwrap()).unwrap()}
+    fn packet_rows<R: Record>(rows: Vec<R>) -> PacketRows<R> {
+        PacketRows::new(rows, &resources::ResourceBudget::fixed(1 << 20).unwrap()).unwrap()
+    }
     fn id<T>(n: u8) -> Id<T> {
         serde_json::from_value(serde_json::json!(vec![n; 16])).unwrap()
     }
@@ -620,19 +665,63 @@ mod tests {
     }
     #[test]
     fn signature_typing_selection_distinguishes_sum_ports_and_preserves_observations() {
-        let parameter=types::SignatureTypeSubject::Parameter{parameter:id(8)};
-        let returned=types::SignatureTypeSubject::Return{signature:id(8)};
-        let other=types::SignatureTypeSubject::Parameter{parameter:id(9)};
-        let first=types::SignatureTypeObservation{qualification:id(10),subject:parameter.id(),term:id(11),scope:id(12)};
-        let alternative=types::SignatureTypeObservation{qualification:id(13),term:id(14),..first.clone()};
-        let return_type=types::SignatureTypeObservation{subject:returned.id(),term:id(15),..first.clone()};
-        let unrelated=types::SignatureTypeObservation{subject:other.id(),term:id(16),..first.clone()};
-        let subjects=packet_rows(vec![returned.clone(),other,parameter.clone()]);
-        let observations=packet_rows(vec![unrelated,alternative.clone(),return_type.clone(),first.clone()]);
-        assert_eq!(signature_observations(&subjects,&observations,parameter.clone()).unwrap().rows(),&[alternative,first]);
-        assert_eq!(signature_observations(&subjects,&observations,returned).unwrap().rows(),&[return_type]);
-        assert!(signature_observations(&subjects,&observations,types::SignatureTypeSubject::Parameter{parameter:id(17)}).unwrap().is_empty());
-        assert!(signature_observations(&packet_rows(vec![]),&observations,parameter).unwrap().is_empty());
+        let parameter = types::SignatureTypeSubject::Parameter { parameter: id(8) };
+        let returned = types::SignatureTypeSubject::Return { signature: id(8) };
+        let other = types::SignatureTypeSubject::Parameter { parameter: id(9) };
+        let first = types::SignatureTypeObservation {
+            qualification: id(10),
+            subject: parameter.id(),
+            term: id(11),
+            scope: id(12),
+        };
+        let alternative = types::SignatureTypeObservation {
+            qualification: id(13),
+            term: id(14),
+            ..first.clone()
+        };
+        let return_type = types::SignatureTypeObservation {
+            subject: returned.id(),
+            term: id(15),
+            ..first.clone()
+        };
+        let unrelated = types::SignatureTypeObservation {
+            subject: other.id(),
+            term: id(16),
+            ..first.clone()
+        };
+        let subjects = packet_rows(vec![returned.clone(), other, parameter.clone()]);
+        let observations = packet_rows(vec![
+            unrelated,
+            alternative.clone(),
+            return_type.clone(),
+            first.clone(),
+        ]);
+        assert_eq!(
+            signature_observations(&subjects, &observations, parameter.clone())
+                .unwrap()
+                .rows(),
+            &[alternative, first]
+        );
+        assert_eq!(
+            signature_observations(&subjects, &observations, returned)
+                .unwrap()
+                .rows(),
+            &[return_type]
+        );
+        assert!(
+            signature_observations(
+                &subjects,
+                &observations,
+                types::SignatureTypeSubject::Parameter { parameter: id(17) }
+            )
+            .unwrap()
+            .is_empty()
+        );
+        assert!(
+            signature_observations(&packet_rows(vec![]), &observations, parameter)
+                .unwrap()
+                .is_empty()
+        );
     }
     #[test]
     fn emitted_core_inventory_excludes_unrelated_values_and_foreign_presentations() {
@@ -655,7 +744,11 @@ mod tests {
             .type_literals(&packet_rows(vec![term.clone(), unrelated_term.clone()]))
             .unwrap();
         let values = roots
-            .literal_values(&packet_rows(vec![typed.clone(), default.clone(), unrelated]))
+            .literal_values(&packet_rows(vec![
+                typed.clone(),
+                default.clone(),
+                unrelated,
+            ]))
             .unwrap();
         assert_eq!(
             values.iter().map(|v| v.literal).collect::<BTreeSet<_>>(),

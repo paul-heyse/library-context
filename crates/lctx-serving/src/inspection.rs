@@ -22,16 +22,17 @@ pub async fn get(
     fields.extend([
         "owner", "formal", "entry", "path", "access", "key", "transfer", "route",
     ]);
-    let batches = preparation.hydrate(
-        reader,
-        vec![target_id(graph::Target::Entity(graph::EntityId::of(
-            r.member,
-        )))],
-        &inputs,
-        &inputs,
-        &fields,
-    )
-    .await?;
+    let batches = preparation
+        .hydrate(
+            reader,
+            vec![target_id(graph::Target::Entity(graph::EntityId::of(
+                r.member,
+            )))],
+            &inputs,
+            &inputs,
+            &fields,
+        )
+        .await?;
     let mut data = selection::classification::ClassificationData::new(b);
     let mut native = native_requests::NativeInventory::new(b);
     let mut rows = native_requests::PreparationRows::new(b);
@@ -66,7 +67,7 @@ pub async fn get(
         &data,
         b,
     )?;
-    let canonical=crate::records::Prepared::new(&batches,b);
+    let canonical = crate::records::Prepared::new(&batches, b);
     let claims = canonical.claims()?;
     let mut canonical = r.clone();
     let owner = prepared.domain().resolve(&mut canonical)?;
@@ -93,11 +94,17 @@ pub async fn get(
             // premises globally, but retain only that compact decision before paging.
             claims.basis(q.id())?;
             ProofReference::from_canonical(result.path)?;
-            for proof in &result.proof { ProofReference::from_canonical(*proof)?; }
+            for proof in &result.proof {
+                ProofReference::from_canonical(*proof)?;
+            }
             let mut sink = KeySink::new("native-path-page/v1");
             input.formal.encode(&mut sink);
             sink.part(b"path", result.path.bytes());
-            crate::operation_packet::compact_push(&mut values, &mut compact_charge, (sink.finish(), result))?;
+            crate::operation_packet::compact_push(
+                &mut values,
+                &mut compact_charge,
+                (sink.finish(), result),
+            )?;
         }
     }
     let channels = ChannelState {
@@ -121,18 +128,21 @@ pub async fn get(
         delivery: Optional::default(),
         snapshot: reader.handle().clone(),
         member: r.member,
-        paths: crate::operations::hydrate_page(crate::pagination::page(
-            values,
-            request,
-            reader.handle(),
-            &channels,
-            request.tool().name(),
-            "paths",
-            Some(r.member),
-            availability,
-        )
-        .map_err(wire)?, |result| {
-            NativeAssessmentPacket::from_canonical(&result, claims.basis(result.qualification)?)
-        })?,
+        paths: crate::operations::hydrate_page(
+            crate::pagination::page(
+                values,
+                request,
+                reader.handle(),
+                &channels,
+                request.tool().name(),
+                "paths",
+                Some(r.member),
+                availability,
+            )
+            .map_err(wire)?,
+            |result| {
+                NativeAssessmentPacket::from_canonical(&result, claims.basis(result.qualification)?)
+            },
+        )?,
     })
 }

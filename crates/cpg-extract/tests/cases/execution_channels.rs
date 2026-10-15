@@ -6,7 +6,7 @@ use lctx_model::domain::{
 use typed_driver::{files, rows};
 struct Facts(typed_driver::Tables);
 impl typed_driver::Inspector for Facts {
-    fn demand(&self)->typed_driver::ObservationDemand {
+    fn demand(&self) -> typed_driver::ObservationDemand {
         // Reconstruction and negative admission controls consume the complete inventory.
         typed_driver::ObservationDemand::Complete
     }
@@ -30,7 +30,9 @@ async fn execution_channels_from_one_behavioral_observation() {
     check!(native_closed_expressions_skip_unentered_operands_and_preserve_limits);
     check!(name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance);
     check!(native_base_completion_consumes_independent_evaluations_and_replays_pending_order);
-    check!(base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled_membership_forgery);
+    check!(
+        base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled_membership_forgery
+    );
     check!(base_completion_stored_replay_rejects_pending_order_and_coupled_proof_forgery);
     check!(source_body_is_under_entry_and_preserves_required_frame_cleanup);
     check!(base_producer_reconciles_the_entire_root_inventory_and_actual_request_profile);
@@ -46,7 +48,9 @@ async fn observation() -> typed_driver::Tables {
         .unwrap();
     tables
 }
-fn data(tables: &typed_driver::Tables) -> (
+fn data(
+    tables: &typed_driver::Tables,
+) -> (
     EvaluationData,
     lctx_model::domain::conditions::entry::EntryData,
     ResourceBudget,
@@ -146,7 +150,9 @@ fn builtin_request(data: &EvaluationData, function: &str) -> ExpressionRequest {
         expression: expression.id(),
     }
 }
-fn native_builtin_read_is_structural_and_refuses_shadowing_frame_and_forged_support(tables: &typed_driver::Tables) {
+fn native_builtin_read_is_structural_and_refuses_shadowing_frame_and_forged_support(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::{
         analysis::{native::NativeAssertionPremise, policy::EvidenceStatus},
         execution::builtin_read::CheckedBuiltinRead,
@@ -210,7 +216,9 @@ fn native_builtin_read_is_structural_and_refuses_shadowing_frame_and_forged_supp
             .any(|row| matches!(row, NativeAssertionPremise::LexicalResolution { .. }))
     );
 }
-fn native_closed_expressions_skip_unentered_operands_and_preserve_limits(tables: &typed_driver::Tables) {
+fn native_closed_expressions_skip_unentered_operands_and_preserve_limits(
+    tables: &typed_driver::Tables,
+) {
     let (data, _, budget) = data(tables);
     for (text, truth) in [
         ("False and effect()", Some(false)),
@@ -281,7 +289,9 @@ fn native_closed_expressions_skip_unentered_operands_and_preserve_limits(tables:
     ));
 }
 
-fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance(tables: &typed_driver::Tables) {
+fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::{conditions::entry::*, normalized::entities::*};
     let (data, entries, budget) = data(tables);
     let source_files = files("execution_channels");
@@ -409,7 +419,9 @@ fn name_evaluation_needs_the_exact_private_entry_proof_and_retains_its_allowance
     assert!(budget.reserved() < reservation);
 }
 
-fn native_base_completion_consumes_independent_evaluations_and_replays_pending_order(tables: &typed_driver::Tables) {
+fn native_base_completion_consumes_independent_evaluations_and_replays_pending_order(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::{
         execution::{ExactRuntimeException, completion::*, outcome::PendingOutcome},
         normalized::entities::CallableEntity,
@@ -510,8 +522,9 @@ fn native_base_completion_consumes_independent_evaluations_and_replays_pending_o
     }
 }
 
-fn base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled_membership_forgery(tables: &typed_driver::Tables)
- {
+fn base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled_membership_forgery(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::{
         analysis::{base_evaluation::AnalysisInvocation, policy::EvidenceStatus, *},
         execution::records::*,
@@ -637,7 +650,9 @@ fn base_evaluation_shared_replay_refuses_value_disposal_status_and_coupled_membe
     }
 }
 
-fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_forgery(tables: &typed_driver::Tables) {
+fn base_completion_stored_replay_rejects_pending_order_and_coupled_proof_forgery(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::{
         analysis::{self, policy::EvidenceStatus, *},
         execution::{completion::*, completion_records::*, records::*},
@@ -993,7 +1008,9 @@ fn source_body_is_under_entry_and_preserves_required_frame_cleanup(tables: &type
     }
 }
 
-fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_profile(tables: &typed_driver::Tables) {
+fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_profile(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::{
         analysis::{self, base_evaluation as publication},
         conditions::entry::{EntryAccessSource, EntryValueWitness},
@@ -1215,7 +1232,9 @@ fn base_producer_reconciles_the_entire_root_inventory_and_actual_request_profile
     ));
 }
 
-fn completion_producer_reconciles_statement_inventory_and_finalizer_order(tables: &typed_driver::Tables) {
+fn completion_producer_reconciles_statement_inventory_and_finalizer_order(
+    tables: &typed_driver::Tables,
+) {
     use lctx_model::domain::{
         analysis::{self, base_completion as publication, base_evaluation as earlier},
         conditions::entry::{EntryAccessSource, EntryValueWitness},

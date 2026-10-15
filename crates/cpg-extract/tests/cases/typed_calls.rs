@@ -1,6 +1,6 @@
 //! Known answers for native call events, independent of producer iteration order (A10).
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     assertion::*, attribution::*, calls::*, source::*, syntax::SubjectBoundary, *,
 };

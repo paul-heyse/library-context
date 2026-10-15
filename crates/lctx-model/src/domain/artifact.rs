@@ -162,12 +162,13 @@ impl InvariantCheck for ArtifactContents {
                     .is_none_or(|(id, _)| *id != chunk.artifact)
                 {
                     self.flush()?;
-                    let (expected_digest, expected_len) = self
+                    let expected = self
                         .expected
-                        .remove(&mut self.charge, &chunk.artifact)
+                        .remove(&mut self.charge, &chunk.artifact)?
                         .ok_or_else(|| {
                             ModelError::Invalid("chunk artifact absent or repeated".into())
                         })?;
+                    let (expected_digest, expected_len) = *expected;
                     self.current = Some((
                         chunk.artifact,
                         ArtifactVerifier {

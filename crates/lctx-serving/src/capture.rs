@@ -25,14 +25,12 @@ use lctx_model::domain::{
 
 async fn row<R: Record>(lease: &mut NativePackets<'_>, id: Id<R>) -> Result<R, Error> {
     let batch = lease.read_ids::<R>(&[id]).await?;
-    batch.get(id)?
-        .cloned()
-        .ok_or_else(|| {
-            Error::Model(ModelError::Invalid(format!(
-                "required native capture row missing: {}",
-                R::NAME
-            )))
-        })
+    batch.get(id)?.cloned().ok_or_else(|| {
+        Error::Model(ModelError::Invalid(format!(
+            "required native capture row missing: {}",
+            R::NAME
+        )))
+    })
 }
 fn reference<R: Record>(id: Id<R>) -> Result<ProofReference, Error> {
     Ok(ProofReference::from_canonical(RowRef::of(id))?)

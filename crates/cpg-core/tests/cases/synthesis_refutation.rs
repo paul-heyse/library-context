@@ -316,4 +316,3 @@ async fn native_false_source_compiles_exact_negative_s0_authority() {
         );
     }
 }
-

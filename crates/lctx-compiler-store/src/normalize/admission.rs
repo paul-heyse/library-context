@@ -1,8 +1,8 @@
 //! Required normalized owner predicates over one candidate/advertised domain at a time.
 use super::{call_scope::CallScopes, receiver_scope::ReceiverScopes};
 use crate::{
-    consumed_rows::{ClosureTable, identifier},
     admission::Cancellation,
+    consumed_rows::{ClosureTable, identifier},
 };
 use arrow_array::Array;
 use futures::TryStreamExt;
@@ -35,7 +35,17 @@ pub async fn validate_receivers(
     cancellation: &Cancellation,
     model: &ValidatedModel,
 ) -> Result<(), ModelError> {
-    prepare_receivers(invariant, tables, session, budget, cancellation, model, false).await.map(|_| ())
+    prepare_receivers(
+        invariant,
+        tables,
+        session,
+        budget,
+        cancellation,
+        model,
+        false,
+    )
+    .await
+    .map(|_| ())
 }
 pub async fn prepare_receivers(
     invariant: &Invariant,
@@ -46,8 +56,15 @@ pub async fn prepare_receivers(
     model: &ValidatedModel,
     collect: bool,
 ) -> Result<Option<receiver::VerifiedReceivers>, ModelError> {
-    let mut owner = if collect { Some(receiver::prepare_view(&receiver::ReceiverData::new(budget).view(),
-        &receiver::ReceiverOutput::new(budget).view(), budget)?) } else { None };
+    let mut owner = if collect {
+        Some(receiver::prepare_view(
+            &receiver::ReceiverData::new(budget).view(),
+            &receiver::ReceiverOutput::new(budget).view(),
+            budget,
+        )?)
+    } else {
+        None
+    };
     let scopes = ReceiverScopes::from_tables(
         invariant.inputs.clone(),
         tables.clone(),
@@ -110,8 +127,11 @@ pub async fn prepare_receivers(
                             &stored,
                             budget,
                         )?;
-                        let prepared = receiver::prepare_view(&inputs.view()?, &outputs.view()?, budget)?;
-                        if let Some(owner) = &mut owner { owner.append(prepared)?; }
+                        let prepared =
+                            receiver::prepare_view(&inputs.view()?, &outputs.view()?, budget)?;
+                        if let Some(owner) = &mut owner {
+                            owner.append(prepared)?;
+                        }
                     }
                 }
             }
@@ -130,7 +150,17 @@ pub async fn validate_events(
     cancellation: &Cancellation,
     model: &ValidatedModel,
 ) -> Result<(), ModelError> {
-    prepare_events(invariant, tables, session, budget, cancellation, model, false).await.map(|_| ())
+    prepare_events(
+        invariant,
+        tables,
+        session,
+        budget,
+        cancellation,
+        model,
+        false,
+    )
+    .await
+    .map(|_| ())
 }
 pub async fn prepare_events(
     invariant: &Invariant,
@@ -141,8 +171,15 @@ pub async fn prepare_events(
     model: &ValidatedModel,
     collect: bool,
 ) -> Result<Option<event_normalization::VerifiedEvents>, ModelError> {
-    let mut owner = if collect { Some(event_normalization::prepare_view(&event_normalization::EventData::new(budget).view(),
-        &event_normalization::EventOutput::new(budget).view(), budget)?) } else { None };
+    let mut owner = if collect {
+        Some(event_normalization::prepare_view(
+            &event_normalization::EventData::new(budget).view(),
+            &event_normalization::EventOutput::new(budget).view(),
+            budget,
+        )?)
+    } else {
+        None
+    };
     let scopes = CallScopes::from_tables(
         invariant.inputs.clone(),
         tables.clone(),
@@ -260,7 +297,17 @@ pub async fn validate_bindings(
     cancellation: &Cancellation,
     model: &ValidatedModel,
 ) -> Result<(), ModelError> {
-    prepare_bindings(invariant, tables, session, budget, cancellation, model, false).await.map(|_| ())
+    prepare_bindings(
+        invariant,
+        tables,
+        session,
+        budget,
+        cancellation,
+        model,
+        false,
+    )
+    .await
+    .map(|_| ())
 }
 pub async fn prepare_bindings(
     invariant: &Invariant,
@@ -271,8 +318,15 @@ pub async fn prepare_bindings(
     model: &ValidatedModel,
     collect: bool,
 ) -> Result<Option<binding_normalization::VerifiedBindings>, ModelError> {
-    let mut owner = if collect { Some(binding_normalization::prepare_view(&binding_normalization::BindingData::new(budget).view(),
-        &binding_normalization::BindingOutput::new(budget).view(), budget)?) } else { None };
+    let mut owner = if collect {
+        Some(binding_normalization::prepare_view(
+            &binding_normalization::BindingData::new(budget).view(),
+            &binding_normalization::BindingOutput::new(budget).view(),
+            budget,
+        )?)
+    } else {
+        None
+    };
     let scopes = CallScopes::from_tables(
         invariant.inputs.clone(),
         tables.clone(),
@@ -340,7 +394,9 @@ pub async fn prepare_bindings(
                     super::callable_scope::nominal(ids.value(i))?,
                     budget,
                 )?;
-                if let Some(owner) = &mut owner { owner.append(prepared)?; }
+                if let Some(owner) = &mut owner {
+                    owner.append(prepared)?;
+                }
             }
         }
     }

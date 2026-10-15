@@ -237,11 +237,16 @@ fn with_capture_omitting<T>(
     completed!(NormalizationCoverage, universe.normalized.clone());
     completed!(ProviderCoverage, universe.native.clone());
     completed!(AnalysisDefinition, vec![universe.definition.clone()]);
-    completed!(uniform_outcome::UniformNotRequested, universe.uniform.clone());
+    completed!(
+        uniform_outcome::UniformNotRequested,
+        universe.uniform.clone()
+    );
     let sources = inputs.0.values().cloned().collect::<Vec<_>>();
     let captured = CapturedSources::capture(profile, sources.clone(), &budget).unwrap();
     let mut admission = CoverageAdmission::new(&captured, &budget).unwrap();
-    if let Some(owner)=&universe.uniform_owner{admission.admit_uniform_owner(owner).unwrap();}
+    if let Some(owner) = &universe.uniform_owner {
+        admission.admit_uniform_owner(owner).unwrap();
+    }
     macro_rules! visit {
         ($r:ty,$rows:expr) => {
             if Some(<$r>::NAME) != omit {
@@ -285,19 +290,24 @@ fn publication<R: Record>(
     model: &ValidatedModel,
     budget: &resources::ResourceBudget,
 ) -> Result<(), ModelError> {
-    publication_with_owners::<R>(frames,sources,profile,model,budget,&[])
+    publication_with_owners::<R>(frames, sources, profile, model, budget, &[])
 }
-fn publication_with_owners<R:Record>(
-    mut frames:BTreeMap<&'static str,arrow_array::RecordBatch>,sources:&[SourceSnapshot],
-    profile:Profile,model:&ValidatedModel,budget:&resources::ResourceBudget,
-    owners:&[uniform_outcome::ValidatedUniformOwner],
-)->Result<(),ModelError>{
+fn publication_with_owners<R: Record>(
+    mut frames: BTreeMap<&'static str, arrow_array::RecordBatch>,
+    sources: &[SourceSnapshot],
+    profile: Profile,
+    model: &ValidatedModel,
+    budget: &resources::ResourceBudget,
+    owners: &[uniform_outcome::ValidatedUniformOwner],
+) -> Result<(), ModelError> {
     let descriptor = lctx_model::domain::validation::publication_checks_for::<R>()
         .into_iter()
         .find(|c| c.name.ends_with("coverage_frontier"))
         .unwrap();
     let mut check = (descriptor.create)(budget);
-    for owner in owners{check.admit_uniform_owner(owner)?;}
+    for owner in owners {
+        check.admit_uniform_owner(owner)?;
+    }
     for input in descriptor.inputs {
         let batch = frames.remove(input.name()).unwrap_or_else(|| {
             arrow_array::RecordBatch::new_empty(
@@ -316,48 +326,210 @@ fn publication_with_owners<R:Record>(
 }
 #[test]
 fn compact_flow_survives_frontier_finish_without_fabricated_scoped_coverage() {
+    use completed::{CompletedContribution, ContributionSpec, OutputContent, OutputProfile};
+    use producer_contract::{self as pc, acquisition::CapturedAcquisition};
     use uniform_outcome::*;
-    use producer_contract::{self as pc,acquisition::CapturedAcquisition};
-    use completed::{ContributionSpec,CompletedContribution,OutputContent,OutputProfile};
-    for count in [0,2] {
-        let mut universe=Universe::new(Profile::Catalog,AnalysisMethod::LocalTransfers,count);
-        let owner_budget=budget();
-        let mut capture=CapturedAcquisition::tree(universe.input.clone(),"compact frontier finish".into());
-        let acquisition=input::InputAcquisition{input:universe.input.id(),origin:capture.origin.id()}.id();
-        capture.artifacts=universe.artifacts.clone();capture.uses=universe.uses.clone();
-        capture.unowned=capture.artifacts.iter().map(|artifact|input::UnownedArtifact{artifact:artifact.id(),acquisition}).collect();
-        capture.canonicalize();capture.validate().unwrap();
-        let contract=pc::facts::assembly();let settings=ContentHash::of(b"assemble");
-        let mut stage=contract.bind(ContentHash::of(b"compact finish implementation"),settings,[]);
-        let binding=stage.captured_binding.as_mut().unwrap();binding.context_dependency=pc::CapturedContextDependency::SemanticContext;
-        binding.sources.push(pc::CapturedSourceBinding{input:universe.input.id(),context:Some(nominal(2)),configuration:Some(ContentHash::of(b"control context")),acquisition:std::sync::Arc::new(capture)});
-        let (_,domain)=ExpectedUniform::captured_family(&stage,Profile::Catalog,universe.input.id(),nominal(2),FactFamily::Flow,&owner_budget).unwrap();
-        let row=domain.declaration().unwrap();
-        let spec=ContributionSpec{captured_binding:stage.captured_binding,producer:stage.name.into(),profile:OutputProfile::Specific(Profile::Catalog),model:ContentHash::of(b"control model"),implementation:stage.code,configuration:Some(settings),inputs:vec![],outputs:contract.outputs.iter().chain(&contract.contributes).map(|relation|relation.name().to_owned()).collect()};
-        let completed=CompletedContribution{assurance:producer_assurance::ProducerAssurance::CurrentProviderInterface,outputs:spec.outputs.iter().map(|name|(name.clone(),OutputContent{rows:u64::from(name==UniformNotRequested::NAME),content:ContentHash::of(b"canonical control output")})).collect(),spec,outcome:0};
-        let owner=ValidatedUniformOwner::validate_semantic_binding(&completed,&row,Profile::Catalog,&owner_budget).unwrap();
-        universe.native.clear();universe.uniform=vec![row.clone()];universe.uniform_owner=Some(owner.clone());
-        with_capture(&universe,Profile::Catalog,|captured,admission,sources,model,budget,_|{
-            use local::coverage::*;
-            let (inv,_,_,_)=local::Invocation::admitted(universe.input.id(),nominal(2),universe.definition.id(),None,[],captured,[],budget).unwrap();
-            let admitted=admit(&inv,&universe.definition,AnalysisCapability::Transfers,admission,budget).unwrap();
-            let mut requirements=Vec::new();let mut required=Vec::new();let mut coverage=Vec::new();let mut premises=Vec::new();let mut lower=Vec::new();
-            for scope in admitted.scopes(){
-                let (r,m)=scope.expectation().records().unwrap();requirements.push(r);required.extend(m);
-                let (c,p)=assess(scope.expectation(),scope.observations(),AnalysisStatus::NotRequested,Some(obligation::ObligationKind::NotRequested),budget).unwrap();
-                assert_eq!(c.availability,EvidenceAvailability::NotRequested);coverage.push(c);premises.extend(p);
-                lower.extend(scope.observations().iter().map(|row|row.source().clone()));
-            }
-            assert!(universe.native.is_empty());
-            assert_eq!(lower.iter().filter(|source|matches!(source,local::CoverageSource::UniformNative{..})).count(),count);
-            let mut frames=universe.frames();frames.extend([frame(std::slice::from_ref(&inv)),frame(&[local::Outcome{invocation:inv.id(),status:AnalysisStatus::NotRequested,reason:Some(obligation::ObligationKind::NotRequested)}]),frame(&requirements),frame(&required),frame(&coverage),frame(&premises),frame(&lower)]);
-            publication_with_owners::<local::Invocation>(frames.clone(),sources,Profile::Catalog,model,budget,std::slice::from_ref(&owner)).unwrap();
-            if count!=0{
-                assert!(publication::<local::Invocation>(frames.clone(),sources,Profile::Catalog,model,budget).is_err(),"serialized compact rows do not create owner authority");
-                frames.insert(UniformNotRequested::NAME,UniformNotRequested::encode(&[]).unwrap());
-                assert!(publication_with_owners::<local::Invocation>(frames,sources,Profile::Catalog,model,budget,std::slice::from_ref(&owner)).is_err(),"absence cannot inherit total coverage");
-            }
+    for count in [0, 2] {
+        let mut universe = Universe::new(Profile::Catalog, AnalysisMethod::LocalTransfers, count);
+        let owner_budget = budget();
+        let mut capture =
+            CapturedAcquisition::tree(universe.input.clone(), "compact frontier finish".into());
+        let acquisition = input::InputAcquisition {
+            input: universe.input.id(),
+            origin: capture.origin.id(),
+        }
+        .id();
+        capture.artifacts = universe.artifacts.clone();
+        capture.uses = universe.uses.clone();
+        capture.unowned = capture
+            .artifacts
+            .iter()
+            .map(|artifact| input::UnownedArtifact {
+                artifact: artifact.id(),
+                acquisition,
+            })
+            .collect();
+        capture.canonicalize();
+        capture.validate().unwrap();
+        let contract = pc::facts::assembly();
+        let settings = ContentHash::of(b"assemble");
+        let mut stage = contract.bind(
+            ContentHash::of(b"compact finish implementation"),
+            settings,
+            [],
+        );
+        let binding = stage.captured_binding.as_mut().unwrap();
+        binding.context_dependency = pc::CapturedContextDependency::SemanticContext;
+        binding.sources.push(pc::CapturedSourceBinding {
+            input: universe.input.id(),
+            context: Some(nominal(2)),
+            configuration: Some(ContentHash::of(b"control context")),
+            acquisition: std::sync::Arc::new(capture),
         });
+        let (_, domain) = ExpectedUniform::captured_family(
+            &stage,
+            Profile::Catalog,
+            universe.input.id(),
+            nominal(2),
+            FactFamily::Flow,
+            &owner_budget,
+        )
+        .unwrap();
+        let row = domain.declaration().unwrap();
+        let spec = ContributionSpec {
+            captured_binding: stage.captured_binding,
+            producer: stage.name.into(),
+            profile: OutputProfile::Specific(Profile::Catalog),
+            model: ContentHash::of(b"control model"),
+            implementation: stage.code,
+            configuration: Some(settings),
+            inputs: vec![],
+            outputs: contract
+                .outputs
+                .iter()
+                .chain(&contract.contributes)
+                .map(|relation| relation.name().to_owned())
+                .collect(),
+        };
+        let completed = CompletedContribution {
+            assurance: producer_assurance::ProducerAssurance::CurrentProviderInterface,
+            outputs: spec
+                .outputs
+                .iter()
+                .map(|name| {
+                    (
+                        name.clone(),
+                        OutputContent {
+                            rows: u64::from(name == UniformNotRequested::NAME),
+                            content: ContentHash::of(b"canonical control output"),
+                        },
+                    )
+                })
+                .collect(),
+            spec,
+            outcome: 0,
+        };
+        let owner = ValidatedUniformOwner::validate_semantic_binding(
+            &completed,
+            &row,
+            Profile::Catalog,
+            &owner_budget,
+        )
+        .unwrap();
+        universe.native.clear();
+        universe.uniform = vec![row.clone()];
+        universe.uniform_owner = Some(owner.clone());
+        with_capture(
+            &universe,
+            Profile::Catalog,
+            |captured, admission, sources, model, budget, _| {
+                use local::coverage::*;
+                let (inv, _, _, _) = local::Invocation::admitted(
+                    universe.input.id(),
+                    nominal(2),
+                    universe.definition.id(),
+                    None,
+                    [],
+                    captured,
+                    [],
+                    budget,
+                )
+                .unwrap();
+                let admitted = admit(
+                    &inv,
+                    &universe.definition,
+                    AnalysisCapability::Transfers,
+                    admission,
+                    budget,
+                )
+                .unwrap();
+                let mut requirements = Vec::new();
+                let mut required = Vec::new();
+                let mut coverage = Vec::new();
+                let mut premises = Vec::new();
+                let mut lower = Vec::new();
+                for scope in admitted.scopes() {
+                    let (r, m) = scope.expectation().records().unwrap();
+                    requirements.push(r);
+                    required.extend(m);
+                    let (c, p) = assess(
+                        scope.expectation(),
+                        scope.observations(),
+                        AnalysisStatus::NotRequested,
+                        Some(obligation::ObligationKind::NotRequested),
+                        budget,
+                    )
+                    .unwrap();
+                    assert_eq!(c.availability, EvidenceAvailability::NotRequested);
+                    coverage.push(c);
+                    premises.extend(p);
+                    lower.extend(scope.observations().iter().map(|row| row.source().clone()));
+                }
+                assert!(universe.native.is_empty());
+                assert_eq!(
+                    lower
+                        .iter()
+                        .filter(|source| matches!(
+                            source,
+                            local::CoverageSource::UniformNative { .. }
+                        ))
+                        .count(),
+                    count
+                );
+                let mut frames = universe.frames();
+                frames.extend([
+                    frame(std::slice::from_ref(&inv)),
+                    frame(&[local::Outcome {
+                        invocation: inv.id(),
+                        status: AnalysisStatus::NotRequested,
+                        reason: Some(obligation::ObligationKind::NotRequested),
+                    }]),
+                    frame(&requirements),
+                    frame(&required),
+                    frame(&coverage),
+                    frame(&premises),
+                    frame(&lower),
+                ]);
+                publication_with_owners::<local::Invocation>(
+                    frames.clone(),
+                    sources,
+                    Profile::Catalog,
+                    model,
+                    budget,
+                    std::slice::from_ref(&owner),
+                )
+                .unwrap();
+                if count != 0 {
+                    assert!(
+                        publication::<local::Invocation>(
+                            frames.clone(),
+                            sources,
+                            Profile::Catalog,
+                            model,
+                            budget
+                        )
+                        .is_err(),
+                        "serialized compact rows do not create owner authority"
+                    );
+                    frames.insert(
+                        UniformNotRequested::NAME,
+                        UniformNotRequested::encode(&[]).unwrap(),
+                    );
+                    assert!(
+                        publication_with_owners::<local::Invocation>(
+                            frames,
+                            sources,
+                            Profile::Catalog,
+                            model,
+                            budget,
+                            std::slice::from_ref(&owner)
+                        )
+                        .is_err(),
+                        "absence cannot inherit total coverage"
+                    );
+                }
+            },
+        );
     }
 }
 #[test]

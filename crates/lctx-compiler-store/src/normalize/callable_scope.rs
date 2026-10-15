@@ -1,7 +1,7 @@
 //! Complete callable/descriptor and native-origin candidate groups selected before rich decode.
 use crate::{
-    consumed_rows::{ClosureTable, PreparedEdges, identifier},
     admission::InputTables,
+    consumed_rows::{ClosureTable, PreparedEdges, identifier},
 };
 use arrow_array::Array;
 pub use lctx_model::domain::normalized::normalization_scope_program::CallableKernel as Kernel;
@@ -211,7 +211,8 @@ pub async fn validate_callables(
                 let inputs =
                     DataSelection::new(&selected, partition, &prepared.inputs, &data, budget)?;
                 let owner = nominal(ids.value(index))?;
-                let outputs = callable_normalization::CallableOwnerSelection::new(&stored, owner, budget)?;
+                let outputs =
+                    callable_normalization::CallableOwnerSelection::new(&stored, owner, budget)?;
                 callable_normalization::admit_callable_view(
                     &inputs.view()?,
                     &outputs.view()?,
@@ -258,7 +259,9 @@ impl CallableScopes {
         .await?;
         Ok(rows)
     }
-    pub fn program(&self) -> ContentHash { self.program }
+    pub fn program(&self) -> ContentHash {
+        self.program
+    }
     pub fn inputs(&self) -> &[ValidationInput] {
         &self.inputs
     }

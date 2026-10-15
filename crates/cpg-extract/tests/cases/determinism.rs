@@ -1,6 +1,6 @@
 //! Typed production facts retain identity across physical layouts and transfer boundaries.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use cpg_extract::{
     acquisition::AcquiredInput,
     bundle::{CapturedInputs, refuse_ambient},

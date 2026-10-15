@@ -17,14 +17,6 @@ pub struct SelectedViewDescriptor {
     pub view: d::completed::CompletedView,
     pub mappings: Vec<ContributorRealization>,
 }
-impl SelectedViewDescriptor {
-    pub(crate) fn from_retained(value: &InstalledViewCompletion) -> Self {
-        Self {
-            view: value.view.clone(),
-            mappings: value.mappings.clone(),
-        }
-    }
-}
 /// Actual immutable rows and their pin, never a serialized grant. Exact descriptors
 /// are retained in ExpectedRecord bytes, with normalized preparation owned alongside.
 pub struct EarnedContributionSet {
@@ -36,7 +28,7 @@ pub struct EarnedContributionSet {
     selector: ContentHash,
     members: crate::ordered_rows::PreparedPointRows,
     _prepared: Vec<super::audit::LogicalContributorRows>,
-    _charge: StateCharge,
+    pub(super) _charge: StateCharge,
 }
 impl EarnedContributionSet {
     pub fn owner(&self) -> &RecordId {
@@ -162,6 +154,7 @@ impl HeldInstalledView {
         pin: &crate::control::ReaderPin,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        self.require_pool(budget)?;
         if let InstalledViewOwner::Earned { set } = &self.owner {
             set.pin.ensure_live()?;
             for expected in set.contributors.values() {
@@ -264,23 +257,21 @@ pub async fn select_live_view_scoped(
         set.pin.ensure_live()?;
         let mut charge = StateCharge::new(budget, "internal exact view selector");
         charge.grow(
-            view.relation
-                .capacity()
-                .saturating_add(view.contributions.len().saturating_mul(256))
+            std::mem::size_of::<HeldInstalledView>()
+                .saturating_add(2 * std::mem::size_of::<usize>())
+                .saturating_add(super::view_heap(view))
                 .saturating_add(
                     mappings
                         .len()
                         .saturating_mul(std::mem::size_of::<ContributorRealization>()),
-                )
-                .saturating_add(1024),
+                ),
         )?;
         Ok(HeldInstalledView {
             client: client.clone(),
-            completion: None,
-            selector: SelectedViewDescriptor {
+            selector: HeldSelector::Earned(SelectedViewDescriptor {
                 view: view.clone(),
                 mappings: mappings.to_vec(),
-            },
+            }),
             owner: InstalledViewOwner::Earned { set },
             _charge: charge,
         })

@@ -145,6 +145,26 @@ impl Receipt {
         Ok(result)
     }
 }
+fn serialization_workspace<T: Serialize>(
+    value: &T,
+    budget: &ResourceBudget,
+    owner: &'static str,
+) -> Result<Box<dyn d::resources::Reservation>, ModelError> {
+    struct Counter(usize);
+    impl std::io::Write for Counter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 = self.0.saturating_add(bytes.len());
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Counter(0);
+    serde_json::to_writer(&mut count, value).map_err(ModelError::codec)?;
+    budget.reserve(owner, count.0.saturating_mul(32).saturating_add(65536))
+}
+
 struct ObservedInput {
     relation: Relation,
     sink: Option<KeySink>,
@@ -190,6 +210,20 @@ impl PendingValidation {
             .factory_contract(invariant.identity())
             .ok_or(ModelError::Conflict("native premise undeclared factory"))?;
         // Enforce the same closed whole-input eligibility at the native boundary.
+        let _source_copy = budget.reserve(
+            "native premise eligibility source copies",
+            inputs
+                .iter()
+                .map(|input| {
+                    std::mem::size_of::<(
+                        SourceSnapshot,
+                        Option<PublicationBoundary>,
+                        Option<PublicationBoundary>,
+                    )>()
+                    .saturating_add(d::HeapSize::heap_bytes(&input.source))
+                })
+                .fold(0usize, usize::saturating_add),
+        )?;
         let sources = inputs
             .iter()
             .map(|input| (input.source.clone(), input.requested, input.resolved))
@@ -201,32 +235,70 @@ impl PendingValidation {
             uniform,
             budget,
         )?;
+        drop(_whole);
+        drop(_source_copy);
         if inputs.is_empty() || caps.is_empty() {
             return Err(ModelError::Conflict(
                 "native premise requires protected declared inputs",
             ));
         }
-        caps.sort_by_key(|cap| cap.completion().view.identity);
+        caps.sort_unstable_by_key(|cap| cap.completion().view.identity);
         caps.dedup_by(|left, right| left.completion() == right.completion());
         let mut charge = StateCharge::new(budget, "native durable premise metadata");
         charge.grow(
-            inputs
-                .iter()
-                .map(|input| {
-                    d::HeapSize::heap_bytes(&input.source)
-                        .saturating_mul(4)
-                        .saturating_add(2048)
-                })
-                .sum::<usize>()
+            std::mem::size_of::<Self>()
+                .saturating_add(invariant.name.len())
+                .saturating_add(
+                    contract
+                        .inputs
+                        .len()
+                        .saturating_mul(std::mem::size_of::<ContentHash>()),
+                )
+                .saturating_add(
+                    inputs
+                        .capacity()
+                        .saturating_mul(std::mem::size_of::<SelectedInput>()),
+                )
+                .saturating_add(
+                    inputs
+                        .iter()
+                        .map(|input| d::HeapSize::heap_bytes(&input.source))
+                        .sum::<usize>(),
+                )
+                .saturating_add(
+                    caps.capacity()
+                        .saturating_mul(std::mem::size_of::<Arc<HeldInstalledView>>()),
+                )
+                .saturating_add(
+                    caps.len()
+                        .saturating_mul(std::mem::size_of::<PhysicalInput>()),
+                )
                 .saturating_add(
                     caps.iter()
+                        .filter(|cap| cap.is_internal())
                         .map(|cap| {
-                            serde_json::to_vec(&cap.completion().view).map_or(0, |bytes| {
-                                bytes.len().saturating_mul(8).saturating_add(2048)
-                            })
+                            crate::installed_view::view_heap(&cap.completion().view).saturating_add(
+                                cap.completion().mappings.len().saturating_mul(
+                                    std::mem::size_of::<
+                                        crate::installed_view::ContributorRealization,
+                                    >(),
+                                ),
+                            )
                         })
                         .sum::<usize>(),
-                ),
+                )
+                .saturating_add(
+                    uniform
+                        .len()
+                        .saturating_mul(std::mem::size_of::<UniformOwnerPremise>()),
+                )
+                .saturating_add(
+                    invariant
+                        .inputs
+                        .len()
+                        .saturating_mul(std::mem::size_of::<ObservedInput>()),
+                )
+                .saturating_add(4096),
         )?;
         for input in &inputs {
             if input.source.model() != model.digest()
@@ -251,7 +323,14 @@ impl PendingValidation {
                 profile: owner.profile(),
             })
             .collect::<Vec<_>>();
+        let owner_order = budget.reserve(
+            "native premise uniform owner ordering",
+            owners
+                .len()
+                .saturating_mul(std::mem::size_of::<UniformOwnerPremise>()),
+        )?;
         owners.sort_by_key(|owner| (owner.contribution, owner.descriptor));
+        drop(owner_order);
         if owners.iter().any(|owner| {
             !caps.iter().any(|cap| {
                 cap.completion()
@@ -344,8 +423,15 @@ impl PendingValidation {
         if self.caps.iter().any(|cap| cap.is_internal()) {
             return Ok(false);
         }
-        let Some(expected) =
-            inspect_expected_read(&self.reader, self.key.record()?, &self.budget).await?
+        let address = {
+            let _identity = serialization_workspace(
+                &self.key,
+                &self.budget,
+                "native premise identity workspace",
+            )?;
+            self.key.record()?
+        };
+        let Some(expected) = inspect_expected_read(&self.reader, address, &self.budget).await?
         else {
             return Ok(false);
         };
@@ -560,6 +646,11 @@ impl PendingValidation {
                 "native premise unexecuted/incomplete physical ledger",
             ));
         }
+        let _proof_validation = serialization_workspace(
+            proof.data(),
+            &self.budget,
+            "native premise proof validation workspace",
+        )?;
         self.key.check_proof(proof.data(), &self.model)?;
         for (state, input) in self.observed.iter_mut().zip(&proof.data().inputs) {
             let mut sink = state.sink.take().ok_or(ModelError::Conflict(
@@ -572,21 +663,21 @@ impl PendingValidation {
                 ));
             }
         }
+        drop(_proof_validation);
         self.current().await?;
         if self.caps.iter().any(|cap| cap.is_internal()) {
             return Ok(());
         }
+        let _construction = serialization_workspace(
+            &(&self.key, proof.data()),
+            &self.budget,
+            "native premise publication",
+        )?;
         let receipt = Receipt {
             key: self.key.clone(),
             proof: proof.data().clone(),
         };
         let row = receipt.value()?;
-        let _construction = self.budget.reserve(
-            "native premise publication",
-            crate::loader::native_bytes(&row)
-                .saturating_mul(32)
-                .saturating_add(65536),
-        )?;
         let (insert, mut variables) = immutable_row_plan(None, None, vec![row])?
             .ok_or(ModelError::Schema("native premise immutable plan"))?;
         let references = self
@@ -707,9 +798,11 @@ mod controls {
             validity_epoch: 3,
             version: 2,
             parent_completion: ContentHash::of(b"compound boundary"),
-            view,
+            selection: std::sync::Arc::new(crate::installed_view::SelectedViewDescriptor {
+                view,
+                mappings,
+            }),
             member_codec: crate::installed_view::MEMBER_CODEC,
-            mappings,
             membership_rows: 0,
             membership_content: ContentHash::of(b"explicit empty members"),
         };
@@ -786,14 +879,18 @@ mod controls {
                 "profile" => changed.profile = Profile::Behavioral,
                 "requested" => changed.inputs[0].requested = Some(PublicationBoundary::Local),
                 "resolved" => changed.inputs[0].resolved = Some(PublicationBoundary::Local),
-                "logical" => completion.view.contributions = [other].into(),
+                "logical" => {
+                    Arc::make_mut(&mut completion.selection).view.contributions = [other].into()
+                }
                 "generation" => completion.generation = other,
                 "epoch" => completion.validity_epoch += 1,
                 "completion_incarnation" => *incarnation += 1,
                 "parent_completion" => completion.parent_completion = other,
                 "member_codec" => completion.member_codec += 1,
-                "copy_incarnation" => completion.mappings[0].incarnation += 1,
-                _ => completion.mappings[0].physical = other,
+                "copy_incarnation" => {
+                    Arc::make_mut(&mut completion.selection).mappings[0].incarnation += 1
+                }
+                _ => Arc::make_mut(&mut completion.selection).mappings[0].physical = other,
             }
             assert_ne!(
                 identity,

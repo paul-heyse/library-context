@@ -1203,12 +1203,11 @@ impl InvariantCheck for InvocationCheck {
             }
         } else if relation == analysis::catalog_core::Invocation::NAME {
             for row in analysis::catalog_core::Invocation::decode(batch)? {
-                self.invocations
-                    .update(&mut self.charge, (row.input, row.context), |ids| {
-                        if !ids.contains(&row.id()) {
-                            ids.push(row.id());
-                        }
-                    })?;
+                self.invocations.push_unique(
+                    &mut self.charge,
+                    (row.input, row.context),
+                    row.id(),
+                )?;
             }
         } else if relation == CatalogMemberInvocation::NAME {
             for row in CatalogMemberInvocation::decode(batch)? {

@@ -1,6 +1,6 @@
 //! Expected identities come from fixture source, separately from the shared closure validator.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     normalized::{entities::*, entity_normalization::*},
     resources::ResourceBudget,

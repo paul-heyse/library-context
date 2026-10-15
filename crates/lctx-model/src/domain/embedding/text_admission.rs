@@ -143,6 +143,8 @@ impl HeapSize for SpanHasher {
         0
     }
 }
+impl crate::domain::charged::inline_state::Sealed for SpanHasher {}
+impl crate::domain::charged::InlineState for SpanHasher {}
 struct Plan {
     fragments: Vec<Bytes>,
     charge: StateCharge,
@@ -428,14 +430,15 @@ impl Check {
             }
             let from = span.start.max(first);
             let to = span.end.min(end);
-            self.active_spans.update(&mut self.charge, *id, |state| {
-                if state.next == from {
-                    let bytes = &row.body.0[(from - first) as usize..(to - first) as usize];
-                    state.hash.update(bytes);
-                    state.utf8.update(bytes);
-                    state.next = to;
-                }
-            })?;
+            self.active_spans
+                .update_inline(&mut self.charge, *id, |state| {
+                    if state.next == from {
+                        let bytes = &row.body.0[(from - first) as usize..(to - first) as usize];
+                        state.hash.update(bytes);
+                        state.utf8.update(bytes);
+                        state.next = to;
+                    }
+                })?;
             if self
                 .active_spans
                 .get(id)
@@ -443,8 +446,9 @@ impl Check {
             {
                 let state = self
                     .active_spans
-                    .remove(&mut self.charge, id)
-                    .expect("completed span");
+                    .remove(&mut self.charge, id)?
+                    .expect("completed span")
+                    .into_inner(&mut self.charge)?;
                 self.span_receipts.insert(
                     &mut self.charge,
                     *id,
@@ -725,10 +729,11 @@ impl InvariantCheck for Check {
             }
         });
         each!(Module, row, {
-            self.modules
-                .update(&mut self.charge, row.source, |modules| {
-                    modules.push(Bytes::of(row.qualified_name.as_bytes()))
-                })?;
+            self.modules.push(
+                &mut self.charge,
+                row.source,
+                Bytes::of(row.qualified_name.as_bytes()),
+            )?;
         });
         each!(AssertionQualification, row, {
             self.qualifications

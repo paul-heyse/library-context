@@ -13,7 +13,7 @@ pub struct CoverageEvidence {
 }
 #[derive(Debug)]
 pub struct ScopedAvailability {
-    uniform_owners:Vec<uniform_outcome::ValidatedUniformOwner>,
+    uniform_owners: Vec<uniform_outcome::ValidatedUniformOwner>,
     evidence: Vec<CoverageEvidence>,
     scopes: BTreeMap<Id<CoverageScope>, CoverageScope>,
     empty: BTreeMap<FactFamily, Availability>,
@@ -26,33 +26,93 @@ impl PartialEq for ScopedAvailability {
 }
 impl Eq for ScopedAvailability {}
 impl ScopedAvailability {
-    pub fn uniform_owners(&self)->&[uniform_outcome::ValidatedUniformOwner]{&self.uniform_owners}
+    pub fn uniform_owners(&self) -> &[uniform_outcome::ValidatedUniformOwner] {
+        &self.uniform_owners
+    }
     /// Compact domains arrive with actual selected-owner admission and independently rebuilt
     /// membership. Scoped rows remain ordinary authority for mixed and historical scoped inputs.
-    pub fn from_completed_with_uniform(profile:Profile,expected:&BTreeSet<super::Expected>,rows:&[ProviderCoverage],scopes:&BTreeMap<Id<CoverageScope>,CoverageScope>,uniform:&[(&uniform_outcome::UniformNotRequested,&uniform_outcome::ValidatedUniformDomain,&uniform_outcome::ValidatedUniformOwner)],budget:&ResourceBudget)->Result<Self,ModelError>{
-        let _scratch=budget.reserve("uniform-availability-expected",expected.len().saturating_mul(size_of::<super::Expected>()+64))?;
-        let mut scoped=expected.clone();
-        for (descriptor,domain,owner) in uniform {
-            if owner.descriptor()!=*descriptor || domain.authority()!=(uniform_outcome::CoverageAuthority::Uniform{descriptor:descriptor.id()}) || owner.profile()!=profile{return Err(refuse("uniform availability owner differs"));}
-            let family=descriptor.family.ok_or_else(||refuse("uniform availability family absent"))?;
-            for (scope,definition) in domain.members(){
-                if !scopes.contains_key(scope) || !matches!(domain.scoped(*scope,*definition),uniform_outcome::ScopedUniformOutcome::NotRequested(_)) || !scoped.remove(&super::Expected{scope:*scope,family,provider:None}){return Err(refuse("uniform availability domain differs from expected obligations"));}
+    pub fn from_completed_with_uniform(
+        profile: Profile,
+        expected: &BTreeSet<super::Expected>,
+        rows: &[ProviderCoverage],
+        scopes: &BTreeMap<Id<CoverageScope>, CoverageScope>,
+        uniform: &[(
+            &uniform_outcome::UniformNotRequested,
+            &uniform_outcome::ValidatedUniformDomain,
+            &uniform_outcome::ValidatedUniformOwner,
+        )],
+        budget: &ResourceBudget,
+    ) -> Result<Self, ModelError> {
+        let _scratch = budget.reserve(
+            "uniform-availability-expected",
+            expected
+                .len()
+                .saturating_mul(size_of::<super::Expected>() + 64),
+        )?;
+        let mut scoped = expected.clone();
+        for (descriptor, domain, owner) in uniform {
+            if owner.descriptor() != *descriptor
+                || domain.authority()
+                    != (uniform_outcome::CoverageAuthority::Uniform {
+                        descriptor: descriptor.id(),
+                    })
+                || owner.profile() != profile
+            {
+                return Err(refuse("uniform availability owner differs"));
+            }
+            let family = descriptor
+                .family
+                .ok_or_else(|| refuse("uniform availability family absent"))?;
+            for (scope, definition) in domain.members() {
+                if !scopes.contains_key(scope)
+                    || !matches!(
+                        domain.scoped(*scope, *definition),
+                        uniform_outcome::ScopedUniformOutcome::NotRequested(_)
+                    )
+                    || !scoped.remove(&super::Expected {
+                        scope: *scope,
+                        family,
+                        provider: None,
+                    })
+                {
+                    return Err(refuse(
+                        "uniform availability domain differs from expected obligations",
+                    ));
+                }
             }
         }
-        let mut result=Self::from_completed(profile,&scoped,rows,scopes,budget)?;
-        result._charge.grow(uniform.len().saturating_mul(size_of::<uniform_outcome::ValidatedUniformOwner>()))?;
-        result.uniform_owners=Vec::with_capacity(uniform.len());
-        for (descriptor,domain,owner) in uniform {
-            let family=descriptor.family.ok_or_else(||refuse("uniform availability family absent"))?;
-            for (scope,definition) in domain.members(){
-                let evidence=domain.evidence(*scope,*definition).ok_or_else(||refuse("uniform availability scope not admitted"))?;
-                result._charge.grow(size_of::<CoverageEvidence>()*2)?;
-                result.evidence.push(CoverageEvidence{coverage:domain.authority(),scope:evidence.scope(),context:evidence.context(),provider:None,family,availability:Availability::NotRequested});
+        let mut result = Self::from_completed(profile, &scoped, rows, scopes, budget)?;
+        result._charge.grow(
+            uniform
+                .len()
+                .saturating_mul(size_of::<uniform_outcome::ValidatedUniformOwner>()),
+        )?;
+        result.uniform_owners = Vec::with_capacity(uniform.len());
+        for (descriptor, domain, owner) in uniform {
+            let family = descriptor
+                .family
+                .ok_or_else(|| refuse("uniform availability family absent"))?;
+            for (scope, definition) in domain.members() {
+                let evidence = domain
+                    .evidence(*scope, *definition)
+                    .ok_or_else(|| refuse("uniform availability scope not admitted"))?;
+                result._charge.grow(size_of::<CoverageEvidence>() * 2)?;
+                result.evidence.push(CoverageEvidence {
+                    coverage: domain.authority(),
+                    scope: evidence.scope(),
+                    context: evidence.context(),
+                    provider: None,
+                    family,
+                    availability: Availability::NotRequested,
+                });
             }
-            if !domain.is_explicit_empty(){result.empty.remove(&family);}
+            if !domain.is_explicit_empty() {
+                result.empty.remove(&family);
+            }
             result.uniform_owners.push((*owner).clone());
         }
-        result.evidence.sort_by_key(|row|(row.coverage,row.scope));Ok(result)
+        result.evidence.sort_by_key(|row| (row.coverage, row.scope));
+        Ok(result)
     }
     /// Validate completed native coverage against an independently constructed obligation set.
     /// The compiler derives expected keys from requested providers and captured analysis roots.
@@ -147,7 +207,7 @@ impl ScopedAvailability {
             .iter()
             .map(|row| {
                 Ok(CoverageEvidence {
-                    coverage: uniform_outcome::CoverageAuthority::Scoped{coverage:row.id()},
+                    coverage: uniform_outcome::CoverageAuthority::Scoped { coverage: row.id() },
                     scope: row.scope,
                     context: row.context,
                     provider: row.provider,
@@ -173,7 +233,7 @@ impl ScopedAvailability {
             .map(|(family, value)| (*family, *value))
             .collect();
         Ok(Self {
-            uniform_owners:vec![],
+            uniform_owners: vec![],
             evidence,
             scopes: scopes.clone(),
             empty,

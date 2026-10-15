@@ -290,7 +290,8 @@ impl DerivedStaging {
         views: &[lctx_model::domain::completed::CompletedBinding],
         budget: &ResourceBudget,
     ) -> Result<PublishedMarker, ModelError> {
-        self.publish_inner(loader, handle, manifest, views, budget, None).await
+        self.publish_inner(loader, handle, manifest, views, budget, None)
+            .await
     }
     /// Same-operation expectations are accepted only from the actual protected
     /// Loader that materialized them. All final actual/inventory/CAS checks remain.
@@ -303,7 +304,8 @@ impl DerivedStaging {
         budget: &ResourceBudget,
         search: &crate::derived_search::PreparedSearch,
     ) -> Result<PublishedMarker, ModelError> {
-        self.publish_inner(loader, handle, manifest, views, budget, Some(search)).await
+        self.publish_inner(loader, handle, manifest, views, budget, Some(search))
+            .await
     }
     async fn publish_inner(
         &self,

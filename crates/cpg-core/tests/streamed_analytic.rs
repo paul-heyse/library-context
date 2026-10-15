@@ -196,8 +196,9 @@ async fn run(data: &TextData, requested: bool, memory: usize, batch_rows: usize)
             memory_bytes: memory,
             batch_rows,
             partitions: 1,
-        }, crate::native_fixture::store()
-)
+        },
+        crate::native_fixture::store(),
+    )
     .unwrap();
     let output = workspace.output(
         "analytic-fixture",
@@ -226,7 +227,12 @@ async fn run(data: &TextData, requested: bool, memory: usize, batch_rows: usize)
         stages::Profile::Catalog,
         ContentHash::of(b"text"),
         inputs.clone(),
-        [TextDefinition::NAME,TextSubject::NAME,TextAssessment::NAME,TextWindow::NAME],
+        [
+            TextDefinition::NAME,
+            TextSubject::NAME,
+            TextAssessment::NAME,
+            TextWindow::NAME,
+        ],
     );
     let definition = TextDefinition {
         requested,
@@ -419,8 +425,9 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
             memory_bytes: 4 << 20,
             batch_rows: 8,
             partitions: 1,
-        }, crate::native_fixture::store()
-)
+        },
+        crate::native_fixture::store(),
+    )
     .unwrap();
     let facts = workspace.output(
         "embedding-fixture",
@@ -429,7 +436,13 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
         workspace
             .inputs("embedding-fixture", stages::Profile::Catalog, [])
             .unwrap(),
-    { let mut inventory=vec![AnalysisDefinition::NAME,MethodParameters::NAME]; macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(inventory.push(<$ty>::NAME);)*};} lctx_model::expected_domain_inputs!(inventory); lctx_model::analytic_consumption_inputs!(inventory); inventory },
+        {
+            let mut inventory = vec![AnalysisDefinition::NAME, MethodParameters::NAME];
+            macro_rules! inventory {($($field:ident:$ty:ty,)*)=>{$(inventory.push(<$ty>::NAME);)*};}
+            lctx_model::expected_domain_inputs!(inventory);
+            lctx_model::analytic_consumption_inputs!(inventory);
+            inventory
+        },
     );
     let mut names = std::collections::BTreeSet::new();
     macro_rules! declare {($($field:ident:$ty:ty,)*)=>{$(if names.insert(<$ty>::NAME) {facts.declare::<$ty>().unwrap();})*};}

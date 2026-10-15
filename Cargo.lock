@@ -1266,7 +1266,6 @@ dependencies = [
  "lctx-compiler-store",
  "lctx-model",
  "lctx-native",
- "petgraph 0.8.3",
  "serde",
  "serde_json",
  "sha2",
@@ -3994,7 +3993,6 @@ dependencies = [
  "datafusion",
  "futures 0.3.34",
  "hex",
- "insta",
  "lctx-model",
  "lctx-native",
  "postcard",
@@ -4075,9 +4073,7 @@ name = "lctx-native"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
- "arrow-row",
  "arrow-schema",
- "async-trait",
  "blake3",
  "datafusion",
  "futures 0.3.34",

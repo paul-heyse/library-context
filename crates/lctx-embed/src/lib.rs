@@ -11,7 +11,9 @@
 
 pub mod retrieval_tokenizer;
 use lctx_model::domain::ModelError;
-use lctx_model::domain::embedding::{EmbedFuture, Embedder, ServiceUnavailable, Spec, check_vector};
+use lctx_model::domain::embedding::{
+    EmbedFuture, Embedder, ServiceUnavailable, Spec, check_vector,
+};
 use serde::{Deserialize, Serialize};
 
 /// The committed spec (canonical JSON; its SHA-256 is the spec hash).
@@ -131,8 +133,7 @@ impl VllmEmbedder {
         spec: Spec,
         assets: &std::path::Path,
     ) -> Result<Self, lctx_model::domain::ModelError> {
-        let tokenizer =
-            retrieval_tokenizer::LocalTokenizer::load_verified(assets, &spec)?;
+        let tokenizer = retrieval_tokenizer::LocalTokenizer::load_verified(assets, &spec)?;
         let mut client = Self::new(base, spec);
         client.tokenizer = Some(tokenizer);
         Ok(client)

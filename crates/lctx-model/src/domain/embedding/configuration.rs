@@ -125,7 +125,7 @@ pub fn stage(configuration: Option<&Configuration>) -> Stage {
     configuration.map(|c| c.service.id()).encode(&mut key);
     Stage {
         captured_binding: None,
-name: "embedding_configuration",
+        name: "embedding_configuration",
         inputs: vec![],
         outputs: super::configuration_relations()
             .iter()

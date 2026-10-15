@@ -46,17 +46,29 @@ async fn run(
         "SELECT plan.id,candidate.id FROM synthesis_seed_plans plan JOIN {} owner ON owner.id=plan.invocation JOIN structural_frames frame ON frame.configuration=plan.configuration JOIN {} parent ON parent.id=frame.invocation AND parent.input=owner.input AND parent.context=owner.context JOIN structural_public_candidates candidate ON candidate.frame=frame.id ORDER BY 1,2",
         analysis::synthesis::Invocation::NAME, analysis::structural::Invocation::NAME,
     )).await;
-    assert!(!expected_decisions.is_empty(), "automatic synthesis has an independently observed public candidate population");
-    let actual_decisions: Vec<(Vec<u8>, Vec<u8>)> = catalog_runtime::query(&fixture,
-        "SELECT plan,candidate FROM synthesis_automatic_seed_decisions ORDER BY 1,2").await;
-    assert_eq!(actual_decisions, expected_decisions, "automatic synthesis retains exactly one decision for every admitted public candidate");
+    assert!(
+        !expected_decisions.is_empty(),
+        "automatic synthesis has an independently observed public candidate population"
+    );
+    let actual_decisions: Vec<(Vec<u8>, Vec<u8>)> = catalog_runtime::query(
+        &fixture,
+        "SELECT plan,candidate FROM synthesis_automatic_seed_decisions ORDER BY 1,2",
+    )
+    .await;
+    assert_eq!(
+        actual_decisions, expected_decisions,
+        "automatic synthesis retains exactly one decision for every admitted public candidate"
+    );
     let wrong_basis: i64 = catalog_runtime::one(&fixture, format!(
         "SELECT count(*) FROM synthesis_automatic_seed_decisions WHERE (rank IS NOT NULL AND basis<>{}) OR (rank IS NULL AND basis<>{})",
         synthesis::automatic::RankBasis::SelectedPageRank.code(),
         if selected { synthesis::automatic::RankBasis::PageRankUnavailable.code() }
         else { synthesis::automatic::RankBasis::OfficialUsage.code() },
     )).await;
-    assert_eq!(wrong_basis, 0, "automatic synthesis retains selected-rank or explicit fallback attribution");
+    assert_eq!(
+        wrong_basis, 0,
+        "automatic synthesis retains selected-rank or explicit fallback attribution"
+    );
     if selected && vectors_available {
         replay_controls(&fixture).await;
     }
@@ -695,4 +707,3 @@ async fn replay_controls(fixture: &catalog_runtime::Fixture) {
         );
     }
 }
-

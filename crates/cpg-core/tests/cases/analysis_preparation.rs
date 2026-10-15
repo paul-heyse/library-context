@@ -24,4 +24,3 @@ async fn both_profiles_keep_selected_catalog_and_exact_native_inventory() {
         assert_eq!(selected, 1);
     }
 }
-

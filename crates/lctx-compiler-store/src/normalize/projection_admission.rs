@@ -1,7 +1,7 @@
 //! Compact canonical topology admission and one derived snapshot body at a time.
 use crate::{
-    consumed_rows::{ClosureTable, identifier, stream_batches},
     admission::Cancellation,
+    consumed_rows::{ClosureTable, identifier, stream_batches},
 };
 use futures::TryStreamExt;
 use lctx_model::domain::{
@@ -51,7 +51,9 @@ async fn read<R: Record>(
     rows: &mut Rows<R>,
     cancellation: &Cancellation,
 ) -> Result<(), ModelError> {
-    let input = invariant.inputs.iter()
+    let input = invariant
+        .inputs
+        .iter()
         .find(|input| input.type_id() == TypeId::of::<R>() && input.name() == R::NAME)
         .ok_or(ModelError::Schema(R::NAME))?;
     let mut visit = |batch: &arrow_array::RecordBatch| {
@@ -216,7 +218,14 @@ pub async fn validate_projections(
                     "SELECT h.* FROM {headers} h JOIN {assessments} a ON a.id=h.assessment WHERE {} ORDER BY h.id",
                     predicate(key)
                 );
-                read(invariant,session, &sql, &mut selected_headers, cancellation).await?;
+                read(
+                    invariant,
+                    session,
+                    &sql,
+                    &mut selected_headers,
+                    cancellation,
+                )
+                .await?;
                 if selected_headers.len() != 1 {
                     return Err(ModelError::Invalid(
                         "projection snapshot domain differs".into(),

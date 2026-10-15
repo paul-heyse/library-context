@@ -57,27 +57,62 @@ impl NativePackets<'_> {
             "flow-inventory-grant-selection",
             inventories.rows().len().saturating_add(1) * 128,
         )?;
-        let qualifications=self.read_ids::<AssertionQualification>(&inventories.iter().map(|inventory|inventory.qualification).collect::<Vec<_>>()).await?;
+        let qualifications = self
+            .read_ids::<AssertionQualification>(
+                &inventories
+                    .iter()
+                    .map(|inventory| inventory.qualification)
+                    .collect::<Vec<_>>(),
+            )
+            .await?;
         for inventory in inventories.rows() {
             let qualification = required(&qualifications, inventory.qualification)?;
             if qualification.context == grant.context {
-                let use_=required(&uses,inventory.use_)?;
-                let occurrence=required(&occurrences,use_.occurrence)?;
-                selected.push(((occurrence.start,occurrence.end,inventory.id()),inventory));
+                let use_ = required(&uses, inventory.use_)?;
+                let occurrence = required(&occurrences, use_.occurrence)?;
+                selected.push((
+                    (occurrence.start, occurrence.end, inventory.id()),
+                    inventory,
+                ));
             }
         }
-        selected.sort_by_key(|(key,_)|*key);
+        selected.sort_by_key(|(key, _)| *key);
         let total = selected.len();
-        let _compact = self.budget.reserve("compact-flow-inventory-page", total.saturating_mul(256))?;
-        let compact = crate::pagination::page(selected.iter().enumerate().map(|(ordinal, (_, inventory))|
-            Ok((super::source_evidence::key(derivation::RowRef::of(inventory.id()))?, ordinal)))
-            .collect::<Result<Vec<_>, ModelError>>()?, request, snapshot, channels,
-            request.tool().name(), "flow_inventory", None, Availability::Available {})
-            .map_err(|error| Error::Model(crate::records::wire(error)));
-        let selected_ids = compact.as_ref().map(|page| page.items.iter().copied().collect::<std::collections::BTreeSet<_>>()).unwrap_or_default();
+        let _compact = self
+            .budget
+            .reserve("compact-flow-inventory-page", total.saturating_mul(256))?;
+        let compact = crate::pagination::page(
+            selected
+                .iter()
+                .enumerate()
+                .map(|(ordinal, (_, inventory))| {
+                    Ok((
+                        super::source_evidence::key(derivation::RowRef::of(inventory.id()))?,
+                        ordinal,
+                    ))
+                })
+                .collect::<Result<Vec<_>, ModelError>>()?,
+            request,
+            snapshot,
+            channels,
+            request.tool().name(),
+            "flow_inventory",
+            None,
+            Availability::Available {},
+        )
+        .map_err(|error| Error::Model(crate::records::wire(error)));
+        let selected_ids = compact
+            .as_ref()
+            .map(|page| {
+                page.items
+                    .iter()
+                    .copied()
+                    .collect::<std::collections::BTreeSet<_>>()
+            })
+            .unwrap_or_default();
         let mut items = std::collections::BTreeMap::new();
         let mut partial = false;
-        for (ordinal, (_,inventory)) in selected.into_iter().enumerate() {
+        for (ordinal, (_, inventory)) in selected.into_iter().enumerate() {
             let candidates = self
                 .read_for::<FlowUseCandidate, FlowUseInventoryObservation>(
                     "inventory",
@@ -415,47 +450,52 @@ impl NativePackets<'_> {
                     .map(|s| ProofReference::from_canonical(derivation::RowRef::of(s.id())))
                     .collect::<Result<Vec<_>, _>>()?,
             );
-            let packet_proof = proof.into_iter().map(ProofReference::from_canonical).collect::<Result<Vec<_>, _>>()?;
+            let packet_proof = proof
+                .into_iter()
+                .map(ProofReference::from_canonical)
+                .collect::<Result<Vec<_>, _>>()?;
             if selected_ids.contains(&ordinal) {
-            let packet = FlowInventoryPacket {
-                inventory: inventory.id(),
-                use_: use_.id(),
-                occurrence: occurrence.id(),
-                artifact: occurrence.source,
-                start: occurrence.start as u64,
-                end: occurrence.end as u64,
-                context: grant.context,
-                qualification: qualification.id(),
-                condition: qualification.condition,
-                native_count: inventory.native_count as u64,
-                mapped_count: inventory.mapped_count as u64,
-                complete: inventory.complete,
-                candidates,
-                members: mapped,
-                view: FlowInventoryView {
-                    view: view.id(),
-                    original_content: view.original_content,
-                    view_content: view.view_content,
-                    renamed_type_checking: view.renamed_type_checking,
-                    coverage: coverage.iter().map(|c| c.id()).collect(),
-                    proof: view_proof,
-                },
-                entry_value_reason,
-                entry_outcomes,
-                proof: packet_proof,
-            };
-            // Retained packet accounting outlives all hydrated batches and explanation indexes.
-            self.charge.grow(
-                crate::ranked_results::allocation_allowance(&packet)
-                    .map_err(|error| Error::Codec(error.to_string()))?
-                    .saturating_add(size_of::<FlowInventoryPacket>() + 64),
-            )?;
-            items.insert(ordinal, packet);
+                let packet = FlowInventoryPacket {
+                    inventory: inventory.id(),
+                    use_: use_.id(),
+                    occurrence: occurrence.id(),
+                    artifact: occurrence.source,
+                    start: occurrence.start as u64,
+                    end: occurrence.end as u64,
+                    context: grant.context,
+                    qualification: qualification.id(),
+                    condition: qualification.condition,
+                    native_count: inventory.native_count as u64,
+                    mapped_count: inventory.mapped_count as u64,
+                    complete: inventory.complete,
+                    candidates,
+                    members: mapped,
+                    view: FlowInventoryView {
+                        view: view.id(),
+                        original_content: view.original_content,
+                        view_content: view.view_content,
+                        renamed_type_checking: view.renamed_type_checking,
+                        coverage: coverage.iter().map(|c| c.id()).collect(),
+                        proof: view_proof,
+                    },
+                    entry_value_reason,
+                    entry_outcomes,
+                    proof: packet_proof,
+                };
+                // Retained packet accounting outlives all hydrated batches and explanation indexes.
+                self.charge.grow(
+                    crate::ranked_results::allocation_allowance(&packet)
+                        .map_err(|error| Error::Codec(error.to_string()))?
+                        .saturating_add(size_of::<FlowInventoryPacket>() + 64),
+                )?;
+                items.insert(ordinal, packet);
             }
         }
         let compact = compact?;
         let mut ordered_items = Vec::new();
-        for id in compact.items { ordered_items.push(items.remove(&id).ok_or(Error::Contract)?); }
+        for id in compact.items {
+            ordered_items.push(items.remove(&id).ok_or(Error::Contract)?);
+        }
         Ok(SectionPage {
             availability: if total == 0 {
                 Availability::Unavailable {

@@ -1,10 +1,10 @@
 //! One effect owner for token admission and immutable cache winners, shared by E1 and E0.
-use lctx_model::domain::embedding::Embedder;
 use crate::{
     CoreError,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use futures::TryStreamExt;
+use lctx_model::domain::embedding::Embedder;
 #[cfg(test)]
 use lctx_model::domain::embedding::cache::CacheFuture;
 use lctx_model::domain::embedding::cache::{CacheValue, EmbeddingCache};
@@ -452,7 +452,11 @@ impl<'a> Session<'a> {
         (self.configuration.specification().dimensions as usize)
             .checked_mul(128)
             .and_then(|n| n.checked_add(8192))
-            .and_then(|n| text_bytes.checked_mul(4).and_then(|text| n.checked_add(text)))
+            .and_then(|n| {
+                text_bytes
+                    .checked_mul(4)
+                    .and_then(|text| n.checked_add(text))
+            })
             .ok_or_else(|| ModelError::Invalid("embedding effect allocation overflow".into()))
     }
     /// Deduplicate before effects and use the existing service/cache batch interfaces. Chunks
@@ -472,74 +476,83 @@ impl<'a> Session<'a> {
     /// One selected Session owns pending exact encoder inputs across caller roots/windows.
     /// Retained request text stays charged through native/cache completion of its effect chunk.
     pub async fn queue_ready(&mut self, document: &str) -> Result<ContentHash, Error> {
-            let spec = self.configuration.specification();
-            let text_bound = document
-                .len()
-                .checked_mul(spec.document_template.matches("{text}").count())
-                .and_then(|n| n.checked_add(spec.document_template.len()))
-                .ok_or_else(|| {
-                    ModelError::Invalid("embedding request allocation overflow".into())
-                })?;
-            let request_bytes = |length: usize| {
-                length
-                    .checked_add(size_of::<String>() + size_of::<ContentHash>() + 64)
-                    .ok_or_else(|| {
-                        ModelError::Invalid("embedding request allocation overflow".into())
-                    })
-            };
-            let bound = text_bound.checked_mul(2).ok_or_else(|| {
-                ModelError::Invalid("embedding request allocation overflow".into())
-            })?;
-            let retained_bound = request_bytes(text_bound)?;
-            // Pending strings remain charged while effects run. Include the next temporary
-            // rendering and retained request before copying it; transfer/compute windows do
-            // not determine how many service buffers this session can admit together.
-            let needed = self
-                .effect_bytes(text_bound)?
-                .checked_add(bound)
-                .and_then(|n| n.checked_add(retained_bound))
-                .ok_or_else(|| {
-                    ModelError::Invalid("embedding batch allocation overflow".into())
-                })?;
-            if !self.pending.is_empty()
-                && needed > self.budget.limit().saturating_sub(self.budget.reserved())
-            {
-                self.flush_ready().await?;
+        let spec = self.configuration.specification();
+        let text_bound = document
+            .len()
+            .checked_mul(spec.document_template.matches("{text}").count())
+            .and_then(|n| n.checked_add(spec.document_template.len()))
+            .ok_or_else(|| ModelError::Invalid("embedding request allocation overflow".into()))?;
+        let request_bytes = |length: usize| {
+            length
+                .checked_add(size_of::<String>() + size_of::<ContentHash>() + 64)
+                .ok_or_else(|| ModelError::Invalid("embedding request allocation overflow".into()))
+        };
+        let bound = text_bound
+            .checked_mul(2)
+            .ok_or_else(|| ModelError::Invalid("embedding request allocation overflow".into()))?;
+        let retained_bound = request_bytes(text_bound)?;
+        // Pending strings remain charged while effects run. Include the next temporary
+        // rendering and retained request before copying it; transfer/compute windows do
+        // not determine how many service buffers this session can admit together.
+        let needed = self
+            .effect_bytes(text_bound)?
+            .checked_add(bound)
+            .and_then(|n| n.checked_add(retained_bound))
+            .ok_or_else(|| ModelError::Invalid("embedding batch allocation overflow".into()))?;
+        if !self.pending.is_empty()
+            && needed > self.budget.limit().saturating_sub(self.budget.reserved())
+        {
+            self.flush_ready().await?;
+        }
+        let _copy = self.budget.reserve("embedding-request", bound)?;
+        let request = self.configuration.specification().document_text(document);
+        let key = input_hash(&request);
+        if let Some(previous) = self.pending.get(&key) {
+            if previous != &request {
+                return Err(
+                    ModelError::Invalid("pending embedding input hash collision".into()).into(),
+                );
             }
-            let _copy = self.budget.reserve("embedding-request", bound)?;
-            let request = self.configuration.specification().document_text(document);
-            let key = input_hash(&request);
-            if let Some(previous) = self.pending.get(&key) {
-                if previous != &request {
-                    return Err(ModelError::Invalid("pending embedding input hash collision".into()).into());
-                }
-                return Ok(key);
-            }
-            if self.resolved(key) { return Ok(key); }
-            let next_effect_bytes = self.pending_effect_bytes.checked_add(self.effect_bytes(request.len())?).ok_or_else(|| {
-                ModelError::Invalid("embedding batch allocation overflow".into())
-            })?;
-            if let Some(effect) = &mut self.pending_effect {
-                effect.try_resize(next_effect_bytes)?;
-            } else {
-                self.pending_effect = Some(self.budget.reserve("embedding-effect-buffers", next_effect_bytes)?);
-            }
-            self.pending_charge.grow(request_bytes(request.len())?)?;
-            self.pending_effect_bytes = next_effect_bytes;
-            self.pending.insert(key, request);
-            drop(_copy);
-            if self.pending.len() == 64 {
-                self.flush_ready().await?;
-            }
-            Ok(key)
+            return Ok(key);
+        }
+        if self.resolved(key) {
+            return Ok(key);
+        }
+        let next_effect_bytes = self
+            .pending_effect_bytes
+            .checked_add(self.effect_bytes(request.len())?)
+            .ok_or_else(|| ModelError::Invalid("embedding batch allocation overflow".into()))?;
+        if let Some(effect) = &mut self.pending_effect {
+            effect.try_resize(next_effect_bytes)?;
+        } else {
+            self.pending_effect = Some(
+                self.budget
+                    .reserve("embedding-effect-buffers", next_effect_bytes)?,
+            );
+        }
+        self.pending_charge.grow(request_bytes(request.len())?)?;
+        self.pending_effect_bytes = next_effect_bytes;
+        self.pending.insert(key, request);
+        drop(_copy);
+        if self.pending.len() == 64 {
+            self.flush_ready().await?;
+        }
+        Ok(key)
     }
     pub async fn flush_ready(&mut self) -> Result<(), Error> {
-        if self.pending.is_empty() { return Ok(()); }
+        if self.pending.is_empty() {
+            return Ok(());
+        }
         let requests = std::mem::take(&mut self.pending);
-        let charge = std::mem::replace(&mut self.pending_charge,
-            charged::StateCharge::new(&self.budget, "embedding-request-batch"));
+        let charge = std::mem::replace(
+            &mut self.pending_charge,
+            charged::StateCharge::new(&self.budget, "embedding-request-batch"),
+        );
         self.pending_effect_bytes = 0;
-        let effect = self.pending_effect.take().expect("pending requests own their effect admission");
+        let effect = self
+            .pending_effect
+            .take()
+            .expect("pending requests own their effect admission");
         let result = self.prepare_chunk(requests, effect).await;
         drop(charge);
         result
@@ -550,11 +563,16 @@ impl<'a> Session<'a> {
         _effect: Box<dyn resources::Reservation>,
     ) -> Result<(), Error> {
         let effect_bytes = requests.values().try_fold(0usize, |bytes, request| {
-            bytes.checked_add(self.effect_bytes(request.len())?).ok_or_else(|| {
-                ModelError::Invalid("embedding batch allocation overflow".into())
-            })
+            bytes
+                .checked_add(self.effect_bytes(request.len())?)
+                .ok_or_else(|| ModelError::Invalid("embedding batch allocation overflow".into()))
         })?;
-        if _effect.size() < effect_bytes { return Err(ModelError::Invalid("pending embedding effects exceed admitted buffers".into()).into()); }
+        if _effect.size() < effect_bytes {
+            return Err(ModelError::Invalid(
+                "pending embedding effects exceed admitted buffers".into(),
+            )
+            .into());
+        }
         let spec = self.configuration.specification().clone();
         let keys = requests.keys().copied().collect::<Vec<_>>();
         let mut cached = if let Some(cache) = &self.cache {
@@ -605,7 +623,10 @@ impl<'a> Session<'a> {
                     })?;
                 Ok(tokenizer.encode(body)?.offsets.len())
             } else {
-                self.embedder.count_tokens(request).await.map_err(service_error)
+                self.embedder
+                    .count_tokens(request)
+                    .await
+                    .map_err(service_error)
             };
             match counted {
                 Ok(count) if count <= spec.max_document_tokens as usize => {
@@ -743,17 +764,22 @@ impl<'a> Session<'a> {
 mod tests {
     use super::*;
     use crate::embedding_service::FakeEmbedder;
-use lctx_model::domain::embedding::{EmbedFuture};
+    use lctx_model::domain::embedding::EmbedFuture;
     use std::sync::atomic::{AtomicUsize, Ordering};
     #[test]
     fn service_error_adapts_only_typed_unavailability_at_the_compiler_boundary() {
-        let unavailable = ModelError::SharedCause(Arc::new(embedding::ServiceUnavailable::cause("offline")));
+        let unavailable =
+            ModelError::SharedCause(Arc::new(embedding::ServiceUnavailable::cause("offline")));
         let adapted = service_error(unavailable);
         assert!(adapted.unavailable());
-        assert!(matches!(adapted, Error::Service(CoreError::EmbeddingService(message)) if message == "offline"));
+        assert!(
+            matches!(adapted, Error::Service(CoreError::EmbeddingService(message)) if message == "offline")
+        );
         let invalid = service_error(ModelError::Invalid("invalid vector".into()));
         assert!(!invalid.unavailable());
-        assert!(matches!(invalid, Error::Model(ModelError::Invalid(message)) if message == "invalid vector"));
+        assert!(
+            matches!(invalid, Error::Model(ModelError::Invalid(message)) if message == "invalid vector")
+        );
     }
     struct Counter {
         fake: FakeEmbedder,
@@ -827,10 +853,14 @@ use lctx_model::domain::embedding::{EmbedFuture};
     }
     #[tokio::test]
     async fn queued_roots_share_one_effect_chunk_and_acknowledgement_is_not_a_winner() {
-        let provider = Changing { specification: FakeEmbedder::new().spec().clone(),
-            batches: Default::default(), unavailable: false };
+        let provider = Changing {
+            specification: FakeEmbedder::new().spec().clone(),
+            batches: Default::default(),
+            unavailable: false,
+        };
         let budget = ResourceBudget::fixed(64 << 20).unwrap();
-        let configuration = Configuration::new(provider.spec(), provider.endpoint(), &budget).unwrap();
+        let configuration =
+            Configuration::new(provider.spec(), provider.endpoint(), &budget).unwrap();
         let mut session = Session::selected(configuration, &provider, None, &budget).unwrap();
         let base = budget.reserved();
         let first = session.queue_ready("first root").await.unwrap();
@@ -838,8 +868,14 @@ use lctx_model::domain::embedding::{EmbedFuture};
         assert_eq!(session.queue_ready("first root").await.unwrap(), first);
         assert_eq!(session.pending.len(), 2);
         assert!(!session.resolved(first) && !session.resolved(second));
-        assert!(provider.batches.lock().unwrap().is_empty(), "queue acknowledgement performs no inference before a boundary");
-        assert!(budget.reserved() >= base + session.pending_effect_bytes + session.pending_charge.reserved());
+        assert!(
+            provider.batches.lock().unwrap().is_empty(),
+            "queue acknowledgement performs no inference before a boundary"
+        );
+        assert!(
+            budget.reserved()
+                >= base + session.pending_effect_bytes + session.pending_charge.reserved()
+        );
         session.flush_ready().await.unwrap();
         assert!(session.pending.is_empty() && session.pending_effect.is_none());
         assert_eq!(session.pending_charge.reserved(), 0);
@@ -847,7 +883,11 @@ use lctx_model::domain::embedding::{EmbedFuture};
         assert_eq!(provider.batches.lock().unwrap()[0].len(), 2);
         session.queue_ready("first root").await.unwrap();
         session.flush_ready().await.unwrap();
-        assert_eq!(provider.batches.lock().unwrap().len(), 1, "resolved duplicate roots retain their first immutable winner");
+        assert_eq!(
+            provider.batches.lock().unwrap().len(),
+            1,
+            "resolved duplicate roots retain their first immutable winner"
+        );
         drop(session);
         assert_eq!(budget.reserved(), 0);
     }
@@ -879,15 +919,28 @@ use lctx_model::domain::embedding::{EmbedFuture};
             .unwrap();
         let first = session.realize(&documents[0]).await.unwrap().digest();
         let later = session.realize(&documents[3]).await.unwrap().digest();
-        assert_ne!(first, later, "later service calls actually change their answers");
-        assert_eq!(session.realize(&documents[0]).await.unwrap().digest(), first);
+        assert_ne!(
+            first, later,
+            "later service calls actually change their answers"
+        );
+        assert_eq!(
+            session.realize(&documents[0]).await.unwrap().digest(),
+            first
+        );
         session.prepare([documents[0].as_str()]).await.unwrap();
         let batches = provider.batches.lock().unwrap();
         assert!(batches.len() > 1);
         assert!(batches.iter().all(|batch| batch.len() <= 3));
         assert_eq!(batches.iter().map(Vec::len).sum::<usize>(), documents.len());
         for document in &documents {
-            assert_eq!(batches.iter().flatten().filter(|text| *text == document).count(), 1);
+            assert_eq!(
+                batches
+                    .iter()
+                    .flatten()
+                    .filter(|text| *text == document)
+                    .count(),
+                1
+            );
         }
         assert_eq!(session.values.len(), documents.len());
         assert_eq!(
@@ -1071,8 +1124,8 @@ use lctx_model::domain::embedding::{EmbedFuture};
             ])
             .collect();
         let model = Arc::new(ValidatedModel::declared(relations).unwrap());
-        let workspace = Workspace::new(model, Default::default(), crate::test_native::store()
-).unwrap();
+        let workspace =
+            Workspace::new(model, Default::default(), crate::test_native::store()).unwrap();
         let budget = workspace.budget();
         let configuration =
             || Configuration::new(provider.spec(), provider.endpoint(), budget).unwrap();
@@ -1084,7 +1137,7 @@ use lctx_model::domain::embedding::{EmbedFuture};
             workspace
                 .inputs("e1", stages::Profile::Catalog, [])
                 .unwrap(),
-        [<FullValue>::NAME, <ProjectedValue>::NAME],
+            [<FullValue>::NAME, <ProjectedValue>::NAME],
         );
         output.declare::<FullValue>().unwrap();
         output.declare::<ProjectedValue>().unwrap();
@@ -1133,7 +1186,7 @@ use lctx_model::domain::embedding::{EmbedFuture};
             workspace
                 .inputs("no_duplicate", stages::Profile::Catalog, [])
                 .unwrap(),
-        [],
+            [],
         );
         let replay = retrieval.publish("same", &no_outputs).await.unwrap();
         assert_eq!(replay.value, first.value);
@@ -1149,7 +1202,7 @@ use lctx_model::domain::embedding::{EmbedFuture};
             workspace
                 .inputs("e0", stages::Profile::Catalog, [])
                 .unwrap(),
-        [<FullValue>::NAME, <ProjectedValue>::NAME],
+            [<FullValue>::NAME, <ProjectedValue>::NAME],
         );
         output.declare::<FullValue>().unwrap();
         output.declare::<ProjectedValue>().unwrap();

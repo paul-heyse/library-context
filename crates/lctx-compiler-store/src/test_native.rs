@@ -1,7 +1,7 @@
 //! Compiler controls require the owned disposable authenticated native fixture.
+use crate::compiler::NativeCompilerStore;
 use lctx_model::domain::admission::Frontier;
 use lctx_native::RuntimeConfig;
-use crate::compiler::NativeCompilerStore;
 use std::sync::{Arc, OnceLock};
 #[allow(
     dead_code,

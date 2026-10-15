@@ -824,13 +824,21 @@ pub struct ScopeProgramRuntime {
     programs: std::sync::Mutex<ScopeInterner>,
 }
 impl ScopeProgramRuntime {
-    pub fn new(model:&ValidatedModel,budget:&ResourceBudget)->Result<Arc<Self>,ModelError> {
-        Ok(Arc::new(Self{model:model.digest(),programs:std::sync::Mutex::new(ScopeInterner::new(budget)?)}))
+    pub fn new(model: &ValidatedModel, budget: &ResourceBudget) -> Result<Arc<Self>, ModelError> {
+        Ok(Arc::new(Self {
+            model: model.digest(),
+            programs: std::sync::Mutex::new(ScopeInterner::new(budget)?),
+        }))
     }
-    pub fn require_model(&self,model:&ValidatedModel)->Result<(),ModelError> {
-        if self.model!=model.digest(){return Err(ModelError::Conflict("scope program runtime model"));}Ok(())
+    pub fn require_model(&self, model: &ValidatedModel) -> Result<(), ModelError> {
+        if self.model != model.digest() {
+            return Err(ModelError::Conflict("scope program runtime model"));
+        }
+        Ok(())
     }
-    pub fn programs(&self)->&std::sync::Mutex<ScopeInterner>{&self.programs}
+    pub fn programs(&self) -> &std::sync::Mutex<ScopeInterner> {
+        &self.programs
+    }
 }
 pub struct CompiledScopeProgram {
     program: ScopeProgram,
@@ -1122,12 +1130,29 @@ mod controls {
     }
     #[test]
     fn runtime_program_owner_shares_shapes_and_retains_borrowed_charges() {
-        let model=super::super::model().unwrap();let budget=ResourceBudget::fixed(1<<20).unwrap();
-        let runtime=ScopeProgramRuntime::new(&model,&budget).unwrap();let second=runtime.clone();
-        let first=runtime.programs().lock().unwrap().intern(program(),&model).unwrap();
-        let hit=second.programs().lock().unwrap().intern(program(),&model).unwrap();
-        assert!(Arc::ptr_eq(&first,&hit));drop(runtime);drop(second);
-        assert!(budget.reserved()>0);drop(first);drop(hit);assert_eq!(budget.reserved(),0);
+        let model = super::super::model().unwrap();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let runtime = ScopeProgramRuntime::new(&model, &budget).unwrap();
+        let second = runtime.clone();
+        let first = runtime
+            .programs()
+            .lock()
+            .unwrap()
+            .intern(program(), &model)
+            .unwrap();
+        let hit = second
+            .programs()
+            .lock()
+            .unwrap()
+            .intern(program(), &model)
+            .unwrap();
+        assert!(Arc::ptr_eq(&first, &hit));
+        drop(runtime);
+        drop(second);
+        assert!(budget.reserved() > 0);
+        drop(first);
+        drop(hit);
+        assert_eq!(budget.reserved(), 0);
     }
     #[test]
     fn nested_program_buffer_is_exact_and_preserves_ordinary_framed_digest() {

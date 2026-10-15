@@ -830,7 +830,7 @@ mod cancellation_controls {
                 let registration = owner.register(move || handle.cancel());
                 assert!(
                     transaction
-                        .run(&[main.clone()], Require::Everything, None)
+                        .run(std::slice::from_ref(&main), Require::Everything, None)
                         .is_ok()
                 );
                 assert!(transaction.as_ref().get_answers(&main).is_some());

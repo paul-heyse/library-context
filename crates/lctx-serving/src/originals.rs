@@ -1,5 +1,5 @@
 //! Exact original source addresses and captured attribution; bytes remain in the native store.
-use crate::records::{need, rows, wire, Prepared as CanonicalPrepared,PacketRows};
+use crate::records::{PacketRows, Prepared as CanonicalPrepared, need, rows, wire};
 use lctx_model::domain::{serving::*, *};
 pub fn target(source: &OriginalReference) -> Result<graph::Target, ModelError> {
     Ok(match source {
@@ -194,7 +194,8 @@ impl Prepared {
             return Err(ModelError::Schema("original byte bounds"));
         }
         let runs = &self.runs;
-        let contexts = runs.select_for("input",&[a.input])?
+        let contexts = runs
+            .select_for("input", &[a.input])?
             .iter()
             .map(|r| r.context)
             .collect::<std::collections::BTreeSet<_>>();
@@ -221,9 +222,14 @@ impl Prepared {
         };
         let distributions = &self.distributions;
         let corpora = &self.corpora;
-        let mut captured_inputs=corpora.select_for("corpus",&[a.input])?.iter().map(|corpus|corpus.library).collect::<Vec<_>>();
+        let mut captured_inputs = corpora
+            .select_for("corpus", &[a.input])?
+            .iter()
+            .map(|corpus| corpus.library)
+            .collect::<Vec<_>>();
         captured_inputs.push(a.input);
-        let releases = distributions.select_for("input",&captured_inputs)?
+        let releases = distributions
+            .select_for("input", &captured_inputs)?
             .iter()
             .filter(|d| d.role == input::DistributionRole::FirstParty)
             .map(|d| d.release)
@@ -267,9 +273,23 @@ pub fn range(
 #[cfg(test)]
 mod controls {
     use super::*;
-    fn packet<R:Record>(rows:Vec<R>)->PacketRows<R>{PacketRows::new(rows,&lctx_model::domain::resources::ResourceBudget::fixed(1<<20).unwrap()).unwrap()}
-    fn append<R:Record>(rows:&mut PacketRows<R>,row:R){let mut values=rows.rows().to_vec();values.push(row);*rows=packet(values);}
-    fn change<R:Record>(rows:&mut PacketRows<R>,edit:impl FnOnce(&mut Vec<R>)){let mut values=rows.rows().to_vec();edit(&mut values);*rows=packet(values);}
+    fn packet<R: Record>(rows: Vec<R>) -> PacketRows<R> {
+        PacketRows::new(
+            rows,
+            &lctx_model::domain::resources::ResourceBudget::fixed(1 << 20).unwrap(),
+        )
+        .unwrap()
+    }
+    fn append<R: Record>(rows: &mut PacketRows<R>, row: R) {
+        let mut values = rows.rows().to_vec();
+        values.push(row);
+        *rows = packet(values);
+    }
+    fn change<R: Record>(rows: &mut PacketRows<R>, edit: impl FnOnce(&mut Vec<R>)) {
+        let mut values = rows.rows().to_vec();
+        edit(&mut values);
+        *rows = packet(values);
+    }
     fn id<R: Record>(byte: u8) -> Id<R> {
         serde_json::from_value(serde_json::to_value([byte; 16]).unwrap()).unwrap()
     }
@@ -386,7 +406,7 @@ mod controls {
         );
         let mut other_run = prepared.runs[0].clone();
         other_run.context = id(9);
-        append(&mut prepared.runs,other_run);
+        append(&mut prepared.runs, other_run);
         assert!(
             prepared
                 .range(
@@ -425,9 +445,9 @@ mod controls {
             ordinal: 1,
             original: slice.id(),
         };
-        append(&mut prepared.evidence,span);
-        append(&mut prepared.anchor_sources,slice);
-        append(&mut prepared.anchors,slice_anchor.clone());
+        append(&mut prepared.evidence, span);
+        append(&mut prepared.anchor_sources, slice);
+        append(&mut prepared.anchors, slice_anchor.clone());
         let range = prepared
             .range(
                 &OriginalReference::Anchor {
@@ -444,8 +464,8 @@ mod controls {
             start: 3,
             end: 12,
         }]);
-        let original=invalid.anchor_sources[0].id();
-        change(&mut invalid.anchors,|rows|rows[0].original=original);
+        let original = invalid.anchor_sources[0].id();
+        change(&mut invalid.anchors, |rows| rows[0].original = original);
         assert!(
             invalid
                 .range(
@@ -462,8 +482,8 @@ mod controls {
             start: 3,
             end: 11,
         };
-        change(&mut invalid.anchors,|rows|rows[1].original=outside.id());
-        append(&mut invalid.anchor_sources,outside);
+        change(&mut invalid.anchors, |rows| rows[1].original = outside.id());
+        append(&mut invalid.anchor_sources, outside);
         assert!(
             invalid
                 .range(
@@ -497,7 +517,7 @@ mod controls {
                 .is_ok(),
             "captured corpus mapping retains release attribution"
         );
-        invalid.distributions=packet(vec![]);
+        invalid.distributions = packet(vec![]);
         assert!(
             invalid
                 .range(
@@ -510,7 +530,7 @@ mod controls {
                 .is_err(),
             "missing captured release refuses explicit attribution"
         );
-        invalid.runs=packet(vec![]);
+        invalid.runs = packet(vec![]);
         assert!(
             invalid
                 .range(

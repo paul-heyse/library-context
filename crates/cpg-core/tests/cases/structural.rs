@@ -225,4 +225,3 @@ async fn structural_replay_refuses_support_invocation_and_condition_forgery() {
         }
     }
 }
-

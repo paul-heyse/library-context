@@ -275,7 +275,9 @@ impl<'a> Publication<'a> {
 
     pub(crate) async fn materialize_search(&mut self) -> Result<(), ModelError> {
         if self.search.is_some() || self.is_unchanged() {
-            return Err(ModelError::Conflict("publication search already prepared or unchanged"));
+            return Err(ModelError::Conflict(
+                "publication search already prepared or unchanged",
+            ));
         }
         let lease = self.store().begin_derived_operation("publication search")?;
         let phase = Phase::begin("publication_search");
@@ -306,8 +308,12 @@ impl<'a> Publication<'a> {
         let result = async {
             // Analyzer observations and lowered vectors remain usable only under
             // the actual immutable executable/physical definitions verified at setup.
-            if crate::definitions::verify_epoch(&self.loader, definitions).await? != self.loader.derivation()? {
-                return Err(ModelError::Conflict("publication actual definition context changed"));
+            if crate::definitions::verify_epoch(&self.loader, definitions).await?
+                != self.loader.derivation()?
+            {
+                return Err(ModelError::Conflict(
+                    "publication actual definition context changed",
+                ));
             }
             if let Some(incoming) = &self.incoming {
                 let actual = lctx_native::completed_transport::eligibility_frozen(
@@ -364,7 +370,9 @@ impl<'a> Publication<'a> {
                         manifest,
                         &self.bindings,
                         self.admission.budget(),
-                        self.search.as_ref().ok_or(ModelError::Conflict("publication retained search expectations missing"))?,
+                        self.search.as_ref().ok_or(ModelError::Conflict(
+                            "publication retained search expectations missing",
+                        ))?,
                     )
                     .await?
                     .handle

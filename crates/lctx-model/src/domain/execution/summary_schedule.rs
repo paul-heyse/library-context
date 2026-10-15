@@ -2,7 +2,10 @@
 use crate::domain::{
     Id, ModelError,
     normalized::entities::EntityRef,
-    projection::{ProjectionName, snapshot::{MaterializationIdentity, MaterializedGraph}},
+    projection::{
+        ProjectionName,
+        snapshot::{MaterializationIdentity, MaterializedGraph},
+    },
     resources::{Reservation, ResourceBudget},
 };
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
@@ -17,7 +20,10 @@ pub struct SccSchedule {
 }
 impl SccSchedule {
     pub fn require_graph(&self, graph: &MaterializedGraph) -> Result<(), ModelError> {
-        if !self.materialization.matches(graph.materialization_identity()) {
+        if !self
+            .materialization
+            .matches(graph.materialization_identity())
+        {
             return Err(ModelError::Conflict("SCC schedule materialization binding"));
         }
         Ok(())
@@ -27,9 +33,18 @@ impl SccSchedule {
     }
 }
 
-fn reserve(graph: &MaterializedGraph, budget: &ResourceBudget) -> Result<Box<dyn Reservation>, ModelError> {
-    budget.reserve("invocation-scc-schedule", graph.vertex_count().saturating_mul(256)
-        .saturating_add(graph.arc_count().saturating_mul(96)).saturating_add(4096))
+fn reserve(
+    graph: &MaterializedGraph,
+    budget: &ResourceBudget,
+) -> Result<Box<dyn Reservation>, ModelError> {
+    budget.reserve(
+        "invocation-scc-schedule",
+        graph
+            .vertex_count()
+            .saturating_mul(256)
+            .saturating_add(graph.arc_count().saturating_mul(96))
+            .saturating_add(4096),
+    )
 }
 /// This orders known conservative topology; it does not certify dispatch/coverage completeness.
 pub fn invocation_sccs(
@@ -188,9 +203,14 @@ mod tests {
         schedule.require_graph(&graph).unwrap();
         let rebuilt = MaterializedGraph::build(&projection, &budget).unwrap();
         assert_eq!(rebuilt.key(), graph.key());
-        assert_eq!(rebuilt.entities().collect::<Vec<_>>(), graph.entities().collect::<Vec<_>>());
-        assert!(schedule.require_graph(&rebuilt).is_err(),
-            "identical nominal topology does not share materialization authority");
+        assert_eq!(
+            rebuilt.entities().collect::<Vec<_>>(),
+            graph.entities().collect::<Vec<_>>()
+        );
+        assert!(
+            schedule.require_graph(&rebuilt).is_err(),
+            "identical nominal topology does not share materialization authority"
+        );
         drop(rebuilt);
         let graph = std::hint::black_box(Box::new(graph));
         schedule.require_graph(&graph).unwrap();
@@ -220,8 +240,13 @@ mod tests {
         let schedule = invocation_sccs(&graph, &budget).unwrap();
         let schedule_charge = budget.reserved() - before_schedule;
         let source = SourceArtifact::from_bytes(input.id(), "new.py".into(), b"").unwrap();
-        let module = Module { source: source.id(), qualified_name: "new".into() };
-        let entity = EntityRef::Module { module: module.id() };
+        let module = Module {
+            source: source.id(),
+            qualified_name: "new".into(),
+        };
+        let entity = EntityRef::Module {
+            module: module.id(),
+        };
         data.artifacts.insert(source).unwrap();
         data.modules.insert(module).unwrap();
         data.refs.insert(entity).unwrap();
@@ -229,14 +254,19 @@ mod tests {
         let changed = MaterializedGraph::build(&changed_projection, &budget).unwrap();
         assert_eq!(changed.key(), graph.key());
         assert_eq!(changed.vertex_count(), graph.vertex_count() + 1);
-        assert!(schedule.require_graph(&changed).is_err(),
-            "the same frame cannot substitute changed topology");
+        assert!(
+            schedule.require_graph(&changed).is_err(),
+            "the same frame cannot substitute changed topology"
+        );
         drop(changed);
         drop(changed_projection);
         let before_graph_drop = budget.reserved();
         drop(graph);
-        assert_eq!(budget.reserved(), before_graph_drop - graph_charge,
-            "a retained schedule must not retain graph storage");
+        assert_eq!(
+            budget.reserved(),
+            before_graph_drop - graph_charge,
+            "a retained schedule must not retain graph storage"
+        );
         assert_eq!(schedule.components(), expected);
         let before_schedule_drop = budget.reserved();
         drop(schedule);

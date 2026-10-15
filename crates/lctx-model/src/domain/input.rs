@@ -199,7 +199,12 @@ struct InputManifestCheck {
 impl InputManifestCheck {
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((input, manifest)) = self.current.take()
-            && self.expected.remove(&mut self.charge, &input) != Some(manifest.finish())
+            && self
+                .expected
+                .remove(&mut self.charge, &input)?
+                .as_deref()
+                .copied()
+                != Some(manifest.finish())
         {
             return Err(ModelError::Invalid(
                 "stored artifacts differ from input manifest".into(),

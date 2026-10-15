@@ -792,7 +792,12 @@ impl<R: Record> Batch<R> {
     /// Move the encoded kernel batch and its reservation to the next owner. Typed rows have
     /// no consumer after this handoff; release them before settling on the retained Arrow bytes.
     pub fn into_arrow(self) -> Result<(RecordBatch, Box<dyn Reservation>), ModelError> {
-        let Self { rows, arrow, mut reservation, .. } = self;
+        let Self {
+            rows,
+            arrow,
+            mut reservation,
+            ..
+        } = self;
         drop(rows);
         reservation.try_resize(arrow.get_array_memory_size())?;
         Ok((arrow, reservation))
@@ -806,7 +811,12 @@ impl<R: Record> Batch<R> {
     pub fn into_checked(self) -> Result<CheckedCanonicalBatch, ModelError> {
         let model = self.model;
         let (arrow, reservation) = self.into_arrow()?;
-        Ok(CheckedCanonicalBatch { model, relation: super::Relation::of::<R>(), arrow, reservation })
+        Ok(CheckedCanonicalBatch {
+            model,
+            relation: super::Relation::of::<R>(),
+            arrow,
+            reservation,
+        })
     }
 }
 
@@ -822,10 +832,18 @@ pub struct CheckedCanonicalBatch {
 }
 impl CheckedCanonicalBatch {
     pub const CODEC_REVISION: u32 = 1;
-    pub fn model(&self) -> ContentHash { self.model }
-    pub fn relation(&self) -> &super::Relation { &self.relation }
-    pub fn arrow(&self) -> &RecordBatch { &self.arrow }
-    pub fn reserved(&self) -> usize { self.reservation.size() }
+    pub fn model(&self) -> ContentHash {
+        self.model
+    }
+    pub fn relation(&self) -> &super::Relation {
+        &self.relation
+    }
+    pub fn arrow(&self) -> &RecordBatch {
+        &self.arrow
+    }
+    pub fn reserved(&self) -> usize {
+        self.reservation.size()
+    }
 }
 
 /// Admission for decoded typed rows uses the logical slice, not retained Arrow buffer

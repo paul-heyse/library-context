@@ -38,66 +38,119 @@ struct CacheSession {
     uncertain: AtomicBool,
 }
 impl CacheSession {
-    async fn open(runtime:&RuntimeConfig)->Result<(Arc<Surreal<Client>>,Arc<Self>),ModelError> {
-        let retry=crate::control::RetryCancellation::default();
-        let signals=lctx_native::signal::SignalRegistration::retry("native product cache session",retry.clone())?;
-        let checked=crate::control::with_retry_cancellation(retry.clone(),crate::compiler::check_installation(runtime)).await;
-        let client=match checked {
-            Ok(client)=>client,
-            Err(error)=>{
-                if !error.permits_storage_cleanup(){return Err(error);}
-                let mut terminal=lctx_model::domain::completion::Completion::default();
-                terminal.step("product cache failed setup receipt",signals.complete(&lctx_model::domain::completion::Completion::default()).await);
-                return lctx_model::domain::completion::complete(Err(error),terminal);
+    async fn open(
+        runtime: &RuntimeConfig,
+    ) -> Result<(Arc<Surreal<Client>>, Arc<Self>), ModelError> {
+        let retry = crate::control::RetryCancellation::default();
+        let signals = lctx_native::signal::SignalRegistration::retry(
+            "native product cache session",
+            retry.clone(),
+        )?;
+        let checked = crate::control::with_retry_cancellation(
+            retry.clone(),
+            crate::compiler::check_installation(runtime),
+        )
+        .await;
+        let client = match checked {
+            Ok(client) => client,
+            Err(error) => {
+                if !error.permits_storage_cleanup() {
+                    return Err(error);
+                }
+                let mut terminal = lctx_model::domain::completion::Completion::default();
+                terminal.step(
+                    "product cache failed setup receipt",
+                    signals
+                        .complete(&lctx_model::domain::completion::Completion::default())
+                        .await,
+                );
+                return lctx_model::domain::completion::complete(Err(error), terminal);
             }
         };
-        let owner=Arc::new(Self{
-            session:lctx_native::reader::SessionFinalizationGuard::new(client.clone()),
-            signals,retry,uncertain:AtomicBool::new(false),
+        let owner = Arc::new(Self {
+            session: lctx_native::reader::SessionFinalizationGuard::new(client.clone()),
+            signals,
+            retry,
+            uncertain: AtomicBool::new(false),
         });
-        Ok((client,owner))
+        Ok((client, owner))
     }
-    async fn run<T>(&self,work:impl std::future::Future<Output=Result<T,ModelError>>)->Result<T,ModelError> {
-        let mut operation=CacheOperation::new(self)?;
-        let result=crate::control::with_retry_cancellation(self.retry.clone(),work).await;
+    async fn run<T>(
+        &self,
+        work: impl std::future::Future<Output = Result<T, ModelError>>,
+    ) -> Result<T, ModelError> {
+        let mut operation = CacheOperation::new(self)?;
+        let result = crate::control::with_retry_cancellation(self.retry.clone(), work).await;
         operation.finish(&result);
         result
     }
-    fn observe(&self, error:&ModelError) {
-        if !error.permits_storage_cleanup() { self.uncertain.store(true,Ordering::Release); }
+    fn observe(&self, error: &ModelError) {
+        if !error.permits_storage_cleanup() {
+            self.uncertain.store(true, Ordering::Release);
+        }
     }
-    async fn close(&self)->Result<(),ModelError> {
+    async fn close(&self) -> Result<(), ModelError> {
         if self.uncertain.load(Ordering::Acquire) {
-            return Err(cache_unfinished("product cache has an unconfirmed operation",true));
+            return Err(cache_unfinished(
+                "product cache has an unconfirmed operation",
+                true,
+            ));
         }
         self.session.close().await?;
-        self.signals.complete(&lctx_model::domain::completion::Completion::default()).await
+        self.signals
+            .complete(&lctx_model::domain::completion::Completion::default())
+            .await
     }
 }
-fn cache_unfinished(message:&'static str,unknown:bool)->ModelError {
-    use lctx_model::domain::completion::{Completion,LocalState,RemoteState,complete};
-    complete::<()>(Err(ModelError::Conflict(message)),Completion{
-        local:LocalState::Outstanding,
-        remote:if unknown {RemoteState::Unknown}else{RemoteState::Confirmed},
-        ..Completion::default()
-    }).unwrap_err()
+fn cache_unfinished(message: &'static str, unknown: bool) -> ModelError {
+    use lctx_model::domain::completion::{Completion, LocalState, RemoteState, complete};
+    complete::<()>(
+        Err(ModelError::Conflict(message)),
+        Completion {
+            local: LocalState::Outstanding,
+            remote: if unknown {
+                RemoteState::Unknown
+            } else {
+                RemoteState::Confirmed
+            },
+            ..Completion::default()
+        },
+    )
+    .unwrap_err()
 }
-struct CacheOperation<'a> { owner:&'a CacheSession,finished:bool }
+struct CacheOperation<'a> {
+    owner: &'a CacheSession,
+    finished: bool,
+}
 impl<'a> CacheOperation<'a> {
-    fn new(owner:&'a CacheSession)->Result<Self,ModelError> {
+    fn new(owner: &'a CacheSession) -> Result<Self, ModelError> {
         if owner.uncertain.load(Ordering::Acquire) {
-            return Err(cache_unfinished("product cache has an unconfirmed operation",true));
+            return Err(cache_unfinished(
+                "product cache has an unconfirmed operation",
+                true,
+            ));
         }
-        if owner.retry.stopped() { return Err(ModelError::Invalid("product cache cancelled".into())); }
-        Ok(Self{owner,finished:false})
+        if owner.retry.stopped() {
+            return Err(ModelError::Invalid("product cache cancelled".into()));
+        }
+        Ok(Self {
+            owner,
+            finished: false,
+        })
     }
-    fn finish<T>(&mut self,result:&Result<T,ModelError>) {
-        if let Err(error)=result {self.owner.observe(error);}
-        self.finished=true;
+    fn finish<T>(&mut self, result: &Result<T, ModelError>) {
+        if let Err(error) = result {
+            self.owner.observe(error);
+        }
+        self.finished = true;
     }
 }
 impl Drop for CacheOperation<'_> {
-    fn drop(&mut self){if !self.finished {self.owner.uncertain.store(true,Ordering::Release);}}
+    fn drop(&mut self) {
+        if !self.finished {
+            self.owner.uncertain.store(true, Ordering::Release);
+        }
+    }
 }
 struct PendingInsertion {
     position: usize,
@@ -117,7 +170,10 @@ fn chunk_window_end(lengths: impl Iterator<Item = usize>) -> usize {
     let mut rows = 0usize;
     for length in lengths {
         if rows == lctx_model::domain::resources::TRANSFER_ROWS
-            || (rows != 0 && bytes.saturating_add(length) > CHUNK) { break; }
+            || (rows != 0 && bytes.saturating_add(length) > CHUNK)
+        {
+            break;
+        }
         bytes = bytes.saturating_add(length);
         rows += 1;
     }
@@ -367,7 +423,9 @@ fn administration_pending(directory: &Path) -> Result<bool, ModelError> {
 fn canonical<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, ModelError> {
     serde_json::to_vec(value).map_err(ModelError::codec)
 }
-fn encoded_size(value:&PortableProduct)->Result<usize,ModelError>{crate::product_codec::encoded_size(value)}
+fn encoded_size(value: &PortableProduct) -> Result<usize, ModelError> {
+    crate::product_codec::encoded_size(value)
+}
 impl NativeProductCache {
     /// Installer-only physical schema. Logical cache partitions share these stable tables.
     pub async fn install(runtime: &RuntimeConfig) -> Result<Option<Self>, ModelError> {
@@ -376,17 +434,27 @@ impl NativeProductCache {
                 "product schema installation requires maintenance authority".into(),
             ));
         }
-        let (client,session) = CacheSession::open(runtime).await?;
-        let installed=session.run(async {crate::Loader::new(client)
-            .install_declarations(
-                &(PRODUCT_SCHEMA.join(";") + ";"),
-                "portable product cache schema",
-            )
-            .await}).await;
-        if installed.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()){return installed.map(|_|None);}
-        let mut terminal=lctx_model::domain::completion::Completion::default();
-        terminal.step("product schema session close",session.close().await);
-        lctx_model::domain::completion::complete(installed,terminal)?;
+        let (client, session) = CacheSession::open(runtime).await?;
+        let installed = session
+            .run(async {
+                crate::Loader::new(client)
+                    .install_declarations(
+                        &(PRODUCT_SCHEMA.join(";") + ";"),
+                        "portable product cache schema",
+                    )
+                    .await
+            })
+            .await;
+        if installed
+            .as_ref()
+            .err()
+            .is_some_and(|error| !error.permits_storage_cleanup())
+        {
+            return installed.map(|_| None);
+        }
+        let mut terminal = lctx_model::domain::completion::Completion::default();
+        terminal.step("product schema session close", session.close().await);
+        lctx_model::domain::completion::complete(installed, terminal)?;
         Self::attach_partition(runtime, true).await
     }
     /// Ordinary attachment may create an owned logical partition; it never executes DDL.
@@ -413,10 +481,10 @@ impl NativeProductCache {
             directory.to_string_lossy(),
         ))?)
         .hex();
-        let (client,session) = CacheSession::open(runtime).await?;
+        let (client, session) = CacheSession::open(runtime).await?;
         let mut this = Self {
             client,
-            session:session.clone(),
+            session: session.clone(),
             config: config.clone(),
             directory,
             generation: nonce(),
@@ -493,23 +561,33 @@ impl NativeProductCache {
         Ok(true)
         }).await;
         match attached {
-            Ok(true)=>Ok(Some(this)),
-            result=>{
-                if result.as_ref().err().is_some_and(|error|!error.permits_storage_cleanup()){return result.map(|_|None);}
-                let mut terminal=lctx_model::domain::completion::Completion::default();
-                terminal.step("product cache setup session close",session.close().await);
-                lctx_model::domain::completion::complete(result.map(|_|None),terminal)
+            Ok(true) => Ok(Some(this)),
+            result => {
+                if result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| !error.permits_storage_cleanup())
+                {
+                    return result.map(|_| None);
+                }
+                let mut terminal = lctx_model::domain::completion::Completion::default();
+                terminal.step("product cache setup session close", session.close().await);
+                lctx_model::domain::completion::complete(result.map(|_| None), terminal)
             }
         }
     }
     /// Join every caller/task first. Atomic consumption refuses a still-live
     /// clone before invalidating the independent authenticated session.
-    pub async fn close(self:Arc<Self>)->Result<(),ModelError> {
-        let owner=Arc::try_unwrap(self).map_err(|_|cache_unfinished("product cache still has live callers",false))?;
-        let session=Arc::try_unwrap(owner.session).map_err(|_|cache_unfinished("product cache still has live tasks",false))?;
+    pub async fn close(self: Arc<Self>) -> Result<(), ModelError> {
+        let owner = Arc::try_unwrap(self)
+            .map_err(|_| cache_unfinished("product cache still has live callers", false))?;
+        let session = Arc::try_unwrap(owner.session)
+            .map_err(|_| cache_unfinished("product cache still has live tasks", false))?;
         session.close().await
     }
-    pub fn retain_unknown(&self){self.session.uncertain.store(true,Ordering::Release);}
+    pub fn retain_unknown(&self) {
+        self.session.uncertain.store(true, Ordering::Release);
+    }
     fn partition_id(&self, table: &str) -> RecordId {
         RecordId::new(table, self.partition.clone())
     }
@@ -593,12 +671,12 @@ impl NativeProductCache {
             .await
             .map_err(ModelError::codec)
     }
-    fn check_entry(&self,entry:&Entry,request:&ProductRequest)->Result<(),ModelError>{
+    fn check_entry(&self, entry: &Entry, request: &ProductRequest) -> Result<(), ModelError> {
         if entry.id != self.entry_id(&request.identity()?.hex())
             || entry.partition != self.partition
             || entry.key != request.identity()?.hex()
             || entry.bytes == 0
-            || !crate::product_codec::request_matches(request,entry.request.as_ref())
+            || !crate::product_codec::request_matches(request, entry.request.as_ref())
             || entry.generation != self.generation
             || entry.bytes > self.config.capacity_bytes
             || entry.chunks as u64 != entry.bytes.div_ceil(CHUNK as u64)
@@ -607,10 +685,19 @@ impl NativeProductCache {
         }
         Ok(())
     }
-    fn decode_bytes(&self,entry:&Entry,request:&ProductRequest,bytes:&[u8],budget:&ResourceBudget)->Result<(PortableProduct,Box<dyn Reservation>),ModelError>{
-        let (product,charge)=crate::product_codec::decode(bytes,self.config.capacity_bytes,request,budget)?;
-        if &product.request!=request || product.identity()?.hex()!=entry.digest{return Err(ModelError::Conflict("product cache canonical payload"));}
-        Ok((product,charge))
+    fn decode_bytes(
+        &self,
+        entry: &Entry,
+        request: &ProductRequest,
+        bytes: &[u8],
+        budget: &ResourceBudget,
+    ) -> Result<(PortableProduct, Box<dyn Reservation>), ModelError> {
+        let (product, charge) =
+            crate::product_codec::decode(bytes, self.config.capacity_bytes, request, budget)?;
+        if &product.request != request || product.identity()?.hex() != entry.digest {
+            return Err(ModelError::Conflict("product cache canonical payload"));
+        }
+        Ok((product, charge))
     }
     async fn decode(
         &self,
@@ -618,7 +705,7 @@ impl NativeProductCache {
         request: &ProductRequest,
         budget: &ResourceBudget,
     ) -> Result<(PortableProduct, Box<dyn Reservation>), ModelError> {
-        self.check_entry(entry,request)?;
+        self.check_entry(entry, request)?;
         let size = usize::try_from(entry.bytes).map_err(ModelError::codec)?;
         let _input_charge = budget.reserve(
             "native-product-input",
@@ -643,10 +730,14 @@ impl NativeProductCache {
             }
             bytes.extend_from_slice(chunk.bytes.as_ref());
         }
-        self.decode_bytes(entry,request,&bytes,budget)
+        self.decode_bytes(entry, request, &bytes, budget)
     }
-    pub async fn lookup(&self,request:&ProductRequest,budget:&ResourceBudget)->Result<Option<LeasedProduct>,ModelError>{
-        self.session.run(self.lookup_inner(request,budget)).await
+    pub async fn lookup(
+        &self,
+        request: &ProductRequest,
+        budget: &ResourceBudget,
+    ) -> Result<Option<LeasedProduct>, ModelError> {
+        self.session.run(self.lookup_inner(request, budget)).await
     }
     async fn lookup_inner(
         &self,
@@ -696,98 +787,259 @@ impl NativeProductCache {
             }
         }
     }
-    async fn lookup_window_fallback(&self,requests:&[ProductRequest],budget:&ResourceBudget)->Result<Vec<Option<LeasedProduct>>,ModelError>{
-        let mut products=Vec::with_capacity(requests.len());
-        for request in requests {products.push(self.lookup(request,budget).await?);}
+    async fn lookup_window_fallback(
+        &self,
+        requests: &[ProductRequest],
+        budget: &ResourceBudget,
+    ) -> Result<Vec<Option<LeasedProduct>>, ModelError> {
+        let mut products = Vec::with_capacity(requests.len());
+        for request in requests {
+            products.push(self.lookup(request, budget).await?);
+        }
         Ok(products)
     }
     /// Read an existing root window as one metadata/chunk demand. Each returned entry retains
     /// its own lease and decoded reservation; order and multiplicity match the request slice.
-    pub async fn lookup_window(&self,requests:&[ProductRequest],budget:&ResourceBudget)->Result<Vec<Option<LeasedProduct>>,ModelError>{
-        self.session.run(self.lookup_window_inner(requests,budget)).await
+    pub async fn lookup_window(
+        &self,
+        requests: &[ProductRequest],
+        budget: &ResourceBudget,
+    ) -> Result<Vec<Option<LeasedProduct>>, ModelError> {
+        self.session
+            .run(self.lookup_window_inner(requests, budget))
+            .await
     }
-    async fn lookup_window_inner(&self,requests:&[ProductRequest],budget:&ResourceBudget)->Result<Vec<Option<LeasedProduct>>,ModelError>{
-        let empty=||std::iter::repeat_with(||None).take(requests.len()).collect::<Vec<_>>();
-        if requests.is_empty(){return Ok(Vec::new());}
-        let metadata_bytes=requests.iter().try_fold(0usize,|total,request|{
-            request.validate()?;
-            let bytes=request.retained_bytes()?.checked_add(2048).ok_or(ModelError::Schema("product window metadata allocation"))?;
-            total.checked_add(bytes.saturating_mul(2)).ok_or(ModelError::Schema("product window metadata allocation"))
-        })?;
-        let _metadata=match budget.reserve("native-product-window-metadata",metadata_bytes){Ok(charge)=>Arc::new(charge),Err(ModelError::Resource{..})=>return self.lookup_window_fallback(requests,budget).await,Err(error)=>return Err(error)};
-        let keys=requests.iter().map(|request|request.identity().map(|key|key.hex())).collect::<Result<Vec<_>,_>>()?;
-        let lifecycle=Arc::new(lifecycle(&self.directory,true).await?);
-        let mut leases=Vec::with_capacity(keys.len());
-        for key in &keys {leases.push(Some(lock(&self.entry_path(key),true).await?));}
-        match self.current().await {Ok(true)=>{},Ok(false)=>return Ok(empty()),Err(error)=>{self.session.observe(&error);tracing::debug!(%error,"product window unavailable");return Ok(empty());}}
-        let mut vars=Variables::new();vars.insert("ids",keys.iter().collect::<std::collections::BTreeSet<_>>().into_iter().map(|key|self.entry_id(key)).collect::<Vec<_>>());
-        let fetched=async{let mut response=self.client.query("SELECT * FROM $ids").bind(vars).await.map_err(ModelError::codec)?;response.take(0).map_err(ModelError::codec)}.await;
-        let entries:Vec<Entry>=match fetched{Ok(entries)=>entries,Err(error)=>{self.session.observe(&error);tracing::debug!(%error,"product window unavailable");return Ok(empty());}};
-        let mut by_key=std::collections::BTreeMap::new();
-        for entry in entries {
-            let key=entry.key.clone();
-            if !keys.contains(&key) || by_key.insert(key,entry).is_some(){return Err(ModelError::Conflict("product window manifest membership"));}
+    async fn lookup_window_inner(
+        &self,
+        requests: &[ProductRequest],
+        budget: &ResourceBudget,
+    ) -> Result<Vec<Option<LeasedProduct>>, ModelError> {
+        let empty = || {
+            std::iter::repeat_with(|| None)
+                .take(requests.len())
+                .collect::<Vec<_>>()
+        };
+        if requests.is_empty() {
+            return Ok(Vec::new());
         }
-        let mut retained=0usize;let mut ids=Vec::new();let mut corrupt=std::collections::BTreeSet::new();
-        for (index,(key,request)) in keys.iter().zip(requests).enumerate(){
-            let Some(entry)=by_key.get(key) else{leases[index].take();continue};
-            if let Err(error)=self.check_entry(entry,request){tracing::warn!(%error,%key,"discarding unusable derived window product");corrupt.insert(key.clone());leases[index].take();continue;}
-            if !self.acknowledged(entry)?{leases[index].take();continue;}
-            let size=usize::try_from(entry.bytes).map_err(ModelError::codec)?;
-            retained=retained.checked_add(size.checked_mul(2).ok_or(ModelError::Schema("product window allocation overflow"))?).and_then(|n|n.checked_add((entry.chunks as usize).saturating_mul(512))).ok_or(ModelError::Schema("product window allocation overflow"))?;
+        let metadata_bytes = requests.iter().try_fold(0usize, |total, request| {
+            request.validate()?;
+            let bytes = request
+                .retained_bytes()?
+                .checked_add(2048)
+                .ok_or(ModelError::Schema("product window metadata allocation"))?;
+            total
+                .checked_add(bytes.saturating_mul(2))
+                .ok_or(ModelError::Schema("product window metadata allocation"))
+        })?;
+        let _metadata = match budget.reserve("native-product-window-metadata", metadata_bytes) {
+            Ok(charge) => Arc::new(charge),
+            Err(ModelError::Resource { .. }) => {
+                return self.lookup_window_fallback(requests, budget).await;
+            }
+            Err(error) => return Err(error),
+        };
+        let keys = requests
+            .iter()
+            .map(|request| request.identity().map(|key| key.hex()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let lifecycle = Arc::new(lifecycle(&self.directory, true).await?);
+        let mut leases = Vec::with_capacity(keys.len());
+        for key in &keys {
+            leases.push(Some(lock(&self.entry_path(key), true).await?));
+        }
+        match self.current().await {
+            Ok(true) => {}
+            Ok(false) => return Ok(empty()),
+            Err(error) => {
+                self.session.observe(&error);
+                tracing::debug!(%error,"product window unavailable");
+                return Ok(empty());
+            }
+        }
+        let mut vars = Variables::new();
+        vars.insert(
+            "ids",
+            keys.iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .map(|key| self.entry_id(key))
+                .collect::<Vec<_>>(),
+        );
+        let fetched = async {
+            let mut response = self
+                .client
+                .query("SELECT * FROM $ids")
+                .bind(vars)
+                .await
+                .map_err(ModelError::codec)?;
+            response.take(0).map_err(ModelError::codec)
+        }
+        .await;
+        let entries: Vec<Entry> = match fetched {
+            Ok(entries) => entries,
+            Err(error) => {
+                self.session.observe(&error);
+                tracing::debug!(%error,"product window unavailable");
+                return Ok(empty());
+            }
+        };
+        let mut by_key = std::collections::BTreeMap::new();
+        for entry in entries {
+            let key = entry.key.clone();
+            if !keys.contains(&key) || by_key.insert(key, entry).is_some() {
+                return Err(ModelError::Conflict("product window manifest membership"));
+            }
+        }
+        let mut retained = 0usize;
+        let mut ids = Vec::new();
+        let mut corrupt = std::collections::BTreeSet::new();
+        for (index, (key, request)) in keys.iter().zip(requests).enumerate() {
+            let Some(entry) = by_key.get(key) else {
+                leases[index].take();
+                continue;
+            };
+            if let Err(error) = self.check_entry(entry, request) {
+                tracing::warn!(%error,%key,"discarding unusable derived window product");
+                corrupt.insert(key.clone());
+                leases[index].take();
+                continue;
+            }
+            if !self.acknowledged(entry)? {
+                leases[index].take();
+                continue;
+            }
+            let size = usize::try_from(entry.bytes).map_err(ModelError::codec)?;
+            retained = retained
+                .checked_add(
+                    size.checked_mul(2)
+                        .ok_or(ModelError::Schema("product window allocation overflow"))?,
+                )
+                .and_then(|n| n.checked_add((entry.chunks as usize).saturating_mul(512)))
+                .ok_or(ModelError::Schema("product window allocation overflow"))?;
         }
         // This reserve precedes both the chunk-ID container and the native response allocation.
-        let _input=match budget.reserve("native-product-window-input",retained){Ok(charge)=>charge,Err(ModelError::Resource{..})=>{drop(by_key);drop(leases);drop(lifecycle);drop(keys);drop(_metadata);return self.lookup_window_fallback(requests,budget).await},Err(error)=>return Err(error)};
-        for (index,key) in keys.iter().enumerate() {
+        let _input = match budget.reserve("native-product-window-input", retained) {
+            Ok(charge) => charge,
+            Err(ModelError::Resource { .. }) => {
+                drop(by_key);
+                drop(leases);
+                drop(lifecycle);
+                drop(keys);
+                drop(_metadata);
+                return self.lookup_window_fallback(requests, budget).await;
+            }
+            Err(error) => return Err(error),
+        };
+        for (index, key) in keys.iter().enumerate() {
             if leases[index].is_some() {
                 let entry = &by_key[key];
                 for chunk in 0..entry.chunks {
                     let remaining = entry.bytes - u64::from(chunk) * CHUNK as u64;
-                    ids.push((RecordId::new("product_chunk", format!("{}_{}",entry.staging,chunk)),
-                        remaining.min(CHUNK as u64) as usize));
+                    ids.push((
+                        RecordId::new("product_chunk", format!("{}_{}", entry.staging, chunk)),
+                        remaining.min(CHUNK as u64) as usize,
+                    ));
                 }
             }
         }
-        let ids = ids.into_iter().collect::<std::collections::BTreeMap<_,_>>().into_iter().collect::<Vec<_>>();
-        let mut chunks=std::collections::BTreeMap::new();
+        let ids = ids
+            .into_iter()
+            .collect::<std::collections::BTreeMap<_, _>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let mut chunks = std::collections::BTreeMap::new();
         let mut start = 0;
         while start < ids.len() {
             let end = start + chunk_window_end(ids[start..].iter().map(|(_, size)| *size));
-            let mut vars=Variables::new();
-            vars.insert("ids", ids[start..end].iter().map(|(id, _)| id.clone()).collect::<Vec<_>>());
-            let fetched=async{let mut response=self.client.query("SELECT * FROM $ids").bind(vars).await.map_err(ModelError::codec)?;response.take(0).map_err(ModelError::codec)}.await;
-            let rows:Vec<Chunk>=match fetched{Ok(rows)=>rows,Err(error)=>{self.session.observe(&error);tracing::debug!(%error,"product window chunks unavailable");return Ok(empty());}};
+            let mut vars = Variables::new();
+            vars.insert(
+                "ids",
+                ids[start..end]
+                    .iter()
+                    .map(|(id, _)| id.clone())
+                    .collect::<Vec<_>>(),
+            );
+            let fetched = async {
+                let mut response = self
+                    .client
+                    .query("SELECT * FROM $ids")
+                    .bind(vars)
+                    .await
+                    .map_err(ModelError::codec)?;
+                response.take(0).map_err(ModelError::codec)
+            }
+            .await;
+            let rows: Vec<Chunk> = match fetched {
+                Ok(rows) => rows,
+                Err(error) => {
+                    self.session.observe(&error);
+                    tracing::debug!(%error,"product window chunks unavailable");
+                    return Ok(empty());
+                }
+            };
             for chunk in rows {
                 if !ids[start..end].iter().any(|(id, _)| *id == chunk.id)
-                    || chunks.insert(chunk.id.clone(),chunk).is_some() {
+                    || chunks.insert(chunk.id.clone(), chunk).is_some()
+                {
                     return Err(ModelError::Conflict("product window payload membership"));
                 }
             }
             start = end;
         }
-        let mut results=Vec::with_capacity(requests.len());
-        for (index,(key,request)) in keys.iter().zip(requests).enumerate(){
-            let Some(entry_lease)=leases[index].take() else{results.push(None);continue};
-            let entry=&by_key[key];let size=usize::try_from(entry.bytes).map_err(ModelError::codec)?;
-            let decoded=(||{
-                let mut bytes=Vec::with_capacity(size);
+        let mut results = Vec::with_capacity(requests.len());
+        for (index, (key, request)) in keys.iter().zip(requests).enumerate() {
+            let Some(entry_lease) = leases[index].take() else {
+                results.push(None);
+                continue;
+            };
+            let entry = &by_key[key];
+            let size = usize::try_from(entry.bytes).map_err(ModelError::codec)?;
+            let decoded = (|| {
+                let mut bytes = Vec::with_capacity(size);
                 for chunk_index in 0..entry.chunks {
-                    let id=RecordId::new("product_chunk",format!("{}_{}",entry.staging,chunk_index));
-                    let chunk=chunks.get(&id).ok_or(ModelError::Schema("product window payload chunk"))?;
-                    if chunk.partition!=self.partition || chunk.staging!=entry.staging || chunk.bytes.len()!=(size-bytes.len()).min(CHUNK){return Err(ModelError::Schema("product window payload length"));}
+                    let id = RecordId::new(
+                        "product_chunk",
+                        format!("{}_{}", entry.staging, chunk_index),
+                    );
+                    let chunk = chunks
+                        .get(&id)
+                        .ok_or(ModelError::Schema("product window payload chunk"))?;
+                    if chunk.partition != self.partition
+                        || chunk.staging != entry.staging
+                        || chunk.bytes.len() != (size - bytes.len()).min(CHUNK)
+                    {
+                        return Err(ModelError::Schema("product window payload length"));
+                    }
                     bytes.extend_from_slice(chunk.bytes.as_ref());
                 }
-                self.decode_bytes(entry,request,&bytes,budget)
+                self.decode_bytes(entry, request, &bytes, budget)
             })();
             match decoded {
-                Ok((product,charge))=>results.push(Some(LeasedProduct{product,_entry:entry_lease,_lifecycle:lifecycle.clone(),_charge:charge,_window:Some(_metadata.clone())})),
-                Err(ModelError::Resource{..})=>results.push(None),
-                Err(error)=>{tracing::warn!(%error,%key,"discarding unusable derived window product");corrupt.insert(key.clone());results.push(None);},
+                Ok((product, charge)) => results.push(Some(LeasedProduct {
+                    product,
+                    _entry: entry_lease,
+                    _lifecycle: lifecycle.clone(),
+                    _charge: charge,
+                    _window: Some(_metadata.clone()),
+                })),
+                Err(ModelError::Resource { .. }) => results.push(None),
+                Err(error) => {
+                    tracing::warn!(%error,%key,"discarding unusable derived window product");
+                    corrupt.insert(key.clone());
+                    results.push(None);
+                }
             }
         }
         // Invalidations retain existing try-exclusive per-entry semantics. Other valid entries
         // in this returned window remain pinned even if a coordination stripe collides.
-        for key in corrupt {let index=keys.iter().position(|candidate|candidate==&key).expect("window corruption key");self.invalidate(&requests[index]).await?;}
+        for key in corrupt {
+            let index = keys
+                .iter()
+                .position(|candidate| candidate == &key)
+                .expect("window corruption key");
+            self.invalidate(&requests[index]).await?;
+        }
         Ok(results)
     }
     async fn delete(&self, entry: &Entry) -> Result<(), ModelError> {
@@ -816,16 +1068,14 @@ impl NativeProductCache {
     }
     /// Data-level caller validation can reject a syntactically valid cached section. Its
     /// invalidation uses the same leases; no live consumer's bytes are silently replaced.
-    pub async fn invalidate(&self,request:&ProductRequest)->Result<(),ModelError>{
+    pub async fn invalidate(&self, request: &ProductRequest) -> Result<(), ModelError> {
         self.session.run(self.invalidate_inner(request)).await
     }
     async fn invalidate_inner(&self, request: &ProductRequest) -> Result<(), ModelError> {
         request.validate()?;
         let this = self.clone();
         let key = request.identity()?.hex();
-        tokio::spawn(async move {
-            this.session.run(this.evict_corrupt(&key)).await
-        })
+        tokio::spawn(async move { this.session.run(this.evict_corrupt(&key)).await })
             .await
             .map_err(ModelError::codec)?
     }
@@ -845,8 +1095,12 @@ impl NativeProductCache {
         Ok(())
     }
     /// Insertion owns its task through native terminality, even if the initiating caller cancels.
-    pub async fn insert(&self,product:&PortableProduct,budget:&ResourceBudget)->Result<bool,ModelError>{
-        self.session.run(self.insert_inner(product,budget)).await
+    pub async fn insert(
+        &self,
+        product: &PortableProduct,
+        budget: &ResourceBudget,
+    ) -> Result<bool, ModelError> {
+        self.session.run(self.insert_inner(product, budget)).await
     }
     async fn insert_inner(
         &self,
@@ -861,7 +1115,8 @@ impl NativeProductCache {
         let retained = product.retained_bytes()?;
         let charge = match budget.reserve(
             "native-product-insertion",
-            size.checked_mul(2).and_then(|bytes|retained.checked_mul(2)?.checked_add(bytes))
+            size.checked_mul(2)
+                .and_then(|bytes| retained.checked_mul(2)?.checked_add(bytes))
                 .ok_or(ModelError::Schema("product allocation overflow"))?,
         ) {
             Ok(charge) => charge,
@@ -886,17 +1141,33 @@ impl NativeProductCache {
     }
     /// One owned insertion window shares chunk transfers, while every product keeps its own
     /// admission reservation, staging fence, publication receipt and acknowledgement.
-    pub async fn insert_window(&self,products:&[PortableProduct],budget:&ResourceBudget)->Result<Vec<bool>,ModelError>{
-        self.session.run(self.insert_window_inner(products,budget)).await
+    pub async fn insert_window(
+        &self,
+        products: &[PortableProduct],
+        budget: &ResourceBudget,
+    ) -> Result<Vec<bool>, ModelError> {
+        self.session
+            .run(self.insert_window_inner(products, budget))
+            .await
     }
-    async fn insert_window_inner(&self, products: &[PortableProduct], budget: &ResourceBudget)
-        -> Result<Vec<bool>, ModelError> {
-        for product in products { product.validate()?; }
-        let metadata = match budget.reserve("native-product-insertion-window", products.len().saturating_mul(1024)) {
+    async fn insert_window_inner(
+        &self,
+        products: &[PortableProduct],
+        budget: &ResourceBudget,
+    ) -> Result<Vec<bool>, ModelError> {
+        for product in products {
+            product.validate()?;
+        }
+        let metadata = match budget.reserve(
+            "native-product-insertion-window",
+            products.len().saturating_mul(1024),
+        ) {
             Ok(charge) => charge,
             Err(ModelError::Resource { .. }) => {
                 let mut result = Vec::with_capacity(products.len());
-                for product in products { result.push(self.insert(product, budget).await?); }
+                for product in products {
+                    result.push(self.insert(product, budget).await?);
+                }
                 return Ok(result);
             }
             Err(error) => return Err(error),
@@ -904,92 +1175,161 @@ impl NativeProductCache {
         let mut pending = Vec::with_capacity(products.len());
         for (position, product) in products.iter().enumerate() {
             let size = encoded_size(product)?;
-            if size as u64 > self.config.capacity_bytes { continue; }
+            if size as u64 > self.config.capacity_bytes {
+                continue;
+            }
             let retained = product.retained_bytes()?;
-            let bytes = size.checked_mul(2).and_then(|n| retained.checked_mul(2)?.checked_add(n))
+            let bytes = size
+                .checked_mul(2)
+                .and_then(|n| retained.checked_mul(2)?.checked_add(n))
                 .ok_or(ModelError::Schema("product allocation overflow"))?;
             let charge = match budget.reserve("native-product-window-entry", bytes) {
                 Ok(charge) => charge,
                 Err(ModelError::Resource { .. }) => continue,
                 Err(error) => return Err(error),
             };
-            pending.push(PendingInsertion { position, product: product.clone(), _charge: charge });
+            pending.push(PendingInsertion {
+                position,
+                product: product.clone(),
+                _charge: charge,
+            });
         }
         let count = products.len();
         let this = self.clone();
         let budget = budget.clone();
         tokio::spawn(async move {
             let _metadata = metadata;
-            match this.session.run(this.insert_window_owned(pending, count, &budget)).await {
-                Err(error) if optional_refusal(&error) => { tracing::warn!(%error, "known product window refusal"); Ok(vec![false;count]) }
+            match this
+                .session
+                .run(this.insert_window_owned(pending, count, &budget))
+                .await
+            {
+                Err(error) if optional_refusal(&error) => {
+                    tracing::warn!(%error, "known product window refusal");
+                    Ok(vec![false; count])
+                }
                 result => result,
             }
-        }).await.map_err(ModelError::codec)?
+        })
+        .await
+        .map_err(ModelError::codec)?
     }
-    async fn insert_window_owned(&self, pending: Vec<PendingInsertion>, count: usize,
-        budget: &ResourceBudget) -> Result<Vec<bool>, ModelError> {
+    async fn insert_window_owned(
+        &self,
+        pending: Vec<PendingInsertion>,
+        count: usize,
+        budget: &ResourceBudget,
+    ) -> Result<Vec<bool>, ModelError> {
         let _life = lifecycle(&self.directory, true).await?;
         let mut result = vec![false; count];
-        if !self.current().await? { return Ok(result); }
+        if !self.current().await? {
+            return Ok(result);
+        }
         let mut stages = Vec::with_capacity(pending.len());
         let outcome = async {
             for insertion in pending {
                 let key = insertion.product.request.identity()?.hex();
                 let pin = lock(&self.entry_path(&key), true).await?;
                 if let Some(entry) = self.entry(&key).await? {
-                    match self.decode(&entry, &insertion.product.request, budget).await {
+                    match self
+                        .decode(&entry, &insertion.product.request, budget)
+                        .await
+                    {
                         Ok((actual, _)) if actual == insertion.product => {
                             self.acknowledge(&entry)?;
                             result[insertion.position] = true;
                             continue;
                         }
-                        Ok(_) => return Err(ModelError::Conflict("same product request produced different canonical values")),
+                        Ok(_) => {
+                            return Err(ModelError::Conflict(
+                                "same product request produced different canonical values",
+                            ));
+                        }
                         Err(ModelError::Resource { .. }) => continue,
                         Err(error) => {
                             tracing::warn!(%error, "replacing corrupt derived window product");
                             drop(pin);
                             self.evict_corrupt_live(&key).await?;
-                            if self.entry(&key).await?.is_some() { continue; }
+                            if self.entry(&key).await?.is_some() {
+                                continue;
+                            }
                         }
                     }
-                } else { drop(pin); }
+                } else {
+                    drop(pin);
+                }
                 let bytes = crate::product_codec::encode(&insertion.product)?;
                 let staging = format!("{}_{}", self.partition, nonce());
                 let pin = lock(&self.stage_path(&staging), true).await?;
-                stages.push(PendingStage { insertion, key, staging, bytes, _pin: pin });
+                stages.push(PendingStage {
+                    insertion,
+                    key,
+                    staging,
+                    bytes,
+                    _pin: pin,
+                });
                 let stage = stages.last().expect("owned stage");
-                if !self.reserve_stage(&stage.staging, stage.bytes.len() as u64, budget).await? {
+                if !self
+                    .reserve_stage(&stage.staging, stage.bytes.len() as u64, budget)
+                    .await?
+                {
                     stages.pop();
                 }
             }
             // Reserve the native conversion window before constructing cloned chunk bodies.
             // If unavailable, the already charged independent entries retain the point path.
-            let transfer = budget.reserve("native-product-chunk-window", CHUNK.saturating_mul(2)
-                .saturating_add(lctx_model::domain::resources::TRANSFER_ROWS * 512));
+            let transfer = budget.reserve(
+                "native-product-chunk-window",
+                CHUNK
+                    .saturating_mul(2)
+                    .saturating_add(lctx_model::domain::resources::TRANSFER_ROWS * 512),
+            );
             match transfer {
-            Ok(_transfer) => {
-                self.write_chunk_windows(&stages).await?;
-                for stage in &stages {
-                    result[stage.insertion.position] = self.publish_stage(&stage.insertion.product,
-                        &stage.key, &stage.staging, &stage.bytes, budget).await?;
+                Ok(_transfer) => {
+                    self.write_chunk_windows(&stages).await?;
+                    for stage in &stages {
+                        result[stage.insertion.position] = self
+                            .publish_stage(
+                                &stage.insertion.product,
+                                &stage.key,
+                                &stage.staging,
+                                &stage.bytes,
+                                budget,
+                            )
+                            .await?;
+                    }
                 }
-            }
-            Err(ModelError::Resource { .. }) => {
-                for stage in &stages {
-                    result[stage.insertion.position] = self.write_stage(&stage.insertion.product,
-                        &stage.key, &stage.staging, &stage.bytes, budget).await?;
+                Err(ModelError::Resource { .. }) => {
+                    for stage in &stages {
+                        result[stage.insertion.position] = self
+                            .write_stage(
+                                &stage.insertion.product,
+                                &stage.key,
+                                &stage.staging,
+                                &stage.bytes,
+                                budget,
+                            )
+                            .await?;
+                    }
                 }
-            }
-            Err(error) => return Err(error),
+                Err(error) => return Err(error),
             }
             Ok(())
-        }.await;
-        if outcome.as_ref().err().is_some_and(|error| !error.permits_storage_cleanup()) {
+        }
+        .await;
+        if outcome
+            .as_ref()
+            .err()
+            .is_some_and(|error| !error.permits_storage_cleanup())
+        {
             return outcome.map(|()| result);
         }
         let mut completion = lctx_model::domain::completion::Completion::default();
         for stage in &stages {
-            completion.step("product window staging cleanup", self.remove_stage(&stage.staging).await);
+            completion.step(
+                "product window staging cleanup",
+                self.remove_stage(&stage.staging).await,
+            );
         }
         match lctx_model::domain::completion::complete(outcome, completion) {
             Ok(()) => Ok(result),
@@ -1007,18 +1347,29 @@ impl NativeProductCache {
         while stage_index < stages.len() {
             let mut rows = Vec::new();
             let mut transferred = 0usize;
-            while stage_index < stages.len() && rows.len() < lctx_model::domain::resources::TRANSFER_ROWS {
+            while stage_index < stages.len()
+                && rows.len() < lctx_model::domain::resources::TRANSFER_ROWS
+            {
                 let stage = &stages[stage_index];
                 let start = chunk_index * CHUNK;
                 let end = start.saturating_add(CHUNK).min(stage.bytes.len());
                 let bytes = &stage.bytes[start..end];
-                if !rows.is_empty() && transferred.saturating_add(bytes.len()) > CHUNK { break; }
-                rows.push(Chunk { partition: self.partition.clone(),
+                if !rows.is_empty() && transferred.saturating_add(bytes.len()) > CHUNK {
+                    break;
+                }
+                rows.push(Chunk {
+                    partition: self.partition.clone(),
                     id: RecordId::new("product_chunk", format!("{}_{chunk_index}", stage.staging)),
-                    staging: stage.staging.clone(), bytes: Bytes::from(bytes.to_vec()) });
+                    staging: stage.staging.clone(),
+                    bytes: Bytes::from(bytes.to_vec()),
+                });
                 transferred += bytes.len();
-                if end == stage.bytes.len() { stage_index += 1; chunk_index = 0; }
-                else { chunk_index += 1; }
+                if end == stage.bytes.len() {
+                    stage_index += 1;
+                    chunk_index = 0;
+                } else {
+                    chunk_index += 1;
+                }
             }
             let mut vars = Variables::new();
             vars.insert("rows", rows);
@@ -1084,10 +1435,14 @@ impl NativeProductCache {
             .await;
         // Unknown transport disposition stays quarantined and fails its owner. Cleanup cannot
         // prove rollback while a request might still be executing remotely.
-        if result.as_ref().err().is_none_or(ModelError::permits_storage_cleanup) {
-            let mut completion=lctx_model::domain::completion::Completion::default();
-            completion.step("product staging cleanup",self.remove_stage(&staging).await);
-            return lctx_model::domain::completion::complete(result,completion);
+        if result
+            .as_ref()
+            .err()
+            .is_none_or(ModelError::permits_storage_cleanup)
+        {
+            let mut completion = lctx_model::domain::completion::Completion::default();
+            completion.step("product staging cleanup", self.remove_stage(&staging).await);
+            return lctx_model::domain::completion::complete(result, completion);
         }
         result
     }
@@ -1118,9 +1473,14 @@ impl NativeProductCache {
         self.reap_stages().await?;
         // This counter is the fenced transaction's accounting authority. Its read is
         // advisory eviction planning; the final reservation still checks it FOR UPDATE.
-        let quota: Option<Quota> = self.client.select(self.partition_id("product_quota"))
-            .await.map_err(ModelError::codec)?;
-        let mut used = quota.ok_or(ModelError::Schema("missing product quota"))?.used;
+        let quota: Option<Quota> = self
+            .client
+            .select(self.partition_id("product_quota"))
+            .await
+            .map_err(ModelError::codec)?;
+        let mut used = quota
+            .ok_or(ModelError::Schema("missing product quota"))?
+            .used;
         let _inventory_charge = budget.reserve("native-product-inventory", 64 * 512)?;
         let mut cursor: Option<(u64, String)> = None;
         while used.saturating_add(size) > self.config.capacity_bytes {
@@ -1129,9 +1489,20 @@ impl NativeProductCache {
                 vars.insert("after_created", *created);
                 vars.insert("after_key", key.clone());
                 " AND (created > $after_created OR (created = $after_created AND key > $after_key))"
-            } else { "" };
-            let sql = format!("SELECT id,key,created,bytes,chunks,staging FROM product_entry WHERE partition=$partition{predicate} ORDER BY created,key LIMIT 64");
-            let mut response = self.client.query(self.scope_sql(&sql)).bind(vars).await.map_err(ModelError::codec)?.check().map_err(ModelError::codec)?;
+            } else {
+                ""
+            };
+            let sql = format!(
+                "SELECT id,key,created,bytes,chunks,staging FROM product_entry WHERE partition=$partition{predicate} ORDER BY created,key LIMIT 64"
+            );
+            let mut response = self
+                .client
+                .query(self.scope_sql(&sql))
+                .bind(vars)
+                .await
+                .map_err(ModelError::codec)?
+                .check()
+                .map_err(ModelError::codec)?;
             let entries: Vec<Inventory> = response.take(0).map_err(ModelError::codec)?;
             if entries.is_empty() {
                 break;
@@ -1140,8 +1511,12 @@ impl NativeProductCache {
                 if used.saturating_add(size) <= self.config.capacity_bytes {
                     break;
                 }
-                if cursor.as_ref().is_some_and(|previous| (entry.created, entry.key.as_str()) <= (previous.0, previous.1.as_str())) {
-                    return Err(ModelError::Conflict("product eviction cursor did not advance"));
+                if cursor.as_ref().is_some_and(|previous| {
+                    (entry.created, entry.key.as_str()) <= (previous.0, previous.1.as_str())
+                }) {
+                    return Err(ModelError::Conflict(
+                        "product eviction cursor did not advance",
+                    ));
                 }
                 cursor = Some((entry.created, entry.key.clone()));
                 if entry.id != self.entry_id(&entry.key) {
@@ -1155,7 +1530,7 @@ impl NativeProductCache {
                             .await?;
                         used = used.saturating_sub(entry.bytes);
                     }
-                    Err(std::fs::TryLockError::WouldBlock) => {},
+                    Err(std::fs::TryLockError::WouldBlock) => {}
                     Err(std::fs::TryLockError::Error(error)) => {
                         return Err(ModelError::codec(error));
                     }
@@ -1200,10 +1575,17 @@ impl NativeProductCache {
             vars.insert("stage", RecordId::new("product_stage", staging));
             self.client.query(self.fenced_sql("IF array::len(SELECT id FROM $stage FOR UPDATE) != 1 { THROW 'fenced product stage'; }; CREATE $row.id CONTENT $row")).bind(vars).await.map_err(crate::loader::write_failure)?.check().map_err(ModelError::codec)?;
         }
-        self.publish_stage(product, key, staging, bytes, budget).await
+        self.publish_stage(product, key, staging, bytes, budget)
+            .await
     }
-    async fn publish_stage(&self, product: &PortableProduct, key: &str, staging: &str,
-        bytes: &[u8], budget: &ResourceBudget) -> Result<bool, ModelError> {
+    async fn publish_stage(
+        &self,
+        product: &PortableProduct,
+        key: &str,
+        staging: &str,
+        bytes: &[u8],
+        budget: &ResourceBudget,
+    ) -> Result<bool, ModelError> {
         let capacity = lock(&self.directory.join("capacity.lock"), false).await?;
         if !self.current().await? {
             return Ok(false);
@@ -1238,7 +1620,9 @@ impl NativeProductCache {
                     .as_millis(),
             )
             .map_err(ModelError::codec)?,
-            request: Bytes::from(postcard::to_allocvec(&product.request).map_err(ModelError::codec)?),
+            request: Bytes::from(
+                postcard::to_allocvec(&product.request).map_err(ModelError::codec)?,
+            ),
             digest: product.identity()?.hex(),
             bytes: bytes.len() as u64,
             chunks: u32::try_from(bytes.len().div_ceil(CHUNK)).map_err(ModelError::codec)?,
@@ -1332,46 +1716,50 @@ impl NativeProductCache {
     }
     /// Fence admissions and wait for all product leases and owned insertions before deleting.
     /// Existing cache instances retain the old generation and can no longer publish.
-    pub async fn retire(&self)->Result<(),ModelError>{
+    pub async fn retire(&self) -> Result<(), ModelError> {
         self.session.run(self.retire_inner()).await
     }
     async fn retire_inner(&self) -> Result<(), ModelError> {
         let this = self.clone();
-        tokio::spawn(async move { this.session.run(async {
-            let _admission = lock(&this.directory.join("admission.lock"), false).await?;
-            let _life = lock(&this.directory.join("lifecycle.lock"), false).await?;
-            if administration_pending(&this.directory)? {
-                return Err(ModelError::Conflict(
-                    "product administration requires explicit installation reconciliation",
-                ));
-            }
-            if !this.current().await? {
-                return Ok(());
-            }
-            let owner: CoordinationOwner = this
-                .client
-                .select::<Option<CoordinationOwner>>(this.partition_id("product_owner"))
+        tokio::spawn(async move {
+            this.session
+                .run(async {
+                    let _admission = lock(&this.directory.join("admission.lock"), false).await?;
+                    let _life = lock(&this.directory.join("lifecycle.lock"), false).await?;
+                    if administration_pending(&this.directory)? {
+                        return Err(ModelError::Conflict(
+                            "product administration requires explicit installation reconciliation",
+                        ));
+                    }
+                    if !this.current().await? {
+                        return Ok(());
+                    }
+                    let owner: CoordinationOwner = this
+                        .client
+                        .select::<Option<CoordinationOwner>>(this.partition_id("product_owner"))
+                        .await
+                        .map_err(ModelError::codec)?
+                        .ok_or(ModelError::Schema(
+                            "product cache coordination owner receipt",
+                        ))?;
+                    let mut vars = Variables::new();
+                    vars.insert("generation", nonce());
+                    vars.insert("old_generation", this.generation.clone());
+                    vars.insert("owner_generation", owner.generation);
+                    mark_administration(&this.directory)?;
+                    this.client
+                        .query(this.scope_sql(&format!("BEGIN; {RETIREMENT_BODY}; COMMIT;")))
+                        .bind(vars)
+                        .await
+                        .map_err(crate::loader::write_failure)?
+                        .check()
+                        .map_err(ModelError::codec)?;
+                    remove_generation_assets(&this.directory)?;
+                    clear_administration(&this.directory)?;
+                    Ok(())
+                })
                 .await
-                .map_err(ModelError::codec)?
-                .ok_or(ModelError::Schema(
-                    "product cache coordination owner receipt",
-                ))?;
-            let mut vars = Variables::new();
-            vars.insert("generation", nonce());
-            vars.insert("old_generation", this.generation.clone());
-            vars.insert("owner_generation", owner.generation);
-            mark_administration(&this.directory)?;
-            this.client
-                .query(this.scope_sql(&format!("BEGIN; {RETIREMENT_BODY}; COMMIT;")))
-                .bind(vars)
-                .await
-                .map_err(crate::loader::write_failure)?
-                .check()
-                .map_err(ModelError::codec)?;
-            remove_generation_assets(&this.directory)?;
-            clear_administration(&this.directory)?;
-            Ok(())
-        }).await })
+        })
         .await
         .map_err(ModelError::codec)?
     }
@@ -1433,11 +1821,11 @@ mod tests {
     }
     #[tokio::test]
     async fn native_cache_session_close_refuses_live_caller_then_joins_exact_owner() {
-        let (cache,_runtime,_scratch)=fixture(16<<20).await;
-        let cache=Arc::new(cache);
-        let remaining=cache.clone();
-        let weak=Arc::downgrade(&cache);
-        let error=cache.close().await.unwrap_err();
+        let (cache, _runtime, _scratch) = fixture(16 << 20).await;
+        let cache = Arc::new(cache);
+        let remaining = cache.clone();
+        let weak = Arc::downgrade(&cache);
+        let error = cache.close().await.unwrap_err();
         assert!(matches!(error,ModelError::Completion(ref outcome)
             if outcome.completion.local==lctx_model::domain::completion::LocalState::Outstanding
                 && outcome.completion.remote==lctx_model::domain::completion::RemoteState::Confirmed));
@@ -1608,8 +1996,17 @@ mod tests {
         drop(borrowed);
         retire.await.unwrap().unwrap();
         assert_eq!(budget.reserved(), 0);
-        let reopened=NativeProductCache::connect(&runtime).await.unwrap().unwrap();
-        assert!(reopened.lookup(&product.request,&budget).await.unwrap().is_none());
+        let reopened = NativeProductCache::connect(&runtime)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            reopened
+                .lookup(&product.request, &budget)
+                .await
+                .unwrap()
+                .is_none()
+        );
         Arc::new(reopened).close().await.unwrap();
         Arc::new(cache).close().await.unwrap();
     }
@@ -1741,16 +2138,27 @@ mod tests {
                 .is_none()
         );
         assert!(cache.insert(&product, &budget).await.unwrap());
-        let entry=cache.entry(&product.request.identity().unwrap().hex()).await.unwrap().unwrap();
-        assert_eq!(entry.chunks,2,"the current binary product crosses one physical chunk boundary");
-        let mut physical_bytes=0;
+        let entry = cache
+            .entry(&product.request.identity().unwrap().hex())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            entry.chunks, 2,
+            "the current binary product crosses one physical chunk boundary"
+        );
+        let mut physical_bytes = 0;
         for index in 0..entry.chunks {
-            let chunk:Chunk=cache.client.select(("product_chunk",format!("{}_{}",entry.staging,index)))
-                .await.unwrap().unwrap();
-            assert!(!chunk.bytes.is_empty() && chunk.bytes.len()<=CHUNK);
-            physical_bytes+=chunk.bytes.len();
+            let chunk: Chunk = cache
+                .client
+                .select(("product_chunk", format!("{}_{}", entry.staging, index)))
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(!chunk.bytes.is_empty() && chunk.bytes.len() <= CHUNK);
+            physical_bytes += chunk.bytes.len();
         }
-        assert_eq!(physical_bytes,encoded_size(&product).unwrap());
+        assert_eq!(physical_bytes, encoded_size(&product).unwrap());
         let orphan: Option<Chunk> = cache
             .client
             .select(("product_chunk", format!("{orphan}_0")))
@@ -2248,21 +2656,26 @@ mod window_controls {
     use super::*;
     #[tokio::test]
     async fn cache_session_cancellation_retains_actual_client_and_unknown_disposition() {
-        let client=Arc::new(Surreal::init());
-        let retry=crate::control::RetryCancellation::default();
-        let session=CacheSession{
-            session:lctx_native::reader::SessionFinalizationGuard::new(client.clone()),
-            signals:lctx_native::signal::SignalRegistration::process(||{}).unwrap(),
-            retry,uncertain:AtomicBool::new(false),
+        let client = Arc::new(Surreal::init());
+        let retry = crate::control::RetryCancellation::default();
+        let session = CacheSession {
+            session: lctx_native::reader::SessionFinalizationGuard::new(client.clone()),
+            signals: lctx_native::signal::SignalRegistration::process(|| {}).unwrap(),
+            retry,
+            uncertain: AtomicBool::new(false),
         };
         drop(CacheOperation::new(&session).unwrap());
-        let error=session.close().await.unwrap_err();
+        let error = session.close().await.unwrap_err();
         assert!(!error.permits_storage_cleanup());
         assert!(matches!(error,ModelError::Completion(ref outcome)
             if outcome.completion.local==lctx_model::domain::completion::LocalState::Outstanding
                 && outcome.completion.remote==lctx_model::domain::completion::RemoteState::Unknown));
         drop(session);
-        assert_eq!(Arc::strong_count(&client),2,"abandonment retains the actual session handle");
+        assert_eq!(
+            Arc::strong_count(&client),
+            2,
+            "abandonment retains the actual session handle"
+        );
     }
     #[test]
     fn transfers_preserve_cross_product_order_at_byte_and_row_boundaries() {
@@ -2277,9 +2690,14 @@ mod window_controls {
         }
         assert_eq!(windows, vec![vec![CHUNK], vec![3, 5, CHUNK - 8], vec![1]]);
         assert_eq!(windows.into_iter().flatten().collect::<Vec<_>>(), input);
-        assert_eq!(chunk_window_end(std::iter::repeat_n(1, resources_rows()+1)), resources_rows());
+        assert_eq!(
+            chunk_window_end(std::iter::repeat_n(1, resources_rows() + 1)),
+            resources_rows()
+        );
     }
-    fn resources_rows() -> usize { lctx_model::domain::resources::TRANSFER_ROWS }
+    fn resources_rows() -> usize {
+        lctx_model::domain::resources::TRANSFER_ROWS
+    }
     #[test]
     fn window_entries_keep_independent_charges_and_shared_lifecycle_until_final_drop() {
         let directory = tempfile::tempdir().unwrap();
@@ -2297,28 +2715,47 @@ mod window_controls {
             sizes.push(size);
             let entry = open_lock(&directory.path().join(format!("entry-{index}"))).unwrap();
             entry.lock_shared().unwrap();
-            entries.push(LeasedProduct { product, _entry: entry, _lifecycle: life.clone(),
-                _charge: budget.reserve("decoded entry control", size).unwrap(), _window: Some(metadata.clone()) });
+            entries.push(LeasedProduct {
+                product,
+                _entry: entry,
+                _lifecycle: life.clone(),
+                _charge: budget.reserve("decoded entry control", size).unwrap(),
+                _window: Some(metadata.clone()),
+            });
         }
         drop(metadata);
         drop(life);
         assert_eq!(budget.reserved(), sizes.iter().sum::<usize>() + 512);
         drop(entries.remove(0));
         assert_eq!(budget.reserved(), sizes[1] + 512);
-        assert!(matches!(probe.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+        assert!(matches!(
+            probe.try_lock(),
+            Err(std::fs::TryLockError::WouldBlock)
+        ));
         drop(entries);
         assert_eq!(budget.reserved(), 0);
         probe.try_lock().unwrap();
     }
     #[test]
     fn optional_refusal_never_erases_nested_unknown_disposition_or_conflict() {
-        let unknown = ModelError::infrastructure(lctx_model::domain::Infrastructure::Unconfirmed, "remote write");
+        let unknown = ModelError::infrastructure(
+            lctx_model::domain::Infrastructure::Unconfirmed,
+            "remote write",
+        );
         let wrapped = ModelError::Cause(Box::new(unknown));
         assert!(!optional_refusal(&wrapped));
-        assert!(!optional_refusal(&ModelError::Conflict("different canonical values")));
-        assert!(!optional_refusal(&ModelError::Cause(Box::new(ModelError::Conflict("wrapped conflict")))));
-        assert!(optional_refusal(&ModelError::codec("malformed optional product")));
+        assert!(!optional_refusal(&ModelError::Conflict(
+            "different canonical values"
+        )));
+        assert!(!optional_refusal(&ModelError::Cause(Box::new(
+            ModelError::Conflict("wrapped conflict")
+        ))));
+        assert!(optional_refusal(&ModelError::codec(
+            "malformed optional product"
+        )));
         let budget = ResourceBudget::fixed(1).unwrap();
-        assert!(optional_refusal(&budget.reserve("window control", 2).unwrap_err()));
+        assert!(optional_refusal(
+            &budget.reserve("window control", 2).unwrap_err()
+        ));
     }
 }

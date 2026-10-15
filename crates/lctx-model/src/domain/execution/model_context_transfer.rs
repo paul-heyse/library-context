@@ -121,7 +121,13 @@ impl CheckedContextTransfer {
         };
         let entry = match produced {
             Some(produced) => produced.local.entry(witness, source, budget)?,
-            None => match EntryValueWitness::derive_for_prepared(data, witness.request(), source, conditions, budget)? {
+            None => match EntryValueWitness::derive_for_prepared(
+                data,
+                witness.request(),
+                source,
+                conditions,
+                budget,
+            )? {
                 Ok(value) => std::sync::Arc::new(value),
                 Err(reason) => return Ok(Err(reason)),
             },
@@ -133,8 +139,7 @@ impl CheckedContextTransfer {
         }
         let _nodes = budget.reserve(
             "context-transfer-condition-input",
-            entry.condition().allocation_allowance()
-                .saturating_add(128),
+            entry.condition().allocation_allowance().saturating_add(128),
         )?;
         let mut qualification = entry.qualification().clone();
         let mut condition = entry.condition().clone();

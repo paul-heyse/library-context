@@ -1,6 +1,6 @@
 //! Actual selected native diagnostics and definition answers reach the original evidence owner.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     analysis::native::NativeInventory,
     assertion::*,

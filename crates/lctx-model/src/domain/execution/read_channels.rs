@@ -268,7 +268,7 @@ impl Work {
             {
                 index
                     .formal_reads
-                    .update(&mut index.charge, *declaration, |rows| rows.push(row.id()))?;
+                    .push(&mut index.charge, *declaration, row.id())?;
             }
         }
         let mut parameters = charged::ChargedMap::default();
@@ -304,7 +304,7 @@ impl Work {
                     .unwrap_or(definition.occurrence);
                 index
                     .formal_reads
-                    .update(&mut index.charge, parameter, |rows| rows.push(row.use_))?;
+                    .push(&mut index.charge, parameter, row.use_)?;
             }
             if matches!(
                 entry.targets.get(row.target),
@@ -314,9 +314,7 @@ impl Work {
                 .get(row.use_)
                 .and_then(|u| index.owner(u.occurrence))
             {
-                index
-                    .nested
-                    .update(&mut index.charge, owner, |rows| rows.push(row.id()))?;
+                index.nested.push(&mut index.charge, owner, row.id())?;
             }
         }
         for target in data.call_targets.iter() {
@@ -328,9 +326,7 @@ impl Work {
             {
                 index
                     .dynamic_targets
-                    .update(&mut index.charge, target.site, |rows| {
-                        rows.push(target.id())
-                    })?;
+                    .push(&mut index.charge, target.site, target.id())?;
             }
         }
         for occurrence in entry.occurrences.iter() {
@@ -340,7 +336,7 @@ impl Work {
             {
                 index
                     .calls
-                    .update(&mut index.charge, owner, |rows| rows.push(occurrence.id()))?;
+                    .push(&mut index.charge, owner, occurrence.id())?;
             }
         }
         Ok(index)
@@ -451,20 +447,16 @@ impl PreparedReads {
                 work.owners.insert(&mut work.charge, occurrence, value)?;
             }
             ReadMetadata::FormalUse { parameter, use_ } => {
-                work.formal_reads
-                    .update(&mut work.charge, parameter, |rows| rows.push(use_))?;
+                work.formal_reads.push(&mut work.charge, parameter, use_)?;
             }
             ReadMetadata::Nested { owner, reaching } => {
-                work.nested
-                    .update(&mut work.charge, owner, |rows| rows.push(reaching))?;
+                work.nested.push(&mut work.charge, owner, reaching)?;
             }
             ReadMetadata::CallTarget { site, target } => {
-                work.dynamic_targets
-                    .update(&mut work.charge, site, |rows| rows.push(target))?;
+                work.dynamic_targets.push(&mut work.charge, site, target)?;
             }
             ReadMetadata::Call { owner, occurrence } => {
-                work.calls
-                    .update(&mut work.charge, owner, |rows| rows.push(occurrence))?;
+                work.calls.push(&mut work.charge, owner, occurrence)?;
             }
         }
         Ok(())

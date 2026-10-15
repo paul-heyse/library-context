@@ -72,7 +72,7 @@ fn upper_frontiers_have_one_actual_writer_for_every_relation() {
             }
             let facts = Stage {
                 captured_binding: None,
-name: "static_facts",
+                name: "static_facts",
                 inputs: vec![],
                 outputs: facts_relations()
                     .iter()
@@ -167,7 +167,7 @@ name: "static_facts",
                 )
                 .unwrap(),
             ];
-        stages.extend(config.declarations());
+            stages.extend(config.declarations());
             let mut groups = vec![
                 PublicationGroup::new(PublicationBoundary::Facts, vec!["static_facts"]),
                 PublicationGroup::new(PublicationBoundary::Local, vec!["analyze_local"]),

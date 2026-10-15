@@ -140,13 +140,21 @@ pub async fn produce(
     )
     .await?;
     drop(session);
-    let definitions=context.definitions;
+    let definitions = context.definitions;
     drop(data);
     for core in parents.iter() {
         let grain = scopes.grain(core.id(), runtime.budget()).await?;
         let (data, mut context) = load_grain(&scopes, &access, &grain, runtime).await?;
         drop(grain);
-        if let Some(domain)=admission.uniform_analysis(analysis::owner::AnalysisOwner::Local,core.input,core.context,&definitions,runtime.budget())?{context.admit_compact_local(domain)?;}
+        if let Some(domain) = admission.uniform_analysis(
+            analysis::owner::AnalysisOwner::Local,
+            core.input,
+            core.context,
+            &definitions,
+            runtime.budget(),
+        )? {
+            context.admit_compact_local(domain)?;
+        }
         let (results, receipts, projections) = derive_parent(
             &data,
             &mut context,

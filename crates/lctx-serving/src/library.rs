@@ -39,7 +39,7 @@ async fn resolve_inner(
                 crate::scope::OWNED_FIELDS,
             )
             .await?;
-        let prepared = preparation.domains_published(reader,&cached).await?;
+        let prepared = preparation.domains_published(reader, &cached).await?;
         let resolved = prepared.resolve(name).map_err(|_| {
             ModelError::Serving(lctx_model::domain::serving::FailureKind::UnknownLibrary)
         })?;
@@ -53,12 +53,18 @@ async fn resolve_inner(
     for (name, batch) in &batches.batches {
         data.visit(name, batch)?;
     }
-    if !data.uniform.is_empty(){
-        let _scratch=budget.reserve("library compact descriptor transfer",data.uniform.len().saturating_mul(1024))?;
-        let rows=data.uniform.iter().cloned().collect::<Vec<_>>();
-        let completed=lctx_native::completed_state::published_completed_state(reader,budget).await?;
-        let owners=completed.admit_uniform_owners(&rows,budget).await?;
-        for owner in owners.owners(){data.admit_uniform_owner(owner)?;}
+    if !data.uniform.is_empty() {
+        let _scratch = budget.reserve(
+            "library compact descriptor transfer",
+            data.uniform.len().saturating_mul(1024),
+        )?;
+        let rows = data.uniform.iter().cloned().collect::<Vec<_>>();
+        let completed =
+            lctx_native::completed_state::published_completed_state(reader, budget).await?;
+        let owners = completed.admit_uniform_owners(&rows, budget).await?;
+        for owner in owners.owners() {
+            data.admit_uniform_owner(owner)?;
+        }
     }
     let prepared = PreparedLibraryDomains::prepare(&data, budget)?;
     let resolved = prepared.resolve(name).map_err(|_| {

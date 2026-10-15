@@ -171,8 +171,13 @@ impl CheckedModelTransfer {
         let entry = match produced {
             Some(produced) => produced.local.entry(witness, source, budget)?,
             None => {
-                match EntryValueWitness::derive_for_prepared(entry_data, witness.request(), source, conditions, budget)?
-                {
+                match EntryValueWitness::derive_for_prepared(
+                    entry_data,
+                    witness.request(),
+                    source,
+                    conditions,
+                    budget,
+                )? {
                     Ok(value) => std::sync::Arc::new(value),
                     Err(reason) => return Ok(Err(reason)),
                 }

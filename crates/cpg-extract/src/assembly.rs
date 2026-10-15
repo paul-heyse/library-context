@@ -1,9 +1,9 @@
 //! Attachment of provider events to occurrences (ADR-0089). Only an exact span match attaches;
 //! every other outcome goes back to the provider with its candidates, to be disclosed as a subject
 //! boundary rather than guessed.
-use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
 use crate::bundle::{Declared, ProviderStage, StageContext};
+use lctx_model::domain::producer_contract::ProducerContract;
 use lctx_model::domain::{
     Batch, ContentHash, Id, ModelError, Record,
     attachment::{
@@ -55,10 +55,16 @@ pub use lctx_model::domain::producer_contract::facts::ASSEMBLE;
 /// The `assemble` stage: the single writer of the vocabulary providers contribute (ADR-0089). Its
 /// output writers merge every contribution and emit each identity once.
 pub struct Assemble;
-pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::assembly() }
+pub fn contract() -> ProducerContract {
+    lctx_model::domain::producer_contract::facts::assembly()
+}
 impl Declared for Assemble {
     fn declaration(&self, _: Profile) -> Stage {
-        contract().bind(ContentHash::of(include_str!("assembly.rs").as_bytes()), ContentHash::of(b"assemble"), [])
+        contract().bind(
+            ContentHash::of(include_str!("assembly.rs").as_bytes()),
+            ContentHash::of(b"assemble"),
+            [],
+        )
     }
 }
 impl<S: ProviderSink + 'static> ProviderStage<S> for Assemble {
@@ -148,9 +154,15 @@ impl<S: ProviderSink + 'static> ProviderStage<S> for Assemble {
                 // The declaration is total over the independently captured family
                 // domain, including explicit empty input domains. Every consumer
                 // binds it to this exact completed Assembly owner before use.
-                let (_,domain)=lctx_model::domain::uniform_outcome::ExpectedUniform::captured_family(
-                    context.stage(),context.profile(),input.captured().revision().id(),analysis.id(),
-                    FactFamily::Flow,context.budget())?;
+                let (_, domain) =
+                    lctx_model::domain::uniform_outcome::ExpectedUniform::captured_family(
+                        context.stage(),
+                        context.profile(),
+                        input.captured().revision().id(),
+                        analysis.id(),
+                        FactFamily::Flow,
+                        context.budget(),
+                    )?;
                 context.emit(domain.declaration()?)?;
             }
         }

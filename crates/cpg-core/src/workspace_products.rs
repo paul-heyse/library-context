@@ -371,32 +371,31 @@ impl Workspace {
     pub(super) async fn retain_product(
         &self,
         request: ProductRequest,
-        id: ContentHash,
-        outcome: ProviderOutcome,
+        production: Arc<lctx_compiler_store::compiler::CompletedProduction>,
     ) -> Result<(), ModelError> {
-        match self.retain_product_owned(request, id, outcome).await {
-            Err(ModelError::Resource { .. } | ModelError::Limit { .. }) => {
-                tracing::debug!("optional product capture refused; completed producer retained");
+        use lctx_compiler_store::compiler::RetentionPreparation;
+        let identity = request.identity()?;
+        // No dispatcher/native admission before an explicit effect-free outcome.
+        let prepared = tokio::select! {
+            biased;
+            () = self.cancellation.cancelled() => { self.cancellation.check()?; unreachable!("cancelled token checked"); }
+            prepared = self.native.prepare_product_retention(identity, production, &self.budget) => prepared?,
+        };
+        match prepared {
+            RetentionPreparation::Declined => {
+                tracing::debug!("optional product capture declined before native admission");
                 Ok(())
             }
-            result => result,
+            RetentionPreparation::Ready(prepared) => {
+                self.cancellation.check()?;
+                let native = self.native.clone();
+                let budget = self.budget.clone();
+                self.native_call(
+                    async move { native.retain_prepared_product(prepared, &budget).await },
+                )
+                .await
+            }
         }
-    }
-    async fn retain_product_owned(
-        &self,
-        request: ProductRequest,
-        id: ContentHash,
-        outcome: ProviderOutcome,
-    ) -> Result<(), ModelError> {
-        let identity = request.identity()?;
-        let native = self.native.clone();
-        let budget = self.budget().clone();
-        self.native_call(
-            async move { native.retain_product_identity(identity, id, &budget).await },
-        )
-        .await?;
-        let _ = outcome;
-        Ok(())
     }
 }
 fn canonical_bodies(relation: &Relation, batch: &RecordBatch) -> Result<Vec<Value>, ModelError> {
@@ -418,7 +417,10 @@ fn canonical_bodies(relation: &Relation, batch: &RecordBatch) -> Result<Vec<Valu
 #[cfg(test)]
 mod controls {
     use super::*;
-    use lctx_model::domain::{admission::Frontier, input::Package};
+    use lctx_model::domain::{
+        admission::Frontier,
+        input::{Package, Release},
+    };
     fn config() -> lctx_native::RuntimeConfig {
         lctx_native::RuntimeConfig::read(std::path::Path::new(
             &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("stable validation runtime"),
@@ -451,6 +453,317 @@ mod controls {
             workspace.inputs(operation, Profile::Catalog, []).unwrap(),
             [Package::NAME],
         )
+    }
+    async fn earned(
+        workspace: &Arc<Workspace>,
+        operation: &'static str,
+    ) -> (
+        ProductRequest,
+        Arc<lctx_compiler_store::compiler::CompletedProduction>,
+    ) {
+        let produced = output(workspace, operation);
+        let request = produced.product_request().unwrap();
+        produced.declare_async::<Package>().await.unwrap();
+        let id = produced.registration_request().await.unwrap();
+        let scope = produced.producing_scope().unwrap();
+        produced.finish(ProviderOutcome::Complete).await.unwrap();
+        let native = workspace.native.clone();
+        let budget = workspace.budget.clone();
+        let result = workspace
+            .native_call(async move {
+                native
+                    .complete_singleton_scoped(
+                        &scope,
+                        id,
+                        ProviderOutcome::Complete,
+                        &[Relation::of::<Package>()],
+                        &budget,
+                    )
+                    .await
+            })
+            .await
+            .unwrap();
+        (request, result)
+    }
+    #[tokio::test]
+    async fn singleton_completion_progresses_while_current_visibility_gate_is_held() {
+        let cfg = config();
+        let workspace = workspace(&cfg).await;
+        let produced = output(&workspace, "singleton-before-visibility");
+        produced.declare_async::<Package>().await.unwrap();
+        let id = produced.registration_request().await.unwrap();
+        let gate = workspace.completion_gate.lock().await;
+        let finished = tokio::spawn(produced.finish(ProviderOutcome::Complete));
+        let observer = lctx_compiler_store::compiler::check_installation(&cfg)
+            .await
+            .unwrap();
+        // Observe a real completed descriptor before releasing visibility. The deadline
+        // bounds a deadlock control; it makes no speed or throughput claim.
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let mut response = observer
+                    .query("SELECT completed FROM $record")
+                    .bind((
+                        "record",
+                        lctx_native::surrealdb::types::RecordId::new(
+                            "compiler_contribution",
+                            id.hex(),
+                        ),
+                    ))
+                    .await
+                    .unwrap()
+                    .check()
+                    .unwrap();
+                let rows: Vec<Value> = response.take(0).unwrap();
+                if rows
+                    .first()
+                    .and_then(Value::as_object)
+                    .and_then(|row| row.get("completed"))
+                    == Some(&Value::Bool(true))
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            workspace.relation(Package::NAME).is_err(),
+            "singleton metadata grants no current binding"
+        );
+        assert!(!finished.is_finished());
+        drop(gate);
+        finished.await.unwrap().unwrap();
+        assert_eq!(workspace.relation(Package::NAME).unwrap().rows(), 0);
+        observer.invalidate().await.unwrap();
+        workspace.drain().await.unwrap();
+        workspace.native.abandon().await.unwrap();
+    }
+    #[tokio::test]
+    async fn private_capture_wait_does_not_hold_disjoint_completion_or_change_old_view() {
+        use lctx_compiler_store::compiler::RetentionPreparation;
+        let cfg = config();
+        let workspace = workspace(&cfg).await;
+        let (_, seed) = earned(&workspace, "private-wait-seed").await;
+        let old = workspace.relation(Package::NAME).unwrap();
+        let produced = output(&workspace, "private-wait-producer");
+        let request = produced.product_request().unwrap();
+        let identity = request.identity().unwrap();
+        // A wholly local prepared owner holds this exact request gate. No native
+        // product or pin has been created by that preparation.
+        let RetentionPreparation::Ready(blocker) = workspace
+            .native
+            .prepare_product_retention(identity, seed.clone(), &workspace.budget)
+            .await
+            .unwrap()
+        else {
+            panic!("local preparation should fit")
+        };
+        *produced.product_capture.lock().unwrap() = Some(request);
+        // This client's SDK router runs on the current async test runtime;
+        // synchronous provider callbacks belong on their blocking execution lane.
+        produced.declare_kind_async::<Package>(true).await.unwrap();
+        produced
+            .push(Package {
+                name: "private-wait-row".into(),
+            })
+            .await
+            .unwrap();
+        let id = produced.registration_request().await.unwrap();
+        let finished = tokio::spawn(produced.finish(ProviderOutcome::Complete));
+        let observer = lctx_compiler_store::compiler::check_installation(&cfg)
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                let mut response = observer
+                    .query("SELECT completed FROM $record")
+                    .bind((
+                        "record",
+                        lctx_native::surrealdb::types::RecordId::new(
+                            "compiler_contribution",
+                            id.hex(),
+                        ),
+                    ))
+                    .await
+                    .unwrap()
+                    .check()
+                    .unwrap();
+                let rows: Vec<Value> = response.take(0).unwrap();
+                if rows
+                    .first()
+                    .and_then(Value::as_object)
+                    .and_then(|row| row.get("completed"))
+                    == Some(&Value::Bool(true))
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let disjoint = workspace.output(
+            "private-wait-disjoint",
+            Profile::Catalog,
+            ContentHash::of(b"private-wait-disjoint"),
+            workspace
+                .inputs("private-wait-disjoint", Profile::Catalog, [])
+                .unwrap(),
+            [Release::NAME],
+        );
+        disjoint.declare_async::<Release>().await.unwrap();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            disjoint.finish(ProviderOutcome::Complete),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let release = workspace.relation(Release::NAME).unwrap();
+        assert_eq!(
+            release.rows(),
+            0,
+            "a real unrelated empty relation is composed and bound"
+        );
+        assert_eq!(release.producer(), "private-wait-disjoint");
+        assert_eq!(release.view().relation, Release::NAME);
+        assert_eq!(release.view().contributions.len(), 1);
+        assert_ne!(release.view_identity(), old.view_identity());
+        assert!(!finished.is_finished());
+        assert_eq!(
+            workspace.relation(Package::NAME).unwrap().view_identity(),
+            old.view_identity()
+        );
+        drop(blocker);
+        finished.await.unwrap().unwrap();
+        assert_eq!(workspace.relation(Package::NAME).unwrap().rows(), 1);
+        assert_eq!(old.rows(), 0);
+        observer.invalidate().await.unwrap();
+        drop(seed);
+        workspace.drain().await.unwrap();
+        workspace.native.abandon().await.unwrap();
+    }
+    #[tokio::test]
+    async fn optional_capture_declines_before_dispatch_and_preserves_empty_required_output() {
+        use lctx_compiler_store::compiler::RetentionPreparation;
+        let workspace = workspace(&config()).await;
+        let (request, production) = earned(&workspace, "capture-local-refusal").await;
+        assert_eq!(workspace.relation(Package::NAME).unwrap().rows(), 0);
+        let identity = request.identity().unwrap();
+        let before = workspace.budget.reserved();
+        let fill = workspace
+            .budget
+            .reserve(
+                "control local capture refusal",
+                workspace.budget.limit() - before,
+            )
+            .unwrap();
+        assert!(matches!(
+            workspace
+                .native
+                .prepare_product_retention(identity, production.clone(), &workspace.budget)
+                .await
+                .unwrap(),
+            RetentionPreparation::Declined
+        ));
+        // The production route sees the same explicit optional result without dispatching
+        // a mandatory operation, poisoning current views, or cancelling its caller.
+        workspace
+            .retain_product(request.clone(), production.clone())
+            .await
+            .unwrap();
+        workspace.cancellation.check().unwrap();
+        workspace.writable().unwrap();
+        drop(fill);
+        assert_eq!(workspace.budget.reserved(), before);
+        let (retained, charge) = workspace
+            .native
+            .retained_product_views(&workspace.budget)
+            .await
+            .unwrap();
+        assert!(
+            retained.is_empty(),
+            "decline is not successful empty capture"
+        );
+        drop((retained, charge));
+        // Empty required output is nevertheless eligible for a real successful capture.
+        workspace
+            .retain_product(request, production.clone())
+            .await
+            .unwrap();
+        let (retained, charge) = workspace
+            .native
+            .retained_product_views(&workspace.budget)
+            .await
+            .unwrap();
+        assert_eq!(retained.len(), 1);
+        assert_eq!(retained[0].rows, 0);
+        drop((retained, charge, production));
+        workspace.freeze_for_admission(None).await.unwrap();
+        workspace.drain().await.unwrap();
+        workspace.native.abandon().await.unwrap();
+    }
+    #[tokio::test]
+    async fn prepared_capture_drop_releases_local_backing_and_post_cutoff_refusal_is_fatal() {
+        use lctx_compiler_store::compiler::RetentionPreparation;
+        let workspace = workspace(&config()).await;
+        let (request, production) = earned(&workspace, "capture-cutoff").await;
+        let identity = request.identity().unwrap();
+        let prepared = workspace
+            .native
+            .prepare_product_retention(identity, production.clone(), &workspace.budget)
+            .await
+            .unwrap();
+        let retained = workspace.budget.reserved();
+        let mut waiting = Box::pin(workspace.native.prepare_product_retention(
+            identity,
+            production.clone(),
+            &workspace.budget,
+        ));
+        assert!(matches!(
+            futures::poll!(waiting.as_mut()),
+            std::task::Poll::Pending
+        ));
+        drop(waiting); // Cancellation before a local gate is acquired has no native owner.
+        drop(prepared);
+        assert!(workspace.budget.reserved() < retained);
+        let RetentionPreparation::Ready(prepared) = workspace
+            .native
+            .prepare_product_retention(identity, production.clone(), &workspace.budget)
+            .await
+            .unwrap()
+        else {
+            panic!("local admission should fit")
+        };
+        let fill = workspace
+            .budget
+            .reserve(
+                "control strict capture cutoff",
+                workspace.budget.limit() - workspace.budget.reserved(),
+            )
+            .unwrap();
+        let native = workspace.native.clone();
+        let budget = workspace.budget.clone();
+        let failure = workspace
+            .native_call(async move { native.retain_prepared_product(prepared, &budget).await })
+            .await;
+        assert!(
+            failure.is_err(),
+            "mandatory native refusal cannot become decline"
+        );
+        assert!(workspace.cancellation.check().is_err());
+        drop((fill, production));
+        assert!(workspace.freeze_for_admission(None).await.is_err());
+        let finality = workspace.drain_owned_report().await;
+        workspace.complete_signal(&finality).await.unwrap();
+        lctx_model::domain::completion::complete::<()>(Ok(()), finality).unwrap();
+        lctx_model::domain::completion::complete::<()>(
+            Ok(()),
+            workspace.native.abandon_finality_report().await,
+        )
+        .unwrap();
     }
     #[test]
     fn optional_capture_preserves_typed_refusal_and_unknown_native_disposition() {

@@ -284,7 +284,12 @@ struct SetCheck {
 impl SetCheck {
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((id, builder, _)) = self.current.take()
-            && self.expected.remove(&mut self.charge, &id) != Some(builder.finish())
+            && self
+                .expected
+                .remove(&mut self.charge, &id)?
+                .as_deref()
+                .copied()
+                != Some(builder.finish())
         {
             return Err(ModelError::Invalid(
                 "literal set members differ from identity".into(),

@@ -1,6 +1,6 @@
 //! Native event normalization preserves Pysa alternatives and qualified ty call paths.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     attribution::Modality,
     calls::*,

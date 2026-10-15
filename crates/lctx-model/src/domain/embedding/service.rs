@@ -22,7 +22,6 @@ pub trait Embedder: Send + Sync {
     fn embed<'a>(&'a self, request_texts: &'a [String]) -> EmbedFuture<'a, Vec<Vec<f32>>>;
 }
 
-
 /// Optional service availability is distinct from invalid responses and vectors.
 #[derive(Debug, thiserror::Error)]
 #[error("embedding service: {0}")]
@@ -61,12 +60,16 @@ mod controls {
         let shared = ModelError::SharedCause(std::sync::Arc::new(direct));
         let foreign = ModelError::Cause(Box::new(Context(shared)));
         assert_eq!(ServiceUnavailable::detail(&foreign), Some("offline"));
-        let completed = ModelError::Completion(Box::new(crate::domain::completion::OperationFailure {
-            primary: Some(Box::new(foreign)),
-            completion: crate::domain::completion::Completion::default(),
-        }));
+        let completed =
+            ModelError::Completion(Box::new(crate::domain::completion::OperationFailure {
+                primary: Some(Box::new(foreign)),
+                completion: crate::domain::completion::Completion::default(),
+            }));
         assert_eq!(ServiceUnavailable::detail(&completed), None);
-        for error in [ModelError::Invalid("invalid vector".into()), ModelError::Codec("bad response".into())] {
+        for error in [
+            ModelError::Invalid("invalid vector".into()),
+            ModelError::Codec("bad response".into()),
+        ] {
             let wrapped = ModelError::Cause(Box::new(Context(error)));
             assert_eq!(ServiceUnavailable::detail(&wrapped), None);
         }

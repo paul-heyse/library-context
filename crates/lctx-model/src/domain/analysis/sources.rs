@@ -23,11 +23,23 @@ impl HeapSize for SourceSnapshot {
 impl SourceSnapshot {
     /// A view belongs to the immutable membership mechanism; individual producer/code/settings
     /// attribution remains in its completed contribution descriptors. Assembly order is not identity.
-    pub fn of_completed_view(relation:&Relation,model:ContentHash,view:&crate::domain::completed::CompletedView)->Result<Self,ModelError> {
+    pub fn of_completed_view(
+        relation: &Relation,
+        model: ContentHash,
+        view: &crate::domain::completed::CompletedView,
+    ) -> Result<Self, ModelError> {
         view.validate()?;
-        if view.relation!=relation.name(){return Err(invalid("completed view relation mismatch"));}
-        Self::of_relation(relation,format!("completed-view:{}",relation.name()),model,
-            ContentHash::of(b"lctx-native-completed-view-contract/v1"),view.identity,view.rows)
+        if view.relation != relation.name() {
+            return Err(invalid("completed view relation mismatch"));
+        }
+        Self::of_relation(
+            relation,
+            format!("completed-view:{}", relation.name()),
+            model,
+            ContentHash::of(b"lctx-native-completed-view-contract/v1"),
+            view.identity,
+            view.rows,
+        )
     }
     pub fn of_relation(
         relation: &Relation,

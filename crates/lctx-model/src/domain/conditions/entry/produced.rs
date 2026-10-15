@@ -78,9 +78,14 @@ impl ProducedEntries {
         }
         // Recapture of the exact issuer preserves any active immutable hydration.
         if !self.entries.contains_key(&receipt.witness.id()) {
-            self.entries.insert(&mut self.charge, receipt.witness.id(), IssuedEntry {
-                receipt, hydrated: OnceLock::new(),
-            })?;
+            self.entries.insert(
+                &mut self.charge,
+                receipt.witness.id(),
+                IssuedEntry {
+                    receipt,
+                    hydrated: OnceLock::new(),
+                },
+            )?;
         }
         Ok(())
     }
@@ -187,7 +192,11 @@ impl ProducedEntries {
         // Concurrent first borrowers can prepare independently. Only the published immutable
         // value survives; a losing preparation releases its own charge before returning.
         let _ = issued.hydrated.set(hydrated);
-        Ok(issued.hydrated.get().expect("entry hydration published").clone())
+        Ok(issued
+            .hydrated
+            .get()
+            .expect("entry hydration published")
+            .clone())
     }
     pub(crate) fn append(&mut self, other: Self) -> Result<(), ModelError> {
         if !self
@@ -207,7 +216,7 @@ impl ProducedEntries {
             mut charge,
         } = other;
         while let Some(id) = entries.keys().next().copied() {
-            let value = entries.remove(&mut charge, &id).expect("entry");
+            let value = entries.remove(&mut charge, &id)?.expect("entry");
             if self
                 .entries
                 .get(&id)
@@ -216,16 +225,16 @@ impl ProducedEntries {
                 return Err(ModelError::Conflict("actual Local entry receipt"));
             }
             if !self.entries.contains_key(&id) {
-                self.entries.insert(&mut self.charge, id, value)?;
+                self.entries.insert_owned(&mut self.charge, id, value)?;
             }
         }
         while let Some(id) = conditions.keys().next().copied() {
-            let value = conditions.remove(&mut charge, &id).expect("condition");
-            self.conditions.insert(&mut self.charge, id, value)?;
+            let value = conditions.remove(&mut charge, &id)?.expect("condition");
+            self.conditions.insert_owned(&mut self.charge, id, value)?;
         }
         while let Some(id) = nodes.keys().next().copied() {
-            let value = nodes.remove(&mut charge, &id).expect("node");
-            self.nodes.insert(&mut self.charge, id, value)?;
+            let value = nodes.remove(&mut charge, &id)?.expect("node");
+            self.nodes.insert_owned(&mut self.charge, id, value)?;
         }
         Ok(())
     }
@@ -353,12 +362,20 @@ mod actual_entry_controls {
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(budget.reserved(), after_first);
         // A repeated consumer needs no new hydration allowance even under pool pressure.
-        let pressure = budget.reserve("entry-borrow-control-pressure", budget.limit() - budget.reserved()).unwrap();
+        let pressure = budget
+            .reserve(
+                "entry-borrow-control-pressure",
+                budget.limit() - budget.reserved(),
+            )
+            .unwrap();
         let third = issued.get(&witness, &source, &budget).unwrap();
         assert!(Arc::ptr_eq(&first, &third));
         drop(pressure);
         drop(issued);
-        assert!(budget.reserved() > 0, "live borrower still owns decoded state");
+        assert!(
+            budget.reserved() > 0,
+            "live borrower still owns decoded state"
+        );
         drop(first);
         drop(second);
         assert!(budget.reserved() > 0);
@@ -375,9 +392,22 @@ mod actual_entry_controls {
         let mut issued = ProducedEntries::new(&budget);
         issued.capture(&value).unwrap();
         drop(value);
-        let pressure = budget.reserve("entry-hydration-control-pressure", budget.limit() - budget.reserved()).unwrap();
+        let pressure = budget
+            .reserve(
+                "entry-hydration-control-pressure",
+                budget.limit() - budget.reserved(),
+            )
+            .unwrap();
         assert!(issued.get(&witness, &source, &budget).is_err());
-        assert!(issued.entries.get(&witness.id()).unwrap().hydrated.get().is_none());
+        assert!(
+            issued
+                .entries
+                .get(&witness.id())
+                .unwrap()
+                .hydrated
+                .get()
+                .is_none()
+        );
         drop(pressure);
         let hydrated = issued.get(&witness, &source, &budget).unwrap();
         assert_eq!(hydrated.witness(), &witness);

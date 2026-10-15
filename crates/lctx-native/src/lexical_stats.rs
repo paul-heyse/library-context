@@ -32,15 +32,26 @@ fn analyzer_definition_matches(actual: &str) -> Result<(), ModelError> {
     use surrealdb_sql::{Expr, TopLevelExpr, statements::DefineStatement};
     // The generated native declaration is the sole policy owner. Normalization
     // uses the same parser/printer as installation, rather than another SQL string.
-    let expected = surrealdb_syn::parse(&crate::materialization::native_definitions()).map_err(ModelError::codec)?
-        .expressions.into_iter().find(|expression| matches!(expression,
+    let expected = surrealdb_syn::parse(&crate::materialization::native_definitions())
+        .map_err(ModelError::codec)?
+        .expressions
+        .into_iter()
+        .find(|expression| {
+            matches!(expression,
             TopLevelExpr::Expr(Expr::Define(definition)) if matches!(definition.as_ref(),
-                DefineStatement::Analyzer(analyzer) if analyzer.name.to_sql() == "lctx_discovery")))
+                DefineStatement::Analyzer(analyzer) if analyzer.name.to_sql() == "lctx_discovery"))
+        })
         .ok_or(ModelError::Schema("compiled discovery analyzer definition"))?;
-    let actual = surrealdb_syn::parse(actual).map_err(ModelError::codec)?.expressions;
-    let [actual] = actual.as_slice() else { return Err(ModelError::Schema("actual discovery analyzer definition")); };
+    let actual = surrealdb_syn::parse(actual)
+        .map_err(ModelError::codec)?
+        .expressions;
+    let [actual] = actual.as_slice() else {
+        return Err(ModelError::Schema("actual discovery analyzer definition"));
+    };
     if expected.to_sql() != actual.to_sql() {
-        return Err(ModelError::Conflict("prepared lexical actual analyzer changed"));
+        return Err(ModelError::Conflict(
+            "prepared lexical actual analyzer changed",
+        ));
     }
     Ok(())
 }
@@ -50,9 +61,17 @@ pub(crate) async fn check_analyzer(loader: &Loader) -> Result<(), ModelError> {
     let reader = loader.reader();
     reader.ensure_scope_live()?;
     // One database-level metadata response; no field/index/table traversal.
-    let info: Object = reader.query_native("INFO FOR DB", surrealdb::types::Variables::new()).await?;
-    let Some(Value::Object(analyzers)) = info.get("analyzers") else { return Err(ModelError::Schema("actual analyzer inventory")); };
-    let Some(Value::String(actual)) = analyzers.get("lctx_discovery") else { return Err(ModelError::Conflict("prepared lexical actual analyzer missing")); };
+    let info: Object = reader
+        .query_native("INFO FOR DB", surrealdb::types::Variables::new())
+        .await?;
+    let Some(Value::Object(analyzers)) = info.get("analyzers") else {
+        return Err(ModelError::Schema("actual analyzer inventory"));
+    };
+    let Some(Value::String(actual)) = analyzers.get("lctx_discovery") else {
+        return Err(ModelError::Conflict(
+            "prepared lexical actual analyzer missing",
+        ));
+    };
     analyzer_definition_matches(actual.as_str())?;
     reader.ensure_scope_live()
 }
@@ -76,7 +95,7 @@ pub fn scope_identity<Context>(reader: &NativeReader<Context>) -> Result<Content
     ids.sort();
     ids.dedup();
     let mut key = KeySink::new("native-lexical-scope/v1;distinct-query-terms;view-family-bm25");
-    key.part(b"derivation",&reader.derivation()?.0);
+    key.part(b"derivation", &reader.derivation()?.0);
     key.part(b"analyzer", &analyzer_identity().0);
     for id in ids {
         key.part(b"view", id.as_bytes());
@@ -131,7 +150,9 @@ pub fn definitions() -> String {
             ],
         ),
     ] {
-        sql.push_str(&format!("DEFINE TABLE {table} SCHEMAFULL;\nDEFINE FIELD derivation ON {table} TYPE string;\n"));
+        sql.push_str(&format!(
+            "DEFINE TABLE {table} SCHEMAFULL;\nDEFINE FIELD derivation ON {table} TYPE string;\n"
+        ));
         for (name, kind) in fields {
             sql.push_str(&format!("DEFINE FIELD {name} ON {table} TYPE {kind};\n"));
         }
@@ -174,25 +195,81 @@ pub(crate) struct Expected {
 }
 // A complete actual nomination stream feeds a charged identity spool, followed by
 // bounded point batches. Duplicate occurrences never multiply corpus documents.
-fn documents<Context>(reader: &NativeReader<Context>, mut nominees: crate::reader::NativeRows, analyzed: bool, budget: &ResourceBudget) -> Result<crate::reader::NativeRows, ModelError> {
-    let reader = reader.transport_reader(); let budget = budget.clone();
+fn documents<Context>(
+    reader: &NativeReader<Context>,
+    mut nominees: crate::reader::NativeRows,
+    analyzed: bool,
+    budget: &ResourceBudget,
+) -> Result<crate::reader::NativeRows, ModelError> {
+    let reader = reader.transport_reader();
+    let budget = budget.clone();
     crate::reader::NativeRows::owned(move |sender| async move {
         let mut ids = SortedRows::with_budget(&budget)?;
-        let result = async { while let Some(value) = nominees.next().await? {
-            let value = object(value)?;
-            let source = RecordId::from_value(value.get("in").cloned().ok_or(ModelError::Schema("lexical nominee source"))?).map_err(ModelError::codec)?;
-            ids.push(Value::Object(row(source)))?;
-        } Ok(()) }.await;
-        let mut terminal = Completion::default(); terminal.step("lexical nomination drainage", nominees.drain_transport().await); complete(result, terminal)?;
+        let result = async {
+            while let Some(value) = nominees.next().await? {
+                let value = object(value)?;
+                let source = RecordId::from_value(
+                    value
+                        .get("in")
+                        .cloned()
+                        .ok_or(ModelError::Schema("lexical nominee source"))?,
+                )
+                .map_err(ModelError::codec)?;
+                ids.push(Value::Object(row(source)))?;
+            }
+            Ok(())
+        }
+        .await;
+        let mut terminal = Completion::default();
+        terminal.step(
+            "lexical nomination drainage",
+            nominees.drain_transport().await,
+        );
+        complete(result, terminal)?;
         let mut ids = ids.finish()?;
         loop {
-            let mut batch = Vec::new(); while batch.len() < 128 { let Some(value) = ids.next_row()? else { break; }; batch.push(RecordId::from_value(object(value)?.get("id").cloned().ok_or(ModelError::Schema("lexical source identity"))?).map_err(ModelError::codec)?); }
-            if batch.is_empty() { break; }
-            let mut vars = surrealdb::types::Variables::new(); vars.insert("documents", batch);
-            let sql = if analyzed { "SELECT id,text,search::analyze('lctx_discovery',text) AS tokens FROM $documents ORDER BY id" } else { "SELECT * FROM $documents ORDER BY id" };
-            let mut docs = reader.stream_prepared(PreparedQuery::new(vars, vec![], vec![sql.into()])?)?;
-            let result = async { while let Some(value) = docs.next().await? { if sender.send(value).await.is_err() { break; } } Ok(()) }.await;
-            let mut terminal = Completion::default(); terminal.step("lexical source batch drainage", docs.drain_transport().await); complete(result, terminal)?;
+            let mut batch = Vec::new();
+            while batch.len() < 128 {
+                let Some(value) = ids.next_row()? else {
+                    break;
+                };
+                batch.push(
+                    RecordId::from_value(
+                        object(value)?
+                            .get("id")
+                            .cloned()
+                            .ok_or(ModelError::Schema("lexical source identity"))?,
+                    )
+                    .map_err(ModelError::codec)?,
+                );
+            }
+            if batch.is_empty() {
+                break;
+            }
+            let mut vars = surrealdb::types::Variables::new();
+            vars.insert("documents", batch);
+            let sql = if analyzed {
+                "SELECT id,text,search::analyze('lctx_discovery',text) AS tokens FROM $documents ORDER BY id"
+            } else {
+                "SELECT * FROM $documents ORDER BY id"
+            };
+            let mut docs =
+                reader.stream_prepared(PreparedQuery::new(vars, vec![], vec![sql.into()])?)?;
+            let result = async {
+                while let Some(value) = docs.next().await? {
+                    if sender.send(value).await.is_err() {
+                        break;
+                    }
+                }
+                Ok(())
+            }
+            .await;
+            let mut terminal = Completion::default();
+            terminal.step(
+                "lexical source batch drainage",
+                docs.drain_transport().await,
+            );
+            complete(result, terminal)?;
         }
         Ok(())
     })
@@ -200,7 +277,7 @@ fn documents<Context>(reader: &NativeReader<Context>, mut nominees: crate::reade
 async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
     let reader = loader.reader();
     let scope = scope_identity(&reader)?;
-    let namespace=reader.derivation()?;
+    let namespace = reader.derivation()?;
     let budget = loader.read_budget()?;
     let mut expected = (0..4)
         .map(|_| SortedRows::with_budget(&budget))
@@ -210,8 +287,15 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
         let mut count = 0u64;
         let mut total = 0u64;
         let mut terms = SortedRows::with_budget(&budget)?;
-        let mut vars = surrealdb::types::Variables::new(); vars.insert("family", family);
-        let nominees = selected_occurrences(&reader, "lex_occurs", "eligible=true AND family=$family", vars, &budget)?;
+        let mut vars = surrealdb::types::Variables::new();
+        vars.insert("family", family);
+        let nominees = selected_occurrences(
+            &reader,
+            "lex_occurs",
+            "eligible=true AND family=$family",
+            vars,
+            &budget,
+        )?;
         let mut docs = documents(&reader, nominees, true, &budget)?;
         let lowered:Result<(),ModelError>=async {
   while let Some(doc)=docs.next().await? {
@@ -240,7 +324,14 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
         while let Some(term) = ordered.next_row()? {
             let term = string(&object(term)?, "term")?;
             if current.as_ref().is_some_and(|old| old != &term) {
-                emit_term(&mut expected[2], namespace, scope, family, current.take().unwrap(), df)?;
+                emit_term(
+                    &mut expected[2],
+                    namespace,
+                    scope,
+                    family,
+                    current.take().unwrap(),
+                    df,
+                )?;
                 df = 0;
             }
             current = Some(term);
@@ -250,7 +341,7 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
             emit_term(&mut expected[2], namespace, scope, family, term, df)?;
         }
         let mut corpus = row(corpus_id(scope, family));
-        corpus.insert("derivation",namespace.hex());
+        corpus.insert("derivation", namespace.hex());
         corpus.insert("scope", scope.hex());
         corpus.insert("family", family);
         corpus.insert("documents", value(count)?);
@@ -261,7 +352,8 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
         rows: expected
             .into_iter()
             .map(|rows| rows.finish().map(|rows| rows.into_prepared()))
-            .collect::<Result<Vec<_>, _>>()?.try_into()
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into()
             .map_err(|_| ModelError::Schema("lexical prepared family count"))?,
         scope,
         budget,
@@ -269,7 +361,7 @@ async fn prepare(loader: &Loader) -> Result<Expected, ModelError> {
 }
 fn emit_term(
     rows: &mut SortedRows,
-    namespace:ContentHash,
+    namespace: ContentHash,
     scope: ContentHash,
     family: i16,
     term: String,
@@ -279,8 +371,12 @@ fn emit_term(
     key.part(b"scope", &scope.0);
     key.part(b"family", &family.to_le_bytes());
     key.part(b"term", term.as_bytes());
-    let mut row = row(crate::derivation::address(namespace,"lexical_term",&key.finish().0));
-    row.insert("derivation",namespace.hex());
+    let mut row = row(crate::derivation::address(
+        namespace,
+        "lexical_term",
+        &key.finish().0,
+    ));
+    row.insert("derivation", namespace.hex());
     row.insert("scope", scope.hex());
     row.insert("family", family);
     row.insert("term", term);
@@ -294,15 +390,24 @@ async fn check(loader: &Loader, expected: &Expected) -> Result<(), ModelError> {
         vars.insert("scope", expected.scope.hex());
         // Charge and own the complete expected carrier before any native transport
         // is admitted, including nomination's independently owned document driver.
-        let mut actual = crate::derived_search::retain_expected_until_drained(expected.rows.iter().cloned(), &expected.budget, || if index == 0 {
-            let nominees = reader.stream_prepared(PreparedQuery::new(vars, vec![], vec!["SELECT in FROM lexical_member WITH INDEX scoped_document WHERE scope=$scope ORDER BY id".into()])?)?;
-            documents(&reader, nominees, false, &expected.budget)
-        } else {
-            let scope_index = match *table {
-                "lexical_member" => "scoped_document", "lexical_term" => "scoped_term", "lexical_corpus" => "scoped_corpus", _ => return Err(ModelError::Schema("lexical scope index")),
-            };
-            reader.stream_prepared(PreparedQuery::new(vars, vec![], vec![format!("SELECT * FROM {table} WITH INDEX {scope_index} WHERE scope=$scope ORDER BY id")])?)
-        })?;
+        let mut actual = crate::derived_search::retain_expected_until_drained(
+            expected.rows.iter().cloned(),
+            &expected.budget,
+            || {
+                if index == 0 {
+                    let nominees = reader.stream_prepared(PreparedQuery::new(vars, vec![], vec!["SELECT in FROM lexical_member WITH INDEX scoped_document WHERE scope=$scope ORDER BY id".into()])?)?;
+                    documents(&reader, nominees, false, &expected.budget)
+                } else {
+                    let scope_index = match *table {
+                        "lexical_member" => "scoped_document",
+                        "lexical_term" => "scoped_term",
+                        "lexical_corpus" => "scoped_corpus",
+                        _ => return Err(ModelError::Schema("lexical scope index")),
+                    };
+                    reader.stream_prepared(PreparedQuery::new(vars, vec![], vec![format!("SELECT * FROM {table} WITH INDEX {scope_index} WHERE scope=$scope ORDER BY id")])?)
+                }
+            },
+        )?;
         let compared = async {
             let mut rows = expected.rows[index].cursor()?;
             loop {
@@ -376,22 +481,33 @@ pub(crate) async fn materialize_prepared(loader: &Loader) -> Result<Expected, Mo
 }
 /// Independent native analysis and actual-content comparison, with no writes or marker shortcuts.
 pub async fn reconcile(loader: &Loader) -> Result<(), ModelError> {
-    reconcile_owned(loader,None).await
+    reconcile_owned(loader, None).await
 }
-pub(crate) async fn reconcile_owned(loader:&Loader,inventory:Option<&mut SortedRows>)->Result<(),ModelError>{
-    let expected=prepare(loader).await?;
+pub(crate) async fn reconcile_owned(
+    loader: &Loader,
+    inventory: Option<&mut SortedRows>,
+) -> Result<(), ModelError> {
+    let expected = prepare(loader).await?;
     reconcile_prepared(loader, &expected, inventory).await
 }
-pub(crate) async fn reconcile_prepared(loader:&Loader, expected:&Expected,inventory:Option<&mut SortedRows>)->Result<(),ModelError>{
-    if !expected.budget.shares_pool(&loader.read_budget()?) || expected.scope != scope_identity(&loader.reader())? {
+pub(crate) async fn reconcile_prepared(
+    loader: &Loader,
+    expected: &Expected,
+    inventory: Option<&mut SortedRows>,
+) -> Result<(), ModelError> {
+    if !expected.budget.shares_pool(&loader.read_budget()?)
+        || expected.scope != scope_identity(&loader.reader())?
+    {
         return Err(ModelError::Conflict("prepared lexical scope/pool changed"));
     }
     check_analyzer(loader).await?;
-    check(loader,expected).await?;
-    if let Some(inventory)=inventory{
-        for prepared in &expected.rows{
+    check(loader, expected).await?;
+    if let Some(inventory) = inventory {
+        for prepared in &expected.rows {
             let mut rows = prepared.cursor()?;
-            while let Some(row)=rows.next_row()?{crate::control::staging::remember_expected_child(inventory,&row)?;}
+            while let Some(row) = rows.next_row()? {
+                crate::control::staging::remember_expected_child(inventory, &row)?;
+            }
         }
     }
     Ok(())
@@ -404,8 +520,18 @@ mod tests {
     fn retained_analyzer_policy_uses_compiled_native_declaration() {
         let actual = "DEFINE ANALYZER lctx_discovery TOKENIZERS class, camel FILTERS lowercase;";
         analyzer_definition_matches(actual).unwrap();
-        assert!(analyzer_definition_matches("DEFINE ANALYZER lctx_discovery TOKENIZERS blank FILTERS lowercase;").is_err());
-        assert!(analyzer_definition_matches("DEFINE ANALYZER another TOKENIZERS class,camel FILTERS lowercase;").is_err());
+        assert!(
+            analyzer_definition_matches(
+                "DEFINE ANALYZER lctx_discovery TOKENIZERS blank FILTERS lowercase;"
+            )
+            .is_err()
+        );
+        assert!(
+            analyzer_definition_matches(
+                "DEFINE ANALYZER another TOKENIZERS class,camel FILTERS lowercase;"
+            )
+            .is_err()
+        );
     }
     #[test]
     fn scope_inventory_is_order_independent_and_binds_actual_views() {

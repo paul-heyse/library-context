@@ -18,10 +18,7 @@ struct VerifiedAssets {
     configuration: Vec<u8>,
 }
 impl VerifiedAssets {
-    fn read(
-        root: &Path,
-        spec: &lctx_model::domain::embedding::Spec,
-    ) -> Result<Self, ModelError> {
+    fn read(root: &Path, spec: &lctx_model::domain::embedding::Spec) -> Result<Self, ModelError> {
         use sha2::{Digest as _, Sha256};
         let manifest = std::fs::read(root.join("SHA256SUMS")).map_err(ModelError::codec)?;
         let revision = format!(
@@ -69,7 +66,11 @@ impl LocalTokenizer {
         let configuration = std::fs::read(config).map_err(ModelError::codec)?;
         Self::from_bytes(&bytes, &configuration, template)
     }
-    fn from_bytes(bytes: &[u8], configuration: &[u8], template: &str) -> Result<Arc<Self>, ModelError> {
+    fn from_bytes(
+        bytes: &[u8],
+        configuration: &[u8],
+        template: &str,
+    ) -> Result<Arc<Self>, ModelError> {
         if template.matches("{text}").count() != 1 {
             return Err(invalid(
                 "tokenizer document template requires exactly one text slot",
@@ -155,32 +156,70 @@ mod controls {
         let mut manifest = String::new();
         for name in ["tokenizer.json", "tokenizer_config.json", "config.json"] {
             let bytes = std::fs::read(root.join(name)).unwrap();
-            manifest.push_str(&format!("{}  {name}\n", ContentHash(Sha256::digest(bytes).into()).hex()));
+            manifest.push_str(&format!(
+                "{}  {name}\n",
+                ContentHash(Sha256::digest(bytes).into()).hex()
+            ));
         }
         std::fs::write(root.join("SHA256SUMS"), &manifest).unwrap();
         let mut spec = crate::qwen_spec();
-        spec.tokenizer_revision = format!("sha256:{}", ContentHash(Sha256::digest(manifest.as_bytes()).into()).hex());
+        spec.tokenizer_revision = format!(
+            "sha256:{}",
+            ContentHash(Sha256::digest(manifest.as_bytes()).into()).hex()
+        );
         let original = LocalTokenizer::load_verified(root, &spec).unwrap();
         let retained = VerifiedAssets::read(root, &spec).unwrap();
 
         // Replace the actual files after verification, before the production constructor boundary.
         tokenizer.with_pre_tokenizer(Some(WhitespaceSplit));
-        tokenizer.save(root.join("replacement.json"), false).unwrap();
+        tokenizer
+            .save(root.join("replacement.json"), false)
+            .unwrap();
         std::fs::rename(root.join("replacement.json"), root.join("tokenizer.json")).unwrap();
-        std::fs::write(root.join("replacement-config.json"), b"{\"model_max_length\":8192}").unwrap();
-        std::fs::rename(root.join("replacement-config.json"), root.join("tokenizer_config.json")).unwrap();
-        let replacement = LocalTokenizer::load(&root.join("tokenizer.json"), &root.join("tokenizer_config.json"), &spec.document_template).unwrap();
+        std::fs::write(
+            root.join("replacement-config.json"),
+            b"{\"model_max_length\":8192}",
+        )
+        .unwrap();
+        std::fs::rename(
+            root.join("replacement-config.json"),
+            root.join("tokenizer_config.json"),
+        )
+        .unwrap();
+        let replacement = LocalTokenizer::load(
+            &root.join("tokenizer.json"),
+            &root.join("tokenizer_config.json"),
+            &spec.document_template,
+        )
+        .unwrap();
         assert_eq!(original.encode("hello world").unwrap().offsets.len(), 1);
         assert_eq!(replacement.encode("hello world").unwrap().offsets.len(), 2);
         assert_ne!(original.identity(), replacement.identity());
         let constructed = retained.construct(&spec.document_template).unwrap();
         assert_eq!(constructed.identity(), original.identity());
-        assert_eq!(constructed.encode("hello world").unwrap().offsets, original.encode("hello world").unwrap().offsets);
-        assert!(LocalTokenizer::load_verified(root, &spec).is_err(), "a new verification must refuse replaced assets under the old manifest");
+        assert_eq!(
+            constructed.encode("hello world").unwrap().offsets,
+            original.encode("hello world").unwrap().offsets
+        );
+        assert!(
+            LocalTokenizer::load_verified(root, &spec).is_err(),
+            "a new verification must refuse replaced assets under the old manifest"
+        );
 
         // Validating preprocessing consumes the retained configuration as well.
-        std::fs::write(root.join("tokenizer_config.json"), b"{\"add_bos_token\":true}").unwrap();
-        assert!(LocalTokenizer::load(&root.join("tokenizer.json"), &root.join("tokenizer_config.json"), &spec.document_template).is_err());
+        std::fs::write(
+            root.join("tokenizer_config.json"),
+            b"{\"add_bos_token\":true}",
+        )
+        .unwrap();
+        assert!(
+            LocalTokenizer::load(
+                &root.join("tokenizer.json"),
+                &root.join("tokenizer_config.json"),
+                &spec.document_template
+            )
+            .is_err()
+        );
         assert_eq!(constructed.encode("hello world").unwrap().offsets.len(), 1);
         spec.tokenizer_revision = "sha256:wrong-manifest".into();
         assert!(VerifiedAssets::read(root, &spec).is_err());

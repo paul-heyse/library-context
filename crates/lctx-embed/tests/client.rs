@@ -7,8 +7,8 @@ use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
 
-use lctx_model::domain::embedding::Embedder;
 use lctx_embed::{QWEN_SPEC, VllmEmbedder, parse_embeddings, qwen_spec, request_body};
+use lctx_model::domain::embedding::Embedder;
 
 fn specs() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../specs/embedding")
@@ -185,23 +185,29 @@ async fn an_unreachable_service_is_blocked_never_fake() {
     let url = format!("http://{}", listener.local_addr().unwrap());
     drop(listener);
     let client = VllmEmbedder::new(&url, qwen_spec());
-    let err = client
-        .embed(&["x".to_owned()])
-        .await
-        .unwrap_err();
+    let err = client.embed(&["x".to_owned()]).await.unwrap_err();
     assert!(lctx_model::domain::embedding::ServiceUnavailable::detail(&err).is_some());
-    assert!(err.to_string().contains("blocked: no embedding service"), "{err}");
+    assert!(
+        err.to_string().contains("blocked: no embedding service"),
+        "{err}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn invalid_service_data_is_required_failure_not_optional_unavailability() {
-    let (url, server) = stub(vec![br#"{"count":"invalid"}"#.to_vec(), response(&qwen_spec().model, &[(0, unit(8))])]);
+    let (url, server) = stub(vec![
+        br#"{"count":"invalid"}"#.to_vec(),
+        response(&qwen_spec().model, &[(0, unit(8))]),
+    ]);
     let client = VllmEmbedder::new(&url, qwen_spec());
     let invalid_count = client.count_tokens("hello").await.unwrap_err();
     let invalid_vector = client.embed(&["hello".to_owned()]).await.unwrap_err();
     for error in [invalid_count, invalid_vector] {
         assert!(matches!(error, lctx_model::domain::ModelError::Invalid(_)));
-        assert_eq!(lctx_model::domain::embedding::ServiceUnavailable::detail(&error), None);
+        assert_eq!(
+            lctx_model::domain::embedding::ServiceUnavailable::detail(&error),
+            None
+        );
     }
     server.join().unwrap();
 }

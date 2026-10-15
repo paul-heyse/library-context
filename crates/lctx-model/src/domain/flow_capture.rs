@@ -178,7 +178,12 @@ struct InventoryCheck {
 impl InventoryCheck {
     fn flush(&mut self) -> Result<(), ModelError> {
         if let Some((id, values)) = self.current.take()
-            && self.inventories.remove(&mut self.charge, &id) != Some(inventory_digest(&values))
+            && self
+                .inventories
+                .remove(&mut self.charge, &id)?
+                .as_deref()
+                .copied()
+                != Some(inventory_digest(&values))
         {
             return Err(invalid("capture inventory membership differs"));
         }

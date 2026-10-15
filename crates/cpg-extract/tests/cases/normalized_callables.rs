@@ -1,6 +1,6 @@
 //! Independent written callable examples through the pinned native providers.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     calls::*,
     normalized::{

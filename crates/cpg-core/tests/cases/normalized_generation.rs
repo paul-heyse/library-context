@@ -45,9 +45,12 @@ async fn empty_captured_scope_completes_explicit_no_scope_and_empty_snapshots() 
     };
     use cpg_extract::{acquisition::AcquiredInput, bundle::CapturedInputs, capture::CapturedInput};
     use std::sync::Arc;
-    let workspace =
-        Workspace::new(Arc::new(model().unwrap()), WorkspaceOptions::default(), crate::native_fixture::store()
-).unwrap();
+    let workspace = Workspace::new(
+        Arc::new(model().unwrap()),
+        WorkspaceOptions::default(),
+        crate::native_fixture::store(),
+    )
+    .unwrap();
     let captured = Arc::new(CapturedInputs::new(
         vec![AcquiredInput::tree(
             CapturedInput::capture(
@@ -98,4 +101,3 @@ async fn empty_captured_scope_completes_explicit_no_scope_and_empty_snapshots() 
     .await;
     assert_eq!(count, 4);
 }
-

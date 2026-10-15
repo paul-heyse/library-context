@@ -235,9 +235,11 @@ impl InvariantCheck for Check {
                 .qualifications
                 .get(&placement.qualification)
                 .ok_or_else(|| invalid("overload syntax qualification missing"))?;
-            placements.update(&mut self.charge, (placement.occurrence, q.context), |v| {
-                v.push(placement)
-            })?;
+            placements.push(
+                &mut self.charge,
+                (placement.occurrence, q.context),
+                placement,
+            )?;
         }
         for trace in self.traces.values() {
             let q = self

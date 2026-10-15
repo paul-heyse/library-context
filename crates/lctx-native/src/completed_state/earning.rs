@@ -381,6 +381,7 @@ async fn complete_boundary_content(
     let audit = inspection.audit();
     let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = async {
+        let _completion_work = budget.reserve("compound fixed completion workspace", 65536)?;
         audit.ensure_context(&reader, budget).await?;
         if d::completed::binding_inventory_identity(bindings)? != fence.bindings()
             || selections
@@ -475,6 +476,17 @@ async fn complete_boundary_content(
                     audit,
                 )
                 .await?;
+            charge.grow(
+                std::mem::size_of::<installed_view::SelectedViewDescriptor>()
+                    .saturating_add(2 * std::mem::size_of::<usize>())
+                    .saturating_add(completed_view_heap(&selection.view))
+                    .saturating_add(
+                        selection
+                            .mappings
+                            .len()
+                            .saturating_mul(std::mem::size_of::<ContributorRealization>()),
+                    ),
+            )?;
             references.push(InstalledViewRef {
                 logical_view: selection.view.identity,
                 selector: InstalledViewCompletion {
@@ -482,8 +494,10 @@ async fn complete_boundary_content(
                     parent_completion: ContentHash([0; 32]),
                     generation: fence.generation(),
                     validity_epoch: fence.validity_epoch(),
-                    view: selection.view.clone(),
-                    mappings: selection.mappings.clone(),
+                    selection: Arc::new(installed_view::SelectedViewDescriptor {
+                        view: selection.view.clone(),
+                        mappings: selection.mappings.clone(),
+                    }),
                     member_codec: installed_view::MEMBER_CODEC,
                     membership_rows: selection.view.rows,
                     membership_content,
@@ -511,10 +525,20 @@ async fn complete_boundary_content(
         let roots = roots?;
         let mut selector_hasher = RealizationHasher::default();
         for reference in &references {
+            let _validation = inventory_typed_charge(
+                std::mem::size_of::<InstalledViewRef>()
+                    .saturating_add(selector_heap(&reference.selector)),
+                budget,
+            )?;
             selector_hasher.row(reference)?;
         }
         let mut contributor_hasher = ContributorHasher::default();
         for copy in copies.values() {
+            let _validation = inventory_typed_charge(
+                std::mem::size_of::<ContributorCopy>()
+                    .saturating_add(installed_view::contribution_heap(&copy.descriptor)),
+                budget,
+            )?;
             contributor_hasher.row(copy)?;
         }
         let data = FrozenCompletion {
@@ -551,6 +575,11 @@ async fn complete_boundary_content(
                     "compound replay exact selector inventory",
                 ));
             }
+            drop(references);
+            drop(copies);
+            drop(all_views);
+            drop(inspections);
+            drop(charge);
             let expected = crate::control::inspect_expected_read(&reader, data.record()?, budget)
                 .await?
                 .ok_or(ModelError::Conflict("compound replay disappeared"))?;
@@ -558,13 +587,14 @@ async fn complete_boundary_content(
                 return Err(ModelError::Conflict("compound replay ABA"));
             }
             let held = hold_boundary(&client, &mode, &data, expected, budget).await?;
+            let retained_charge = retained_boundary_charge(&held, budget)?;
             return Ok(NativeCompletedState {
                 client: client.clone(),
                 budget: budget.clone(),
                 completion: data,
                 held,
                 inventory,
-                _charge: charge,
+                _charge: retained_charge,
             });
         }
         let parent = data.record()?;
@@ -651,6 +681,13 @@ async fn complete_boundary_content(
         writer.flush().await?;
         drop(writer);
         write_phase.finish(crate::phase::Terminal::Passed);
+        // Serialized children are now durable. End builder backing before the
+        // independent receiver allocates its sole retained typed inventory.
+        drop(references);
+        drop(copies);
+        drop(all_views);
+        drop(inspections);
+        drop(charge);
         let expected = crate::control::inspect_expected_read(&reader, data.record()?, budget)
             .await?
             .ok_or(ModelError::Conflict(
@@ -683,13 +720,14 @@ async fn complete_boundary_content(
             .await?
             .ok_or(ModelError::Conflict("compound completed parent absent"))?;
         let held = hold_boundary(&client, &mode, &data, expected, budget).await?;
+        let retained_charge = retained_boundary_charge(&held, budget)?;
         Ok(NativeCompletedState {
             client: client.clone(),
             budget: budget.clone(),
             completion: data,
             held,
             inventory,
-            _charge: charge,
+            _charge: retained_charge,
         })
     }
     .await;
@@ -703,6 +741,19 @@ async fn complete_boundary_content(
     let mut terminal = Completion::default();
     terminal.step("compound completion reader close", reader.close().await);
     complete(result, terminal)
+}
+
+fn retained_boundary_charge(
+    held: &crate::control::HeldRecord,
+    budget: &ResourceBudget,
+) -> Result<StateCharge, ModelError> {
+    let mut charge = StateCharge::new(budget, "completed boundary retained owner");
+    charge.grow(
+        std::mem::size_of::<NativeCompletedState>()
+            .saturating_add(2 * std::mem::size_of::<usize>())
+            .saturating_add(crate::selection::node_bytes(held.owner())),
+    )?;
+    Ok(charge)
 }
 
 async fn audit_attempt_bindings(
@@ -728,11 +779,7 @@ async fn audit_attempt_bindings(
         let mut charge = StateCharge::new(budget, "frozen actual binding inventory audit");
         let mut actual = std::collections::BTreeMap::new();
         while let Some(row) = stream.next().await? {
-            charge.grow(
-                crate::loader::native_bytes(&row)
-                    .saturating_mul(32)
-                    .saturating_add(2048),
-            )?;
+            let _decode = inventory_decode_charge(&row, budget)?;
             crate::completed_rows::validate_state_row("compiler_binding", &row)?;
             let Some(Value::Bytes(bytes)) = row.as_object().and_then(|row| row.get("descriptor"))
             else {
@@ -740,10 +787,33 @@ async fn audit_attempt_bindings(
             };
             let binding: d::completed::CompletedBinding =
                 serde_json::from_slice(bytes).map_err(ModelError::codec)?;
-            if actual.insert(binding.key(), binding).is_some() {
+            let key = binding.key();
+            if actual.contains_key(&key) {
                 return Err(ModelError::Conflict("frozen duplicate actual binding slot"));
             }
+            charge.grow(
+                std::mem::size_of::<(ContentHash, d::completed::CompletedBinding)>()
+                    .saturating_add(32)
+                    .saturating_add(binding_heap(&binding)),
+            )?;
+            actual.insert(key, binding);
         }
+        let largest = actual
+            .values()
+            .map(|binding| {
+                std::mem::size_of::<d::completed::CompletedBinding>()
+                    .saturating_add(binding_heap(binding))
+            })
+            .max()
+            .unwrap_or(0);
+        let _comparison = budget.reserve(
+            "frozen binding inventory comparison containers",
+            actual.len().saturating_mul(
+                std::mem::size_of::<d::completed::CompletedBinding>()
+                    .saturating_add(2 * std::mem::size_of::<&d::completed::CompletedBinding>()),
+            ),
+        )?;
+        let _validation = inventory_typed_charge(largest, budget)?;
         if actual.len() != bindings.len()
             || bindings
                 .iter()

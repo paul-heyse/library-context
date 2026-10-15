@@ -1,5 +1,5 @@
 //! Conditional claim bases retain exact native support and the authored universe.
-use crate::records::{rows, wire,Prepared};
+use crate::records::{Prepared, rows, wire};
 use lctx_model::domain::resources;
 use lctx_model::domain::{assertion::Support, serving::*, *};
 use std::collections::BTreeMap;

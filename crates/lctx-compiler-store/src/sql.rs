@@ -21,9 +21,7 @@ pub async fn query(ctx: &SessionContext, sql: &str) -> Result<DataFrame> {
 
 /// Keep provider terminality/resource errors typed across DataFusion execution contexts.
 /// A source error cannot become evidence that a disposable product is corrupt.
-pub fn model_error(
-    error: datafusion::error::DataFusionError,
-) -> lctx_model::domain::ModelError {
+pub fn model_error(error: datafusion::error::DataFusionError) -> lctx_model::domain::ModelError {
     use lctx_model::domain::ModelError;
     match error {
         datafusion::error::DataFusionError::External(error) => match error.downcast::<ModelError>()

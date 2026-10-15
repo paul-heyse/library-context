@@ -2,6 +2,7 @@
 use cpg_core::consumed_rows::{ClosureTable, NominalClosure};
 use datafusion::{common::stats::Precision, prelude::SessionContext};
 use futures::TryStreamExt;
+use lctx_compiler_store::compiler::NativeCompilerStore;
 use lctx_model::domain::{
     ContentHash, Record, Relation,
     completed::ContributionSpec,
@@ -10,7 +11,6 @@ use lctx_model::domain::{
     stages::{Profile, ProviderOutcome},
 };
 use lctx_native::RuntimeConfig;
-use lctx_compiler_store::compiler::NativeCompilerStore;
 use std::collections::{BTreeMap, BTreeSet};
 
 async fn fixture_admin(
@@ -36,7 +36,8 @@ async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs
         producer: &str,
         rows: &[R],
     ) -> lctx_model::domain::completed::CompletedView {
-    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+        let native_operation_budget =
+            lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
         let relation = Relation::of::<R>();
         let spec = ContributionSpec {
             captured_binding: None,
@@ -50,14 +51,22 @@ async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs
         };
         let contribution = store.begin_contribution(spec).await.unwrap();
         store
-            .write_batch(&contribution, &relation, &R::encode(rows).unwrap(), &native_operation_budget)
+            .write_batch(
+                &contribution,
+                &relation,
+                &R::encode(rows).unwrap(),
+                &native_operation_budget,
+            )
             .await
             .unwrap();
         store
-            .complete_contribution(contribution,
+            .complete_contribution(
+                contribution,
                 ProviderOutcome::Complete,
                 &[relation],
-                &BTreeMap::new(), &native_operation_budget)
+                &BTreeMap::new(),
+                &native_operation_budget,
+            )
             .await
             .unwrap()
             .remove(R::NAME)
@@ -128,7 +137,8 @@ async fn native_existing_owner_membership_excludes_dangling_keys_at_exact_epochs
             .register_table(
                 *alias,
                 store
-                    .table_provider(view, relation.clone(), budget.clone(), 16).await
+                    .table_provider(view, relation.clone(), budget.clone(), 16)
+                    .await
                     .unwrap(),
             )
             .unwrap();
@@ -247,7 +257,8 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
         producer: &str,
         rows: &[R],
     ) -> lctx_model::domain::completed::CompletedView {
-    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+        let native_operation_budget =
+            lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
         let relation = Relation::of::<R>();
         let spec = ContributionSpec {
             captured_binding: None,
@@ -261,14 +272,22 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
         };
         let contribution = store.begin_contribution(spec).await.unwrap();
         store
-            .write_batch(&contribution, &relation, &R::encode(rows).unwrap(), &native_operation_budget)
+            .write_batch(
+                &contribution,
+                &relation,
+                &R::encode(rows).unwrap(),
+                &native_operation_budget,
+            )
             .await
             .unwrap();
         store
-            .complete_contribution(contribution,
+            .complete_contribution(
+                contribution,
                 ProviderOutcome::Complete,
                 &[relation],
-                &BTreeMap::new(), &native_operation_budget)
+                &BTreeMap::new(),
+                &native_operation_budget,
+            )
             .await
             .unwrap()
             .remove(R::NAME)
@@ -361,7 +380,8 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
             .register_table(
                 *alias,
                 store
-                    .table_provider(view, relation.clone(), budget.clone(), 16).await
+                    .table_provider(view, relation.clone(), budget.clone(), 16)
+                    .await
                     .unwrap(),
             )
             .unwrap();
@@ -433,7 +453,8 @@ async fn native_forward_fields_preserve_null_shared_targets_and_exact_epochs() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn native_closure_windows_projection_pin_and_stream_lifetime() {
-    let native_operation_budget = lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
+    let native_operation_budget =
+        lctx_model::domain::resources::ResourceBudget::fixed(256 << 20).unwrap();
     let path =
         std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned disposable compiler fixture");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
@@ -499,10 +520,13 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
         .await
         .unwrap();
     let views = store
-        .complete_contribution(contribution,
+        .complete_contribution(
+            contribution,
             ProviderOutcome::Complete,
             &[package_relation.clone(), release_relation.clone()],
-            &BTreeMap::new(), &native_operation_budget)
+            &BTreeMap::new(),
+            &native_operation_budget,
+        )
         .await
         .unwrap();
     let pending = Release {
@@ -530,7 +554,8 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
             package_relation.clone(),
             native_budget.clone(),
             64,
-        ).await
+        )
+        .await
         .unwrap();
     let release_provider = store
         .table_provider(
@@ -538,7 +563,8 @@ async fn native_closure_windows_projection_pin_and_stream_lifetime() {
             release_relation.clone(),
             native_budget.clone(),
             128,
-        ).await
+        )
+        .await
         .unwrap();
     session.register_table("packages", packages).unwrap();
     session

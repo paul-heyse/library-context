@@ -51,7 +51,7 @@ crate::catalog_runtime_inputs!(data);
 impl RuntimeData {
     pub fn lower(&self) -> super::frames::LowerFrames<'_> {
         super::frames::LowerFrames {
-            compact:&self.compact,
+            compact: &self.compact,
             local: &self.local_invocations,
             local_outcomes: &self.local_outcomes,
             source: &self.source_invocations,

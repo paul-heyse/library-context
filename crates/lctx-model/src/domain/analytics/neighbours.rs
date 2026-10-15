@@ -69,22 +69,38 @@ impl Prepared {
         }
         // Borrow admitted rows. These correspondence buckets are preparation scratch, rather
         // than a repeated inventory scan for every invocation, assessment and window.
-        let _index = budget.reserve("native-neighbour-correspondence", data.assessments.len()
-            .checked_add(data.windows.len()).and_then(|n| n.checked_add(uses.len()))
-            .and_then(|n| n.checked_add(data.projected_values.len()))
-            .and_then(|n| n.checked_mul(256))
-            .ok_or_else(|| invalid("analytic correspondence overflow"))?)?;
+        let _index = budget.reserve(
+            "native-neighbour-correspondence",
+            data.assessments
+                .len()
+                .checked_add(data.windows.len())
+                .and_then(|n| n.checked_add(uses.len()))
+                .and_then(|n| n.checked_add(data.projected_values.len()))
+                .and_then(|n| n.checked_mul(256))
+                .ok_or_else(|| invalid("analytic correspondence overflow"))?,
+        )?;
         let mut assessments = BTreeMap::<_, Vec<_>>::new();
         for row in data.assessments.iter() {
-            assessments.entry((row.input, row.context)).or_default().push(row);
+            assessments
+                .entry((row.input, row.context))
+                .or_default()
+                .push(row);
         }
         let mut by_assessment = BTreeMap::<_, Vec<_>>::new();
         for row in data.windows.iter() {
             by_assessment.entry(row.assessment).or_default().push(row);
         }
-        let by_window = uses.iter().map(|row| ((row.invocation, row.window), row))
+        let by_window = uses
+            .iter()
+            .map(|row| ((row.invocation, row.window), row))
             .collect::<BTreeMap<_, _>>();
-        let item_cap = invocations.iter().map(|invocation| assessments.get(&(invocation.input, invocation.context)).map_or(0, Vec::len))
+        let item_cap = invocations
+            .iter()
+            .map(|invocation| {
+                assessments
+                    .get(&(invocation.input, invocation.context))
+                    .map_or(0, Vec::len)
+            })
             .try_fold(0usize, |n, count| n.checked_add(count))
             .ok_or_else(|| invalid("analytic item count overflow"))?;
         let bytes = item_cap
@@ -97,7 +113,11 @@ impl Prepared {
         let mut windows = Vec::with_capacity(uses.len());
         let mut values = std::collections::BTreeMap::new();
         for invocation in invocations.iter() {
-            for assessment in assessments.get(&(invocation.input, invocation.context)).into_iter().flatten() {
+            for assessment in assessments
+                .get(&(invocation.input, invocation.context))
+                .into_iter()
+                .flatten()
+            {
                 let key = ItemKey {
                     invocation: invocation.id(),
                     subject: assessment.subject,
@@ -106,7 +126,8 @@ impl Prepared {
                 let mut available = 0;
                 for window in by_assessment.get(&assessment.id()).into_iter().flatten() {
                     expected += 1;
-                    let row = by_window.get(&(invocation.id(), window.id()))
+                    let row = by_window
+                        .get(&(invocation.id(), window.id()))
                         .ok_or_else(|| invalid("admitted analytic window use disappeared"))?;
                     if row.availability == VectorAvailability::Available {
                         let id = row
@@ -260,7 +281,9 @@ impl Prepared {
         )?;
         let _candidates = self.budget.reserve(
             "native-neighbour-candidates",
-            parameters.k.min(targets.len())
+            parameters
+                .k
+                .min(targets.len())
                 .checked_mul(size_of::<Match>())
                 .ok_or_else(|| invalid("neighbour candidate allocation overflow"))?,
         )?;
@@ -321,7 +344,10 @@ impl Prepared {
                 {
                     if candidates.len() < parameters.k {
                         candidates.push(Ranked(best));
-                    } else if candidates.peek().is_some_and(|worst| order(&best, &worst.0).is_lt()) {
+                    } else if candidates
+                        .peek()
+                        .is_some_and(|worst| order(&best, &worst.0).is_lt())
+                    {
                         *candidates.peek_mut().expect("nonempty bounded candidates") = Ranked(best);
                     }
                 }
@@ -358,15 +384,22 @@ pub struct Match {
     pub score: FiniteF64,
 }
 fn order(a: &Match, b: &Match) -> std::cmp::Ordering {
-    b.score.get().total_cmp(&a.score.get()).then(a.target.cmp(&b.target))
+    b.score
+        .get()
+        .total_cmp(&a.score.get())
+        .then(a.target.cmp(&b.target))
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Ranked(Match);
 impl PartialOrd for Ranked {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> { Some(self.cmp(other)) }
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 impl Ord for Ranked {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering { order(&self.0, &other.0) }
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        order(&self.0, &other.0)
+    }
 }
 pub struct Matches {
     rows: Vec<Match>,

@@ -1271,12 +1271,8 @@ impl Progress {
         if !matches!(result, summary_worklist::Admission::Refused(_))
             && !self.branches.contains_key(&branch.id())
         {
-            self.charge
-                .grow(size_of::<ProofId>().saturating_mul(2).saturating_add(128))?;
             self.by_owner
-                .update(&mut self.charge, branch.descriptor().owner, |rows| {
-                    rows.insert(branch.id())
-                })?;
+                .insert_set(&mut self.charge, branch.descriptor().owner, branch.id())?;
             self.branches
                 .insert(&mut self.charge, branch.id(), branch.clone())?;
         }
@@ -1872,14 +1868,13 @@ fn publish(
                     | SummaryPremise::Captured { .. }
             )
     }) {
-        charge.grow(size_of::<ProofId>() + 64)?;
-        members.update(
+        members.insert_set(
             &mut charge,
             (
                 branch.branch.key().id(),
                 analysis::support::alternative_basis(branch.qualification()),
             ),
-            |rows| rows.insert(branch.id()),
+            branch.id(),
         )?;
     }
     for ids in members.values() {
@@ -2518,13 +2513,10 @@ fn produce_with_application(
                                     continue;
                                 }
                                 // Store every admissible proof, including equal-cost evidence; reopen only semantic progress.
-                                progress
-                                    .charge
-                                    .grow(size_of::<ProofId>().saturating_mul(2) + 128)?;
-                                progress.by_owner.update(
+                                progress.by_owner.insert_set(
                                     &mut progress.charge,
                                     branch.descriptor().owner,
-                                    |rows| rows.insert(branch.id()),
+                                    branch.id(),
                                 )?;
                                 progress.branches.insert(
                                     &mut progress.charge,
@@ -2716,13 +2708,10 @@ fn produce_with_application(
                             if cost.check(limits).is_err() {
                                 continue;
                             }
-                            progress
-                                .charge
-                                .grow(size_of::<ProofId>().saturating_mul(2) + 128)?;
-                            progress.by_owner.update(
+                            progress.by_owner.insert_set(
                                 &mut progress.charge,
                                 branch.descriptor().owner,
-                                |rows| rows.insert(branch.id()),
+                                branch.id(),
                             )?;
                             progress.branches.insert(
                                 &mut progress.charge,

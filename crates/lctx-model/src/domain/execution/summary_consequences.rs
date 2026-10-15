@@ -421,9 +421,7 @@ fn facts(
     let mut support_charge =
         charged::StateCharge::new(b, "summary-consequence-local-support-index");
     for support in data.local_supports.iter() {
-        local_supports.update(&mut support_charge, support.assertion, |members| {
-            members.push(support)
-        })?;
+        local_supports.push(&mut support_charge, support.assertion, support)?;
     }
     let mut add = |descriptor: TransferDescriptor,
                    qid,
@@ -927,14 +925,14 @@ pub(super) fn derive_with_verified_bindings(
     for row in out.pair_outcomes.iter() {
         let attempt = need(&data.binding_output.attempts, row.attempt)?;
         if let (Some(caller), Some(callee)) = (finite.get(&row.caller), finite.get(&row.callee)) {
-            pairs.update(
+            pairs.push(
                 &mut charge,
                 (
                     row.attempt,
                     caller.branch.descriptor().input,
                     callee.branch.descriptor().output,
                 ),
-                |members: &mut Vec<_>| members.push(row),
+                row,
             )?;
             queries.insert(
                 &mut charge,
@@ -953,11 +951,7 @@ pub(super) fn derive_with_verified_bindings(
         Vec<&SummaryResidual>,
     >::default();
     for row in out.residuals.iter() {
-        residuals.update(
-            &mut charge,
-            (row.event, row.input, row.output),
-            |members: &mut Vec<_>| members.push(row),
-        )?;
+        residuals.push(&mut charge, (row.event, row.input, row.output), row)?;
         queries.insert(
             &mut charge,
             (row.event, row.input, row.output, row.qualification),
@@ -967,14 +961,13 @@ pub(super) fn derive_with_verified_bindings(
         charged::ChargedMap::<Id<NormalizedCallEvent>, Vec<&CallMember>>::default();
     for member in out.call_members.iter() {
         if let Some(attempt) = data.binding_output.attempts.get(member.attempt) {
-            members_by_event.update(&mut charge, attempt.event, |members: &mut Vec<_>| {
-                members.push(member)
-            })?;
+            members_by_event.push(&mut charge, attempt.event, member)?;
         }
     }
     let mut actual_by_event = charged::ChargedMap::<Id<NormalizedCallEvent>, usize>::default();
     for attempt in data.binding_output.attempts.iter() {
-        actual_by_event.update(&mut charge, attempt.event, |count: &mut usize| *count += 1)?;
+        actual_by_event
+            .update_inline(&mut charge, attempt.event, |count: &mut usize| *count += 1)?;
     }
     let mut assessed = charged::ChargedSet::<Id<NormalizedCallEvent>>::default();
     for assessment in data

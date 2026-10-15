@@ -328,7 +328,7 @@ impl PreparedSyntax {
         for symbol in data.symbols.iter().filter(|symbol| symbol.context == context && symbol.kind == calls::SymbolKind::Class
             && matches!(data.provider_modules.get(symbol.module), Some(calls::ProviderModule::Bundled { name, bundle: calls::ModuleBundle::Typeshed, .. }) if name == "builtins")
             && (symbol.name == "BaseException" || super::ExactRuntimeException::ALL.iter().any(|kind| kind.class().1 == symbol.name))) {
-            index.builtin_classes.update(&mut index._charge, symbol.name.clone(), |rows| rows.push(symbol.id()))?;
+            index.builtin_classes.push(&mut index._charge, symbol.name.clone(), symbol.id())?;
         }
         for row in data.placements.iter() {
             if data
@@ -348,9 +348,7 @@ impl PreparedSyntax {
                 ));
             }
             if let Some(parent) = row.parent {
-                index
-                    .children
-                    .update(&mut index._charge, parent, |rows| rows.push(row.id()))?;
+                index.children.push(&mut index._charge, parent, row.id())?;
             }
         }
         for row in data.details.iter() {
@@ -361,9 +359,7 @@ impl PreparedSyntax {
             {
                 index
                     .details
-                    .update(&mut index._charge, row.occurrence, |rows| {
-                        rows.push(row.id())
-                    })?;
+                    .push(&mut index._charge, row.occurrence, row.id())?;
             }
         }
         for row in data.native.iter() {
@@ -371,18 +367,16 @@ impl PreparedSyntax {
                 .premises
                 .get(row.premise)
                 .ok_or_else(|| ModelError::Invalid("execution native pair missing".into()))?;
-            index.native.update(
+            index.native.push(
                 &mut index._charge,
                 premise.assertion_and_support().0,
-                |rows| rows.push(row.id()),
+                row.id(),
             )?;
         }
         for row in data.owners.iter() {
             index
                 .ownership
-                .update(&mut index._charge, row.occurrence, |rows| {
-                    rows.push(row.entity)
-                })?;
+                .push(&mut index._charge, row.occurrence, row.entity)?;
         }
         for row in data.declarations.iter() {
             if data
@@ -392,9 +386,7 @@ impl PreparedSyntax {
             {
                 index
                     .declarations
-                    .update(&mut index._charge, row.declaration, |rows| {
-                        rows.push(row.id())
-                    })?;
+                    .push(&mut index._charge, row.declaration, row.id())?;
             }
         }
         for row in data.occurrences.iter().filter(|row| {

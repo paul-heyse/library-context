@@ -15,7 +15,12 @@ pub struct TypedRowKey {
 
 /// Profile meaning of the completed output. Attempt/publication profile is separate authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "profile", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    content = "profile",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum OutputProfile {
     Neutral,
     Specific(Profile),
@@ -55,25 +60,41 @@ pub struct ContributionSpec {
 }
 impl ContributionSpec {
     /// Check output profile against the attempt without treating a neutral tag as authority.
-    pub fn validate_profile(&self,attempt:Profile)->Result<(),ModelError> {
+    pub fn validate_profile(&self, attempt: Profile) -> Result<(), ModelError> {
         match self.profile {
-            OutputProfile::Specific(profile) if profile==attempt=>Ok(()),
-            OutputProfile::Specific(_)=>Err(ModelError::Conflict("contribution attempt profile")),
-            OutputProfile::Neutral=>self.validate_neutral_profile(),
+            OutputProfile::Specific(profile) if profile == attempt => Ok(()),
+            OutputProfile::Specific(_) => Err(ModelError::Conflict("contribution attempt profile")),
+            OutputProfile::Neutral => self.validate_neutral_profile(),
         }
     }
-    fn validate_neutral_profile(&self)->Result<(),ModelError> {
-        use super::producer_contract::{facts,OutputProfilePolicy};
-        let contract=facts::facts().into_iter().find(|contract|contract.name==self.producer)
+    fn validate_neutral_profile(&self) -> Result<(), ModelError> {
+        use super::producer_contract::{OutputProfilePolicy, facts};
+        let contract = facts::facts()
+            .into_iter()
+            .find(|contract| contract.name == self.producer)
             .ok_or(ModelError::Conflict("unknown neutral producer contract"))?;
-        let binding=self.captured_binding.as_ref().ok_or(ModelError::Conflict("neutral contribution needs captured contract"))?;
-        if contract.output_profile!=OutputProfilePolicy::Neutral || binding.contract!=contract.identity() || binding.semantic_revision!=contract.semantic_revision || self.outputs!=contract.outputs.iter().chain(&contract.contributes).map(|relation|relation.name().to_owned()).collect() {
+        let binding = self.captured_binding.as_ref().ok_or(ModelError::Conflict(
+            "neutral contribution needs captured contract",
+        ))?;
+        if contract.output_profile != OutputProfilePolicy::Neutral
+            || binding.contract != contract.identity()
+            || binding.semantic_revision != contract.semantic_revision
+            || self.outputs
+                != contract
+                    .outputs
+                    .iter()
+                    .chain(&contract.contributes)
+                    .map(|relation| relation.name().to_owned())
+                    .collect()
+        {
             return Err(ModelError::Conflict("neutral output contract or inventory"));
         }
-        contract.validate_context_dependency(binding,self.profile)
+        contract.validate_context_dependency(binding, self.profile)
     }
     pub fn identity(&self) -> Result<ContentHash, ModelError> {
-        if self.profile==OutputProfile::Neutral {self.validate_neutral_profile()?;}
+        if self.profile == OutputProfile::Neutral {
+            self.validate_neutral_profile()?;
+        }
         if self.producer.is_empty() {
             return Err(ModelError::Invalid("empty contribution producer".into()));
         }
@@ -292,10 +313,17 @@ pub struct CompletedStateIdentity {
     pub content: ContentHash,
 }
 impl CompletedStateIdentity {
-    pub fn from_roots(roots: &super::completed_identity::CompletedFamilyRoots) -> Result<Self, ModelError> {
+    pub fn from_roots(
+        roots: &super::completed_identity::CompletedFamilyRoots,
+    ) -> Result<Self, ModelError> {
         let families = roots.roots();
-        Ok(Self { format_version: STATE_FORMAT_VERSION, contributions: families[0].rows,
-            memberships: families[1].rows, backing_rows: families[3].rows, content: roots.identity()? })
+        Ok(Self {
+            format_version: STATE_FORMAT_VERSION,
+            contributions: families[0].rows,
+            memberships: families[1].rows,
+            backing_rows: families[3].rows,
+            content: roots.identity()?,
+        })
     }
     pub fn validate(&self) -> Result<(), ModelError> {
         if self.format_version != STATE_FORMAT_VERSION {
@@ -350,7 +378,9 @@ impl CompletedBinding {
         self.view.relation.encode(&mut sink);
         self.view.identity.encode(&mut sink);
         sink.part(b"rows", &self.view.rows.to_le_bytes());
-        for contribution in &self.view.contributions { contribution.encode(&mut sink); }
+        for contribution in &self.view.contributions {
+            contribution.encode(&mut sink);
+        }
         self.configuration.encode(&mut sink);
         Ok(sink.finish())
     }

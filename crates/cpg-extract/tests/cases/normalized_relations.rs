@@ -1,6 +1,6 @@
 //! Source-written N2 controls, run through the real pinned native facts providers.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     lexical::*,
     normalized::{

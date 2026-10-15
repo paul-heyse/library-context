@@ -9,6 +9,7 @@ use lctx_native::completed_rows::{
 pub use lctx_native::installation::*;
 pub use lctx_native::recovery::*;
 mod ingress;
+mod production;
 use crate::{
     Loader, RuntimeConfig,
     adapter::GraphRow,
@@ -32,9 +33,11 @@ use lctx_model::domain::{
     self as d, admission::Frontier, completed::*, completed_transport::*, stages::ProviderOutcome,
     *,
 };
+use production::production_bytes;
+pub use production::{CompletedProduction, PreparedRetention, RetentionPreparation};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -226,6 +229,7 @@ pub struct NativeCompilerStore {
     installed_views:
         Mutex<BTreeMap<ContentHash, Arc<lctx_native::installed_view::HeldInstalledView>>>,
     view_preparations: Mutex<BTreeMap<ContentHash, ViewPreparation>>,
+    view_join_failures: Mutex<Vec<PreparationJoinFailure>>,
     product_retention_gates: Mutex<BTreeMap<ContentHash, RootInstallationGate>>,
     view_audit: tokio::sync::Mutex<Option<lctx_native::installed_view::InstallationAudit>>,
     known_contributors: Mutex<BTreeMap<ContentHash, ContentHash>>,
@@ -234,6 +238,7 @@ pub struct NativeCompilerStore {
     seal_started: AtomicBool,
     preparation: Mutex<Option<CanonicalPreparation>>,
     membership_preparations: Mutex<BTreeMap<ContentHash, MembershipPreparationEntry>>,
+    membership_join_failures: Mutex<Vec<PreparationJoinFailure>>,
     producing_scopes: Mutex<BTreeMap<ContentHash, Arc<ProducingAdmission>>>,
     admission: Arc<OperationAdmission>,
     runtime: tokio::runtime::Handle,
@@ -247,18 +252,16 @@ struct RootInstallationGate {
     gate: Arc<tokio::sync::Mutex<()>>,
     _charge: Arc<Box<dyn Reservation>>,
 }
+type PreparationJoinFailure = (Arc<ModelError>, Arc<Box<dyn Reservation>>);
 struct MembershipPreparationEntry {
     pending: MembershipPreparation,
     charge: Arc<Box<dyn Reservation>>,
     budget: ResourceBudget,
 }
 type MembershipToken = ([u8; 16], ContentHash);
-type PreparedView = Shared<
-    BoxFuture<
-        'static,
-        Result<Arc<lctx_native::installed_view::HeldInstalledView>, Arc<ModelError>>,
-    >,
->;
+type ViewPreparationResult =
+    Result<Arc<lctx_native::installed_view::HeldInstalledView>, Arc<ModelError>>;
+type PreparedView = Shared<BoxFuture<'static, Result<ViewPreparationResult, Arc<ModelError>>>>;
 struct ViewPreparation {
     pending: PreparedView,
     token: Arc<Box<dyn Reservation>>,
@@ -378,8 +381,9 @@ struct PreparedCanonical {
     assertions: PreparedRows,
 }
 type CanonicalPreparation = Shared<BoxFuture<'static, Result<PreparedCanonical, Arc<ModelError>>>>;
+type MembershipPreparationResult = Result<PreparedCandidates, Arc<ModelError>>;
 type MembershipPreparation =
-    Shared<BoxFuture<'static, Result<PreparedCandidates, Arc<ModelError>>>>;
+    Shared<BoxFuture<'static, Result<MembershipPreparationResult, Arc<ModelError>>>>;
 #[derive(Default)]
 struct OperationState {
     closed: bool,
@@ -918,22 +922,17 @@ impl NativeCompilerStore {
             .collect::<BTreeMap<_, _>>();
         let mut owners = std::collections::BTreeSet::new();
         let mut selected_views = std::collections::BTreeSet::new();
-        {
-            let mappings = self
-                .view_mappings
-                .lock()
-                .map_err(|_| ModelError::Conflict("state root-qualified metadata"))?;
-            for binding in bindings {
-                let RetainedViewMappings { mappings: rows, .. } = mappings
-                    .get(&binding.view.identity)
-                    .ok_or(ModelError::Conflict(
-                        "state lacks exact bound-root mappings",
-                    ))?;
+        for binding in bindings {
+            self.with_selected_mappings(&binding.view, |rows| {
                 for row in rows {
                     owners.insert(row.physical);
                     selected_views.insert(row.view);
                 }
-            }
+                Ok(())
+            })?
+            .ok_or(ModelError::Conflict(
+                "state lacks exact bound-root mappings",
+            ))?;
         }
         for view in selected_views {
             if views.contains_key(&view) {
@@ -980,17 +979,8 @@ impl NativeCompilerStore {
             BTreeMap::<(ContentHash, ContentHash), std::collections::BTreeSet<ContentHash>>::new();
         let mut owners = std::collections::BTreeSet::new();
         let mut incarnations = BTreeMap::new();
-        {
-            let registered = self
-                .view_mappings
-                .lock()
-                .map_err(|_| ModelError::Conflict("recovery root-qualified copies"))?;
-            for binding in bindings {
-                let RetainedViewMappings { mappings: rows, .. } = registered
-                    .get(&binding.view.identity)
-                    .ok_or(ModelError::Conflict(
-                        "recovery lacks exact bound-root mappings",
-                    ))?;
+        for binding in bindings {
+            self.with_selected_mappings(&binding.view, |rows| {
                 for row in rows {
                     charge.grow(512)?;
                     if row.incarnation <= 0
@@ -1008,7 +998,11 @@ impl NativeCompilerStore {
                         .insert(row.physical);
                     owners.insert(row.physical);
                 }
-            }
+                Ok(())
+            })?
+            .ok_or(ModelError::Conflict(
+                "recovery lacks exact bound-root mappings",
+            ))?;
         }
         // Observe every selected physical copy once. Equal logical descriptors may
         // share semantic traversal while each original root keeps its exact aliases.
@@ -1704,7 +1698,7 @@ impl NativeCompilerStore {
                 );
                 let pending = async move {
                     task.await
-                        .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))?
+                        .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))
                 }
                 .boxed()
                 .shared();
@@ -1719,7 +1713,13 @@ impl NativeCompilerStore {
                 (pending, token)
             }
         };
-        let result = pending.await.map_err(ModelError::SharedCause);
+        let joined = pending.await;
+        if let Err(error) = &joined {
+            self.record_view_join_failure(error.clone(), token.clone())?;
+        }
+        let result = joined
+            .and_then(std::convert::identity)
+            .map_err(ModelError::SharedCause);
         if result.is_err()
             && let Ok(mut preparations) = self.view_preparations.lock()
             && preparations
@@ -1729,6 +1729,101 @@ impl NativeCompilerStore {
             preparations.remove(&view.identity);
         }
         result
+    }
+    fn record_view_join_failure(
+        &self,
+        error: Arc<ModelError>,
+        token: Arc<Box<dyn Reservation>>,
+    ) -> Result<(), ModelError> {
+        let mut failures = self
+            .view_join_failures
+            .lock()
+            .map_err(|_| ModelError::Conflict("view preparation join diagnostics"))?;
+        if !failures
+            .iter()
+            .any(|(_, current)| Arc::ptr_eq(current, &token))
+        {
+            // The accepted entry's allowance follows its actual join diagnostic.
+            failures.reserve_exact(1);
+            failures.push((error, token));
+        }
+        Ok(())
+    }
+    async fn drain_view_preparations(&self) -> d::completion::Completion {
+        self.drain_view_preparations_inner(true).await
+    }
+    async fn drain_view_preparations_inner(
+        &self,
+        report_join_failures: bool,
+    ) -> d::completion::Completion {
+        let mut completion = d::completion::Completion::default();
+        loop {
+            let next = match self.view_preparations.lock() {
+                Ok(preparations) => preparations.iter().next().map(|(identity, entry)| {
+                    (*identity, entry.pending.clone(), entry.token.clone())
+                }),
+                Err(_) => {
+                    completion.local = d::completion::LocalState::Outstanding;
+                    completion.step(
+                        "view preparation registry drainage",
+                        Err(ModelError::Conflict(
+                            "internal selection preparation registry",
+                        )),
+                    );
+                    break;
+                }
+            };
+            let Some((identity, pending, token)) = next else {
+                break;
+            };
+            if let Err(error) = pending.await
+                && let Err(error) = self.record_view_join_failure(error, token.clone())
+            {
+                completion.local = d::completion::LocalState::Outstanding;
+                completion.step("view preparation join diagnostic owner", Err(error));
+                break;
+            }
+            match self.view_preparations.lock() {
+                Ok(mut preparations) => {
+                    if preparations
+                        .get(&identity)
+                        .is_some_and(|entry| Arc::ptr_eq(&entry.token, &token))
+                    {
+                        preparations.remove(&identity);
+                    }
+                }
+                Err(_) => {
+                    completion.local = d::completion::LocalState::Outstanding;
+                    completion.step(
+                        "view preparation registry release",
+                        Err(ModelError::Conflict(
+                            "internal selection preparation registry",
+                        )),
+                    );
+                    break;
+                }
+            }
+        }
+        if report_join_failures {
+            match self.view_join_failures.lock() {
+                Ok(failures) => {
+                    for (error, _) in failures.iter() {
+                        completion.step(
+                            "view preparation task join",
+                            Err(ModelError::SharedCause(error.clone())),
+                        );
+                    }
+                }
+                Err(_) => {
+                    completion.local = d::completion::LocalState::Outstanding;
+                    completion.step(
+                        "view preparation join diagnostic owner",
+                        Err(ModelError::Conflict("view preparation join diagnostics")),
+                    );
+                }
+            }
+        }
+        completion
     }
     async fn root_gates(
         &self,
@@ -2039,6 +2134,19 @@ impl NativeCompilerStore {
                 "exact per-view mapping order/root inventory",
             ));
         }
+        if self
+            .with_selected_mappings(view, |previous| {
+                if previous != mappings {
+                    return Err(ModelError::Conflict(
+                        "exact per-view physical mapping changed",
+                    ));
+                }
+                Ok(())
+            })?
+            .is_some()
+        {
+            return Ok(());
+        }
         // Preserve the full root-qualified closure; different roots may select
         // different physical copies of the same logical dependency.
         let rows = || mappings.iter();
@@ -2081,6 +2189,7 @@ impl NativeCompilerStore {
         completed: &Arc<lctx_native::completed_state::NativeCompletedState>,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        completed.inventory().require_pool(budget)?;
         if completed.completion().attempt != self.attempt
             || completed.completion().generation != self.generation
         {
@@ -2102,9 +2211,12 @@ impl NativeCompilerStore {
         }
         for reference in completed.inventory().references() {
             let installed = completed.inventory().installed(reference.logical_view)?;
-            self.remember_view_mapping(&installed.view, &installed.mappings, budget)?;
             self.remember_view(&installed.view)?;
         }
+        self.view_mappings
+            .lock()
+            .map_err(|_| ModelError::Conflict("physical live mapping replacement"))?
+            .clear();
         self.installed_views
             .lock()
             .map_err(|_| ModelError::Conflict("physical live capability replacement"))?
@@ -2113,12 +2225,13 @@ impl NativeCompilerStore {
         Ok(())
     }
     /// Read-only publication consumers retain the supplied protected capability for
-    /// their full operation. This copies its exact mappings, never a global search.
+    /// their full operation. Its exact mappings remain in that protected inventory.
     pub fn register_published_inventory(
         &self,
         completed: &lctx_native::completed_state::PublishedCompletedState,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        completed.inventory().require_pool(budget)?;
         if !self.read_only.load(Ordering::Acquire) {
             return Err(ModelError::Conflict(
                 "published inventory requires read-only compiler owner",
@@ -2155,9 +2268,12 @@ impl NativeCompilerStore {
         }
         for reference in completed.inventory().references() {
             let installed = completed.inventory().installed(reference.logical_view)?;
-            self.remember_view_mapping(&installed.view, &installed.mappings, budget)?;
             self.remember_view(&installed.view)?;
         }
+        self.view_mappings
+            .lock()
+            .map_err(|_| ModelError::Conflict("published live mapping replacement"))?
+            .clear();
         *retained = Some(completed.clone());
         Ok(())
     }
@@ -2235,18 +2351,15 @@ impl NativeCompilerStore {
             // root may independently select equivalent copies of those same views.
             return Ok((held.completion().mappings.clone(), charge));
         }
-        if let Some(RetainedViewMappings { mappings, .. }) = self
-            .view_mappings
-            .lock()
-            .map_err(|_| ModelError::Conflict("root-qualified exact mappings"))?
-            .get(&view.identity)
-        {
+        if let Some(mappings) = self.with_selected_mappings(view, |mappings| {
             charge.grow(
                 mappings
                     .len()
                     .saturating_mul(std::mem::size_of::<ContributorRealization>()),
             )?;
-            return Ok((mappings.clone(), charge));
+            Ok(mappings.to_vec())
+        })? {
+            return Ok((mappings, charge));
         }
         let view_bytes = |view: &CompletedView| {
             std::mem::size_of::<CompletedView>()
@@ -2736,248 +2849,35 @@ impl NativeCompilerStore {
         budget: &'a ResourceBudget,
     ) -> BoxFuture<'a, Result<(), ModelError>> {
         Box::pin(async move {
+            // Independent/manual callers keep strict admission, including local refusal.
             let lease = self.admit_mutation("retain independent product boundary", true)?;
-            let phase = crate::phase::Phase::begin("native_product_retention");
             let result = lease
                 .within(async {
-                    let gate = {
-                        let mut gates = self
-                            .product_retention_gates
-                            .lock()
-                            .map_err(|_| ModelError::Conflict("product retention gate registry"))?;
-                        if let Some(entry) = gates.get(&request) {
-                            entry.gate.clone()
-                        } else {
-                            let charge =
-                                Arc::new(budget.reserve("product retention request gate", 1024)?);
-                            let gate = Arc::new(tokio::sync::Mutex::new(()));
-                            gates.insert(
-                                request,
-                                RootInstallationGate {
-                                    gate: gate.clone(),
-                                    _charge: charge,
-                                },
-                            );
-                            gate
-                        }
-                    };
-                    let _same_request = gate.lock().await;
-                    self.check_failed()?;
-                    if lctx_native::completed_state::check_retained_product_replay(
-                        self.client.clone(),
-                        self.attempt,
-                        request,
-                        contribution,
-                        budget,
-                    )
-                    .await?
-                    {
-                        return Ok(());
-                    }
+                    let gate = self.product_retention_gate(request, budget)?;
+                    let _request = gate.lock_owned().await;
                     let descriptor = self.completed_contribution(contribution).await?;
                     let logical = descriptor.identity()?;
                     let mut charge =
                         d::charged::StateCharge::new(budget, "retained product selector inventory");
                     let mut pending = Vec::new();
+                    charge.grow(
+                        descriptor
+                            .outputs
+                            .keys()
+                            .map(|relation| size_of::<CompletedView>() + relation.len() + 1024)
+                            .fold(0usize, usize::saturating_add),
+                    )?;
                     for (relation, output) in &descriptor.outputs {
-                        charge.grow(relation.len().saturating_add(1024))?;
                         pending.push(CompletedView::new(
                             relation.clone(),
                             [logical].into(),
                             output.rows,
                         )?);
                     }
-                    let mut selections = BTreeMap::new();
-                    let mut mapping_charges = Vec::new();
-                    let mapping_reader =
-                        crate::NativeReader::private(self.client.clone()).with_budget(budget);
-                    let mapping_reader = if let Some(flag) = self.read_cancellation()? {
-                        mapping_reader.with_read_cancellation(flag)
-                    } else {
-                        mapping_reader
-                    };
-                    let mut observed = BTreeMap::new();
-                    let mapping_phase =
-                        crate::phase::Phase::begin("native_product_mapping_discovery");
-                    let mapping_result = async {
-                        while let Some(view) = pending.pop() {
-                            if selections.contains_key(&view.identity) {
-                                continue;
-                            }
-                            self.registered_view(&view).await?;
-                            let (mappings, mapping_charge) = self
-                                .selected_view_mappings_read(
-                                    &mapping_reader,
-                                    &view,
-                                    budget,
-                                    &mut observed,
-                                    false,
-                                )
-                                .await?;
-                            for mapping in &mappings {
-                                if mapping.view != view.identity
-                                    && !selections.contains_key(&mapping.view)
-                                {
-                                    let dependency = self
-                                        .known_views
-                                        .lock()
-                                        .map_err(|_| {
-                                            ModelError::Conflict(
-                                                "retained product dependency inventory",
-                                            )
-                                        })?
-                                        .get(&mapping.view)
-                                        .cloned()
-                                        .ok_or(ModelError::Conflict(
-                                            "retained product dependency descriptor absent",
-                                        ))?;
-                                    charge.grow(
-                                        dependency
-                                            .relation
-                                            .len()
-                                            .saturating_add(
-                                                dependency.contributions.len().saturating_mul(128),
-                                            )
-                                            .saturating_add(1024),
-                                    )?;
-                                    pending.push(dependency);
-                                }
-                            }
-                            mapping_charges.push(mapping_charge);
-                            charge.grow(2048)?;
-                            selections.insert(
-                                view.identity,
-                                lctx_native::completed_state::ViewSelection { view, mappings },
-                            );
-                        }
-                        Ok(())
-                    }
-                    .await;
-                    mapping_phase.finish_result(&mapping_result);
-                    let mut mapping_terminal = d::completion::Completion::default();
-                    mapping_terminal.step(
-                        "retained product mapping reader close",
-                        mapping_reader.close().await,
-                    );
-                    d::completion::complete(mapping_result, mapping_terminal)?;
-                    drop(observed);
-                    let selections = selections.into_values().collect::<Vec<_>>();
-                    let mut scope = self.view_audit.lock().await;
-                    if scope.is_none() {
-                        *scope = Some(
-                            lctx_native::installed_view::InstallationAudit::new(
-                                self.client.clone(),
-                                budget,
-                            )
-                            .await?,
-                        );
-                    }
-                    let audit = scope
-                        .as_ref()
-                        .filter(|audit| audit.shares_pool(budget))
-                        .cloned();
-                    drop(scope);
-                    let boundary = match audit {
-                        Some(audit) => {
-                            let source = audit.protected_source(&self.client, budget).await?;
-                            lctx_native::completed_state::complete_retained_content_from_source(
-                                self.client.clone(),
-                                self.attempt,
-                                &[],
-                                &selections,
-                                budget,
-                                &source,
-                            )
-                            .await?
-                        }
-                        None => {
-                            lctx_native::completed_state::complete_retained_content(
-                                self.client.clone(),
-                                self.attempt,
-                                &[],
-                                &selections,
-                                budget,
-                            )
-                            .await?
-                        }
-                    };
-                    let product = RecordId::new(
-                        "native_product",
-                        format!("{}_{}", request.hex(), self.attempt.hex()),
-                    );
-                    let mut row = Object::new();
-                    row.insert("id", product.clone());
-                    row.insert("request", request.hex());
-                    row.insert("released", false);
-                    row.insert(
-                        "contribution",
-                        RecordId::new("compiler_contribution", contribution.hex()),
-                    );
-                    crate::control::ensure_rows(
-                        &self.client,
-                        Some(self.attempt),
-                        vec![Value::Object(row)],
-                    )
-                    .await?;
-                    let reader =
-                        crate::NativeReader::private(self.client.clone()).with_budget(budget);
-                    let result = async {
-                        let address = boundary.completion().record()?;
-                        let mut observed = crate::control::inspect_expected_window_read(
-                            &reader,
-                            std::slice::from_ref(&address),
-                            budget,
-                        )
-                        .await?;
-                        let expected = observed.take_required(&address)?;
-                        observed.finish()?;
-                        if expected.incarnation() != boundary.incarnation()
-                            || expected.row() != boundary.completion().value(true)?
-                        {
-                            return Err(ModelError::Conflict(
-                                "retained product completed boundary changed",
-                            ));
-                        }
-                        crate::control::hold_expected(
-                            &self.client,
-                            self.attempt,
-                            product.clone(),
-                            expected,
-                        )
-                        .await?;
-                        crate::control::hold_many(
-                            &self.client,
-                            Some(self.attempt),
-                            vec![
-                                (
-                                    product.clone(),
-                                    RecordId::new("compiler_contribution", contribution.hex()),
-                                ),
-                                (RecordId::new("native_attempt", self.attempt.hex()), product),
-                            ],
-                        )
+                    self.retain_product_effects(request, contribution, pending, charge, budget)
                         .await
-                    }
-                    .await;
-                    let mut terminal = d::completion::Completion::default();
-                    let closed = reader.close().await;
-                    if closed.is_err()
-                        || result
-                            .as_ref()
-                            .err()
-                            .is_some_and(|error: &ModelError| !error.permits_storage_cleanup())
-                    {
-                        boundary.retain_unknown();
-                    }
-                    terminal.step("retained product receiving reader close", closed);
-                    terminal.step(
-                        "retained product independent boundary pin close",
-                        boundary.close().await,
-                    );
-                    d::completion::complete(result, terminal)
                 })
                 .await;
-            phase.finish_result(&result);
             lease.finish_with(result)
         })
     }
@@ -3306,8 +3206,8 @@ impl NativeCompilerStore {
         fresh.generation = owner.generation();
         fresh.read_only.store(true, Ordering::Release);
         for source in owner.views().values() {
+            source.require_pool(budget)?;
             let installed = source.completion();
-            fresh.remember_view_mapping(&installed.view, &installed.mappings, budget)?;
             fresh.remember_view(&installed.view)?;
             fresh
                 .installed_views
@@ -3721,6 +3621,7 @@ impl NativeCompilerStore {
             view_mappings: Mutex::default(),
             installed_views: Mutex::default(),
             view_preparations: Mutex::default(),
+            view_join_failures: Mutex::default(),
             product_retention_gates: Mutex::default(),
             view_audit: tokio::sync::Mutex::new(None),
             known_contributors: Mutex::default(),
@@ -3729,6 +3630,7 @@ impl NativeCompilerStore {
             seal_started: AtomicBool::new(false),
             preparation: Mutex::default(),
             membership_preparations: Mutex::default(),
+            membership_join_failures: Mutex::default(),
             producing_scopes: Mutex::default(),
             admission: Arc::new(OperationAdmission::default()),
             runtime: tokio::runtime::Handle::current(),
@@ -3769,6 +3671,7 @@ impl NativeCompilerStore {
             view_mappings: Mutex::default(),
             installed_views: Mutex::default(),
             view_preparations: Mutex::default(),
+            view_join_failures: Mutex::default(),
             product_retention_gates: Mutex::default(),
             view_audit: tokio::sync::Mutex::new(None),
             known_contributors: Mutex::default(),
@@ -3777,6 +3680,7 @@ impl NativeCompilerStore {
             seal_started: AtomicBool::new(false),
             preparation: Mutex::default(),
             membership_preparations: Mutex::default(),
+            membership_join_failures: Mutex::default(),
             producing_scopes: Mutex::default(),
             admission: Arc::new(OperationAdmission::default()),
             runtime: tokio::runtime::Handle::current(),
@@ -4786,10 +4690,17 @@ impl NativeCompilerStore {
                 return completion;
             }
         }
+        completion.merge(self.drain_view_preparations_inner(false).await);
+        completion.merge(self.drain_membership_preparations_inner(false).await);
         if let Err(error) = self.wait_operations(false).await {
             completion.local = d::completion::LocalState::Outstanding;
             completion.step("native operation drainage", Err(error));
         }
+        // Root admission is closed and accepted parent leases are now quiescent.
+        // No later descendant can register a new preparation behind this join pass.
+        // Sticky outer-join diagnostics are reported only on the final pass.
+        completion.merge(self.drain_view_preparations().await);
+        completion.merge(self.drain_membership_preparations().await);
         match self.admission.state.lock() {
             Ok(state) if state.uncertain => {
                 completion.remote = d::completion::RemoteState::Unknown;
@@ -5478,35 +5389,8 @@ impl NativeCompilerStore {
         budget: &ResourceBudget,
     ) -> Result<u64, ModelError> {
         let prepared = self.prepare_memberships(view, budget).await?;
-        let mut ordered = AsyncOrderedCandidates::new_registered(
-            prepared,
-            budget,
-            self.blocking_owner()?,
-            self.blocking_observer()?,
-        )
-        .await?;
-        let result = async {
-            let mut count = 0u64;
-            loop {
-                let rows = ordered
-                    .next_batch(crate::loader::NATIVE_WINDOW_ROWS)
-                    .await?;
-                if rows.is_empty() {
-                    break;
-                }
-                count = count
-                    .checked_add(rows.len() as u64)
-                    .ok_or(ModelError::Schema("exact composition count overflow"))?;
-            }
-            Ok(count)
-        }
-        .await;
-        let mut terminal = d::completion::Completion::default();
-        terminal.step(
-            "selected completed membership union drainage",
-            ordered.drain().await,
-        );
-        d::completion::complete(result, terminal)
+        u64::try_from(prepared.rows())
+            .map_err(|_| ModelError::Schema("exact composition count overflow"))
     }
 
     pub async fn complete_contribution(
@@ -5634,82 +5518,154 @@ impl NativeCompilerStore {
         previous: &BTreeMap<String, CompletedView>,
         budget: &ResourceBudget,
     ) -> Result<BTreeMap<String, CompletedView>, ModelError> {
-        self.check_failed()?;
-        let registration = self
-            .specifications
-            .lock()
-            .map_err(|_| ModelError::Conflict("native contribution owner"))?
-            .get(&id)
-            .cloned()
-            .ok_or(ModelError::Conflict("unknown native contribution"))?;
-        let (spec, completed) = registration.checked()?;
-        // Begin, retained attachment and independent import establish these immutable
-        // input holds before readiness. Completion consumes that checked ownership;
-        // replay must not mutate the same dependency guards again.
-        let spec = spec.clone();
-        for relation in outputs {
-            if let Some(prior) = previous.get(relation.name()) {
-                if prior.relation != relation.name() {
-                    return Err(ModelError::Conflict("previous completed view relation"));
-                }
-                self.registered_view(prior).await?;
-            }
-        }
-        if completed {
-            let descriptor = self.completed_contribution(id).await?;
-            if descriptor.outcome != outcome.code() {
-                return Err(ModelError::Conflict("retained contribution outcome"));
-            }
-            let mut views = BTreeMap::new();
-            let mut singletons = Vec::new();
+        Ok(self
+            .complete_production_inner(id, outcome, outputs, previous, budget)
+            .await?
+            .outputs)
+    }
+    fn complete_production_inner<'a>(
+        self: &'a Arc<Self>,
+        id: ContentHash,
+        outcome: ProviderOutcome,
+        outputs: &'a [Relation],
+        previous: &'a BTreeMap<String, CompletedView>,
+        budget: &'a ResourceBudget,
+    ) -> BoxFuture<'a, Result<CompletedProduction, ModelError>> {
+        Box::pin(async move {
+            self.check_failed()?;
+            let (spec, completed, mut retained) = {
+                let registrations = self
+                    .specifications
+                    .lock()
+                    .map_err(|_| ModelError::Conflict("native contribution owner"))?;
+                let registration = registrations
+                    .get(&id)
+                    .ok_or(ModelError::Conflict("unknown native contribution"))?;
+                let (spec, completed) = registration.checked()?;
+                // Admit the known typed specification and result containers before cloning.
+                let bytes = size_of::<CompletedProduction>()
+                    .saturating_add(spec.producer.capacity())
+                    .saturating_add(spec.inputs.heap_bytes())
+                    .saturating_add(spec.outputs.heap_bytes())
+                    .saturating_add(
+                        spec.captured_binding
+                            .as_ref()
+                            .map_or(0, |binding| binding.heap_bytes()),
+                    )
+                    .saturating_add(
+                        outputs
+                            .iter()
+                            .map(|relation| {
+                                let prior = previous
+                                    .get(relation.name())
+                                    .map_or(0, |view| view.contributions.len());
+                                relation
+                                    .name()
+                                    .len()
+                                    .saturating_mul(3)
+                                    .saturating_add(2048)
+                                    .saturating_add(prior.saturating_mul(128))
+                            })
+                            .fold(0usize, usize::saturating_add),
+                    );
+                let retained = budget.reserve("earned completed production backing", bytes)?;
+                (spec.clone(), completed, retained)
+            };
             for relation in outputs {
-                let singleton = self.contribution_view_inner(id, relation).await?;
-                singletons.push(singleton.clone());
-                let mut contributions = previous
-                    .get(relation.name())
-                    .map(|view| view.contributions.clone())
-                    .unwrap_or_default();
-                contributions.extend(singleton.contributions);
-                let candidate = CompletedView::new(relation.name().into(), contributions, 0)?;
-                let count = self.count_completed_memberships(&candidate, budget).await?;
-                let view = CompletedView::new(candidate.relation, candidate.contributions, count)?;
-                views.insert(relation.name().to_string(), view);
+                if let Some(prior) = previous.get(relation.name()) {
+                    if prior.relation != relation.name() {
+                        return Err(ModelError::Conflict("previous completed view relation"));
+                    }
+                    self.registered_view(prior).await?;
+                }
             }
-            self.declare_completed_views(
-                &singletons.iter().chain(views.values()).collect::<Vec<_>>(),
-                budget,
-            )
-            .await?;
-            return Ok(views);
-        }
-        let mut content = BTreeMap::<String, (u64, KeySink)>::new();
-        for output in outputs {
-            content.insert(
-                output.name().into(),
-                (0, KeySink::new("native-contribution-output/v1")),
+            if completed {
+                let replay_scratch = budget.reserve(
+                    "completed producer replay descriptor scratch",
+                    retained.size(),
+                )?;
+                let descriptor = self.completed_contribution(id).await?;
+                if descriptor.spec != spec || descriptor.outcome != outcome.code() {
+                    return Err(ModelError::Conflict("retained contribution outcome"));
+                }
+                drop(spec);
+                drop(replay_scratch);
+                let logical = descriptor.identity()?;
+                self.remember_contributor(logical, id)?;
+                let mut views = BTreeMap::new();
+                let mut singletons = Vec::new();
+                for relation in outputs {
+                    let output = descriptor
+                        .outputs
+                        .get(relation.name())
+                        .ok_or(ModelError::Conflict("undeclared contribution output"))?;
+                    let singleton =
+                        CompletedView::new(relation.name().into(), [logical].into(), output.rows)?;
+                    singletons.push(singleton.clone());
+                    let mut contributions = previous
+                        .get(relation.name())
+                        .map(|view| view.contributions.clone())
+                        .unwrap_or_default();
+                    contributions.extend(singleton.contributions.iter().copied());
+                    if contributions == singleton.contributions {
+                        views.insert(relation.name().to_string(), singleton);
+                        continue;
+                    }
+                    let candidate = CompletedView::new(relation.name().into(), contributions, 0)?;
+                    let count = self.count_completed_memberships(&candidate, budget).await?;
+                    let view =
+                        CompletedView::new(candidate.relation, candidate.contributions, count)?;
+                    views.insert(relation.name().to_string(), view);
+                }
+                self.declare_completed_views(
+                    &singletons.iter().chain(views.values()).collect::<Vec<_>>(),
+                    budget,
+                )
+                .await?;
+                drop(singletons);
+                let actual = production_bytes(&descriptor, &views);
+                assert!(
+                    actual <= retained.size(),
+                    "typed producer backing was pre-admitted"
+                );
+                retained.try_resize(actual)?;
+                return Ok(CompletedProduction {
+                    store: self.clone(),
+                    physical: id,
+                    descriptor,
+                    outputs: views,
+                    budget: budget.clone(),
+                    _charge: retained,
+                });
+            }
+            let mut content = BTreeMap::<String, (u64, KeySink)>::new();
+            for output in outputs {
+                content.insert(
+                    output.name().into(),
+                    (0, KeySink::new("native-contribution-output/v1")),
+                );
+            }
+            let mut b = Variables::new();
+            b.insert(
+                "contribution",
+                RecordId::new("compiler_contribution", id.hex()),
             );
-        }
-        let mut b = Variables::new();
-        b.insert(
-            "contribution",
-            RecordId::new("compiler_contribution", id.hex()),
-        );
-        let mut stream=self.track_rows(NativeRows::new(self.client.query("SELECT relation,semantic_key,content FROM compiler_membership WHERE contribution=$contribution ORDER BY relation,semantic_key").bind(b).stream_items().map_err(ModelError::codec)?,1)?)?;
-        while let Some(row) = stream.next().await? {
-            let row = SerdeWrapper::<MembershipContent>::from_value(row)
-                .map_err(ModelError::codec)?
-                .0;
-            let (count, sink) = content
-                .get_mut(&row.relation)
-                .ok_or(ModelError::Conflict("undeclared native output"))?;
-            row.semantic_key.encode(sink);
-            row.content.encode(sink);
-            *count = count
-                .checked_add(1)
-                .ok_or(ModelError::Schema("native contribution count overflow"))?;
-        }
-        self.complete_contribution_originals(id, budget).await?;
-        let descriptor = CompletedContribution {
+            let mut stream=self.track_rows(NativeRows::new(self.client.query("SELECT relation,semantic_key,content FROM compiler_membership WHERE contribution=$contribution ORDER BY relation,semantic_key").bind(b).stream_items().map_err(ModelError::codec)?,1)?)?;
+            while let Some(row) = stream.next().await? {
+                let row = SerdeWrapper::<MembershipContent>::from_value(row)
+                    .map_err(ModelError::codec)?
+                    .0;
+                let (count, sink) = content
+                    .get_mut(&row.relation)
+                    .ok_or(ModelError::Conflict("undeclared native output"))?;
+                row.semantic_key.encode(sink);
+                row.content.encode(sink);
+                *count = count
+                    .checked_add(1)
+                    .ok_or(ModelError::Schema("native contribution count overflow"))?;
+            }
+            self.complete_contribution_originals(id, budget).await?;
+            let descriptor = CompletedContribution {
             assurance:
                 lctx_model::domain::producer_assurance::ProducerAssurance::CurrentProviderInterface,
             spec,
@@ -5727,85 +5683,106 @@ impl NativeCompilerStore {
                 })
                 .collect(),
         };
-        let logical = descriptor.identity()?;
-        let mut b = Variables::new();
-        b.insert("id", RecordId::new("compiler_contribution", id.hex()));
-        b.insert(
-            "descriptor",
-            Bytes::from(serde_json::to_vec(&descriptor).map_err(ModelError::codec)?),
-        );
-        b.insert("logical", logical.hex());
-        b.insert("outcome", outcome.code());
-        crate::control::effect(&self.client,Some(self.attempt),"fn::native_touch($id); LET $owner=SELECT * FROM ONLY $id FOR UPDATE; IF $owner.completed OR $owner.attempt != $__attempt { THROW 'native contribution completion fenced'; }; UPDATE $id SET descriptor=$descriptor,logical=$logical,outcome=$outcome,completed=true RETURN NONE",b).await?;
-        self.specifications
-            .lock()
-            .map_err(|_| ModelError::Conflict("native contribution owner"))?
-            .get_mut(&id)
-            .ok_or(ModelError::Conflict("unknown native contribution"))?
-            .ownership = ContributionOwnership::Completed;
-        self.remember_contributor(logical, id)?;
-        let _singletons_charge = budget.reserve(
-            "completion singleton view descriptors",
-            descriptor
-                .outputs
-                .keys()
-                .map(|relation| std::mem::size_of::<CompletedView>() + relation.len() + 768)
-                .fold(0usize, usize::saturating_add),
-        )?;
-        let mut singletons = Vec::with_capacity(descriptor.outputs.len());
-        for (relation, output) in &descriptor.outputs {
-            singletons.push(CompletedView::new(
-                relation.clone(),
-                [logical].into(),
-                output.rows,
-            )?);
-        }
-        // Preserve the independently completed producer's exact singleton views.
-        // Current cumulative bindings remain untouched until every affected union
-        // has earned actual conflict/count validity below.
-        {
-            let _references = budget.reserve(
-                "completion singleton view references",
-                singletons
+            let logical = descriptor.identity()?;
+            let _encoding = budget.reserve(
+                "completed producer encoding scratch",
+                lctx_native::installed_view::contribution_heap(&descriptor)
+                    .saturating_mul(8)
+                    .saturating_add(65536),
+            )?;
+            let mut b = Variables::new();
+            b.insert("id", RecordId::new("compiler_contribution", id.hex()));
+            b.insert(
+                "descriptor",
+                Bytes::from(serde_json::to_vec(&descriptor).map_err(ModelError::codec)?),
+            );
+            b.insert("logical", logical.hex());
+            b.insert("outcome", outcome.code());
+            crate::control::effect(&self.client,Some(self.attempt),"fn::native_touch($id); LET $owner=SELECT * FROM ONLY $id FOR UPDATE; IF $owner.completed OR $owner.attempt != $__attempt { THROW 'native contribution completion fenced'; }; UPDATE $id SET descriptor=$descriptor,logical=$logical,outcome=$outcome,completed=true RETURN NONE",b).await?;
+            drop(_encoding);
+            self.specifications
+                .lock()
+                .map_err(|_| ModelError::Conflict("native contribution owner"))?
+                .get_mut(&id)
+                .ok_or(ModelError::Conflict("unknown native contribution"))?
+                .ownership = ContributionOwnership::Completed;
+            self.remember_contributor(logical, id)?;
+            let _singletons_charge = budget.reserve(
+                "completion singleton view descriptors",
+                descriptor
+                    .outputs
+                    .keys()
+                    .map(|relation| std::mem::size_of::<CompletedView>() + relation.len() + 768)
+                    .fold(0usize, usize::saturating_add),
+            )?;
+            let mut singletons = Vec::with_capacity(descriptor.outputs.len());
+            for (relation, output) in &descriptor.outputs {
+                singletons.push(CompletedView::new(
+                    relation.clone(),
+                    [logical].into(),
+                    output.rows,
+                )?);
+            }
+            // Preserve the independently completed producer's exact singleton views.
+            // Current cumulative bindings remain untouched until every affected union
+            // has earned actual conflict/count validity below.
+            {
+                let _references = budget.reserve(
+                    "completion singleton view references",
+                    singletons
+                        .len()
+                        .saturating_mul(std::mem::size_of::<&CompletedView>()),
+                )?;
+                let references = singletons.iter().collect::<Vec<_>>();
+                self.declare_completed_views(&references, budget).await?;
+            }
+            let mut views = BTreeMap::new();
+            for relation in outputs {
+                let mut contributions = previous
+                    .get(relation.name())
+                    .map(|v| v.contributions.clone())
+                    .unwrap_or_default();
+                contributions.insert(logical);
+                // This invocation has already traversed the new producer's immutable
+                // memberships to terminal EOF and counted each output above. Its
+                // contribution-qualified membership keys enforce uniqueness at ingress.
+                // Only an actual multi-contributor union adds nominal conflict/count work.
+                if contributions.len() == 1 {
+                    let singleton = singletons
+                        .iter()
+                        .find(|view| view.relation == relation.name())
+                        .ok_or(ModelError::Conflict("completed singleton output absent"))?;
+                    views.insert(relation.name().to_string(), singleton.clone());
+                    continue;
+                }
+                let candidate = CompletedView::new(relation.name().into(), contributions, 0)?;
+                let count = self.count_completed_memberships(&candidate, budget).await?;
+                let view = CompletedView::new(candidate.relation, candidate.contributions, count)?;
+                views.insert(relation.name().to_string(), view);
+            }
+            let _installation_charge = budget.reserve(
+                "completion installed view references",
+                views
                     .len()
                     .saturating_mul(std::mem::size_of::<&CompletedView>()),
             )?;
-            let references = singletons.iter().collect::<Vec<_>>();
-            self.declare_completed_views(&references, budget).await?;
-        }
-        let mut views = BTreeMap::new();
-        for relation in outputs {
-            let mut contributions = previous
-                .get(relation.name())
-                .map(|v| v.contributions.clone())
-                .unwrap_or_default();
-            contributions.insert(logical);
-            // This invocation has already traversed the new producer's immutable
-            // memberships to terminal EOF and counted each output above. Its
-            // contribution-qualified membership keys enforce uniqueness at ingress.
-            // Only an actual multi-contributor union adds nominal conflict/count work.
-            if contributions.len() == 1 {
-                let singleton = singletons
-                    .iter()
-                    .find(|view| view.relation == relation.name())
-                    .ok_or(ModelError::Conflict("completed singleton output absent"))?;
-                views.insert(relation.name().to_string(), singleton.clone());
-                continue;
-            }
-            let candidate = CompletedView::new(relation.name().into(), contributions, 0)?;
-            let count = self.count_completed_memberships(&candidate, budget).await?;
-            let view = CompletedView::new(candidate.relation, candidate.contributions, count)?;
-            views.insert(relation.name().to_string(), view);
-        }
-        let _installation_charge = budget.reserve(
-            "completion installed view references",
-            views
-                .len()
-                .saturating_mul(std::mem::size_of::<&CompletedView>()),
-        )?;
-        let installation = views.values().collect::<Vec<_>>();
-        self.declare_completed_views(&installation, budget).await?;
-        Ok(views)
+            let installation = views.values().collect::<Vec<_>>();
+            self.declare_completed_views(&installation, budget).await?;
+            let actual = production_bytes(&descriptor, &views);
+            assert!(
+                actual <= retained.size(),
+                "typed producer backing was pre-admitted"
+            );
+            retained.try_resize(actual)?;
+            Ok(CompletedProduction {
+                store: self.clone(),
+                physical: id,
+                descriptor,
+                outputs: views,
+                budget: budget.clone(),
+                _charge: retained,
+            })
+        })
     }
 
     /// Read the exact declared output of one completed contribution without registering a
@@ -6296,29 +6273,90 @@ impl NativeCompilerStore {
         known.insert(logical, physical);
         Ok(())
     }
-    fn view_owners(&self, view: &CompletedView) -> Result<Vec<ContentHash>, ModelError> {
-        let selected = self
+    /// Borrow mappings from their actual protected inventory/capability. Only
+    /// mutable live selections need the separate registry below.
+    fn with_selected_mappings<T>(
+        &self,
+        view: &CompletedView,
+        use_mappings: impl FnOnce(
+            &[lctx_native::installed_view::ContributorRealization],
+        ) -> Result<T, ModelError>,
+    ) -> Result<Option<T>, ModelError> {
+        let physical = self
+            .physical_completed
+            .lock()
+            .map_err(|_| ModelError::Conflict("physical selected mapping owner"))?
+            .clone();
+        if let Some(owner) = physical {
+            let installed = owner.inventory().installed(view.identity)?;
+            if installed.view != *view {
+                return Err(ModelError::Conflict("physical selected mapping descriptor"));
+            }
+            return use_mappings(&installed.mappings).map(Some);
+        }
+        let published = self
+            .published_completion
+            .lock()
+            .map_err(|_| ModelError::Conflict("published selected mapping owner"))?
+            .clone();
+        if let Some(owner) = published {
+            let installed = owner.inventory().installed(view.identity)?;
+            if installed.view != *view {
+                return Err(ModelError::Conflict(
+                    "published selected mapping descriptor",
+                ));
+            }
+            return use_mappings(&installed.mappings).map(Some);
+        }
+        let held = self
+            .installed_views
+            .lock()
+            .map_err(|_| ModelError::Conflict("held selected mapping owner"))?
+            .get(&view.identity)
+            .cloned();
+        if let Some(owner) = held {
+            if owner.completion().view != *view {
+                return Err(ModelError::Conflict("held selected mapping descriptor"));
+            }
+            return use_mappings(&owner.completion().mappings).map(Some);
+        }
+        let live = self
             .view_mappings
             .lock()
-            .map_err(|_| ModelError::Conflict("native exact view mapping owner"))?;
+            .map_err(|_| ModelError::Conflict("live selected mapping owner"))?;
+        live.get(&view.identity)
+            .map(|entry| use_mappings(&entry.mappings))
+            .transpose()
+    }
+    fn view_owners(&self, view: &CompletedView) -> Result<Vec<ContentHash>, ModelError> {
+        if let Some(mut owners) = self.with_selected_mappings(view, |mappings| {
+            view.contributions
+                .iter()
+                .map(|logical| {
+                    mappings
+                        .binary_search_by_key(&(view.identity, *logical), |mapping| {
+                            (mapping.view, mapping.logical)
+                        })
+                        .map(|index| mappings[index].physical)
+                        .map_err(|_| ModelError::Conflict("missing explicit selected contributor"))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })? {
+            owners.sort_unstable();
+            if owners.windows(2).any(|pair| pair[0] == pair[1]) {
+                return Err(ModelError::Conflict(
+                    "duplicate physical selected contributor",
+                ));
+            }
+            return Ok(owners);
+        }
         let local = self
             .known_contributors
             .lock()
             .map_err(|_| ModelError::Conflict("native contributor owner"))?;
         let mut owners = Vec::with_capacity(view.contributions.len());
         for logical in &view.contributions {
-            let physical = if let Some(entry) = selected.get(&view.identity) {
-                let mappings = &entry.mappings;
-                mappings
-                    .binary_search_by_key(&(view.identity, *logical), |mapping| {
-                        (mapping.view, mapping.logical)
-                    })
-                    .ok()
-                    .map(|index| mappings[index].physical)
-            } else {
-                local.get(logical).copied()
-            }
-            .ok_or(ModelError::Conflict(
+            let physical = local.get(logical).copied().ok_or(ModelError::Conflict(
                 "missing explicit selected contributor",
             ))?;
             owners.push(physical);
@@ -7722,18 +7760,23 @@ impl NativeCompilerStore {
         let mut result = Vec::new();
         // A demand at least as large as the view may reuse its compact run. Sparse
         // demand retains scalar access even if a broad run already exists.
+        let preparation_owners = self.view_owners(view)?;
+        let preparation_key = Self::membership_preparation_key(&view.relation, &preparation_owners);
         let prepared = self
             .membership_preparations
             .lock()
             .map_err(|_| ModelError::Conflict("native membership preparation"))?
-            .get(&view.identity)
+            .get(&preparation_key)
             .filter(|entry| {
                 entry.budget.shares_pool(budget)
                     && u64::try_from(keys.len()).unwrap_or(u64::MAX) >= view.rows
             })
             .map(|entry| entry.pending.clone());
         if let Some(prepared) = prepared {
-            let prepared = prepared.await.map_err(ModelError::SharedCause)?;
+            let prepared = prepared
+                .await
+                .map_err(ModelError::SharedCause)?
+                .map_err(ModelError::SharedCause)?;
             let mut cursor = AsyncOrderedCandidates::new_registered(
                 prepared,
                 budget,
@@ -7799,95 +7842,325 @@ impl NativeCompilerStore {
         view: &CompletedView,
         budget: &ResourceBudget,
     ) -> Result<PreparedCandidates, ModelError> {
-        let binding = self.producing_binding()?;
-        let identity = view.identity;
-        let installed_owner = self
+        let installed = self
             .installed_views
             .lock()
             .map_err(|_| ModelError::Conflict("prepared membership installed owner"))?
-            .get(&identity)
+            .get(&view.identity)
             .cloned();
-        let (future, retained) = {
-            let mut preparations = self
-                .membership_preparations
-                .lock()
-                .map_err(|_| ModelError::Conflict("native membership preparation"))?;
-            if preparations
-                .get(&view.identity)
-                .is_some_and(|entry| !entry.budget.shares_pool(budget))
-            {
-                // Existing borrowers retain their original immutable run and charge. A new
-                // operation cannot use another pool's retained preparation as free capacity.
-                preparations.remove(&view.identity);
-            }
-            if !preparations.contains_key(&view.identity) {
-                let retained = Arc::new(
-                    budget.reserve(
-                        "native-membership-preparation-entry",
-                        view.contributions
-                            .len()
-                            .saturating_mul(64)
-                            .saturating_add(2048),
-                    )?,
-                );
-                let store = self.clone();
-                let view = view.clone();
-                let preparation_pool = budget.clone();
-                let budget = budget.clone();
-                let lease = self.retained_scan()?;
-                let task = self.runtime.spawn(async move {
-                    let result = lease.within(producing_future(binding, async {
-                        let _charge = budget.reserve("native-membership-preparation", view.contributions.len().saturating_mul(64).saturating_add(1024))?;
-                        let owners = store.view_owners(&view)?;
-                        let mut sorted = AsyncCandidateSort::new_registered(&budget, store.blocking_owner()?, store.blocking_observer()?).await?;
-                        for window in owners.chunks(crate::loader::NATIVE_WINDOW_ROWS) {
-                            let _window = budget.reserve("native membership owner window", window.len().saturating_mul(512).saturating_add(4096))?;
-                            let mut bindings = Variables::new();
-                            bindings.insert("relation", view.relation.clone());
-                            bindings.insert("owners", window.iter().map(|owner|RecordId::new("compiler_contribution",owner.hex())).collect::<Vec<_>>());
-                            let stream = store.read_client()?.query("SELECT id,contribution,relation,semantic_key,node,content FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $owners AND relation=$relation").bind(bindings).stream_items().map_err(ModelError::codec)?;
-                            let mut rows = store.track_rows(NativeRows::new(stream, 1)?)?;
-                            rows.installed=installed_owner.clone();
-                            while let Some(row) = rows.next_native().await? {
-                                let candidate = decode_membership(row, &view.relation, window, false)?.ok_or(ModelError::Conflict("exact view membership"))?;
-                                sorted.push(candidate).await?;
-                            }
-                        }
-                        sorted.prepare().await
-                    })).await;
-                    lease.finish_with(result).map_err(Arc::new)
-                }.in_current_span().with_current_subscriber());
-                let future = async move {
-                    task.await
-                        .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))?
-                }
-                .boxed()
-                .shared();
-                preparations.insert(
-                    identity,
-                    MembershipPreparationEntry {
-                        pending: future,
-                        charge: retained,
-                        budget: preparation_pool,
-                    },
-                );
-            }
-            let entry = &preparations[&identity];
-            (entry.pending.clone(), entry.charge.clone())
-        };
-        let result = future.await.map_err(ModelError::SharedCause);
-        // A local preparation refusal belongs to this attempt, not to the immutable
-        // view. A stale waiter must not evict a newer attempt for the same view.
-        // Native failures remain sticky through the existing operation admission.
-        if result.is_err()
-            && let Ok(mut preparations) = self.membership_preparations.lock()
-            && preparations
-                .get(&identity)
-                .is_some_and(|entry| Arc::ptr_eq(&entry.charge, &retained))
-        {
-            preparations.remove(&identity);
+        let _inputs = budget.reserve(
+            "native membership root ingredient inputs",
+            view.contributions
+                .len()
+                .saturating_mul(std::mem::size_of::<ContentHash>())
+                .saturating_add(view.relation.len())
+                .saturating_add(2 * std::mem::size_of::<usize>()),
+        )?;
+        let owners = self.view_owners(view)?;
+        self.prepare_membership_owners(
+            view.relation.clone(),
+            owners,
+            installed,
+            budget.clone(),
+            Arc::new(_inputs),
+        )
+        .await
+    }
+    /// Compact ingredients are physical-owner-qualified within this operation.
+    /// The same logical suffix realized by another copy cannot reuse this key.
+    fn membership_preparation_key(relation: &str, owners: &[ContentHash]) -> ContentHash {
+        use d::Key;
+        let mut key = KeySink::new("native-membership-preparation-ingredients/v1");
+        key.part(b"relation", relation.as_bytes());
+        for owner in owners {
+            owner.encode(&mut key);
         }
-        result
+        key.finish()
+    }
+    /// Stable binary partition by the first differing contributor-identity bit.
+    /// Adding a contributor preserves every untouched subtree independently of arrival.
+    fn membership_partition(owners: &[ContentHash]) -> usize {
+        let first = owners.first().expect("nonempty membership partition");
+        let last = owners.last().expect("nonempty membership partition");
+        for byte in 0..32 {
+            let difference = first.0[byte] ^ last.0[byte];
+            if difference != 0 {
+                let mask = 1u8 << (7 - difference.leading_zeros());
+                return owners.partition_point(|owner| owner.0[byte] & mask == 0);
+            }
+        }
+        unreachable!("distinct sorted physical membership owners")
+    }
+    fn prepare_membership_owners(
+        self: &Arc<Self>,
+        relation: String,
+        owners: Vec<ContentHash>,
+        installed: Option<Arc<lctx_native::installed_view::HeldInstalledView>>,
+        budget: ResourceBudget,
+        input: Arc<Box<dyn Reservation>>,
+    ) -> BoxFuture<'static, Result<PreparedCandidates, ModelError>> {
+        let store = self.clone();
+        async move {
+            let binding = store.producing_binding()?;
+            let identity = Self::membership_preparation_key(&relation, &owners);
+            let (future, retained) = {
+                let mut preparations = store.membership_preparations.lock()
+                    .map_err(|_| ModelError::Conflict("native membership preparation"))?;
+                if let Some(entry) = preparations.get(&identity)
+                    && !entry.budget.shares_pool(&budget) {
+                    if !matches!(entry.pending.peek(), Some(Ok(Ok(_)))) {
+                        return Err(ModelError::Conflict("pending membership preparation foreign resource pool"));
+                    }
+                    // A settled run's existing borrowers keep its original charge.
+                    // An accepted flight must retain its join owner until terminality.
+                    preparations.remove(&identity);
+                }
+                if !preparations.contains_key(&identity) {
+                    let retained = Arc::new(budget.reserve("native-membership-preparation-entry", std::mem::size_of::<MembershipPreparationEntry>() + std::mem::size_of::<ContentHash>() + 256)?);
+                    let source = store.clone();
+                    let preparation_pool = budget.clone();
+                    let worker_budget = budget.clone();
+                    let lease = store.retained_scan()?;
+                    let task = store.runtime.spawn(async move {
+                        let _input = input;
+                        let result = lease.within(producing_future(binding, async {
+                            if owners.len() > 1 {
+                                let middle = Self::membership_partition(&owners);
+                                let mut _children = Arc::new(worker_budget.reserve("native membership branch children", owners.len().saturating_mul(std::mem::size_of::<ContentHash>()).saturating_add(2 * std::mem::size_of::<PreparedCandidates>()).saturating_add(2 * relation.len()).saturating_add(2 * std::mem::size_of::<usize>()))?);
+                                let left = source.prepare_membership_owners(relation.clone(), owners[..middle].to_vec(), installed.clone(), worker_budget.clone(), _children.clone());
+                                let right = source.prepare_membership_owners(relation.clone(), owners[middle..].to_vec(), installed.clone(), worker_budget.clone(), _children.clone());
+                                // Both child owners are registered before polling. A
+                                // refusal still awaits its accepted sibling's settlement.
+                                let (left, right) = futures::join!(left, right);
+                                // Both child input owners have actually joined. Release
+                                // their dead copies while retaining the result-vector allowance.
+                                Arc::get_mut(&mut _children).expect("joined child input owners")
+                                    .try_resize(2 * std::mem::size_of::<PreparedCandidates>() + 2 * std::mem::size_of::<usize>())?;
+                                let mut terminal = d::completion::Completion::default();
+                                let runs = match (left, right) {
+                                    (Ok(left), Ok(right)) => vec![left, right],
+                                    (Err(error), other) | (other, Err(error)) => {
+                                        if let Err(other) = other { terminal.step("membership sibling preparation", Err(other)); }
+                                        return d::completion::complete(Err(error), terminal);
+                                    }
+                                };
+                                return AsyncCandidateSort::union_registered(runs, &worker_budget, source.blocking_owner()?, source.blocking_observer()?, source.read_cancellation()?).await;
+                            }
+                            let mut sorted = AsyncCandidateSort::new_registered(&worker_budget, source.blocking_owner()?, source.blocking_observer()?).await?;
+                            let primary = async {
+                                if let Some(owner) = owners.first() {
+                                    let mut variables = Variables::new();
+                                    variables.insert("relation", relation.clone());
+                                    variables.insert("owners", vec![RecordId::new("compiler_contribution", owner.hex())]);
+                                    let stream = source.read_client()?.query("SELECT id,contribution,relation,semantic_key,node,content FROM compiler_membership WITH INDEX contribution_rows WHERE contribution IN $owners AND relation=$relation").bind(variables).stream_items().map_err(ModelError::codec)?;
+                                    let mut rows = source.track_rows(NativeRows::new(stream, 1)?)?;
+                                    rows.installed = installed;
+                                    let read = async {
+                                        while let Some(row) = rows.next_native().await? {
+                                            let candidate = decode_membership(row, &relation, &owners, false)?.ok_or(ModelError::Conflict("exact view membership"))?;
+                                            sorted.push(candidate).await?;
+                                        }
+                                        Ok::<_, ModelError>(())
+                                    }.await;
+                                    let mut terminal = d::completion::Completion::default();
+                                    terminal.step("membership fragment read drainage", async {
+                                        while rows.next_native().await?.is_some() {}
+                                        Ok(())
+                                    }.await);
+                                    d::completion::complete(read, terminal)?;
+                                }
+                                sorted.prepare().await
+                            }.await;
+                            let mut terminal = d::completion::Completion::default();
+                            terminal.step("membership fragment sorting drainage", sorted.drain().await);
+                            d::completion::complete(primary, terminal)
+                        })).await;
+                        lease.finish_with(result).map_err(Arc::new)
+                    }.in_current_span().with_current_subscriber());
+                    let future = async move { task.await.map_err(|error| Arc::new(ModelError::Cause(Box::new(error)))) }.boxed().shared();
+                    preparations.insert(identity, MembershipPreparationEntry { pending: future, charge: retained, budget: preparation_pool });
+                }
+                let entry = &preparations[&identity];
+                (entry.pending.clone(), entry.charge.clone())
+            };
+            let joined = future.await;
+            let outer_failed = joined.is_err();
+            let result = joined.map_err(ModelError::SharedCause).and_then(|operation| operation.map_err(ModelError::SharedCause));
+            if !outer_failed && result.is_err() && let Ok(mut preparations) = store.membership_preparations.lock()
+                && preparations.get(&identity).is_some_and(|entry| Arc::ptr_eq(&entry.charge, &retained)) {
+                preparations.remove(&identity);
+            }
+            result
+        }.boxed()
+    }
+    /// Retain exactly preparation with prospective consumers. Read cursors and
+    /// returned runs independently retain their original backing after registry release.
+    /// Accepted flights remain registered until terminality even when demand ends.
+    pub fn retain_membership_preparations<'a, 'b>(
+        &self,
+        exact_views: impl IntoIterator<Item = &'a CompletedView>,
+        future_singletons: impl IntoIterator<Item = &'a CompletedView>,
+        prospective_composition_relations: impl IntoIterator<Item = &'b str>,
+        budget: &ResourceBudget,
+    ) -> Result<(), ModelError> {
+        fn include(
+            relation: &str,
+            owners: &[ContentHash],
+            keys: &mut BTreeSet<ContentHash>,
+            charge: &mut d::charged::StateCharge,
+            branches: bool,
+        ) -> Result<(), ModelError> {
+            let key = NativeCompilerStore::membership_preparation_key(relation, owners);
+            if !keys.contains(&key) {
+                charge.grow(std::mem::size_of::<ContentHash>() + 32)?;
+                keys.insert(key);
+            }
+            if branches && owners.len() > 1 {
+                let middle = NativeCompilerStore::membership_partition(owners);
+                include(relation, &owners[..middle], keys, charge, true)?;
+                include(relation, &owners[middle..], keys, charge, true)?;
+            }
+            Ok(())
+        }
+        // This is registry ownership, not semantic/native authority. View descriptors
+        // come from the actual Workspace demand owner and resolve through this store.
+        let mut charge = d::charged::StateCharge::new(
+            budget,
+            "native membership demanded ingredient identities",
+        );
+        let mut keys = BTreeSet::new();
+        let mut prospective = BTreeSet::new();
+        for relation in prospective_composition_relations {
+            if !prospective.contains(relation) {
+                charge.grow(std::mem::size_of::<&str>() + 32)?;
+                prospective.insert(relation);
+            }
+        }
+        for view in exact_views {
+            let _inputs = budget.reserve(
+                "native membership demand inputs",
+                view.contributions
+                    .len()
+                    .saturating_mul(std::mem::size_of::<ContentHash>()),
+            )?;
+            let owners = self.view_owners(view)?;
+            include(
+                &view.relation,
+                &owners,
+                &mut keys,
+                &mut charge,
+                prospective.contains(view.relation.as_str()),
+            )?;
+        }
+        for view in future_singletons {
+            let _inputs = budget.reserve(
+                "native membership demand inputs",
+                view.contributions
+                    .len()
+                    .saturating_mul(std::mem::size_of::<ContentHash>()),
+            )?;
+            let owners = self.view_owners(view)?;
+            for owner in owners {
+                include(&view.relation, &[owner], &mut keys, &mut charge, false)?;
+            }
+        }
+        self.membership_preparations
+            .lock()
+            .map_err(|_| ModelError::Conflict("native membership preparation"))?
+            .retain(|key, entry| {
+                !matches!(entry.pending.peek(), Some(Ok(Ok(_))))
+                    || (entry.budget.shares_pool(budget) && keys.contains(key))
+            });
+        Ok(())
+    }
+    async fn drain_membership_preparations(&self) -> d::completion::Completion {
+        self.drain_membership_preparations_inner(true).await
+    }
+    async fn drain_membership_preparations_inner(
+        &self,
+        report_join_failures: bool,
+    ) -> d::completion::Completion {
+        let mut completion = d::completion::Completion::default();
+        loop {
+            let next = match self.membership_preparations.lock() {
+                Ok(preparations) => preparations.iter().next().map(|(identity, entry)| {
+                    (*identity, entry.pending.clone(), entry.charge.clone())
+                }),
+                Err(_) => {
+                    completion.local = d::completion::LocalState::Outstanding;
+                    completion.step(
+                        "membership preparation registry drainage",
+                        Err(ModelError::Conflict("native membership preparation")),
+                    );
+                    break;
+                }
+            };
+            let Some((identity, pending, token)) = next else {
+                break;
+            };
+            match pending.await {
+                Err(error) => match self.membership_join_failures.lock() {
+                    Ok(mut failures) => {
+                        // Join identity is the actual accepted owner, including when
+                        // simultaneous drain callers observe the same shared result.
+                        if !failures
+                            .iter()
+                            .any(|(_, current)| Arc::ptr_eq(current, &token))
+                        {
+                            failures.reserve_exact(1);
+                            failures.push((error, token.clone()));
+                        }
+                    }
+                    Err(_) => {
+                        completion.local = d::completion::LocalState::Outstanding;
+                        completion.step(
+                            "membership join diagnostic owner",
+                            Err(ModelError::Conflict("membership join diagnostics")),
+                        );
+                    }
+                },
+                Ok(Err(error)) => self.record_background_failure(error),
+                Ok(Ok(_)) => {}
+            }
+            match self.membership_preparations.lock() {
+                Ok(mut preparations) => {
+                    if preparations
+                        .get(&identity)
+                        .is_some_and(|entry| Arc::ptr_eq(&entry.charge, &token))
+                    {
+                        preparations.remove(&identity);
+                    }
+                }
+                Err(_) => {
+                    completion.local = d::completion::LocalState::Outstanding;
+                    completion.step(
+                        "membership preparation registry release",
+                        Err(ModelError::Conflict("native membership preparation")),
+                    );
+                    break;
+                }
+            }
+        }
+        if report_join_failures {
+            match self.membership_join_failures.lock() {
+                Ok(failures) => {
+                    for (error, _) in failures.iter() {
+                        completion.step(
+                            "membership preparation task join",
+                            Err(ModelError::SharedCause(error.clone())),
+                        );
+                    }
+                }
+                Err(_) => {
+                    completion.local = d::completion::LocalState::Outstanding;
+                    completion.step(
+                        "membership join diagnostic owner",
+                        Err(ModelError::Conflict("membership join diagnostics")),
+                    );
+                }
+            }
+        }
+        completion
     }
     async fn scan_rows_inner(
         self: &Arc<Self>,
@@ -9347,6 +9620,456 @@ mod completion_tests {
             d::serving::Name::new("local_control").unwrap(),
             d::serving::Name::new("owned_control").unwrap(),
         )
+    }
+    #[tokio::test]
+    async fn membership_demand_retires_dead_branches_but_preserves_pending_and_borrowed_runs() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let run = lctx_native::ordered_rows::SortedCandidates::new(&budget)
+            .unwrap()
+            .finish()
+            .unwrap()
+            .into_prepared();
+        let ids = [
+            ContentHash([0; 32]),
+            ContentHash([1; 32]),
+            ContentHash([128; 32]),
+            ContentHash([129; 32]),
+        ];
+        for id in ids {
+            store.known_contributors.lock().unwrap().insert(id, id);
+        }
+        let view = CompletedView::new("packages".into(), ids.into(), 0).unwrap();
+        let mut keys = Vec::new();
+        fn record(owners: &[ContentHash], keys: &mut Vec<ContentHash>) {
+            keys.push(NativeCompilerStore::membership_preparation_key(
+                "packages", owners,
+            ));
+            if owners.len() > 1 {
+                let middle = NativeCompilerStore::membership_partition(owners);
+                record(&owners[..middle], keys);
+                record(&owners[middle..], keys);
+            }
+        }
+        record(&ids, &mut keys);
+        for key in &keys {
+            let future = futures::future::ready(Ok(Ok(run.clone()))).boxed().shared();
+            future.clone().await.unwrap().unwrap();
+            store.membership_preparations.lock().unwrap().insert(
+                *key,
+                MembershipPreparationEntry {
+                    pending: future,
+                    charge: Arc::new(budget.reserve("test demanded entry", 256).unwrap()),
+                    budget: budget.clone(),
+                },
+            );
+        }
+        store
+            .retain_membership_preparations([&view], [], ["packages"], &budget)
+            .unwrap();
+        assert_eq!(store.membership_preparations.lock().unwrap().len(), 7);
+        let leaf = CompletedView::new("packages".into(), [ids[0]].into(), 0).unwrap();
+        let borrowed_future = store.membership_preparations.lock().unwrap()[&keys[1]]
+            .pending
+            .clone();
+        let borrowed = borrowed_future.await.unwrap().unwrap();
+        let pending_key = ContentHash::of(b"pending preparation owner");
+        let (deliver, receive) = tokio::sync::oneshot::channel();
+        let pending = async move { receive.await.unwrap() }.boxed().shared();
+        store.membership_preparations.lock().unwrap().insert(
+            pending_key,
+            MembershipPreparationEntry {
+                pending: pending.clone(),
+                charge: Arc::new(budget.reserve("test accepted flight", 256).unwrap()),
+                budget: budget.clone(),
+            },
+        );
+        store
+            .retain_membership_preparations([&view], [&leaf], [], &budget)
+            .unwrap();
+        assert_eq!(
+            store.membership_preparations.lock().unwrap().len(),
+            3,
+            "root, future input leaf and accepted pending flight remain"
+        );
+        assert_eq!(
+            borrowed.rows(),
+            0,
+            "borrower remains usable after its branch registry entry is gone"
+        );
+        assert!(deliver.send(Ok(Ok(run.clone()))).is_ok());
+        pending.await.unwrap().unwrap();
+        store
+            .retain_membership_preparations([], [], [], &budget)
+            .unwrap();
+        assert!(store.membership_preparations.lock().unwrap().is_empty());
+        drop(borrowed);
+        drop(run);
+        assert_eq!(budget.reserved(), 0);
+        assert_ne!(
+            NativeCompilerStore::membership_preparation_key("packages", &[ids[0]]),
+            NativeCompilerStore::membership_preparation_key("packages", &[ids[1]]),
+            "different physical copies never share an ingredient key"
+        );
+    }
+    #[tokio::test]
+    async fn membership_final_drain_is_retryable_and_does_not_relabel_acknowledged_refusal() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let (deliver, receive) = tokio::sync::oneshot::channel();
+        let future = async move { receive.await.unwrap() }.boxed().shared();
+        store.membership_preparations.lock().unwrap().insert(
+            ContentHash::of(b"accepted pending"),
+            MembershipPreparationEntry {
+                pending: future,
+                charge: Arc::new(budget.reserve("test pending", 256).unwrap()),
+                budget: budget.clone(),
+            },
+        );
+        let mut draining = Box::pin(store.drain_membership_preparations());
+        assert!(futures::poll!(&mut draining).is_pending());
+        drop(draining);
+        assert_eq!(store.membership_preparations.lock().unwrap().len(), 1);
+        assert!(
+            deliver
+                .send(Ok(Err(Arc::new(ModelError::Resource {
+                    owner: "test preparation",
+                    requested: 1,
+                    used: 1,
+                    limit: 1
+                }))))
+                .is_ok()
+        );
+        let terminal = store.drain_membership_preparations().await;
+        assert!(terminal.failures.is_empty());
+        assert_eq!(terminal.local, d::completion::LocalState::Terminal);
+        assert!(store.membership_preparations.lock().unwrap().is_empty());
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn view_final_drain_is_retryable_and_foreign_pool_keeps_original_join_owner() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let foreign = ResourceBudget::fixed(1 << 20).unwrap();
+        let view = CompletedView::new(
+            "packages".into(),
+            [ContentHash::of(b"view producer")].into(),
+            0,
+        )
+        .unwrap();
+        let (deliver, receive) = tokio::sync::oneshot::channel();
+        let pending = async move { Ok(receive.await.unwrap()) }.boxed().shared();
+        store.view_preparations.lock().unwrap().insert(
+            view.identity,
+            ViewPreparation {
+                pending,
+                token: Arc::new(budget.reserve("test view accepted flight", 256).unwrap()),
+                budget: budget.clone(),
+            },
+        );
+        assert!(matches!(
+            store.installed_view_inner(&view, &foreign).await,
+            Err(ModelError::Conflict(
+                "internal selection foreign resource owner"
+            ))
+        ));
+        let mut draining = Box::pin(store.drain_view_preparations());
+        assert!(futures::poll!(&mut draining).is_pending());
+        drop(draining);
+        assert!(
+            store
+                .view_preparations
+                .lock()
+                .unwrap()
+                .contains_key(&view.identity)
+        );
+        assert!(
+            deliver
+                .send(Err(Arc::new(ModelError::Resource {
+                    owner: "test acknowledged view refusal",
+                    requested: 1,
+                    used: 1,
+                    limit: 1
+                })))
+                .is_ok()
+        );
+        let terminal = store.drain_view_preparations().await;
+        assert!(terminal.failures.is_empty());
+        assert_eq!(terminal.local, d::completion::LocalState::Terminal);
+        assert!(store.view_preparations.lock().unwrap().is_empty());
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn view_actual_join_failure_is_sticky_but_acknowledged_join_error_is_not_outer_finality()
+    {
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let acknowledged_store = local_store();
+        let inner = tokio::spawn(async { panic!("acknowledged inner task control") })
+            .await
+            .unwrap_err();
+        let acknowledged = async move { Ok(Err(Arc::new(ModelError::Cause(Box::new(inner))))) }
+            .boxed()
+            .shared();
+        acknowledged_store.view_preparations.lock().unwrap().insert(
+            ContentHash::of(b"acknowledged view inner join"),
+            ViewPreparation {
+                pending: acknowledged,
+                token: Arc::new(budget.reserve("test acknowledged view entry", 256).unwrap()),
+                budget: budget.clone(),
+            },
+        );
+        assert!(
+            acknowledged_store
+                .drain_view_preparations()
+                .await
+                .failures
+                .is_empty()
+        );
+        assert_eq!(budget.reserved(), 0);
+        let store = local_store();
+        let task: tokio::task::JoinHandle<ViewPreparationResult> = tokio::spawn(async {
+            tokio::task::yield_now().await;
+            panic!("actual view owner task control")
+        });
+        let pending = async move {
+            task.await
+                .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))
+        }
+        .boxed()
+        .shared();
+        store.view_preparations.lock().unwrap().insert(
+            ContentHash::of(b"actual view task join"),
+            ViewPreparation {
+                pending,
+                token: Arc::new(budget.reserve("test actual view entry", 256).unwrap()),
+                budget: budget.clone(),
+            },
+        );
+        let first = store.drain_view_preparations().await;
+        let second = store.drain_view_preparations().await;
+        assert_eq!(first.failures.len(), 1);
+        assert_eq!(second.failures.len(), 1);
+        assert!(store.view_preparations.lock().unwrap().is_empty());
+        assert_eq!(
+            budget.reserved(),
+            256,
+            "actual join diagnostic retains its original entry allowance"
+        );
+    }
+    #[tokio::test]
+    async fn foreign_pending_membership_preparation_keeps_original_join_owner() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let foreign = ResourceBudget::fixed(1 << 20).unwrap();
+        let owner = ContentHash::of(b"actual physical ingredient owner");
+        let key = NativeCompilerStore::membership_preparation_key("packages", &[owner]);
+        let run = lctx_native::ordered_rows::SortedCandidates::new(&budget)
+            .unwrap()
+            .finish()
+            .unwrap()
+            .into_prepared();
+        let (deliver, receive) = tokio::sync::oneshot::channel();
+        let pending = async move { receive.await.unwrap() }.boxed().shared();
+        store.membership_preparations.lock().unwrap().insert(
+            key,
+            MembershipPreparationEntry {
+                pending,
+                charge: Arc::new(budget.reserve("test original pending entry", 256).unwrap()),
+                budget: budget.clone(),
+            },
+        );
+        assert!(matches!(
+            store
+                .prepare_membership_owners(
+                    "packages".into(),
+                    vec![owner],
+                    None,
+                    foreign.clone(),
+                    Arc::new(
+                        foreign
+                            .reserve("test foreign preparation input", 64)
+                            .unwrap()
+                    )
+                )
+                .await,
+            Err(ModelError::Conflict(
+                "pending membership preparation foreign resource pool"
+            ))
+        ));
+        assert!(
+            store
+                .membership_preparations
+                .lock()
+                .unwrap()
+                .contains_key(&key)
+        );
+        let mut drainage = Box::pin(store.drain_membership_preparations());
+        assert!(
+            futures::poll!(&mut drainage).is_pending(),
+            "foreign request cannot detach the accepted original flight"
+        );
+        assert!(deliver.send(Ok(Ok(run.clone()))).is_ok());
+        assert!(drainage.await.failures.is_empty());
+        assert!(store.membership_preparations.lock().unwrap().is_empty());
+        drop(run);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn membership_inner_join_error_is_operation_diagnostic_not_owner_join_failure() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let settled: tokio::task::JoinHandle<()> =
+            tokio::spawn(async { panic!("already observed inner operation join") });
+        let error = Arc::new(ModelError::Cause(Box::new(settled.await.unwrap_err())));
+        let pending = futures::future::ready(Ok(Err(error))).boxed().shared();
+        store.membership_preparations.lock().unwrap().insert(
+            ContentHash::of(b"acknowledged operation join diagnostic"),
+            MembershipPreparationEntry {
+                pending,
+                charge: Arc::new(
+                    budget
+                        .reserve("test acknowledged inner error", 256)
+                        .unwrap(),
+                ),
+                budget: budget.clone(),
+            },
+        );
+        let terminal = store.drain_membership_preparations().await;
+        assert!(
+            terminal.failures.is_empty(),
+            "operation error type cannot determine outer task finality"
+        );
+        let mut caller = d::completion::Completion::default();
+        store.append_operation_failures(&mut caller);
+        assert_eq!(
+            caller.failures.len(),
+            1,
+            "unconsumed operation diagnostics remain sticky"
+        );
+        assert!(store.membership_join_failures.lock().unwrap().is_empty());
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn late_preparation_descendants_are_joined_after_parent_quiescence() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let parent = store
+            .admit(false, "late preparation parent", false)
+            .unwrap();
+        let mut draining = Box::pin(store.drain_finality());
+        assert!(matches!(
+            futures::poll!(draining.as_mut()),
+            std::task::Poll::Pending
+        ));
+        // The first registry pass observed no preparation. The already admitted
+        // parent may still create a real descendant behind that pass.
+        parent
+            .within(async {
+                let child = store
+                    .admit(false, "late view preparation child", false)
+                    .unwrap();
+                let task: tokio::task::JoinHandle<
+                    Result<Arc<lctx_native::installed_view::HeldInstalledView>, Arc<ModelError>>,
+                > = tokio::spawn(async move {
+                    child.finish_with(Ok(())).unwrap();
+                    panic!("late view outer join control");
+                });
+                let pending = async move {
+                    task.await
+                        .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))
+                }
+                .boxed()
+                .shared();
+                store.view_preparations.lock().unwrap().insert(
+                    ContentHash::of(b"late view"),
+                    ViewPreparation {
+                        pending,
+                        token: Arc::new(budget.reserve("late view entry", 256).unwrap()),
+                        budget: budget.clone(),
+                    },
+                );
+                let child = store
+                    .admit(false, "late membership preparation child", false)
+                    .unwrap();
+                let task: tokio::task::JoinHandle<MembershipPreparationResult> =
+                    tokio::spawn(async move {
+                        child.finish_with(Ok(())).unwrap();
+                        panic!("late membership outer join control");
+                    });
+                let pending = async move {
+                    task.await
+                        .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))
+                }
+                .boxed()
+                .shared();
+                store.membership_preparations.lock().unwrap().insert(
+                    ContentHash::of(b"late membership"),
+                    MembershipPreparationEntry {
+                        pending,
+                        charge: Arc::new(budget.reserve("late membership entry", 256).unwrap()),
+                        budget: budget.clone(),
+                    },
+                );
+            })
+            .await;
+        parent.finish_with(Ok(())).unwrap();
+        let finality = draining.await;
+        assert_eq!(finality.local, d::completion::LocalState::Terminal);
+        assert_eq!(finality.remote, d::completion::RemoteState::Confirmed);
+        assert_eq!(
+            finality.failures.len(),
+            2,
+            "both actual outer joins survive late registration"
+        );
+        assert!(store.view_preparations.lock().unwrap().is_empty());
+        assert!(store.membership_preparations.lock().unwrap().is_empty());
+        let again = store.drain_finality().await;
+        assert_eq!(
+            again.failures.len(),
+            2,
+            "each accepted owner is reported once per drain"
+        );
+        drop(store);
+        assert_eq!(budget.reserved(), 0);
+    }
+    #[tokio::test]
+    async fn membership_actual_join_failure_remains_visible_on_repeated_drain() {
+        let store = local_store();
+        let budget = ResourceBudget::fixed(1 << 20).unwrap();
+        let task: tokio::task::JoinHandle<Result<PreparedCandidates, Arc<ModelError>>> =
+            tokio::spawn(async {
+                std::future::ready(()).await;
+                panic!("owned preparation join control")
+            });
+        let pending = async move {
+            task.await
+                .map_err(|error| Arc::new(ModelError::Cause(Box::new(error))))
+        }
+        .boxed()
+        .shared();
+        store.membership_preparations.lock().unwrap().insert(
+            ContentHash::of(b"panicked preparation"),
+            MembershipPreparationEntry {
+                pending,
+                charge: Arc::new(budget.reserve("test panicked entry", 256).unwrap()),
+                budget: budget.clone(),
+            },
+        );
+        let (first, concurrent) = futures::join!(
+            store.drain_membership_preparations(),
+            store.drain_membership_preparations()
+        );
+        let second = store.drain_membership_preparations().await;
+        assert_eq!(concurrent.failures.len(), 1);
+        assert_eq!(first.failures.len(), 1);
+        assert_eq!(second.failures.len(), 1);
+        assert!(store.membership_preparations.lock().unwrap().is_empty());
+        assert!(
+            budget.reserved() > 0,
+            "original diagnostic retains its actual owner allowance"
+        );
+        drop(store);
+        assert_eq!(budget.reserved(), 0);
     }
     #[tokio::test(flavor = "multi_thread")]
     async fn retained_same_root_compares_alias_eligibility_and_keeps_receiver_copy() {

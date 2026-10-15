@@ -28,35 +28,64 @@ async fn run_fixture(
         eprintln!("B4_NATIVE {native:?}; B4_REFUSED {refused:?}");
     }
     let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_expression_evaluations) AS fixture_column_0,(SELECT count(*) FROM base_evaluation_boundaries) AS fixture_column_1,(SELECT count(*) FROM base_evaluation_runs) AS fixture_column_2").await;
-    assert!(counts.2 > 0, "{case}/{profile:?}: declared execution runs are present");
+    assert!(
+        counts.2 > 0,
+        "{case}/{profile:?}: declared execution runs are present"
+    );
     let statuses: Vec<i16> = catalog_runtime::query(
         &fixture,
         "SELECT status FROM base_evaluation_analysis_outcomes",
     )
     .await;
-    assert!(!statuses.is_empty(), "{case}/{profile:?}: analysis outcome population is present");
+    assert!(
+        !statuses.is_empty(),
+        "{case}/{profile:?}: analysis outcome population is present"
+    );
     if profile == Profile::Behavioral {
-        assert!(counts.0 > 0 && counts.1 > 0, "{case}/{profile:?}: exact observations and explicit boundaries are present");
-        assert!(statuses.iter().all(|s| *s == 1), "{case}/{profile:?}: Behavioral outcomes remain partial");
+        assert!(
+            counts.0 > 0 && counts.1 > 0,
+            "{case}/{profile:?}: exact observations and explicit boundaries are present"
+        );
+        assert!(
+            statuses.iter().all(|s| *s == 1),
+            "{case}/{profile:?}: Behavioral outcomes remain partial"
+        );
         let entries: i64 = catalog_runtime::one(
             &fixture,
             "SELECT count(*) FROM base_evaluation_sources WHERE kind=1",
         )
         .await;
         if case != "exact_exception_shapes" {
-            assert!(entries > 0, "{case}/{profile:?}: base evaluation retains exact entry sources");
+            assert!(
+                entries > 0,
+                "{case}/{profile:?}: base evaluation retains exact entry sources"
+            );
         }
     } else {
-        assert_eq!((counts.0, counts.1), (0, 0), "{case}/{profile:?}: Catalog has no semantic observations or boundaries");
-        assert!(statuses.iter().all(|s| *s == 3), "{case}/{profile:?}: Catalog outcomes are explicitly not requested");
+        assert_eq!(
+            (counts.0, counts.1),
+            (0, 0),
+            "{case}/{profile:?}: Catalog has no semantic observations or boundaries"
+        );
+        assert!(
+            statuses.iter().all(|s| *s == 3),
+            "{case}/{profile:?}: Catalog outcomes are explicitly not requested"
+        );
     }
     let read_counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_read_observations) AS fixture_column_0,(SELECT count(*) FROM base_formal_read_assessments) AS fixture_column_1,(SELECT count(*) FROM base_attribute_reads) AS fixture_column_2").await;
     if profile == Profile::Behavioral {
         if case != "exact_exception_shapes" {
-            assert!(read_counts.0 > 0 && read_counts.1 > 0 && read_counts.2 > 0, "{case}/{profile:?}: read observations, formal assessments and attribute reads are present");
+            assert!(
+                read_counts.0 > 0 && read_counts.1 > 0 && read_counts.2 > 0,
+                "{case}/{profile:?}: read observations, formal assessments and attribute reads are present"
+            );
         }
     } else {
-        assert_eq!(read_counts, (0, 0, 0), "{case}/{profile:?}: Catalog has no read-channel semantics");
+        assert_eq!(
+            read_counts,
+            (0, 0, 0),
+            "{case}/{profile:?}: Catalog has no read-channel semantics"
+        );
     }
     if case == "transfer_alternatives" && profile == Profile::Behavioral {
         let native_negative: i64 = catalog_runtime::one(
@@ -64,7 +93,10 @@ async fn run_fixture(
             "SELECT count(*) FROM base_formal_read_assessments WHERE status=1",
         )
         .await;
-        assert!(native_negative > 0, "{case}/{profile:?}: native negative formal-read assessments survive");
+        assert!(
+            native_negative > 0,
+            "{case}/{profile:?}: native negative formal-read assessments survive"
+        );
         let dynamic:(i64,i64)=catalog_runtime::one(&fixture, "SELECT count(*),count(*) FILTER (WHERE inspection=0) FROM base_dynamic_access_observations").await;
         eprintln!("B3_DYNAMIC {dynamic:?}");
         for relation in [
@@ -76,19 +108,32 @@ async fn run_fixture(
             let attribution:Vec<(i16,i16,i16,i64)>=catalog_runtime::query(&fixture, format!("SELECT origin,mode,fidelity,count(*) FROM {relation} GROUP BY 1,2,3 ORDER BY 1,2,3")).await;
             eprintln!("B3_INSPECTION_SUPPORT {relation} {attribution:?}");
         }
-        assert!(dynamic.0 > 0 && dynamic.1 > 0, "{case}/{profile:?}: dynamic access retains inspected observations");
+        assert!(
+            dynamic.0 > 0 && dynamic.1 > 0,
+            "{case}/{profile:?}: dynamic access retains inspected observations"
+        );
     }
     if case == "field_read_screen" {
         let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_field_read_assessments WHERE status=1) AS fixture_column_0,(SELECT count(*) FROM base_field_read_assessments WHERE status=0) AS fixture_column_1,(SELECT count(*) FROM base_global_field_read_assessments WHERE status=1) AS fixture_column_2").await;
         if profile == Profile::Behavioral {
-            assert!(counts.0 >= 2 && counts.1 > 0 && counts.2 >= 2, "{case}/{profile:?}: field screen retains positive and negative inventories");
+            assert!(
+                counts.0 >= 2 && counts.1 > 0 && counts.2 >= 2,
+                "{case}/{profile:?}: field screen retains positive and negative inventories"
+            );
         } else {
-            assert_eq!(counts, (0, 0, 0), "{case}/{profile:?}: Catalog has no selected semantic rows");
+            assert_eq!(
+                counts,
+                (0, 0, 0),
+                "{case}/{profile:?}: Catalog has no selected semantic rows"
+            );
         }
     }
     if completion {
         let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_statement_completions) AS fixture_column_0,(SELECT count(*) FROM base_completion_boundaries) AS fixture_column_1,(SELECT count(*) FROM base_completion_runs) AS fixture_column_2").await;
-        assert!(counts.2 > 0, "{case}/{profile:?}: declared execution runs are present");
+        assert!(
+            counts.2 > 0,
+            "{case}/{profile:?}: declared execution runs are present"
+        );
         let statuses: Vec<i16> = catalog_runtime::query(
             &fixture,
             "SELECT status FROM base_completion_analysis_outcomes",
@@ -97,28 +142,50 @@ async fn run_fixture(
         if profile == Profile::Behavioral {
             let body_counts:(i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM base_source_body_completions) AS fixture_column_0,(SELECT count(*) FROM base_source_body_boundaries) AS fixture_column_1").await;
             if case != "exact_exception_shapes" {
-                assert!(body_counts.0 > 0 && body_counts.1 > 0, "{case}/{profile:?}: source body completion retains outcomes and boundaries");
+                assert!(
+                    body_counts.0 > 0 && body_counts.1 > 0,
+                    "{case}/{profile:?}: source body completion retains outcomes and boundaries"
+                );
             }
             if case != "exact_exception_shapes" {
-                assert!(counts.0 > 0 && counts.1 > 0, "{case}/{profile:?}: exact observations and explicit boundaries are present");
+                assert!(
+                    counts.0 > 0 && counts.1 > 0,
+                    "{case}/{profile:?}: exact observations and explicit boundaries are present"
+                );
             }
-            assert!(statuses.iter().all(|s| *s == 1), "{case}/{profile:?}: Behavioral outcomes remain partial");
+            assert!(
+                statuses.iter().all(|s| *s == 1),
+                "{case}/{profile:?}: Behavioral outcomes remain partial"
+            );
             let sources: i64 = catalog_runtime::one(
                 &fixture,
                 "SELECT count(*) FROM base_completion_sources WHERE kind=1",
             )
             .await;
-            assert!(sources > 0, "{case}/{profile:?}: completion retains exact base sources");
+            assert!(
+                sources > 0,
+                "{case}/{profile:?}: completion retains exact base sources"
+            );
         } else {
-            assert_eq!((counts.0, counts.1), (0, 0), "{case}/{profile:?}: Catalog has no semantic observations or boundaries");
-            assert!(statuses.iter().all(|s| *s == 3), "{case}/{profile:?}: Catalog outcomes are explicitly not requested");
+            assert_eq!(
+                (counts.0, counts.1),
+                (0, 0),
+                "{case}/{profile:?}: Catalog has no semantic observations or boundaries"
+            );
+            assert!(
+                statuses.iter().all(|s| *s == 3),
+                "{case}/{profile:?}: Catalog outcomes are explicitly not requested"
+            );
         }
     }
     if source_calls {
         let statuses: Vec<i16> =
             catalog_runtime::query(&fixture, "SELECT status FROM source_call_analysis_outcomes")
                 .await;
-        assert!(!statuses.is_empty(), "{case}/{profile:?}: analysis outcome population is present");
+        assert!(
+            !statuses.is_empty(),
+            "{case}/{profile:?}: analysis outcome population is present"
+        );
         assert!(
             statuses
                 .iter()
@@ -126,19 +193,32 @@ async fn run_fixture(
             "{case}/{profile:?}: source/enriched outcomes retain their profile disposition"
         );
         let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM source_call_headers) AS fixture_column_0,(SELECT count(*) FROM source_call_boundaries) AS fixture_column_1,(SELECT count(*) FROM source_call_runs) AS fixture_column_2").await;
-        assert!(counts.2 > 0, "{case}/{profile:?}: declared execution runs are present");
+        assert!(
+            counts.2 > 0,
+            "{case}/{profile:?}: declared execution runs are present"
+        );
         if profile == Profile::Behavioral {
             if case != "exact_exception_shapes" {
-                assert!(counts.0 > 0 && counts.1 > 0, "{case}/{profile:?}: exact observations and explicit boundaries are present");
+                assert!(
+                    counts.0 > 0 && counts.1 > 0,
+                    "{case}/{profile:?}: exact observations and explicit boundaries are present"
+                );
             }
             let invoked: i64 =
                 catalog_runtime::one(&fixture, "SELECT count(*) FROM source_call_invocations")
                     .await;
             if case != "exact_exception_shapes" {
-                assert!(invoked > 0, "{case}/{profile:?}: source calls retain replayed invocations");
+                assert!(
+                    invoked > 0,
+                    "{case}/{profile:?}: source calls retain replayed invocations"
+                );
             }
         } else {
-            assert_eq!((counts.0, counts.1), (0, 0), "{case}/{profile:?}: Catalog has no semantic observations or boundaries");
+            assert_eq!(
+                (counts.0, counts.1),
+                (0, 0),
+                "{case}/{profile:?}: Catalog has no semantic observations or boundaries"
+            );
         }
     }
     if enriched {
@@ -147,7 +227,10 @@ async fn run_fixture(
             "SELECT status FROM enriched_execution_analysis_outcomes",
         )
         .await;
-        assert!(!statuses.is_empty(), "{case}/{profile:?}: analysis outcome population is present");
+        assert!(
+            !statuses.is_empty(),
+            "{case}/{profile:?}: analysis outcome population is present"
+        );
         assert!(
             statuses
                 .iter()
@@ -155,48 +238,82 @@ async fn run_fixture(
             "{case}/{profile:?}: source/enriched outcomes retain their profile disposition"
         );
         let counts:(i64,i64,i64)=catalog_runtime::one(&fixture, "SELECT (SELECT count(*) FROM statement_executions) AS fixture_column_0,(SELECT count(*) FROM execution_sources WHERE kind=2) AS fixture_column_1,(SELECT count(*) FROM execution_runs) AS fixture_column_2").await;
-        assert!(counts.2 > 0, "{case}/{profile:?}: declared execution runs are present");
+        assert!(
+            counts.2 > 0,
+            "{case}/{profile:?}: declared execution runs are present"
+        );
         if profile == Profile::Behavioral {
             if case != "exact_exception_shapes" {
-                assert!(counts.0 > 0 && counts.1 > 0, "{case}/{profile:?}: exact observations and explicit boundaries are present");
+                assert!(
+                    counts.0 > 0 && counts.1 > 0,
+                    "{case}/{profile:?}: exact observations and explicit boundaries are present"
+                );
             }
             if case != "exact_exception_shapes" {
                 let modeled: i64 =
                     catalog_runtime::one(&fixture, "SELECT count(*) FROM modeled_call_evaluations")
                         .await;
-                assert!(modeled > 0, "{case}/{profile:?}: enrichment retains modeled call evaluation");
+                assert!(
+                    modeled > 0,
+                    "{case}/{profile:?}: enrichment retains modeled call evaluation"
+                );
                 let fresh: i64 = catalog_runtime::one(
                     &fixture,
                     "SELECT count(*) FROM source_execution_invocations",
                 )
                 .await;
-                assert!(fresh > 0, "{case}/{profile:?}: enrichment retains fresh source execution invocations");
+                assert!(
+                    fresh > 0,
+                    "{case}/{profile:?}: enrichment retains fresh source execution invocations"
+                );
                 let args: i64 =
                     catalog_runtime::one(&fixture, "SELECT count(*) FROM source_frame_arguments")
                         .await;
-                assert!(args > 0, "{case}/{profile:?}: enrichment retains source frame arguments");
+                assert!(
+                    args > 0,
+                    "{case}/{profile:?}: enrichment retains source frame arguments"
+                );
                 let defaults: i64 =
                     catalog_runtime::one(&fixture, "SELECT count(*) FROM definition_evaluations")
                         .await;
-                assert!(defaults > 0, "{case}/{profile:?}: enrichment retains default definition evaluation");
+                assert!(
+                    defaults > 0,
+                    "{case}/{profile:?}: enrichment retains default definition evaluation"
+                );
                 let contexts: i64 =
                     catalog_runtime::one(&fixture, "SELECT count(*) FROM context_executions").await;
-                assert!(contexts > 0, "{case}/{profile:?}: enrichment retains context execution");
+                assert!(
+                    contexts > 0,
+                    "{case}/{profile:?}: enrichment retains context execution"
+                );
                 let suppressed: i64 = catalog_runtime::one(
                     &fixture,
                     "SELECT count(*) FROM context_execution_items WHERE suppressed",
                 )
                 .await;
-                assert!(suppressed > 0, "{case}/{profile:?}: context execution records suppression");
+                assert!(
+                    suppressed > 0,
+                    "{case}/{profile:?}: context execution records suppression"
+                );
                 let bindings: i64 =
                     catalog_runtime::one(&fixture, "SELECT count(*) FROM context_entry_bindings")
                         .await;
-                assert!(bindings > 0, "{case}/{profile:?}: context execution retains entry bindings");
+                assert!(
+                    bindings > 0,
+                    "{case}/{profile:?}: context execution retains entry bindings"
+                );
                 let retained_bindings:i64=catalog_runtime::one(&fixture, "SELECT count(*) FROM context_entry_bindings WHERE release=1 AND entry_actual IS NOT NULL").await;
-                assert!(retained_bindings > 0, "{case}/{profile:?}: retained release bindings keep actual entries");
+                assert!(
+                    retained_bindings > 0,
+                    "{case}/{profile:?}: retained release bindings keep actual entries"
+                );
             }
         } else {
-            assert_eq!((counts.0, counts.1), (0, 0), "{case}/{profile:?}: Catalog has no semantic observations or boundaries");
+            assert_eq!(
+                (counts.0, counts.1),
+                (0, 0),
+                "{case}/{profile:?}: Catalog has no semantic observations or boundaries"
+            );
         }
     }
     if case == "execution_channels" && profile == Profile::Behavioral && enriched {
@@ -280,18 +397,37 @@ async fn run_fixture(
         let lookup = source.find("except lookup():").unwrap() as i64 + 7;
         let lookup_end = lookup + 8;
         let lookup_refused: i64 = catalog_runtime::one(&fixture, format!("SELECT count(*) FROM source_call_boundaries b JOIN normalized_call_events e ON e.id=b.event JOIN occurrences o ON o.id=e.site WHERE o.start={lookup} AND o.end={lookup_end} AND b.reason=48")).await;
-        assert_eq!(lookup_refused, 1, "{case}/{profile:?}: conditional except lookup retains its located refusal");
+        assert_eq!(
+            lookup_refused, 1,
+            "{case}/{profile:?}: conditional except lookup retains its located refusal"
+        );
     }
 }
 #[tokio::test]
 async fn behavioral_execution_channels_preserve_evaluation_completion_calls_and_enrichment() {
     // One exact fixture/provider/profile/settings compilation owns all related observations.
-    run_fixture(Profile::Behavioral, true, true, true, "execution_channels", "cases.py").await;
+    run_fixture(
+        Profile::Behavioral,
+        true,
+        true,
+        true,
+        "execution_channels",
+        "cases.py",
+    )
+    .await;
 }
 #[tokio::test]
 async fn catalog_execution_channels_are_explicitly_not_requested() {
     // Catalog is a distinct semantic input and must retain its own compilation.
-    run_fixture(Profile::Catalog, true, true, true, "execution_channels", "cases.py").await;
+    run_fixture(
+        Profile::Catalog,
+        true,
+        true,
+        true,
+        "execution_channels",
+        "cases.py",
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -356,4 +492,3 @@ async fn exact_exception_handlers_preserve_order_and_runtime_completion() {
     )
     .await;
 }
-

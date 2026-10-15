@@ -1,12 +1,11 @@
 //! Final E0: completed canonical catalog/S0 text, one nominal owner and immutable vector uses.
-use lctx_model::domain::embedding::Embedder;
 use crate::{
-    embedding_realization,
-    retrieval_preparation,
+    embedding_realization, retrieval_preparation,
     workspace::{CompletedInputs, ProducerOutput, Workspace},
 };
 use datafusion::execution::context::SessionContext;
 use futures::{FutureExt, TryStreamExt};
+use lctx_model::domain::embedding::Embedder;
 use lctx_model::domain::{
     analysis::{self, retrieval::*},
     embedding::analytic::VectorAvailability,
@@ -48,19 +47,34 @@ struct PendingUses<T> {
 }
 impl<T> PendingUses<T> {
     fn new(budget: &resources::ResourceBudget) -> Self {
-        Self { values: Default::default(), capacity: charged::StateCharge::new(budget, "retrieval-pending-use-capacity") }
+        Self {
+            values: Default::default(),
+            capacity: charged::StateCharge::new(budget, "retrieval-pending-use-capacity"),
+        }
     }
-    fn is_empty(&self) -> bool { self.values.is_empty() }
-    fn front(&self) -> Option<&T> { self.values.front() }
-    fn pop_front(&mut self) -> Option<T> { self.values.pop_front() }
+    fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+    fn front(&self) -> Option<&T> {
+        self.values.front()
+    }
+    fn pop_front(&mut self) -> Option<T> {
+        self.values.pop_front()
+    }
     fn push_back(&mut self, value: T) -> Result<(), ModelError> {
         if self.values.len() == self.values.capacity() {
-            let target = self.values.capacity().max(2).checked_mul(2)
+            let target = self
+                .values
+                .capacity()
+                .max(2)
+                .checked_mul(2)
                 .ok_or_else(|| build::invalid("retrieval pending use capacity overflow"))?;
             // Include allocation rounding and the temporary old/new buffers during growth.
-            let allowance = target.checked_mul(2 * size_of::<T>())
+            let allowance = target
+                .checked_mul(2 * size_of::<T>())
                 .ok_or_else(|| build::invalid("retrieval pending use allowance overflow"))?;
-            self.capacity.grow(allowance.saturating_sub(self.capacity.reserved()))?;
+            self.capacity
+                .grow(allowance.saturating_sub(self.capacity.reserved()))?;
             self.values.reserve_exact(target - self.values.len());
         }
         self.values.push_back(value);
@@ -75,20 +89,31 @@ async fn publish_ready(
 ) -> Result<(), ModelError> {
     while let Some(expected) = pending.front() {
         let row = match expected.availability() {
-            retrieval::WindowAvailability::TokenizerUnavailable => return Err(build::invalid(
-                "requested retrieval window lacks exact local tokenizer admission")),
-            retrieval::WindowAvailability::LexicalOnly => expected.refused(
-                VectorAvailability::TokenLimit, expected.tokens())?,
+            retrieval::WindowAvailability::TokenizerUnavailable => {
+                return Err(build::invalid(
+                    "requested retrieval window lacks exact local tokenizer admission",
+                ));
+            }
+            retrieval::WindowAvailability::LexicalOnly => {
+                expected.refused(VectorAvailability::TokenLimit, expected.tokens())?
+            }
             retrieval::WindowAvailability::Ready => {
-                if !service.resolved(expected.input()) { break; }
+                if !service.resolved(expected.input()) {
+                    break;
+                }
                 match service.publish_input(expected.input(), publication).await {
                     Ok(published) => {
                         service.verify_published(&published)?;
                         expected.published(&published)?
                     }
-                    Err(embedding_realization::Error::TokenLimit { tokens, .. }) => expected.refused(
-                        VectorAvailability::TokenLimit, Some(i64::try_from(tokens).map_err(ModelError::codec)?))?,
-                    Err(error) if error.unavailable() => expected.refused(VectorAvailability::ServiceUnavailable, None)?,
+                    Err(embedding_realization::Error::TokenLimit { tokens, .. }) => expected
+                        .refused(
+                            VectorAvailability::TokenLimit,
+                            Some(i64::try_from(tokens).map_err(ModelError::codec)?),
+                        )?,
+                    Err(error) if error.unavailable() => {
+                        expected.refused(VectorAvailability::ServiceUnavailable, None)?
+                    }
                     Err(error) => return Err(ModelError::codec(error)),
                 }
             }
@@ -309,39 +334,87 @@ pub async fn produce(
                         .await?;
                     let mut pending = PendingUses::new(b);
                     for partition in 0..keys.len() {
-                        let rendered = window.render(&access, partition, b, &runtime.cancellation(), runtime, &output).await;
+                        let rendered = window
+                            .render(
+                                &access,
+                                partition,
+                                b,
+                                &runtime.cancellation(),
+                                runtime,
+                                &output,
+                            )
+                            .await;
                         let (render, mandatory) = match rendered {
-                            Err(ModelError::Resource { .. }) if !pending.is_empty() && service.is_some() => {
+                            Err(ModelError::Resource { .. })
+                                if !pending.is_empty() && service.is_some() =>
+                            {
                                 let service = service.as_mut().expect("selected service");
                                 service.flush_ready().await.map_err(ModelError::codec)?;
-                                publish_ready(&mut pending, &output, service, &mut disposition).await?;
-                                window.render(&access, partition, b, &runtime.cancellation(), runtime, &output).await?
+                                publish_ready(&mut pending, &output, service, &mut disposition)
+                                    .await?;
+                                window
+                                    .render(
+                                        &access,
+                                        partition,
+                                        b,
+                                        &runtime.cancellation(),
+                                        runtime,
+                                        &output,
+                                    )
+                                    .await?
                             }
                             result => result?,
                         };
                         if let Some(service) = service.as_mut() {
                             for semantic in mandatory.windows.iter() {
-                                if semantic.availability == retrieval::WindowAvailability::TokenizerUnavailable {
-                                    return Err(build::invalid("requested retrieval window lacks exact local tokenizer admission"));
+                                if semantic.availability
+                                    == retrieval::WindowAvailability::TokenizerUnavailable
+                                {
+                                    return Err(build::invalid(
+                                        "requested retrieval window lacks exact local tokenizer admission",
+                                    ));
                                 }
-                                let unit = mandatory.units.get(semantic.unit)
-                                    .ok_or_else(|| build::invalid("retrieval rendered window has no exact unit"))?;
-                                let prepare = || retrieval::consumption::PreparedWindowUse::new(
-                                    semantic, unit, &invocation, &data.selected_consumption()?, b);
+                                let unit = mandatory.units.get(semantic.unit).ok_or_else(|| {
+                                    build::invalid("retrieval rendered window has no exact unit")
+                                })?;
+                                let prepare = || {
+                                    retrieval::consumption::PreparedWindowUse::new(
+                                        semantic,
+                                        unit,
+                                        &invocation,
+                                        &data.selected_consumption()?,
+                                        b,
+                                    )
+                                };
                                 let expected = match prepare() {
                                     Err(ModelError::Resource { .. }) if !pending.is_empty() => {
                                         service.flush_ready().await.map_err(ModelError::codec)?;
-                                        publish_ready(&mut pending, &output, service, &mut disposition).await?;
+                                        publish_ready(
+                                            &mut pending,
+                                            &output,
+                                            service,
+                                            &mut disposition,
+                                        )
+                                        .await?;
                                         prepare()?
                                     }
                                     result => result?,
                                 };
                                 if semantic.availability == retrieval::WindowAvailability::Ready {
-                                    let input = service.queue_ready(semantic.text.as_str()).boxed().await.map_err(ModelError::codec)?;
-                                    if input != expected.input() { return Err(build::invalid("queued retrieval input differs from checked expectation")); }
+                                    let input = service
+                                        .queue_ready(semantic.text.as_str())
+                                        .boxed()
+                                        .await
+                                        .map_err(ModelError::codec)?;
+                                    if input != expected.input() {
+                                        return Err(build::invalid(
+                                            "queued retrieval input differs from checked expectation",
+                                        ));
+                                    }
                                 }
                                 pending.push_back(expected)?;
-                                publish_ready(&mut pending, &output, service, &mut disposition).await?;
+                                publish_ready(&mut pending, &output, service, &mut disposition)
+                                    .await?;
                             }
                         }
                         retrieval_preparation::publish_mandatory(&mut output, &mandatory).await?;
@@ -351,7 +424,11 @@ pub async fn produce(
                     if let Some(service) = service.as_mut() {
                         service.flush_ready().await.map_err(ModelError::codec)?;
                         publish_ready(&mut pending, &output, service, &mut disposition).await?;
-                        if !pending.is_empty() { return Err(build::invalid("retrieval render window retains unresolved uses")); }
+                        if !pending.is_empty() {
+                            return Err(build::invalid(
+                                "retrieval render window retains unresolved uses",
+                            ));
+                        }
                     }
                 }
             }
@@ -425,10 +502,14 @@ mod tests {
     fn pending_use_capacity_stays_charged_after_partial_and_complete_drains() {
         let budget = resources::ResourceBudget::fixed(8192).unwrap();
         let mut pending = PendingUses::new(&budget);
-        for value in 0usize..64 { pending.push_back(value).unwrap(); }
+        for value in 0usize..64 {
+            pending.push_back(value).unwrap();
+        }
         let retained = budget.reserved();
         assert!(retained >= pending.values.capacity() * size_of::<usize>());
-        for value in 0usize..63 { assert_eq!(pending.pop_front(), Some(value)); }
+        for value in 0usize..63 {
+            assert_eq!(pending.pop_front(), Some(value));
+        }
         assert_eq!(budget.reserved(), retained);
         assert_eq!(pending.pop_front(), Some(63));
         assert!(pending.is_empty());
@@ -439,7 +520,10 @@ mod tests {
         assert_eq!(budget.reserved(), 0);
         let tiny = resources::ResourceBudget::fixed(32).unwrap();
         let mut refused = PendingUses::new(&tiny);
-        assert!(matches!(refused.push_back(0usize), Err(ModelError::Resource { .. })));
+        assert!(matches!(
+            refused.push_back(0usize),
+            Err(ModelError::Resource { .. })
+        ));
         assert_eq!(refused.values.capacity(), 0);
         assert_eq!(tiny.reserved(), 0);
     }

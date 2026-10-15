@@ -1,6 +1,6 @@
 //! Exact native MDX premises for S0's retained authored templates.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{assertion::*, documents::*, *};
 use typed_driver::{files, rows, run};
 inspector!(

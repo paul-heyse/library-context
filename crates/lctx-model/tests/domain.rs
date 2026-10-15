@@ -168,7 +168,7 @@ fn stages_refuse_self_cycles_missing_writers_and_unknown_relations() {
             &model,
             vec![Stage {
                 captured_binding: None,
-name: "cycle",
+                name: "cycle",
                 inputs: vec![r],
                 outputs: vec![r],
                 contributes: vec![],
@@ -186,7 +186,7 @@ name: "cycle",
     assert!(Schedule::build(&model, vec![], &[r], Profile::Catalog).is_err());
     let good = Stage {
         captured_binding: None,
-name: "packages",
+        name: "packages",
         inputs: vec![],
         outputs: vec![r],
         contributes: vec![],

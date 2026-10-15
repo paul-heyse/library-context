@@ -7,7 +7,7 @@ use crate::domain::{
     source::*,
     stages::*,
 };
-use crate::{Domain, DomainCode,DomainSum};
+use crate::{Domain, DomainCode, DomainSum};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, DomainCode)]
@@ -177,14 +177,29 @@ pub struct NormalizationEvidenceSet {
 #[derive(Debug, Clone, PartialEq, Eq, Hash, DomainSum)]
 #[model(name = "normalization_evidence_members")]
 pub enum NormalizationEvidenceMember {
-    #[model(code=0)] Scoped{premise:Id<NormalizationEvidenceSet>,coverage:Id<ProviderCoverage>},
-    #[model(code=1)] Uniform{premise:Id<NormalizationEvidenceSet>,descriptor:Id<uniform_outcome::UniformNotRequested>,scope:Id<CoverageScope>},
+    #[model(code = 0)]
+    Scoped {
+        premise: Id<NormalizationEvidenceSet>,
+        coverage: Id<ProviderCoverage>,
+    },
+    #[model(code = 1)]
+    Uniform {
+        premise: Id<NormalizationEvidenceSet>,
+        descriptor: Id<uniform_outcome::UniformNotRequested>,
+        scope: Id<CoverageScope>,
+    },
 }
 impl NormalizationEvidenceMember {
-    fn of_evidence(premise:Id<NormalizationEvidenceSet>,row:&CoverageEvidence)->Self{
+    fn of_evidence(premise: Id<NormalizationEvidenceSet>, row: &CoverageEvidence) -> Self {
         match row.coverage {
-            uniform_outcome::CoverageAuthority::Scoped{coverage}=>Self::Scoped{premise,coverage},
-            uniform_outcome::CoverageAuthority::Uniform{descriptor}=>Self::Uniform{premise,descriptor,scope:row.scope},
+            uniform_outcome::CoverageAuthority::Scoped { coverage } => {
+                Self::Scoped { premise, coverage }
+            }
+            uniform_outcome::CoverageAuthority::Uniform { descriptor } => Self::Uniform {
+                premise,
+                descriptor,
+                scope: row.scope,
+            },
         }
     }
 }
@@ -353,9 +368,7 @@ impl<'a> EvidenceIndex<'a> {
                 input_of(scope, artifacts).ok_or_else(|| invalid("coverage input absent"))?;
             index
                 .by_scope
-                .update(&mut index._charge, (row.context, row.scope), |v| {
-                    v.push(row)
-                })?;
+                .push(&mut index._charge, (row.context, row.scope), row)?;
             let key = (row.context, input, row.family);
             let complete = index.families.get(&key).copied().unwrap_or(true)
                 && row.availability == Availability::Complete;
@@ -483,7 +496,7 @@ impl<'a> CoveragePreparation<'a> {
                 context: row.context,
                 family: row.family,
             };
-            let member = NormalizationEvidenceMember::of_evidence(set.id(),row);
+            let member = NormalizationEvidenceMember::of_evidence(set.id(), row);
             Ok((set, member))
         })
     }
@@ -568,7 +581,8 @@ pub fn assemble(
             context: row.context,
             family: row.family,
         })?;
-        out.members.insert(NormalizationEvidenceMember::of_evidence(premise,row))?;
+        out.members
+            .insert(NormalizationEvidenceMember::of_evidence(premise, row))?;
     }
     for capability in Capability::ALL {
         let stage = capability.producer(profile);
@@ -666,7 +680,7 @@ pub fn stage(profile: Profile) -> Stage {
     inputs.dedup_by_key(|r| r.name());
     Stage {
         captured_binding: None,
-name: "normalize_coverage",
+        name: "normalize_coverage",
         inputs: super::facts_stage_inputs(inputs),
         outputs: relations().iter().map(RelationUse::of_relation).collect(),
         contributes: vec![],
@@ -690,30 +704,61 @@ mod streamed_coverage_controls {
     }
     #[test]
     fn normalization_receipts_use_exact_neutral_completed_views() {
-        use crate::domain::{analysis::sources::SourceSnapshot,completed::CompletedView};
-        for profile in [Profile::Catalog,Profile::Behavioral] {
-            let budget=resources::ResourceBudget::fixed(8<<20).unwrap();
-            let evidence=ScopedAvailability::from_completed(profile,&std::collections::BTreeSet::new(),&[],&BTreeMap::new(),&budget).unwrap();
-            let artifacts=ArtifactInputIndex::new(&budget);
-            let mut sources=BTreeMap::new();
-            let relations=crate::domain::catalog_frontier_relations();
+        use crate::domain::{analysis::sources::SourceSnapshot, completed::CompletedView};
+        for profile in [Profile::Catalog, Profile::Behavioral] {
+            let budget = resources::ResourceBudget::fixed(8 << 20).unwrap();
+            let evidence = ScopedAvailability::from_completed(
+                profile,
+                &std::collections::BTreeSet::new(),
+                &[],
+                &BTreeMap::new(),
+                &budget,
+            )
+            .unwrap();
+            let artifacts = ArtifactInputIndex::new(&budget);
+            let mut sources = BTreeMap::new();
+            let relations = crate::domain::catalog_frontier_relations();
             for capability in Capability::ALL {
                 for usage in capability.producer(profile).outputs {
-                    let relation=relations.iter().find(|relation|relation.name()==usage.name()).unwrap();
-                    let view=CompletedView::new(relation.name().into(),std::collections::BTreeSet::from([ContentHash::of(relation.name().as_bytes())]),0).unwrap();
-                    let source=SourceSnapshot::of_completed_view(relation,ContentHash::of(b"neutral-coverage-model"),&view).unwrap();
-                    sources.insert(relation.name(),source);
+                    let relation = relations
+                        .iter()
+                        .find(|relation| relation.name() == usage.name())
+                        .unwrap();
+                    let view = CompletedView::new(
+                        relation.name().into(),
+                        std::collections::BTreeSet::from([ContentHash::of(
+                            relation.name().as_bytes(),
+                        )]),
+                        0,
+                    )
+                    .unwrap();
+                    let source = SourceSnapshot::of_completed_view(
+                        relation,
+                        ContentHash::of(b"neutral-coverage-model"),
+                        &view,
+                    )
+                    .unwrap();
+                    sources.insert(relation.name(), source);
                 }
             }
-            let snapshots=sources.values().cloned().collect::<Vec<_>>();
-            let output=assemble(profile,&evidence,&artifacts,&snapshots,&budget).unwrap();
-            assert_eq!(output.receipts.iter().count(),Capability::ALL.iter().map(|capability|capability.producer(profile).outputs.len()).sum::<usize>());
+            let snapshots = sources.values().cloned().collect::<Vec<_>>();
+            let output = assemble(profile, &evidence, &artifacts, &snapshots, &budget).unwrap();
+            assert_eq!(
+                output.receipts.iter().count(),
+                Capability::ALL
+                    .iter()
+                    .map(|capability| capability.producer(profile).outputs.len())
+                    .sum::<usize>()
+            );
             for receipt in output.receipts.iter() {
-                let source=&sources[receipt.relation.as_str()];
-                assert_eq!((receipt.rows,receipt.view),(source.rows(),source.view()));
-                let computation=output.computations.get(receipt.computation).unwrap();
-                assert_eq!(computation.producer,computation.capability.producer(profile).name);
-                assert_ne!(source.producer(),computation.producer);
+                let source = &sources[receipt.relation.as_str()];
+                assert_eq!((receipt.rows, receipt.view), (source.rows(), source.view()));
+                let computation = output.computations.get(receipt.computation).unwrap();
+                assert_eq!(
+                    computation.producer,
+                    computation.capability.producer(profile).name
+                );
+                assert_ne!(source.producer(), computation.producer);
             }
         }
     }

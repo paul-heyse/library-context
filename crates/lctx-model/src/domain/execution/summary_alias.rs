@@ -224,7 +224,9 @@ pub fn derive(
     };
     let reservation = budget.reserve(
         "summary-alias-conditions",
-        source.condition().allocation_allowance()
+        source
+            .condition()
+            .allocation_allowance()
             .saturating_add(4096),
     )?;
     let mut condition = source.condition().clone();

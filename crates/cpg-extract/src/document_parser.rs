@@ -1,6 +1,6 @@
 //! Typed document producer over markdown-rs offsets and captured derived blocks.
-use lctx_model::domain::producer_contract::ProducerContract;
 use crate::bundle::ProviderSink;
+use lctx_model::domain::producer_contract::ProducerContract;
 use lctx_model::domain::{calls::SymbolKind, documents::*, source::*, syntax::DeclarationKind, *};
 use markdown::mdast::{AttributeContent, AttributeValue, Node};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -450,6 +450,7 @@ use crate::{
     acquisition::{AcquiredInput, Acquisition},
     bundle::{Declared, ProviderStage, StageContext},
 };
+pub use lctx_model::domain::producer_contract::facts::DOCUMENTS;
 use lctx_model::domain::{
     assertion::*,
     attribution::*,
@@ -461,7 +462,6 @@ use lctx_model::domain::{
     symbols::*,
     syntax::*,
 };
-pub use lctx_model::domain::producer_contract::facts::DOCUMENTS;
 pub struct Documents;
 pub fn provider() -> Provider {
     Provider {
@@ -492,13 +492,17 @@ macro_rules! document_types {
         )
     };
 }
-pub fn contract() -> ProducerContract { lctx_model::domain::producer_contract::facts::documents() }
+pub fn contract() -> ProducerContract {
+    lctx_model::domain::producer_contract::facts::documents()
+}
 impl Declared for Documents {
     fn declaration(&self, _: Profile) -> Stage {
         let provider = provider();
-        contract().bind(provider.build_digest, ContentHash::of(
-                b"mdx-frontmatter; source=64MiB; nodes=1000000; depth=256",
-            ), [("documents", provider)])
+        contract().bind(
+            provider.build_digest,
+            ContentHash::of(b"mdx-frontmatter; source=64MiB; nodes=1000000; depth=256"),
+            [("documents", provider)],
+        )
     }
 }
 impl Vocabulary {

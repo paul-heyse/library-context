@@ -46,6 +46,7 @@ impl HeldInstalledView {
         reader: &crate::NativeReader<()>,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        self.require_pool(budget)?;
         if let InstalledViewOwner::Earned { set } = &self.owner {
             return set.ensure_borrowed_current(reader, budget).await;
         }
@@ -56,6 +57,7 @@ impl HeldInstalledView {
         reader: &crate::NativeReader<()>,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
+        self.require_pool(budget)?;
         if let InstalledViewOwner::Earned { set } = &self.owner {
             return set.ensure_current(reader, budget).await;
         }
@@ -282,17 +284,34 @@ fn retained(
     owner: InstalledViewOwner,
     budget: &ResourceBudget,
 ) -> Result<HeldInstalledView, ModelError> {
-    completion.validate()?;
-    let mut charge = StateCharge::new(budget, "retained compound selector descriptor");
+    let inventory = match &owner {
+        InstalledViewOwner::Earned { .. } => {
+            return Err(ModelError::Conflict(
+                "retained selector requires inventory owner",
+            ));
+        }
+        InstalledViewOwner::Physical { completed, .. } => completed.inventory(),
+        InstalledViewOwner::Frozen { completed, .. } => completed.inventory(),
+        InstalledViewOwner::Published { completed, .. } => completed.inventory(),
+        InstalledViewOwner::Recovery { inventory, .. } => inventory.as_ref(),
+    };
+    inventory.require_pool(budget)?;
+    let canonical = inventory.installed(completion.view.identity)?;
+    if canonical != &completion {
+        return Err(ModelError::Conflict(
+            "retained selector differs from exact inventory",
+        ));
+    }
+    let completion = canonical.clone();
+    let mut charge = StateCharge::new(budget, "retained compound selector handle");
     charge.grow(
-        crate::loader::native_bytes(&completion.value()?)
-            .saturating_mul(32)
-            .saturating_add(8192),
+        std::mem::size_of::<HeldInstalledView>().saturating_add(2 * std::mem::size_of::<usize>()),
     )?;
+    // The inventory's typed charge owns the shared selection. This cap retains
+    // that exact inventory and its native protection through InstalledViewOwner.
     Ok(HeldInstalledView {
         client,
-        selector: SelectedViewDescriptor::from_retained(&completion),
-        completion: Some(completion),
+        selector: HeldSelector::Retained(completion),
         owner,
         _charge: charge,
     })
@@ -306,8 +325,18 @@ pub(crate) fn recovery_view(
     budget: &ResourceBudget,
 ) -> Result<HeldInstalledView, ModelError> {
     pin.ensure_live()?;
-    if expected.row() != completion.value()? {
-        return Err(ModelError::Conflict("recovery compound selector envelope"));
+    pin.require_client(&client)?;
+    inventory.require_pool(budget)?;
+    {
+        let _validation = budget.reserve(
+            "recovery selector exact envelope workspace",
+            crate::loader::native_bytes(expected.row())
+                .saturating_mul(32)
+                .saturating_add(4096),
+        )?;
+        if expected.row() != completion.value()? {
+            return Err(ModelError::Conflict("recovery compound selector envelope"));
+        }
     }
     let owner = RecordId::new("native_pin", pin.identity.hex());
     retained(
@@ -327,6 +356,7 @@ pub async fn hold_published_view(
     view: ContentHash,
     budget: &ResourceBudget,
 ) -> Result<HeldInstalledView, ModelError> {
+    completed.inventory().require_pool(budget)?;
     let installed = completed.inventory().installed(view)?.clone();
     let reader = completed
         .retained_reader()
@@ -355,6 +385,10 @@ pub async fn hold_frozen_view(
     view: ContentHash,
     budget: &ResourceBudget,
 ) -> Result<HeldInstalledView, ModelError> {
+    if !Arc::ptr_eq(&client, &completed.client) {
+        return Err(ModelError::Conflict("frozen selector foreign client"));
+    }
+    completed.inventory().require_pool(budget)?;
     let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = async {
         let installed = completed.inventory().installed(view)?.clone();
@@ -386,6 +420,10 @@ pub async fn hold_physical_view(
     view: ContentHash,
     budget: &ResourceBudget,
 ) -> Result<HeldInstalledView, ModelError> {
+    if !Arc::ptr_eq(&client, &completed.client) {
+        return Err(ModelError::Conflict("physical selector foreign client"));
+    }
+    completed.inventory().require_pool(budget)?;
     let reader = crate::NativeReader::private(client.clone()).with_budget(budget);
     let result = async {
         let installed = completed.inventory().installed(view)?.clone();

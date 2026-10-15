@@ -1,6 +1,6 @@
 //! Final native lexical metadata and source associations use actual retained providers.
-use crate::typed_driver;
 use crate::inspector;
+use crate::typed_driver;
 use lctx_model::domain::{
     attribution::*,
     lexical::*,

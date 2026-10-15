@@ -777,7 +777,7 @@ pub(super) fn produce_prepared(
                 .iter()
                 .any(|r| r.in_subsystem && r.entity == seed)
             {
-                keys.update(
+                keys.push(
                     &mut charge,
                     (
                         seed,
@@ -786,7 +786,7 @@ pub(super) fn produce_prepared(
                         (target(base, p)?.phase.code(), target(base, c)?.phase.code()),
                         (modality(base, p)?.code(), modality(base, c)?.code()),
                     ),
-                    |v| v.push(row.id()),
+                    row.id(),
                 )?;
             }
         }

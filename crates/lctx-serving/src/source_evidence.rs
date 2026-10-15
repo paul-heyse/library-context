@@ -1,9 +1,9 @@
 //! Pure evidence lowering over one already-scoped canonical native selection.
+pub use crate::records::PacketRows;
+use crate::records::Prepared;
 use lctx_model::domain::{resources::ResourceBudget, serving::*, *};
 use lctx_native::batches::CanonicalBatches;
 use std::sync::Arc;
-pub use crate::records::PacketRows;
-use crate::records::Prepared;
 #[derive(Debug)]
 pub enum EvidenceError {
     Contract,
@@ -33,18 +33,31 @@ pub struct NativePackets<'a> {
     claims: Arc<crate::claims::Claims>,
 }
 impl<'a> NativePackets<'a> {
-    pub fn new(source:&'a CanonicalBatches,budget:&ResourceBudget)->Result<Self,ModelError>{
-        Self::from_prepared(Arc::new(Prepared::new(source,budget)))
+    pub fn new(source: &'a CanonicalBatches, budget: &ResourceBudget) -> Result<Self, ModelError> {
+        Self::from_prepared(Arc::new(Prepared::new(source, budget)))
     }
-    pub fn from_prepared(source:Arc<Prepared<'a>>)->Result<Self,ModelError>{
-        let budget=source.budget().clone();let claims=source.claims()?;
-        Ok(Self{source,budget:budget.clone(),charge:charged::StateCharge::new(&budget,"native-evidence-packets"),claims})
+    pub fn from_prepared(source: Arc<Prepared<'a>>) -> Result<Self, ModelError> {
+        let budget = source.budget().clone();
+        let claims = source.claims()?;
+        Ok(Self {
+            source,
+            budget: budget.clone(),
+            charge: charged::StateCharge::new(&budget, "native-evidence-packets"),
+            claims,
+        })
     }
-    pub(crate) async fn read_ids<R:Record>(&mut self,ids:&[Id<R>])->Result<PacketRows<R>,EvidenceError>{
+    pub(crate) async fn read_ids<R: Record>(
+        &mut self,
+        ids: &[Id<R>],
+    ) -> Result<PacketRows<R>, EvidenceError> {
         Ok(self.source.rows::<R>()?.select_ids(ids)?)
     }
-    pub(crate) async fn read_for<R:Record,T:Record>(&mut self,field:&str,ids:&[Id<T>])->Result<PacketRows<R>,EvidenceError>{
-        Ok(self.source.rows::<R>()?.select_for(field,ids)?)
+    pub(crate) async fn read_for<R: Record, T: Record>(
+        &mut self,
+        field: &str,
+        ids: &[Id<T>],
+    ) -> Result<PacketRows<R>, EvidenceError> {
+        Ok(self.source.rows::<R>()?.select_for(field, ids)?)
     }
 
     pub(crate) async fn claim_basis(
@@ -90,8 +103,14 @@ pub async fn sections(
     ModelError,
 > {
     let mut packets = NativePackets::from_prepared(source)?;
-    let flow = packets.flow_inventory(range, request, snapshot, channels).await.map_err(ModelError::from)?;
-    let characterization = packets.source_characterization(range, request, snapshot, channels).await.map_err(ModelError::from)?;
+    let flow = packets
+        .flow_inventory(range, request, snapshot, channels)
+        .await
+        .map_err(ModelError::from)?;
+    let characterization = packets
+        .source_characterization(range, request, snapshot, channels)
+        .await
+        .map_err(ModelError::from)?;
     Ok((flow, characterization))
 }
 

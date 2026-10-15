@@ -1272,9 +1272,8 @@ impl<A: Assertion, S: Support<Assertion = A>> InvariantCheck for SupportCheck<A,
             }
         } else if relation == super::flow::FlowCallStep::NAME {
             for r in super::flow::FlowCallStep::decode(batch)? {
-                self.flow_paths.update(&mut self.charge, r.path, |values| {
-                    values.extend([r.call, r.operand])
-                })?;
+                self.flow_paths.push(&mut self.charge, r.path, r.call)?;
+                self.flow_paths.push(&mut self.charge, r.path, r.operand)?;
             }
         } else if relation == super::flow::FlowUse::NAME {
             for r in super::flow::FlowUse::decode(batch)? {

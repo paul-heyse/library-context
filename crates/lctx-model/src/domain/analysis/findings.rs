@@ -302,9 +302,11 @@ impl InvariantCheck for FindingCheck {
         insert!(conditions::ConditionNode, nodes);
         if relation == FindingMember::NAME {
             for row in FindingMember::decode(batch)? {
-                if !self.members.update(&mut self.charge, row.finding, |m| {
-                    m.insert((row.role, row.subject))
-                })? {
+                if !self.members.insert_set(
+                    &mut self.charge,
+                    row.finding,
+                    (row.role, row.subject),
+                )? {
                     return Err(invalid("duplicate finding member"));
                 }
             }
@@ -312,9 +314,11 @@ impl InvariantCheck for FindingCheck {
         }
         if relation == FindingSupport::NAME {
             for row in FindingSupport::decode(batch)? {
-                if !self.supports.update(&mut self.charge, row.finding, |m| {
-                    m.insert((row.role, row.source))
-                })? {
+                if !self.supports.insert_set(
+                    &mut self.charge,
+                    row.finding,
+                    (row.role, row.source),
+                )? {
                     return Err(invalid("duplicate finding support"));
                 }
             }

@@ -118,7 +118,7 @@ impl<'a> Index<'a> {
                 qualification(data, row.qualification)?.context,
             );
             index.universe.insert(charge, key)?;
-            index.sites.update(charge, key, |v| v.push(row))?;
+            index.sites.push(charge, key, row)?;
         }
         for row in data.targets.iter() {
             let key = (
@@ -127,7 +127,7 @@ impl<'a> Index<'a> {
                 qualification(data, row.qualification)?.context,
             );
             index.universe.insert(charge, key)?;
-            index.targets.update(charge, key, |v| v.push(row))?;
+            index.targets.push(charge, key, row)?;
         }
         for row in data.resolutions.iter() {
             let key = (
@@ -136,32 +136,24 @@ impl<'a> Index<'a> {
                 qualification(data, row.qualification)?.context,
             );
             index.universe.insert(charge, key)?;
-            index.resolutions.update(charge, key, |v| v.push(row))?;
+            index.resolutions.push(charge, key, row)?;
         }
         for row in data.members.iter() {
             need(&data.resolutions, row.resolution)?;
             let target = need(&data.targets, row.target)?;
-            index
-                .members
-                .update(charge, row.resolution, |v| v.push(target))?;
+            index.members.push(charge, row.resolution, target)?;
         }
         for row in data.target_supports.iter() {
             need(&data.targets, row.assertion)?;
-            index
-                .supports
-                .update(charge, row.assertion, |v| v.push(row))?;
+            index.supports.push(charge, row.assertion, row)?;
         }
         for row in data.site_supports.iter() {
             need(&data.call_sites, row.assertion)?;
-            index
-                .site_supports
-                .update(charge, row.assertion, |v| v.push(row))?;
+            index.site_supports.push(charge, row.assertion, row)?;
         }
         for row in data.resolution_supports.iter() {
             need(&data.resolutions, row.assertion)?;
-            index
-                .resolution_supports
-                .update(charge, row.assertion, |v| v.push(row))?;
+            index.resolution_supports.push(charge, row.assertion, row)?;
         }
         Ok(index)
     }
@@ -580,9 +572,7 @@ fn prepare_selected(
                     {
                         return Err(invalid("event alternative correspondence is ambiguous"));
                     }
-                    phases.update(&mut charge, target.phase, |entities| {
-                        entities.insert(entity);
-                    })?;
+                    phases.insert_set(&mut charge, target.phase, entity)?;
                 }
             }
             if direct_count == 0
@@ -1197,11 +1187,7 @@ fn evaluate_selected(
             owner: owner.id(),
         })?;
         if origin == CallOrigin::explicit() {
-            tokens
-                .flow
-                .update(&mut tokens._charge, (site, ctx), |events| {
-                    events.push(event)
-                })?;
+            tokens.flow.push(&mut tokens._charge, (site, ctx), event)?;
         }
         let mut held = StateCharge::new(budget, "complete-event-members");
         let mut digest = KeySink::new("complete-normalized-event");
@@ -1334,9 +1320,7 @@ fn evaluate_selected(
                     match need(&data.destinations, target.destination)? {
                         CallDestination::Resolved { .. } => {
                             if let Some(entity) = alternative.entity {
-                                phases.update(&mut held, target.phase, |set| {
-                                    set.insert(entity);
-                                })?;
+                                phases.insert_set(&mut held, target.phase, entity)?;
                             } else {
                                 unresolved = true;
                             }
@@ -1606,9 +1590,7 @@ fn flow_links(
         .iter()
         .filter(|e| e.origin == CallOrigin::explicit())
     {
-        events.update(&mut charge, (event.site, event.context), |v| {
-            v.push(event.id())
-        })?;
+        events.push(&mut charge, (event.site, event.context), event.id())?;
     }
     flow_links_with(data, output, &events, None, budget)
 }
@@ -1636,11 +1618,7 @@ pub fn admit_flow_path_view(
         .iter()
         .filter(|event| event.origin == CallOrigin::explicit())
     {
-        index.update(
-            &mut charge,
-            (event.site, event.context),
-            |events: &mut Vec<Id<NormalizedCallEvent>>| events.push(event.id()),
-        )?;
+        index.push(&mut charge, (event.site, event.context), event.id())?;
     }
     let mut expected = EventOutput::new(budget);
     flow_links_with(data, &mut expected, &index, Some(path), budget)?;
@@ -1678,7 +1656,7 @@ fn flow_links_with(
     let mut charge = StateCharge::new(budget, "flow-event-path-grain");
     let mut steps: ChargedMap<Id<FlowCallPath>, Vec<&FlowCallStep>> = Default::default();
     for row in data.steps.iter() {
-        steps.update(&mut charge, row.path, |v| v.push(row))?;
+        steps.push(&mut charge, row.path, row)?;
     }
     for path in data
         .paths

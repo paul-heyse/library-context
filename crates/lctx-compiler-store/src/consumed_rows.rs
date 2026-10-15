@@ -1253,7 +1253,8 @@ impl PreparedEdges {
             pending.push(&mut charge, (partition, key))?;
         }
         let mut steps = 0usize;
-        while let Some((partition, key)) = pending.take_last(&mut charge) {
+        while let Some(owned) = pending.take_last(&mut charge)? {
+            let (partition, key) = *owned;
             check_cancellation(cancellation)?;
             for (_, target) in
                 adjacency.range((key, (i64::MIN, [0; 16]))..=(key, (i64::MAX, [255; 16])))
@@ -1386,8 +1387,8 @@ impl PreparedEdges {
             let mut frontier = Vec::with_capacity(count);
             for _ in 0..count {
                 frontier.push(
-                    pending
-                        .take_last(traversal_charge)
+                    *pending
+                        .take_last(traversal_charge)?
                         .expect("finite frontier count"),
                 );
             }

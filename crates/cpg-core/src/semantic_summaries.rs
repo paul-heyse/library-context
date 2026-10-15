@@ -187,9 +187,14 @@ pub async fn produce(
             None
         };
         let schedule = if access.profile() == Profile::Behavioral {
-            Some(graphs.ok_or_else(|| ModelError::Invalid("requested Summary graph absent".into()))?
-                .schedule(&access, runtime, key)?)
-        } else { None };
+            Some(
+                graphs
+                    .ok_or_else(|| ModelError::Invalid("requested Summary graph absent".into()))?
+                    .schedule(&access, runtime, key)?,
+            )
+        } else {
+            None
+        };
         let (invocation, inputs, receipts, projections) = owner::AnalysisInvocation::admitted(
             run.input,
             run.context,
