@@ -1319,7 +1319,7 @@ impl PreparedEvaluationMetadata {
     }
 }
 enum SyntaxOwner<'a> {
-    Owned(PreparedSyntax<'a>),
+    Owned(Box<PreparedSyntax<'a>>),
     Borrowed(&'a PreparedSyntax<'a>),
 }
 impl<'a> std::ops::Deref for SyntaxOwner<'a> {
@@ -1346,13 +1346,14 @@ impl<'a> PreparedExecution<'a> {
         context: Id<AnalysisContext>,
         budget: &ResourceBudget,
     ) -> Result<Self, ModelError> {
-        let index = PreparedSyntax::new(data.view(), context, budget)?;
+        let mut index = PreparedSyntax::new(data.view(), context, budget)?;
         validate_syntax(data.view(), context, &index)?;
+        index._charge.grow(size_of::<PreparedSyntax<'_>>())?;
         Ok(Self {
             data: data.view(),
             input,
             context,
-            index: SyntaxOwner::Owned(index),
+            index: SyntaxOwner::Owned(Box::new(index)),
             metadata: None,
             budget: budget.clone(),
         })
