@@ -177,7 +177,7 @@ impl ExpectedObject {
             tombstone_revision_if_vacant: tombstone,
         })
     }
-    fn binding(&self, guard: RecordId, creation: Option<&Value>) -> Value {
+    pub(super) fn binding(&self, guard: RecordId, creation: Option<&Value>) -> Value {
         let mut row = Object::new();
         row.insert("record", self.record.clone());
         row.insert("guard", guard);
@@ -807,6 +807,14 @@ mod attempt_cut_controls {
     #[tokio::test(flavor = "multi_thread")]
     #[ignore = "exclusive task-owned RocksDB campaign only"]
     async fn native_atomic_disjoint_applies_overlap_and_complete_cut_fences_delayed_apply() {
+        atomic_applies_and_complete_cut("close").await;
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "exclusive task-owned RocksDB campaign only"]
+    async fn native_atomic_disjoint_applies_overlap_and_complete_freeze_fences_delayed_apply() {
+        atomic_applies_and_complete_cut("freeze").await;
+    }
+    async fn atomic_applies_and_complete_cut(action: &str) {
         let cfg = crate::RuntimeConfig::read(std::path::Path::new(
             &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned RocksDB campaign"),
         ))
@@ -904,7 +912,7 @@ mod attempt_cut_controls {
         assert_eq!(with_recovery_scope(scope.clone(), authorization::reconcile_request(&client, absent_request)).await.unwrap(), EffectDisposition::FencedUncommitted);
         assert!(checked_transaction(client.query(absent.query).bind(absent.bindings).await.unwrap()).is_err(), "delayed original apply cannot pass exact absent-request fence");
         let cut = client.as_ref().clone().begin().await.unwrap();
-        cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,'close'); UPDATE $attempt SET state='closing',revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).await.unwrap().check().unwrap();
+        cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,$action); UPDATE $attempt SET state=$next_state,revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).bind(("action",action.to_owned())).bind(("next_state",if action=="freeze" {"frozen"} else {"closing"})).await.unwrap().check().unwrap();
         let late = make(fresh_identity("stripe-late-intent").unwrap());
         checked_transaction(
             client
@@ -918,7 +926,7 @@ mod attempt_cut_controls {
         assert!(retryable_conflict(&conflict), "expected conclusive native write conflict, not an unknown transport failure: {conflict}");
         let delayed = make(fresh_identity("stripe-delayed-apply").unwrap());
         let cut = client.as_ref().clone().begin().await.unwrap();
-        cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,'close'); UPDATE $attempt SET state='closing',revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).await.unwrap().check().unwrap();
+        cut.query("fn::native_attempt_cut($attempt,$generation,$era,1,$action); UPDATE $attempt SET state=$next_state,revision+=1 RETURN NONE;").bind(("attempt",RecordId::new("native_attempt",attempt.hex()))).bind(("generation",era.generation.hex())).bind(("era",era.era)).bind(("action",action.to_owned())).bind(("next_state",if action=="freeze" {"frozen"} else {"closing"})).await.unwrap().check().unwrap();
         cut.commit().await.unwrap().invalidate().await.unwrap();
         assert!(
             checked_transaction(client.query(delayed.query).bind(delayed.bindings).await.unwrap())

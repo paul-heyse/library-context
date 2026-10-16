@@ -131,7 +131,7 @@ mod history;
 mod immutable_window;
 pub mod staging;
 #[doc(hidden)]
-pub use immutable_window::{ImmutableWindows, install_window};
+pub use immutable_window::{ImmutableWindows, WindowWriter, install_window};
 mod receipts;
 mod recovery_execution;
 pub use recovery_execution::{

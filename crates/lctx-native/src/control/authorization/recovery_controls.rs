@@ -34,6 +34,16 @@ async fn inspect(
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "task-owned RocksDB native recovery campaign only; models an unobserved acknowledgement"]
 async fn native_committed_packets_with_unobserved_ack_require_explicit_recovery_policy() {
+    committed_packet_recovery(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "task-owned RocksDB native recovery campaign only; retains a known terminal reference"]
+async fn native_known_commit_stopped_release_retains_exact_reference_and_recipient() {
+    committed_packet_recovery(true).await;
+}
+
+async fn committed_packet_recovery(persist_terminal: bool) {
     let config = crate::RuntimeConfig::read(std::path::Path::new(
         &std::env::var_os("LCTX_COMPILER_RUNTIME_CONFIG")
             .expect("task-owned RocksDB recovery target"),
@@ -143,6 +153,11 @@ async fn native_committed_packets_with_unobserved_ack_require_explicit_recovery_
             pending.inspect(|envelope| envelope.observed_disposition)?,
             EffectDisposition::Pending
         );
+        if persist_terminal {
+            pending.committed()?;
+            assert_eq!(pending.inspect(|envelope| envelope.action)?, RecoveryAction::ReleaseTerminalReference);
+        }
+        let retained = pending.inspect(Clone::clone)?;
         scope.cancellation().cancel();
         assert!(resume_recovery_scope(&scope).await.is_err());
         assert_eq!(
@@ -152,8 +167,11 @@ async fn native_committed_packets_with_unobserved_ack_require_explicit_recovery_
         );
         assert_eq!(
             pending.inspect(|envelope| envelope.observed_disposition)?,
-            EffectDisposition::Pending
+            if persist_terminal { EffectDisposition::Committed } else { EffectDisposition::Pending }
         );
+        assert_eq!(pending.inspect(Clone::clone)?, retained, "failed release preserves exact original recipient and reference policy");
+        let stopped = inspect(&observer, request, allocation_request, attempt).await?;
+        assert_eq!(stopped.get("reference"), before.get("reference"), "native reference remains until admitted exact settlement");
         resume_recovery_scope_admitted(&scope, &recovery).await?;
         assert!(
             scope.cancellation().stopped(),

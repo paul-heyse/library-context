@@ -2135,8 +2135,10 @@ mod compacted_owner_controls {
                     RecoveryReferencePolicy::ReleaseRecovery,
                 )
                 .unwrap();
+            let delayed = lower_owner_effect_plan(request, &EffectOwner::Installation, "RETURN true", Variables::new(), false, true).unwrap();
             super::super::set_admission(&client, false).await.unwrap();
             super::super::history::cut_era(&client).await.unwrap();
+            assert!(super::super::checked_transaction(client.query(delayed.query).bind(delayed.bindings).await.unwrap()).is_err(), "permanent era cut refuses the original delayed atomic apply");
             assert_eq!(
                 reconcile_request(&client, request).await.unwrap(),
                 EffectDisposition::CompactedTerminal

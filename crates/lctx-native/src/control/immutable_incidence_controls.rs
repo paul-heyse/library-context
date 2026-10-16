@@ -100,6 +100,32 @@ fn revision(row: &Value) -> Result<i64, ModelError> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn reused_window_writer_refuses_after_complete_owner_cut() {
+    run_case("reused immutable writer owner cut", |fixture| async move {
+        let attempt = fixture.first.attempt();
+        let owner = RecordId::new("native_attempt", attempt.hex());
+        let (first_id, first_row) = external(&format!("{}-before-cut", attempt.hex()));
+        let mut writer = WindowWriter::new(&fixture.client, Some(attempt), None);
+        let first = ImmutableWindows::new(vec![first_row.clone()], Some(attempt), None, Some(owner.clone()))
+            .next().unwrap()?;
+        writer.install(first).await?;
+        close_attempt(&fixture.client, attempt, "abandoned").await?;
+        let (late_id, late_row) = external(&format!("{}-after-cut", attempt.hex()));
+        let late = ImmutableWindows::new(vec![late_row], Some(attempt), None, Some(owner))
+            .next().unwrap()?;
+        let error = writer.install(late).await.unwrap_err();
+        assert!(error.permits_storage_cleanup(), "known late refusal: {error}");
+        assert_eq!(read_row(&fixture.client, &first_id).await?, first_row);
+        let mut response = fixture.client.query("SELECT * FROM $record; SELECT * FROM native_hold WITH INDEX object_holds WHERE object=$record")
+            .bind(("record", late_id)).await.map_err(ModelError::codec)?
+            .check().map_err(ModelError::codec)?;
+        assert!(response.take::<Vec<Value>>(0).map_err(ModelError::codec)?.is_empty());
+        assert!(response.take::<Vec<Value>>(1).map_err(ModelError::codec)?.is_empty());
+        Ok(())
+    }.boxed()).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn equal_foreign_attempt_hold_refuses_without_incidence_mutation() {
     run_case("equal foreign hold incidence", |fixture| async move {
         let (target, row) = external(&format!("{}-foreign-hold", fixture.second.attempt().hex()));
