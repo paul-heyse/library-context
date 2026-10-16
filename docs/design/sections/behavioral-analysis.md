@@ -158,7 +158,7 @@ invocation inventory supplies headers, declarations, parameters, links, argument
 residual event/seed correspondence. Immutable signature ingredients are shared lazily; caller
 bindings, ports, admission and proofs remain per attempt. Competing rows and original error gates
 remain visible. Correspondence releases after its final SCC/pair consumer. The
-[efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+[efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns current controls and enclosing acceptance; this changes private preparation, not Summary meaning.
 
 > Decision: ADR-0176

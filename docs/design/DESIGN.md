@@ -77,7 +77,7 @@ remains the initial transport, with alternatives conditional on complete protoco
 Operator adoption and real-library performance measurement remain separate.
 
 **Accepted refinement / implementation in progress, 2026-10-15 (ADR-0173).** The separate
-[Catalog-efficiency coordinator](../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+[Catalog-efficiency coordinator](../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns current attempt-cut, owned recovery and ingress work. Complete attempt-local cuts preserve
 delayed fencing while disjoint effects use individual stripes. Actual recovery recipients retain
 exact pending requests and source/pin/session ownership; ingress reservations precede the owned
@@ -152,7 +152,7 @@ claiming immutable closure. Reruns retain scope. Diagnostic preparation preserve
 fields, unknown/ambiguous attribution and channel-local known loss, with raw source locators intact.
 Selected-complete verification audits full selected boundaries separately from global completeness;
 whole `test-all` and `qualify` keep their existing meaning. The
-[efficiency coordinator §6](../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+[efficiency coordinator §6](../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns current evidence and limits.
 
 > Decision: ADR-0175

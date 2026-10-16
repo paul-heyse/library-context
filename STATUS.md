@@ -1,17 +1,16 @@
 # Status
 _Updated 2026-10-16 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
-**Catalog runtime efficiency review: Revise, 2026-10-16.**
-[Review](docs/design_review/reviews/design_review_catalog-runtime-efficiency-target_2026-10-16.md) owns 9 unscheduled findings/5 proposed rule directions.
-Retained results/source/library inspection; no new product tests or service effects. Recommendations remain Proposed.
-**Catalog efficiency partial delivery remains at operator-requested closeout,2026-10-16.**
-[Coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint) owns execution decisions/receipts.
-Implementation is on main; no auxiliary worktrees. Default CE80 passed `154634…fe4647`; E1 disposed; original Unknowns protected.
-Ordered lifetimes/errors, same-kernel capture, demand-shaped inputs and checked pin-release dedup are implemented.
-Focused demand-catalog6/borrowed-owner5 passed; provider6 bodies passed but enclosing ingress finality failed.
-Prior workspace compile/strict Clippy and model lib335 passed within recorded scope. Local runs are terminal.
-Latest reconstruction `190337…029373`:1 passed/6 timed out900s; host cleanup confirmed, native obligations retained.
-SurrealDB ~143GB resident private memory observed; cache/execution/allocator/leak attribution remains unresolved.
-CE90/CE99 remain open. MCP/embedding/real-library/operator adoption and old-plan edits remain excluded.
+**Catalog runtime efficiency plans authored, 2026-10-16; implementation not started.**
+[Coordinator §6](docs/plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint) owns runtime F01–F09 and all remaining prior efficiency scope.
+RC01–RC05 and controlled-write mutation scope were operator-approved; safety/ADR/consumer gates remain.
+The previous five efficiency plans are superseded for execution; immutable historical citations retain their records.
+[Completion §2](docs/plans/catalog-runtime-efficiency-completion-plan_2026-10-16.md#2-inherited-checkpoint-and-protected-obligations) retains exact receipts, 16 unreleased default attachments and separate disposal acknowledgements.
+Prior CE80 is delivered; CE90/CE99 transfer to RE90/RE99. Existing implementation/focused passes remain scoped.
+Latest reconstruction: 1 passed/6 timed out after 900s; native obligations and original Unknowns protected.
+Reported SurrealDB ~143GB resident private memory remains unclassified. No product/service effects during authorship.
+Independent plan review: Accept scoped; `just docs-check` passed473 pages/zero link errors. Production decisions/acceptance remain open.
+Next: execution planning from RE00 and ready decision/correction packages; no production work authorized by plan authorship.
+Embedding inference, submitted MCP runtime, real-library/operator adoption and paused older-track execution remain excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
 alone owns that track's dispositions/receipts; source through `0fe7e020`, no auxiliary worktree.

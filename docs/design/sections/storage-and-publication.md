@@ -268,7 +268,7 @@ retain their typed causes separately from actual finalizer failures. Ingress rep
 operation outcomes and the real driver join independently; a joined refusal does not invent a
 failed join. Typed lost acknowledgements, join errors and nested Unknown remain strict. Diagnostic,
 retry and fallback consumers inspect the group rather than discarding related causes. Existing
-Completion fast paths and receipt semantics remain unchanged. The [efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+Completion fast paths and receipt semantics remain unchanged. The [efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns current controls and enclosing acceptance.
 
 **Implemented / focused verification in progress,2026-10-16.** Native continuations use one pinned
@@ -379,7 +379,7 @@ is awaited only after all actual handles drop. Sibling sessions continue indepen
 detach nor connection termination establishes submitted query finality. Authenticated resumption
 never replays payload SQL or rewrites original Unknowns. Admitted ingress includes pre-buffer/decode/conversion
 ownership and lease-bearing queue/delivery; framing alone establishes no memory-admission guarantee.
-The [efficiency coordinator](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+The [efficiency coordinator](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns implementation and focused evidence; existing targets and historical receipts remain separately scoped.
 Explicit raw schema installation remains excluded-target maintenance work. It awaits issued work
 without a serving-request aggregate timeout and closes its authenticated session on checked return.

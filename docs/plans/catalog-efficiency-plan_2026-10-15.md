@@ -1,5 +1,7 @@
 # Catalog efficiency: combined target and execution plan
 
+> **Superseded for execution, 2026-10-16.** The [runtime-efficiency coordinator](catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint) owns every remaining obligation of this plan set. This document retains dated specification/receipt context consumed by immutable ADR-0173–0177 citations and their historical references. Original status and resumption language below is historical, not current authority; no executable work remains assigned here.
+
 **Proposed target, 2026-10-15.** This separate track schedules all nine findings, eight
 investigations and associated recommendations from the [Catalog completion efficiency target
 review](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md).

@@ -588,7 +588,7 @@ Virtual activation and opaque string/byte payloads. Read production assembles on
 and mutates work/field state once, without semantic retry. Complete empty membership can skip local
 input assembly; payload absence cannot. Field-root preparation still precedes candidate construction
 and sealing; varying class/name FieldAssessment retains its separate route.
-The [efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+The [efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns current acceptance and its native/persistence limits.
 
 > Decision: ADR-0176
@@ -912,7 +912,7 @@ host carriers prepare outside visibility exclusion. Under the gate, recheck canc
 owners and affected predecessors; reprepare only changed relations, then bind and hand off all outputs
 coherently. Native errors/Unknown remain terminal, never stale misses. Eager visibility, exact old ports,
 Facts/Normalized barriers and final admission remain. Complete mutable-capture checks stay; see the
-[efficiency coordinator §6](../../plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
+[efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 for CN06/CN07/CC00–CC03 decisions, actual evidence and the separate enclosing acceptance boundary.
 
 > Decision: ADR-0174

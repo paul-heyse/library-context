@@ -1,5 +1,7 @@
 # Catalog efficiency: native effects, transport and access
 
+> **Superseded for execution, 2026-10-16.** The [runtime-efficiency coordinator](catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint) owns every remaining obligation of this plan set. This document retains dated specification/receipt context consumed by immutable ADR-0173–0177 citations and their historical references. Original status and resumption language below is historical, not current authority; no executable work remains assigned here.
+
 **Proposed, 2026-10-15.** Companion to the [coordinator](catalog-efficiency-plan_2026-10-15.md).
 It specifies F02–F04/F07–F08 and I01/I07 from the [source review](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md).
 The coordinator §6 alone owns current disposition and dated verification. CE00/CN00–CN05

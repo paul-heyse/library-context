@@ -1,5 +1,7 @@
 # Catalog efficiency: development execution and evidence preparation
 
+> **Superseded for execution, 2026-10-16.** The [runtime-efficiency coordinator](catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint) owns every remaining obligation of this plan set. This document retains dated specification/receipt context consumed by immutable ADR-0173–0177 citations and their historical references. Original status and resumption language below is historical, not current authority; no executable work remains assigned here.
+
 **Implemented / integrated acceptance pending, 2026-10-16.** Companion to the [coordinator](catalog-efficiency-plan_2026-10-15.md),
 which owns sole current disposition. This document specifies F01/F09, the source-observation
 half of I03 and I08 from the [source review](../design_review/reviews/design_review_catalog-completion-efficiency-target_2026-10-15.md).
