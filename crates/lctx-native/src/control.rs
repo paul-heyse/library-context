@@ -833,11 +833,14 @@ impl ReaderPin {
         }
         Ok(())
     }
+    pub(crate) fn recovery_scope(&self) -> Option<Arc<RecoveryScope>> {
+        // Every acquired pin retains its concrete recovery owner. Only detached
+        // finite test pins lack one; effects still refuse that missing authority.
+        self.state.recovery.clone()
+    }
     pub async fn protect(&self, object: RecordId) -> Result<(), ModelError> {
         let recovery = self
-            .state
-            .recovery
-            .clone()
+            .recovery_scope()
             .ok_or(ModelError::Conflict("native pin recovery owner missing"))?;
         with_recovery_scope(
             recovery,

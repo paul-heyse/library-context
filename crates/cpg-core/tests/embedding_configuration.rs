@@ -26,7 +26,7 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
                 memory_bytes: 1 << 24,
                 ..Default::default()
             },
-            crate::native_fixture::store(),
+            crate::native_fixture::store_with_limit(1 << 24),
         )
         .unwrap();
         let budget = workspace.budget().clone();
@@ -105,6 +105,11 @@ async fn completed_selection_is_immutable_and_required_for_embedding_effects() {
         drop(unchanged);
         drop(inputs);
         drop(configuration);
+        let mut finality = workspace.drain_owned_report().await;
+        finality.merge(workspace.native().abandon_finality_report().await);
+        let signal = workspace.complete_signal(&finality).await;
+        finality.step("embedding configuration control signal", signal);
+        completion::complete(Ok(()), finality).unwrap();
         drop(workspace);
         assert_eq!(budget.reserved(), 0);
     }

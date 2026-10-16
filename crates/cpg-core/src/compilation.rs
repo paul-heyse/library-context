@@ -1971,7 +1971,7 @@ mod publication_tests {
                 memory_bytes: 1 << 30,
                 ..Default::default()
             },
-            crate::test_native::store(),
+            crate::test_native::store_with_limit(1 << 30),
         )
         .unwrap();
         let input = tempfile::tempdir().unwrap();

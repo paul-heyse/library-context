@@ -60,7 +60,7 @@ async fn actual_recursive_summary_preserves_scc_delta_answers_and_exhaustion() {
 async fn actual_summary_control(case: &str) {
     let profile = Profile::Behavioral;
     let model = Arc::new(model().unwrap());
-    let native = crate::native_fixture::store();
+    let native = crate::native_fixture::store_with_limit(1 << 30);
     let mut workspace_owner = None;
     let result = std::panic::AssertUnwindSafe(async {
     let workspace = Workspace::new(

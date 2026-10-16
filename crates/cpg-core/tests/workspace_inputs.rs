@@ -28,7 +28,7 @@ where
     F: FnOnce(Arc<Workspace>) -> Fut,
     Fut: Future<Output = ()>,
 {
-    let native = crate::native_fixture::store();
+    let native = crate::native_fixture::store_with_limit(options.memory_bytes);
     let mut workspace = None;
     let result = AssertUnwindSafe(async {
         let current = Workspace::new(Arc::new(model().unwrap()), options, native.clone()).unwrap();

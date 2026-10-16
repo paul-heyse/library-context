@@ -4,7 +4,7 @@ use arrow_array::RecordBatch;
 use datafusion::{
     execution::{
         disk_manager::{DiskManagerBuilder, DiskManagerMode},
-        memory_pool::{MemoryConsumer, MemoryPool, MemoryReservation},
+        memory_pool::{MemoryPool, MemoryReservation},
         runtime_env::RuntimeEnvBuilder,
     },
     prelude::{SessionConfig, SessionContext},
@@ -17,7 +17,7 @@ use lctx_model::domain::{
     Batch, ContentHash, HeapSize, ModelError, Record, Relation, ValidatedModel, analysis,
     batching::TransferLimits,
     charged::StateCharge,
-    resources::{Reservation, ResourceBudget, ResourcePool},
+    resources::{Reservation, ResourceBudget},
     stages::{Profile, ProviderOutcome},
 };
 use std::{
@@ -38,7 +38,7 @@ use membership_demand::MembershipDemand;
 
 pub use lctx_compiler_store::admission::{AdmissionOptions as WorkspaceOptions, Cancellation};
 struct WorkspaceFiles {
-    directory: tempfile::TempDir,
+    _directory: tempfile::TempDir,
 }
 /// Execution ownership survives a compiler catalog handoff without retaining that catalog.
 struct WorkspaceExecutionOwner {
@@ -206,14 +206,56 @@ impl Workspace {
         options: WorkspaceOptions,
         native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
     ) -> Result<Arc<Self>, ModelError> {
+        let budget = match native.recovery_budget()? {
+            Some(budget) => budget,
+            None => ResourceBudget::fixed(options.memory_bytes)?,
+        };
+        Self::construct(model, options, budget, native, None)
+    }
+    /// Reuse the actual native session's pool. A supplied foreign pool is refused before
+    /// constructing runtime services or admitting any workspace-owned state.
+    pub fn with_budget(
+        model: Arc<ValidatedModel>,
+        options: WorkspaceOptions,
+        budget: ResourceBudget,
+        native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
+    ) -> Result<Arc<Self>, ModelError> {
+        Self::construct(model, options, budget, native, None)
+    }
+    fn construct(
+        model: Arc<ValidatedModel>,
+        options: WorkspaceOptions,
+        budget: ResourceBudget,
+        native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
+        programs: Option<Arc<lctx_model::domain::scope_program::ScopeProgramRuntime>>,
+    ) -> Result<Arc<Self>, ModelError> {
         if options.memory_bytes == 0 || options.partitions == 0 || options.batch_rows == 0 {
             return Err(ModelError::Invalid(
                 "workspace sizes must be positive".into(),
             ));
         }
+        if options.memory_bytes != budget.limit() {
+            return Err(ModelError::Invalid(
+                "workspace memory differs from supplied pool".into(),
+            ));
+        }
+        if let Some(attached) = native.recovery_budget()?
+            && !attached.shares_pool(&budget)
+        {
+            return Err(ModelError::Conflict(
+                "workspace native resource pool correspondence",
+            ));
+        }
+        // Explicitly unbound mechanical sources may construct a compute-only workspace.
+        // This does not create native receipt/session authority; native preparation still
+        // requires the source's existing recovery-scope admission route.
         let directory = tempfile::tempdir().map_err(ModelError::codec)?;
+        let pool = Arc::new(BudgetMemoryPool {
+            budget: budget.clone(),
+            allocated: Mutex::new(budget.reserve("workspace-datafusion", 0)?),
+        });
         let runtime = RuntimeEnvBuilder::new()
-            .with_memory_limit(options.memory_bytes, 1.0)
+            .with_memory_pool(pool)
             .with_disk_manager_builder(DiskManagerBuilder::default().with_mode(
                 DiskManagerMode::Directories(vec![directory.path().to_path_buf()]),
             ))
@@ -235,10 +277,6 @@ impl Workspace {
                 "datafusion.execution.sort_in_place_threshold_bytes",
                 (options.memory_bytes / 8).min(1 << 20),
             );
-        let budget = ResourceBudget::from_pool(Arc::new(WorkspacePool {
-            memory: runtime.memory_pool.clone(),
-            limit: options.memory_bytes,
-        }))?;
         let admission_memo = lctx_compiler_store::admission::AdmissionMemo::new(&budget);
         let completed_owners = Mutex::new((
             BTreeMap::new(),
@@ -258,7 +296,9 @@ impl Workspace {
             cancellation.clone(),
             &budget,
         ));
-        let files = Arc::new(WorkspaceFiles { directory });
+        let files = Arc::new(WorkspaceFiles {
+            _directory: directory,
+        });
         let provider_drains = Arc::new(Mutex::default());
         let product_cache = Arc::new(Mutex::default());
         let membership_demand = Arc::new(Mutex::default());
@@ -279,9 +319,12 @@ impl Workspace {
             execution,
             context: SessionContext::new_with_config_rt(config, runtime.clone()),
             options,
-            scope_programs: lctx_model::domain::scope_program::ScopeProgramRuntime::new(
-                &model, &budget,
-            )?,
+            scope_programs: match programs {
+                Some(programs) => programs,
+                None => {
+                    lctx_model::domain::scope_program::ScopeProgramRuntime::new(&model, &budget)?
+                }
+            },
             product_cache,
             membership_demand,
             admitted_product_reuse: AtomicBool::new(true),
@@ -304,51 +347,6 @@ impl Workspace {
             admission_memo,
         }))
     }
-    /// Reuse a captured native configuration's pool. DataFusion allocations and typed retained
-    /// state draw from this same ceiling; the custom pool adapts allocations rather than copying.
-    pub fn with_budget(
-        model: Arc<ValidatedModel>,
-        options: WorkspaceOptions,
-        budget: ResourceBudget,
-        native: Arc<lctx_compiler_store::compiler::NativeCompilerStore>,
-    ) -> Result<Arc<Self>, ModelError> {
-        if options.memory_bytes != budget.limit() {
-            return Err(ModelError::Invalid(
-                "workspace memory differs from supplied pool".into(),
-            ));
-        }
-        let mut workspace = Self::new(model, options, native)?;
-        let owner = Arc::get_mut(&mut workspace).expect("new workspace has one owner");
-        let pool = Arc::new(BudgetMemoryPool {
-            budget: budget.clone(),
-            allocated: Mutex::new(budget.reserve("workspace-datafusion", 0)?),
-        });
-        let runtime = RuntimeEnvBuilder::new()
-            .with_memory_pool(pool)
-            .with_disk_manager_builder(DiskManagerBuilder::default().with_mode(
-                DiskManagerMode::Directories(vec![owner.files.directory.path().to_path_buf()]),
-            ))
-            .build_arc()
-            .map_err(ModelError::codec)?;
-        owner.context = SessionContext::new_with_config_rt(owner.context.copied_config(), runtime);
-        owner.admission_memo = lctx_compiler_store::admission::AdmissionMemo::new(&budget);
-        owner.completed_owners = Mutex::new((
-            BTreeMap::new(),
-            StateCharge::new(&budget, "compiler-completed-owners"),
-        ));
-        owner.native_calls = Arc::new(crate::native_calls::NativeCalls::new(
-            owner.native.clone(),
-            owner.cancellation.clone(),
-            &budget,
-        ));
-        Arc::get_mut(&mut owner.execution)
-            .expect("new execution owner has no borrowers")
-            .native_calls = owner.native_calls.clone();
-        owner.scope_programs =
-            lctx_model::domain::scope_program::ScopeProgramRuntime::new(&owner.model, &budget)?;
-        owner.budget = budget;
-        Ok(workspace)
-    }
     /// Repeated attempts can reuse one model/runtime program owner while each completed source,
     /// native contribution, cancellation token and semantic capability remains attempt-local.
     pub fn with_program_runtime(
@@ -359,11 +357,7 @@ impl Workspace {
         programs: Arc<lctx_model::domain::scope_program::ScopeProgramRuntime>,
     ) -> Result<Arc<Self>, ModelError> {
         programs.require_model(&model)?;
-        let mut workspace = Self::with_budget(model, options, budget, native)?;
-        Arc::get_mut(&mut workspace)
-            .expect("new workspace has one owner")
-            .scope_programs = programs;
-        Ok(workspace)
+        Self::construct(model, options, budget, native, Some(programs))
     }
     /// Restore the exact current and frozen bindings after independent native state import.
     pub async fn restore(&self, profile: Profile) -> Result<(), ModelError> {
@@ -3384,61 +3378,6 @@ mod products;
 pub(crate) use products::validate_product_rows;
 pub(crate) use products::{ProductCandidate, decode_product_rows};
 
-#[derive(Debug)]
-struct WorkspacePool {
-    memory: Arc<dyn MemoryPool>,
-    limit: usize,
-}
-#[derive(Debug)]
-struct WorkspaceReservation {
-    reservation: MemoryReservation,
-    owner: &'static str,
-    pool: Arc<dyn MemoryPool>,
-    limit: usize,
-}
-impl ResourcePool for WorkspacePool {
-    fn reserve(
-        &self,
-        owner: &'static str,
-        bytes: usize,
-    ) -> Result<Box<dyn Reservation>, ModelError> {
-        let mut reserved = WorkspaceReservation {
-            reservation: MemoryConsumer::new(owner).register(&self.memory),
-            owner,
-            pool: self.memory.clone(),
-            limit: self.limit,
-        };
-        reserved.try_resize(bytes)?;
-        Ok(Box::new(reserved))
-    }
-    fn reserved(&self) -> usize {
-        self.memory.reserved()
-    }
-    fn limit(&self) -> usize {
-        self.limit
-    }
-}
-impl Reservation for WorkspaceReservation {
-    fn size(&self) -> usize {
-        self.reservation.size()
-    }
-    fn try_resize(&mut self, bytes: usize) -> Result<(), ModelError> {
-        self.reservation.try_resize(bytes).map_err(|error| {
-            // The runtime's existing TrackConsumersPool reports its largest
-            // live consumers. Keep that diagnostic when translating the
-            // refusal into our stable typed resource error.
-            let refusal = ModelError::Resource {
-                owner: self.owner,
-                requested: bytes.saturating_sub(self.reservation.size()),
-                used: self.pool.reserved(),
-                limit: self.limit,
-            };
-            lctx_native::phase::resource_refusal(&refusal, &error);
-            refusal
-        })
-    }
-}
-
 impl cpg_extract::bundle::ProviderSink for ProducerOutput {
     fn cancelled(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
         Box::pin(self.workspace.cancellation.cancelled())
@@ -3516,6 +3455,60 @@ mod tests {
     use lctx_model::domain::input::Package;
     fn model() -> Arc<ValidatedModel> {
         Arc::new(ValidatedModel::declared(vec![Relation::of::<Package>()]).unwrap())
+    }
+    #[tokio::test]
+    async fn workspace_constructors_reuse_native_budget_and_share_the_drained_admission_memo() {
+        for explicit in [false, true] {
+            let budget = ResourceBudget::fixed(32 << 20).unwrap();
+            let native = crate::test_native::store_with_budget(budget.clone());
+            let options = WorkspaceOptions {
+                memory_bytes: budget.limit(),
+                ..Default::default()
+            };
+            let foreign = ResourceBudget::fixed(budget.limit()).unwrap();
+            assert!(matches!(
+                Workspace::with_budget(model(), options, foreign.clone(), native.clone()),
+                Err(ModelError::Conflict(
+                    "workspace native resource pool correspondence"
+                ))
+            ));
+            assert_eq!(
+                foreign.reserved(),
+                0,
+                "foreign pool is refused before workspace admission"
+            );
+            assert!(Workspace::new(model(), WorkspaceOptions::default(), native.clone()).is_err());
+            let workspace = if explicit {
+                Workspace::with_budget(model(), options, budget.clone(), native.clone())
+            } else {
+                Workspace::new(model(), options, native.clone())
+            }
+            .unwrap();
+            assert!(workspace.budget.shares_pool(&budget));
+            assert!(
+                native
+                    .recovery_budget()
+                    .unwrap()
+                    .unwrap()
+                    .shares_pool(&budget)
+            );
+            assert!(Arc::ptr_eq(
+                &workspace.admission_memo,
+                &workspace.execution.admission_memo
+            ));
+            let mut finality = workspace.drain_owned_report().await;
+            finality.merge(native.abandon_finality_report().await);
+            let signal = workspace.complete_signal(&finality).await;
+            finality.step("workspace constructor control signal", signal);
+            lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
+            drop(workspace);
+            drop(native);
+            assert_eq!(
+                budget.reserved(),
+                0,
+                "actual owners release after explicit finality and drop"
+            );
+        }
     }
     #[tokio::test]
     async fn borrowed_admission_runtime_retains_producer_lifetime_until_explicit_drain() {
@@ -3819,7 +3812,7 @@ mod tests {
         assert!(cell.set(prepared).is_ok());
         let access = CompletedInputs {
             attempt: Arc::new(WorkspaceFiles {
-                directory: tempfile::tempdir().unwrap(),
+                _directory: tempfile::tempdir().unwrap(),
             }),
             model: ContentHash::of(b"model"),
             program: ContentHash::of(b"program"),
@@ -3951,7 +3944,7 @@ mod tests {
         assert!(cell.set(prepared).is_ok());
         let access = CompletedInputs {
             attempt: Arc::new(WorkspaceFiles {
-                directory: tempfile::tempdir().unwrap(),
+                _directory: tempfile::tempdir().unwrap(),
             }),
             model: ContentHash::of(b"model"),
             program: ContentHash::of(b"program"),
@@ -4516,7 +4509,7 @@ mod tests {
                 partitions: 1,
                 batch_rows: batch,
             },
-            crate::test_native::store(),
+            crate::test_native::store_with_limit(memory),
         )
         .unwrap();
         let inputs = workspace.inputs("packages", Profile::Catalog, []).unwrap();
@@ -4990,15 +4983,18 @@ mod tests {
         );
         assert!(output.finish(ProviderOutcome::Complete).await.is_err());
         assert!(workspace.completed::<Package>().is_err());
-        let budget = ResourceBudget::fixed(4096).unwrap();
+        // Establish the real native owner first. This control concerns an ignored row
+        // refusal with4KiB available, not a promise to bootstrap native storage in4KiB.
+        let budget =
+            ResourceBudget::fixed(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES).unwrap();
         let constrained = Workspace::with_budget(
             model(),
             WorkspaceOptions {
-                memory_bytes: 4096,
+                memory_bytes: budget.limit(),
                 ..Default::default()
             },
-            budget,
-            crate::test_native::store(),
+            budget.clone(),
+            crate::test_native::store_with_budget(budget),
         )
         .unwrap();
         let output = constrained.output(
@@ -5011,6 +5007,13 @@ mod tests {
             [<Package>::NAME],
         );
         output.declare::<Package>().unwrap();
+        let pressure = constrained
+            .budget()
+            .reserve(
+                "ignored row refusal pressure",
+                constrained.budget().limit() - constrained.budget().reserved() - 4096,
+            )
+            .unwrap();
         assert!(
             output
                 .push(Package {
@@ -5019,8 +5022,16 @@ mod tests {
                 .await
                 .is_err()
         );
+        drop(pressure);
         assert!(output.finish(ProviderOutcome::Complete).await.is_err());
         assert!(constrained.completed::<Package>().is_err());
+        for workspace in [workspace, constrained] {
+            let mut finality = workspace.drain_owned_report().await;
+            finality.merge(workspace.native.abandon_finality_report().await);
+            let signal = workspace.complete_signal(&finality).await;
+            finality.step("row refusal control signal", signal);
+            lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
+        }
     }
     #[tokio::test]
     async fn conflicting_payload_refuses_the_whole_output_set() {

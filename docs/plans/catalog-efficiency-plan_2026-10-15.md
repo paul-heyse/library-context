@@ -265,6 +265,30 @@ review found no concrete defect in the bootstrap classification, proof or resume
 it ran no checks and does not extend the coordinator's native receipt. Actual composition/admission/Base/
 Summary/lexical/reconstruction controls, default CE80, CE90 and CE99 remain open.
 
+**Native pre-cutover defects, 2026-10-16:** run`20261016T082829.848Z-8fa3c5` / nextest
+`27e56368-4a36-40aa-a480-8600cad7717c` failed100: all5 composition/admission controls failed
+before their intended assertions. Host cleanup is confirmed; attachment
+`e001cd4c-05ef-49f7-8fc4-42c5d7457263` retains native Unknown on the rehearsal target.
+Two installed-view paths lost the pin-owned recovery task context in nested audit workers/receiving
+effects; the bounded native correction carries the actual scope and shares the existing CAS.
+Three workspace controls independently constructed a new budget after the native factory already
+borrowed its actual pool. The async path exposed that Conflict; synchronous bridge cancellation
+masked it as compilation cancelled. Production explicit-budget callers already prepare the actual
+pool first, but their constructor also retained a stale duplicate admission memo. The shared constructor now builds runtime, scope programs and admission memo once around the
+actual native pool; custom fixtures prepare that pool before factory/session creation. Neither
+borrowed-pool enforcement nor recovery authorization is weakened. These corrections require
+current compile/Clippy, fresh owned generation and the same native rerun before default cutover.
+Original failures/Unknown remain unchanged. Default target has not been mutated.
+
+The owner repairs are implemented and independently source-reviewed without a concrete defect.
+The row-refusal control establishes native setup first, then leaves4KiB available for its5,000-byte
+row; refusal, ignored-error latching, non-completion and explicit finality remain asserted.
+Initial repair hygiene`20261016T084837.117Z-4a2f72` failed101 on drops after consuming finish and
+an unread RAII field. Those fixture/field corrections are applied. Full workspace/all-target
+compile and strict keep-going Clippy rerun`20261016T085740.209Z-762e44` passed0, cleanup confirmed,
+without warnings/errors. Current CLI/native preparation, fresh rehearsal generation and the same
+native controls remain prerequisites to default cutover; they are not yet passed.
+
 
 This section alone owns current execution disposition for this review's scope. The approved
 CE00/CD00/CN00–CN05 slice is **implemented / focused-Tested, 2026-10-15**, based at

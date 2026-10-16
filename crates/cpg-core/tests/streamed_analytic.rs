@@ -197,7 +197,7 @@ async fn run(data: &TextData, requested: bool, memory: usize, batch_rows: usize)
             batch_rows,
             partitions: 1,
         },
-        crate::native_fixture::store(),
+        crate::native_fixture::store_with_limit(memory),
     )
     .unwrap();
     let output = workspace.output(
@@ -426,7 +426,7 @@ async fn actual_embedding_frames_share_nonadjacent_exact_winners_without_a_cache
             batch_rows: 8,
             partitions: 1,
         },
-        crate::native_fixture::store(),
+        crate::native_fixture::store_with_limit(4 << 20),
     )
     .unwrap();
     let facts = workspace.output(

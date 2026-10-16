@@ -19,8 +19,8 @@ async fn compile(
             memory_bytes: budget.limit(),
             ..Default::default()
         },
-        budget,
-        crate::native_fixture::store(),
+        budget.clone(),
+        crate::native_fixture::store_with_budget(budget),
     )
     .unwrap();
     cpg_core::facts::compile_facts(
@@ -183,8 +183,8 @@ async fn real_pyrefly_document_predecessor(profiles: impl IntoIterator<Item = Pr
                 batch_rows: 17,
                 ..Default::default()
             },
-            resources,
-            crate::native_fixture::store(),
+            resources.clone(),
+            crate::native_fixture::store_with_budget(resources),
         )
         .unwrap();
         let providers = cpg_core::facts::providers(ContentHash::of(b"real-native-predecessor"))
@@ -271,7 +271,7 @@ async fn availability_reuses_exact_admission_and_refuses_changed_invalid_members
             Option<Arc<Workspace>>,
         );
         fn owned_workspace(resources: ResourceBudget, attempts: &mut Vec<Attempt>) -> Arc<Workspace> {
-            let native = native_fixture::store();
+            let native = native_fixture::store_with_budget(resources.clone());
             attempts.push((native.clone(), None));
             let workspace = Workspace::with_budget(
                 Arc::new(model().unwrap()),

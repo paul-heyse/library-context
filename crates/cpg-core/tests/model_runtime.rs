@@ -53,14 +53,17 @@ async fn compute_and_external_reservations_share_one_compiler_pool() {
             partitions: 1,
             ..Default::default()
         },
-        crate::native_fixture::store(),
+        crate::native_fixture::store_with_limit(32 * 1024 * 1024),
     )
     .unwrap();
     let budget = workspace.budget().clone();
     let empty = workspace.inputs("compute", Profile::Catalog, []).unwrap();
     let first = empty.session(&workspace).await.unwrap();
     let second = empty.session(&workspace).await.unwrap();
-    let allocation = budget.reserve("producer", budget.limit()).unwrap();
+    let baseline = budget.reserved();
+    let allocation = budget
+        .reserve("producer", budget.limit() - baseline)
+        .unwrap();
     assert!(budget.reserve("validator", 1).is_err());
     let query = "SELECT v FROM generate_series(1, 20000) AS t(v) ORDER BY v DESC";
     assert!(first.sql(query).await.unwrap().collect().await.is_err());
@@ -79,14 +82,19 @@ async fn compute_and_external_reservations_share_one_compiler_pool() {
     assert_eq!(rows.iter().map(|b| b.num_rows()).sum::<usize>(), 2000000);
     assert_eq!(
         budget.reserved(),
-        8 * 1024 * 1024,
-        "external reservation survives bounded compute"
+        baseline + 8 * 1024 * 1024,
+        "external reservation and actual native owners survive bounded compute"
     );
     drop(rows);
     drop(retained);
     drop(first);
     drop(second);
     drop(empty);
+    let mut finality = workspace.drain_owned_report().await;
+    finality.merge(workspace.native().abandon_finality_report().await);
+    let signal = workspace.complete_signal(&finality).await;
+    finality.step("compute control signal", signal);
+    completion::complete(Ok(()), finality).unwrap();
     drop(workspace);
     assert_eq!(budget.reserved(), 0);
 }

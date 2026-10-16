@@ -436,7 +436,7 @@ async fn run(data: &mut RelationData, memory: usize, batch_rows: usize) -> Arc<W
             batch_rows,
             partitions: 1,
         },
-        crate::native_fixture::store(),
+        crate::native_fixture::store_with_limit(memory),
     )
     .unwrap();
     let facts = workspace.output(
@@ -557,8 +557,12 @@ async fn empty_completed_scopes_finish_without_diagnostic_replay() {
 async fn wide_source_uses_workspace_sort_and_streams_ownership_under_a_small_budget() {
     async fn run_wide(options: WorkspaceOptions) -> Vec<(&'static str, ContentHash, u64)> {
         let model = Arc::new(model().unwrap());
-        let workspace =
-            Workspace::new(model.clone(), options, crate::native_fixture::store()).unwrap();
+        let workspace = Workspace::new(
+            model.clone(),
+            options,
+            crate::native_fixture::store_with_limit(options.memory_bytes),
+        )
+        .unwrap();
         let facts = workspace.output(
             "wide-scope-fixture",
             Profile::Catalog,

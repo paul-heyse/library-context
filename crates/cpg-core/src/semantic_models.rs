@@ -708,7 +708,7 @@ mod selected_catalog_controls {
                 partitions: 1,
                 batch_rows: 16,
             },
-            crate::test_native::store(),
+            crate::test_native::store_with_limit(128 << 20),
         )
         .unwrap();
         let access = runtime
@@ -758,7 +758,7 @@ mod selected_catalog_controls {
                 partitions: 1,
                 batch_rows: 16,
             },
-            crate::test_native::store(),
+            crate::test_native::store_with_limit(128 << 20),
         )
         .unwrap();
         let parsed = models::Catalog::parse(

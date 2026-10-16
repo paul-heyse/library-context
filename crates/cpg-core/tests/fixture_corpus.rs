@@ -185,7 +185,7 @@ async fn run_profile(case: &str, profile: Profile) {
                 ..Default::default()
             },
             resources.clone(),
-            crate::native_fixture::store(),
+            crate::native_fixture::store_with_budget(resources.clone()),
         )?;
         cpg_core::facts::compile_facts(
             &workspace,
@@ -349,7 +349,7 @@ async fn representative_fixtures_preserve_semantics_across_workspace_batching_an
                         batch_rows,
                     },
                     resources.clone(),
-                    crate::native_fixture::store(),
+                    crate::native_fixture::store_with_budget(resources.clone()),
                 )
                 .unwrap();
                 cpg_core::facts::compile_facts(
@@ -363,6 +363,11 @@ async fn representative_fixtures_preserve_semantics_across_workspace_batching_an
                 .unwrap();
                 workspace.validate().await.unwrap();
                 contents.push(workspace.identity().unwrap());
+                let mut finality = workspace.drain_owned_report().await;
+                finality.merge(workspace.native().abandon_finality_report().await);
+                let signal = workspace.complete_signal(&finality).await;
+                finality.step("batching control signal", signal);
+                lctx_model::domain::completion::complete(Ok(()), finality).unwrap();
                 drop(workspace);
                 assert_eq!(resources.reserved(), 0);
             }

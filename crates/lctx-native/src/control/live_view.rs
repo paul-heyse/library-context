@@ -117,6 +117,16 @@ pub(crate) async fn transfer_expected(
     expected: &ExpectedRecord,
     budget: &ResourceBudget,
 ) -> Result<(), ModelError> {
+    let recovery = pin
+        .recovery_scope()
+        .ok_or(ModelError::Conflict("native pin recovery owner missing"))?;
+    with_recovery_scope(recovery, transfer_expected_inner(pin, expected, budget)).await
+}
+async fn transfer_expected_inner(
+    pin: &ReaderPin,
+    expected: &ExpectedRecord,
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
     pin.ensure_live()?;
     let owner = RecordId::new("native_pin", pin.identity.hex());
     let (_, holds, mut variables) =
@@ -145,6 +155,16 @@ pub(crate) async fn transfer_expected(
 /// Independent receiving CAS pages over an already deduplicated opaque inventory.
 /// Each page compares every exact source row before installing any of its holds.
 pub(crate) async fn transfer_expected_many(
+    pin: &ReaderPin,
+    records: &[std::sync::Arc<ExpectedRecord>],
+    budget: &ResourceBudget,
+) -> Result<(), ModelError> {
+    let recovery = pin
+        .recovery_scope()
+        .ok_or(ModelError::Conflict("native pin recovery owner missing"))?;
+    with_recovery_scope(recovery, transfer_expected_many_inner(pin, records, budget)).await
+}
+async fn transfer_expected_many_inner(
     pin: &ReaderPin,
     records: &[std::sync::Arc<ExpectedRecord>],
     budget: &ResourceBudget,

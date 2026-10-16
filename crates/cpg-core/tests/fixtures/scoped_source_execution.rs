@@ -117,7 +117,7 @@ async fn run(profile: Profile) {
             partitions: 1,
             batch_rows: 7,
         },
-        crate::native_fixture::store(),
+        crate::native_fixture::store_with_limit(1 << 30),
     )
     .unwrap();
     let captured = runtime::capture("scoped_source_execution", profile, workspace.budget());

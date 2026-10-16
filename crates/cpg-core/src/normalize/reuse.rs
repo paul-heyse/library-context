@@ -176,28 +176,23 @@ mod controls {
             &std::env::var("LCTX_COMPILER_RUNTIME_CONFIG").expect("owned native fixture"),
         ))
         .unwrap();
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(64 << 20).unwrap();
         let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             &config,
             Frontier::Facts,
-            &lctx_compiler_store::compiler::recovery_factory(
-                &config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &lctx_compiler_store::compiler::recovery_factory(&config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
         let model = Arc::new(lctx_model::domain::model().unwrap());
-        let workspace = Workspace::new(
+        let workspace = Workspace::with_budget(
             model.clone(),
             crate::workspace::WorkspaceOptions {
                 memory_bytes: 64 << 20,
                 ..Default::default()
             },
+            budget,
             native,
         )
         .unwrap();

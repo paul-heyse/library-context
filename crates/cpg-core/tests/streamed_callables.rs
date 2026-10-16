@@ -212,7 +212,7 @@ async fn run(data: &CallableData, memory: usize, batch_rows: usize) -> Arc<Works
             batch_rows,
             partitions: 1,
         },
-        crate::native_fixture::store(),
+        crate::native_fixture::store_with_limit(memory),
     )
     .unwrap();
     let facts = workspace.output(

@@ -30,7 +30,9 @@ async fn compiled_case(
             batch_rows,
             ..Default::default()
         },
-        crate::native_fixture::store(),
+        crate::native_fixture::store_with_limit(
+            memory.unwrap_or_else(|| WorkspaceOptions::default().memory_bytes),
+        ),
     )
     .unwrap();
     let captured = runtime::capture(case, profile, workspace.budget());

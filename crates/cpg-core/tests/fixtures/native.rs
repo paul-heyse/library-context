@@ -1,6 +1,6 @@
 //! Compiler controls require the owned disposable authenticated native fixture.
 use lctx_compiler_store::compiler::NativeCompilerStore;
-use lctx_model::domain::admission::Frontier;
+use lctx_model::domain::{admission::Frontier, resources::ResourceBudget};
 use lctx_native::RuntimeConfig;
 use std::sync::{Arc, OnceLock};
 #[allow(
@@ -8,6 +8,22 @@ use std::sync::{Arc, OnceLock};
     reason = "Shared fixture serves controls that create native workspaces"
 )]
 pub fn store() -> Arc<NativeCompilerStore> {
+    store_with_limit(lctx_model::domain::resources::DEFAULT_MEMORY_BYTES)
+}
+#[allow(
+    dead_code,
+    reason = "Shared fixture preserves each control's requested native/workspace limit"
+)]
+pub fn store_with_limit(memory_bytes: usize) -> Arc<NativeCompilerStore> {
+    store_with_budget(
+        ResourceBudget::fixed(memory_bytes).expect("owned native control recovery budget"),
+    )
+}
+#[allow(
+    dead_code,
+    reason = "Shared fixture accepts the control's actual pool before native preparation"
+)]
+pub fn store_with_budget(budget: ResourceBudget) -> Arc<NativeCompilerStore> {
     let path = std::env::var("LCTX_COMPILER_RUNTIME_CONFIG")
         .expect("owned disposable compiler runtime configuration is required");
     let config = RuntimeConfig::read(std::path::Path::new(&path)).unwrap();
@@ -24,19 +40,13 @@ pub fn store() -> Arc<NativeCompilerStore> {
     std::thread::spawn(move || {
         tracing::dispatcher::with_default(&dispatch, || {
             span.in_scope(|| {
+                let factory = lctx_compiler_store::compiler::recovery_factory(&config, budget)
+                    .expect("owned native control factory");
                 runtime
                     .block_on(NativeCompilerStore::begin(
                         &config,
                         Frontier::Catalog,
-                        &lctx_compiler_store::compiler::recovery_factory(
-                            &config,
-                            (lctx_model::domain::resources::ResourceBudget::fixed(
-                                lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                            )
-                            .expect("owned native control recovery budget"))
-                            .clone(),
-                        )
-                        .expect("owned native control factory"),
+                        &factory,
                     ))
                     .unwrap()
             })

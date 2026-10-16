@@ -179,24 +179,22 @@ async fn run_with_analytics(
             "scoped replay observation must be enabled"
         );
         let setup = lctx_native::phase::Phase::begin("reuse_control_setup");
+        let budget = lctx_model::domain::resources::ResourceBudget::fixed(
+            WorkspaceOptions::default().memory_bytes,
+        )
+        .unwrap();
         let native = lctx_compiler_store::compiler::NativeCompilerStore::begin(
             config,
             frontier,
-            &lctx_compiler_store::compiler::recovery_factory(
-                config,
-                (lctx_model::domain::resources::ResourceBudget::fixed(
-                    lctx_model::domain::resources::DEFAULT_MEMORY_BYTES,
-                )
-                .expect("owned native control recovery budget"))
-                .clone(),
-            )
-            .expect("owned native control factory"),
+            &lctx_compiler_store::compiler::recovery_factory(config, budget.clone())
+                .expect("owned native control factory"),
         )
         .await
         .unwrap();
-        let workspace = Workspace::new(
+        let workspace = Workspace::with_budget(
             Arc::new(model().unwrap()),
             WorkspaceOptions::default(),
+            budget,
             native,
         )
         .unwrap();

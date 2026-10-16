@@ -458,8 +458,11 @@ impl InstallationAudit {
                 let barrier = BLOB_OBSERVATION_BARRIER.try_with(Clone::clone).ok();
                 let mut owner = self.clone();
                 owner.worker = true;
+                // Tokio task locals do not cross spawn. The preparation belongs
+                // to this retained pin, not to whichever waiter observes it.
+                let recovery = owner.pin.recovery_scope();
                 let worker_charge = charge.clone();
-                let task = tokio::spawn(async move {
+                let work = async move {
                     let _charge = charge;
                     struct Terminal {
                         pin: std::sync::Arc<crate::control::ReaderPin>,
@@ -504,6 +507,12 @@ impl InstallationAudit {
                         }
                     }
                     let _ = send.send(result);
+                };
+                let task = tokio::spawn(async move {
+                    match recovery {
+                        Some(scope) => crate::control::with_recovery_scope(scope, work).await,
+                        None => work.await,
+                    }
                 });
                 self.work
                     .workers

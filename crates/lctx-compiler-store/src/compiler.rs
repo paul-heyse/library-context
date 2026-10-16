@@ -993,6 +993,18 @@ impl NativeCompilerStore {
                 "native source recovery requires its caller resource pool",
             ))
     }
+    /// The actual attached recovery pool, if this source has already been bound.
+    /// Workspace convenience construction must reuse this pool rather than replacing
+    /// the resource owner retained by the factory/session lease.
+    pub fn recovery_budget(&self) -> Result<Option<ResourceBudget>, ModelError> {
+        Ok(self
+            .admission
+            .recovery
+            .lock()
+            .map_err(|_| ModelError::Conflict("native source recovery owner"))?
+            .as_ref()
+            .map(|scope| scope.budget().clone()))
+    }
     /// Read-only exact publication context. This imports no runtime attempt ownership and
     /// creates no database or schema; pins belong to the published reader owner.
     pub async fn from_publication(

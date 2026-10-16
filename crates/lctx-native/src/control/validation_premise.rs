@@ -462,33 +462,7 @@ impl PendingValidation {
             .reader
             .scope_pin()
             .ok_or(ModelError::Conflict("native premise receiving pin missing"))?;
-        let mut variables = Variables::new();
-        variables.insert("premise", expected.record().clone());
-        variables.insert(
-            "premise_guard",
-            guard_id(&Value::RecordId(expected.record().clone()))?,
-        );
-        variables.insert("premise_incarnation", expected.incarnation());
-        variables.insert("premise_bytes", expected.row().clone());
-        let (_, hold, bindings) = hold_plan(
-            None,
-            vec![(
-                RecordId::new("native_pin", pin.identity.hex()),
-                expected.record().clone(),
-            )],
-        )?
-        .ok_or(ModelError::Schema("native premise pin plan"))?;
-        merge_plan_bindings(&mut variables, bindings)?;
-        let sql = format!(
-            "LET $guard=SELECT * FROM ONLY $premise_guard FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$premise_incarnation OR (SELECT * FROM ONLY $premise)!=$premise_bytes {{ THROW 'native premise receipt changed'; }}; {hold}"
-        );
-        effect_for_owner(
-            self.reader.client(),
-            EffectOwner::Pin(RecordId::new("native_pin", pin.identity.hex())),
-            &sql,
-            variables,
-        )
-        .await?;
+        super::live_view::transfer_expected(&pin, &expected, &self.budget).await?;
         self.current().await?;
         Ok(true)
     }
@@ -713,11 +687,14 @@ impl PendingValidation {
         let sql = format!(
             "IF $__generation!=$premise_generation OR $__installation.validity_epoch!=$premise_validity {{ THROW 'native premise installation changed'; }}; FOR $input IN $premise_inputs {{ LET $guard_id=$input.guard; LET $guard=SELECT * FROM ONLY $guard_id FOR UPDATE; IF $guard.phase!='active' OR $guard.incarnation!=$input.incarnation OR (SELECT * FROM ONLY $input.record)!=$input.bytes {{ THROW 'native premise protected input changed'; }}; }}; {insert}; {holds}"
         );
-        effect_for_owner(
-            self.reader.client(),
-            EffectOwner::Installation,
-            &sql,
-            variables,
+        with_recovery_scope(
+            self.reader.recovery_scope()?,
+            effect_for_owner(
+                self.reader.client(),
+                EffectOwner::Installation,
+                &sql,
+                variables,
+            ),
         )
         .await?;
         self.current().await?;
