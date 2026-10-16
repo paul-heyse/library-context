@@ -100,6 +100,7 @@ impl Drop for ReadFinalizationGuard {
 }
 struct ExactViewSelection {
     references: Vec<crate::completed_state::InstalledViewRef>,
+    receiving: Option<crate::installed_view::ReceivingViews>,
     // Live/compiler selections retain the capabilities that chose these copies.
     // Published/completed selections instead retain their enclosing pin/page owner.
     _installed: Vec<Arc<crate::installed_view::HeldInstalledView>>,
@@ -239,8 +240,10 @@ impl ReaderScope {
             pin.retain_unknown();
         }
         if let Some(exact) = &self.exact {
-            for view in &exact._installed {
-                view.retain_unknown();
+            if exact.receiving.is_none() {
+                for view in &exact._installed {
+                    view.retain_unknown();
+                }
             }
         }
     }
@@ -1194,6 +1197,32 @@ impl<Context> NativeReader<Context> {
             scope.ensure_live()?;
         }
         Ok(())
+    }
+    /// Reuse only the complete immutable premise earned by this actual operation.
+    /// Pointer identity selects its exact manifest; the receiver/source owner supplies
+    /// physical protection, client/pool correspondence and context validity.
+    pub(crate) fn holds_installed_premise(
+        &self,
+        view: &crate::installed_view::HeldInstalledView,
+        budget: &lctx_model::domain::resources::ResourceBudget,
+    ) -> Result<bool, ModelError> {
+        self.ensure_scope_live()?;
+        let Some(scope) = &self.scope else { return Ok(false); };
+        let Some(exact) = &scope.exact else { return Ok(false); };
+        if let Some(receiving) = &exact.receiving {
+            return receiving.ensure_for(view, &self.client, budget);
+        }
+        if let Some(borrowed) = &scope.borrowed {
+            if exact._installed.iter().any(|selected| std::ptr::eq(selected.as_ref(), view)) {
+                if !Arc::ptr_eq(&borrowed.client, &self.client) {
+                    return Err(ModelError::Conflict("borrowed premise foreign client"));
+                }
+                view.check_borrowed_local(&self.client, budget)?;
+                borrowed.ensure_live()?;
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
     pub(crate) fn matches_installed_views(
         &self,
@@ -2757,6 +2786,7 @@ impl NativeReader<()> {
                 views: logical,
                 exact: Some(Arc::new(ExactViewSelection {
                     references: vec![],
+                    receiving: None,
                     _installed: installed,
                     _charge: charge,
                 })),
@@ -2843,11 +2873,11 @@ impl NativeReader<()> {
             setup.pin = Some(pin.clone());
             let reader = Self::private(client.clone()).with_budget(budget);
             let result = async {
-                crate::installed_view::protect_receiving_views(views, &pin, &reader, budget)
+                let receiving = crate::installed_view::protect_receiving_views(views, &pin, &reader, budget)
                     .await?;
                 // The exact native capabilities own these selectors already. Mechanical
                 // selection borrows them; no duplicate compound descriptor is retained.
-                Ok(Vec::<crate::completed_state::InstalledViewRef>::new())
+                Ok((Vec::<crate::completed_state::InstalledViewRef>::new(), receiving))
             }
             .await;
             // Mark uncertainty before any cleanup can release the pin or drop a
@@ -2862,8 +2892,8 @@ impl NativeReader<()> {
             let mut terminal = lctx_model::domain::completion::Completion::default();
             terminal.step("installed reader setup private transport close", closed);
             let result = lctx_model::domain::completion::complete(result, terminal);
-            let references = match result {
-                Ok(references) => references,
+            let (references, receiving) = match result {
+                Ok(result) => result,
                 Err(error) => {
                     if !setup.permits_cleanup(&error) {
                         return Err(error);
@@ -2890,7 +2920,8 @@ impl NativeReader<()> {
                     return result;
                 }
             };
-            let installed = std::mem::take(&mut setup.views);
+            let installed = receiving.views().to_vec();
+            setup.views.clear(); // Complete receiving copies no longer retain source pin owners.
             let pin = setup.pin.take().expect("earned installed reader pin");
             setup.confirmed = true;
             Ok(Self {
@@ -2913,6 +2944,7 @@ impl NativeReader<()> {
                     views: logical,
                     exact: Some(Arc::new(ExactViewSelection {
                         references,
+                        receiving: Some(receiving),
                         _installed: installed,
                         _charge: charge,
                     })),

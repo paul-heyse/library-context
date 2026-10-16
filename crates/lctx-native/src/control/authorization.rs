@@ -630,6 +630,9 @@ pub(super) struct PreparedOwnerEffect {
     plan: OwnerEffectPlan,
 }
 impl PreparedOwnerEffect {
+    pub(super) fn request(&self) -> NativeRequest {
+        self.request
+    }
     pub(super) fn bytes(&self) -> Result<usize, ModelError> {
         Ok(
             super::immutable_window::plan_bytes(&self.plan.query, &self.plan.bindings)?.max(

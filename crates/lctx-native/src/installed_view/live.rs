@@ -28,25 +28,32 @@ impl SelectedMembers {
     }
 }
 struct InstalledMemberLifetime {
-    owner: Arc<HeldInstalledView>,
+    owner: Option<Arc<HeldInstalledView>>,
+    reader: crate::NativeReader<()>,
     confirmed: bool,
 }
 impl Drop for InstalledMemberLifetime {
     fn drop(&mut self) {
         if !self.confirmed {
-            self.owner.retain_unknown();
+            self.reader.retain_unknown();
+            if let Some(owner) = &self.owner {
+                owner.retain_unknown();
+            }
         }
     }
 }
 impl HeldInstalledView {
     /// A live consumer may borrow the exact immutable premises already earned
-    /// beneath an internal source pin. Retained owners keep their full checks.
+    /// beneath an internal source pin or this operation's complete receiving pin.
     pub async fn ensure_borrowed_current(
         &self,
         reader: &crate::NativeReader<()>,
         budget: &ResourceBudget,
     ) -> Result<(), ModelError> {
         self.require_pool(budget)?;
+        if reader.holds_installed_premise(self, budget)? {
+            return Ok(());
+        }
         if let InstalledViewOwner::Earned { set } = &self.owner {
             return set.ensure_borrowed_current(reader, budget).await;
         }
@@ -180,6 +187,8 @@ impl HeldInstalledView {
             keys.len().saturating_mul(64).saturating_add(4096),
         )?;
         let owner = self.clone();
+        let protected = reader.holds_installed_premise(self, budget)?;
+        let observed_reader = reader.clone();
         let reader = reader.clone();
         let driver_budget = budget.clone();
         let keys = keys.to_vec();
@@ -189,7 +198,8 @@ impl HeldInstalledView {
             crate::reader::NativeRows::owned(budget.clone(), move |sender| async move {
                 let _setup = setup;
                 let mut lifetime = InstalledMemberLifetime {
-                    owner: owner.clone(),
+                    owner: (!protected).then(|| owner.clone()),
+                    reader: reader.clone(),
                     confirmed: false,
                 };
                 let result = owner.members_inner(&reader, &keys, &driver_budget).await;
@@ -259,7 +269,10 @@ impl HeldInstalledView {
             .err()
             .is_some_and(|error| !error.permits_storage_cleanup())
         {
-            self.retain_unknown();
+            observed_reader.retain_unknown();
+            if !protected {
+                self.retain_unknown();
+            }
         }
         result
     }
@@ -344,7 +357,7 @@ pub(crate) fn recovery_view(
         client,
         completion,
         InstalledViewOwner::Recovery {
-            expected,
+            expected: Arc::new(expected),
             pin,
             owner,
             inventory,
@@ -371,7 +384,7 @@ pub async fn hold_published_view(
         reader.shared_client(),
         installed,
         InstalledViewOwner::Published {
-            expected,
+            expected: Arc::new(expected),
             completed: completed.clone(),
             owner,
         },
@@ -401,7 +414,7 @@ pub async fn hold_frozen_view(
             client.clone(),
             installed,
             InstalledViewOwner::Frozen {
-                expected,
+                expected: Arc::new(expected),
                 completed,
                 owner,
             },
@@ -436,7 +449,7 @@ pub async fn hold_physical_view(
             client.clone(),
             installed,
             InstalledViewOwner::Physical {
-                expected,
+                expected: Arc::new(expected),
                 completed,
                 owner,
             },
