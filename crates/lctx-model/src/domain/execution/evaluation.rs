@@ -1907,6 +1907,11 @@ mod prepared_completion_tests {
         };
         let prepared =
             PreparedExecution::new(&data, request.input, request.context, &budget).unwrap();
+        let retained = budget.reserved();
+        assert!(
+            retained > 0,
+            "owned syntax remains admitted through its consumer"
+        );
         let exhaust = |syntax: &mut Evaluator<'_>| {
             syntax
                 .tick(super::super::completion::COMPLETION_WORK_LIMIT + 1)
@@ -1953,6 +1958,8 @@ mod prepared_completion_tests {
             prepared.with_completion_syntax(request, allocate).unwrap(),
             Ok(()),
         );
+        assert_eq!(budget.reserved(), retained);
+        drop(prepared);
         assert_eq!(budget.reserved(), 0);
     }
 }

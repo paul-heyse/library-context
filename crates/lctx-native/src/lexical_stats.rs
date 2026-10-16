@@ -780,9 +780,20 @@ mod tests {
         let client = std::sync::Arc::new(crate::surrealdb::Surreal::init());
         let a = ContentHash::of(b"a");
         let b = ContentHash::of(b"b");
-        let first = NativeReader::for_views(client.clone(), vec![a, b, a]);
-        let reordered = NativeReader::for_views(client.clone(), vec![b, a]);
-        let different = NativeReader::for_views(client, vec![a]);
+        let realization = ContentHash::of(b"native realization");
+        let unbound = NativeReader::for_views(client.clone(), vec![a, b]);
+        assert!(
+            scope_identity(&unbound).is_err(),
+            "derived scope needs exact realization"
+        );
+        let first =
+            NativeReader::for_views(client.clone(), vec![a, b, a]).with_derivation(realization);
+        let reordered =
+            NativeReader::for_views(client.clone(), vec![b, a]).with_derivation(realization);
+        let different =
+            NativeReader::for_views(client.clone(), vec![a]).with_derivation(realization);
+        let changed = NativeReader::for_views(client, vec![a, b])
+            .with_derivation(ContentHash::of(b"another realization"));
         assert_eq!(
             scope_identity(&first).unwrap(),
             scope_identity(&reordered).unwrap()
@@ -790,6 +801,10 @@ mod tests {
         assert_ne!(
             scope_identity(&first).unwrap(),
             scope_identity(&different).unwrap()
+        );
+        assert_ne!(
+            scope_identity(&first).unwrap(),
+            scope_identity(&changed).unwrap()
         );
     }
 }

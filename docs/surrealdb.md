@@ -71,8 +71,12 @@ Design-phase project regeneration is a separate explicitly destructive operation
 just service regenerate EXACT_INSTALLATION_ID --project-scopes main,validation --installer /absolute/current/lctx --server-generation /absolute/target-owned/record.json
 ```
 
-It refuses unexpected native namespaces/databases and external selections/recovery assets. Under
-exclusive admission and borrower ownership, it verifies current clients/leases and the exact daemon,
+It refuses unexpected native namespaces/databases and external selections/recovery assets. Only
+an exactly generated `main/main` namespace/database from the pinned server's bootstrap policy
+with no users, accesses, tables or other database definitions is recognized as empty bootstrap
+state. Missing/unknown fields or any contents refuse discard. New installations and replacements
+set `SURREAL_NO_DEFAULTS=true`; the replacement must contain only the explicit project scopes.
+Under exclusive admission and borrower ownership, it verifies current clients/leases and the exact daemon,
 stops the whole executor, discards project data and selected pointers, rotates generation/credentials,
 then initializes and checks both scopes before reopening. Installation ID, unit, endpoint and default
 binding remain. Old failed/Unknown receipts keep their outcomes; separate discard acknowledgements

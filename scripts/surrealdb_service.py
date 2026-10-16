@@ -51,6 +51,19 @@ SERVER_SETTINGS = {
     "SURREAL_GRPC_MAX_MESSAGE_SIZE": "128MiB",
     "SURREAL_EXPORT_BATCH_SIZE": str(EXPORT_BATCH_SIZE),
 }
+
+
+def _server_environment(username: str, password: str) -> dict[str, str]:
+    # Explicit installation owns every namespace/database; disable the server's unrelated
+    # main/main bootstrap on newly created datastores without rewriting existing targets.
+    return {
+        "SURREAL_USER": username,
+        "SURREAL_PASS": password,
+        "SURREAL_NO_DEFAULTS": "true",
+        **SERVER_SETTINGS,
+    }
+
+
 LIFECYCLE_PURPOSE = "surrealdb-lifecycle"
 # A remote client cannot enlarge this server-side ceiling. No outbound network,
 # scripting, guests or experimental feature is enabled by the beta connector.
@@ -925,7 +938,7 @@ def _install(
             for name in ("data", "tmp", "attachments", "serving"):
                 (root / name).mkdir(mode=0o700)
             root_user, root_pass = "library_context_installer", secrets.token_urlsafe(32)
-            server_env = {"SURREAL_USER": root_user, "SURREAL_PASS": root_pass, **SERVER_SETTINGS}
+            server_env = _server_environment(root_user, root_pass)
             private_json(root / "installation.json", record)
             environment = root / "server.env"
             environment.write_text("".join(f"{k}={v}\n" for k, v in server_env.items()))

@@ -609,7 +609,10 @@ stabilization retains its narrower contract; incompatible state uses current-des
 **Implemented / functional verification in progress, 2026-10-16:** explicit project regeneration
 requires the exact installation ID, both main/validation scopes, actual root/namespace inventory,
 exclusive host admission, current client/lease quiescence and authenticated whole-executor shutdown.
-Unexpected scopes and external selections/recovery assets refuse. An immutable private journal pins
+Unexpected scopes and external selections/recovery assets refuse. Only the pinned server's exactly
+generated, completely empty `main/main` bootstrap qualifies for discard alongside project scopes;
+all namespace/database INFO fields must match its empty contract. New targets disable automatic
+defaults, and successor inventory must have no bootstrap. An immutable private journal pins
 scope, candidates and predecessor/successor identities; intent precedes shutdown/discard and retries
 never discard successor data. Keep installation/unit/endpoint/default binding, rotate native
 generation and credentials, initialize/check current definitions, then reopen. Retire predecessor

@@ -189,7 +189,7 @@ not reasons to introduce runtime serialization.
 by default with explicit full mode, and explicit regeneration of exact project installation
 `58abe9ea-2088-4109-95ab-8440a3749c51` / `library_context` main+validation after authenticated
 drainage. External operator scopes/client registrations and unexpected scopes remain protected.
-Three executors own CA00, CA01/CA02, and CD01–CD03/selected-complete verification; root owns
+Three executors finished CA00, CA01/CA02, and CD01–CD03/selected-complete verification; root owns
 regeneration, decisions, integration, native target/controls and CE80–CE99. Storage blocker is
 cleared. Native/model source must settle before target generation/acceptance; no old runtime
 result or prior pass is promoted. CE99 remains handback only; old plans are not edited.
@@ -222,13 +222,48 @@ remaining material issue in inspected capture/retry/adoption and development sea
 tests and does not establish native acceptance. Both vendor diffs are formatter-only. ADR-0176
 records behavioral preparation and retained analytic products. Full Ruff/Pyrefly
 passed in managed run`20261016T074008.829Z-52fdb8`, cleanup confirmed. Whole root turn-end passed.
-Full workspace compile`20261016T074448.896Z-ac4ce8` is running. Docs check
+Full workspace compile`20261016T074448.896Z-ac4ce8` passed without warnings/errors. Strict keep-going
+Clippy`20261016T074830.919Z-dacdad` failed on the oversized owned/borrowed syntax enum. Source
+`100dd30e` boxes the owned value with budget admission before allocation; full strict rerun
+`20261016T075037.875Z-e3ddb9` passed without warnings/errors, cleanup confirmed. Post-fix full compile
+passed within `20261016T075822.033Z-481024`; that run is now refreshing the current release CLI.
+Analysis source is committed as `a5861f79`; development/regeneration source is `57bb3d8c`. Docs check
 `20261016T074449.177Z-dc2147` passed464 pages/zero link errors. The supplied technical reference's
 existing title was marked as H1 without changing its content; the earlier docs run also caught
 the then-unrefreshed ADR index and section metadata, both corrected before this pass.
 Native/persistence evidence remains open. ADR-0175 supersedes development discovery/observation
 clauses while carrying authenticated ownership/readiness/capture forward. CE80/default cutover,
 CE90 current-target acceptance and CE99 handback remain **not_run**. Original failed/Unknowns stay.
+
+**Current native rehearsal, 2026-10-16:** current release CLI/full compile passed together in
+`20261016T075822.033Z-481024`; `just sync native` passed in`20261016T080647.036Z-070288`.
+Fresh campaign`e1c54ff4-396c-425a-8b36-f49a753055b9` installation passed
+`20261016T080709.537Z-0b898c` using required peer`98274179…` and immutable installer`2b4a208c…`.
+Initial regeneration`20261016T080842.935Z-e3f3e8` blocked75 before mutation: pinned SurrealDB
+automatically creates a `main/main` bootstrap namespace/database. Exact server source and
+[primary documentation](https://github.com/surrealdb/docs.surrealdb.com/blob/main/src/content/reference/query-language/statements/info.mdx)
+confirm its generated definitions and the `SURREAL_NO_DEFAULTS` option. New installation/replacement
+configuration now disables defaults. Inventory recognizes only those exact generated definitions,
+root defaults, empty namespace users/accesses and a complete empty database INFO object; missing,
+unknown or populated fields refuse. The immutable discard proof binds this exact observation;
+successor inventory must omit bootstrap. Thirteen host controls passed, including refusal and
+interrupted-resume boundaries; scoped Ruff/full Pyrefly passed. The first host rerun caught the
+discard validator's old scope shape; corrected before the pass. Actual corrected regeneration
+`20261016T082043.824Z-dcad66` passed, cleanup confirmed, both scopes checked/reopened, successor
+generation`565263886dc6a0ff7d1f4e72a0273598147484a9f14641739b7d4417edd8589a`.
+Exact default inventory was observed read-only and has only project scopes plus the same empty
+generated bootstrap; it will be rechecked exclusively before discard. Default state is unchanged.
+
+Current pure selection`aa3bc647-efd7-4332-9776-f1267660b133` / managed
+`20261016T080739.691Z-f4ae7c` ran27:25 passed,2 failed. The completion control asserted zero budget
+while its newly charged owned syntax was live; it now checks retained ownership, temporary release
+and final drop separately. The lexical scope fixture omitted its required realization; it now
+binds it and verifies refusal when absent and distinct identity when changed. Production protection
+is unchanged. Rerun`20261016T081914.435Z-d06f4a` / nextest
+`9e2be416-cfbf-4fe3-a272-96c91662b88a` passed27, cleanup confirmed. Independent bounded source
+review found no concrete defect in the bootstrap classification, proof or resume correction;
+it ran no checks and does not extend the coordinator's native receipt. Actual composition/admission/Base/
+Summary/lexical/reconstruction controls, default CE80, CE90 and CE99 remain open.
 
 
 This section alone owns current execution disposition for this review's scope. The approved

@@ -2,14 +2,14 @@
 _Updated 2026-10-16 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
 **Catalog efficiency remaining scope through CE99 executing, 2026-10-16.** The
 [coordinator §6](docs/plans/catalog-efficiency-plan_2026-10-15.md#6-sole-disposition-and-current-checkpoint)
-owns decisions, exact receipts and limits. Baseline `86e1931c`; three executors own Base, Summary/analytics
-and development changes; root owns integration, approved project main+validation regeneration and acceptance.
+owns decisions, exact receipts and limits. Source through `100dd30e`; all three executors finished Base,
+Summary/analytics and development changes; root owns integration, approved project main+validation regeneration and acceptance.
 Lightweight source context is selected by default; full mode is explicit. Operator/external targets and
-unexpected scopes remain protected. Storage is available; both required-peer target-owned builds passed with confirmed cleanup.
+unexpected scopes remain protected. Required peers are built; owned regeneration rehearsal passed, default target unchanged.
 CN06/CN07/CC00–CC03 source through `13c4dfcf` is Interface-checked; prior6 Catalog/3 capture controls and
 full compile/strict Clippy/Ruff/Pyrefly/dependency/ADR checks passed. Outstanding runtime exits are not_run.
-CE00/CD00/CN00–CN05 prior focused-Tested through `29a1a689`; four old campaigns disposed. **Next:** frozen-source
-full compile/Clippy, focused native controls, CE80 regeneration, CE90 selected acceptance,
+CE00/CD00/CN00–CN05 prior focused-Tested through `29a1a689`; four old campaigns disposed. **Next:** current CLI/native
+preparation (full compile/strict Clippy passed), focused native controls, CE80 regeneration, CE90 selected acceptance,
 then CE99 handback. MCP runtime/embedding inference/real-library qualification and old-plan edits stay excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)
