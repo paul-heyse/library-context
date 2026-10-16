@@ -544,35 +544,6 @@ struct PreparedNativePayload<'a> {
     bindings: Variables,
     digest: ContentHash,
 }
-fn intent_bindings(payload: &Variables) -> Result<Variables, ModelError> {
-    let mut controls = Variables::new();
-    for key in [
-        "__effect",
-        "__request",
-        "__generation",
-        "__era",
-        "__outcome_ref",
-        "__reference_owner",
-        "__reference_kind",
-        "__attempt",
-        "__owner_id",
-        "__owner_kind",
-        "__attempt_slot",
-        "__stripe",
-    ] {
-        controls.insert(
-            key,
-            payload
-                .get(key)
-                .ok_or(ModelError::Schema("native intent control"))?
-                .clone(),
-        );
-    }
-    if let Some(epoch) = payload.get("__expected_epoch") {
-        controls.insert("__expected_epoch", epoch.clone());
-    }
-    Ok(controls)
-}
 impl<'a> PreparedNativePayload<'a> {
     fn new(sql: &'a str, bindings: Variables) -> Result<Self, ModelError> {
         let digest =
@@ -634,11 +605,7 @@ impl PreparedOwnerEffect {
         self.request
     }
     pub(super) fn bytes(&self) -> Result<usize, ModelError> {
-        Ok(
-            super::immutable_window::plan_bytes(&self.plan.query, &self.plan.bindings)?.max(
-                super::immutable_window::plan_bytes(&self.plan.intent, &self.plan.intent_bindings)?,
-            ),
-        )
+        super::immutable_window::plan_bytes(&self.plan.query, &self.plan.bindings)
     }
 }
 pub(super) async fn owner_issuance(
@@ -740,7 +707,7 @@ async fn execute_recorded(
     request.validate()?;
     // A recorded public request can outlive a format/era cut. Observation of its exact
     // retained committed receipt replays only the outcome, never old payload authority.
-    // Internal freshly issued effects keep their ordinary single intent/payload path.
+    // Internal freshly issued effects use the ordinary atomic apply path.
     let replay = if retain {
         Some(observe_request(client, request).await)
     } else {
@@ -791,8 +758,6 @@ async fn execute_recorded(
 }
 pub(super) struct OwnerEffectPlan {
     pub(super) query: String,
-    pub(super) intent: String,
-    pub(super) intent_bindings: Variables,
     pub(super) bindings: Variables,
     reference: RecordId,
     retain: bool,
@@ -805,18 +770,6 @@ pub(super) fn owner_effect_plan(
     sql: &str,
     bindings: Variables,
     retain: bool,
-) -> Result<OwnerEffectPlan, ModelError> {
-    lower_owner_effect_plan(request, owner, sql, bindings, retain, false)
-}
-// The candidate is exercised on a wholly owned native campaign before replacing
-// the production split. Both routes share exact preparation and guards.
-pub(super) fn lower_owner_effect_plan(
-    request: NativeRequest,
-    owner: &EffectOwner,
-    sql: &str,
-    bindings: Variables,
-    retain: bool,
-    atomic: bool,
 ) -> Result<OwnerEffectPlan, ModelError> {
     let mut bindings = bindings;
     request.bind(&mut bindings);
@@ -888,30 +841,8 @@ pub(super) fn lower_owner_effect_plan(
     } else {
         "LET $__attempt_context=NONE;".to_owned()
     };
-    let intent = format!(
-        "BEGIN; {ERA_GUARD} LET $__prior=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__prior=NONE {{ {authorization} IF $__epoch=NONE OR $__epoch<=0 {{ THROW 'native authorization epoch missing'; }}; fn::native_touch($__effect); CREATE $__effect SET attempt=$__attempt,owner=$__owner_id,owner_kind=$__owner_kind,generation=$__generation,era=$__era,request=$__request,committed=false,resolved=false,revision=0,epoch=$__epoch,attempt_slot=$__attempt_slot RETURN NONE; {participation} CREATE $__outcome_ref SET effect=$__effect,owner=$__reference_owner,kind=$__reference_kind RETURN NONE; }} ELSE {{ IF $__prior.request!=$__request OR $__prior.era!=$__era OR $__prior.generation!=$__generation OR $__prior.owner!=$__owner_id OR $__prior.owner_kind!=$__owner_kind OR $__prior.attempt!=$__attempt OR $__prior.attempt_slot!=$__attempt_slot {{ THROW 'native operation identity collision'; }}; }}; COMMIT;"
-    );
-    // Intent persists authorization and outcome identity, never the payload's row
-    // bindings. The full payload remains owned for its one later execution.
-    let intent_bindings = intent_bindings(&bindings)?;
-    let fence = if attempt.is_some() {
-        format!(
-            "LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.epoch!=$__epoch OR $__owner.era!=$__era OR $__owner.generation!=$__generation OR !({predicate}) {{ THROW 'native owner fenced'; }};"
-        )
-    } else if !installation_owner {
-        format!(
-            "fn::native_touch($__owner_id); LET $__owner=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__owner=NONE OR $__owner.epoch!=$__epoch OR $__owner.era!=$__era OR $__owner.generation!=$__generation OR !({predicate}) {{ THROW 'native owner fenced'; }}; fn::native_incidence($__owner);"
-        )
-    } else {
-        "fn::native_touch($__owner_id); LET $__local=SELECT * FROM ONLY $__owner_id FOR UPDATE; IF $__local=NONE OR $__local.state!='open' OR $__local.epoch!=$__epoch OR $__local.generation!=$__generation OR $__local.era!=$__era { THROW 'native local operation owner fenced'; };".into()
-    };
-    // A payload RETURN belongs to that payload, never the outer transaction.
-    // The closure catches RETURN while errors still abort payload and receipt together.
-    let split_query = format!(
-        "BEGIN; {ERA_GUARD} LET $__operation=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__operation=NONE OR $__operation.request!=$__request OR $__operation.era!=$__era OR $__operation.generation!=$__generation {{ THROW 'native operation fenced'; }}; IF $__operation.resolved {{ IF !$__operation.committed {{ THROW 'native operation fenced uncommitted'; }}; }} ELSE {{ IF $__operation.epoch<=0 {{ THROW 'native operation epoch missing'; }}; LET $__epoch=$__operation.epoch; fn::native_touch($__effect); {fence} {participation} {} LET $__payload=|| {{ {sql}; }}; LET $__payload_result=$__payload(); UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; IF $__operation.owner_kind='installation' {{ UPDATE $__owner_id SET state='done' RETURN NONE; }}; }}; COMMIT;",
-        coordination::EXPECTED_OBJECT_GUARD
-    );
-    let query = if atomic {
+    // A payload RETURN belongs to its closure; errors abort payload and outcome together.
+    let query = {
         let replay_epoch = if matches!(owner, EffectOwner::TerminalAttempt(_)) {
             "OR $__prior.epoch!=$__expected_epoch"
         } else {
@@ -926,15 +857,10 @@ pub(super) fn lower_owner_effect_plan(
             "BEGIN; {ERA_GUARD} LET $__prior=SELECT * FROM ONLY $__effect FOR UPDATE; IF $__prior=NONE {{ {authorization} IF $__epoch=NONE OR $__epoch<=0 {{ THROW 'native authorization epoch missing'; }}; fn::native_touch($__effect); CREATE $__effect SET attempt=$__attempt,owner=$__owner_id,owner_kind=$__owner_kind,generation=$__generation,era=$__era,request=$__request,committed=false,resolved=false,revision=0,epoch=$__epoch,attempt_slot=$__attempt_slot RETURN NONE; {participation} CREATE $__outcome_ref SET effect=$__effect,owner=$__reference_owner,kind=$__reference_kind RETURN NONE; {} LET $__payload=|| {{ {sql}; }}; LET $__payload_result=$__payload(); UPDATE $__effect SET committed=true,resolved=true,revision+=1 RETURN NONE; {finish_owner} }} ELSE {{ IF $__prior.request!=$__request OR $__prior.era!=$__era OR $__prior.generation!=$__generation OR $__prior.owner!=$__owner_id OR $__prior.owner_kind!=$__owner_kind OR $__prior.attempt!=$__attempt OR $__prior.attempt_slot!=$__attempt_slot {replay_epoch} {{ THROW 'native operation identity collision'; }}; IF !$__prior.resolved OR !$__prior.committed OR $__prior.epoch<=0 {{ THROW 'native operation fenced uncommitted'; }}; }}; COMMIT;",
             coordination::EXPECTED_OBJECT_GUARD
         )
-    } else {
-        split_query
     };
     coordination::preflight(&query, &bindings)?;
-    coordination::preflight(&intent, &intent_bindings)?;
     Ok(OwnerEffectPlan {
         query,
-        intent,
-        intent_bindings,
         bindings,
         reference,
         retain,
@@ -971,8 +897,6 @@ fn execute_owner_plan<'a>(
     let body = async move {
         let OwnerEffectPlan {
             query,
-            intent,
-            intent_bindings,
             bindings,
             reference,
             retain,
@@ -990,16 +914,7 @@ fn execute_owner_plan<'a>(
                 },
             )
             .map_err(|error| request.error(error))?;
-        let intent_result =
-            super::retry::transaction_named(client, &intent, intent_bindings, false, "intent")
-                .await;
-        let (issued_payload, result) = match intent_result {
-            Ok(()) => (
-                true,
-                super::retry::transaction_named(client, &query, bindings, false, "payload").await,
-            ),
-            Err(error) => (false, Err(error)),
-        };
+        let result = super::retry::transaction_named(client, &query, bindings, false, "apply").await;
         let primary = match result {
             Ok(()) => {
                 // Durable knowledge precedes the last native witness release.
@@ -1020,14 +935,8 @@ fn execute_owner_plan<'a>(
             Err(error) => request.error(error),
         };
         match settle_pending_recovery(&scope, &pending).await {
-            Ok(EffectDisposition::Committed) if issued_payload => Ok(()),
-            Ok(disposition) => {
-                let mut completion = Completion::default();
-                if disposition == EffectDisposition::Committed {
-                    completion.committed("native effect committed", request.operation.hex());
-                }
-                complete(Err(primary), completion)
-            }
+            Ok(EffectDisposition::Committed) => Ok(()),
+            Ok(_) => complete(Err(primary), Completion::default()),
             Err(error) => {
                 let mut completion = Completion {
                     local: LocalState::Outstanding,
@@ -1972,47 +1881,14 @@ mod payload_controls {
             ));
         }
     }
-    #[test]
-    fn intent_contains_only_authorization_controls_even_for_large_payloads() {
-        let mut payload = Variables::new();
-        let request = NativeRequest {
-            issuance: IssuanceEra {
-                generation: ContentHash::of(b"generation"),
-                era: 3,
-            },
-            operation: ContentHash::of(b"operation"),
-            request: ContentHash::of(b"payload"),
-        };
-        request.bind(&mut payload);
-        for key in [
-            "__outcome_ref",
-            "__reference_owner",
-            "__reference_kind",
-            "__attempt",
-            "__owner_id",
-            "__owner_kind",
-            "__attempt_slot",
-            "__stripe",
-        ] {
-            payload.insert(key, "control");
-        }
-        payload.insert("rows", vec!["payload".repeat(1 << 20)]);
-        payload.insert("__expected_epoch", 7i64);
-        let controls = intent_bindings(&payload).unwrap();
-        assert!(controls.get("rows").is_none());
-        assert_eq!(
-            controls.get("__expected_epoch"),
-            payload.get("__expected_epoch")
-        );
-        assert!(serde_json::to_vec(&controls).unwrap().len() < 2048);
-    }
+
 }
 
 #[cfg(test)]
 mod owner_effect_packet_controls {
     use super::*;
     #[test]
-    fn atomic_candidate_parses_for_every_real_owner() {
+    fn atomic_effect_parses_for_every_real_owner() {
         let identity = ContentHash::of(b"atomic-owner-parser");
         let request = NativeRequest {
             issuance: IssuanceEra { generation: identity, era: 1 },
@@ -2029,7 +1905,7 @@ mod owner_effect_packet_controls {
             EffectOwner::RetirementSetup(RecordId::new("native_retirement", identity.hex())),
             EffectOwner::Cleanup(RecordId::new("native_cleanup", identity.hex())),
         ] {
-            let plan = lower_owner_effect_plan(request, &owner, "RETURN true", Variables::new(), false, true).unwrap();
+            let plan = owner_effect_plan(request, &owner, "RETURN true", Variables::new(), false).unwrap();
             surrealdb_syn::parse(&plan.query).unwrap();
         }
         surrealdb_syn::parse(include_str!("schema.surql")).unwrap();
@@ -2136,7 +2012,7 @@ mod compacted_owner_controls {
                     RecoveryReferencePolicy::ReleaseRecovery,
                 )
                 .unwrap();
-            let delayed = lower_owner_effect_plan(request, &EffectOwner::Installation, payload.sql, payload.bindings, false, true).unwrap();
+            let delayed = owner_effect_plan(request, &EffectOwner::Installation, payload.sql, payload.bindings, false).unwrap();
             super::super::set_admission(&client, false).await.unwrap();
             super::super::history::cut_era(&client).await.unwrap();
             assert!(super::super::checked_transaction(client.query(delayed.query).bind(delayed.bindings).await.unwrap()).is_err(), "permanent era cut refuses the original delayed atomic apply");

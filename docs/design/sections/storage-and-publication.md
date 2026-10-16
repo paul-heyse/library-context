@@ -33,7 +33,7 @@ DDL, constructed rows, independent imported-value reconciliation and realization
 together; the [correction plan PC3–PC4](../../plans/persisted-execution-corrections-plan_2026-10-07.md#4-one-native-demand-interpretation-and-bounded-candidate-execution)
 owns implementation and actual planner qualification.
 
-> Decision: ADR-0173
+> Decision: ADR-0178
 
 **Implemented compiler and published native projections, 2026-10-05.** Named projection contracts specify their
 completed source, semantic roles, contexts, vertex universe, direction, multiplicity, weights,
@@ -46,7 +46,7 @@ publication handle. Indexed native selection and projected Arrow streams feed mo
 semantic/vector predecessors. Published export uses scoped native queries and terminally successful
 responses under the same projection contract. External destinations remain consumer-triggered.
 
-> Decision: ADR-0173, ADR-0103, ADR-0044, ADR-0085, ADR-0161
+> Decision: ADR-0178, ADR-0103, ADR-0044, ADR-0085, ADR-0161
 
 ## §6 Persistence and publication
 
@@ -86,7 +86,7 @@ Native upgrades preserve atomic page effects and progress under immutable checke
 authority. Schema evolution in §6.3 owns the complete transition and recovery contract;
 the persisted coordinator retains actual migration receipts and enclosing acceptance.
 
-> Decision: ADR-0173, ADR-0146, ADR-0167
+> Decision: ADR-0178, ADR-0146, ADR-0167
 
 ### §6.1 Admitted content and native publication
 
@@ -122,8 +122,8 @@ checksum avoids portable preparation; requested export requires frozen or retain
 Detached import/restore independently admit actual incoming and installed state. No portable proof
 cache, DAG identity, universal preparation object or global compile serialization is selected.
 Native control admission separates resident construction/serialization workspace from protobuf
-message size. The pinned native encoder bounds the full lowered payload and intent before any
-remote intent; workspace reservations retain their separate lifetime and interpretation.
+message size. The pinned native encoder bounds the complete atomic request before its first
+remote effect; workspace reservations retain their separate lifetime and interpretation.
 The [Catalog completion coordinator](../../plans/catalog-completion-plan_2026-10-14.md) owns the full
 consumer cutover and narrow functional acceptance. Internal capabilities now share operation-owned
 contributor preparation. Physical completion v2 replaces per-view member
@@ -211,7 +211,7 @@ Remove transition-only converters and frozen historical fixtures after cutover. 
 need minimal revealing functional cases, not historical campaigns or performance benchmarks.
 The efficiency coordinator owns migration/regeneration dispositions and current acceptance.
 
-> Decision: ADR-0151, ADR-0152, ADR-0161, ADR-0173, ADR-0166
+> Decision: ADR-0151, ADR-0152, ADR-0161, ADR-0178, ADR-0166
 
 Immutable payload identity includes model/codec, relation, nominal key and full content digest.
 Hash hits compare canonical bytes. Nominal anchors contain identity without view existence.
@@ -347,14 +347,26 @@ contribution/binding/cleanup and successor incidence partners write the collecto
 guard. Current global coordination remains until the complete migration and race controls pass;
 finite engine conflict evidence does not establish protocol acceptance.
 
-**Accepted target / implementation in progress, 2026-10-15 (ADR-0173).** Each attempt owns a
+**Accepted target / implementation in progress, 2026-10-16 (ADR-0178).** Each attempt owns a
 complete versioned64-stripe admission domain, distinct from installation-era admission. Ordinary
-intent/payload effects validate exact durable participant context and write one stripe per window;
+atomic effects validate exact durable participant context and write one stripe per window;
 freeze, close, semantic admission and maintenance eligibility cuts validate/write every stripe.
 Keep exact binding revision, object/contribution/completion predicates and complete incidence
 projection. Only the context's admitted attempt invalidation can be shared; unrelated-attempt
 production refuses without an explicit narrow transition authority. History includes charged bounded
 stripe-child disposal behind permanent fencing. No native qualification or speed measurement is implied.
+
+Ordinary bounded apply authorizes participation, checks physical expectations and commits payload,
+exact outcome and required reference in one transaction. Durable host recovery metadata precedes
+first issue; terminal knowledge precedes exact reference release. Absent-request reconciliation
+fences the same request identity, and replay checks its complete owner context without reexecuting
+payload. No separately committed ordinary intent remains. Immutable windows classify full equal
+rows/holds/declarations before narrowing incidence writes; new holds retain retirement exclusion.
+Invocation-local writers reuse original owner issuance while checking each window's actual guards
+and current eligibility. Receiving and preserving reads carry complete operation-held protection
+under controlled writes; independent semantic admission remains strict. Privileged direct edits
+require quiescence and rebuilding affected state. Native prerequisite controls passed before route
+replacement; the runtime coordinator owns production-route and enclosing functional acceptance.
 
 **Accepted target, 2026-10-16 (ADR-0177); implementation/functional acceptance pending.** Native
 worker and phase tracing contexts compose through the shared `lctx-tracing` leaf. Both polling and
@@ -476,7 +488,7 @@ stopped-run cleanup uncertainty; host process cleanup does not establish native 
 Logical content backups reference separately protected cold-service recovery
 assets; recovery metadata is not authority to restore live clients or execute imported commands.
 
-> Decision: ADR-0173, ADR-0088, ADR-0126, ADR-0166
+> Decision: ADR-0178, ADR-0088, ADR-0126, ADR-0166
 
 **Implemented source / functional acceptance pending,2026-10-14 (ADR-0168).** Same-operation
 reuse retains successful terminal individual checks under complete ordered roles, exact views,
@@ -533,7 +545,7 @@ member copies, seals and legacy readers are removed. Whole-inventory attachment 
 inputs before one exact receiving CAS. Selector-qualified alias edges prevent union-wide witness
 leakage. Runtime completion remains subject to the coordinator’s focused acceptance.
 
-> Decision: ADR-0152, ADR-0156, ADR-0157, ADR-0173, ADR-0166
+> Decision: ADR-0152, ADR-0156, ADR-0157, ADR-0178, ADR-0166
 
 **Accepted campaign recovery target / implementation in progress, 2026-10-11.** An explicit
 joint named-attachment recovery retains original Unknown/not_observed receipts and composes checked server execution
@@ -576,7 +588,7 @@ Published readers use a trusted Rust boundary to pin exact published views and i
 cannot change beneath a pinned handle. Streamed results remain provisional until terminal success.
 A partial diagnostic subgraph reports its boundary and cannot claim global compiler completeness.
 
-> Decision: ADR-0141, ADR-0173, ADR-0126
+> Decision: ADR-0141, ADR-0178, ADR-0126
 
 ### §6.3 Schema evolution
 
@@ -620,7 +632,7 @@ engine coercions do not define semantic identity. Snapshot changes are explicit 
 codebooks remain append-only. Rebuild fresh from pinned inputs without old-format readers, legacy
 IDs, dual writes or rollback/runtime archives. Quiesce actual readers before replacing their state.
 
-> Decision: ADR-0161, ADR-0173, ADR-0087, ADR-0048, ADR-0155
+> Decision: ADR-0161, ADR-0178, ADR-0087, ADR-0048, ADR-0155
 
 ### §6.4 Serving realizations
 
@@ -630,7 +642,7 @@ SurrealQL is the only executor; Python remains a thin adapter. Complex kernels c
 batched inputs. Search eligibility precedes channel limits; exact analytical neighbors remain a
 separate contract from approximate discovery. Resources and continuations pin complete realization.
 
-> Decision: ADR-0173, ADR-0071, ADR-0150, ADR-0049
+> Decision: ADR-0178, ADR-0071, ADR-0150, ADR-0049
 
 <a id="section-6-5"></a>
 
@@ -691,4 +703,4 @@ consumer. Historical runs/operation records are retired rather than reconstructe
 The [operator runbook](../../surrealdb.md) documents configuration, publication and explicit selection.
 Operator reconstruction, live vectors and activation belong to separately authorized Q1 work.
 
-> Decision: ADR-0173, ADR-0073, ADR-0150
+> Decision: ADR-0178, ADR-0073, ADR-0150

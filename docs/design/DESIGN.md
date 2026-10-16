@@ -76,7 +76,7 @@ coordinator own current acceptance; earlier receipts retain their dates and scop
 remains the initial transport, with alternatives conditional on complete protocol contracts.
 Operator adoption and real-library performance measurement remain separate.
 
-**Accepted refinement / implementation in progress, 2026-10-15 (ADR-0173).** The separate
+**Accepted refinement / implementation in progress, 2026-10-16 (ADR-0178).** The separate
 [Catalog-efficiency coordinator](../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns current attempt-cut, owned recovery and ingress work. Complete attempt-local cuts preserve
 delayed fencing while disjoint effects use individual stripes. Actual recovery recipients retain
@@ -203,7 +203,7 @@ overrides remain available. Fresh parent and delegated-role metadata confirmed i
 `gpt-6.1-sol`; existing threads are not configuration evidence. Task activation starts idle workers;
 messages convey context. Resource savings and broader workflow effectiveness remain **Proposed**.
 
-> Decision: ADR-0173, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0162, ADR-0040, ADR-0126, ADR-0171, ADR-0113, ADR-0134
+> Decision: ADR-0178, ADR-0071, ADR-0086, ADR-0087, ADR-0117, ADR-0162, ADR-0040, ADR-0126, ADR-0171, ADR-0113, ADR-0134
 
 <a id="section-1-3"></a>
 
@@ -394,7 +394,7 @@ response defines a schema. Codebooks remain append-only; snapshot changes are ex
 Semantic compatibility uses canonical declarations and policy/invariant revisions, separately from
 implementation provenance and physical realization. Original bytes remain authoritative.
 
-> Decision: ADR-0173, ADR-0085, ADR-0088, ADR-0073
+> Decision: ADR-0178, ADR-0085, ADR-0088, ADR-0073
 
 <a id="section-b3"></a>
 
@@ -418,7 +418,7 @@ provider/logical preparation and compatible typed inputs. Independent checks ret
 state, complete negative domains and current semantic acceptance. Physical sharing follows
 exact immutable premises and operational ownership, not alias or prior validity alone.
 
-> Decision: ADR-0141, ADR-0173, ADR-0139, ADR-0126
+> Decision: ADR-0141, ADR-0178, ADR-0139, ADR-0126
 
 <a id="section-b4"></a>
 
@@ -530,7 +530,7 @@ Final freeze, admission, publication and abandonment retain failure propagation,
 remote certainty. Durable operation identities reconcile unknown acknowledgement; process exit
 alone cannot authorize cleanup or arbitrary pending-work continuation.
 
-> Decision: ADR-0141, ADR-0173
+> Decision: ADR-0141, ADR-0178
 
 <a id="section-b8"></a>
 
@@ -585,7 +585,7 @@ Production behavioral solving still uses declared bounded models/atoms/Merkle no
 DNF; general production theory solving needs its separate concrete trigger. §B11's no-generative
 compilation/query-output guarantees remain. Live optional models/tooling need their actual activation.
 
-> Decision: ADR-0130, ADR-0173, ADR-0106, ADR-0045, ADR-0085
+> Decision: ADR-0130, ADR-0178, ADR-0106, ADR-0045, ADR-0085
 
 <a id="section-b11"></a>
 
@@ -614,7 +614,7 @@ selected nominal key to one payload; conflicting selected payloads fail. Full ge
 original bytes and typed graph roles survive transport. Arrow spill, prepared topology, search
 indexes and export projections remain derived. Native ownership governs reachability and pins.
 
-> Decision: ADR-0173, ADR-0150
+> Decision: ADR-0178, ADR-0150
 
 <a id="section-b13"></a>
 
@@ -627,7 +627,7 @@ Python stays a thin FastMCP adapter with no second classifier. Resources/cursors
 executable realization. Native deadlines/cancellation and response limits retain honest partial
 outcomes; no fictitious exact engine-work ceiling is exposed. Activation remains stopped until Q1.
 
-> Decision: ADR-0173, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0150
+> Decision: ADR-0178, ADR-0114, ADR-0116, ADR-0025, ADR-0073, ADR-0150
 
 <a id="section-b14"></a>
 
@@ -651,7 +651,7 @@ schedules wholesale replacement, not compatibility with it.
 - Current service/checkpoint locks remain; paths do not define values. Pure/fake controls establish
   seams only. Actual native/live usability, precision, quality and Q1 are separate evidence boundaries.
 
-> Decision: ADR-0150, ADR-0173
+> Decision: ADR-0150, ADR-0178
 
 ---
 

@@ -22,7 +22,7 @@ model kernels remain store-independent; actual producer-to-consumer controls use
 fixtures. Real-library qualification and operator activation remain held. Acquisition requirements
 own input verification, while typed row declarations own emission.
 
-> Decision: ADR-0173, ADR-0150
+> Decision: ADR-0178, ADR-0150
 
 ## §4 Pipeline
 
@@ -40,7 +40,7 @@ contracts use distinct authority domains. Both bind an inactive analyzer only to
 owner and actual unrequested families it supplies; unused analyzer semantics cannot invalidate
 Catalog. Active identities, supplier assurance and ambiguous-owner refusal remain unchanged.
 
-> Decision: ADR-0173
+> Decision: ADR-0178
 
 **Implemented / acceptance in progress, 2026-10-08 (ADR-0162).** Provider build attribution follows its complete relevant production dependency/asset closure. The compiler separately composes stage implementation and its rooted native-ingestion source digest at ordinary workspace output creation, using the existing contribution implementation hash. Raw supplier hashes and stage code retain their owners; imported specifications retain captured execution identities. Semantic compatibility, coverage and physical schema realization remain separate. The [compilation-cost plan](../../plans/rust-compilation-costs-plan_2026-10-08.md) owns BC1/BC2 migration and acceptance.
 
@@ -200,7 +200,7 @@ A failed or interrupted attempt exposes no completed artifact or publication. Po
 generation readers are retired. [Storage §6](storage-and-publication.md) owns realization;
 the [persisted plan](../../plans/persisted-graph-execution-plan_2026-10-07.md) owns current acceptance.
 
-> Decision: ADR-0173, ADR-0117, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
+> Decision: ADR-0178, ADR-0117, ADR-0086, ADR-0015, ADR-0018, ADR-0045, ADR-0115
 
 
 ### §4.1 Stages

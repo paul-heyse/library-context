@@ -105,13 +105,12 @@ async fn committed_packet_recovery(persist_terminal: bool) {
                 lease.as_ref().unwrap().source_ready()?;
                 let payload = PreparedNativePayload::new("RETURN true", Variables::new())?;
                 let request = NativeRequest::issue(&client, payload.digest).await?;
-                let plan = lower_owner_effect_plan(
+                let plan = owner_effect_plan(
                     request,
                     &EffectOwner::OpenAttempt(attempt),
                     payload.sql,
                     payload.bindings,
                     false,
-                    true,
                 )?;
                 let pending = scope.prepare(
                     request,

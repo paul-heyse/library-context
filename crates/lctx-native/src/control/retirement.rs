@@ -1594,7 +1594,7 @@ mod incarnation_controls {
             Some(&second_child),
             "the tail stays held without supplemental effects"
         );
-        // The real lowering preflights BOTH intent and payload with protocol
+        // The real lowering preflights the complete atomic request with protocol
         // controls and the pinned protobuf codec. Binding-only size is not proof
         // that a single wide ID can advance through the actual owner request.
         bindings.insert("__object_expectations", Vec::<Value>::new());

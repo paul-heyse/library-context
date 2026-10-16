@@ -1,12 +1,12 @@
 ---
 id: ADR-0178
 title: Apply bounded native payloads and exact outcomes atomically
-status: proposed
+status: accepted
 date: 2026-10-16
 supersedes: [ADR-0173]
 superseded-by: null
 design: ["§1.2", "§B2", "§B3", "§B7", "§B12", "§B13", "§4", "§5", "§6", "§6.1", "§6.2", "§6.3", "§11", "§14.2", "§15", "§15.1", "§15.11"]
-evidence: Proposed
+evidence: Interface-checked
 revisit: A consumer requires independently committed pending intent, or exact absent-request fencing/cut/recovery cannot preserve the stated cases.
 ---
 
@@ -16,13 +16,13 @@ Runtime review F03 finds repeated durable request stages per bounded native wind
 approved RC01's conditional atomic direction on 2026-10-16. [Coordinator §6](../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns RN00/RN01 and its evidence. Source at `1f8a5537` already persists exact host pending envelopes
 in `RecoveryScope::prepare` before first remote issue. `owner_effect_plan` nevertheless commits
-remote intent separately from the payload/outcome transaction. The candidate below is Proposed;
-independent RN00 review and revealing pinned-native evidence remain required before replacement.
+remote intent separately from the payload/outcome transaction. Independent RN00 review accepted
+the bounded replacement; revealing pinned-native controls passed before production replacement.
 
-This proposed successor carries ADR-0173's unaffected attempt cuts, exact owned recovery, admitted
+This successor carries ADR-0173's unaffected attempt cuts, exact owned recovery, admitted
 ingress and campaign policy below. It changes ordinary native effect lowering, not semantic
-admission, receipt certainty, source finalization or the transport contract. Existing ADR-0173
-remains governing until this decision is accepted and the applicable consumers migrate.
+admission, receipt certainty, source finalization or the transport contract. ADR-0173's ordinary
+split lowering is replaced; no separately committed ordinary intent or compatibility path remains.
 
 ## Options
 
@@ -30,7 +30,7 @@ remains governing until this decision is accepted and the applicable consumers m
    independently visible, but duplicates authorization/stripe work and a committed stage even when
    no consumer requires that visibility. Keep it only if a concrete RN00 countercase needs it.
 2. Atomically apply one bounded payload and its exact outcome/reference under existing cuts
-   (selected candidate). Host metadata handles pre-issue/host loss; the native request identity
+   (selected). Host metadata handles pre-issue/host loss; the native request identity
    resolves acknowledgement loss. This removes the committed intent stage without a new recovery
    framework, but requires complete absent-request and delayed-apply conflict reasoning.
 3. One compilation-wide transaction or hidden transport-only batching. The former broadens live
@@ -82,14 +82,16 @@ failure/Unknown receipts are never rewritten by later independent settlement.
 
 The current pending-row observers are freeze, cleanup paging, retirement transitions, installation
 maintenance and history. Source inquiry found no functional consumer of separately committed
-ordinary pending intent beyond these safety obligations. RN00 review must challenge each case;
-if any cannot close, keep split execution for that named capability and document the necessary
-protection. No unsafe replacement is accepted merely because the transaction is atomic.
+ordinary pending intent beyond these safety obligations. Independent RN00 assessment challenged
+the complete cases and found no remaining consumer of that separate stage. Cleanup job intents,
+recovery envelopes and other distinct lifecycle capabilities remain; they are not ordinary request intent.
 
 Independent RN00 source/design assessment on 2026-10-16 accepted this bounded candidate, scoped to
 the stated cases. It required complete replay owner/kind/attempt/slot and explicit terminal-owner
 epoch correspondence, and clarified that closed admission plus no unresolved rows is not executor
-drainage. Raw candidate controls precede replacement; this is not native-tested evidence.
+drainage. Before replacement, actual native controls passed permanent-era fencing, lost acknowledgement,
+known-commit stopped release, close/freeze race orders, equal row/hold overlap and late collision rollback.
+Coordinator §6 retains exact runs and scopes. Production-route and enclosing acceptance remain separate.
 
 ### Actual immutable incidence
 

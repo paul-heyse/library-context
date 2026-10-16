@@ -1,10 +1,10 @@
 ---
 id: ADR-0173
 title: Admit attempt effects through complete cuts and retain owned recovery requests
-status: accepted
+status: superseded
 date: 2026-10-15
 supersedes: [ADR-0145, ADR-0165]
-superseded-by: null
+superseded-by: ADR-0178
 design: ["§1.2", "§B2", "§B3", "§B7", "§B12", "§B13", "§4", "§5", "§6", "§6.1", "§6.2", "§6.3", "§11", "§14.2", "§15", "§15.1", "§15.11"]
 evidence: Proposed
 revisit: Attempt cuts cannot completely fence late effects, recovery loses its actual recipient, or ingress allocates outside its admitted ownership.

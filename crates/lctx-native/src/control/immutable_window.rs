@@ -188,7 +188,7 @@ impl ImmutableWindow {
     }
 }
 pub(super) fn plan_bytes(sql: &str, bindings: &Variables) -> Result<usize, ModelError> {
-    // Full native containers, serialization, request hashing and intent/payload controls
+    // Full native containers, serialization, request hashing and atomic controls
     // coexist. Include guard/hold expansion rather than budgeting only the input row.
     let native = bindings
         .iter()
@@ -423,14 +423,14 @@ impl<'a> WindowWriter<'a> {
         let mut plan = authorization::owner_effect_plan(
             request, &self.owner, "", Variables::new(), false,
         )?;
-        for bindings in [&mut plan.bindings, &mut plan.intent_bindings] {
+        {
+            let bindings = &mut plan.bindings;
             bindings.insert("__stripe", RecordId::new("native_admission_stripe", 63i64));
             if bindings.get("__attempt_slot") != Some(&Value::None) {
                 bindings.insert("__attempt_slot", 63i64);
             }
         }
-        let bytes = plan_bytes(&plan.query, &plan.bindings)?
-            .max(plan_bytes(&plan.intent, &plan.intent_bindings)?);
+        let bytes = plan_bytes(&plan.query, &plan.bindings)?;
         self.control_bytes = Some(bytes);
         Ok(bytes)
     }
@@ -601,8 +601,7 @@ mod writer_workspace_controls {
             let plan = authorization::owner_effect_plan(
                 request, &writer.owner, &window.sql, observed.clone(), false,
             ).unwrap();
-            let actual = plan_bytes(&plan.query, &plan.bindings).unwrap()
-                .max(plan_bytes(&plan.intent, &plan.intent_bindings).unwrap());
+            let actual = plan_bytes(&plan.query, &plan.bindings).unwrap();
             assert!(actual > raw + 131072, "old fixed allowance fails for {phase}: raw={raw} actual={actual}");
             assert!(actual <= capacity, "derived capacity covers {phase}: capacity={capacity} actual={actual}");
             assert_eq!(WindowWriter::expectation_workspace_bytes(&observed).unwrap(), 0,
@@ -1026,13 +1025,12 @@ mod tests {
         while avoid == Some(coordination::attempt_slot(request.operation)) {
             request.operation = fresh_identity("immutable-overlap-distinct-slot").unwrap();
         }
-        let plan = authorization::lower_owner_effect_plan(
+        let plan = authorization::owner_effect_plan(
             request,
             &EffectOwner::OpenAttempt(attempt),
             sql,
             bindings,
             false,
-            true,
         )
         .unwrap();
         (request, plan)
