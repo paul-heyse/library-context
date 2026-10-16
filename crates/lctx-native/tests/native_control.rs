@@ -1021,7 +1021,10 @@ async fn closing_attempt_before_cleanup_obligation_blocks_cut_and_resumes_throug
         let states:Vec<String>=response.take(0).map_err(ModelError::codec)?;
         let holds:Vec<RecordId>=response.take(1).map_err(ModelError::codec)?;
         assert_eq!(states,["abandoned","abandoned"]);assert!(holds.is_empty());
+        // Ordinary retirement needs admission; the exclusive host lease still owns setup.
+        lctx_compiler_store::compiler::open_admission(&cfg).await?;
         for target in targets {control::retire(&client,target).await?;}
+        lctx_compiler_store::compiler::close_admission(&cfg).await?;
         control::cut_era(&client).await?;
         Ok::<_,ModelError>(())
     })).catch_unwind().await.unwrap_or_else(|panic| {
