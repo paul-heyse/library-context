@@ -984,9 +984,15 @@ impl<'a> EdgeCursor<'a> {
 #[derive(Clone)]
 pub struct PreparedEdges(std::sync::Arc<EdgeSource>);
 /// One exact selected-key demand and the reservation retained by its native provider.
-struct NativeFrontier {
+struct NativeFrontier<'a> {
     keys: std::sync::Arc<Vec<[u8; 16]>>,
     charge: std::sync::Arc<charged::StateCharge>,
+    capture: Option<&'a mut crate::frontier_capture::FrontierCapture>,
+}
+struct DiscoveryRead<'a> {
+    budget: &'a ResourceBudget,
+    cancellation: Option<&'a crate::admission::Cancellation>,
+    capture: Option<&'a mut crate::frontier_capture::FrontierCapture>,
 }
 impl PreparedEdges {
     pub(crate) fn shares_owner(&self, other: &Self) -> bool { std::sync::Arc::ptr_eq(&self.0, &other.0) }
@@ -1002,14 +1008,13 @@ impl PreparedEdges {
         &self,
         source: usize,
         edges: &[NativeEdge],
-        frontier: NativeFrontier,
+        frontier: NativeFrontier<'_>,
         budget: &ResourceBudget,
         cancellation: Option<&crate::admission::Cancellation>,
-        capture: Option<&mut crate::frontier_capture::FrontierCapture>,
         mut accept: impl FnMut([u8; 16], usize, [u8; 16]) -> Result<(), ModelError>,
     ) -> Result<Option<std::sync::Arc<Vec<[u8; 16]>>>, ModelError> {
         use arrow_array::{Array, FixedSizeBinaryArray};
-        let NativeFrontier { keys, charge } = frontier;
+        let NativeFrontier { keys, charge, capture } = frontier;
         let presence = edges.iter().any(|edge| edge.require_owner_presence);
         if !presence && !edges.iter().any(|edge| !edge.reverse) {
             return Ok(None);
@@ -1321,9 +1326,7 @@ impl PreparedEdges {
             &mut pending,
             &mut discovery_charge,
             Some((&mut adjacency, &mut adjacency_charge)),
-            budget,
-            cancellation,
-            capture.as_deref_mut(),
+            DiscoveryRead { budget, cancellation, capture: capture.as_deref_mut() },
         )
         .await?;
         drop(pending);
@@ -1504,9 +1507,7 @@ impl PreparedEdges {
             &mut pending,
             &mut traversal_charge,
             None,
-            budget,
-            None,
-            None,
+            DiscoveryRead { budget, cancellation: None, capture: None },
         )
         .await?;
         drop(pending);
@@ -1523,10 +1524,9 @@ impl PreparedEdges {
             &mut charged::ChargedSet<(NominalKey, NominalKey)>,
             &mut charged::StateCharge,
         )>,
-        budget: &ResourceBudget,
-        cancellation: Option<&crate::admission::Cancellation>,
-        mut capture: Option<&mut crate::frontier_capture::FrontierCapture>,
+        read: DiscoveryRead<'_>,
     ) -> Result<(), ModelError> {
+        let DiscoveryRead { budget, cancellation, mut capture } = read;
         while !pending.is_empty() {
             check_cancellation(cancellation)?;
             let count = pending.len().min(crate::compiler_provider::REFERENCE_KEYS);
@@ -1582,10 +1582,10 @@ impl PreparedEdges {
                         NativeFrontier {
                             keys: keys.clone(),
                             charge: frontier_charge.clone(),
+                            capture: capture.as_deref_mut(),
                         },
                         budget,
                         cancellation,
-                        capture.as_deref_mut(),
                         |source, kind, key| {
                             check_cancellation(cancellation)?;
                             let target = (kind as i64, key);
