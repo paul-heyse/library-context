@@ -185,7 +185,7 @@ CombinedPair, concept/lattice evidence, dual FixedBitSet FCA, PageRank isolates 
 Leiden recipe remain exact. The [efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns current controls and enclosing acceptance; no pair elision or new algorithm is implied.
 
-> Decision: ADR-0176
+> Decision: ADR-0180
 
 <a id="section-9-5"></a>
 

@@ -175,10 +175,45 @@ interfaces permit parallel reasoning; verified working prerequisites permit depe
 
 ## 6. Sole disposition and current checkpoint
 
-**Current, 2026-10-16:** plan authorship only; all new production packages are **open / Proposed**.
+**Current, 2026-10-16:** full execution authorized from `1f8a5537`. RE00 source/owner reconciliation is implemented; production packages remain open until their evidence closes them.
 The previous efficiency functional implementation is integrated, CE80 delivered, and CE90/CE99
-transferred to RE90/RE99. No auxiliary worktree or product run was created by authoring. Publication
-checks and independent plan review are recorded at §8; they do not close production findings.
+transferred to RE90/RE99. Authoring checks and independent plan review remain at §8; they do not close production findings.
+CX00/CX01, typed Base/Summary, shared exact frontier capture/index/read ownership, RP00/RP01,
+receiving protection and actual-incidence lowering are integrated on main through `8725907c`.
+The runtime-compiler, runtime-analysis and runtime-publication worktrees are fully integrated and removed.
+Cross-checkout concurrent Cargo lock-upgrade contention was observed; duplicate owned checks were
+interrupted and integrated builds retain normal internal parallelism. Two worktree preparations
+passed; publication preparation failed during source changes and is not a product pass.
+Root owns RN00/RN01/RN02 and cross-owner integration. Invocation-local window writers reuse exact
+owner issuance across material production loops while capturing each window's physical expectations.
+The fixed preparation allowance is being replaced with a bound derived from actual control lowering
+and model-owned expected-object bindings. No new database campaign/default-target mutation has started.
+The operator selected candidate validation then conditional exact default regeneration after
+host/executor drainage. [ADR-0178](../adr/0178-atomic-bounded-native-effects.md) remains a Proposed
+atomic candidate: independent RN00 source/design review accepted the bounded direction with complete
+replay-context checks and explicit separation of pending-row inventory from executor drainage.
+Candidate raw apply controls are being implemented before replacing production split execution.
+[ADR-0179](../adr/0179-joined-owned-producer-execution.md) governs joined placement;
+[ADR-0180](../adr/0180-shared-exact-base-preparation.md) governs shared Base preparation.
+Independent source reviews accept the inspected compiler/backup/receiving and native candidate
+contracts within their stated scopes. A later independent capture review identified CR01: mandatory
+coverage compaction can defeat singleton retry under budget pressure. Successful unmerged coverage
+must remain readable without native reissue; this correction and a high-fan-out nominal-frontier
+feasibility case are in progress before RA00 acceptance.
+Affected-package/all-target release check `20261016T214521.563Z-ec832b` **passed** with host cleanup
+confirmed. Earlier check failures `213438.056Z-3b2690`/`214340.067Z-e74758` were corrected before that
+pass. Focused run `214909.554Z-38bac9` failed during build, with no tests executed: duplicate native
+test-adapter types were corrected and the operation body was erased before policy wrappers to
+address future-incompatible Send recursion warnings. The narrower library run
+`20261016T221158.912Z-3e2dfd` compiled without emitted warnings and ran66 controls:58 **passed**,8
+**failed**, host cleanup confirmed. Failures concern changed shared-preparation retention accounting,
+the StateCharge header allowance and a compacted-batch fixture assumption; their exact contracts
+are being reconciled rather than weakening production admission. Enclosing acceptance remains open.
+RN04's read-only source/host decision is in the native companion: no leak established, historical
+143GB attribution unresolved, RP01's unnecessary transaction lifetime corrected without a memory claim.
+Current service status observed23 protected attachments rather than the inherited16; all remain
+protected until the existing authenticated service owner determines their exact disposition. Current
+boot differs from their retained receipts; no local deletion or rewritten Unknown follows.
 
 | Runtime source finding | Disposition / responsible component | Closure boundary |
 |---|---|---|
@@ -273,6 +308,5 @@ and inherited findings/investigations/rules (14 R and 21 E references). Five pla
 supersession banners and publication selection passed structural checks. All 16 named default
 attachment records remain addressable; this establishes no drainage or release. `just docs-check`
 passed with 473 canonical pages, zero link errors, ADR lint (105 records) and agent lint.
-`git diff --check` passed. Production implementation, product builds/tests, performance measurement
-and service operations are **not_run** for this new set. Next production work requires its own
-execution authorization from this plan.
+`git diff --check` passed. These authoring results remain distinct from the authorized production
+execution and its current receipts in §6. No performance measurement is claimed.

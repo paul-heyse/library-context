@@ -183,6 +183,19 @@ restart, purge, resize, cap concurrency, install another service or issue shared
 or timing campaign is mandatory merely to classify an unmeasured observation. Reopen on recurrent
 growth that survives confirmed owner drainage or a source-exposed allocation without a consumer.
 
+**RN04 decision, Interface-checked2026-10-16:** no source-established leak has been identified.
+RP01 removes a demonstrated unnecessary source transaction lifetime before local carrier work;
+that correction does not attribute the historical resident memory. A read-only authenticated host
+observation selected default unit MainPID2492 and verified `/proc/2492/exe` against the exact
+`9fbab612…` server generation. RSS385916KiB, private clean52756KiB/private dirty329012KiB were
+observed; unit MemoryCurrent4174036992 bytes includes a broader accounting domain. The four inspected
+cache/memory environment overrides were absent. Current boot differs from retained attachment
+receipts, so this is a different process lifetime and establishes no memory reduction or historical
+cause. No query, heap capture, restart, resize or cache purge was performed. Warm cache/active
+transactions/allocator attribution remains unclassified; reopen on recurrent growth after authenticated
+owner drainage or source evidence of an allocation without a consumer. Existing controlled diagnostic
+authority remains available if that question becomes material.
+
 ## 7. Integration and acceptance
 
 One coordinator owns shared authorization/schema/receipt edits and native integration. RN00/RN03

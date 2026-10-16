@@ -108,6 +108,30 @@ predicate/revision cuts. These are transaction-local classifications, not client
 permission to support live privileged edits. Candidate definitions regenerate with their required peer.
 
 
+### Complete operation-held immutable protection
+
+Under operator-approved controlled writes, ordinary protocols preserve canonical immutability,
+exact incarnation, parent completion, holds and installation context. Privileged direct edits require
+maintenance quiescence and rebuilding affected state; arbitrary live administrative edits are not a
+supported preserving-read guarantee. Foreign/imported malformed data and independent semantic
+admission retain strict full-domain checks.
+
+A receiver earns the complete exact selected physical inventory through successful ordered CAS
+pages, each retaining its actual original request and inventory range. Source ownership stays live
+through all pages and final handoff. Only complete coverage and current context publish the receiver;
+a last page or count is insufficient. Failure retains actual partial receiver/source/pending owners.
+Receiving copies share immutable descriptors, expected rows and prepared runs while substituting the
+actual receiver pin/client. They do not keep the original source pin/session alive. Old capability
+correspondence is weak and never substitutes for the complete receiver-owned protection.
+
+Preserving read windows use that exact live operation premise and resource pool instead of repeating
+full immutable row/hold/selector audits. New independent owners earn new protection. Released or
+uncertain pins, different clients/pools/selections, stale epochs/incarnations at acquisition, incomplete
+EOF and failed transfer refuse or invalidate the affected premise. Last borrower controls release;
+no serialized descriptor, Arc identity alone or global cache grants authority. Independent receiving
+semantic admission remains separate from physical protection. Revealing native multi-page/failure/
+source-release and new-owner controls remain required before closure.
+
 ### Complete attempt admission
 
 Initialize a complete versioned set of 64 exact attempt stripes atomically with a new attempt.

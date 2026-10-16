@@ -161,7 +161,7 @@ remain visible. Correspondence releases after its final SCC/pair consumer. The
 [efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
 owns current controls and enclosing acceptance; this changes private preparation, not Summary meaning.
 
-> Decision: ADR-0176
+> Decision: ADR-0180
 
 **Implemented / source-accepted, 2026-10-14; pure port/worklist controls passed, native composition open.** Summary prepares immutable
 call-attempt/signature correspondence lazily under the actual borrowed source and private binding

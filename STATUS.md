@@ -1,15 +1,17 @@
 # Status
 _Updated 2026-10-16 under the [handoff skill](.claude/skills/handoff/SKILL.md); shared main._
-**Catalog runtime efficiency plans authored, 2026-10-16; implementation not started.**
+**Catalog runtime efficiency execution in progress, 2026-10-16, from `1f8a5537`.**
 [Coordinator §6](docs/plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint) owns runtime F01–F09 and all remaining prior efficiency scope.
 RC01–RC05 and controlled-write mutation scope were operator-approved; safety/ADR/consumer gates remain.
 The previous five efficiency plans are superseded for execution; immutable historical citations retain their records.
 [Completion §2](docs/plans/catalog-runtime-efficiency-completion-plan_2026-10-16.md#2-inherited-checkpoint-and-protected-obligations) retains exact receipts, 16 unreleased default attachments and separate disposal acknowledgements.
 Prior CE80 is delivered; CE90/CE99 transfer to RE90/RE99. Existing implementation/focused passes remain scoped.
 Latest reconstruction: 1 passed/6 timed out after 900s; native obligations and original Unknowns protected.
-Reported SurrealDB ~143GB resident private memory remains unclassified. No product/service effects during authorship.
+Reported SurrealDB ~143GB resident private memory remains unclassified. No new native target or default operation started.
 Independent plan review: Accept scoped; `just docs-check` passed473 pages/zero link errors. Production decisions/acceptance remain open.
-Next: execution planning from RE00 and ready decision/correction packages; no production work authorized by plan authorship.
+Current: compiler, analysis, backup and native-premise/incidence source integrated through `8725907c`; all three worktrees merged and removed.
+Affected-package/all-target release check `214521…ec832b` passed. Focused pure run `221158…3e2dfd`:58 passed/8 failed, cleanup confirmed; repairs in progress.
+Independent capture review requires budget-feasible unmerged coverage reads; native atomic candidate validation and final acceptance remain open.
 Embedding inference, submitted MCP runtime, real-library/operator adoption and paused older-track execution remain excluded.
 **Catalog execution remains stopped at operator-requested closeout.** The
 [coordinator §6](docs/plans/catalog-completion-plan_2026-10-14.md#6-sole-disposition-and-current-checkpoint)

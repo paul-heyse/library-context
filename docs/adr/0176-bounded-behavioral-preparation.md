@@ -1,10 +1,10 @@
 ---
 id: ADR-0176
 title: Share bounded behavioral preparation within exact invocation owners
-status: accepted
+status: superseded
 date: 2026-10-16
 supersedes: []
-superseded-by: null
+superseded-by: ADR-0180
 design: ["§9.9", "§9.4", "§15.6"]
 evidence: Proposed
 revisit: A named consumer requires different pair products, or exact invocation capture cannot preserve the established singleton resource route.

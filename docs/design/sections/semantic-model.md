@@ -103,13 +103,17 @@ owners retain actual captured frame/source/definition/configuration premises and
 domains, rather than requested Behavioral computation dependencies. Private stage results and shared
 preparation remain bound to exact consumer authority and the last running/remaining borrower.
 
-**Implemented / focused-Tested2026-10-14; composition acceptance open.** Coordinator binding and
-prefix-freeze waits continue polling their owned unspawned producer futures. A finite charged queue
-retains terminal results privately until ordinary acceptance; buffering alone cannot satisfy readiness
-or retire shared preparation. First observed failure cancels work, drives the already-started
-coordinator operation to terminal, discards buffered private results and drains remaining siblings.
-The completion gate still serializes actual contributor/view handoff; no new task runtime, barrier or
-concurrency cap is introduced. The Catalog coordinator F05 owns current-source composition receipts.
+**Accepted target / implementation in progress,2026-10-16 (ADR-0179).** Independently scheduled
+producer tasks retain their actual joins under WorkspaceExecutionOwner; coordinator futures receive
+terminal results and retain ordered integration. A stage may progress during another stage's borrowed
+CPU work. Launch registration precedes execution, cancellation seals/drains all actual stages before
+provider finality is snapshotted, and task/result/snapshot reservations follow actual last consumers.
+Tracing, retry admission and exact native recovery scope are rebound inside each task. ProducingScope
+remains attached to actual ports rather than the stage that must close those ports. Current-thread
+correctness does not promise CPU overlap. Earlier unspawned composition receipts remain historical;
+current-source compile/functional and enclosing acceptance belong to the runtime coordinator.
+
+> Decision: ADR-0168, ADR-0179
 
 Facts, Normalized, Analysis and Catalog are cumulative requested frontiers. Both catalog and
 behavioral profiles preserve native coverage and uncertainty. Selected upper operations require
@@ -577,21 +581,21 @@ including finalizer replacement order and profile-bound NotRequested results (**
 2026-10-01**, 4 actual PG + 9 native + 3 outcome controls). Exact attribute evaluation retains the
 explicit heap-state prerequisite. The detailed plan owns these receipts; scoped assembled acceptance passed, 2026-10-01.
 
-**Implemented / focused verification in progress, 2026-10-16:** Base captures bounded compatible
-expression groups and same-kernel read roots into invocation-owned schema-checked spillable IPC. Membership discovery and
-unique rich source demand remain at singleton grain; only pure local typed/syntax assembly and
-unconsumed computation adapt on resource refusal. Shared syntax borrows the immutable captured
-view. Every root lookup retains its exact membership; work, proofs and outcomes remain separate.
-Expression adoption is failure-atomic and native emission remains terminal. IPC supplies no
-completed authority. Read roots retain Physical presence and full literal fidelity; expressions retain
-Virtual activation and opaque string/byte payloads. Read production assembles one exact partition
-and mutates work/field state once, without semantic retry. Complete empty membership can skip local
-input assembly; payload absence cannot. Field-root preparation still precedes candidate construction
-and sealing; varying class/name FieldAssessment retains its separate route.
-The [efficiency coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
-owns current acceptance and its native/persistence limits.
+**Accepted target / implemented source, verification pending2026-10-16:** Base shares successful
+native discovery within invocation-owned spillable capture and compatible charged typed unions.
+Coverage includes complete-empty/reverse/physical-root meaning and publishes only after checked
+source EOF and sealed files. Exact sparse key-to-window routing avoids scanning disjoint history;
+local readers retain only selected file metadata through their own terminal stream. Local preparation
+may shrink from successful captures, while failed/Unknown acquisition never retries native work.
+Every root retains exact row partitions, requestedness, negative universes, work and proof identity.
+Prepare all read partitions before mutable production; each read root mutates once in deterministic
+order. Physical roots keep full literals, expressions retain Virtual/opaque rules, and unchanged
+class support may share across distinct field names. Native emission and partially produced roots
+remain terminal. Existing finite kernels, Summary meanings and analytical products are unchanged.
+The [runtime coordinator §6](../../plans/catalog-runtime-efficiency-plan_2026-10-16.md#6-sole-disposition-and-current-checkpoint)
+owns functional/native acceptance; no performance gain is measured.
 
-> Decision: ADR-0176
+> Decision: ADR-0180
 
 **Symbolic source associations (Implemented / Tested within the recorded scope,
 2026-10-01).** The normalized callable-metadata stage owns source class/store/reader
